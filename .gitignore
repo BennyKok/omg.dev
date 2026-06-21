@@ -10,3 +10,6 @@ data/
 *.log
 .DS_Store
 dist/
+
+# GPU STT host secrets
+deploy/gpu-stt/instance.env

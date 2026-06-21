@@ -157,6 +157,7 @@ All config is environment-driven (`.env`, see [`.env.example`](./.env.example)):
 | `LFG_CLAUDE_MODEL` | `opus` | Model for the `ai-sdk` backend. |
 | `ANTHROPIC_API_KEY` | — | Optional, instead of `claude` OAuth. |
 | `TTS_UPSTREAM` / `TTS_TOKEN` | — | Optional self-hosted voice (TTS/STT) proxy. |
+| `STT_UPSTREAM` / `STT_TOKEN` | — | Optional separate STT host (e.g. Parakeet); falls back to `TTS_*`. |
 | `LFG_WHATSAPP_*` | — | Optional WhatsApp sidecar (see `.env.example`). |
 | `TS_AUTHKEY` | — | Setup-time only; never written to disk. |
 

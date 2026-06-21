@@ -34,6 +34,22 @@ import { runAutoAgent } from "../auto/runner.ts";
 import { startAutoScheduler } from "../auto/scheduler.ts";
 import { reportClientError, listClientErrors } from "../client-errors.ts";
 import {
+  vapidPublicKey,
+  saveSubscription,
+  removeSubscription,
+  subscriptionUser,
+  type PushSubscription,
+} from "../push.ts";
+import { notifyAll } from "../push.ts";
+import {
+  listQuestions,
+  getQuestion,
+  addQuestion,
+  answerQuestion,
+  markHandled,
+  waitForAnswer,
+} from "../ask/store.ts";
+import {
   listSessions,
   resolveTranscript,
   recentMessages,
@@ -73,6 +89,7 @@ import type { ServerWebSocket } from "bun";
 import { appendCmd as appendAisdkCmd, removeEntry as removeAisdkEntry, readEntry as readAisdkEntry, findEntryByAnyId as findAisdkEntryByAnyId } from "../aisdk-registry.ts";
 import { markClosed } from "../closing.ts";
 import { assignUser, userRoster } from "../users.ts";
+import { listCustomRepos, addCustomRepo, removeCustomRepo } from "../repos-store.ts";
 
 // Where the user keeps the repos lfg can launch agents into. Scanned for git
 // repos at runtime; defaults to ~/repos. The lfg repo itself (PATHS.root) is
@@ -141,12 +158,12 @@ async function listRepos() {
   } catch {
     root = REPOS_ROOT;
   }
-  const repos: Array<{ name: string; cwd: string }> = [];
-  const addRepo = async (name: string, cwd: string) => {
+  const repos: Array<{ name: string; cwd: string; custom?: boolean }> = [];
+  const addRepo = async (name: string, cwd: string, custom = false) => {
     if (repos.some((r) => r.cwd === cwd)) return;
     try {
       await stat(join(cwd, ".git"));
-      repos.push({ name, cwd });
+      repos.push(custom ? { name, cwd, custom: true } : { name, cwd });
     } catch {}
   };
   let entries: Dirent[] = [];
@@ -159,6 +176,10 @@ async function listRepos() {
   }
   // Always offer the lfg repo itself as a target — it is present and trusted.
   await addRepo("lfg", SELF_REPO);
+  // Merge in user-pinned custom paths (repos outside LFG_REPOS_ROOT). Tagged
+  // `custom` so the UI can offer a remove affordance; deduped on cwd against
+  // anything already discovered above.
+  for (const r of await listCustomRepos()) await addRepo(r.name, r.cwd, true);
   repos.sort((a, b) => a.name.localeCompare(b.name));
   return repos;
 }
@@ -316,6 +337,23 @@ function msgWithHtml<T extends { kind: string; text: string }>(m: T) {
 // Blocked sessions carry the prompt question + option labels so she can name what
 // the user has to decide. Built BEFORE the voice session is spawned, so it never
 // lists itself.
+// Map a user's free-text/option answer to a deterministic action on the target
+// session. This is what makes a reply reach the session immediately and
+// reliably, instead of waiting for the supervisor's next run to re-interpret it.
+function plannedSessionAction(answer: string): {
+  kind: "close" | "send" | "none";
+  text?: string;
+} {
+  const a = (answer ?? "").trim();
+  const low = a.toLowerCase();
+  if (/^(close|stop|kill|terminate|shut|end\b)/.test(low) || low === "close it")
+    return { kind: "close" };
+  if (/^(leave|keep|ignore|do nothing|nothing|none|no\b)/.test(low))
+    return { kind: "none" };
+  const text = a.replace(/^continue\s*:?\s*/i, "").trim();
+  return text ? { kind: "send", text } : { kind: "none" };
+}
+
 async function voiceStatusSnapshot(): Promise<string> {
   let sessions;
   try {
@@ -369,7 +407,93 @@ async function voiceStatusSnapshot(): Promise<string> {
     const when = ago(s.lastActivityAt);
     lines.push(`- ${name}${who}: ${status}${detail}.${lastBit}${when ? ` (${when})` : ""}`);
   }
+  // Pending agent questions for the human — the voice agent should read these
+  // out and, when the user replies, answer them via POST /api/ask/<id>/answer.
+  try {
+    const open = await listQuestions("open");
+    if (open.length) {
+      lines.push("");
+      lines.push("PENDING QUESTIONS FOR YOU (answer with the user's reply):");
+      for (const q of open) {
+        const opts = q.options?.length ? ` (${q.options.join(" / ")})` : "";
+        lines.push(`- [${q.id}] "${clip(q.question, 120)}"${opts}`);
+      }
+    }
+  } catch {
+    // questions store unavailable — snapshot still useful without them
+  }
   return lines.join("\n");
+}
+
+// ── Voice "deep-think" advisor ──────────────────────────────────────────────
+// The voice brain is Haiku (fast, cheap, 1-2 sentences). For hard questions it
+// escalates here: a persistent Opus aisdk session with full tool + repo access.
+// We keep one advisor alive and reuse it across consults; if it's gone (serve
+// restart, closed), the next consult lazily respawns it.
+const ADVISOR_BRIEF =
+  "You are the deep-thinking advisor for the lfg voice assistant. The user is " +
+  "talking hands-free and the voice assistant escalates its hardest questions " +
+  "to you for more careful reasoning. Think it through, then answer in at most " +
+  "3 short, plain spoken sentences — no markdown, no code blocks, no bullet " +
+  "lists. Be concrete and decisive; the answer is read aloud.";
+let voiceAdvisorId: string | null = null;
+
+const isAdvisorAnswer = (m: { role: string; kind: string; text?: string }) =>
+  m.role === "assistant" && m.kind === "text" && !!m.text?.trim();
+
+// Poll the advisor transcript until a new assistant answer appears AND settles
+// (no further growth for one interval), or we hit the timeout.
+async function waitForAdvisorAnswer(
+  id: string,
+  baseline: number,
+  timeoutMs: number,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  let last = "";
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 1200));
+    const tp = await resolveTranscript(id);
+    if (!tp) continue;
+    const answers = (await recentMessages(tp, 0, { maxBytes: null })).filter(
+      isAdvisorAnswer,
+    );
+    if (answers.length > baseline) {
+      const text = (answers[answers.length - 1].text || "").trim();
+      if (text && text === last) return text; // stable for one interval — done
+      last = text;
+    }
+  }
+  return last || "I couldn't reach the advisor in time.";
+}
+
+// Send a question to the persistent Opus advisor and return its spoken answer.
+async function voiceConsult(question: string): Promise<string> {
+  const live = await listSessions();
+  let id = voiceAdvisorId;
+  if (!id || !live.find((s) => s.sessionId === id)) {
+    // Spawn a fresh advisor; the brief + first question are the kickoff turn, so
+    // the answer is simply its first assistant message (baseline 0).
+    id = crypto.randomUUID();
+    const r = spawnManagedAisdkSession({
+      name: `lfg-adv-${randomBytes(2).toString("hex")}`,
+      cwd: SELF_REPO,
+      prompt: `${ADVISOR_BRIEF}\n\nFirst question: ${question}`,
+      model: "opus",
+      sessionId: id,
+    });
+    if (!r.ok) throw new Error(r.error || "advisor spawn failed");
+    voiceAdvisorId = id;
+    return waitForAdvisorAnswer(id, 0, 120_000);
+  }
+  // Reuse the live advisor: count existing answers, then send and wait for one
+  // more to appear past that baseline.
+  const tp = await resolveTranscript(id);
+  const baseline = tp
+    ? (await recentMessages(tp, 0, { maxBytes: null })).filter(isAdvisorAnswer)
+        .length
+    : 0;
+  appendAisdkCmd(id, { type: "send", text: question });
+  return waitForAdvisorAnswer(id, baseline, 90_000);
 }
 
 // Best available interactive prompt for a session. Prefers a structured
@@ -584,6 +708,51 @@ export async function cmdServe() {
         }
       }
 
+      // ---- LiveKit access token: mint a short-lived JWT so the browser can
+      // join the self-hosted voice room. API key/secret live server-side; media
+      // + signaling run on this box (livekit-server) over the tailnet.
+      if (path === "/api/livekit/token") {
+        const key = process.env.LIVEKIT_API_KEY;
+        const secret = process.env.LIVEKIT_API_SECRET;
+        const wss = process.env.LIVEKIT_WSS_PUBLIC;
+        if (!key || !secret || !wss) return err(503, "livekit not configured");
+        const room = "voice";
+        const identity =
+          url.searchParams.get("identity")?.slice(0, 64) ||
+          `web-${randomBytes(3).toString("hex")}`;
+        const now = Math.floor(Date.now() / 1000);
+        const enc = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
+        const data = `${enc({ alg: "HS256", typ: "JWT" })}.${enc({
+          iss: key,
+          sub: identity,
+          nbf: now,
+          iat: now,
+          exp: now + 6 * 60 * 60,
+          name: identity,
+          video: {
+            room,
+            roomJoin: true,
+            canPublish: true,
+            canSubscribe: true,
+            canPublishData: true,
+          },
+        })}`;
+        const ck = await crypto.subtle.importKey(
+          "raw",
+          new TextEncoder().encode(secret),
+          { name: "HMAC", hash: "SHA-256" },
+          false,
+          ["sign"],
+        );
+        const sig = await crypto.subtle.sign("HMAC", ck, new TextEncoder().encode(data));
+        return json({
+          url: wss,
+          room,
+          identity,
+          token: `${data}.${Buffer.from(sig).toString("base64url")}`,
+        });
+      }
+
       // ---- voice TTS proxy: forward to the self-hosted SuperTonic service on
       // the control-plane box. The token + upstream URL live server-side (.env)
       // so the browser never sees them; the client just plays the returned WAV.
@@ -617,11 +786,14 @@ export async function cmdServe() {
       }
 
       // ---- voice STT proxy: forward uploaded WAV audio to the self-hosted
-      // faster-whisper service; returns { text }. Keeps the device thin (no
-      // local Whisper model).
+      // transcription service (NVIDIA Parakeet); returns { text }. Keeps the
+      // device thin (no local model). STT can live on its own host separate
+      // from TTS — set STT_UPSTREAM/STT_TOKEN; falls back to TTS_UPSTREAM/
+      // TTS_TOKEN so existing single-host deployments keep working. The
+      // upstream is expected to resample to 16 kHz mono internally.
       if (path === "/api/voice/stt" && req.method === "POST") {
-        const up = process.env.TTS_UPSTREAM;
-        const tok = process.env.TTS_TOKEN;
+        const up = process.env.STT_UPSTREAM || process.env.TTS_UPSTREAM;
+        const tok = process.env.STT_TOKEN || process.env.TTS_TOKEN;
         if (!up || !tok) return err(503, "stt not configured");
         const audio = await req.arrayBuffer();
         if (!audio.byteLength) return err(400, "empty audio");
@@ -666,6 +838,37 @@ export async function cmdServe() {
           return new Response(r.body, { headers: { "Content-Type": "application/json" } });
         } catch {
           return err(502, "identify upstream unreachable");
+        }
+      }
+
+      // ---- voice fleet snapshot: live status of every session plus the user's
+      // standing context (~/.lfg/voice-context.md). The LiveKit worker fetches
+      // this at connect to seed its system prompt and speak a proactive briefing.
+      if (path === "/api/voice/snapshot" && req.method === "GET") {
+        const snapshot = await voiceStatusSnapshot();
+        let context = "";
+        try {
+          context = (
+            await Bun.file(join(homedir(), ".lfg", "voice-context.md")).text()
+          ).trim();
+        } catch {}
+        return json({ snapshot, context });
+      }
+
+      // ---- voice deep-think consult: forward a hard question to the persistent
+      // Opus advisor session and return its spoken answer. The voice brain
+      // (Haiku) calls this as a tool when a question needs heavier reasoning.
+      if (path === "/api/voice/consult" && req.method === "POST") {
+        const body = (await req.json().catch(() => null)) as {
+          question?: string;
+        } | null;
+        const question = body?.question?.trim();
+        if (!question) return err(400, "expected { question }");
+        try {
+          const answer = await voiceConsult(question);
+          return json({ answer });
+        } catch (e) {
+          return err(502, e instanceof Error ? e.message : "consult failed");
         }
       }
 
@@ -830,6 +1033,52 @@ export async function cmdServe() {
           return json({ agent });
         }
       }
+      // Resolve a client-supplied cwd to a KNOWN repo before we ever chdir into
+      // it for a compose/enhance pass. Unknown/blank → undefined (repo-blind,
+      // tool-less generation) rather than a hard error or an arbitrary chdir.
+      const resolveAutoCwd = async (cwd: unknown): Promise<string | undefined> => {
+        const want = typeof cwd === "string" ? cwd.trim() : "";
+        if (!want) return undefined;
+        return (await listRepos()).find((r) => r.cwd === want)?.cwd;
+      };
+      if (path === "/api/auto/enhance-prompt" && req.method === "POST") {
+        const b = (await req.json().catch(() => null)) as {
+          prompt?: string;
+          name?: string;
+          cwd?: string;
+        } | null;
+        if (!b?.prompt?.trim()) return err(400, "prompt is required");
+        try {
+          const { enhanceAutoPrompt } = await import("../auto/enhance.ts");
+          const cwd = await resolveAutoCwd(b.cwd);
+          const prompt = await enhanceAutoPrompt(b.prompt, b.name, cwd, (l) =>
+            console.log(l),
+          );
+          return json({ prompt });
+        } catch (e) {
+          return err(502, e instanceof Error ? e.message : String(e));
+        }
+      }
+      // Single-box create: one freeform prompt → a full agent draft (name,
+      // schedule, enhanced prompt), grounded in the selected repo when given.
+      // The UI saves it via POST /api/auto/agents.
+      if (path === "/api/auto/compose" && req.method === "POST") {
+        const b = (await req.json().catch(() => null)) as {
+          prompt?: string;
+          cwd?: string;
+        } | null;
+        if (!b?.prompt?.trim()) return err(400, "prompt is required");
+        try {
+          const { composeAutoAgent } = await import("../auto/enhance.ts");
+          const cwd = await resolveAutoCwd(b.cwd);
+          const draft = await composeAutoAgent(b.prompt, cwd, (l) =>
+            console.log(l),
+          );
+          return json({ draft });
+        } catch (e) {
+          return err(502, e instanceof Error ? e.message : String(e));
+        }
+      }
       {
         const m = path.match(/^\/api\/auto\/agents\/([a-z0-9_-]+)$/);
         if (m && req.method === "DELETE") {
@@ -875,6 +1124,154 @@ export async function cmdServe() {
       if (path === "/api/client-errors" && req.method === "GET") {
         const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") ?? "200", 10) || 200, 1), 1000);
         return json({ errors: await listClientErrors(limit) });
+      }
+
+      // ── Web Push (PWA notifications) ──────────────────────────────────────
+      // The VAPID public key the browser needs for pushManager.subscribe().
+      if (path === "/api/push/vapid" && req.method === "GET") {
+        return json({ key: await vapidPublicKey() });
+      }
+      // Register / refresh a browser subscription.
+      if (path === "/api/push/subscribe" && req.method === "POST") {
+        const b = (await req.json().catch(() => null)) as
+          | (PushSubscription & { user?: string | null })
+          | null;
+        if (!b?.endpoint) return err(400, "missing endpoint");
+        await saveSubscription(b);
+        return json({ ok: true });
+      }
+      // Drop a subscription (user turned notifications off / re-subscribed).
+      if (path === "/api/push/unsubscribe" && req.method === "POST") {
+        const b = (await req.json().catch(() => null)) as { endpoint?: string } | null;
+        if (b?.endpoint) await removeSubscription(b.endpoint);
+        return json({ ok: true });
+      }
+      // Per-device notification feed: resolve this subscription's bound user and
+      // return ONLY that user's pending items. The service worker calls this on
+      // a (payload-less) push so it never renders another user's question.
+      if (path === "/api/push/pending" && req.method === "GET") {
+        const endpoint = url.searchParams.get("endpoint");
+        const me = endpoint ? await subscriptionUser(endpoint) : null;
+        const openQs = await listQuestions("open");
+        const questions = me ? openQs.filter((q) => q.user === me) : openQs;
+        // Findings are global (not user-private), so they pass through as-is.
+        const findings = await listFindings("open");
+        return json({ user: me, questions, findings });
+      }
+
+      // ── Ask-user (human-in-the-loop for headless agents) ──────────────────
+      // List open/all questions — the UI poller and the voice agent both read
+      // this so they can surface and answer what's pending.
+      if (path === "/api/ask" && req.method === "GET") {
+        const status = url.searchParams.get("status") as
+          | "open"
+          | "answered"
+          | "expired"
+          | null;
+        const user = url.searchParams.get("user");
+        let rows = await listQuestions(status ?? undefined);
+        if (user) rows = rows.filter((q) => !q.user || q.user === user);
+        return json({ questions: rows });
+      }
+      // Agent asks a question. Raises a push, then long-polls for the answer so
+      // the caller's tool blocks until a human responds (or it times out, at
+      // which point the agent decides how to proceed). wait=0 returns immediately
+      // with just the id for fire-and-forget asks.
+      if (path === "/api/ask" && req.method === "POST") {
+        const b = (await req.json().catch(() => null)) as {
+          question?: string;
+          options?: string[];
+          agentId?: string | null;
+          sessionId?: string | null;
+          user?: string | null;
+          wait?: boolean;
+          timeoutMs?: number;
+        } | null;
+        if (!b?.question?.trim()) return err(400, "missing question");
+        const q = await addQuestion({
+          question: b.question,
+          options: b.options,
+          agentId: b.agentId,
+          sessionId: b.sessionId,
+          user: b.user,
+        });
+        // Wake the user with a push (user-scoped). Voice talk-back happens when
+        // they engage: open questions are surfaced in the voice snapshot below,
+        // so the voice agent can read them out and answer on the user's behalf.
+        void notifyAll({ user: q.user }).catch(() => {});
+        if (b.wait === false) return json({ id: q.id, status: q.status });
+        // Cap the block so a stuck request can't pin a connection forever.
+        const timeoutMs = Math.min(Math.max(b.timeoutMs ?? 180_000, 1_000), 600_000);
+        const answered = await waitForAnswer(q.id, timeoutMs);
+        if (!answered || answered.status !== "answered") {
+          return json({ id: q.id, status: "open", answer: null });
+        }
+        return json({ id: q.id, status: "answered", answer: answered.answer });
+      }
+      // Poll a single question (for agents that asked with wait=0).
+      {
+        const m = path.match(/^\/api\/ask\/([0-9a-f]+)$/);
+        if (m && req.method === "GET") {
+          const q = await getQuestion(m[1]);
+          if (!q) return err(404, "unknown question");
+          return json({ question: q });
+        }
+      }
+      // Answer a question — from the web composer OR the voice agent on the
+      // user's behalf. Wakes any blocked long-poll.
+      {
+        const m = path.match(/^\/api\/ask\/([0-9a-f]+)\/answer$/);
+        if (m && req.method === "POST") {
+          const b = (await req.json().catch(() => null)) as {
+            answer?: string;
+            via?: "voice" | "web";
+          } | null;
+          if (!b?.answer?.trim()) return err(400, "missing answer");
+          const q = await answerQuestion(m[1], { answer: b.answer.trim(), via: b.via });
+          if (!q) return err(404, "unknown or already-answered question");
+          // Deliver the reply to the target session NOW (the answer IS the
+          // user's consent), deterministically — don't wait for the supervisor's
+          // next run to re-interpret it. Reuse the validated /send and /close
+          // routes via a loopback call. On any failure we leave the question
+          // "answered" so the supervisor's STEP 1 still backstops it.
+          if (q.sessionId) {
+            const plan = plannedSessionAction(q.answer ?? "");
+            try {
+              if (plan.kind === "send") {
+                const r = await fetch(
+                  `http://127.0.0.1:${PORT}/api/sessions/${q.sessionId}/send`,
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ text: plan.text }),
+                  },
+                );
+                if (r.ok) await markHandled(q.id);
+              } else if (plan.kind === "close") {
+                const r = await fetch(
+                  `http://127.0.0.1:${PORT}/api/sessions/${q.sessionId}/close`,
+                  { method: "POST" },
+                );
+                if (r.ok) await markHandled(q.id);
+              } else {
+                await markHandled(q.id); // "leave it" — resolved, nothing to deliver
+              }
+            } catch {
+              // loopback failed — leave answered; STEP 1 retries next run
+            }
+          }
+          return json({ question: q });
+        }
+      }
+      // Mark an answered question as acted-upon (the supervisor calls this after
+      // it carries out the user's decision, so it doesn't act on it again).
+      {
+        const m = path.match(/^\/api\/ask\/([0-9a-f]+)\/handled$/);
+        if (m && req.method === "POST") {
+          const q = await markHandled(m[1]);
+          if (!q) return err(404, "unknown or not-yet-answered question");
+          return json({ question: q });
+        }
       }
       {
         const m = path.match(/^\/api\/auto\/findings\/([0-9a-f]+)$/);
@@ -1034,6 +1431,28 @@ export async function cmdServe() {
 
       // ---- running claude sessions ----
       if (path === "/api/repos") {
+        if (req.method === "POST") {
+          const b = (await req.json().catch(() => null)) as {
+            path?: unknown;
+            name?: unknown;
+          } | null;
+          const rawPath = typeof b?.path === "string" ? b.path : "";
+          if (!rawPath.trim()) return err(400, "path is required");
+          const rawName = typeof b?.name === "string" ? b.name : undefined;
+          try {
+            await addCustomRepo(rawPath, rawName);
+          } catch (e) {
+            return err(400, e instanceof Error ? e.message : String(e));
+          }
+          return json({ repos: await listRepos() });
+        }
+        if (req.method === "DELETE") {
+          const b = (await req.json().catch(() => null)) as { cwd?: unknown } | null;
+          const cwd = typeof b?.cwd === "string" ? b.cwd : "";
+          if (!cwd.trim()) return err(400, "cwd is required");
+          await removeCustomRepo(cwd);
+          return json({ repos: await listRepos() });
+        }
         return json({ repos: await listRepos() });
       }
 

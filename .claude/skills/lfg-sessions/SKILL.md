@@ -50,15 +50,78 @@ curl -s -X POST $BASE/api/sessions/<id>/send -H 'Content-Type: application/json'
 # Interrupt a session's current turn (Escape — stop / redirect it)
 curl -s -X POST $BASE/api/sessions/<id>/interrupt
 
+# Answer a session BLOCKED on a permission / plan / trust selector by picking an
+# option (0-based index, as listed in the live snapshot). This is the right call
+# when the user says "approve that" / "tell it yes" — prefer it over `send`.
+curl -s -X POST $BASE/api/sessions/<id>/answer -H 'Content-Type: application/json' -d '{"index":0}'
+
+# Dismiss a blocked prompt without answering (Escape the selector)
+curl -s -X POST $BASE/api/sessions/<id>/dismiss
+
 # Check delivery status of things you sent
 curl -s $BASE/api/sessions/<id>/queue | jq '.queue'
 
-# Start a new worker session (defaults to the configured repo; pass cwd to change)
-curl -s -X POST $BASE/api/sessions/new -H 'Content-Type: application/json' -d '{"prompt":"investigate the failing deploy"}' | jq '{sessionId, tmuxName}'
+# List the repos a new session can be started in (resolve the user's words → a cwd)
+curl -s $BASE/api/repos | jq '.repos[] | {name, cwd}'
+
+# Start a new worker session (see "Creating a new session" below for the full flow)
+curl -s -X POST $BASE/api/sessions/new -H 'Content-Type: application/json' \
+  -d '{"prompt":"investigate the failing deploy","cwd":"<repo cwd>","agent":"aisdk","model":"opus"}' \
+  | jq '{sessionId, tmuxName, cwd, agent}'
 
 # Close a session you started
 curl -s -X POST $BASE/api/sessions/<id>/close
 ```
+
+## Creating a new session
+
+When the user says "start a new session", "spin up an agent", "open a session on
+<repo>", "have something look at X" — create one with `/api/sessions/new`. Do it in
+one shot from a single spoken request; only ask back if the repo is genuinely
+ambiguous.
+
+1. **Pick the repo (cwd).** This is the part that matters most over voice: if you
+   omit `cwd` the session lands in lfg's OWN repo, which is almost never what the
+   user means. List repos (`/api/repos`), match the user's words against `name`,
+   and pass that repo's `cwd`. If they didn't name a repo and the focus pointer
+   has one whose repo you can resolve, reuse it; otherwise read the repo names
+   back and ask which one (briefly).
+2. **Pick agent + model** (sensible defaults — only override if the user asks):
+   - `agent`: `aisdk` (default) for a hands-off worker; `claude` for the
+     interactive Claude CLI. (`codex` / `codex-aisdk` / `opencode` also exist.)
+   - `model`: `opus` (default), or `sonnet` / `haiku` if they ask for faster/cheaper.
+3. **Send the request.** Put the user's intent in `prompt`. Pass `cwd`, `agent`,
+   `model`. Do NOT set `voice:true` — that flag is for spawning the voice
+   orchestrator itself, not for ordinary worker sessions.
+   ```bash
+   curl -s -X POST $BASE/api/sessions/new -H 'Content-Type: application/json' \
+     -d '{"prompt":"<what the user wants done>","cwd":"<repo cwd>","agent":"aisdk","model":"opus"}' \
+     | jq '{sessionId, tmuxName, cwd, agent}'
+   ```
+4. **Make it the focus + confirm.** Write the returned `sessionId` to
+   `~/.lfg/active-session`, then confirm in one line ("Started an Opus session in
+   the auth repo — it's looking at the failing deploy now."). The `sessionId` can
+   take a few seconds to come back; if it's null, the session still started —
+   confirm by `tmuxName` and resolve the id from the list on the next turn.
+
+## Answering an agent's question (human-in-the-loop)
+
+A background agent (e.g. the supervisor) may be **waiting on the user** for a
+decision. These appear in the live snapshot under "PENDING QUESTIONS FOR YOU"
+with a short `[id]`. When the user gives you their answer, relay it on their
+behalf — the waiting agent unblocks the instant you do:
+
+```bash
+# List what's pending (also shown in the snapshot)
+curl -s "$BASE/api/ask?status=open" | jq '.questions[] | {id, question, options}'
+
+# Answer one — free text, or one of the offered options, in the user's words
+curl -s -X POST $BASE/api/ask/<id>/answer -H 'Content-Type: application/json' \
+  -d '{"answer":"yes, ship it","via":"voice"}'
+```
+
+Read the pending question out loud in one short line, capture the user's reply,
+then POST it. Confirm briefly ("Done — told it to ship it.").
 
 ## Workflow
 

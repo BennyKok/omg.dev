@@ -11,6 +11,7 @@ import {
   type SimpleFreq,
   type SimpleSchedule,
 } from "./cron";
+import { VoiceOrb } from "./voice-orb";
 import type {
   CSSProperties,
   ErrorInfo,
@@ -36,6 +37,8 @@ import {
   Loader2,
   MessageSquare,
   Mic,
+  Bell,
+  BellOff,
   MoreVertical,
   Moon,
   PanelLeftClose,
@@ -50,7 +53,6 @@ import {
   Send,
   Sparkles,
   Sun,
-  Terminal,
   TerminalSquare,
   Trash2,
   UserRound,
@@ -82,6 +84,14 @@ import {
 import { cn } from "@/lib/utils";
 import { Streamdown } from "streamdown";
 import { useExtensionNavTabs } from "./lib/extensions";
+import {
+  pushSupported,
+  pushPermission,
+  isSubscribed,
+  enablePush,
+  disablePush,
+} from "./lib/push";
+import { AskCenter } from "./components/ask-center";
 
 type Agent = {
   name: string;
@@ -137,7 +147,7 @@ type Session = {
 };
 
 type User = { email: string; name?: string; avatar?: string };
-type Repo = { name: string; cwd: string };
+type Repo = { name: string; cwd: string; custom?: boolean };
 
 // Auto agents: a streamlined agent is JUST a prompt + a schedule. It emits
 // findings (notifications), not reports.
@@ -914,8 +924,66 @@ function useLiveSessionStream(sessions: Session[]) {
   return { messagesBySid, busyBySid, promptsBySid, queuesBySid, addOptimisticMessage };
 }
 
+// Header toggle for PWA push notifications. Hidden entirely where the browser
+// can't do Web Push (e.g. desktop Safari without the SW, or an http origin).
+function PushBell({ user }: { user?: string | null }) {
+  const [on, setOn] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [supported] = useState(() => pushSupported());
+
+  useEffect(() => {
+    if (!supported) return;
+    void isSubscribed().then(setOn);
+  }, [supported]);
+
+  if (!supported) return null;
+
+  const toggle = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      if (on) {
+        await disablePush();
+        setOn(false);
+        toast("Notifications off");
+      } else {
+        if (pushPermission() === "denied") {
+          toast.error("Notifications are blocked in your browser settings");
+          return;
+        }
+        if (!user) {
+          toast.error("Pick your user in the top filter first, so notifications only show yours");
+          return;
+        }
+        const ok = await enablePush(user);
+        setOn(ok);
+        toast(ok ? "Notifications on" : "Notifications permission dismissed");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not change notifications");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Button
+      variant="tint"
+      size="icon-sm"
+      onClick={toggle}
+      disabled={busy}
+      aria-label={on ? "Disable notifications" : "Enable notifications"}
+      title={on ? "Notifications on" : "Enable notifications"}
+    >
+      {on ? <Bell className="size-4" /> : <BellOff className="size-4" />}
+    </Button>
+  );
+}
+
 export function App() {
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -935,7 +1003,7 @@ export function App() {
   // nav-tab id becomes a valid tab value), so this is a plain string.
   const [tab, setTab] = useState<string>("live");
   const extNavTabs = useExtensionNavTabs();
-  const allTabIds = ["live", "auto", "term", ...extNavTabs.map((t) => t.id)];
+  const allTabIds = ["live", "auto", ...extNavTabs.map((t) => t.id)];
   const tabIndex = Math.max(0, allTabIds.indexOf(tab));
   const activeExtTab = extNavTabs.find((t) => t.id === tab);
   const [autoAgents, setAutoAgents] = useState<AutoAgent[]>([]);
@@ -958,6 +1026,68 @@ export function App() {
   const [identity, setIdentity] = useState<string | null>(() =>
     localStorage.getItem("lfg_user"),
   );
+
+  // Mobile soft keyboard ↔ terminal sizing. iOS Safari (and older Androids)
+  // shrink only the *visual* viewport when the on-screen keyboard opens — the
+  // `100dvh` root and the `interactive-widget=resizes-content` hint don't shrink
+  // the *layout* viewport there, so the app (and the terminal's flex host) stay
+  // full-height behind the keyboard and FitAddon never re-fits the grid. Pin the
+  // root to the visual-viewport height: the flex column collapses, TermView's
+  // `h-full` host shrinks, and the ResizeObserver already watching it re-fits the
+  // terminal into the visible area. A no-op where `dvh` already tracks the
+  // keyboard (Chrome Android), since the two heights then match.
+  //
+  // Two iOS quirks make the naive "set height = vv.height" leave dead space:
+  //   • The browser scrolls the *layout* viewport to reveal the focused field,
+  //     so `vv.offsetTop` goes positive while the root stays anchored at layout
+  //     top — leaving a strip of background below the app. Translate the root
+  //     down by `offsetTop` to re-pin it to the visible band.
+  //   • `<main>` reserves `pb-28` for the floating nav pill, and the pill itself
+  //     sits over the keyboard region. While the keyboard is open we collapse
+  //     that padding and hide the pill (see `keyboardOpen`) so the terminal
+  //     fills right up to the keyboard instead of floating above a gap.
+  //
+  // Scoped to the Terminal tab only. Other pages (Live, Auto, the new-session
+  // sheet) want the default browser behavior — `dvh` plus Vaul's own field
+  // handling — so we leave the root untouched there and clear anything we set.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    const clear = () => {
+      const el = rootRef.current;
+      if (el) {
+        el.style.height = "";
+        el.style.transform = "";
+      }
+      setKeyboardOpen(false);
+    };
+    // Not the terminal, or no visualViewport (ancient browsers): fall back to
+    // the `h-dvh` class and make sure no stale inline styles linger.
+    if (!vv || tab !== "term") {
+      clear();
+      return;
+    }
+    const sync = () => {
+      const el = rootRef.current;
+      if (el) {
+        el.style.height = `${Math.round(vv.height)}px`;
+        // Only transform when actually offset — a translateY(0) still creates a
+        // containing block that would reparent the `fixed` nav unnecessarily.
+        el.style.transform = vv.offsetTop ? `translateY(${vv.offsetTop}px)` : "";
+      }
+      // Keyboard height ≈ layout height − visual height. `innerHeight` is the
+      // layout viewport (doesn't shrink for the keyboard on iOS); 120px clears
+      // URL-bar jitter without missing a real keyboard (~250px+).
+      setKeyboardOpen(window.innerHeight - vv.height > 120);
+    };
+    sync();
+    vv.addEventListener("resize", sync);
+    vv.addEventListener("scroll", sync);
+    return () => {
+      vv.removeEventListener("resize", sync);
+      vv.removeEventListener("scroll", sync);
+      clear();
+    };
+  }, [loading, tab]);
 
   const loadCore = useCallback(async () => {
     const [agentsPayload, sessionsPayload, usersPayload, reposPayload] =
@@ -996,18 +1126,22 @@ export function App() {
       api<{ agents: AutoAgent[]; tz?: string }>("/api/auto/agents"),
       api<{ findings: AutoFinding[] }>("/api/auto/findings?status=open"),
     ]);
-    setAutoAgents(ag.agents);
+    // Guard against a malformed/empty payload — these feed array props that
+    // render unconditionally (e.g. findings.length in LiveView), so a missing
+    // field must degrade to [] rather than crash the live view.
+    const findingList = fd.findings ?? [];
+    setAutoAgents(ag.agents ?? []);
     if (ag.tz) setSchedTz(ag.tz);
-    setFindings(fd.findings);
+    setFindings(findingList);
     if (!seededAuto.current) {
-      fd.findings.forEach((f) => seenFindings.current.add(f.id));
+      findingList.forEach((f) => seenFindings.current.add(f.id));
       seededAuto.current = true;
       return;
     }
-    for (const f of fd.findings) {
+    for (const f of findingList) {
       if (seenFindings.current.has(f.id)) continue;
       seenFindings.current.add(f.id);
-      const name = ag.agents.find((a) => a.id === f.agentId)?.name ?? f.agentId;
+      const name = (ag.agents ?? []).find((a) => a.id === f.agentId)?.name ?? f.agentId;
       // Announce the finding via the shared Sonner toast system.
       toast.custom(
         (id) => (
@@ -1350,6 +1484,41 @@ export function App() {
     }
   }
 
+  // Single-box create runs async: the composer closes the instant you hit
+  // Create, and a loading toast tracks the (repo-inspecting, slow) compose →
+  // save → refresh chain to success or error. Nothing blocks the UI.
+  function createAutoAgent(idea: string, cwd: string | undefined) {
+    toast.promise(
+      api<{ draft: { name: string; schedule: string; prompt: string } }>(
+        "/api/auto/compose",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: idea, cwd }),
+        },
+      )
+        .then((r) =>
+          api("/api/auto/agents", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: r.draft.name,
+              prompt: r.draft.prompt,
+              schedule: r.draft.schedule,
+              enabled: true,
+              cwd,
+            }),
+          }),
+        )
+        .then(() => refreshAuto()),
+      {
+        loading: "Creating auto agent…",
+        success: "Auto agent created",
+        error: (e) => (e instanceof Error ? e.message : "Couldn't create agent"),
+      },
+    );
+  }
+
   async function deleteAutoAgent(id: string) {
     try {
       await api(`/api/auto/agents/${id}`, { method: "DELETE" });
@@ -1395,13 +1564,11 @@ export function App() {
   }
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
+    <div ref={rootRef} className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border bg-background/90 px-3 backdrop-blur">
-        <div className="flex size-6 shrink-0 items-center justify-center rounded-lg bg-foreground text-background">
-          <Terminal className="size-3.5" />
-        </div>
+        <img src="/icon.svg" alt="lfg" className="size-6 shrink-0" />
         <div className="min-w-0 flex-1 truncate text-sm font-semibold">
-          {activeExtTab ? activeExtTab.label : tab === "auto" ? "Auto agents" : tab === "term" ? "Terminal" : "lfg"}
+          {activeExtTab ? activeExtTab.label : tab === "auto" ? "Auto agents" : tab === "term" ? "Terminal" : ""}
         </div>
 
         {tab === "live" ? (
@@ -1411,6 +1578,19 @@ export function App() {
             onChange={changeUserFilter}
           />
         ) : null}
+        <Button
+          variant={tab === "term" ? "default" : "tint"}
+          size="icon-sm"
+          aria-label="Terminal"
+          onClick={() => setTab(tab === "term" ? "live" : "term")}
+        >
+          <TerminalSquare className="size-4" />
+        </Button>
+        <PushBell
+          user={
+            userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : null
+          }
+        />
         <Button variant="tint" size="icon-sm" onClick={toggleTheme}>
           {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
         </Button>
@@ -1422,7 +1602,7 @@ export function App() {
         </div>
       ) : null}
 
-      <main className="min-h-0 flex-1 overflow-y-auto px-3 pb-28 pt-3">
+      <main className={`min-h-0 flex-1 overflow-y-auto px-3 pt-3 ${keyboardOpen ? "pb-3" : "pb-28"}`}>
         {tab === "live" ? (
           <LiveView
             sessions={liveSessions}
@@ -1458,7 +1638,7 @@ export function App() {
       </main>
 
       {/* floating pill nav + new-session FAB */}
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex items-center justify-center gap-2.5 px-4 pb-[calc(0.875rem+env(safe-area-inset-bottom))]">
+      <div className={`pointer-events-none fixed inset-x-0 bottom-0 z-50 flex items-center justify-center gap-2.5 px-4 pb-[calc(0.875rem+env(safe-area-inset-bottom))] ${keyboardOpen ? "hidden" : ""}`}>
         <div className="pointer-events-auto rounded-full bg-gradient-to-b from-white/70 via-white/25 to-white/10 p-px shadow-[0_8px_28px_rgba(0,0,0,0.18)] dark:from-white/25 dark:via-white/10 dark:to-white/5">
           <nav className="relative flex items-center gap-1 rounded-full bg-background/85 p-1.5 backdrop-blur-xl">
             <span
@@ -1478,12 +1658,6 @@ export function App() {
               icon={<CalendarClock className="size-[18px]" />}
               label="Auto"
             />
-            <PillTab
-              active={tab === "term"}
-              onClick={() => setTab("term")}
-              icon={<TerminalSquare className="size-[18px]" />}
-              label="Term"
-            />
             {extNavTabs.map((t) => (
               <PillTab
                 key={t.id}
@@ -1498,6 +1672,10 @@ export function App() {
         <NewSessionFab onOpenDialog={() => setNewOpen(true)} onCreateVoice={createVoiceSession} />
       </div>
 
+      <VoiceOrb />
+
+      <AskCenter />
+
       {openFinding ? (
         <FindingSheet
           finding={openFinding}
@@ -1508,15 +1686,18 @@ export function App() {
         />
       ) : null}
 
-      {editingAgent ? (
+      {editingAgent === "new" ? (
+        <NewAutoAgentComposer
+          repos={repos}
+          onClose={() => setEditingAgent(null)}
+          onCreate={createAutoAgent}
+        />
+      ) : editingAgent ? (
         <AgentEditorSheet
           agent={editingAgent}
           repos={repos}
           tz={schedTz}
-          running={
-            editingAgent !== "new" &&
-            !!autoAgents.find((a) => a.id === editingAgent.id)?.running
-          }
+          running={!!autoAgents.find((a) => a.id === editingAgent.id)?.running}
           onClose={() => setEditingAgent(null)}
           onSave={saveAutoAgent}
           onDelete={deleteAutoAgent}
@@ -1528,6 +1709,7 @@ export function App() {
         open={newOpen}
         users={users}
         repos={repos}
+        onReposChanged={loadCore}
         defaultUser={
           userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : ""
         }
@@ -1885,10 +2067,7 @@ function WhoAreYou({
     <div className="flex h-dvh flex-col items-center justify-center bg-background px-6 text-foreground">
       <div className="w-full max-w-sm">
         <div className="mb-4 flex items-center gap-2">
-          <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-foreground text-background">
-            <Terminal className="size-4" />
-          </div>
-          <span className="text-base font-semibold">lfg</span>
+          <img src="/icon.svg" alt="lfg" className="size-7 shrink-0" />
         </div>
         <h1 className="text-xl font-semibold">Who are you?</h1>
         <p className="mb-5 mt-1 text-sm text-muted-foreground">
@@ -4307,6 +4486,7 @@ function NewSessionDialog({
   defaultUser,
   onClose,
   onCreated,
+  onReposChanged,
 }: {
   open: boolean;
   repos: Repo[];
@@ -4314,6 +4494,7 @@ function NewSessionDialog({
   defaultUser: string;
   onClose: () => void;
   onCreated: () => Promise<void>;
+  onReposChanged: () => Promise<void>;
 }) {
   const [agent, setAgent] = useState<AgentKind>(
     () => (localStorage.getItem("lfg_v2_agent") as AgentKind | null) || "aisdk",
@@ -4387,6 +4568,51 @@ function NewSessionDialog({
 
   const models = AGENT_MODELS[agent];
   const selectedRepo = repo || repos[0]?.cwd || "";
+  const selectedIsCustom = repos.some((r) => r.cwd === selectedRepo && r.custom);
+
+  // Pin an arbitrary git repo on the box (outside LFG_REPOS_ROOT) into the
+  // picker. The path is resolved/validated server-side; on success we refresh
+  // the repo list and select the freshly added path.
+  function addCustomPath() {
+    const input = window.prompt("Absolute path to a git repo (e.g. ~/work/api):");
+    if (input === null) return;
+    const path = input.trim();
+    if (!path) return;
+    toast.promise(
+      api<{ repos: Repo[] }>("/api/repos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      }).then(async (r) => {
+        const added = r.repos.find((x) => x.custom && !repos.some((p) => p.cwd === x.cwd));
+        await onReposChanged();
+        if (added) setRepo(added.cwd);
+      }),
+      {
+        loading: "Adding project…",
+        success: "Project added",
+        error: (e) => (e instanceof Error ? e.message : "Couldn't add project"),
+      },
+    );
+  }
+
+  function removeCustomPath(cwd: string) {
+    toast.promise(
+      api("/api/repos", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd }),
+      }).then(async () => {
+        if (selectedRepo === cwd) setRepo("");
+        await onReposChanged();
+      }),
+      {
+        loading: "Removing project…",
+        success: "Project removed",
+        error: (e) => (e instanceof Error ? e.message : "Couldn't remove project"),
+      },
+    );
+  }
 
   useEffect(() => {
     if (!open || agent !== "claude") return;
@@ -4570,16 +4796,31 @@ function NewSessionDialog({
           <FieldPill icon={<Folder className="size-3.5 text-muted-foreground" />}>
             <select
               value={selectedRepo}
-              onChange={(e) => setRepo(e.target.value)}
+              onChange={(e) => {
+                if (e.target.value === "__add__") addCustomPath();
+                else setRepo(e.target.value);
+              }}
               aria-label="Repo"
               className="max-w-28 appearance-none truncate bg-transparent pr-1 text-xs font-medium outline-none"
             >
               {repos.map((item) => (
                 <option key={item.cwd} value={item.cwd}>
-                  {item.name}
+                  {item.custom ? `${item.name} ↗` : item.name}
                 </option>
               ))}
+              <option value="__add__">+ Add custom path…</option>
             </select>
+            {selectedIsCustom && (
+              <button
+                type="button"
+                aria-label="Remove custom path"
+                title="Remove this custom path"
+                onClick={() => removeCustomPath(selectedRepo)}
+                className="ml-0.5 text-muted-foreground hover:text-destructive"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
           </FieldPill>
 
           <FieldPill icon={<UserRound className="size-3.5 text-muted-foreground" />}>
@@ -4844,6 +5085,87 @@ function FindingSheet({
   );
 }
 
+// Single-box create: the whole "new auto agent" UI is one prompt. The user
+// describes what they want watched; /api/auto/compose derives a name, a cron
+// schedule, and the enhanced watch instruction, and we save it straight away.
+// Everything stays editable afterward via the full editor (tap the agent).
+function NewAutoAgentComposer({
+  repos,
+  onClose,
+  onCreate,
+}: {
+  repos: Repo[];
+  onClose: () => void;
+  onCreate: (idea: string, cwd: string | undefined) => void;
+}) {
+  const [idea, setIdea] = useState("");
+  const [cwd, setCwd] = useState(repos[0]?.cwd ?? "");
+
+  // Fire-and-close: hand the idea to the parent (which runs compose → save
+  // under a loading toast) and dismiss the sheet immediately. The slow,
+  // repo-inspecting work happens in the background — nothing blocks here.
+  function submit() {
+    if (!idea.trim()) return;
+    onCreate(idea.trim(), cwd || undefined);
+    onClose();
+  }
+
+  return (
+    <BottomSheet onClose={onClose} title="New auto agent">
+      <div className="px-2 pb-4 pt-1">
+        <div className="flex items-center gap-2">
+          <Sparkles className="size-5 text-primary" />
+          <div className="flex-1 text-[15px] font-semibold">
+            Describe the agent
+          </div>
+          <Button
+            size="sm"
+            variant="brand"
+            disabled={!idea.trim()}
+            onClick={submit}
+          >
+            Create
+          </Button>
+        </div>
+
+        <Textarea
+          value={idea}
+          onChange={(e) => setIdea(e.target.value)}
+          rows={6}
+          autoFocus
+          placeholder="What should this agent watch for, and roughly how often? e.g. “Every morning, check our npm dependencies for newly disclosed CVEs and flag anything we actually ship.”"
+          className="mt-3 resize-none text-sm leading-relaxed"
+        />
+
+        <div className="mt-2 flex items-center justify-between rounded-xl border border-border px-3 py-2">
+          <div className="flex items-center gap-2 text-sm">
+            <Folder className="size-4 text-muted-foreground" /> Based in (repo)
+          </div>
+          <select
+            value={cwd}
+            onChange={(e) => setCwd(e.target.value)}
+            aria-label="Repo"
+            className="max-w-44 appearance-none truncate bg-transparent text-right text-[13px] font-medium outline-none"
+          >
+            {repos.length === 0 ? <option value="">(no repos)</option> : null}
+            {repos.map((item) => (
+              <option key={item.cwd} value={item.cwd}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="mt-2 px-1 text-[11px] text-muted-foreground">
+          We'll inspect the selected repo, then name it, pick a schedule, and
+          write a watch prompt grounded in the real files — it keeps working
+          after you close this. Tap the agent afterward to fine-tune any of it.
+        </div>
+      </div>
+    </BottomSheet>
+  );
+}
+
 function AgentEditorSheet({
   agent,
   repos,
@@ -4897,8 +5219,34 @@ function AgentEditorSheet({
   // else the first repo.
   const [cwd, setCwd] = useState(existing?.cwd ?? repos[0]?.cwd ?? "");
   const [busy, setBusy] = useState(false);
+  const [enhancing, setEnhancing] = useState(false);
+  const [enhanceErr, setEnhanceErr] = useState<string | null>(null);
   // Scan only when the schedule changes, not on every keystroke elsewhere.
   const nextPreview = useMemo(() => nextRunAt(schedule, tz), [schedule, tz]);
+
+  // Rewrite the user's rough idea into a sharp watch-agent prompt in place. The
+  // server runs a one-shot, tool-less claude pass; we swap the result into the
+  // textarea so it stays fully editable afterward.
+  async function enhance() {
+    if (enhancing || !prompt.trim()) return;
+    setEnhancing(true);
+    setEnhanceErr(null);
+    try {
+      const r = await api<{ prompt: string }>("/api/auto/enhance-prompt", {
+        method: "POST",
+        body: JSON.stringify({
+          prompt: prompt.trim(),
+          name: name.trim() || undefined,
+          cwd: cwd || undefined,
+        }),
+      });
+      if (r.prompt?.trim()) setPrompt(r.prompt.trim());
+    } catch (e) {
+      setEnhanceErr(e instanceof Error ? e.message : "enhance failed");
+    } finally {
+      setEnhancing(false);
+    }
+  }
 
   async function save() {
     if (!name.trim() || !prompt.trim() || busy) return;
@@ -5128,18 +5476,39 @@ function AgentEditorSheet({
           </span>
         </button>
 
-        <div className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Prompt — this is the entire agent
+        <div className="mt-3 flex items-center justify-between">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Prompt — this is the entire agent
+          </div>
+          <button
+            type="button"
+            disabled={enhancing || !prompt.trim()}
+            onClick={() => void enhance()}
+            className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-primary disabled:text-muted-foreground"
+            title="Rewrite your rough idea into a sharp watch-agent prompt"
+          >
+            {enhancing ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="size-3.5" />
+            )}
+            {enhancing ? "Enhancing…" : "Enhance"}
+          </button>
         </div>
         <Textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           rows={5}
-          placeholder="Describe what to watch for and what to flag. It runs as a real Claude session with read-only tools and gathers its own context."
+          disabled={enhancing}
+          placeholder="Jot a rough idea of what to watch for, then hit Enhance — it rewrites it into a sharp watch-agent prompt. Runs as a real Claude session with read-only tools and gathers its own context."
           className="mt-1.5 resize-none text-sm leading-relaxed"
         />
         <div className="mt-1.5 px-1 text-[11px] text-muted-foreground">
-          No config files, no sources to wire — just the prompt + a schedule.
+          {enhanceErr ? (
+            <span className="text-destructive">{enhanceErr}</span>
+          ) : (
+            "No config files, no sources to wire — just the prompt + a schedule."
+          )}
         </div>
 
         {existing ? (

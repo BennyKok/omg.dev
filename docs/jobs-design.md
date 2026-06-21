@@ -108,7 +108,7 @@ The runner then applies `limits`: filter below `minSeverity`, sort by severity,
 
 ## Scheduler
 
-`twcli-serve` already runs persistently, so the scheduler lives in-process:
+`lfg-serve` already runs persistently, so the scheduler lives in-process:
 
 - On startup and every 60s, evaluate each enabled job's cron against its
   persisted `lastRunAt`.

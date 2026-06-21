@@ -1,4 +1,4 @@
-// In-process cron scheduler. twcli-serve runs persistently, so we tick once a
+// In-process cron scheduler. lfg-serve runs persistently, so we tick once a
 // minute and fire any enabled auto agent that is due. Two things that bit us:
 //   1. Cron is interpreted in a configured timezone (default Asia/Hong_Kong),
 //      NOT the box's UTC — so "0 11 * * *" means 11:00 HKT, as authored.

@@ -4,6 +4,8 @@
 // should return null — silence is the default, not a padded report.
 
 import { PATHS } from "../config.ts";
+import { notifyAll } from "../push.ts";
+import { runInCwd } from "./cwd-lock.ts";
 import {
   type AutoAgent,
   type Finding,
@@ -68,17 +70,6 @@ function parseFinding(text: string): { finding: unknown } | null {
 
 const READONLY_TOOLS = ["Read", "Grep", "Glob", "WebSearch", "WebFetch"];
 
-// The AI-SDK backend runs in-process and we scope the agent's cwd with a global
-// process.chdir, so two concurrent runs would clobber each other's working
-// directory. Serialize the chdir-sensitive section across ALL callers (the
-// scheduler is already sequential, but a manual /run could overlap a batch).
-let runChain: Promise<unknown> = Promise.resolve();
-function withCwdLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = runChain.catch(() => {}).then(fn);
-  runChain = run.catch(() => {});
-  return run;
-}
-
 async function runClaude(
   prompt: string,
   cwd: string,
@@ -100,20 +91,10 @@ async function runClaude(
   try {
     // The provider drives claude in the current working directory; scope it to
     // the agent's cwd for the duration of the run. chdir is process-global, so
-    // the whole chdir→run→restore is serialized under withCwdLock.
-    return await withCwdLock(async () => {
-      const prevCwd = process.cwd();
-      try {
-        process.chdir(cwd);
-      } catch {}
-      try {
-        return await pipeToClaudeAiSdk(prompt, onLog, { allowedTools });
-      } finally {
-        try {
-          process.chdir(prevCwd);
-        } catch {}
-      }
-    });
+    // the whole chdir→run→restore is serialized under the shared cwd lock.
+    return await runInCwd(cwd, () =>
+      pipeToClaudeAiSdk(prompt, onLog, { allowedTools }),
+    );
   } catch (e) {
     // The report backend throws on an empty generation; the old `claude -p`
     // path returned the (empty) output and let parseFinding treat it as
@@ -201,5 +182,8 @@ async function runAutoAgentInner(
     suggest: f.suggest ? String(f.suggest) : undefined,
   });
   onLog(`[auto] new finding: ${title}`);
+  // Wake installed PWAs via Web Push. Payload-less: the service worker fetches
+  // the finding itself. Best-effort — never let a push failure sink the run.
+  void notifyAll().catch(() => {});
   return finding;
 }

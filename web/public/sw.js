@@ -29,6 +29,105 @@ function cacheable(url, request) {
   return /\.(svg|png|ico|webmanifest|woff2?)$/.test(url.pathname);
 }
 
+// ── Web Push ────────────────────────────────────────────────────────────────
+// Pushes are payload-less: when one arrives we fetch what's pending (same data
+// the UI polls) and raise a notification. A pending agent QUESTION wins over a
+// finding — it's interactive and needs a human reply. If a future push ever
+// carries a JSON payload we honour that first.
+async function fetchJson(url) {
+  try {
+    const res = await fetch(url, { cache: "no-store" });
+    if (res.ok) return await res.json();
+  } catch {
+    // offline / API down
+  }
+  return null;
+}
+
+async function showLatest(payload) {
+  if (payload?.title) {
+    await self.registration.showNotification(payload.title, {
+      body: payload.body || "",
+      icon: "/icon.svg",
+      badge: "/icon-maskable.svg",
+      tag: payload.tag || "lfg",
+      renotify: true,
+      data: { url: payload.url || "/" },
+    });
+    return;
+  }
+
+  // Ask the backend for THIS device's feed only — filtered to the user this
+  // push subscription is bound to, so we never show another user's question.
+  let feedUrl = "/api/ask?status=open";
+  try {
+    const sub = await self.registration.pushManager.getSubscription();
+    if (sub?.endpoint) feedUrl = `/api/push/pending?endpoint=${encodeURIComponent(sub.endpoint)}`;
+  } catch {
+    // no subscription handle — fall back to the unscoped list
+  }
+
+  // Prefer an open question over a finding.
+  const asked = await fetchJson(feedUrl);
+  const q = (asked?.questions || [])[0] || null;
+  if (q) {
+    const opts = Array.isArray(q.options) && q.options.length ? ` — ${q.options.join(" / ")}` : "";
+    await self.registration.showNotification("lfg needs your input", {
+      body: (q.question || "A question is waiting") + opts,
+      icon: "/icon.svg",
+      badge: "/icon-maskable.svg",
+      tag: `ask-${q.id}`,
+      renotify: true,
+      requireInteraction: true,
+      data: { url: "/" },
+    });
+    return;
+  }
+
+  // Reuse the feed's findings if it carried them; else fetch the global list.
+  const findings =
+    asked?.findings || (await fetchJson("/api/auto/findings?status=open"))?.findings || [];
+  const f = findings[0] || null;
+  const title = f?.title || "lfg";
+  const body =
+    f?.suggest || (Array.isArray(f?.reasoning) ? f.reasoning[0] : "") || "New activity in your sessions";
+  await self.registration.showNotification(title, {
+    body,
+    icon: "/icon.svg",
+    badge: "/icon-maskable.svg",
+    tag: f?.id ? `finding-${f.id}` : "lfg",
+    renotify: true,
+    data: { url: "/", findingId: f?.id || null },
+  });
+}
+
+self.addEventListener("push", (event) => {
+  let payload = null;
+  try {
+    payload = event.data ? event.data.json() : null;
+  } catch {
+    payload = null;
+  }
+  event.waitUntil(showLatest(payload));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = event.notification.data?.url || "/";
+  event.waitUntil(
+    (async () => {
+      const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const c of all) {
+        if ("focus" in c) {
+          await c.focus();
+          return;
+        }
+      }
+      if (self.clients.openWindow) await self.clients.openWindow(target);
+    })(),
+  );
+});
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
