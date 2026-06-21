@@ -2541,21 +2541,50 @@ function RailStage({
     [selectTo, openSession],
   );
 
+  // Quick-interrupt a session by id. Interrupting an idle session is a harmless
+  // server-side no-op, but we still gate on drivability so we never POST for a
+  // session this client can't control.
+  const interruptSid = useCallback(
+    async (sid: string | null) => {
+      if (!sid) return;
+      const sess = bySid.get(sid);
+      if (!sess || !canDriveSession(sess)) return;
+      try {
+        await api(`/api/sessions/${sid}/interrupt`, { method: "POST" });
+        await onRefresh();
+      } catch {
+        // Best-effort: a failed interrupt shouldn't surface as a hard error.
+      }
+    },
+    [bySid, onRefresh],
+  );
+
   // Latest values for the global key handler, so it binds once but never reads
   // stale state.
-  const kb = useRef({ orderedSids, cursor, preview, columnIds, activate, selectTo, togglePin, closeColumn, setCursor, setPreview, setRailCollapsed, setShowHelp });
-  kb.current = { orderedSids, cursor, preview, columnIds, activate, selectTo, togglePin, closeColumn, setCursor, setPreview, setRailCollapsed, setShowHelp };
+  const kb = useRef({ orderedSids, cursor, preview, columnIds, activate, selectTo, togglePin, closeColumn, setCursor, setPreview, setRailCollapsed, setShowHelp, showHelp, busyBySid, interruptSid });
+  kb.current = { orderedSids, cursor, preview, columnIds, activate, selectTo, togglePin, closeColumn, setCursor, setPreview, setRailCollapsed, setShowHelp, showHelp, busyBySid, interruptSid };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const s = kb.current;
+      const order = s.orderedSids;
+      const cur = s.cursor && order.includes(s.cursor) ? s.cursor : order[0] ?? null;
+
+      // Quick-interrupt: Cmd/Ctrl+. cancels the active run from anywhere — even
+      // while typing in the composer — targeting the focused session if it's
+      // busy, else the first running session.
+      if ((e.metaKey || e.ctrlKey) && e.key === ".") {
+        e.preventDefault();
+        const target = cur && s.busyBySid[cur] ? cur : order.find((id) => s.busyBySid[id]) ?? cur;
+        void s.interruptSid(target);
+        return;
+      }
+
       // Never hijack browser combos or typing in a composer/input.
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const el = document.activeElement as HTMLElement | null;
       const tag = el?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
 
-      const s = kb.current;
-      const order = s.orderedSids;
-      const cur = s.cursor && order.includes(s.cursor) ? s.cursor : order[0] ?? null;
       const idx = cur ? order.indexOf(cur) : -1;
       const move = (delta: number, shift: boolean) => {
         if (!order.length) return;
@@ -2577,13 +2606,24 @@ function RailStage({
           e.preventDefault();
           s.setShowHelp((v) => !v);
           return;
-        case "Escape":
-          s.setShowHelp((v) => {
-            if (v) return false;
-            if (s.preview) s.setPreview(null);
-            return false;
-          });
+        case "Escape": {
+          // Esc unwinds overlays first (help, then preview); with nothing open
+          // it cancels the active run for the focused/first-busy session.
+          if (s.showHelp) {
+            s.setShowHelp(false);
+            return;
+          }
+          if (s.preview) {
+            s.setPreview(null);
+            return;
+          }
+          const target = cur && s.busyBySid[cur] ? cur : order.find((id) => s.busyBySid[id]) ?? null;
+          if (target) {
+            e.preventDefault();
+            void s.interruptSid(target);
+          }
           return;
+        }
         case "j":
         case "ArrowDown":
           e.preventDefault();
@@ -3847,6 +3887,18 @@ const SessionCard = memo(function SessionCard({
             {session.model}
           </span>
         ) : null)}
+        {!collapsedView && busy && canDriveSession(session) ? (
+          <button
+            type="button"
+            onClick={() => void interrupt()}
+            aria-label="Stop (Esc or Ctrl/Cmd+.)"
+            title="Stop — Esc or Ctrl/Cmd+."
+            className="flex h-6 shrink-0 items-center gap-1 rounded-full bg-destructive/10 px-2 text-[10px] font-medium text-destructive hover:bg-destructive/20"
+          >
+            <CircleStop className="size-3.5" />
+            Stop
+          </button>
+        ) : null}
         <span
           aria-label={busy ? "working" : "idle"}
           className={cn(
