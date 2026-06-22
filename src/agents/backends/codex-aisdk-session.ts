@@ -56,6 +56,7 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
   // codex thread id (which we don't know until after turn 1).
   const keyArg = arg(argv, "--key");
   const model = arg(argv, "--model") ?? "gpt-5.5";
+  const thinkingLevel = arg(argv, "--thinking-level");
   const cwd = arg(argv, "--cwd") ?? process.cwd();
   const tmuxName = arg(argv, "--tmux") ?? "";
   // Everything after `--` is the initial prompt (mirrors how the Claude harness
@@ -137,13 +138,21 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
     const codexOpts = threadId
       ? { threadId }
       : { threadMode: "persistent" as const };
-    const llm = provider(model);
+    const llm = provider(
+      model,
+      thinkingLevel ? { effort: thinkingLevel as any } : undefined,
+    );
 
     const result = streamText({
       model: llm,
       prompt,
       abortSignal: signal,
-      providerOptions: { "codex-app-server": codexOpts },
+      providerOptions: {
+        "codex-app-server": {
+          ...codexOpts,
+          ...(thinkingLevel ? { effort: thinkingLevel } : {}),
+        },
+      },
     } as any);
     try {
       for await (const part of result.fullStream as any) {

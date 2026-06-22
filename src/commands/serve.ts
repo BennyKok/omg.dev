@@ -104,6 +104,8 @@ const SELF_REPO = PATHS.root;
 const CLAUDE_MODELS = ["fable", "opus", "sonnet", "haiku"];
 // Models the "aisdk" session kind accepts (the provider maps these aliases).
 const AISDK_MODELS = ["opus", "sonnet", "haiku"];
+const THINKING_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
+type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 import { enqueueMessage, listQueue, retryMessage, clearResolved, reconcileQueued, getMessage } from "../sendq.ts";
 
 const PORT = Number(process.env.LFG_PORT ?? 8766);
@@ -1665,6 +1667,7 @@ export async function cmdServe() {
           user?: string;
           voice?: boolean;
           model?: string;
+          thinkingLevel?: string;
           agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode";
         } | null;
         // Default flip (Task B): with no agent specified, the default Claude path
@@ -1700,6 +1703,11 @@ export async function cmdServe() {
         // validate by shape rather than an allowlist.
         if (agent === "opencode" && model && !/^[A-Za-z0-9_.:\/-]{1,80}$/.test(model))
           return err(400, "invalid opencode model name");
+        const thinkingLevel = body?.thinkingLevel?.trim() || undefined;
+        if (thinkingLevel && !THINKING_LEVELS.includes(thinkingLevel as ThinkingLevel))
+          return err(400, `unknown thinking level "${thinkingLevel}" (expected one of ${THINKING_LEVELS.join(", ")})`);
+        if (thinkingLevel && agent !== "codex" && agent !== "codex-aisdk")
+          return err(400, "thinkingLevel is only supported for Codex sessions");
         // Always spawn in a trusted folder — claude shows a blocking "trust this
         // folder?" dialog for any untrusted cwd, which hangs session startup. The
         // lfg-sessions skill is installed user-level (~/.claude/skills) so the
@@ -1737,7 +1745,7 @@ export async function cmdServe() {
         const opencodeKey = agent === "opencode" ? crypto.randomUUID() : null;
         const r =
           agent === "codex"
-            ? spawnManagedCodexSession({ name: tmuxName, cwd, prompt, model })
+            ? spawnManagedCodexSession({ name: tmuxName, cwd, prompt, model, thinkingLevel })
             : agent === "aisdk"
               ? spawnManagedAisdkSession({
                   name: tmuxName,
@@ -1753,6 +1761,7 @@ export async function cmdServe() {
                     prompt,
                     model: model ?? "gpt-5.5",
                     key: codexAisdkKey!,
+                    thinkingLevel,
                   })
                 : agent === "opencode"
                   ? spawnManagedOpencodeAisdkSession({

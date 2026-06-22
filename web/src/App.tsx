@@ -209,6 +209,12 @@ const OPENCODE_MODELS = [
   "fugu/fugu",
   "fugu/fugu-ultra",
 ];
+const THINKING_LEVELS = ["low", "medium", "high", "xhigh"] as const;
+type ThinkingLevel = (typeof THINKING_LEVELS)[number];
+function savedThinkingLevel(): ThinkingLevel {
+  const value = localStorage.getItem("lfg_thinking_level");
+  return THINKING_LEVELS.includes(value as ThinkingLevel) ? (value as ThinkingLevel) : "medium";
+}
 
 type AgentKind = "claude" | "aisdk" | "codex" | "codex-aisdk" | "opencode";
 
@@ -4594,6 +4600,9 @@ function NewSessionDialog({
       localStorage.getItem("lfg_model") ||
       AGENT_DEFAULT_MODEL[(localStorage.getItem("lfg_v2_agent") as AgentKind | null) || "aisdk"],
   );
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(
+    () => savedThinkingLevel(),
+  );
   // Default the owner to the active profile, falling back to the first known user
   // — never empty when a roster exists. An unowned session lands unassigned, and
   // the live view's auto-default filter (which flips to a specific user) then
@@ -4723,6 +4732,7 @@ function NewSessionDialog({
     localStorage.setItem("lfg_v2_agent", agent);
     localStorage.setItem("lfg_v2_repo", selectedRepo);
     localStorage.setItem(`lfg_model_${agent}`, model);
+    if (agent === "codex-aisdk") localStorage.setItem("lfg_thinking_level", thinkingLevel);
     if (agent === "claude") localStorage.setItem("lfg_model", model);
     if (user) localStorage.setItem("lfg_user", user);
     // Close the drawer immediately — the spawn is slow (tmux + agent boot), so we
@@ -4740,6 +4750,7 @@ function NewSessionDialog({
           user: user || undefined,
           agent,
           model,
+          thinkingLevel: agent === "codex-aisdk" ? thinkingLevel : undefined,
         }),
       }).then(() => {
         setPrompt("");
@@ -4877,6 +4888,23 @@ function NewSessionDialog({
               ))}
             </select>
           </FieldPill>
+
+          {agent === "codex-aisdk" && (
+            <FieldPill>
+              <select
+                value={thinkingLevel}
+                onChange={(e) => setThinkingLevel(e.target.value as ThinkingLevel)}
+                aria-label="Thinking level"
+                className="max-w-24 appearance-none truncate bg-transparent pr-1 text-xs font-medium outline-none"
+              >
+                {THINKING_LEVELS.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </FieldPill>
+          )}
 
           <FieldPill icon={<Folder className="size-3.5 text-muted-foreground" />}>
             <select
