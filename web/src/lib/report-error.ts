@@ -94,6 +94,13 @@ export function installErrorReporting(): void {
 
   window.addEventListener("unhandledrejection", (ev: PromiseRejectionEvent) => {
     const reason = ev.reason;
+    // A bare DOM Event as the rejection reason is non-actionable noise: it's how
+    // libraries (e.g. livekit-client's signal WebSocket, media elements) surface
+    // a transient connection/playback error — reject with the raw `error` event.
+    // It carries no message or stack and serializes to a useless `{"isTrusted":
+    // true}`, yet would still raise a finding + dispatch an auto-fix agent. Drop
+    // it, mirroring the resource-load filter in the 'error' handler above.
+    if (typeof Event !== "undefined" && reason instanceof Event) return;
     const message =
       reason instanceof Error
         ? reason.message
