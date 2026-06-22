@@ -37,7 +37,6 @@ import {
   MessageSquare,
   Mic,
   Bell,
-  BellOff,
   MoreVertical,
   Moon,
   PanelLeftClose,
@@ -65,6 +64,7 @@ import { haptic } from "@/lib/haptics";
 import { reportError } from "./lib/report-error";
 import { Toaster } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 // Code-split: the terminal pulls in ghostty-web's ~400KB WASM, so only load it
 // when the Terminal tab is actually opened — keeps the initial bundle lean.
 const TermView = lazy(() =>
@@ -986,16 +986,12 @@ function PushBell({ user }: { user?: string | null }) {
   };
 
   return (
-    <Button
-      variant="tint"
-      size="icon-sm"
-      onClick={toggle}
+    <Switch
+      checked={on}
+      onCheckedChange={() => void toggle()}
       disabled={busy}
       aria-label={on ? "Disable notifications" : "Enable notifications"}
-      title={on ? "Notifications on" : "Enable notifications"}
-    >
-      {on ? <Bell className="size-4" /> : <BellOff className="size-4" />}
-    </Button>
+    />
   );
 }
 
@@ -5790,60 +5786,92 @@ function SettingsView({
   user: string | null;
   onOpenTerminal: () => void;
 }) {
+  const initial = (user ?? "").trim().slice(0, 1).toUpperCase() || "?";
+
   return (
-    <div className="space-y-1">
-      <div className="rounded-2xl border border-border bg-card/40">
-        <div className="border-b border-border px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+    <div className="mx-auto max-w-xl space-y-8 pb-10">
+      {/* Account */}
+      <div className="flex items-center gap-3.5 px-1">
+        <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-secondary text-lg font-semibold text-muted-foreground">
+          {initial}
+        </div>
+        <div className="min-w-0">
+          <div className="truncate text-lg font-semibold leading-tight">
+            {user ?? "No user selected"}
+          </div>
+          <div className="text-sm text-muted-foreground">
+            {user ? "Signed in on this device" : "Pick your name in the top filter"}
+          </div>
+        </div>
+      </div>
+
+      {/* Display */}
+      <section className="space-y-2">
+        <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Display
-        </div>
-        <div className="flex items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-3">
-            {dark ? <Sun className="size-4 text-muted-foreground" /> : <Moon className="size-4 text-muted-foreground" />}
-            <span className="text-sm font-medium">Dark mode</span>
+        </h2>
+        <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
+          <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+            <div className="flex items-center gap-3">
+              <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
+                {dark ? <Moon className="size-4" /> : <Sun className="size-4" />}
+              </span>
+              <span className="text-sm font-medium">Dark mode</span>
+            </div>
+            <Switch
+              checked={dark}
+              onCheckedChange={toggleTheme}
+              aria-label="Toggle dark mode"
+            />
           </div>
-          <Button
-            variant="tint"
-            size="icon-sm"
-            onClick={toggleTheme}
-            aria-label="Toggle dark mode"
-          >
-            {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
-          </Button>
         </div>
-      </div>
+        <p className="px-4 text-xs text-muted-foreground">
+          Follows your system appearance until you set it here.
+        </p>
+      </section>
 
-      <div className="rounded-2xl border border-border bg-card/40">
-        <div className="border-b border-border px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+      {/* Notifications */}
+      <section className="space-y-2">
+        <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Notifications
-        </div>
-        <div className="flex items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-3">
-            <Bell className="size-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Push notifications</span>
+        </h2>
+        <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
+          <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+            <div className="flex items-center gap-3">
+              <span className="flex size-7 items-center justify-center rounded-[7px] bg-destructive text-white">
+                <Bell className="size-4" />
+              </span>
+              <span className="text-sm font-medium">Push notifications</span>
+            </div>
+            <PushBell user={user} />
           </div>
-          <PushBell user={user} />
         </div>
-      </div>
+        <p className="px-4 text-xs text-muted-foreground">
+          Get a push when one of your sessions needs you.
+        </p>
+      </section>
 
-      <div className="rounded-2xl border border-border bg-card/40">
-        <div className="border-b border-border px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Terminal
-        </div>
-        <div className="flex items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-3">
-            <TerminalSquare className="size-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Open terminal</span>
-          </div>
-          <Button
-            variant="tint"
-            size="icon-sm"
+      {/* Tools */}
+      <section className="space-y-2">
+        <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Tools
+        </h2>
+        <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
+          <button
+            type="button"
             onClick={onOpenTerminal}
-            aria-label="Open terminal"
+            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
           >
-            <TerminalSquare className="size-4" />
-          </Button>
+            <div className="flex items-center gap-3">
+              <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
+                <TerminalSquare className="size-4" />
+              </span>
+              <span className="text-sm font-medium">Open terminal</span>
+            </div>
+            <ChevronRight className="size-4 text-muted-foreground/60" />
+          </button>
         </div>
-      </div>
+      </section>
     </div>
   );
 }
