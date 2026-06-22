@@ -51,6 +51,7 @@ import {
   Radio,
   RotateCcw,
   Send,
+  Settings,
   Sparkles,
   Sun,
   TerminalSquare,
@@ -1005,7 +1006,7 @@ export function App() {
   // nav-tab id becomes a valid tab value), so this is a plain string.
   const [tab, setTab] = useState<string>("live");
   const extNavTabs = useExtensionNavTabs();
-  const allTabIds = ["live", "auto", ...extNavTabs.map((t) => t.id)];
+  const allTabIds = ["live", "auto", ...extNavTabs.map((t) => t.id), "settings"];
   const tabIndex = Math.max(0, allTabIds.indexOf(tab));
   const activeExtTab = extNavTabs.find((t) => t.id === tab);
   const [autoAgents, setAutoAgents] = useState<AutoAgent[]>([]);
@@ -1576,7 +1577,7 @@ export function App() {
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border bg-background/90 px-3 backdrop-blur">
         <img src="/icon.svg" alt="lfg" className="size-6 shrink-0" />
         <div className="min-w-0 flex-1 truncate text-sm font-semibold">
-          {activeExtTab ? activeExtTab.label : tab === "auto" ? "Auto agents" : tab === "term" ? "Terminal" : ""}
+          {activeExtTab ? activeExtTab.label : tab === "auto" ? "Auto agents" : tab === "term" ? "Terminal" : tab === "settings" ? "Settings" : ""}
         </div>
 
         {tab === "live" ? (
@@ -1586,22 +1587,6 @@ export function App() {
             onChange={changeUserFilter}
           />
         ) : null}
-        <Button
-          variant={tab === "term" ? "default" : "tint"}
-          size="icon-sm"
-          aria-label="Terminal"
-          onClick={() => setTab(tab === "term" ? "live" : "term")}
-        >
-          <TerminalSquare className="size-4" />
-        </Button>
-        <PushBell
-          user={
-            userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : null
-          }
-        />
-        <Button variant="tint" size="icon-sm" onClick={toggleTheme}>
-          {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
-        </Button>
       </header>
 
       {error ? (
@@ -1640,6 +1625,13 @@ export function App() {
           <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading terminal…</div>}>
             <TermView />
           </Suspense>
+        ) : tab === "settings" ? (
+          <SettingsView
+            dark={dark}
+            toggleTheme={toggleTheme}
+            user={userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : null}
+            onOpenTerminal={() => setTab("term")}
+          />
         ) : (
           activeExtTab?.render() ?? null
         )}
@@ -1675,6 +1667,12 @@ export function App() {
                 label={t.label}
               />
             ))}
+            <PillTab
+              active={tab === "settings"}
+              onClick={() => setTab("settings")}
+              icon={<Settings className="size-[18px]" />}
+              label="Settings"
+            />
           </nav>
         </div>
         <NewSessionFab onOpenDialog={() => setNewOpen(true)} onCreateVoice={createVoiceSession} />
@@ -5658,6 +5656,75 @@ function ScheduleSummary({ expr, tz }: { expr: string; tz: string }) {
         {next ? <span className="text-muted-foreground/70"> · next {formatRelative(next, navLocale)}</span> : null}
       </span>
     </span>
+  );
+}
+
+function SettingsView({
+  dark,
+  toggleTheme,
+  user,
+  onOpenTerminal,
+}: {
+  dark: boolean;
+  toggleTheme: () => void;
+  user: string | null;
+  onOpenTerminal: () => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="rounded-2xl border border-border bg-card/40">
+        <div className="border-b border-border px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Display
+        </div>
+        <div className="flex items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-3">
+            {dark ? <Sun className="size-4 text-muted-foreground" /> : <Moon className="size-4 text-muted-foreground" />}
+            <span className="text-sm font-medium">Dark mode</span>
+          </div>
+          <Button
+            variant="tint"
+            size="icon-sm"
+            onClick={toggleTheme}
+            aria-label="Toggle dark mode"
+          >
+            {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+          </Button>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-border bg-card/40">
+        <div className="border-b border-border px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Notifications
+        </div>
+        <div className="flex items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-3">
+            <Bell className="size-4 text-muted-foreground" />
+            <span className="text-sm font-medium">Push notifications</span>
+          </div>
+          <PushBell user={user} />
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-border bg-card/40">
+        <div className="border-b border-border px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Terminal
+        </div>
+        <div className="flex items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-3">
+            <TerminalSquare className="size-4 text-muted-foreground" />
+            <span className="text-sm font-medium">Open terminal</span>
+          </div>
+          <Button
+            variant="tint"
+            size="icon-sm"
+            onClick={onOpenTerminal}
+            aria-label="Open terminal"
+          >
+            <TerminalSquare className="size-4" />
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
