@@ -111,7 +111,7 @@ export function AskCenter() {
 
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[60] flex justify-center px-3 pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
-      <div className="pointer-events-auto w-full max-w-md rounded-2xl border border-primary/30 bg-background/95 p-3.5 shadow-[0_12px_40px_rgba(0,0,0,0.28)] backdrop-blur-xl">
+      <div className="pointer-events-auto w-full max-w-md rounded-2xl border border-primary/30 bg-background p-3.5 shadow-[0_12px_40px_rgba(0,0,0,0.28)]">
         <div className="mb-2 flex items-start gap-2">
           <div className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
             <MessageCircleQuestion className="size-3.5" />

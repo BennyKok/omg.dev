@@ -1177,7 +1177,7 @@ export function App() {
               setOpenFinding(f);
               toast.dismiss(id);
             }}
-            className="pointer-events-auto flex w-full max-w-sm items-center gap-3 rounded-2xl border border-border bg-card/95 px-3.5 py-3 text-left shadow-[0_8px_28px_rgba(0,0,0,0.22)] backdrop-blur-xl"
+            className="pointer-events-auto flex w-full max-w-sm items-center gap-3 rounded-2xl border border-border bg-card px-3.5 py-3 text-left shadow-[0_8px_28px_rgba(0,0,0,0.22)]"
           >
             <span className="grid size-8 shrink-0 place-items-center rounded-full bg-primary/12 text-primary">
               <Sparkles className="size-4" />
@@ -1695,7 +1695,7 @@ export function App() {
       {/* floating pill nav + new-session FAB */}
       <div className={`pointer-events-none fixed inset-x-0 bottom-0 z-50 flex items-center justify-center gap-2.5 px-4 pb-[calc(0.875rem+env(safe-area-inset-bottom))] ${keyboardOpen ? "hidden" : ""}`}>
         <div className="pointer-events-auto rounded-full bg-gradient-to-b from-white/70 via-white/25 to-white/10 p-px shadow-[0_8px_28px_rgba(0,0,0,0.18)] dark:from-white/25 dark:via-white/10 dark:to-white/5">
-          <nav className="relative flex items-center gap-1 rounded-full bg-background/85 p-1.5 backdrop-blur-xl">
+          <nav className="relative flex items-center gap-1 rounded-full bg-background p-1.5">
             <span
               aria-hidden
               className="absolute inset-y-1.5 left-1.5 w-[4.5rem] rounded-full bg-primary/12 transition-transform duration-[260ms] ease-ios"
@@ -1982,7 +1982,7 @@ function NewSessionFab({
       </div>
 
       {overlayOpen ? (
-        <div className="pointer-events-none fixed inset-0 z-[60] flex flex-col items-center justify-between bg-background/80 px-6 pb-40 pt-[calc(env(safe-area-inset-top)+2rem)] backdrop-blur-md">
+        <div className="pointer-events-none fixed inset-0 z-[60] flex flex-col items-center justify-between bg-background px-6 pb-40 pt-[calc(env(safe-area-inset-top)+2rem)]">
           {/* slide-up-to-cancel target */}
           <div
             className={cn(
@@ -2924,7 +2924,7 @@ function ShortcutsHelp({ onClose }: { onClose: () => void }) {
   ];
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
       onClick={onClose}
     >
       <div
@@ -3551,7 +3551,7 @@ function SessionTitleSheet({
       <div
         ref={backdropRef}
         onClick={requestClose}
-        className="absolute inset-0 bg-black/50 supports-backdrop-filter:backdrop-blur-sm"
+        className="absolute inset-0 bg-black/50"
       />
       <div
         ref={panelRef}

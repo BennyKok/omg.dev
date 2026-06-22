@@ -40,7 +40,7 @@ function AlertDialogOverlay({
         // base-ui portals our AlertDialog content as a descendant of
         // body — so without overriding here every click is dropped and
         // the confirm flow silently no-ops.
-        "pointer-events-auto fixed inset-0 isolate z-[80] bg-black/80 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        "pointer-events-auto fixed inset-0 isolate z-[80] bg-black/80 duration-100 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
         className
       )}
       {...props}
