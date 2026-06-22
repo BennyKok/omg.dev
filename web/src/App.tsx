@@ -1018,7 +1018,7 @@ export function App() {
   // nav-tab id becomes a valid tab value), so this is a plain string.
   const [tab, setTab] = useState<string>("live");
   const extNavTabs = useExtensionNavTabs();
-  const allTabIds = ["live", "auto", ...extNavTabs.map((t) => t.id), "browser", "settings"];
+  const allTabIds = ["live", "auto", ...extNavTabs.map((t) => t.id), "settings"];
   const tabIndex = Math.max(0, allTabIds.indexOf(tab));
   const activeExtTab = extNavTabs.find((t) => t.id === tab);
   const [autoAgents, setAutoAgents] = useState<AutoAgent[]>([]);
@@ -1682,6 +1682,7 @@ export function App() {
             toggleTheme={toggleTheme}
             user={userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : null}
             onOpenTerminal={() => setTab("term")}
+            onOpenBrowser={() => setTab("browser")}
           />
         ) : (
           activeExtTab?.render() ?? null
@@ -1718,12 +1719,6 @@ export function App() {
                 label={t.label}
               />
             ))}
-            <PillTab
-              active={tab === "browser"}
-              onClick={() => setTab("browser")}
-              icon={<Globe className="size-[18px]" />}
-              label="Browser"
-            />
             <PillTab
               active={tab === "settings"}
               onClick={() => setTab("settings")}
@@ -5780,11 +5775,13 @@ function SettingsView({
   toggleTheme,
   user,
   onOpenTerminal,
+  onOpenBrowser,
 }: {
   dark: boolean;
   toggleTheme: () => void;
   user: string | null;
   onOpenTerminal: () => void;
+  onOpenBrowser: () => void;
 }) {
   const initial = (user ?? "").trim().slice(0, 1).toUpperCase() || "?";
 
@@ -5856,7 +5853,7 @@ function SettingsView({
         <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Tools
         </h2>
-        <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
+        <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
           <button
             type="button"
             onClick={onOpenTerminal}
@@ -5867,6 +5864,19 @@ function SettingsView({
                 <TerminalSquare className="size-4" />
               </span>
               <span className="text-sm font-medium">Open terminal</span>
+            </div>
+            <ChevronRight className="size-4 text-muted-foreground/60" />
+          </button>
+          <button
+            type="button"
+            onClick={onOpenBrowser}
+            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
+          >
+            <div className="flex items-center gap-3">
+              <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
+                <Globe className="size-4" />
+              </span>
+              <span className="text-sm font-medium">Browser profiles</span>
             </div>
             <ChevronRight className="size-4 text-muted-foreground/60" />
           </button>
