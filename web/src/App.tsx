@@ -205,6 +205,8 @@ const OPENCODE_MODELS = [
   "anthropic/claude-haiku-4-5",
   "openai/gpt-5.5",
   "openai/gpt-5.4",
+  "fugu/fugu",
+  "fugu/fugu-ultra",
 ];
 
 type AgentKind = "claude" | "aisdk" | "codex" | "codex-aisdk" | "opencode";
