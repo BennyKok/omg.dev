@@ -95,6 +95,7 @@ import {
   attachStream,
   endSession,
   type WSLike,
+  type Viewport,
 } from "../browser/session.ts";
 import { testProfile } from "../browser/tool.ts";
 import { listCustomRepos, addCustomRepo, removeCustomRepo } from "../repos-store.ts";
@@ -1602,10 +1603,14 @@ export async function cmdServe() {
         return json(await listProfiles());
       }
       if (path === "/api/browser/profiles" && req.method === "POST") {
-        const b = (await req.json().catch(() => null)) as { url?: unknown } | null;
+        const b = (await req.json().catch(() => null)) as
+          | { url?: unknown; viewport?: unknown }
+          | null;
         const u = typeof b?.url === "string" ? b.url.trim() : "";
         if (!u) return err(400, "url is required");
-        const { id } = await startLoginSession(u);
+        const { id } = await startLoginSession(u, {
+          viewport: b?.viewport as Partial<Viewport> | null | undefined,
+        });
         return json({ sessionId: id });
       }
       {
@@ -1615,7 +1620,13 @@ export async function cmdServe() {
           const prof = await getProfile(id);
           if (!prof) return err(404, "unknown profile");
           const target = prof.origins[0] || "about:blank";
-          const { id: sid } = await startLoginSession(target, id);
+          const b = (await req.json().catch(() => null)) as
+            | { viewport?: unknown }
+            | null;
+          const { id: sid } = await startLoginSession(target, {
+            existingProfileId: id,
+            viewport: b?.viewport as Partial<Viewport> | null | undefined,
+          });
           return json({ sessionId: sid });
         }
       }

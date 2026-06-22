@@ -4,6 +4,7 @@ import {
   Globe,
   Loader2,
   LogIn,
+  Monitor,
   Plus,
   RefreshCw,
   TestTube2,
@@ -46,6 +47,42 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
+// How the live login browser should be sized. "fit" matches the user's own
+// screen so pages lay out the way they're used to; the presets force a classic
+// desktop or phone viewport for testing responsive logins.
+type ViewportMode = "fit" | "desktop" | "mobile";
+
+type Viewport = {
+  width: number;
+  height: number;
+  deviceScaleFactor: number;
+  isMobile: boolean;
+};
+
+const VIEWPORT_LABELS: Record<ViewportMode, string> = {
+  fit: "Fit my screen",
+  desktop: "Desktop",
+  mobile: "Mobile",
+};
+
+function computeViewport(mode: ViewportMode): Viewport {
+  if (mode === "mobile") {
+    return { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true };
+  }
+  if (mode === "desktop") {
+    return { width: 1440, height: 900, deviceScaleFactor: 1, isMobile: false };
+  }
+  // "fit": match the visible browser area on this device.
+  return {
+    width: Math.round(window.innerWidth) || 1280,
+    height: Math.round(window.innerHeight) || 800,
+    deviceScaleFactor: 1,
+    isMobile: false,
+  };
+}
+
+const VIEWPORT_KEY = "lfg_browser_viewport_mode";
+
 function timeAgo(value?: number | null): string {
   if (!value) return "never";
   const seconds = Math.max(0, Math.round((Date.now() - value) / 1000));
@@ -68,6 +105,16 @@ export default function BrowserProfiles() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [tests, setTests] = useState<Record<string, TestResult>>({});
   const [live, setLive] = useState<LiveSession | null>(null);
+  const [viewportMode, setViewportMode] = useState<ViewportMode>(() => {
+    const saved = localStorage.getItem(VIEWPORT_KEY);
+    return saved === "desktop" || saved === "mobile" || saved === "fit"
+      ? saved
+      : "fit";
+  });
+
+  useEffect(() => {
+    localStorage.setItem(VIEWPORT_KEY, viewportMode);
+  }, [viewportMode]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -96,28 +143,35 @@ export default function BrowserProfiles() {
       const { sessionId } = await api<{ sessionId: string }>("/api/browser/profiles", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url, viewport: computeViewport(viewportMode) }),
       });
       setLive({ sessionId, profileId: null });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to start session");
     }
-  }, []);
+  }, [viewportMode]);
 
-  const handleReauth = useCallback(async (id: string) => {
-    setBusyId(id);
-    try {
-      const { sessionId } = await api<{ sessionId: string }>(
-        `/api/browser/profiles/${encodeURIComponent(id)}/reauth`,
-        { method: "POST" },
-      );
-      setLive({ sessionId, profileId: id });
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to start re-auth");
-    } finally {
-      setBusyId(null);
-    }
-  }, []);
+  const handleReauth = useCallback(
+    async (id: string) => {
+      setBusyId(id);
+      try {
+        const { sessionId } = await api<{ sessionId: string }>(
+          `/api/browser/profiles/${encodeURIComponent(id)}/reauth`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ viewport: computeViewport(viewportMode) }),
+          },
+        );
+        setLive({ sessionId, profileId: id });
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Failed to start re-auth");
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [viewportMode],
+  );
 
   const handleTest = useCallback(async (id: string) => {
     setBusyId(id);
@@ -177,6 +231,22 @@ export default function BrowserProfiles() {
             Saved logins agents can reuse to act as you
           </div>
         </div>
+        <label className="flex items-center gap-1 text-xs text-muted-foreground">
+          <Monitor className="size-3.5" />
+          <select
+            value={viewportMode}
+            onChange={(e) => setViewportMode(e.target.value as ViewportMode)}
+            aria-label="Login browser size"
+            title="Size of the live login browser"
+            className="rounded-md border border-border bg-card px-1.5 py-1 text-xs text-foreground outline-none focus:border-primary"
+          >
+            {(Object.keys(VIEWPORT_LABELS) as ViewportMode[]).map((m) => (
+              <option key={m} value={m}>
+                {VIEWPORT_LABELS[m]}
+              </option>
+            ))}
+          </select>
+        </label>
         <Button size="sm" variant="outline" onClick={() => void refresh()} disabled={loading}>
           <RefreshCw className={"size-4" + (loading ? " animate-spin" : "")} />
         </Button>

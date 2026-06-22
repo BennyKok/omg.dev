@@ -16,6 +16,47 @@ import {
 
 export type LoginSession = { id: string };
 
+// Viewport the human's login browser renders at. The client picks this (match
+// my screen / desktop / mobile) so the login page lays out the way they expect;
+// agents later replay the saved cookies in their own headless viewport.
+export type Viewport = {
+  width: number;
+  height: number;
+  deviceScaleFactor?: number;
+  isMobile?: boolean;
+};
+
+const DEFAULT_VIEWPORT: Required<Viewport> = {
+  width: 1280,
+  height: 800,
+  deviceScaleFactor: 1,
+  isMobile: false,
+};
+
+// Convincing mobile UA so responsive sites serve their phone layout when the
+// "mobile" preset is chosen (viewport width + isMobile alone isn't always enough).
+const MOBILE_UA =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+
+// Clamp client-supplied dimensions into sane bounds; fall back to the desktop
+// default when anything is missing or non-numeric.
+function sanitizeViewport(v?: Partial<Viewport> | null): Required<Viewport> {
+  if (!v || typeof v.width !== "number" || typeof v.height !== "number") {
+    return DEFAULT_VIEWPORT;
+  }
+  const clamp = (n: number, lo: number, hi: number) =>
+    Math.max(lo, Math.min(hi, Math.round(n)));
+  return {
+    width: clamp(v.width, 320, 3840),
+    height: clamp(v.height, 320, 2160),
+    deviceScaleFactor:
+      typeof v.deviceScaleFactor === "number"
+        ? clamp(v.deviceScaleFactor, 1, 3)
+        : 1,
+    isMobile: !!v.isMobile,
+  };
+}
+
 // Minimal transport contract serve.ts adapts a Bun ServerWebSocket to.
 export type WSLike = {
   send(data: string): void;
@@ -31,6 +72,7 @@ type LiveSession = {
   browser: import("playwright").Browser;
   context: import("playwright").BrowserContext;
   page: import("playwright").Page;
+  viewport: Required<Viewport>;
 };
 
 const sessions = new Map<string, LiveSession>();
@@ -48,17 +90,23 @@ function originOf(url: string): string | null {
 // asked), navigate to `url`, and register it under a fresh id.
 export async function startLoginSession(
   url: string,
-  existingProfileId?: string,
+  opts?: { existingProfileId?: string; viewport?: Partial<Viewport> | null },
 ): Promise<{ id: string }> {
   const id = newProfileId();
+  const viewport = sanitizeViewport(opts?.viewport);
   const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext(
-    existingProfileId
-      ? { storageState: profileStatePath(existingProfileId) }
-      : {},
-  );
+  const context = await browser.newContext({
+    ...(opts?.existingProfileId
+      ? { storageState: profileStatePath(opts.existingProfileId) }
+      : {}),
+    viewport: { width: viewport.width, height: viewport.height },
+    deviceScaleFactor: viewport.deviceScaleFactor,
+    isMobile: viewport.isMobile,
+    hasTouch: viewport.isMobile,
+    ...(viewport.isMobile ? { userAgent: MOBILE_UA } : {}),
+  });
   const page = await context.newPage();
-  sessions.set(id, { id, browser, context, page });
+  sessions.set(id, { id, browser, context, page, viewport });
   try {
     await page.goto(url, { waitUntil: "domcontentloaded" });
   } catch {
@@ -148,6 +196,14 @@ export function attachStream(sessionId: string, ws: WSLike): void {
         format: "jpeg",
         quality: 60,
         everyNthFrame: 1,
+        // Stream at the chosen viewport (in device px) so frames aren't capped
+        // or downscaled by CDP's defaults.
+        maxWidth: Math.round(
+          session.viewport.width * session.viewport.deviceScaleFactor,
+        ),
+        maxHeight: Math.round(
+          session.viewport.height * session.viewport.deviceScaleFactor,
+        ),
       });
 
       // Reflect navigations as status updates so the client can show the URL bar.
