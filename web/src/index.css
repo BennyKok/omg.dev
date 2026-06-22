@@ -546,3 +546,91 @@
     animation: lfg-shimmer 1.4s linear infinite;
   }
 }
+
+/* Registered custom props so the fill colors interpolate smoothly when the
+   server status changes (plain background-image transitions can't tween). */
+@property --dot-from {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: #94a3b8;
+}
+@property --dot-to {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: #64748b;
+}
+
+@keyframes lfg-status-dot-in {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@layer components {
+  /* Server status indicator: glass gradient border + green gradient fill,
+     with smooth fade/scale on appearance and color crossfade between states. */
+  .lfg-status-dot {
+    position: relative;
+    border-radius: 9999px;
+    background-image: linear-gradient(150deg, var(--dot-from), var(--dot-to));
+    box-shadow:
+      0 0 0 2px var(--background),
+      inset 0 0.5px 0.5px rgba(255, 255, 255, 0.65),
+      inset 0 -1px 1.5px rgba(0, 0, 0, 0.28),
+      0 1px 4px color-mix(in srgb, var(--dot-to) 55%, transparent);
+    transition:
+      --dot-from 320ms ease,
+      --dot-to 320ms ease,
+      box-shadow 320ms ease,
+      opacity 260ms ease,
+      transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  /* Glass gradient border — a 1px conic-ish sheen ring composited via mask. */
+  .lfg-status-dot::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      150deg,
+      rgba(255, 255, 255, 0.9),
+      rgba(255, 255, 255, 0.1) 45%,
+      rgba(255, 255, 255, 0) 70%
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /* Glossy top highlight for the glass look. */
+  .lfg-status-dot::after {
+    content: "";
+    position: absolute;
+    inset: 1.5px;
+    border-radius: inherit;
+    background: radial-gradient(
+      120% 90% at 30% 22%,
+      rgba(255, 255, 255, 0.6),
+      rgba(255, 255, 255, 0) 55%
+    );
+    pointer-events: none;
+  }
+
+  /* Visible state plays the fade/scale-in entrance. */
+  .lfg-status-dot[data-visible="true"] {
+    animation: lfg-status-dot-in 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+}

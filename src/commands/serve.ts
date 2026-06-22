@@ -354,12 +354,17 @@ function plannedSessionAction(answer: string): {
   return text ? { kind: "send", text } : { kind: "none" };
 }
 
-async function voiceStatusSnapshot(): Promise<string> {
+async function voiceStatusSnapshot(user?: string | null): Promise<string> {
   let sessions;
   try {
     sessions = await listSessions();
   } catch {
     return "(session list unavailable)";
+  }
+  // Scope to the speaking user when one is given, so the voice assistant never
+  // surfaces (or acts on) another person's sessions. Empty/"__all" → whole fleet.
+  if (user && user !== "__all") {
+    sessions = sessions.filter((s) => s.assignedUser === user);
   }
   if (!sessions.length) return "(no sessions running)";
   const now = Date.now();
@@ -494,6 +499,33 @@ async function voiceConsult(question: string): Promise<string> {
     : 0;
   appendAisdkCmd(id, { type: "send", text: question });
   return waitForAdvisorAnswer(id, baseline, 90_000);
+}
+
+// Retire the persistent advisor so the next consult spawns a fresh one. Called
+// when a new voice session starts: the advisor accumulates conversation context
+// across consults, so without this the old session's deep-think history would
+// leak into the new session. Teardown mirrors the aisdk session-close path and
+// is best-effort — a hiccup here must never block a new voice session starting.
+async function retireVoiceAdvisor(): Promise<void> {
+  const id = voiceAdvisorId;
+  voiceAdvisorId = null; // clear first so a concurrent consult respawns cleanly
+  if (!id) return;
+  try {
+    const sess = (await listSessions()).find((s) => s.sessionId === id);
+    if (!sess) return; // already gone (serve restart, closed) — nothing to tear down
+    const key = findAisdkEntryByAnyId(id)?.sessionId ?? id;
+    appendAisdkCmd(key, { type: "close" });
+    if (sess.tmuxName) tmuxKillSession(sess.tmuxName);
+    markClosed(sess.pid);
+    removeAisdkEntry(key);
+    if (sess.tmuxName) {
+      removeManaged(sess.tmuxName);
+      assignUser(sess.tmuxName, null);
+    }
+    clearResolved(id);
+  } catch {
+    // best-effort: voiceAdvisorId is already null, so the next consult respawns
+  }
 }
 
 // Best available interactive prompt for a session. Prefers a structured
@@ -814,6 +846,63 @@ export async function cmdServe() {
         }
       }
 
+      // ---- voice warmth probe: is a Modal voice GPU container live (warm) right
+      // now? The orb polls this during a cold start to show a "warming up…" state
+      // instead of dead air. Modal /health needs no token; a fast 200 = warm, a
+      // timeout = still cold/spinning. (Hitting it also nudges the container up.)
+      if (path === "/api/voice/health" && req.method === "GET") {
+        const up = process.env.TTS_UPSTREAM;
+        if (!up) return json({ warm: false });
+        try {
+          const r = await fetch(`${up}/health`, {
+            signal: AbortSignal.timeout(4000),
+          });
+          return json({ warm: r.ok });
+        } catch {
+          return json({ warm: false });
+        }
+      }
+
+      // ---- voice GPU power: long-press on the orb scales the serverless Modal
+      // voice container up (keep one L4 warm) or down (scale to zero, ~$0 idle).
+      // Runs deploy/modal/scale.py with the Modal creds (~/.modal.toml) staying
+      // server-side — the scaling token never reaches the browser.
+      if (path === "/api/voice/power" && req.method === "POST") {
+        const body = (await req.json().catch(() => null)) as {
+          on?: boolean;
+        } | null;
+        const arg = body?.on ? "on" : "off";
+        try {
+          const proc = Bun.spawn(
+            [
+              `${homedir()}/.local/bin/uv`,
+              "run",
+              "--with",
+              "modal",
+              "python",
+              "deploy/modal/scale.py",
+              arg,
+            ],
+            {
+              cwd: join(homedir(), "repos", "lfg"),
+              env: {
+                ...process.env,
+                HOME: homedir(),
+                PATH: `${homedir()}/.local/bin:${process.env.PATH ?? ""}`,
+              },
+              stdout: "pipe",
+              stderr: "pipe",
+            },
+          );
+          const out = await new Response(proc.stdout).text();
+          const code = await proc.exited;
+          if (code !== 0) return err(502, "voice power scale failed");
+          return json({ ok: true, power: arg, detail: out.trim() });
+        } catch {
+          return err(502, "voice power scale error");
+        }
+      }
+
       // ---- voice speaker-ID proxy: forward uploaded WAV to the upstream
       // /identify (resemblyzer) and return { embedding }. The client compares
       // the embedding (cosine) against its enrolled refs in localStorage to gate
@@ -845,7 +934,7 @@ export async function cmdServe() {
       // standing context (~/.lfg/voice-context.md). The LiveKit worker fetches
       // this at connect to seed its system prompt and speak a proactive briefing.
       if (path === "/api/voice/snapshot" && req.method === "GET") {
-        const snapshot = await voiceStatusSnapshot();
+        const snapshot = await voiceStatusSnapshot(url.searchParams.get("user"));
         let context = "";
         try {
           context = (
@@ -1625,6 +1714,11 @@ export async function cmdServe() {
         // first spoken reply can be a proactive blockers-first status briefing.
         let prompt = body?.prompt;
         if (body?.voice) {
+          // Clear lingering state from any previous voice session before this
+          // one starts: retire the persistent deep-think advisor so it doesn't
+          // carry the prior session's conversation context into this one. The
+          // snapshot below is already rebuilt fresh each time.
+          await retireVoiceAdvisor();
           const snap = await voiceStatusSnapshot();
           prompt = `${prompt ?? ""}\n\n=== SESSION SNAPSHOT (live, at session start) ===\n${snap}\n=== END SNAPSHOT ===`;
         }

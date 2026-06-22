@@ -30,7 +30,6 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
-  CircleStop,
   Code2,
   FlaskConical,
   Folder,
@@ -43,6 +42,7 @@ import {
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
+  Pause,
   Pencil,
   Pin,
   Play,
@@ -1097,10 +1097,13 @@ export function App() {
         api<{ users: User[] }>("/api/users"),
         api<{ repos: Repo[] }>("/api/repos"),
       ]);
-    setAgents(agentsPayload.agents);
-    setSessions(sessionsPayload.sessions);
-    setUsers(usersPayload.users);
-    setRepos(reposPayload.repos);
+    setAgents(agentsPayload.agents ?? []);
+    // Guard sessions to [] — it feeds `allLiveSessions`/`liveSessions` which call
+    // `.filter()` unconditionally on render, so a malformed/empty payload must
+    // degrade to an empty live view rather than crash it (undefined.filter).
+    setSessions(sessionsPayload.sessions ?? []);
+    setUsers(usersPayload.users ?? []);
+    setRepos(reposPayload.repos ?? []);
   }, []);
 
   // Sessions the user just deleted. The server's list can lag a beat (tmux pane
@@ -1175,12 +1178,15 @@ export function App() {
 
   const refreshSessions = useCallback(async () => {
     const payload = await api<{ sessions: Session[] }>("/api/sessions");
-    setSessions(payload.sessions);
+    // Guard to [] — `sessions` is consumed by `.filter()`/`.map()` on render
+    // (allLiveSessions) and just below, so a missing field must not crash.
+    const sessionList = payload.sessions ?? [];
+    setSessions(sessionList);
     // Prune tombstones the server has finally forgotten, so the set can't grow
     // unbounded and a recycled sid is never wrongly suppressed.
     setRemovedSids((prev) => {
       if (!prev.size) return prev;
-      const present = new Set(payload.sessions.map((s) => s.sessionId));
+      const present = new Set(sessionList.map((s) => s.sessionId));
       const next = new Set([...prev].filter((id) => present.has(id)));
       return next.size === prev.size ? prev : next;
     });
@@ -3286,13 +3292,13 @@ function SessionChat({
             <Button
               size="icon"
               type="button"
-              variant="destructive"
+              variant="tint"
               className="size-11 md:size-9"
               onClick={() => void interrupt()}
               aria-label="Stop (Esc or Ctrl/Cmd+.)"
               title="Stop — Esc or Ctrl/Cmd+."
             >
-              <CircleStop className="size-4" />
+              <Pause className="size-4" />
             </Button>
           ) : null}
           <Button
@@ -3916,9 +3922,9 @@ const SessionCard = memo(function SessionCard({
             onClick={() => void interrupt()}
             aria-label="Stop (Esc or Ctrl/Cmd+.)"
             title="Stop — Esc or Ctrl/Cmd+."
-            className="flex h-6 shrink-0 items-center gap-1 rounded-full bg-destructive/10 px-2 text-[10px] font-medium text-destructive hover:bg-destructive/20"
+            className="flex h-6 shrink-0 items-center gap-1 rounded-full bg-foreground/[0.06] px-2 text-[10px] font-medium text-foreground/70 hover:bg-foreground/[0.10] hover:text-foreground"
           >
-            <CircleStop className="size-3.5" />
+            <Pause className="size-3.5" />
             Stop
           </button>
         ) : null}
@@ -3963,7 +3969,7 @@ const SessionCard = memo(function SessionCard({
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => void interrupt()}>
-                  <CircleStop className="size-4" />
+                  <Pause className="size-4" />
                   Stop
                 </DropdownMenuItem>
                 <DropdownMenuItem variant="destructive" onClick={() => void close()}>
