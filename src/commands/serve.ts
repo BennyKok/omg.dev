@@ -86,9 +86,17 @@ import { PtyBridge, termSessionName } from "../pty.ts";
 import { capturePaneScroll, capturePaneEscaped, paneWidth } from "../tmux.ts";
 import { detectUrls } from "../links.ts";
 import type { ServerWebSocket } from "bun";
-import { appendCmd as appendAisdkCmd, removeEntry as removeAisdkEntry, readEntry as readAisdkEntry, findEntryByAnyId as findAisdkEntryByAnyId } from "../aisdk-registry.ts";
+import { appendCmd as appendAisdkCmd, removeEntry as removeAisdkEntry, readEntry as readAisdkEntry, findEntryByAnyId as findAisdkEntryByAnyId, isEntryBusy as isAisdkEntryBusy } from "../aisdk-registry.ts";
 import { markClosed } from "../closing.ts";
 import { assignUser, userRoster } from "../users.ts";
+import { listProfiles, getProfile, deleteProfile } from "../browser/profiles.ts";
+import {
+  startLoginSession,
+  attachStream,
+  endSession,
+  type WSLike,
+} from "../browser/session.ts";
+import { testProfile } from "../browser/tool.ts";
 import { listCustomRepos, addCustomRepo, removeCustomRepo } from "../repos-store.ts";
 
 // Where the user keeps the repos lfg can launch agents into. Scanned for git
@@ -567,6 +575,39 @@ type TermSocketData = { sessionName: string; cols: number; rows: number };
 // the bridge to write to / tear down.
 const termBridges = new WeakMap<object, PtyBridge>();
 
+// ---- cloud-browser login stream sockets ----
+// Browser-login viewer sockets multiplex through the same Bun websocket handlers
+// as the terminal; we tag their data with browserSessionId and bridge them to the
+// WSLike transport that ../browser/session.ts expects.
+type BrowserSocketData = { browserSessionId: string };
+const browserSocketCbs = new WeakMap<
+  object,
+  { onMessage?: (d: string) => void; onClose?: () => void }
+>();
+
+function makeBrowserWS(ws: ServerWebSocket<TermSocketData>): WSLike {
+  const cbs: { onMessage?: (d: string) => void; onClose?: () => void } = {};
+  browserSocketCbs.set(ws, cbs);
+  return {
+    send: (data) => {
+      try {
+        ws.send(data);
+      } catch {}
+    },
+    close: () => {
+      try {
+        ws.close();
+      } catch {}
+    },
+    onMessage: (cb) => {
+      cbs.onMessage = cb;
+    },
+    onClose: (cb) => {
+      cbs.onClose = cb;
+    },
+  };
+}
+
 // Parse a terminal dimension from a query param, clamped to a sane range so a
 // bogus value can't allocate an absurd pty winsize.
 function clampDim(raw: string | null, fallback: number): number {
@@ -587,6 +628,12 @@ export async function cmdServe() {
       // as binary frames — the full raw VT byte stream a faithful renderer wants.
       idleTimeout: 600,
       open(ws: ServerWebSocket<TermSocketData>) {
+        // Cloud-browser login viewer socket: bridge to the session streamer.
+        const bSid = (ws.data as unknown as BrowserSocketData)?.browserSessionId;
+        if (typeof bSid === "string") {
+          attachStream(bSid, makeBrowserWS(ws));
+          return;
+        }
         try {
           const { sessionName, cols, rows } = ws.data;
           const bridge = new PtyBridge(
@@ -612,6 +659,11 @@ export async function cmdServe() {
         }
       },
       message(ws: ServerWebSocket<TermSocketData>, message) {
+        const bCbs = browserSocketCbs.get(ws);
+        if (bCbs) {
+          if (typeof message === "string") bCbs.onMessage?.(message);
+          return;
+        }
         const bridge = termBridges.get(ws);
         if (!bridge) return;
         if (typeof message === "string") {
@@ -631,6 +683,16 @@ export async function cmdServe() {
         bridge.write(message as Uint8Array);
       },
       close(ws: ServerWebSocket<TermSocketData>) {
+        const bCbs = browserSocketCbs.get(ws);
+        if (bCbs) {
+          browserSocketCbs.delete(ws);
+          bCbs.onClose?.();
+          // Viewer closed: tear the headless browser down so it doesn't leak on
+          // this shared box (the saved profile already persists to disk).
+          const sid = (ws.data as unknown as BrowserSocketData)?.browserSessionId;
+          if (sid) void endSession(sid);
+          return;
+        }
         const bridge = termBridges.get(ws);
         termBridges.delete(ws);
         // Tears down our attach client; the tmux session itself persists so the
@@ -652,6 +714,18 @@ export async function cmdServe() {
         });
         if (ok) return undefined; // upgraded — Bun takes over the socket
         return err(400, "expected a websocket upgrade");
+      }
+
+      // ---- cloud-browser login stream (websocket upgrade) ----
+      {
+        const m = path.match(/^\/api\/browser\/sessions\/([^/]+)\/stream$/);
+        if (m) {
+          const ok = server.upgrade<BrowserSocketData>(req, {
+            data: { browserSessionId: decodeURIComponent(m[1]) },
+          });
+          if (ok) return undefined;
+          return err(400, "expected a websocket upgrade");
+        }
       }
 
       // Detect links in the terminal for the tappable-chip UI. A long URL is
@@ -1518,6 +1592,48 @@ export async function cmdServe() {
       // ---- multi-user (session tagging) ----
       if (path === "/api/users") {
         return json({ users: userRoster() });
+      }
+
+      // ---- cloud-browser profiles ----
+      // Save a real login once (interactive stream), reuse it from an agent's
+      // headless browser forever after.
+      if (path === "/api/browser/profiles" && req.method === "GET") {
+        // Frontend (BrowserProfiles.tsx) expects a bare ProfileMeta[].
+        return json(await listProfiles());
+      }
+      if (path === "/api/browser/profiles" && req.method === "POST") {
+        const b = (await req.json().catch(() => null)) as { url?: unknown } | null;
+        const u = typeof b?.url === "string" ? b.url.trim() : "";
+        if (!u) return err(400, "url is required");
+        const { id } = await startLoginSession(u);
+        return json({ sessionId: id });
+      }
+      {
+        const m = path.match(/^\/api\/browser\/profiles\/([^/]+)\/reauth$/);
+        if (m && req.method === "POST") {
+          const id = decodeURIComponent(m[1]);
+          const prof = await getProfile(id);
+          if (!prof) return err(404, "unknown profile");
+          const target = prof.origins[0] || "about:blank";
+          const { id: sid } = await startLoginSession(target, id);
+          return json({ sessionId: sid });
+        }
+      }
+      {
+        const m = path.match(/^\/api\/browser\/profiles\/([^/]+)\/test$/);
+        if (m && req.method === "POST") {
+          const id = decodeURIComponent(m[1]);
+          const prof = await getProfile(id);
+          if (!prof) return err(404, "unknown profile");
+          return json(await testProfile(id));
+        }
+      }
+      {
+        const m = path.match(/^\/api\/browser\/profiles\/([^/]+)$/);
+        if (m && req.method === "DELETE") {
+          await deleteProfile(decodeURIComponent(m[1]));
+          return json({ ok: true });
+        }
       }
 
       // ---- running claude sessions ----

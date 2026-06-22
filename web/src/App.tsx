@@ -48,6 +48,7 @@ import {
   Play,
   Plus,
   Power,
+  Globe,
   Radio,
   RotateCcw,
   Send,
@@ -85,6 +86,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Streamdown } from "streamdown";
 import { useExtensionNavTabs } from "./lib/extensions";
+import BrowserProfiles from "./BrowserProfiles";
 import {
   pushSupported,
   pushPermission,
@@ -1020,7 +1022,7 @@ export function App() {
   // nav-tab id becomes a valid tab value), so this is a plain string.
   const [tab, setTab] = useState<string>("live");
   const extNavTabs = useExtensionNavTabs();
-  const allTabIds = ["live", "auto", ...extNavTabs.map((t) => t.id), "settings"];
+  const allTabIds = ["live", "auto", ...extNavTabs.map((t) => t.id), "browser", "settings"];
   const tabIndex = Math.max(0, allTabIds.indexOf(tab));
   const activeExtTab = extNavTabs.find((t) => t.id === tab);
   const [autoAgents, setAutoAgents] = useState<AutoAgent[]>([]);
@@ -1618,10 +1620,10 @@ export function App() {
 
   return (
     <div ref={rootRef} className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
-      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border bg-background/90 px-3 backdrop-blur">
+      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border bg-background px-3">
         <img src="/icon.svg" alt="lfg" className="size-6 shrink-0" />
         <div className="min-w-0 flex-1 truncate text-sm font-semibold">
-          {activeExtTab ? activeExtTab.label : tab === "auto" ? "Auto agents" : tab === "term" ? "Terminal" : tab === "settings" ? "Settings" : ""}
+          {activeExtTab ? activeExtTab.label : tab === "auto" ? "Auto agents" : tab === "term" ? "Terminal" : tab === "browser" ? "Browser Profiles" : tab === "settings" ? "Settings" : ""}
         </div>
 
         {tab === "live" ? (
@@ -1676,6 +1678,8 @@ export function App() {
           <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading terminal…</div>}>
             <TermView />
           </Suspense>
+        ) : tab === "browser" ? (
+          <BrowserProfiles />
         ) : tab === "settings" ? (
           <SettingsView
             dark={dark}
@@ -1718,6 +1722,12 @@ export function App() {
                 label={t.label}
               />
             ))}
+            <PillTab
+              active={tab === "browser"}
+              onClick={() => setTab("browser")}
+              icon={<Globe className="size-[18px]" />}
+              label="Browser"
+            />
             <PillTab
               active={tab === "settings"}
               onClick={() => setTab("settings")}
