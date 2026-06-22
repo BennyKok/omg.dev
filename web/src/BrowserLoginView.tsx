@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, RotateCcw, Save, X } from "lucide-react";
+import { ClipboardPaste, CornerDownLeft, Delete, Loader2, RotateCcw, Save, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 
@@ -55,6 +55,9 @@ export default function BrowserLoginView(props: {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [addressBar, setAddressBar] = useState("");
   const [saving, setSaving] = useState(false);
+  // Mobile soft-keyboard + paste bridge: a real <input> the OS keyboard binds to.
+  const [keyEntry, setKeyEntry] = useState("");
+  const entryRef = useRef<HTMLInputElement | null>(null);
 
   const send = useCallback((msg: Record<string, unknown>) => {
     const ws = wsRef.current;
@@ -229,6 +232,67 @@ export default function BrowserLoginView(props: {
     [send],
   );
 
+  // Forward a paste (Cmd/Ctrl+V) into the remote browser. The keydown for the
+  // paste shortcut still fires (with ctrl/meta held, so it sends no char), and
+  // the browser then emits this paste event with the clipboard contents — we
+  // insert that text via the existing "char" path (CDP Input.insertText).
+  const onPaste = useCallback(
+    (e: React.ClipboardEvent<HTMLCanvasElement>) => {
+      e.preventDefault();
+      const text = e.clipboardData.getData("text/plain");
+      if (text) send({ type: "input", kind: "char", text });
+    },
+    [send],
+  );
+
+  // --- Text/key injection (works on mobile, where the canvas can't) ----------
+  // Inject literal text into whatever field is focused in the remote page.
+  const sendText = useCallback(
+    (text: string) => {
+      if (text) send({ type: "input", kind: "char", text });
+    },
+    [send],
+  );
+
+  // Tap-able special keys (Enter to submit, Tab to move fields, Backspace).
+  const sendKey = useCallback(
+    (key: string) => {
+      send({ type: "input", kind: "keydown", key });
+      send({ type: "input", kind: "keyup", key });
+    },
+    [send],
+  );
+
+  // Flush the bridge input into the page, then clear + refocus for the next field.
+  const sendEntry = useCallback(() => {
+    if (!keyEntry) return;
+    sendText(keyEntry);
+    setKeyEntry("");
+    entryRef.current?.focus();
+  }, [keyEntry, sendText]);
+
+  // One-tap paste. Uses the async Clipboard API when available (secure context);
+  // over plain http (e.g. Tailscale) that API is blocked, so we fall back to
+  // focusing the bridge input and letting the OS long-press-paste into it.
+  const pasteFromClipboard = useCallback(async () => {
+    try {
+      const text = await navigator.clipboard?.readText?.();
+      if (text) {
+        sendText(text);
+        toast.success("Pasted into page");
+        return;
+      }
+      if (text === "") {
+        toast.message("Clipboard is empty");
+        return;
+      }
+      throw new Error("no clipboard api");
+    } catch {
+      entryRef.current?.focus();
+      toast.message("Paste into the text box, then tap Send");
+    }
+  }, [sendText]);
+
   // --- Toolbar actions -------------------------------------------------------
   const submitAddress = useCallback(
     (e: React.FormEvent) => {
@@ -265,32 +329,77 @@ export default function BrowserLoginView(props: {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 bg-background text-foreground">
-      {/* Toolbar */}
-      <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
-        <form onSubmit={submitAddress} className="flex min-w-0 flex-1 items-center gap-2">
+      {/* Toolbar — rows stack on narrow screens so nothing gets crushed. */}
+      <div className="flex shrink-0 flex-col gap-2 border-b border-border px-3 py-2">
+        <form onSubmit={submitAddress} className="flex min-w-0 items-center gap-2">
           <input
-            type="text"
+            type="url"
+            inputMode="url"
             value={addressBar}
             onChange={(e) => setAddressBar(e.target.value)}
             placeholder="Enter a URL to navigate"
+            autoCapitalize="off"
+            autoCorrect="off"
             spellCheck={false}
-            className="min-w-0 flex-1 rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground outline-none focus:border-primary"
+            className="min-w-0 flex-1 rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
           />
           <Button type="submit" size="sm" variant="outline">
             Go
           </Button>
         </form>
-        <Button size="sm" variant="outline" onClick={handleReload}>
-          <RotateCcw className="size-4" />
-          <span className="ml-1 hidden sm:inline">Reload</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="outline" onClick={handleReload}>
+            <RotateCcw className="size-4" />
+            <span className="ml-1">Reload</span>
+          </Button>
+          <Button size="sm" variant="brand" onClick={handleSave} disabled={saving}>
+            {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+            <span className="ml-1">Save profile</span>
+          </Button>
+          <Button size="sm" variant="ghost" onClick={handleClose} className="ml-auto">
+            <X className="size-4" />
+            <span className="ml-1">Close</span>
+          </Button>
+        </div>
+      </div>
+
+      {/* Keyboard + paste bridge — the canvas can't open a mobile keyboard or
+          accept paste, so this real input injects text/keys into the focused
+          field in the remote page. Tap a field in the page first. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 px-3">
+        <input
+          ref={entryRef}
+          type="text"
+          value={keyEntry}
+          onChange={(e) => setKeyEntry(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              sendEntry();
+            }
+          }}
+          placeholder="Type or paste here → Send (tap a field in the page first)"
+          autoCapitalize="off"
+          autoCorrect="off"
+          autoComplete="off"
+          spellCheck={false}
+          className="min-w-0 flex-1 basis-48 rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+        />
+        <Button size="sm" variant="brand" onClick={sendEntry} disabled={!keyEntry}>
+          Send
         </Button>
-        <Button size="sm" variant="brand" onClick={handleSave} disabled={saving}>
-          {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-          <span className="ml-1 hidden sm:inline">Save profile</span>
+        <Button size="sm" variant="outline" onClick={pasteFromClipboard} title="Paste from clipboard">
+          <ClipboardPaste className="size-4" />
+          <span className="ml-1">Paste</span>
         </Button>
-        <Button size="sm" variant="ghost" onClick={handleClose}>
-          <X className="size-4" />
-          <span className="ml-1 hidden sm:inline">Close</span>
+        <Button size="sm" variant="outline" onClick={() => sendKey("Enter")} title="Press Enter in page" aria-label="Enter">
+          <CornerDownLeft className="size-4" />
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => sendKey("Tab")} title="Press Tab in page" aria-label="Tab">
+          <span className="text-xs font-medium">Tab</span>
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => sendKey("Backspace")} title="Backspace in page" aria-label="Backspace">
+          <Delete className="size-4" />
         </Button>
       </div>
 
@@ -307,11 +416,13 @@ export default function BrowserLoginView(props: {
           }
           title={conn}
         />
-        <span className="truncate">
+        <span className="min-w-0 max-w-[50%] shrink-0 truncate">
           {status.title ? status.title : status.state || conn}
         </span>
         {status.url ? (
-          <span className="truncate text-muted-foreground/70">· {status.url}</span>
+          <span className="min-w-0 flex-1 truncate text-muted-foreground/70">
+            · {status.url}
+          </span>
         ) : null}
       </div>
 
@@ -335,6 +446,7 @@ export default function BrowserLoginView(props: {
           onContextMenu={(e) => e.preventDefault()}
           onKeyDown={onKeyDown}
           onKeyUp={onKeyUp}
+          onPaste={onPaste}
           className="max-h-full max-w-full cursor-crosshair rounded-md shadow-lg outline-none"
           style={{ touchAction: "none" }}
         />
