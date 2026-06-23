@@ -1,6 +1,5 @@
 
-import { useEffect, useMemo, useRef } from "react"
-import { useTexture } from "@react-three/drei"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Canvas, useFrame, useThree } from "@react-three/fiber"
 import * as THREE from "three"
 import perlinNoiseUrl from "./orb-perlin-noise.png"
@@ -103,7 +102,7 @@ function Scene({
   const targetColor1Ref = useRef(new THREE.Color(colors[0]))
   const targetColor2Ref = useRef(new THREE.Color(colors[1]))
   const animSpeedRef = useRef(0.1)
-  const perlinNoiseTexture = useTexture(perlinNoiseUrl)
+  const perlinNoiseTexture = useNoiseTexture(perlinNoiseUrl)
 
   const agentRef = useRef<AgentState>(agentState)
   const modeRef = useRef<"auto" | "manual">(volumeMode)
@@ -287,6 +286,70 @@ function splitmix32(a: number) {
 function clamp01(n: number) {
   if (!Number.isFinite(n)) return 0
   return Math.min(1, Math.max(0, n))
+}
+
+// A small procedurally-generated grayscale noise texture used both as the
+// immediate value and as the permanent fallback. The shader only samples its
+// red channel, so flat value-noise is a perfectly serviceable stand-in.
+function makeFallbackNoise(): THREE.DataTexture {
+  const size = 256
+  const data = new Uint8Array(size * size * 4)
+  // Deterministic xorshift so the fallback looks the same everywhere (no
+  // Math.random, which keeps it stable across renders/SSR).
+  let s = 0x9e3779b9 >>> 0
+  const rand = () => {
+    s ^= s << 13
+    s ^= s >>> 17
+    s ^= s << 5
+    s >>>= 0
+    return s / 4294967296
+  }
+  for (let i = 0; i < size * size; i++) {
+    const v = Math.floor(rand() * 256)
+    data[i * 4] = v
+    data[i * 4 + 1] = v
+    data[i * 4 + 2] = v
+    data[i * 4 + 3] = 255
+  }
+  const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat)
+  tex.wrapS = THREE.RepeatWrapping
+  tex.wrapT = THREE.RepeatWrapping
+  tex.needsUpdate = true
+  return tex
+}
+
+// Load the perlin-noise PNG defensively. drei's useTexture() suspends and
+// THROWS on a failed load, and because that throw originates inside the R3F
+// Canvas reconciler it does NOT reach the DOM-tree OrbBoundary — it escapes to
+// window.onerror as an uncaught error (observed on mobile Safari, where a
+// transient asset-load failure would otherwise crash the live view). Here we
+// load manually, never throw, and fall back to procedural noise so the orb
+// always renders.
+function useNoiseTexture(url: string): THREE.Texture {
+  const [texture, setTexture] = useState<THREE.Texture>(makeFallbackNoise)
+  useEffect(() => {
+    let cancelled = false
+    new THREE.TextureLoader().load(
+      url,
+      (loaded) => {
+        if (cancelled) {
+          loaded.dispose()
+          return
+        }
+        loaded.wrapS = THREE.RepeatWrapping
+        loaded.wrapT = THREE.RepeatWrapping
+        setTexture(loaded)
+      },
+      undefined,
+      () => {
+        // Load failed — keep the procedural fallback. Never throw.
+      }
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [url])
+  return texture
 }
 const vertexShader = /* glsl */ `
 uniform float uTime;
