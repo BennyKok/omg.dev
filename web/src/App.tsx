@@ -5814,6 +5814,21 @@ function SettingsView({
 
   return (
     <div className="mx-auto max-w-xl space-y-8 pb-10">
+      {/* Account */}
+      <div className="flex items-center gap-3.5 px-1">
+        <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-secondary text-lg font-semibold text-muted-foreground">
+          {initial}
+        </div>
+        <div className="min-w-0">
+          <div className="truncate text-lg font-semibold leading-tight">
+            {user ?? "No user selected"}
+          </div>
+          <div className="text-sm text-muted-foreground">
+            {user ? "Signed in on this device" : "Pick your name in the top filter"}
+          </div>
+        </div>
+      </div>
+
       {/* Auto agents — opens as its own page. */}
       <section className="space-y-2">
         <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -5830,6 +5845,41 @@ function SettingsView({
                 <CalendarClock className="size-4" />
               </span>
               <span className="text-sm font-medium">Auto agents</span>
+            </div>
+            <ChevronRight className="size-4 text-muted-foreground/60" />
+          </button>
+        </div>
+      </section>
+
+      {/* Tools — open as their own pages. */}
+      <section className="space-y-2">
+        <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Tools
+        </h2>
+        <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+          <button
+            type="button"
+            onClick={onOpenTerminal}
+            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
+          >
+            <div className="flex items-center gap-3">
+              <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
+                <TerminalSquare className="size-4" />
+              </span>
+              <span className="text-sm font-medium">Open terminal</span>
+            </div>
+            <ChevronRight className="size-4 text-muted-foreground/60" />
+          </button>
+          <button
+            type="button"
+            onClick={onOpenBrowser}
+            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
+          >
+            <div className="flex items-center gap-3">
+              <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
+                <Globe className="size-4" />
+              </span>
+              <span className="text-sm font-medium">Browser profiles</span>
             </div>
             <ChevronRight className="size-4 text-muted-foreground/60" />
           </button>
@@ -5862,21 +5912,6 @@ function SettingsView({
           </div>
         </section>
       ) : null}
-
-      {/* Account */}
-      <div className="flex items-center gap-3.5 px-1">
-        <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-secondary text-lg font-semibold text-muted-foreground">
-          {initial}
-        </div>
-        <div className="min-w-0">
-          <div className="truncate text-lg font-semibold leading-tight">
-            {user ?? "No user selected"}
-          </div>
-          <div className="text-sm text-muted-foreground">
-            {user ? "Signed in on this device" : "Pick your name in the top filter"}
-          </div>
-        </div>
-      </div>
 
       {/* Display */}
       <section className="space-y-2">
@@ -5922,41 +5957,6 @@ function SettingsView({
         <p className="px-4 text-xs text-muted-foreground">
           Get a push when one of your sessions needs you.
         </p>
-      </section>
-
-      {/* Tools */}
-      <section className="space-y-2">
-        <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Tools
-        </h2>
-        <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
-          <button
-            type="button"
-            onClick={onOpenTerminal}
-            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
-          >
-            <div className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
-                <TerminalSquare className="size-4" />
-              </span>
-              <span className="text-sm font-medium">Open terminal</span>
-            </div>
-            <ChevronRight className="size-4 text-muted-foreground/60" />
-          </button>
-          <button
-            type="button"
-            onClick={onOpenBrowser}
-            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
-          >
-            <div className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
-                <Globe className="size-4" />
-              </span>
-              <span className="text-sm font-medium">Browser profiles</span>
-            </div>
-            <ChevronRight className="size-4 text-muted-foreground/60" />
-          </button>
-        </div>
       </section>
 
       <VoiceSettingsSection />
