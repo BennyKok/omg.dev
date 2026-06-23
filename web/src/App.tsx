@@ -1,4 +1,4 @@
-import { Component, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Component, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   DEFAULT_SCHED_TZ,
@@ -29,9 +29,8 @@ import {
   Flag,
   Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
-  Code2,
-  FlaskConical,
   Folder,
   Loader2,
   MessageSquare,
@@ -62,12 +61,14 @@ import {
 import { toast } from "sonner";
 import { haptic } from "@/lib/haptics";
 import { reportError } from "./lib/report-error";
+import { lazyWithReload } from "./lib/lazy-with-reload";
 import { Toaster } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 // Code-split: the terminal pulls in ghostty-web's ~400KB WASM, so only load it
 // when the Terminal tab is actually opened — keeps the initial bundle lean.
-const TermView = lazy(() =>
+// lazyWithReload recovers from the post-deploy stale-chunk case (React #306).
+const TermView = lazyWithReload("TermView", () =>
   import("@/components/TermView").then((m) => ({ default: m.TermView })),
 );
 import { Badge } from "@/components/ui/badge";
@@ -86,6 +87,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Streamdown } from "streamdown";
 import { useExtensionNavTabs } from "./lib/extensions";
+import type { ExtensionNavTab } from "./lib/extensions";
 import BrowserProfiles from "./BrowserProfiles";
 import {
   pushSupported,
@@ -145,7 +147,7 @@ type Session = {
   // Build health (from the backend). "blocked" means the session can't make
   // progress until a human acts; statusReason/statusDetail explain why.
   status?: "ok" | "blocked";
-  statusReason?: "model_unavailable" | "out_of_credits" | null;
+  statusReason?: "model_unavailable" | "out_of_credits" | "provider_auth" | "provider_error" | null;
   statusDetail?: string | null;
 };
 
@@ -203,13 +205,13 @@ const CODEX_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"];
 const AISDK_MODELS = ["opus", "sonnet", "haiku"];
 const CODEX_AISDK_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"];
 const OPENCODE_MODELS = [
-  "anthropic/claude-sonnet-4-6",
-  "anthropic/claude-opus-4-8",
-  "anthropic/claude-haiku-4-5",
-  "openai/gpt-5.5",
-  "openai/gpt-5.4",
   "fugu/fugu",
   "fugu/fugu-ultra",
+  "opencode/big-pickle",
+  "opencode/deepseek-v4-flash-free",
+  "novita-ai/zai-org/glm-5.1",
+  "novita-ai/qwen/qwen3-coder-480b-a35b-instruct",
+  "novita-ai/deepseek/deepseek-v4-pro",
 ];
 const THINKING_LEVELS = ["low", "medium", "high", "xhigh"] as const;
 type ThinkingLevel = (typeof THINKING_LEVELS)[number];
@@ -235,19 +237,16 @@ const AGENT_DEFAULT_MODEL: Record<AgentKind, string> = {
   aisdk: "opus",
   codex: "gpt-5.5",
   "codex-aisdk": "gpt-5.5",
-  opencode: "anthropic/claude-sonnet-4-6",
+  opencode: "opencode/big-pickle",
 };
 
 // New-session picker options, in display order. The three AI-SDK agents are the
-// primary, always-visible choices ("aisdk" leads since it's the default); the
-// two legacy CLI agents are tagged `cli` and tucked behind a disclosure toggle.
-// Each carries a short label + a distinct lucide glyph for the toggle.
-const AGENT_OPTIONS: { key: AgentKind; label: string; Icon: typeof Sparkles; cli?: boolean }[] = [
+// only choices ("aisdk" leads since it's the default). Each carries a short
+// label + a distinct lucide glyph.
+const AGENT_OPTIONS: { key: AgentKind; label: string; Icon: typeof Sparkles }[] = [
   { key: "aisdk", label: "claude (ai sdk)", Icon: Sparkles },
   { key: "codex-aisdk", label: "codex (ai sdk)", Icon: Braces },
   { key: "opencode", label: "opencode", Icon: Boxes },
-  { key: "claude", label: "claude (cli)", Icon: FlaskConical, cli: true },
-  { key: "codex", label: "codex (cli)", Icon: Code2, cli: true },
 ];
 
 // Maps an agent-kind to its session-card / picker icon. codex variants share the
@@ -1014,13 +1013,11 @@ export function App() {
   const [newOpen, setNewOpen] = useState(false);
   const [runLog, setRunLog] = useState<string | null>(null);
   // Auto agents
-  // Base tabs are "live" | "auto"; runtime extensions contribute more (their
-  // nav-tab id becomes a valid tab value), so this is a plain string.
+  // Tabs are "live" | "settings" | "term" | "browser". Auto agents and runtime
+  // extension nav-tabs now render inside the Settings page rather than as their
+  // own top-level tabs.
   const [tab, setTab] = useState<string>("live");
   const extNavTabs = useExtensionNavTabs();
-  const allTabIds = ["live", "auto", ...extNavTabs.map((t) => t.id), "settings"];
-  const tabIndex = Math.max(0, allTabIds.indexOf(tab));
-  const activeExtTab = extNavTabs.find((t) => t.id === tab);
   const [autoAgents, setAutoAgents] = useState<AutoAgent[]>([]);
   const [schedTz, setSchedTz] = useState<string>(DEFAULT_SCHED_TZ);
   const [findings, setFindings] = useState<AutoFinding[]>([]);
@@ -1060,10 +1057,9 @@ export function App() {
   //     so `vv.offsetTop` goes positive while the root stays anchored at layout
   //     top — leaving a strip of background below the app. Translate the root
   //     down by `offsetTop` to re-pin it to the visible band.
-  //   • `<main>` reserves `pb-28` for the floating nav pill, and the pill itself
-  //     sits over the keyboard region. While the keyboard is open we collapse
-  //     that padding and hide the pill (see `keyboardOpen`) so the terminal
-  //     fills right up to the keyboard instead of floating above a gap.
+  //   • `<main>` reserves bottom padding for the safe-area inset. While the
+  //     keyboard is open we collapse that padding (see `keyboardOpen`) so the
+  //     terminal fills right up to the keyboard instead of floating above a gap.
   //
   // Scoped to the Terminal tab only. Other pages (Live, Auto, the new-session
   // sheet) want the default browser behavior — `dvh` plus Vaul's own field
@@ -1614,49 +1610,64 @@ export function App() {
     );
   }
 
-  const sectionTitle = activeExtTab
-    ? activeExtTab.label
-    : tab === "auto"
-      ? "Auto agents"
-      : tab === "term"
-        ? "Terminal"
-        : tab === "browser"
-          ? "Browser Profiles"
-          : tab === "settings"
-            ? "Settings"
-            : "";
 
   return (
     <div ref={rootRef} className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
-      {/* Two floating "islands" — brand/title on the left, live filters on the
-          right — mirroring the bottom nav's gradient-bordered pill so the whole
-          chrome reads as one matched set. */}
+      {/* Two floating "islands" — brand + Live on the left, an icon-only
+          Settings button on the right — mirroring the bottom nav's
+          gradient-bordered pill so the whole chrome reads as one matched set.
+          Auto + extension tabs now live inside the Settings page. */}
       <header className="z-40 flex shrink-0 items-center justify-between gap-2 px-3 pb-1 pt-[calc(0.5rem+env(safe-area-inset-top))]">
-        <NavIsland className="min-w-0">
-          <div className="flex h-11 min-w-0 items-center gap-2 rounded-full bg-background/80 px-3.5 backdrop-blur-xl">
-            <img src="/icon.svg" alt="lfg" className="size-6 shrink-0" />
-            {sectionTitle ? (
-              <span className="min-w-0 truncate text-sm font-semibold">{sectionTitle}</span>
-            ) : null}
+        <NavIsland className="shrink-0">
+          <div className="flex h-11 items-center rounded-full bg-background/80 px-1.5 backdrop-blur-xl">
+            {tab === "live" ? (
+              <button
+                type="button"
+                onClick={() => setTab("live")}
+                aria-label="Live"
+                aria-current="page"
+                className="flex items-center rounded-full px-1.5 transition-transform active:scale-[0.96]"
+              >
+                <img src="/icon.svg" alt="lfg" className="mx-1 size-6 shrink-0" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setTab(tab === "settings" ? "live" : "settings")}
+                aria-label="Back"
+                className="flex h-8 items-center gap-1 rounded-full pl-1.5 pr-3 text-[13px] font-medium tracking-[-0.01em] text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground active:scale-[0.96]"
+              >
+                <ChevronLeft className="size-[18px]" />
+                <span>{tab === "settings" ? "Live" : "Settings"}</span>
+              </button>
+            )}
           </div>
         </NavIsland>
 
-        {tab === "live" ? (
-          <NavIsland>
-            <div className="flex h-11 items-center gap-2 rounded-full bg-background/80 px-2 backdrop-blur-xl">
-              <ProjectFilterMenu
-                value={projectFilter}
-                projects={projectOptions}
-                onChange={setProjectFilter}
-              />
-              <UserFilterMenu
-                value={userFilter}
-                users={users}
-                onChange={changeUserFilter}
-              />
-            </div>
-          </NavIsland>
-        ) : null}
+        <NavIsland className="shrink-0">
+          <div className="flex h-11 items-center gap-1.5 rounded-full bg-background/80 px-2 backdrop-blur-xl">
+            {tab === "live" ? (
+              <>
+                <ProjectFilterMenu
+                  value={projectFilter}
+                  projects={projectOptions}
+                  onChange={setProjectFilter}
+                />
+                <UserFilterMenu
+                  value={userFilter}
+                  users={users}
+                  onChange={changeUserFilter}
+                />
+              </>
+            ) : null}
+            <IconTab
+              active={tab !== "live"}
+              onClick={() => setTab("settings")}
+              icon={<Settings className="size-[18px]" />}
+              label="Settings"
+            />
+          </div>
+        </NavIsland>
       </header>
 
       {error ? (
@@ -1665,7 +1676,7 @@ export function App() {
         </div>
       ) : null}
 
-      <main className={`min-h-0 flex-1 overflow-y-auto px-3 pt-3 ${keyboardOpen ? "pb-3" : "pb-28"}`}>
+      <main className={`min-h-0 flex-1 overflow-y-auto px-3 pt-3 ${keyboardOpen ? "pb-3" : "pb-[calc(1rem+env(safe-area-inset-bottom))]"}`}>
         {tab === "live" ? (
           <LiveView
             sessions={liveSessions}
@@ -1697,61 +1708,23 @@ export function App() {
           </Suspense>
         ) : tab === "browser" ? (
           <BrowserProfiles />
-        ) : tab === "settings" ? (
+        ) : extNavTabs.some((t) => t.id === tab) ? (
+          extNavTabs.find((t) => t.id === tab)!.render()
+        ) : (
           <SettingsView
             dark={dark}
             toggleTheme={toggleTheme}
             user={userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : null}
             onOpenTerminal={() => setTab("term")}
             onOpenBrowser={() => setTab("browser")}
+            onOpenAuto={() => setTab("auto")}
+            extTabs={extNavTabs}
+            onOpenExt={setTab}
           />
-        ) : (
-          activeExtTab?.render() ?? null
         )}
       </main>
 
-      {/* floating pill nav + new-session FAB */}
-      <div className={`pointer-events-none fixed inset-x-0 bottom-0 z-50 flex items-center justify-center gap-2.5 px-4 pb-[calc(0.875rem+env(safe-area-inset-bottom))] ${keyboardOpen ? "hidden" : ""}`}>
-        <div className="pointer-events-auto rounded-full bg-gradient-to-b from-white/70 via-white/25 to-white/10 p-px shadow-[0_8px_28px_rgba(0,0,0,0.18)] dark:from-white/25 dark:via-white/10 dark:to-white/5">
-          <nav className="relative flex items-center gap-1 rounded-full bg-background p-1.5">
-            <span
-              aria-hidden
-              className="absolute inset-y-1.5 left-1.5 w-[4.5rem] rounded-full bg-primary/12 transition-transform duration-[260ms] ease-ios"
-              style={{ transform: `translateX(calc(${tabIndex} * (4.5rem + 0.25rem)))` }}
-            />
-            <PillTab
-              active={tab === "live"}
-              onClick={() => setTab("live")}
-              icon={<Radio className="size-[18px]" />}
-              label="Live"
-            />
-            <PillTab
-              active={tab === "auto"}
-              onClick={() => setTab("auto")}
-              icon={<CalendarClock className="size-[18px]" />}
-              label="Auto"
-            />
-            {extNavTabs.map((t) => (
-              <PillTab
-                key={t.id}
-                active={tab === t.id}
-                onClick={() => setTab(t.id)}
-                icon={t.icon ?? <Flag className="size-[18px]" />}
-                label={t.label}
-              />
-            ))}
-            <PillTab
-              active={tab === "settings"}
-              onClick={() => setTab("settings")}
-              icon={<Settings className="size-[18px]" />}
-              label="Settings"
-            />
-          </nav>
-        </div>
-        <NewSessionFab onOpenDialog={() => setNewOpen(true)} onCreateVoice={createVoiceSession} />
-      </div>
-
-      <VoiceOrb />
+      <VoiceOrb onCompose={() => setNewOpen(true)} />
 
       <AskCenter />
 
@@ -1805,7 +1778,9 @@ export function App() {
   );
 }
 
-function PillTab({
+// Horizontal tab used in the top nav bar. Icon + label sit side by side; the
+// active tab gets a soft primary pill behind it.
+function TopTab({
   active,
   icon,
   label,
@@ -1822,245 +1797,46 @@ function PillTab({
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "relative flex w-[4.5rem] flex-col items-center gap-0.5 rounded-full px-4 py-1.5 transition-[color,transform] duration-200 ease-out",
-        active ? "text-primary" : "text-muted-foreground hover:text-foreground active:scale-[0.96]",
+        "flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium tracking-[-0.01em] transition-colors duration-200 ease-out",
+        active
+          ? "bg-primary/12 text-primary"
+          : "text-muted-foreground hover:text-foreground active:scale-[0.96]",
       )}
     >
       {icon}
-      <span className="text-[10.5px] font-medium tracking-[-0.01em]">{label}</span>
+      <span>{label}</span>
     </button>
   );
 }
 
-// How long the pointer must stay down before the press becomes a hold-to-talk.
-// Below this it's treated as a tap → open the full New Session dialog.
-const FAB_LONG_PRESS_MS = 280;
-// Drag the finger up past this many px (from where the press started) to arm the
-// cancel — release inside the zone discards the recording instead of creating.
-const FAB_CANCEL_DY = 90;
-
-// The new-session control that lives next to the bottom nav. A quick tap opens
-// the full New Session dialog; a press-and-hold drops straight into voice input
-// with a live transcript on screen — release to create a session from what you
-// said, or slide up past the cancel line and release to throw it away.
-function NewSessionFab({
-  onOpenDialog,
-  onCreateVoice,
+// Icon-only variant of TopTab used in the top-right island (Settings).
+function IconTab({
+  active,
+  icon,
+  label,
+  onClick,
 }: {
-  onOpenDialog: () => void;
-  onCreateVoice: (prompt: string) => Promise<void>;
+  active: boolean;
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
 }) {
-  const [recording, setRecording] = useState(false);
-  const [interim, setInterim] = useState("");
-  const [willCancel, setWillCancel] = useState(false);
-  // Refs shadow the state so the window-level pointer handlers (which close over
-  // a single render) always read the live value rather than a stale snapshot.
-  const recordingRef = useRef(false);
-  const cancelRef = useRef(false);
-  const startYRef = useRef(0);
-  const pressTimerRef = useRef<number | null>(null);
-
-  const { state, supported, level, start, stop } = useDictation({
-    onText: (text) => {
-      const t = text.trim();
-      if (t) void onCreateVoice(t);
-    },
-    onInterim: (text) => setInterim(text),
-  });
-
-  const beginRecord = useCallback(() => {
-    recordingRef.current = true;
-    cancelRef.current = false;
-    setWillCancel(false);
-    setInterim("");
-    setRecording(true);
-    haptic("medium");
-    void start();
-  }, [start]);
-
-  // Gesture tracking is bound to the button via EXPLICIT pointer capture
-  // (setPointerCapture in onDown), not window listeners. The recording overlay
-  // mounts on top at z-60 mid-gesture; without explicit capture the browser's
-  // implicit touch capture gets disrupted once that element paints over the
-  // button, so pointermove/pointerup stop arriving and slide-up/release silently
-  // break. Capturing the pointerId to the button guarantees every event for this
-  // one touch is delivered here regardless of what's painted above it.
-  const onMove = useCallback((e: React.PointerEvent) => {
-    if (!recordingRef.current) return;
-    const dy = startYRef.current - e.clientY;
-    const c = dy > FAB_CANCEL_DY;
-    if (c !== cancelRef.current) {
-      cancelRef.current = c;
-      setWillCancel(c);
-      haptic(c ? "warning" : "light");
-    }
-  }, []);
-
-  const onUp = useCallback(
-    (e: React.PointerEvent) => {
-      if (pressTimerRef.current !== null) {
-        clearTimeout(pressTimerRef.current);
-        pressTimerRef.current = null;
-      }
-      try {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      } catch {
-        /* capture may already be gone (e.g. pointercancel) — fine */
-      }
-      if (recordingRef.current) {
-        recordingRef.current = false;
-        setRecording(false);
-        const cancel = cancelRef.current;
-        cancelRef.current = false;
-        setWillCancel(false);
-        haptic(cancel ? "light" : "success");
-        void stop(false, cancel);
-      } else {
-        // Released before the hold threshold — treat as a tap.
-        onOpenDialog();
-      }
-    },
-    [stop, onOpenDialog],
-  );
-
-  const onDown = useCallback(
-    (e: React.PointerEvent) => {
-      if (state === "transcribing") return;
-      startYRef.current = e.clientY;
-      // Route all subsequent events for this pointer to the button itself.
-      try {
-        e.currentTarget.setPointerCapture(e.pointerId);
-      } catch {
-        /* unsupported — falls back to normal target/bubble routing */
-      }
-      pressTimerRef.current = window.setTimeout(() => {
-        pressTimerRef.current = null;
-        if (supported) beginRecord();
-      }, FAB_LONG_PRESS_MS);
-    },
-    [state, supported, beginRecord],
-  );
-
-  useEffect(
-    () => () => {
-      if (pressTimerRef.current !== null) clearTimeout(pressTimerRef.current);
-    },
-    [],
-  );
-
-  const transcribing = state === "transcribing";
-  const overlayOpen = recording || transcribing;
-
   return (
-    <>
-      <div className="pointer-events-auto rounded-full bg-gradient-to-b from-white/70 via-white/25 to-white/10 p-px shadow-[0_8px_28px_rgba(0,0,0,0.18)] dark:from-white/25 dark:via-white/10 dark:to-white/5">
-        <button
-          type="button"
-          aria-label="New session — tap to compose, hold to dictate"
-          onPointerDown={onDown}
-          onPointerMove={onMove}
-          onPointerUp={onUp}
-          onPointerCancel={onUp}
-          onContextMenu={(e) => e.preventDefault()}
-          style={{
-            touchAction: "none",
-            ...(recording
-              ? {
-                  transform: `scale(${(1 + level * 0.14).toFixed(3)})`,
-                  boxShadow: `0 0 ${(10 + level * 26).toFixed(1)}px ${(level * 6).toFixed(
-                    1,
-                  )}px color-mix(in srgb, var(--destructive) ${Math.round(
-                    35 + level * 55,
-                  )}%, transparent)`,
-                  transition: "transform 80ms linear, box-shadow 80ms linear",
-                }
-              : undefined),
-          }}
-          className={cn(
-            "grid size-[3.25rem] select-none place-items-center rounded-full transition-colors",
-            recording
-              ? "bg-destructive text-destructive-foreground"
-              : "bg-primary text-primary-foreground active:scale-[0.96]",
-          )}
-        >
-          {transcribing ? (
-            <Loader2 className="size-5 animate-spin" />
-          ) : recording ? (
-            <Mic className="size-5" />
-          ) : (
-            <Plus className="size-5" />
-          )}
-        </button>
-      </div>
-
-      {overlayOpen ? (
-        <div className="pointer-events-none fixed inset-0 z-[60] flex flex-col items-center justify-between bg-background px-6 pb-40 pt-[calc(env(safe-area-inset-top)+2rem)]">
-          {/* slide-up-to-cancel target */}
-          <div
-            className={cn(
-              "flex flex-col items-center gap-2 transition-colors",
-              willCancel ? "text-destructive" : "text-muted-foreground",
-            )}
-          >
-            <span
-              className={cn(
-                "grid size-12 place-items-center rounded-full border transition-all",
-                willCancel
-                  ? "scale-110 border-destructive bg-destructive/15 text-destructive"
-                  : "border-border bg-card/60",
-              )}
-            >
-              <X className="size-5" />
-            </span>
-            <span className="text-xs font-medium">
-              {willCancel ? "Release to cancel" : "Slide up to cancel"}
-            </span>
-          </div>
-
-          {/* live transcript */}
-          <div className="flex w-full max-w-md flex-1 items-center justify-center py-6">
-            {transcribing ? (
-              <p className="text-center text-base font-medium text-muted-foreground">
-                Transcribing…
-              </p>
-            ) : interim ? (
-              <p
-                className={cn(
-                  "text-center text-xl font-medium leading-relaxed transition-opacity",
-                  willCancel ? "opacity-40" : "opacity-100",
-                )}
-              >
-                {interim}
-              </p>
-            ) : (
-              <p className="text-center text-base text-muted-foreground">Listening…</p>
-            )}
-          </div>
-
-          {/* mic level pulse sitting above the FAB */}
-          <div className="flex flex-col items-center gap-3">
-            <span
-              aria-hidden
-              className="grid place-items-center rounded-full bg-destructive text-destructive-foreground"
-              style={{
-                width: "3.25rem",
-                height: "3.25rem",
-                transform: `scale(${(1 + level * 0.18).toFixed(3)})`,
-                boxShadow: `0 0 ${(12 + level * 30).toFixed(1)}px ${(level * 7).toFixed(
-                  1,
-                )}px color-mix(in srgb, var(--destructive) ${Math.round(
-                  40 + level * 50,
-                )}%, transparent)`,
-                transition: "transform 80ms linear, box-shadow 80ms linear",
-              }}
-            >
-              <Mic className="size-5" />
-            </span>
-            <span className="text-xs text-muted-foreground">Release to create session</span>
-          </div>
-        </div>
-      ) : null}
-    </>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "flex size-9 shrink-0 items-center justify-center rounded-full transition-colors duration-200 ease-out",
+        active
+          ? "bg-primary/12 text-primary"
+          : "text-muted-foreground hover:text-foreground active:scale-[0.96]",
+      )}
+    >
+      {icon}
+    </button>
   );
 }
 
@@ -2127,30 +1903,64 @@ function UserFilterMenu({
   onChange: (value: string) => void;
 }) {
   const active = value !== "__all";
+  const selected = users.find((user) => user.email === value);
   return (
-    <label
-      className={cn(
-        "relative inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-border bg-muted/70",
-        active ? "text-primary" : "text-foreground",
-      )}
-      aria-label="Filter live sessions by user"
-    >
-      <UserRound className="size-4 shrink-0" />
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        aria-label="Filter live sessions by user"
-        className="absolute inset-0 cursor-pointer appearance-none bg-transparent text-transparent opacity-0 outline-none"
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            aria-label="Filter live sessions by user"
+            title={
+              selected ? (selected.name ?? shortUser(selected.email)) : active ? "Unassigned" : "All users"
+            }
+            className={cn(
+              "relative inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border transition",
+              active ? "border-primary/40 text-primary" : "border-border bg-muted/70 text-foreground",
+            )}
+          />
+        }
       >
-        <option value="__all">All</option>
-        <option value="__unassigned">Unassigned</option>
-        {users.map((user) => (
-          <option key={user.email} value={user.email}>
-            {user.name ?? shortUser(user.email)}
-          </option>
-        ))}
-      </select>
-    </label>
+        {selected?.avatar ? (
+          <img src={selected.avatar} alt="" className="size-full object-cover" />
+        ) : active ? (
+          <UserRound className="size-4 shrink-0" />
+        ) : (
+          <Globe className="size-4 shrink-0" />
+        )}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-48">
+        <DropdownMenuRadioGroup
+          value={value}
+          onValueChange={(next) => onChange(typeof next === "string" ? next : "__all")}
+        >
+          <DropdownMenuLabel>Filter by user</DropdownMenuLabel>
+          <DropdownMenuRadioItem value="__all">
+            <Globe className="size-5 shrink-0 text-muted-foreground" />
+            All users
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="__unassigned">
+            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted">
+              <UserRound className="size-3" />
+            </span>
+            Unassigned
+          </DropdownMenuRadioItem>
+          {users.length ? <DropdownMenuSeparator /> : null}
+          {users.map((user) => (
+            <DropdownMenuRadioItem key={user.email} value={user.email}>
+              {user.avatar ? (
+                <img src={user.avatar} alt="" className="size-5 shrink-0 rounded-full object-cover" />
+              ) : (
+                <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted">
+                  <UserRound className="size-3" />
+                </span>
+              )}
+              <span className="truncate capitalize">{user.name ?? shortUser(user.email)}</span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -2441,6 +2251,7 @@ function LiveView({
         findings={findings}
         nameFor={nameFor}
         onOpenFinding={onOpenFinding}
+        onNew={onNew}
       />
     );
   }
@@ -2508,6 +2319,7 @@ function RailStage({
   findings = [],
   nameFor,
   onOpenFinding,
+  onNew,
 }: {
   sessions: Session[];
   users: User[];
@@ -2521,6 +2333,7 @@ function RailStage({
   findings: AutoFinding[];
   nameFor: (id: string) => string;
   onOpenFinding: (f: AutoFinding) => void;
+  onNew: () => void;
 }) {
   const MAX_COLUMNS = 4;
   const [pinned, setPinned] = useState<string[]>(() => {
@@ -2700,16 +2513,32 @@ function RailStage({
     },
     [bySid, onRefresh],
   );
+  const closeSession = useCallback(
+    async (sid: string | null) => {
+      if (!sid || !bySid.has(sid)) return;
+      closeColumn(sid);
+      try {
+        await api(`/api/sessions/${sid}/close`, { method: "POST" });
+        onRemove(sid);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Couldn't end session");
+      } finally {
+        await onRefresh();
+      }
+    },
+    [bySid, closeColumn, onRemove, onRefresh],
+  );
 
   // Latest values for the global key handler, so it binds once but never reads
   // stale state.
-  const kb = useRef({ orderedSids, cursor, preview, columnIds, activate, selectTo, togglePin, closeColumn, setCursor, setPreview, setRailCollapsed, setShowHelp, showHelp, busyBySid, interruptSid });
-  kb.current = { orderedSids, cursor, preview, columnIds, activate, selectTo, togglePin, closeColumn, setCursor, setPreview, setRailCollapsed, setShowHelp, showHelp, busyBySid, interruptSid };
+  const kb = useRef({ orderedSids, cursor, preview, columnIds, activate, selectTo, togglePin, closeColumn, closeSession, setCursor, setPreview, setRailCollapsed, setShowHelp, showHelp, busyBySid, interruptSid, onNew });
+  kb.current = { orderedSids, cursor, preview, columnIds, activate, selectTo, togglePin, closeColumn, closeSession, setCursor, setPreview, setRailCollapsed, setShowHelp, showHelp, busyBySid, interruptSid, onNew };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const s = kb.current;
       const order = s.orderedSids;
       const cur = s.cursor && order.includes(s.cursor) ? s.cursor : order[0] ?? null;
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
 
       // Quick-interrupt: Cmd/Ctrl+. cancels the active run from anywhere — even
       // while typing in the composer — targeting the focused session if it's
@@ -2728,7 +2557,7 @@ function RailStage({
       if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
 
       const idx = cur ? order.indexOf(cur) : -1;
-      const move = (delta: number, shift: boolean) => {
+      const move = (delta: number, shift: boolean, open: boolean) => {
         if (!order.length) return;
         const next = order[Math.max(0, Math.min(order.length - 1, idx + delta))];
         if (!next) return;
@@ -2737,13 +2566,30 @@ function RailStage({
           if (!anchorRef.current) anchorRef.current = cur ?? next;
           s.setCursor(next);
           s.selectTo(next);
+        } else if (open) {
+          // Arrows switch the primary session directly: move the cursor *and*
+          // open it in the stage in one step.
+          s.activate(next, false);
         } else {
           anchorRef.current = next;
           s.setCursor(next);
         }
       };
 
-      switch (e.key) {
+      // Enter "focuses into" the cursored session: make sure it's open in the
+      // stage, then move keyboard focus into its message composer.
+      const focusInto = (sid: string) => {
+        if (!s.columnIds.includes(sid)) s.activate(sid, false);
+        // Let the column mount/render before grabbing its input.
+        window.setTimeout(() => {
+          const el = document.querySelector(
+            `[data-composer-sid="${sid}"]`,
+          ) as HTMLElement | null;
+          el?.focus();
+        }, 60);
+      };
+
+      switch (key) {
         case "?":
           e.preventDefault();
           s.setShowHelp((v) => !v);
@@ -2766,21 +2612,36 @@ function RailStage({
           }
           return;
         }
-        case "j":
+        case "c":
+          e.preventDefault();
+          s.onNew();
+          return;
         case "ArrowDown":
           e.preventDefault();
-          move(1, e.shiftKey);
+          move(1, e.shiftKey, true);
           return;
-        case "k":
         case "ArrowUp":
           e.preventDefault();
-          move(-1, e.shiftKey);
+          move(-1, e.shiftKey, true);
+          return;
+        case "j":
+          e.preventDefault();
+          move(1, e.shiftKey, false);
+          return;
+        case "k":
+          e.preventDefault();
+          move(-1, e.shiftKey, false);
           return;
         case "o":
-        case "Enter":
           if (cur) {
             e.preventDefault();
             s.activate(cur, e.shiftKey);
+          }
+          return;
+        case "Enter":
+          if (cur) {
+            e.preventDefault();
+            focusInto(cur);
           }
           return;
         case "p":
@@ -2793,6 +2654,12 @@ function RailStage({
           if (cur && s.columnIds.includes(cur)) {
             e.preventDefault();
             s.closeColumn(cur);
+          }
+          return;
+        case "e":
+          if (cur && !e.repeat) {
+            e.preventDefault();
+            void s.closeSession(cur);
           }
           return;
         case "\\":
@@ -2834,7 +2701,7 @@ function RailStage({
   return (
     <div className="flex h-full min-h-0 gap-3">
       <aside
-        className="flex h-full min-h-0 shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-card/40 transition-[width] duration-200 ease-ios"
+        className="flex h-full min-h-0 shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-card transition-[width] duration-200 ease-ios"
         style={{ width: railCollapsed ? 56 : 280 }}
       >
         <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-2.5">
@@ -2908,7 +2775,13 @@ function RailStage({
             const session = bySid.get(sid);
             if (!session) return null;
             return (
-              <div key={sid} className="h-full min-h-0 min-w-0">
+              <div
+                key={sid}
+                data-stage-sid={sid}
+                className="h-full min-h-0 min-w-0"
+                onClickCapture={() => setCursor(sid)}
+                onFocusCapture={() => setCursor(sid)}
+              >
                 <ErrorBoundary
                   fallback={(reset) => (
                     <section className="live-pane flex h-full min-w-0 flex-col items-center justify-center gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-center text-sm text-destructive">
@@ -2951,10 +2824,14 @@ function RailStage({
 
 function ShortcutsHelp({ onClose }: { onClose: () => void }) {
   const rows: [string, string][] = [
-    ["j / ↓ · k / ↑", "Move cursor down / up the rail"],
-    ["Enter / o", "Open cursored session"],
+    ["↓ / ↑", "Switch primary session"],
+    ["j / k", "Move cursor without opening"],
+    ["Enter", "Focus into current session"],
+    ["o", "Open cursored session"],
+    ["c", "New session"],
     ["p", "Pin / unpin cursored session"],
     ["x", "Close cursored column"],
+    ["e", "End cursored session"],
     ["1 – 9", "Open the Nth session"],
     ["\\", "Collapse / expand the rail"],
     ["?", "Toggle this help"],
@@ -3136,21 +3013,29 @@ const RailItem = memo(function RailItem({
         onTouchEnd={onTouchEnd}
         title={collapsed ? titleForSession(session) : undefined}
         className={cn(
-          "group relative flex cursor-pointer touch-pan-y select-none items-center gap-2 rounded-lg py-1.5 outline-none",
+          "group relative flex cursor-pointer touch-pan-y select-none items-center gap-2 rounded-lg py-1.5 outline-none transition-[background-color,box-shadow] duration-150",
           collapsed ? "justify-center px-0" : "px-2",
-          swiping ? "bg-card" : active ? "bg-primary/10" : "hover:bg-muted",
+          swiping
+            ? "bg-card"
+            : active
+              ? "bg-primary/10"
+              : "hover:bg-muted",
         )}
       >
-        {active ? (
-          <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary" aria-hidden />
-        ) : null}
-        <span
-          aria-label={busy ? "working" : "idle"}
-          className={cn(
-            "size-2 shrink-0 rounded-full",
-            busy ? "animate-pulse bg-warning" : "bg-success/30 ring-1 ring-inset ring-success/20",
-          )}
-        />
+        <span className="relative flex size-6 shrink-0 items-center justify-center">
+          <img
+            src={agentIconSrc(session.agent)}
+            alt={agentIconAlt(session.agent)}
+            className="size-6 rounded-md"
+          />
+          <span
+            aria-label={busy ? "working" : "idle"}
+            className={cn(
+              "absolute -bottom-0.5 -right-0.5 size-2.5 shrink-0 rounded-full ring-2 ring-card",
+              busy ? "animate-pulse bg-warning" : "bg-success",
+            )}
+          />
+        </span>
         {!collapsed ? (
           <>
             <span className="flex min-w-0 flex-1 flex-col">
@@ -3272,10 +3157,14 @@ function PausedBanner({
   if (session.status !== "blocked") return null;
   const sid = session.sessionId;
   const reason = session.statusReason;
-  const canSwitch =
+  const canSwitchClaude =
     reason === "model_unavailable" && session.agent === "claude" && !!session.tmuxTarget && !!sid;
+  const canSwitchOpencode =
+    session.agent === "opencode" &&
+    (reason === "provider_auth" || reason === "provider_error") &&
+    !!sid;
 
-  async function resumeOnOpus() {
+  async function switchModel(model: string) {
     if (!sid) return;
     setWorking(true);
     setErr(null);
@@ -3283,7 +3172,7 @@ function PausedBanner({
       await api(`/api/sessions/${sid}/model`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "opus" }),
+        body: JSON.stringify({ model }),
       });
       await onRefresh();
     } catch (e) {
@@ -3293,10 +3182,21 @@ function PausedBanner({
     }
   }
 
-  const title = reason === "out_of_credits" ? "Build paused — out of credits" : "Build paused";
+  const title =
+    reason === "out_of_credits"
+      ? "Build paused — out of credits"
+      : reason === "provider_auth"
+        ? "Build paused — provider rejected the model"
+        : reason === "provider_error"
+          ? "Build paused — provider error"
+          : "Build paused";
   const detail =
     reason === "out_of_credits"
       ? "This app's build agent ran out of AI credits. Top up the wallet to resume the build."
+      : reason === "provider_auth"
+        ? `${session.statusDetail || "The selected provider rejected the request."} Check the OpenCode provider key or switch models.`
+        : reason === "provider_error"
+          ? `${session.statusDetail || "The selected provider failed the request."} Check the OpenCode provider logs or switch models.`
       : `${session.statusDetail || "The selected model isn't available."} Switch to a working model to pick the build back up.`;
 
   return (
@@ -3307,14 +3207,24 @@ function PausedBanner({
           <div className="mt-0.5 text-foreground/70">{detail}</div>
           {err ? <div className="mt-1 text-destructive">{err}</div> : null}
         </div>
-        {canSwitch ? (
+        {canSwitchClaude ? (
           <button
             type="button"
-            onClick={resumeOnOpus}
+            onClick={() => void switchModel("opus")}
             disabled={working}
             className="shrink-0 rounded-lg bg-warning px-3 py-1.5 font-medium text-white disabled:opacity-50"
           >
             {working ? "Resuming…" : "Resume on Opus"}
+          </button>
+        ) : null}
+        {canSwitchOpencode ? (
+          <button
+            type="button"
+            onClick={() => void switchModel("opencode/big-pickle")}
+            disabled={working}
+            className="shrink-0 rounded-lg bg-warning px-3 py-1.5 font-medium text-white disabled:opacity-50"
+          >
+            {working ? "Switching…" : "Use Big Pickle"}
           </button>
         ) : null}
       </div>
@@ -3396,8 +3306,9 @@ function SessionChat({
       ) : null}
 
       {canDriveSession(session) ? (
-        <form onSubmit={sendMessage} className="flex gap-2 border-t border-border/70 bg-muted/35 p-2">
+        <form onSubmit={sendMessage} className="flex gap-2 border-t border-border/70 bg-card p-2">
           <input
+            data-composer-sid={sid}
             value={messageText}
             onChange={(e) => setMessageText(e.target.value)}
             onKeyDown={(e) => {
@@ -3407,7 +3318,7 @@ function SessionChat({
               }
             }}
             placeholder="Message"
-            className="h-11 min-w-0 flex-1 rounded-full border border-input bg-background px-4 text-base outline-none focus:border-primary md:h-9 md:px-3.5 md:text-sm"
+            className="h-11 min-w-0 flex-1 rounded-full border border-transparent bg-muted/65 px-4 text-base outline-none transition-colors focus:bg-primary/10 md:h-9 md:px-3.5 md:text-sm"
           />
           <MicButton
             className="size-11 md:size-9"
@@ -4018,7 +3929,10 @@ const SessionCard = memo(function SessionCard({
             ⏸ paused
           </span>
         ) : null}
-        {!collapsedView && (session.agent !== "codex" && session.tmuxTarget && sid ? (
+        {!collapsedView && (
+          session.agent !== "codex" &&
+          (session.tmuxTarget || session.agent === "opencode") &&
+          sid ? (
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
@@ -4720,9 +4634,6 @@ function NewSessionDialog({
   const [agent, setAgent] = useState<AgentKind>(
     () => (localStorage.getItem("lfg_v2_agent") as AgentKind | null) || "aisdk",
   );
-  // Reveal the legacy CLI agents up front only when one is already selected
-  // (e.g. restored from localStorage), so a persisted CLI choice stays visible.
-  const [showCli, setShowCli] = useState(() => agent === "claude" || agent === "codex");
   const [repo, setRepo] = useState(() => localStorage.getItem("lfg_v2_repo") || "");
   const [model, setModel] = useState(
     () =>
@@ -4944,7 +4855,7 @@ function NewSessionDialog({
 
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <div className="inline-flex h-8 items-center rounded-full bg-muted p-0.5 text-xs font-semibold">
-            {AGENT_OPTIONS.filter((o) => !o.cli).map(({ key, label }) => (
+            {AGENT_OPTIONS.map(({ key, label }) => (
               <button
                 key={key}
                 type="button"
@@ -4965,44 +4876,6 @@ function NewSessionDialog({
               </button>
             ))}
           </div>
-
-          <button
-            type="button"
-            onClick={() => setShowCli((v) => !v)}
-            className="flex h-8 items-center gap-0.5 rounded-full px-2 text-xs font-medium text-muted-foreground transition hover:text-foreground"
-          >
-            {showCli ? (
-              <ChevronDown className="size-3.5" />
-            ) : (
-              <ChevronRight className="size-3.5" />
-            )}
-            CLI agents
-          </button>
-
-          {showCli && (
-            <div className="inline-flex h-8 items-center rounded-full bg-muted p-0.5 text-xs font-semibold">
-              {AGENT_OPTIONS.filter((o) => o.cli).map(({ key, label }) => (
-                <button
-                  key={key}
-                  type="button"
-                  title={label}
-                  aria-label={label}
-                  onClick={() => {
-                    setAgent(key);
-                    setModel(
-                      localStorage.getItem(`lfg_model_${key}`) || AGENT_DEFAULT_MODEL[key],
-                    );
-                  }}
-                  className={cn(
-                    "flex h-7 w-9 items-center justify-center rounded-full transition",
-                    agent === key ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
-                  )}
-                >
-                  <img src={agentIconSrc(key)} alt="" className="size-5" />
-                </button>
-              ))}
-            </div>
-          )}
 
           <FieldPill>
             <select
@@ -5064,22 +4937,6 @@ function NewSessionDialog({
                 <X className="size-3.5" />
               </button>
             )}
-          </FieldPill>
-
-          <FieldPill icon={<UserRound className="size-3.5 text-muted-foreground" />}>
-            <select
-              value={user}
-              onChange={(e) => setUser(e.target.value)}
-              aria-label="Owner"
-              className="max-w-24 appearance-none truncate bg-transparent pr-1 text-xs font-medium outline-none"
-            >
-              <option value="">Unassigned</option>
-              {users.map((item) => (
-                <option key={item.email} value={item.email}>
-                  {item.name ?? shortUser(item.email)}
-                </option>
-              ))}
-            </select>
           </FieldPill>
         </div>
 
@@ -5817,23 +5674,195 @@ function ScheduleSummary({ expr, tz }: { expr: string; tz: string }) {
   );
 }
 
+type ProviderOption = { id: string; label: string; available: boolean };
+type VoiceConfig = {
+  settings: { ttsProvider: string; sttProvider: string };
+  providers: { tts: ProviderOption[]; stt: ProviderOption[] };
+};
+
+function ProviderRow({
+  icon,
+  label,
+  value,
+  options,
+  onChange,
+  disabled,
+}: {
+  icon: ReactNode;
+  label: string;
+  value?: string;
+  options?: ProviderOption[];
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+      <div className="flex items-center gap-3">
+        <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
+          {icon}
+        </span>
+        <span className="text-sm font-medium">{label}</span>
+      </div>
+      <select
+        className="max-w-[55%] rounded-lg border border-border bg-background px-2 py-1 text-sm disabled:opacity-50"
+        value={value ?? ""}
+        disabled={disabled || !options}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={label}
+      >
+        {!options ? (
+          <option value="">Loading…</option>
+        ) : (
+          options.map((o) => (
+            <option key={o.id} value={o.id} disabled={!o.available}>
+              {o.label}
+              {o.available ? "" : " (no key)"}
+            </option>
+          ))
+        )}
+      </select>
+    </div>
+  );
+}
+
+function VoiceSettingsSection() {
+  const [cfg, setCfg] = useState<VoiceConfig | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void fetch("/api/voice/config")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: VoiceConfig | null) => {
+        if (alive && d) setCfg(d);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const update = async (patch: Partial<VoiceConfig["settings"]>) => {
+    setCfg((c) => (c ? { ...c, settings: { ...c.settings, ...patch } } : c));
+    setSaving(true);
+    try {
+      const r = await fetch("/api/voice/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const d = (await r.json().catch(() => null)) as { settings?: VoiceConfig["settings"] } | null;
+      if (d?.settings) setCfg((c) => (c ? { ...c, settings: d.settings! } : c));
+    } catch {
+      // keep the optimistic value; next load reconciles
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="space-y-2">
+      <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        Voice
+      </h2>
+      <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+        <ProviderRow
+          icon={<Radio className="size-4" />}
+          label="Voice output"
+          value={cfg?.settings.ttsProvider}
+          options={cfg?.providers.tts}
+          onChange={(v) => void update({ ttsProvider: v })}
+          disabled={!cfg || saving}
+        />
+        <ProviderRow
+          icon={<Mic className="size-4" />}
+          label="Voice input"
+          value={cfg?.settings.sttProvider}
+          options={cfg?.providers.stt}
+          onChange={(v) => void update({ sttProvider: v })}
+          disabled={!cfg || saving}
+        />
+      </div>
+      <p className="px-4 text-xs text-muted-foreground">
+        Applies to the voice orb and every mic button. Greyed-out providers need an API key set on
+        the server.
+      </p>
+    </section>
+  );
+}
+
 function SettingsView({
   dark,
   toggleTheme,
   user,
   onOpenTerminal,
   onOpenBrowser,
+  onOpenAuto,
+  extTabs,
+  onOpenExt,
 }: {
   dark: boolean;
   toggleTheme: () => void;
   user: string | null;
   onOpenTerminal: () => void;
   onOpenBrowser: () => void;
+  onOpenAuto: () => void;
+  extTabs: ExtensionNavTab[];
+  onOpenExt: (id: string) => void;
 }) {
   const initial = (user ?? "").trim().slice(0, 1).toUpperCase() || "?";
 
   return (
     <div className="mx-auto max-w-xl space-y-8 pb-10">
+      {/* Auto agents — opens as its own page. */}
+      <section className="space-y-2">
+        <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Automation
+        </h2>
+        <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
+          <button
+            type="button"
+            onClick={onOpenAuto}
+            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
+          >
+            <div className="flex items-center gap-3">
+              <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
+                <CalendarClock className="size-4" />
+              </span>
+              <span className="text-sm font-medium">Auto agents</span>
+            </div>
+            <ChevronRight className="size-4 text-muted-foreground/60" />
+          </button>
+        </div>
+      </section>
+
+      {/* Extension tabs — each opens as its own page. */}
+      {extTabs.length ? (
+        <section className="space-y-2">
+          <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Extensions
+          </h2>
+          <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+            {extTabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => onOpenExt(t.id)}
+                className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
+                    {t.icon ?? <Flag className="size-4" />}
+                  </span>
+                  <span className="text-sm font-medium">{t.label}</span>
+                </div>
+                <ChevronRight className="size-4 text-muted-foreground/60" />
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       {/* Account */}
       <div className="flex items-center gap-3.5 px-1">
         <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-secondary text-lg font-semibold text-muted-foreground">
@@ -5929,6 +5958,8 @@ function SettingsView({
           </button>
         </div>
       </section>
+
+      <VoiceSettingsSection />
     </div>
   );
 }
