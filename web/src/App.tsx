@@ -1393,8 +1393,10 @@ export function App() {
     [sessions, removedSids],
   );
 
-  // Unique projects present across the (user-filtered) live sessions, so the
-  // project menu only ever offers projects you can actually see.
+  // Unique projects present across the (user-filtered) live sessions plus every
+  // known repo. The repo-derived entries are important for persistence: a saved
+  // project filter should survive app reopen even when that project has no live
+  // session at load time.
   const userScopedSessions = useMemo(() => {
     if (userFilter === "__all") return allLiveSessions;
     if (userFilter === "__unassigned") {
@@ -1406,18 +1408,22 @@ export function App() {
   const projectOptions = useMemo(
     () =>
       Array.from(
-        new Set(userScopedSessions.map((s) => s.project).filter((p): p is string => !!p)),
+        new Set([
+          ...repos.map((repo) => repo.cwd.replace(/[/.]/g, "-").replace(/^-/, "")),
+          ...userScopedSessions.map((s) => s.project).filter((p): p is string => !!p),
+        ]),
       ).sort((a, b) => shortProject(a).localeCompare(shortProject(b))),
-    [userScopedSessions],
+    [repos, userScopedSessions],
   );
 
-  // If the chosen project disappears (sessions ended, or it's hidden by the
-  // current user filter), fall back to "all" rather than showing nothing.
+  // If the chosen project is no longer a known repo and has no visible session,
+  // fall back to "all" rather than keeping a dead filter.
   useEffect(() => {
+    if (loading) return;
     if (projectFilter !== "__all" && !projectOptions.includes(projectFilter)) {
       setProjectFilter("__all");
     }
-  }, [projectFilter, projectOptions]);
+  }, [loading, projectFilter, projectOptions]);
 
   const liveSessions = useMemo(() => {
     if (projectFilter === "__all") return userScopedSessions;
