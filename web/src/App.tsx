@@ -785,6 +785,19 @@ export function RootErrorBoundary({ children }: { children: ReactNode }) {
   );
 }
 
+// SSE `data` frames can arrive malformed or truncated (notably on iOS Safari,
+// which has thrown "JSON Parse error: Unterminated string" here). A bad frame
+// must not bubble out of the EventSource listener and crash the live view, so
+// parse defensively and drop anything that won't decode — same posture as the
+// voice WS handler above.
+function parseLiveEvent<T>(data: string): T | null {
+  try {
+    return JSON.parse(data) as T;
+  } catch {
+    return null;
+  }
+}
+
 function useLiveSessionStream(sessions: Session[]) {
   const ids = useMemo(
     () => sessions.map((session) => session.sessionId).filter((id): id is string => !!id),
@@ -825,7 +838,8 @@ function useLiveSessionStream(sessions: Session[]) {
     const es = new EventSource(`/api/live/stream?ids=${ids.join(",")}`);
 
     es.addEventListener("msg", (event) => {
-      const payload = JSON.parse(event.data) as { sid: string; m: Message };
+      const payload = parseLiveEvent<{ sid: string; m: Message }>(event.data);
+      if (!payload) return;
       const sid = payload.sid;
       const message = payload.m;
       if (!active.has(sid)) return;
@@ -876,8 +890,8 @@ function useLiveSessionStream(sessions: Session[]) {
     });
 
     es.addEventListener("busy", (event) => {
-      const payload = JSON.parse(event.data) as { sid: string; busy: boolean };
-      if (!active.has(payload.sid)) return;
+      const payload = parseLiveEvent<{ sid: string; busy: boolean }>(event.data);
+      if (!payload || !active.has(payload.sid)) return;
       setBusyBySid((prev) => ({ ...prev, [payload.sid]: payload.busy }));
       // A thinking block is written to the transcript on its own line, and the
       // live "thinking…" bubble is otherwise only cleared when the *next*
@@ -899,14 +913,14 @@ function useLiveSessionStream(sessions: Session[]) {
     });
 
     es.addEventListener("prompt", (event) => {
-      const payload = JSON.parse(event.data) as { sid: string; prompt: SessionPrompt | null };
-      if (!active.has(payload.sid)) return;
+      const payload = parseLiveEvent<{ sid: string; prompt: SessionPrompt | null }>(event.data);
+      if (!payload || !active.has(payload.sid)) return;
       setPromptsBySid((prev) => ({ ...prev, [payload.sid]: payload.prompt }));
     });
 
     es.addEventListener("queue", (event) => {
-      const payload = JSON.parse(event.data) as { sid: string; queue: QueueMsg[] };
-      if (!active.has(payload.sid)) return;
+      const payload = parseLiveEvent<{ sid: string; queue: QueueMsg[] }>(event.data);
+      if (!payload || !active.has(payload.sid)) return;
       setQueuesBySid((prev) => ({ ...prev, [payload.sid]: payload.queue ?? [] }));
     });
 
