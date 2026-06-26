@@ -60,6 +60,7 @@ import {
   pendingToolPrompt,
   listResumable,
   cwdForTranscript,
+  cwdForCodexTranscript,
   type PendingPrompt,
 } from "../sessions.ts";
 import {
@@ -1745,10 +1746,13 @@ export async function cmdServe() {
         return json({ sessions });
       }
 
-      // Resume a closed claude session: relaunch `claude --resume <id>` in the
-      // transcript's original cwd as a fresh managed tmux session, preserving the
-      // full conversation. Claude continues into a NEW sessionId, which we resolve
-      // from the pidfile (like /new) and hand back so the client can deep-link in.
+      // Resume a closed session in its original cwd as a fresh managed session,
+      // preserving the full conversation. Two engines:
+      //  - claude: relaunch `claude --resume <id>`; it continues into a NEW
+      //    sessionId, resolved from the pidfile (like /new) and handed back.
+      //  - codex: spawn a codex-aisdk harness seeded with the rollout's threadId
+      //    (== the resumed id). Codex resumes the SAME thread, so the live id
+      //    stays the resumed id — we return it directly.
       if (path === "/api/sessions/resume" && req.method === "POST") {
         const body = (await req.json().catch(() => null)) as {
           sessionId?: string;
@@ -1759,18 +1763,41 @@ export async function cmdServe() {
         const sessionId = body?.sessionId?.trim();
         if (!sessionId) return err(400, "sessionId required");
         const model = body?.model?.trim() || undefined;
-        if (model && !CLAUDE_MODELS.includes(model))
-          return err(400, `unknown model "${model}" (expected one of ${CLAUDE_MODELS.join(", ")})`);
         // Already running? Don't double-spawn — point the client at the live one.
         const live = (await listSessions()).find((s) => s.sessionId === sessionId);
         if (live)
-          return json({ ok: true, tmuxName: live.tmuxName, cwd: live.cwd, sessionId, alreadyLive: true, agent: "claude" });
+          return json({ ok: true, tmuxName: live.tmuxName, cwd: live.cwd, sessionId, alreadyLive: true, agent: live.agent });
         const transcript = await resolveTranscript(sessionId);
         if (!transcript) return err(404, "no transcript found for that session");
-        // claude-only: resume drives the claude CLI, and codex rollouts (under
-        // ~/.codex) carry no claude `cwd` line. Reject those with a clear message.
-        if (!transcript.includes("/.claude/projects/"))
-          return err(400, "only claude sessions can be resumed");
+
+        // Codex rollouts live under ~/.codex/sessions — resume them through a
+        // codex-aisdk harness keyed to the rollout's threadId rather than the
+        // claude CLI.
+        if (transcript.includes("/.codex/")) {
+          const cwd = (await cwdForCodexTranscript(transcript)) ?? SELF_REPO;
+          const tmuxName = `lfg-${randomBytes(3).toString("hex")}`;
+          const key = crypto.randomUUID(); // control-plane key (names registry/cmd files)
+          const r = spawnManagedCodexAisdkSession({
+            name: tmuxName,
+            cwd,
+            prompt: body?.prompt,
+            model: model ?? "gpt-5.5",
+            key,
+            resume: sessionId,
+          });
+          if (!r.ok) return err(502, r.error || "failed to resume session");
+          addManaged({ tmuxName, cwd, createdAt: Date.now(), agent: "codex-aisdk" });
+          if (body?.user) assignUser(tmuxName, body.user);
+          // Wait for the harness to register so the session is listable. The
+          // threadId is seeded up front (== resumedFrom), so it's the live id.
+          for (let i = 0; i < 20 && !readAisdkEntry(key); i++)
+            await new Promise((res) => setTimeout(res, 250));
+          return json({ ok: true, tmuxName, cwd, sessionId, resumedFrom: sessionId, agent: "codex-aisdk" });
+        }
+
+        // claude path: resume drives the claude CLI.
+        if (model && !CLAUDE_MODELS.includes(model))
+          return err(400, `unknown model "${model}" (expected one of ${CLAUDE_MODELS.join(", ")})`);
         const cwd = (await cwdForTranscript(transcript)) ?? SELF_REPO;
         const tmuxName = `lfg-${randomBytes(3).toString("hex")}`;
         const r = spawnManagedSession({ name: tmuxName, cwd, model, resume: sessionId, prompt: body?.prompt });

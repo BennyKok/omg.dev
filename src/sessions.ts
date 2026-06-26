@@ -1182,7 +1182,26 @@ export type ResumableSession = {
   title: string;
   lastActivityAt: number | null;
   lastUserText: string | null;
+  // Which engine the session was recorded with. "claude" resumes via the claude
+  // CLI (`claude --resume`); "codex" resumes via a codex-aisdk harness keyed to
+  // the rollout's threadId. The serve /resume endpoint branches on this.
+  agent: "claude" | "codex";
 };
+
+// The cwd a codex rollout was recorded in. Codex stores it on the first
+// `session_meta` line's payload (NOT a top-level `cwd` like claude), so the
+// claude-oriented cwdForTranscript() can't read it. Used to relaunch a resumed
+// codex session in its original directory.
+export async function cwdForCodexTranscript(path: string): Promise<string | null> {
+  try {
+    const first = (await Bun.file(path).slice(0, 128 * 1024).text()).split("\n")[0];
+    if (!first) return null;
+    const row = JSON.parse(first) as { type?: string; payload?: { cwd?: string } };
+    if (row.type === "session_meta" && typeof row.payload?.cwd === "string")
+      return row.payload.cwd || null;
+  } catch {}
+  return null;
+}
 
 // Recently-active claude sessions that are NOT currently live — the closed /
 // rebooted-away conversations a user can bring back with `claude --resume`.
@@ -1241,9 +1260,30 @@ export async function listResumable(
       title,
       lastActivityAt: c.mtime,
       lastUserText: await lastUserText(c.path).catch(() => null),
+      agent: "claude",
     });
   }
-  return out;
+
+  // Codex rollouts (~/.codex/sessions) are resumable too — surface the
+  // not-currently-live ones alongside claude transcripts. codexThreads() already
+  // parses each rollout's session_meta (id/cwd/title), so we just filter+map.
+  for (const t of await codexThreads().catch(() => [] as Awaited<ReturnType<typeof codexThreads>>)) {
+    if (exclude.has(t.id)) continue;
+    out.push({
+      sessionId: t.id,
+      cwd: t.cwd,
+      project: projectName(t.cwd),
+      title: overrides[t.id] || t.firstUserText || (t.cwd ? basename(t.cwd) : "—"),
+      lastActivityAt: t.updatedAt ?? t.createdAt,
+      lastUserText: t.firstUserText,
+      agent: "codex",
+    });
+  }
+
+  // Merge both sources newest-first and cap to the requested limit so the UI
+  // sees a single ranked list (claude + codex interleaved by recency).
+  out.sort((a, b) => (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0));
+  return out.slice(0, limit);
 }
 
 // Recent normalized messages for an initial render (tail of the file).

@@ -59,6 +59,10 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
   const thinkingLevel = arg(argv, "--thinking-level");
   const cwd = arg(argv, "--cwd") ?? process.cwd();
   const tmuxName = arg(argv, "--tmux") ?? "";
+  // Resuming a closed codex session: the rollout's threadId is known up front, so
+  // we seed `threadId` with it (below) and turn 1 resumes that thread instead of
+  // minting a new persistent one. Absent on a fresh session.
+  const resumeThreadId = arg(argv, "--resume");
   // Everything after `--` is the initial prompt (mirrors how the Claude harness
   // and the tmux codex session pass the first message).
   const dashI = argv.indexOf("--");
@@ -78,7 +82,10 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
   const { streamText } = await import("ai");
   // Lazy-import the provider so the rest of the CLI never hard-depends on it.
   const { createCodexAppServer } = await import("ai-sdk-provider-codex-cli");
-  let threadId: string | null = null; // learned early via onSessionCreated, then reused to resume
+  // When resuming, the threadId is the rollout id we were handed; seed it so the
+  // first turn resumes that thread. Otherwise it's learned early via
+  // onSessionCreated, then reused to resume on later turns.
+  let threadId: string | null = resumeThreadId ?? null;
 
   // One provider per harness: it owns a shared `codex app-server` child process
   // reused across every turn (and resumed thread). Full-access + never-approve
@@ -113,7 +120,10 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
   writeEntry({
     sessionId: key,
     agent: "codex",
-    threadId: null,
+    // Resumed sessions already know their threadId, so publish it now (the live
+    // view + transcript discovery key off it). Fresh sessions start null and get
+    // patched once turn 1 reports the id.
+    threadId,
     harnessPid: process.pid,
     tmuxName,
     cwd,
