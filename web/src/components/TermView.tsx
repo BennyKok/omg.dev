@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { TouchEvent as ReactTouchEvent } from "react";
 import { init, Terminal as GhosttyTerminal, FitAddon } from "ghostty-web";
-import { ClipboardPaste, ExternalLink, TerminalSquare, X } from "lucide-react";
+import { Check, ClipboardPaste, Copy, ExternalLink, TerminalSquare, X } from "lucide-react";
 
 // One WASM load per page, shared across mount/unmount of the tab.
 let ghosttyReady: Promise<void> | null = null;
@@ -38,6 +38,178 @@ const KEYS = {
 };
 
 const TERM_SESSION = "main";
+type TerminalInstance = InstanceType<typeof GhosttyTerminal>;
+
+function mouseTrackingMode(term: TerminalInstance) {
+  try {
+    const button = term.getMode(1000) || term.getMode(1002) || term.getMode(1003);
+    const enabled = term.hasMouseTracking() || button;
+    return {
+      enabled,
+      button: enabled,
+      drag: term.getMode(1002) || term.getMode(1003),
+      any: term.getMode(1003),
+      sgr: term.getMode(1006),
+    };
+  } catch {
+    return { enabled: false, button: false, drag: false, any: false, sgr: false };
+  }
+}
+
+function mouseCell(term: TerminalInstance, clientX: number, clientY: number) {
+  const renderer = term.renderer;
+  const canvas = renderer?.getCanvas();
+  if (!renderer || !canvas || !renderer.charWidth || !renderer.charHeight) return null;
+  const rect = canvas.getBoundingClientRect();
+  const x = clientX - rect.left;
+  const y = clientY - rect.top;
+  if (x < 0 || y < 0 || x >= rect.width || y >= rect.height) return null;
+  return {
+    col: Math.max(1, Math.min(term.cols, Math.floor(x / renderer.charWidth) + 1)),
+    row: Math.max(1, Math.min(term.rows, Math.floor(y / renderer.charHeight) + 1)),
+  };
+}
+
+function eventMods(e: MouseEvent | WheelEvent | TouchEvent) {
+  return (e.shiftKey ? 4 : 0) + (e.altKey ? 8 : 0) + (e.ctrlKey ? 16 : 0);
+}
+
+function buttonCode(button: number) {
+  if (button === 0) return 0; // left
+  if (button === 1) return 1; // middle
+  if (button === 2) return 2; // right
+  return null;
+}
+
+function pressedButtonCode(buttons: number) {
+  if (buttons & 1) return 0; // left
+  if (buttons & 4) return 1; // middle
+  if (buttons & 2) return 2; // right
+  return null;
+}
+
+function mouseSeq(term: TerminalInstance, code: number, col: number, row: number, final: "M" | "m") {
+  const mode = mouseTrackingMode(term);
+  if (mode.sgr) return `\x1b[<${code};${col};${row}${final}`;
+  if (col > 223 || row > 223) return "";
+  const legacyCode = final === "m" ? 3 + eventModsShim(code) : code;
+  return `\x1b[M${String.fromCharCode(32 + legacyCode)}${String.fromCharCode(32 + col)}${String.fromCharCode(32 + row)}`;
+}
+
+function eventModsShim(code: number) {
+  return code & (4 | 8 | 16);
+}
+
+function consumeMouseEvent(e: Event) {
+  e.preventDefault();
+  e.stopPropagation();
+  if ("stopImmediatePropagation" in e) e.stopImmediatePropagation();
+}
+
+function installMouseReporting(
+  host: HTMLElement,
+  term: TerminalInstance,
+  sendRaw: (data: string) => void,
+) {
+  let lastButton = 0;
+
+  const sendAt = (
+    clientX: number,
+    clientY: number,
+    code: number,
+    final: "M" | "m",
+  ) => {
+    const cell = mouseCell(term, clientX, clientY);
+    if (!cell) return false;
+    const seq = mouseSeq(term, code, cell.col, cell.row, final);
+    if (!seq) return false;
+    sendRaw(seq);
+    return true;
+  };
+
+  const onMouseDown = (e: MouseEvent) => {
+    const mode = mouseTrackingMode(term);
+    if (!mode.enabled || !mode.button) return;
+    const base = buttonCode(e.button);
+    if (base == null) return;
+    lastButton = base;
+    if (sendAt(e.clientX, e.clientY, base + eventMods(e), "M")) consumeMouseEvent(e);
+  };
+
+  const onMouseMove = (e: MouseEvent) => {
+    const mode = mouseTrackingMode(term);
+    if (!mode.enabled || (!mode.drag && !mode.any)) return;
+    const base = pressedButtonCode(e.buttons);
+    if (base == null && !mode.any) return;
+    const code = (base ?? 3) + 32 + eventMods(e);
+    if (sendAt(e.clientX, e.clientY, code, "M")) consumeMouseEvent(e);
+  };
+
+  const onMouseUp = (e: MouseEvent) => {
+    const mode = mouseTrackingMode(term);
+    if (!mode.enabled || !mode.button) return;
+    const base = buttonCode(e.button) ?? lastButton;
+    if (sendAt(e.clientX, e.clientY, base + eventMods(e), "m")) consumeMouseEvent(e);
+  };
+
+  const onWheel = (e: WheelEvent) => {
+    const mode = mouseTrackingMode(term);
+    if (!mode.enabled || !mode.button || e.deltaY === 0) return;
+    const cell = mouseCell(term, e.clientX, e.clientY);
+    if (!cell) return;
+    const dir = e.deltaY < 0 ? 64 : 65;
+    const steps = Math.max(1, Math.min(5, Math.round(Math.abs(e.deltaY) / 33)));
+    const seq = mouseSeq(term, dir + eventMods(e), cell.col, cell.row, "M");
+    if (!seq) return;
+    for (let i = 0; i < steps; i++) sendRaw(seq);
+    consumeMouseEvent(e);
+  };
+
+  const onTouchStart = (e: TouchEvent) => {
+    const mode = mouseTrackingMode(term);
+    if (!mode.enabled || !mode.button) return;
+    const t = e.changedTouches[0];
+    if (!t) return;
+    lastButton = 0;
+    if (sendAt(t.clientX, t.clientY, eventMods(e), "M")) consumeMouseEvent(e);
+  };
+
+  const onTouchMove = (e: TouchEvent) => {
+    const mode = mouseTrackingMode(term);
+    if (!mode.enabled || !mode.drag) return;
+    const t = e.changedTouches[0];
+    if (!t) return;
+    if (sendAt(t.clientX, t.clientY, 32 + eventMods(e), "M")) consumeMouseEvent(e);
+  };
+
+  const onTouchEnd = (e: TouchEvent) => {
+    const mode = mouseTrackingMode(term);
+    if (!mode.enabled || !mode.button) return;
+    const t = e.changedTouches[0];
+    if (!t) return;
+    if (sendAt(t.clientX, t.clientY, lastButton + eventMods(e), "m")) consumeMouseEvent(e);
+  };
+
+  host.addEventListener("mousedown", onMouseDown, { capture: true });
+  host.addEventListener("mousemove", onMouseMove, { capture: true });
+  host.addEventListener("mouseup", onMouseUp, { capture: true });
+  host.addEventListener("wheel", onWheel, { capture: true, passive: false });
+  host.addEventListener("touchstart", onTouchStart, { capture: true, passive: false });
+  host.addEventListener("touchmove", onTouchMove, { capture: true, passive: false });
+  host.addEventListener("touchend", onTouchEnd, { capture: true, passive: false });
+  host.addEventListener("touchcancel", onTouchEnd, { capture: true, passive: false });
+
+  return () => {
+    host.removeEventListener("mousedown", onMouseDown, true);
+    host.removeEventListener("mousemove", onMouseMove, true);
+    host.removeEventListener("mouseup", onMouseUp, true);
+    host.removeEventListener("wheel", onWheel, true);
+    host.removeEventListener("touchstart", onTouchStart, true);
+    host.removeEventListener("touchmove", onTouchMove, true);
+    host.removeEventListener("touchend", onTouchEnd, true);
+    host.removeEventListener("touchcancel", onTouchEnd, true);
+  };
+}
 
 export function TermView() {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -52,9 +224,11 @@ export function TermView() {
   // pasteInput = the native-input fallback when clipboard reads are blocked.
   const [pasteAt, setPasteAt] = useState<{ x: number; y: number } | null>(null);
   const [pasteInput, setPasteInput] = useState(false);
+  const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lpStart = useRef<{ x: number; y: number } | null>(null);
   const pasteInputRef = useRef<HTMLInputElement>(null);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Send raw bytes (keystrokes / control sequences) to the PTY.
   const sendRaw = useCallback((data: string) => {
@@ -118,12 +292,32 @@ export function TermView() {
     termRef.current?.focus();
   }, [sendRaw]);
 
+  const copyLink = useCallback(async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      const input = document.createElement("textarea");
+      input.value = url;
+      input.setAttribute("readonly", "");
+      input.style.position = "fixed";
+      input.style.left = "-9999px";
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand("copy");
+      input.remove();
+    }
+    setCopiedLink(url);
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => setCopiedLink(null), 1200);
+  }, []);
+
   useEffect(() => {
     let disposed = false;
     let term: InstanceType<typeof GhosttyTerminal> | null = null;
     let fit: FitAddon | null = null;
     let ro: ResizeObserver | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let cleanupMouseReporting: (() => void) | null = null;
     let attempt = 0;
 
     // (Re)open the socket. The tmux shell session lives independently of serve,
@@ -176,6 +370,7 @@ export function TermView() {
       fit = new FitAddon();
       term.loadAddon(fit);
       term.open(hostRef.current);
+      cleanupMouseReporting = installMouseReporting(hostRef.current, term, sendRaw);
       try { fit.fit(); } catch {}
       termRef.current = term;
 
@@ -201,13 +396,14 @@ export function TermView() {
     return () => {
       disposed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      try { cleanupMouseReporting?.(); } catch {}
       try { ro?.disconnect(); } catch {}
       try { wsRef.current?.close(); } catch {}
       try { term?.dispose(); } catch {}
       termRef.current = null;
       wsRef.current = null;
     };
-  }, []);
+  }, [sendRaw]);
 
   // Detect links by polling tmux's logical buffer (wrapped lines rejoined), so
   // long URLs survive — the rendered stream breaks them at every wrap. Cheap
@@ -232,6 +428,12 @@ export function TermView() {
 
   // Drop any pending long-press timer if the tab unmounts mid-press.
   useEffect(() => cancelLongPress, [cancelLongPress]);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+    };
+  }, []);
 
   // Lock pinch/double-tap/focus auto-zoom WHILE the terminal is mounted (iOS
   // zooms on a tap into the canvas's hidden input and on double-tap). We scope
@@ -281,24 +483,36 @@ export function TermView() {
         }}
         className="min-h-0 flex-1 overflow-hidden p-1.5"
       />
-      {/* Detected links — tappable chips opening in a new tab. Reliable on iOS
-          where tapping a wrapped URL inside the grid isn't. */}
+      {/* Detected links — browser-native open/copy actions for verification
+          URLs that a CLI tries to open inside the VM. */}
       {links.length > 0 ? (
         <div className="flex items-center gap-1.5 border-t border-white/10 px-2 py-1.5">
           <ExternalLink className="size-3.5 shrink-0 text-white/40" />
           <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto">
             {links.map((u) => (
-              <a
+              <div
                 key={u}
-                href={u}
-                target="_blank"
-                rel="noreferrer noopener"
-                title={u}
                 style={{ touchAction: "manipulation" }}
-                className="max-w-[60vw] shrink-0 truncate rounded-md bg-sky-500/20 px-2.5 py-1 text-xs font-medium text-sky-300 active:bg-sky-500/40"
+                className="flex max-w-[72vw] shrink-0 items-center overflow-hidden rounded-md bg-sky-500/20 text-xs font-medium text-sky-300"
               >
-                {u.replace(/^https?:\/\//, "")}
-              </a>
+                <a
+                  href={u}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  title={u}
+                  className="min-w-0 truncate px-2.5 py-1 active:bg-sky-500/40"
+                >
+                  {u.replace(/^https?:\/\//, "")}
+                </a>
+                <button
+                  onClick={() => void copyLink(u)}
+                  title="Copy link"
+                  aria-label="copy link"
+                  className="grid size-7 shrink-0 place-items-center border-l border-sky-300/20 text-sky-200 active:bg-sky-500/40"
+                >
+                  {copiedLink === u ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                </button>
+              </div>
             ))}
           </div>
           <button

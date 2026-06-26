@@ -328,9 +328,9 @@ export default function BrowserLoginView(props: {
   }, [onClose]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 bg-background text-foreground">
+    <div className="flex h-full min-h-0 flex-col gap-1.5 bg-background text-foreground">
       {/* Toolbar — rows stack on narrow screens so nothing gets crushed. */}
-      <div className="flex shrink-0 flex-col gap-2 border-b border-border px-3 py-2">
+      <div className="flex shrink-0 flex-col gap-1.5 border-b border-border px-3 py-2">
         <form onSubmit={submitAddress} className="flex min-w-0 items-center gap-2">
           <input
             type="url"
@@ -348,17 +348,17 @@ export default function BrowserLoginView(props: {
           </Button>
         </form>
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="outline" onClick={handleReload}>
+          <Button size="sm" variant="outline" onClick={handleReload} title="Reload page" aria-label="Reload">
             <RotateCcw className="size-4" />
-            <span className="ml-1">Reload</span>
+            <span className="ml-1 hidden sm:inline">Reload</span>
           </Button>
-          <Button size="sm" variant="brand" onClick={handleSave} disabled={saving}>
+          <Button size="sm" variant="brand" onClick={handleSave} disabled={saving} title="Save profile" aria-label="Save profile">
             {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-            <span className="ml-1">Save profile</span>
+            <span className="ml-1 hidden sm:inline">Save profile</span>
           </Button>
-          <Button size="sm" variant="ghost" onClick={handleClose} className="ml-auto">
+          <Button size="sm" variant="ghost" onClick={handleClose} className="ml-auto" title="Close" aria-label="Close">
             <X className="size-4" />
-            <span className="ml-1">Close</span>
+            <span className="ml-1 hidden sm:inline">Close</span>
           </Button>
         </div>
       </div>
@@ -378,24 +378,25 @@ export default function BrowserLoginView(props: {
               sendEntry();
             }
           }}
-          placeholder="Type or paste here → Send (tap a field in the page first)"
+          placeholder="Type or paste, then Send"
           autoCapitalize="off"
           autoCorrect="off"
           autoComplete="off"
           spellCheck={false}
-          className="min-w-0 flex-1 basis-48 rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+          className="min-w-0 flex-1 basis-44 rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
         />
         <Button size="sm" variant="brand" onClick={sendEntry} disabled={!keyEntry}>
           Send
         </Button>
-        <Button size="sm" variant="outline" onClick={pasteFromClipboard} title="Paste from clipboard">
+        <Button size="sm" variant="outline" onClick={pasteFromClipboard} title="Paste from clipboard" aria-label="Paste">
           <ClipboardPaste className="size-4" />
-          <span className="ml-1">Paste</span>
+          <span className="ml-1 hidden sm:inline">Paste</span>
         </Button>
         <Button size="sm" variant="outline" onClick={() => sendKey("Enter")} title="Press Enter in page" aria-label="Enter">
           <CornerDownLeft className="size-4" />
         </Button>
-        <Button size="sm" variant="outline" onClick={() => sendKey("Tab")} title="Press Tab in page" aria-label="Tab">
+        {/* Tab is a niche helper — drop it on phones to keep the row compact. */}
+        <Button size="sm" variant="outline" onClick={() => sendKey("Tab")} title="Press Tab in page" aria-label="Tab" className="hidden sm:inline-flex">
           <span className="text-xs font-medium">Tab</span>
         </Button>
         <Button size="sm" variant="outline" onClick={() => sendKey("Backspace")} title="Backspace in page" aria-label="Backspace">

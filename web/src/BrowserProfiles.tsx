@@ -223,37 +223,52 @@ export default function BrowserProfiles() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
-      <header className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
-        <Globe className="size-5 text-primary" />
+      <header className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-2 border-b border-border px-4 py-3">
+        <Globe className="size-5 shrink-0 text-primary" />
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold">Browser profiles</div>
-          <div className="text-xs text-muted-foreground">
+          <div className="truncate text-sm font-semibold">Browser profiles</div>
+          <div className="truncate text-xs text-muted-foreground">
             Saved logins agents can reuse to act as you
           </div>
         </div>
-        <label className="flex items-center gap-1 text-xs text-muted-foreground">
-          <Monitor className="size-3.5" />
-          <select
-            value={viewportMode}
-            onChange={(e) => setViewportMode(e.target.value as ViewportMode)}
-            aria-label="Login browser size"
-            title="Size of the live login browser"
-            className="rounded-md border border-border bg-card px-1.5 py-1 text-xs text-foreground outline-none focus:border-primary"
+        {/* Controls drop to their own full-width row on phones so the long
+            viewport label + buttons never overflow the title row. */}
+        <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
+          <label className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+            <Monitor className="size-3.5 shrink-0" />
+            <select
+              value={viewportMode}
+              onChange={(e) => setViewportMode(e.target.value as ViewportMode)}
+              aria-label="Login browser size"
+              title="Size of the live login browser"
+              className="min-w-0 rounded-md border border-border bg-card px-1.5 py-1 text-xs text-foreground outline-none focus:border-primary"
+            >
+              {(Object.keys(VIEWPORT_LABELS) as ViewportMode[]).map((m) => (
+                <option key={m} value={m}>
+                  {VIEWPORT_LABELS[m]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void refresh()}
+            disabled={loading}
+            className="shrink-0"
           >
-            {(Object.keys(VIEWPORT_LABELS) as ViewportMode[]).map((m) => (
-              <option key={m} value={m}>
-                {VIEWPORT_LABELS[m]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <Button size="sm" variant="outline" onClick={() => void refresh()} disabled={loading}>
-          <RefreshCw className={"size-4" + (loading ? " animate-spin" : "")} />
-        </Button>
-        <Button size="sm" variant="brand" onClick={() => void handleNewLogin()}>
-          <Plus className="size-4" />
-          <span className="ml-1">New login</span>
-        </Button>
+            <RefreshCw className={"size-4" + (loading ? " animate-spin" : "")} />
+          </Button>
+          <Button
+            size="sm"
+            variant="brand"
+            onClick={() => void handleNewLogin()}
+            className="shrink-0"
+          >
+            <Plus className="size-4" />
+            <span className="ml-1">New login</span>
+          </Button>
+        </div>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
@@ -290,7 +305,7 @@ export default function BrowserProfiles() {
                   <div className="flex items-start gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="truncate text-sm font-semibold">{p.name}</span>
+                        <span className="min-w-0 truncate text-sm font-semibold">{p.name}</span>
                         <Badge
                           variant={p.status === "active" ? "default" : "destructive"}
                           className="shrink-0"
@@ -316,7 +331,7 @@ export default function BrowserProfiles() {
                           ) : (
                             <XCircle className="size-3.5" />
                           )}
-                          <span className="truncate">
+                          <span className="min-w-0 truncate">
                             {test.loggedIn ? "Logged in" : "Not logged in"}
                             {test.title ? ` — ${test.title}` : ""}
                           </span>
@@ -337,7 +352,7 @@ export default function BrowserProfiles() {
                       ) : (
                         <LogIn className="size-4" />
                       )}
-                      <span className="ml-1">Open live (re-auth)</span>
+                      <span className="ml-1">Re-auth</span>
                     </Button>
                     <Button
                       size="sm"

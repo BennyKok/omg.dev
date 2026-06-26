@@ -27,11 +27,11 @@ const Toaster = ({ ...props }: ToasterProps) => {
         ),
       }}
       offset={{
-        bottom: "calc(env(safe-area-inset-bottom) + 5.5rem)",
+        bottom: "var(--lfg-above-orb)",
         top: "calc(env(safe-area-inset-top) + 1rem)",
       }}
       mobileOffset={{
-        bottom: "calc(env(safe-area-inset-bottom) + 5rem)",
+        bottom: "var(--lfg-above-orb)",
         top: "calc(env(safe-area-inset-top) + 0.75rem)",
       }}
       style={

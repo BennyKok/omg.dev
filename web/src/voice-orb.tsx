@@ -1,6 +1,22 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import { Component, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { Room } from "livekit-client";
+import { lazyWithReload } from "./lib/lazy-with-reload";
+import { haptic } from "./lib/haptics";
+import { startElevenVoice, type ElevenHandle } from "./eleven-voice";
+
+// Opt-in: route the orb through ElevenLabs' managed agent (Option B) instead of
+// the self-hosted LiveKit worker. The brain (fleet tools, scoping) is identical
+// — only the transport differs. Toggle in the browser console:
+//   localStorage.setItem("lfg_voice_eleven","1")  // managed agent
+//   localStorage.removeItem("lfg_voice_eleven")    // LiveKit (default)
+function useElevenManagedAgent(): boolean {
+  try {
+    return localStorage.getItem("lfg_voice_eleven") === "1";
+  } catch {
+    return false;
+  }
+}
 
 // ───────────────────────────────────────────────────────────────────────────
 // VoiceOrb — a LiveKit room client. Tap to connect: the browser publishes the
@@ -11,7 +27,28 @@ import type { Room } from "livekit-client";
 // ───────────────────────────────────────────────────────────────────────────
 
 // ElevenLabs' open-source WebGL orb — lazy so three.js stays in its own chunk.
-const Orb = lazy(() => import("./eleven-orb").then((m) => ({ default: m.Orb })));
+// lazyWithReload recovers from the post-deploy stale-chunk failure that
+// otherwise surfaces as React error #306 on the live view.
+const Orb = lazyWithReload("Orb", () =>
+  import("./eleven-orb").then((m) => ({ default: m.Orb })),
+);
+
+// Local boundary: the orb is purely decorative, so if its WebGL chunk is ever
+// genuinely broken (not just stale — that self-heals via the reload above), we
+// degrade to the CSS placeholder rather than letting React #306 bubble up to
+// the app's RootErrorBoundary and blank the entire live view.
+class OrbBoundary extends Component<
+  { fallback: ReactNode; children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
 
 type Status = "idle" | "connecting" | "connected";
 type AgentState = "listening" | "thinking" | "talking" | "consulting" | null;
@@ -34,7 +71,17 @@ const SIRI_ORB_CSS = `
 @media (prefers-reduced-motion: reduce) { .siri-orb::before { animation: none; } }
 `;
 
-function SiriOrb({ size, c1, c2, c3 }: { size: number; c1: string; c2: string; c3: string }) {
+function SiriOrb({
+  size,
+  c1,
+  c2,
+  c3,
+}: {
+  size: number | string;
+  c1: string;
+  c2: string;
+  c3: string;
+}) {
   return (
     <div
       className="siri-orb"
@@ -53,7 +100,42 @@ function SiriOrb({ size, c1, c2, c3 }: { size: number; c1: string; c2: string; c
   );
 }
 
-export function VoiceOrb() {
+// A second tap landing within this window is a double-tap (→ open the New
+// Session composer) rather than two separate single taps. The single-tap action
+// (connect/disconnect voice) is deferred by this much so we can tell them apart.
+const DOUBLE_TAP_MS = 280;
+// Drag the orb up past this many px to open the New Session composer.
+const SWIPE_UP_DY = 44;
+// Press and hold the orb for this long to open the New Session composer in voice
+// mode (dictation starts immediately; releasing submits). Moving past this many
+// px before it fires cancels the hold — it's a swipe/tap, not a hold.
+const LONG_PRESS_MS = 350;
+const HOLD_CANCEL_DX = 12;
+
+export function VoiceOrb({
+  thinking,
+  onCompose,
+  onOpenCall,
+  onHoldStart,
+  onHoldEnd,
+  hidden,
+}: {
+  // Drive the orb's thinking animation from outside a LiveKit call — used while a
+  // one-shot orb question is being looked up (explore → spoken answer).
+  thinking?: boolean;
+  onCompose?: () => void;
+  // When provided, a single tap on the idle orb opens phone-call mode (which
+  // owns the LiveKit connection) instead of connecting inline here — so there is
+  // exactly one room at a time. The composer gestures are unchanged.
+  onOpenCall?: () => void;
+  // Press-and-hold: onHoldStart fires once the hold threshold is crossed (open
+  // the composer + start dictation); onHoldEnd fires on release (stop + submit).
+  onHoldStart?: () => void;
+  onHoldEnd?: () => void;
+  // Fade the orb out and make it non-interactive (e.g. while the soft keyboard
+  // is up). Kept mounted so the LiveKit/Eleven connection isn't torn down.
+  hidden?: boolean;
+}) {
   const [status, setStatus] = useState<Status>("idle");
   const [agentState, setAgentState] = useState<AgentState>(null);
   const [caption, setCaption] = useState("");
@@ -63,6 +145,7 @@ export function VoiceOrb() {
   const [detail, setDetail] = useState("");
 
   const roomRef = useRef<Room | null>(null);
+  const elevenRef = useRef<ElevenHandle | null>(null);
   const audioElsRef = useRef<HTMLAudioElement[]>([]);
   const captionTimer = useRef<number | null>(null);
 
@@ -73,6 +156,14 @@ export function VoiceOrb() {
   }, []);
 
   const disconnect = useCallback(async () => {
+    // ElevenLabs managed-agent session (Option B), if that path is active.
+    const eleven = elevenRef.current;
+    elevenRef.current = null;
+    if (eleven) {
+      try {
+        await eleven.endSession();
+      } catch {}
+    }
     const room = roomRef.current;
     roomRef.current = null;
     for (const el of audioElsRef.current) {
@@ -128,7 +219,21 @@ export function VoiceOrb() {
       const { url, token } = (await res.json()) as { url: string; token: string };
 
       const { Room: RoomCls, RoomEvent, Track } = await import("livekit-client");
-      const room = new RoomCls({ adaptiveStream: true });
+      // Explicitly turn on the browser's WebRTC audio cleanup for the mic we
+      // publish: echo cancellation (so our own TTS coming back through the
+      // speakers can't false-trigger barge-in), noise suppression for steady
+      // background noise, and AGC. voiceIsolation is Chrome's stronger neural
+      // suppressor — when supported it supersedes noiseSuppression. Without
+      // audioCaptureDefaults these are left to UA defaults and uncontrolled.
+      const room = new RoomCls({
+        adaptiveStream: true,
+        audioCaptureDefaults: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          voiceIsolation: true,
+        },
+      });
       roomRef.current = room;
 
       const readAgent = (attrs?: Record<string, string>) => {
@@ -174,7 +279,15 @@ export function VoiceOrb() {
         if (user && user !== "__all")
           await room.localParticipant.setAttributes({ "lfg.user": user });
       } catch {}
-      await room.localParticipant.setMicrophoneEnabled(true);
+      // Enabling the mic can reject on iOS Safari (permission not yet granted,
+      // or blocked by the autoplay/gesture policy). Do NOT let it bubble to the
+      // outer catch — that calls disconnect() and drops the orb ~230ms after it
+      // connects. Stay connected and surface a hint; the user can retry the mic.
+      try {
+        await room.localParticipant.setMicrophoneEnabled(true);
+      } catch {
+        flash("Mic blocked — check permission");
+      }
       try {
         await room.startAudio();
       } catch {}
@@ -189,99 +302,196 @@ export function VoiceOrb() {
     }
   }, [disconnect, flash]);
 
-  const toggle = useCallback(() => {
-    if (roomRef.current || status !== "idle") void disconnect();
-    else void connect();
-  }, [status, connect, disconnect]);
-
-  // Long-press powers the serverless voice GPU up/down, independent of tap (which
-  // joins/leaves the voice session). "on" = keep a Modal container warm (snappy,
-  // ~$/hr); "off" = scale to zero (~$0 idle, but ~cold-start on next use). Routed
-  // through serve so the scaling token stays server-side.
-  const [power, setPower] = useState<"on" | "off" | "pending" | "unknown">(
-    "unknown",
-  );
-  const [warming, setWarming] = useState(false);
-  const pressTimer = useRef<number | null>(null);
-  const longPressFired = useRef(false);
-
-  const togglePower = useCallback(async () => {
-    const next = power === "on" ? "off" : "on";
-    setPower("pending");
+  // ElevenLabs managed-agent connect (Option B). ElevenLabs owns mic/STT/turn-
+  // taking/TTS in the browser; our backend stays the brain via the custom-LLM
+  // endpoint. We map the SDK's connect status + turn mode onto the same orb
+  // animation states the LiveKit path drives, so the UI is identical.
+  const connectEleven = useCallback(async () => {
+    setStatus("connecting");
+    setAgentState("thinking");
+    flash("Connecting…");
     try {
-      const r = await fetch("/api/voice/power", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ on: next === "on" }),
-      });
-      if (!r.ok) throw new Error(String(r.status));
-      if (next === "off") {
-        setWarming(false);
-        setPower("off");
-        flash("Voice GPU powered down");
-        return;
-      }
-      // Powering on: the GPU container cold-starts (~25s). Poll until it answers
-      // warm, keeping a "Warming up…" indicator on the orb so the user sees
-      // progress instead of dead air.
-      setWarming(true);
-      const deadline = Date.now() + 60_000;
-      while (Date.now() < deadline) {
-        try {
-          const h = await fetch("/api/voice/health", { cache: "no-store" });
-          if (h.ok && ((await h.json()) as { warm?: boolean })?.warm) {
-            setPower("on");
-            flash("Voice ready");
-            return;
+      elevenRef.current = await startElevenVoice({
+        onStatus: (s) => {
+          if (s === "connected") {
+            setStatus("connected");
+            setAgentState((a) => a ?? "listening");
+            flash("Connected");
+          } else if (s === "connecting") {
+            setStatus("connecting");
+          } else if (s === "idle") {
+            if (elevenRef.current) void disconnect();
+          } else if (s === "error") {
+            flash("Couldn't connect");
           }
-        } catch {
-          /* keep polling */
-        }
-        await new Promise((res) => window.setTimeout(res, 2500));
-      }
-      setPower("on");
-      flash("Voice still warming — give it a moment");
+        },
+        // No explicit "thinking" mode in the SDK: once the user stops talking the
+        // agent is computing (our brain + tools) until it starts speaking, so we
+        // show "thinking" on a finalized user turn and clear it when it speaks.
+        onUserTranscript: (t) => {
+          if (t) setAgentState("thinking");
+        },
+        onMode: (m) => setAgentState(m === "speaking" ? "talking" : "listening"),
+        onAgentReply: (t) => {
+          if (t) flash(t);
+        },
+        onError: () => flash("Voice error"),
+      });
     } catch {
-      setPower("unknown");
-      flash("Voice GPU toggle failed");
-    } finally {
-      setWarming(false);
+      flash("Couldn't connect");
+      await disconnect();
     }
-  }, [power, flash]);
+  }, [disconnect, flash]);
 
-  const onPressStart = useCallback(() => {
-    longPressFired.current = false;
-    if (pressTimer.current) clearTimeout(pressTimer.current);
-    pressTimer.current = window.setTimeout(() => {
-      longPressFired.current = true; // suppress the click that follows the release
-      void togglePower();
-    }, 600);
-  }, [togglePower]);
+  const toggle = useCallback(() => {
+    if (roomRef.current || elevenRef.current || status !== "idle")
+      void disconnect();
+    else if (useElevenManagedAgent())
+      void connectEleven(); // Option B: managed agent, inline on the orb
+    else if (onOpenCall) onOpenCall(); // phone-call mode owns the connection
+    else void connect();
+  }, [status, connect, connectEleven, disconnect, onOpenCall]);
 
-  const onPressEnd = useCallback(() => {
-    if (pressTimer.current) {
-      clearTimeout(pressTimer.current);
-      pressTimer.current = null;
+  // Swipe-up gesture: drag the orb up past this many px to open the New Session
+  // composer. Tracked from the pointer-down Y; suppresses the tap.
+  const startY = useRef(0);
+  const startX = useRef(0);
+  const swipeFired = useRef(false);
+  // Press-and-hold tracking: a timer armed on press-down that, if it survives
+  // LONG_PRESS_MS without a tap/swipe/cancel, flips holdFired and starts voice
+  // mode. holdFired also suppresses the click that pointerup would otherwise fire.
+  const holdTimer = useRef<number | null>(null);
+  const holdFired = useRef(false);
+
+  const clearHoldTimer = useCallback(() => {
+    if (holdTimer.current !== null) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
     }
   }, []);
 
+  // End the press only on a genuine pointer lift (or a real system abort),
+  // watched on the window — never on the orb's own pointerleave/pointercancel.
+  // While holding to dictate, a UI change under the finger (a toast mounting
+  // over the orb, audio attaching, or a re-render that drops pointer capture)
+  // makes the browser fire pointerleave/pointercancel on the button even though
+  // the finger never lifted; wiring those to "release" ended the take early. A
+  // window pointerup only fires on a real lift and the window never receives
+  // pointerleave, so DOM churn under the finger can't fake a release.
+  const endPress = useCallback(() => {
+    window.removeEventListener("pointerup", endPress);
+    window.removeEventListener("pointercancel", endPress);
+    clearHoldTimer();
+    // Released after a hold → stop dictation and submit. holdFired stays true so
+    // the click that follows pointerup is swallowed by onTap.
+    if (holdFired.current) onHoldEnd?.();
+  }, [onHoldEnd, clearHoldTimer]);
+
+  const onPressStart = useCallback(
+    (e: React.PointerEvent) => {
+      swipeFired.current = false;
+      holdFired.current = false;
+      startY.current = e.clientY;
+      startX.current = e.clientX;
+      // Capture the pointer so we keep getting moves once the finger slides up off
+      // the orb — otherwise the swipe stops being tracked the instant it leaves.
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        /* unsupported — falls back to normal routing */
+      }
+      // Detect the release on the window, not the element (see endPress) — a
+      // pointerup only fires on a real lift, immune to overlays/re-renders.
+      window.addEventListener("pointerup", endPress);
+      window.addEventListener("pointercancel", endPress);
+      // Arm the hold. Firing it opens the composer in voice mode and starts
+      // dictation; the matching onHoldEnd on release stops + submits.
+      if (onHoldStart) {
+        clearHoldTimer();
+        holdTimer.current = window.setTimeout(() => {
+          holdTimer.current = null;
+          holdFired.current = true;
+          haptic("selection");
+          onHoldStart();
+        }, LONG_PRESS_MS);
+      }
+    },
+    [onHoldStart, clearHoldTimer, endPress],
+  );
+
+  const onPressMove = useCallback(
+    (e: React.PointerEvent) => {
+      // Once the hold has fired we're in voice mode — ignore further movement so
+      // a small finger drift can't trip the swipe or cancel the recording.
+      if (holdFired.current) return;
+      const dy = startY.current - e.clientY;
+      const dx = Math.abs(e.clientX - startX.current);
+      // Any meaningful movement means this is a swipe/scroll, not a hold.
+      if (holdTimer.current !== null && (dx > HOLD_CANCEL_DX || Math.abs(dy) > HOLD_CANCEL_DX)) {
+        clearHoldTimer();
+      }
+      if (swipeFired.current) return;
+      if (dy > SWIPE_UP_DY) {
+        swipeFired.current = true; // suppress the tap that would follow
+        clearHoldTimer();
+        onCompose?.(); // swipe up → open the New Session composer
+      }
+    },
+    [onCompose, clearHoldTimer],
+  );
+
+  // Distinguish single tap (toggle voice) from double tap (open composer). The
+  // first tap arms a short timer; if a second tap arrives before it fires, we
+  // cancel the toggle and open the New Session composer instead.
+  const tapTimer = useRef<number | null>(null);
   const onTap = useCallback(() => {
-    if (longPressFired.current) {
-      longPressFired.current = false;
-      return; // this was a long-press, not a tap — don't connect/disconnect
+    if (holdFired.current) {
+      holdFired.current = false;
+      return; // this was a press-and-hold, not a tap — voice mode already ran
     }
-    toggle();
-  }, [toggle]);
+    if (swipeFired.current) {
+      swipeFired.current = false;
+      return; // this was a swipe-up, not a tap — composer already opened
+    }
+    if (tapTimer.current !== null) {
+      clearTimeout(tapTimer.current);
+      tapTimer.current = null;
+      onCompose?.(); // double tap → open the New Session composer
+      return;
+    }
+    tapTimer.current = window.setTimeout(() => {
+      tapTimer.current = null;
+      toggle();
+    }, DOUBLE_TAP_MS);
+  }, [toggle, onCompose]);
 
   useEffect(() => () => void disconnect(), [disconnect]);
+  useEffect(
+    () => () => {
+      if (tapTimer.current !== null) clearTimeout(tapTimer.current);
+      if (holdTimer.current !== null) clearTimeout(holdTimer.current);
+      // Drop any window release listeners left armed by an in-flight press.
+      window.removeEventListener("pointerup", endPress);
+      window.removeEventListener("pointercancel", endPress);
+    },
+    [endPress],
+  );
 
   const active = status !== "idle";
+  // The one-shot "ask a question" flow isn't a LiveKit call, so light the orb up
+  // in a thinking state from the `thinking` prop while the lookup runs.
+  const busy = !active && !!thinking;
+  const lit = active || busy;
   const isDark =
     typeof document !== "undefined" &&
     document.documentElement.classList.contains("dark");
 
-  const orbAgentState: AgentState = !active ? null : agentState ?? "listening";
-  const colors: [string, string] = !active
+  const orbAgentState: AgentState = active
+    ? agentState ?? "listening"
+    : busy
+      ? "thinking"
+      : null;
+  const colors: [string, string] = !lit
     ? ["#9aa7b8", "#7c8a9c"]
     : orbAgentState === "talking"
       ? ["#bfe3ff", "#7fb4e6"]
@@ -291,7 +501,7 @@ export function VoiceOrb() {
           ? ["#cfc2ff", "#9f8be6"]
           : ["#CADCFC", "#A0B9D1"];
 
-  const label = !active
+  const label = !lit
     ? "Start voice"
     : status === "connecting"
       ? "Connecting…"
@@ -307,18 +517,19 @@ export function VoiceOrb() {
   // flash, then the live tool-call detail, then a bare thinking/consulting
   // state so the orb always narrates what it's doing.
   const bubble =
-    (warming ? "Warming up voice… (~25s)" : "") ||
     caption ||
     detail ||
-    (orbAgentState === "consulting"
-      ? "Consulting…"
-      : orbAgentState === "thinking"
-        ? "Thinking…"
-        : "");
+    (busy
+      ? "Looking into it…"
+      : orbAgentState === "consulting"
+        ? "Consulting…"
+        : orbAgentState === "thinking"
+          ? "Thinking…"
+          : "");
 
   const fallback = (
     <SiriOrb
-      size={68}
+      size="100%"
       c1={colors[0]}
       c2={colors[1]}
       c3={isDark ? "#3a3a44" : "#e8eef7"}
@@ -330,63 +541,53 @@ export function VoiceOrb() {
       type="button"
       onClick={onTap}
       onPointerDown={onPressStart}
-      onPointerUp={onPressEnd}
-      onPointerLeave={onPressEnd}
+      onPointerMove={onPressMove}
       onContextMenu={(e) => e.preventDefault()}
       aria-label={label}
       aria-pressed={active}
+      aria-hidden={hidden}
+      tabIndex={hidden ? -1 : undefined}
       title={
         (active ? "Voice — tap to stop" : "Voice — tap to start") +
-        " · long-press to power the GPU " +
-        (power === "on" ? "down" : "up")
+        " · double-tap or swipe up for new session · hold to dictate a new session, release to send"
       }
-      className="pointer-events-auto fixed left-1/2 z-[55] size-[72px] -translate-x-1/2 touch-none select-none rounded-full bottom-[calc(5rem+env(safe-area-inset-bottom))]"
+      className="pointer-events-auto relative size-9 shrink-0 touch-none select-none rounded-full md:size-8"
       style={{
-        filter: active
+        filter: lit
           ? "drop-shadow(0 0 20px color-mix(in srgb, #8a7dff 45%, transparent))"
           : "drop-shadow(0 6px 16px rgba(0,0,0,0.22))",
-        transition: "filter 200ms",
-        opacity: active ? 1 : 0.92,
+        transition: "filter 200ms, opacity 200ms, translate 200ms",
+        // While hidden, fade out, drop below the (now keyboard-covered) edge,
+        // and stop catching taps — but stay mounted to keep the voice session.
+        // NOTE: Tailwind v4's `-translate-x-1/2` uses the CSS `translate`
+        // property, so we override that (not `transform`) to keep the orb
+        // horizontally centered — setting `transform` here would stack a second
+        // -50% shift and yank the orb to the left.
+        opacity: hidden ? 0 : lit ? 1 : 0.92,
+        pointerEvents: hidden ? "none" : "auto",
+        translate: hidden ? "-50% 120%" : undefined,
       }}
     >
-      {/* Power dot: green = GPU warm, slate = scaled to zero, amber = toggling.
-          Always mounted so it can fade/scale out smoothly when status drops to
-          unknown; the registered --dot-* props crossfade between states. */}
-      <span
-        className="lfg-status-dot pointer-events-none absolute right-0 top-0 size-3"
-        data-visible={power !== "unknown"}
-        style={
-          {
-            opacity: power === "unknown" ? 0 : 1,
-            transform: power === "unknown" ? "scale(0.4)" : "scale(1)",
-            "--dot-from":
-              power === "on"
-                ? "#4ade80"
-                : power === "pending"
-                  ? "#fbbf24"
-                  : "#94a3b8",
-            "--dot-to":
-              power === "on"
-                ? "#16a34a"
-                : power === "pending"
-                  ? "#d97706"
-                  : "#64748b",
-          } as CSSProperties
-        }
-      />
-      {(active || warming) && bubble ? (
-        <span className="pointer-events-none absolute bottom-full left-1/2 mb-2 max-w-[60vw] -translate-x-1/2 truncate rounded-full bg-foreground/85 px-2.5 py-1 text-[11px] font-medium text-background shadow-lg">
-          {bubble}
+      {lit && bubble ? (
+        <span className="pointer-events-none absolute right-0 top-full mt-2">
+          <span
+            key={bubble}
+            className="lfg-bubble block max-w-[60vw] truncate rounded-full bg-foreground/85 px-2.5 py-1 text-[11px] font-medium text-background shadow-lg"
+          >
+            {bubble}
+          </span>
         </span>
       ) : null}
-      <Suspense fallback={fallback}>
-        <Orb
-          className="h-full w-full"
-          colors={colors}
-          agentState={orbAgentState}
-          volumeMode="auto"
-        />
-      </Suspense>
+      <OrbBoundary fallback={fallback}>
+        <Suspense fallback={fallback}>
+          <Orb
+            className="h-full w-full"
+            colors={colors}
+            agentState={orbAgentState}
+            volumeMode="auto"
+          />
+        </Suspense>
+      </OrbBoundary>
     </button>
   );
 }
