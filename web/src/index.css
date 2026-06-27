@@ -52,9 +52,10 @@
   /* The orb now lives in the top nav island; the bottom of the mobile home
      screen is owned by the inline create composer. These clearances reserve
      space above that compact composer for scroll content, toasts, the dictation
-     pill and the ask-center card. --lfg-composer-clear ≈ the compact composer's
-     resting height; bump it if the composer grows. */
-  --lfg-composer-clear: calc(8rem + env(safe-area-inset-bottom));
+     pill and the ask-center card. --lfg-composer-clear ≈ the composer's resting
+     height — now includes the always-visible agent/model/thinking/repo row, not
+     just the textarea + Start; bump it if the composer grows. */
+  --lfg-composer-clear: calc(12rem + env(safe-area-inset-bottom));
   --lfg-orb-stack-bottom: calc(var(--lfg-composer-clear) + 0.5rem);
   --lfg-above-orb: var(--lfg-composer-clear);
 }
