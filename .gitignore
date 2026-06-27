@@ -13,3 +13,7 @@ dist/
 
 # GPU STT host secrets
 deploy/gpu-stt/instance.env
+
+# Python bytecode cache
+__pycache__/
+*.py[cod]

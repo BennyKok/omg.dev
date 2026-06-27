@@ -4,11 +4,11 @@ import { Menu as MenuPrimitive } from "@base-ui/react/menu"
 import { cn } from "@/lib/utils"
 import { ChevronRightIcon, CheckIcon } from "lucide-react"
 
-// The glassy popover panel recipe, shared with surfaces that can't render a
+// The popover panel recipe, shared with surfaces that can't render a
 // MenuPrimitive (e.g. LongPressMenu's pointer-anchored panel) so every
-// floating menu keeps the same radius/alpha/blur vocabulary.
+// floating menu keeps the same radius and shadow vocabulary.
 const popoverSurfaceClass =
-  "rounded-2xl bg-popover/70 p-1 shadow-2xl ring-1 ring-foreground/5 backdrop-blur-2xl backdrop-saturate-150"
+  "rounded-2xl bg-popover p-1 shadow-2xl ring-1 ring-foreground/5"
 
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props) {
   return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />

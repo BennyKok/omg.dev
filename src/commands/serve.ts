@@ -60,6 +60,7 @@ import {
   pendingToolPrompt,
   listResumable,
   cwdForTranscript,
+  cwdForCodexTranscript,
   type PendingPrompt,
 } from "../sessions.ts";
 import {
@@ -86,9 +87,18 @@ import { PtyBridge, termSessionName } from "../pty.ts";
 import { capturePaneScroll, capturePaneEscaped, paneWidth } from "../tmux.ts";
 import { detectUrls } from "../links.ts";
 import type { ServerWebSocket } from "bun";
-import { appendCmd as appendAisdkCmd, removeEntry as removeAisdkEntry, readEntry as readAisdkEntry, findEntryByAnyId as findAisdkEntryByAnyId } from "../aisdk-registry.ts";
+import { appendCmd as appendAisdkCmd, removeEntry as removeAisdkEntry, readEntry as readAisdkEntry, findEntryByAnyId as findAisdkEntryByAnyId, isEntryBusy as isAisdkEntryBusy } from "../aisdk-registry.ts";
 import { markClosed } from "../closing.ts";
 import { assignUser, userRoster } from "../users.ts";
+import { listProfiles, getProfile, deleteProfile } from "../browser/profiles.ts";
+import {
+  startLoginSession,
+  attachStream,
+  endSession,
+  type WSLike,
+  type Viewport,
+} from "../browser/session.ts";
+import { testProfile } from "../browser/tool.ts";
 import { listCustomRepos, addCustomRepo, removeCustomRepo } from "../repos-store.ts";
 
 // Where the user keeps the repos lfg can launch agents into. Scanned for git
@@ -104,6 +114,8 @@ const SELF_REPO = PATHS.root;
 const CLAUDE_MODELS = ["fable", "opus", "sonnet", "haiku"];
 // Models the "aisdk" session kind accepts (the provider maps these aliases).
 const AISDK_MODELS = ["opus", "sonnet", "haiku"];
+const THINKING_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
+type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 import { enqueueMessage, listQueue, retryMessage, clearResolved, reconcileQueued, getMessage } from "../sendq.ts";
 
 const PORT = Number(process.env.LFG_PORT ?? 8766);
@@ -354,12 +366,17 @@ function plannedSessionAction(answer: string): {
   return text ? { kind: "send", text } : { kind: "none" };
 }
 
-async function voiceStatusSnapshot(): Promise<string> {
+async function voiceStatusSnapshot(user?: string | null): Promise<string> {
   let sessions;
   try {
     sessions = await listSessions();
   } catch {
     return "(session list unavailable)";
+  }
+  // Scope to the speaking user when one is given, so the voice assistant never
+  // surfaces (or acts on) another person's sessions. Empty/"__all" → whole fleet.
+  if (user && user !== "__all") {
+    sessions = sessions.filter((s) => s.assignedUser === user);
   }
   if (!sessions.length) return "(no sessions running)";
   const now = Date.now();
@@ -496,6 +513,33 @@ async function voiceConsult(question: string): Promise<string> {
   return waitForAdvisorAnswer(id, baseline, 90_000);
 }
 
+// Retire the persistent advisor so the next consult spawns a fresh one. Called
+// when a new voice session starts: the advisor accumulates conversation context
+// across consults, so without this the old session's deep-think history would
+// leak into the new session. Teardown mirrors the aisdk session-close path and
+// is best-effort — a hiccup here must never block a new voice session starting.
+async function retireVoiceAdvisor(): Promise<void> {
+  const id = voiceAdvisorId;
+  voiceAdvisorId = null; // clear first so a concurrent consult respawns cleanly
+  if (!id) return;
+  try {
+    const sess = (await listSessions()).find((s) => s.sessionId === id);
+    if (!sess) return; // already gone (serve restart, closed) — nothing to tear down
+    const key = findAisdkEntryByAnyId(id)?.sessionId ?? id;
+    appendAisdkCmd(key, { type: "close" });
+    if (sess.tmuxName) tmuxKillSession(sess.tmuxName);
+    markClosed(sess.pid);
+    removeAisdkEntry(key);
+    if (sess.tmuxName) {
+      removeManaged(sess.tmuxName);
+      assignUser(sess.tmuxName, null);
+    }
+    clearResolved(id);
+  } catch {
+    // best-effort: voiceAdvisorId is already null, so the next consult respawns
+  }
+}
+
 // Best available interactive prompt for a session. Prefers a structured
 // AskUserQuestion read from the transcript (exact text, survives the preview /
 // multi-select / wrapped layouts the pane scraper can't follow), and falls back
@@ -533,6 +577,39 @@ type TermSocketData = { sessionName: string; cols: number; rows: number };
 // the bridge to write to / tear down.
 const termBridges = new WeakMap<object, PtyBridge>();
 
+// ---- cloud-browser login stream sockets ----
+// Browser-login viewer sockets multiplex through the same Bun websocket handlers
+// as the terminal; we tag their data with browserSessionId and bridge them to the
+// WSLike transport that ../browser/session.ts expects.
+type BrowserSocketData = { browserSessionId: string };
+const browserSocketCbs = new WeakMap<
+  object,
+  { onMessage?: (d: string) => void; onClose?: () => void }
+>();
+
+function makeBrowserWS(ws: ServerWebSocket<TermSocketData>): WSLike {
+  const cbs: { onMessage?: (d: string) => void; onClose?: () => void } = {};
+  browserSocketCbs.set(ws, cbs);
+  return {
+    send: (data) => {
+      try {
+        ws.send(data);
+      } catch {}
+    },
+    close: () => {
+      try {
+        ws.close();
+      } catch {}
+    },
+    onMessage: (cb) => {
+      cbs.onMessage = cb;
+    },
+    onClose: (cb) => {
+      cbs.onClose = cb;
+    },
+  };
+}
+
 // Parse a terminal dimension from a query param, clamped to a sane range so a
 // bogus value can't allocate an absurd pty winsize.
 function clampDim(raw: string | null, fallback: number): number {
@@ -553,6 +630,12 @@ export async function cmdServe() {
       // as binary frames — the full raw VT byte stream a faithful renderer wants.
       idleTimeout: 600,
       open(ws: ServerWebSocket<TermSocketData>) {
+        // Cloud-browser login viewer socket: bridge to the session streamer.
+        const bSid = (ws.data as unknown as BrowserSocketData)?.browserSessionId;
+        if (typeof bSid === "string") {
+          attachStream(bSid, makeBrowserWS(ws));
+          return;
+        }
         try {
           const { sessionName, cols, rows } = ws.data;
           const bridge = new PtyBridge(
@@ -578,6 +661,11 @@ export async function cmdServe() {
         }
       },
       message(ws: ServerWebSocket<TermSocketData>, message) {
+        const bCbs = browserSocketCbs.get(ws);
+        if (bCbs) {
+          if (typeof message === "string") bCbs.onMessage?.(message);
+          return;
+        }
         const bridge = termBridges.get(ws);
         if (!bridge) return;
         if (typeof message === "string") {
@@ -597,6 +685,16 @@ export async function cmdServe() {
         bridge.write(message as Uint8Array);
       },
       close(ws: ServerWebSocket<TermSocketData>) {
+        const bCbs = browserSocketCbs.get(ws);
+        if (bCbs) {
+          browserSocketCbs.delete(ws);
+          bCbs.onClose?.();
+          // Viewer closed: tear the headless browser down so it doesn't leak on
+          // this shared box (the saved profile already persists to disk).
+          const sid = (ws.data as unknown as BrowserSocketData)?.browserSessionId;
+          if (sid) void endSession(sid);
+          return;
+        }
         const bridge = termBridges.get(ws);
         termBridges.delete(ws);
         // Tears down our attach client; the tmux session itself persists so the
@@ -618,6 +716,18 @@ export async function cmdServe() {
         });
         if (ok) return undefined; // upgraded — Bun takes over the socket
         return err(400, "expected a websocket upgrade");
+      }
+
+      // ---- cloud-browser login stream (websocket upgrade) ----
+      {
+        const m = path.match(/^\/api\/browser\/sessions\/([^/]+)\/stream$/);
+        if (m) {
+          const ok = server.upgrade<BrowserSocketData>(req, {
+            data: { browserSessionId: decodeURIComponent(m[1]) },
+          });
+          if (ok) return undefined;
+          return err(400, "expected a websocket upgrade");
+        }
       }
 
       // Detect links in the terminal for the tappable-chip UI. A long URL is
@@ -814,6 +924,63 @@ export async function cmdServe() {
         }
       }
 
+      // ---- voice warmth probe: is a Modal voice GPU container live (warm) right
+      // now? The orb polls this during a cold start to show a "warming up…" state
+      // instead of dead air. Modal /health needs no token; a fast 200 = warm, a
+      // timeout = still cold/spinning. (Hitting it also nudges the container up.)
+      if (path === "/api/voice/health" && req.method === "GET") {
+        const up = process.env.TTS_UPSTREAM;
+        if (!up) return json({ warm: false });
+        try {
+          const r = await fetch(`${up}/health`, {
+            signal: AbortSignal.timeout(4000),
+          });
+          return json({ warm: r.ok });
+        } catch {
+          return json({ warm: false });
+        }
+      }
+
+      // ---- voice GPU power: long-press on the orb scales the serverless Modal
+      // voice container up (keep one L4 warm) or down (scale to zero, ~$0 idle).
+      // Runs deploy/modal/scale.py with the Modal creds (~/.modal.toml) staying
+      // server-side — the scaling token never reaches the browser.
+      if (path === "/api/voice/power" && req.method === "POST") {
+        const body = (await req.json().catch(() => null)) as {
+          on?: boolean;
+        } | null;
+        const arg = body?.on ? "on" : "off";
+        try {
+          const proc = Bun.spawn(
+            [
+              `${homedir()}/.local/bin/uv`,
+              "run",
+              "--with",
+              "modal",
+              "python",
+              "deploy/modal/scale.py",
+              arg,
+            ],
+            {
+              cwd: join(homedir(), "repos", "lfg"),
+              env: {
+                ...process.env,
+                HOME: homedir(),
+                PATH: `${homedir()}/.local/bin:${process.env.PATH ?? ""}`,
+              },
+              stdout: "pipe",
+              stderr: "pipe",
+            },
+          );
+          const out = await new Response(proc.stdout).text();
+          const code = await proc.exited;
+          if (code !== 0) return err(502, "voice power scale failed");
+          return json({ ok: true, power: arg, detail: out.trim() });
+        } catch {
+          return err(502, "voice power scale error");
+        }
+      }
+
       // ---- voice speaker-ID proxy: forward uploaded WAV to the upstream
       // /identify (resemblyzer) and return { embedding }. The client compares
       // the embedding (cosine) against its enrolled refs in localStorage to gate
@@ -845,7 +1012,7 @@ export async function cmdServe() {
       // standing context (~/.lfg/voice-context.md). The LiveKit worker fetches
       // this at connect to seed its system prompt and speak a proactive briefing.
       if (path === "/api/voice/snapshot" && req.method === "GET") {
-        const snapshot = await voiceStatusSnapshot();
+        const snapshot = await voiceStatusSnapshot(url.searchParams.get("user"));
         let context = "";
         try {
           context = (
@@ -1429,6 +1596,58 @@ export async function cmdServe() {
         return json({ users: userRoster() });
       }
 
+      // ---- cloud-browser profiles ----
+      // Save a real login once (interactive stream), reuse it from an agent's
+      // headless browser forever after.
+      if (path === "/api/browser/profiles" && req.method === "GET") {
+        // Frontend (BrowserProfiles.tsx) expects a bare ProfileMeta[].
+        return json(await listProfiles());
+      }
+      if (path === "/api/browser/profiles" && req.method === "POST") {
+        const b = (await req.json().catch(() => null)) as
+          | { url?: unknown; viewport?: unknown }
+          | null;
+        const u = typeof b?.url === "string" ? b.url.trim() : "";
+        if (!u) return err(400, "url is required");
+        const { id } = await startLoginSession(u, {
+          viewport: b?.viewport as Partial<Viewport> | null | undefined,
+        });
+        return json({ sessionId: id });
+      }
+      {
+        const m = path.match(/^\/api\/browser\/profiles\/([^/]+)\/reauth$/);
+        if (m && req.method === "POST") {
+          const id = decodeURIComponent(m[1]);
+          const prof = await getProfile(id);
+          if (!prof) return err(404, "unknown profile");
+          const target = prof.origins[0] || "about:blank";
+          const b = (await req.json().catch(() => null)) as
+            | { viewport?: unknown }
+            | null;
+          const { id: sid } = await startLoginSession(target, {
+            existingProfileId: id,
+            viewport: b?.viewport as Partial<Viewport> | null | undefined,
+          });
+          return json({ sessionId: sid });
+        }
+      }
+      {
+        const m = path.match(/^\/api\/browser\/profiles\/([^/]+)\/test$/);
+        if (m && req.method === "POST") {
+          const id = decodeURIComponent(m[1]);
+          const prof = await getProfile(id);
+          if (!prof) return err(404, "unknown profile");
+          return json(await testProfile(id));
+        }
+      }
+      {
+        const m = path.match(/^\/api\/browser\/profiles\/([^/]+)$/);
+        if (m && req.method === "DELETE") {
+          await deleteProfile(decodeURIComponent(m[1]));
+          return json({ ok: true });
+        }
+      }
+
       // ---- running claude sessions ----
       if (path === "/api/repos") {
         if (req.method === "POST") {
@@ -1527,10 +1746,13 @@ export async function cmdServe() {
         return json({ sessions });
       }
 
-      // Resume a closed claude session: relaunch `claude --resume <id>` in the
-      // transcript's original cwd as a fresh managed tmux session, preserving the
-      // full conversation. Claude continues into a NEW sessionId, which we resolve
-      // from the pidfile (like /new) and hand back so the client can deep-link in.
+      // Resume a closed session in its original cwd as a fresh managed session,
+      // preserving the full conversation. Two engines:
+      //  - claude: relaunch `claude --resume <id>`; it continues into a NEW
+      //    sessionId, resolved from the pidfile (like /new) and handed back.
+      //  - codex: spawn a codex-aisdk harness seeded with the rollout's threadId
+      //    (== the resumed id). Codex resumes the SAME thread, so the live id
+      //    stays the resumed id — we return it directly.
       if (path === "/api/sessions/resume" && req.method === "POST") {
         const body = (await req.json().catch(() => null)) as {
           sessionId?: string;
@@ -1541,18 +1763,41 @@ export async function cmdServe() {
         const sessionId = body?.sessionId?.trim();
         if (!sessionId) return err(400, "sessionId required");
         const model = body?.model?.trim() || undefined;
-        if (model && !CLAUDE_MODELS.includes(model))
-          return err(400, `unknown model "${model}" (expected one of ${CLAUDE_MODELS.join(", ")})`);
         // Already running? Don't double-spawn — point the client at the live one.
         const live = (await listSessions()).find((s) => s.sessionId === sessionId);
         if (live)
-          return json({ ok: true, tmuxName: live.tmuxName, cwd: live.cwd, sessionId, alreadyLive: true, agent: "claude" });
+          return json({ ok: true, tmuxName: live.tmuxName, cwd: live.cwd, sessionId, alreadyLive: true, agent: live.agent });
         const transcript = await resolveTranscript(sessionId);
         if (!transcript) return err(404, "no transcript found for that session");
-        // claude-only: resume drives the claude CLI, and codex rollouts (under
-        // ~/.codex) carry no claude `cwd` line. Reject those with a clear message.
-        if (!transcript.includes("/.claude/projects/"))
-          return err(400, "only claude sessions can be resumed");
+
+        // Codex rollouts live under ~/.codex/sessions — resume them through a
+        // codex-aisdk harness keyed to the rollout's threadId rather than the
+        // claude CLI.
+        if (transcript.includes("/.codex/")) {
+          const cwd = (await cwdForCodexTranscript(transcript)) ?? SELF_REPO;
+          const tmuxName = `lfg-${randomBytes(3).toString("hex")}`;
+          const key = crypto.randomUUID(); // control-plane key (names registry/cmd files)
+          const r = spawnManagedCodexAisdkSession({
+            name: tmuxName,
+            cwd,
+            prompt: body?.prompt,
+            model: model ?? "gpt-5.5",
+            key,
+            resume: sessionId,
+          });
+          if (!r.ok) return err(502, r.error || "failed to resume session");
+          addManaged({ tmuxName, cwd, createdAt: Date.now(), agent: "codex-aisdk" });
+          if (body?.user) assignUser(tmuxName, body.user);
+          // Wait for the harness to register so the session is listable. The
+          // threadId is seeded up front (== resumedFrom), so it's the live id.
+          for (let i = 0; i < 20 && !readAisdkEntry(key); i++)
+            await new Promise((res) => setTimeout(res, 250));
+          return json({ ok: true, tmuxName, cwd, sessionId, resumedFrom: sessionId, agent: "codex-aisdk" });
+        }
+
+        // claude path: resume drives the claude CLI.
+        if (model && !CLAUDE_MODELS.includes(model))
+          return err(400, `unknown model "${model}" (expected one of ${CLAUDE_MODELS.join(", ")})`);
         const cwd = (await cwdForTranscript(transcript)) ?? SELF_REPO;
         const tmuxName = `lfg-${randomBytes(3).toString("hex")}`;
         const r = spawnManagedSession({ name: tmuxName, cwd, model, resume: sessionId, prompt: body?.prompt });
@@ -1576,6 +1821,7 @@ export async function cmdServe() {
           user?: string;
           voice?: boolean;
           model?: string;
+          thinkingLevel?: string;
           agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode";
         } | null;
         // Default flip (Task B): with no agent specified, the default Claude path
@@ -1611,6 +1857,11 @@ export async function cmdServe() {
         // validate by shape rather than an allowlist.
         if (agent === "opencode" && model && !/^[A-Za-z0-9_.:\/-]{1,80}$/.test(model))
           return err(400, "invalid opencode model name");
+        const thinkingLevel = body?.thinkingLevel?.trim() || undefined;
+        if (thinkingLevel && !THINKING_LEVELS.includes(thinkingLevel as ThinkingLevel))
+          return err(400, `unknown thinking level "${thinkingLevel}" (expected one of ${THINKING_LEVELS.join(", ")})`);
+        if (thinkingLevel && agent !== "codex" && agent !== "codex-aisdk")
+          return err(400, "thinkingLevel is only supported for Codex sessions");
         // Always spawn in a trusted folder — claude shows a blocking "trust this
         // folder?" dialog for any untrusted cwd, which hangs session startup. The
         // lfg-sessions skill is installed user-level (~/.claude/skills) so the
@@ -1625,6 +1876,11 @@ export async function cmdServe() {
         // first spoken reply can be a proactive blockers-first status briefing.
         let prompt = body?.prompt;
         if (body?.voice) {
+          // Clear lingering state from any previous voice session before this
+          // one starts: retire the persistent deep-think advisor so it doesn't
+          // carry the prior session's conversation context into this one. The
+          // snapshot below is already rebuilt fresh each time.
+          await retireVoiceAdvisor();
           const snap = await voiceStatusSnapshot();
           prompt = `${prompt ?? ""}\n\n=== SESSION SNAPSHOT (live, at session start) ===\n${snap}\n=== END SNAPSHOT ===`;
         }
@@ -1643,7 +1899,7 @@ export async function cmdServe() {
         const opencodeKey = agent === "opencode" ? crypto.randomUUID() : null;
         const r =
           agent === "codex"
-            ? spawnManagedCodexSession({ name: tmuxName, cwd, prompt, model })
+            ? spawnManagedCodexSession({ name: tmuxName, cwd, prompt, model, thinkingLevel })
             : agent === "aisdk"
               ? spawnManagedAisdkSession({
                   name: tmuxName,
@@ -1659,6 +1915,7 @@ export async function cmdServe() {
                     prompt,
                     model: model ?? "gpt-5.5",
                     key: codexAisdkKey!,
+                    thinkingLevel,
                   })
                 : agent === "opencode"
                   ? spawnManagedOpencodeAisdkSession({

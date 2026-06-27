@@ -290,6 +290,7 @@ export function spawnManagedCodexSession(opts: {
   cwd: string;
   prompt?: string;
   model?: string;
+  thinkingLevel?: string;
 }): { ok: boolean; error?: string } {
   const dec = new TextDecoder();
   const argv = [
@@ -311,6 +312,7 @@ export function spawnManagedCodexSession(opts: {
     reposRoot(),
   ];
   if (opts.model) argv.push("--model", opts.model);
+  if (opts.thinkingLevel) argv.push("-c", `reasoning_effort=${JSON.stringify(opts.thinkingLevel)}`);
   if (opts.prompt && opts.prompt.trim()) argv.push("--", opts.prompt);
   const create = Bun.spawnSync(argv);
   if (create.exitCode !== 0)
@@ -363,6 +365,10 @@ export function spawnManagedCodexAisdkSession(opts: {
   prompt?: string;
   model: string;
   key: string;
+  thinkingLevel?: string;
+  // When set, resume this existing codex rollout/thread instead of starting a
+  // fresh persistent thread — the harness seeds its threadId with it.
+  resume?: string;
 }): { ok: boolean; error?: string } {
   const dec = new TextDecoder();
   // Harmless for codex: ensureFolderTrusted only patches ~/.claude.json and is a
@@ -381,6 +387,8 @@ export function spawnManagedCodexAisdkSession(opts: {
     "--cwd", opts.cwd,
     "--tmux", opts.name,
   ];
+  if (opts.thinkingLevel) argv.push("--thinking-level", opts.thinkingLevel);
+  if (opts.resume) argv.push("--resume", opts.resume);
   if (opts.prompt && opts.prompt.trim()) argv.push("--", opts.prompt);
   const create = Bun.spawnSync(argv);
   if (create.exitCode !== 0)

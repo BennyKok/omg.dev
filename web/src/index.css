@@ -43,6 +43,36 @@
   --code-bg: rgba(120, 120, 128, 0.08);
   --text-2: #3c3c43;
   --border-strong: rgba(60, 60, 67, 0.29);
+  --lfg-orb-size: 4.5rem;
+  --lfg-orb-bottom: calc(1.5rem + env(safe-area-inset-bottom));
+  --lfg-orb-gap: 1rem;
+  --lfg-orb-visual-overflow: 3rem;
+  --lfg-orb-bubble-height: 2rem;
+  --lfg-orb-clear-bottom: calc(var(--lfg-orb-bottom) + var(--lfg-orb-size) + var(--lfg-orb-visual-overflow) + var(--lfg-orb-gap));
+  /* The orb now lives in the top nav island; the bottom of the mobile home
+     screen is owned by the inline create composer. These clearances reserve
+     space above that compact composer for scroll content, toasts, the dictation
+     pill and the ask-center card. --lfg-composer-clear ≈ the compact composer's
+     resting height; bump it if the composer grows. */
+  --lfg-composer-clear: calc(8rem + env(safe-area-inset-bottom));
+  --lfg-orb-stack-bottom: calc(var(--lfg-composer-clear) + 0.5rem);
+  --lfg-above-orb: var(--lfg-composer-clear);
+}
+
+/* Soft keyboard up: the orb is tucked away, so toasts and the dictation pill no
+   longer need to clear the orb stack — hike them up to sit just above the
+   keyboard. --lfg-keyboard-height is published live from the visualViewport
+   sync in App.tsx. */
+html.lfg-keyboard-open {
+  --lfg-orb-stack-bottom: calc(var(--lfg-keyboard-height, 0px) + 1rem);
+  --lfg-above-orb: calc(var(--lfg-keyboard-height, 0px) + 1rem);
+}
+
+@media (min-width: 768px) {
+  :root {
+    --lfg-orb-stack-bottom: 1rem;
+    --lfg-above-orb: 0.75rem;
+  }
 }
 
 .dark {
@@ -394,14 +424,24 @@
     -webkit-overflow-scrolling: touch;
   }
 
-  .user-bubble.markdown,
+  .user-bubble.markdown {
+    border: 0;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: var(--foreground);
+  }
+
   .user-bubble.markdown a {
-    color: var(--primary-foreground);
+    color: var(--foreground);
   }
 
   .user-bubble.markdown code,
   .user-bubble.markdown pre {
-    background: rgba(255, 255, 255, 0.18);
+    border: 0;
+    background: rgba(255, 255, 255, 0.2);
+    color: var(--foreground);
   }
 
   .think-live {
@@ -544,5 +584,140 @@
     color: transparent;
     -webkit-text-fill-color: transparent;
     animation: lfg-shimmer 1.4s linear infinite;
+  }
+}
+
+/* Registered custom props so the fill colors interpolate smoothly when the
+   server status changes (plain background-image transitions can't tween). */
+@property --dot-from {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: #94a3b8;
+}
+@property --dot-to {
+  syntax: "<color>";
+  inherits: false;
+  initial-value: #64748b;
+}
+
+@keyframes lfg-bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px) scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes lfg-status-dot-in {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@layer components {
+  /* Server status indicator: glass gradient border + green gradient fill,
+     with smooth fade/scale on appearance and color crossfade between states. */
+  .lfg-status-dot {
+    position: relative;
+    border-radius: 9999px;
+    background-image: linear-gradient(150deg, var(--dot-from), var(--dot-to));
+    box-shadow:
+      0 0 0 2px var(--background),
+      inset 0 0.5px 0.5px rgba(255, 255, 255, 0.65),
+      inset 0 -1px 1.5px rgba(0, 0, 0, 0.28),
+      0 1px 4px color-mix(in srgb, var(--dot-to) 55%, transparent);
+    transition:
+      --dot-from 320ms ease,
+      --dot-to 320ms ease,
+      box-shadow 320ms ease,
+      opacity 260ms ease,
+      transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  /* Glass gradient border — a 1px conic-ish sheen ring composited via mask. */
+  .lfg-status-dot::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      150deg,
+      rgba(255, 255, 255, 0.9),
+      rgba(255, 255, 255, 0.1) 45%,
+      rgba(255, 255, 255, 0) 70%
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /* Glossy top highlight for the glass look. */
+  .lfg-status-dot::after {
+    content: "";
+    position: absolute;
+    inset: 1.5px;
+    border-radius: inherit;
+    background: radial-gradient(
+      120% 90% at 30% 22%,
+      rgba(255, 255, 255, 0.6),
+      rgba(255, 255, 255, 0) 55%
+    );
+    pointer-events: none;
+  }
+
+  /* Visible state plays the fade/scale-in entrance. */
+  .lfg-status-dot[data-visible="true"] {
+    animation: lfg-status-dot-in 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  /* Caption bubble: springs up from the orb each time a new message appears
+     (keyed on text so the entrance replays per message). */
+  .lfg-bubble {
+    transform-origin: bottom center;
+    animation: lfg-bubble-in 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  /* Power ring: forms the orb's border to reflect GPU power state. A gradient
+     ring composited via mask (so only the border band paints, leaving the orb
+     visible through the center) with a soft outer glow. Color crossfades
+     between states via the registered --dot-* props. */
+  .lfg-power-ring {
+    border-radius: 9999px;
+    padding: 1px;
+    background: linear-gradient(
+      150deg,
+      var(--dot-from),
+      var(--dot-to) 45%,
+      color-mix(in srgb, var(--dot-to) 15%, transparent) 100%
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    box-shadow: 0 0 10px color-mix(in srgb, var(--dot-to) 45%, transparent);
+    transition:
+      --dot-from 320ms ease,
+      --dot-to 320ms ease,
+      box-shadow 320ms ease,
+      opacity 260ms ease;
   }
 }

@@ -1,4 +1,4 @@
-import { Component, lazy, memo, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Component, forwardRef, memo, Suspense, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   DEFAULT_SCHED_TZ,
@@ -12,6 +12,8 @@ import {
   type SimpleSchedule,
 } from "./cron";
 import { VoiceOrb } from "./voice-orb";
+import { VoiceCall } from "./voice-call";
+import { speakText, stopSpeaking } from "./voice-tts";
 import type {
   CSSProperties,
   ErrorInfo,
@@ -29,28 +31,31 @@ import {
   Flag,
   Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
-  CircleStop,
-  Code2,
-  FlaskConical,
+  ChevronUp,
   Folder,
+  GitFork,
   Loader2,
   MessageSquare,
   Mic,
   Bell,
-  BellOff,
   MoreVertical,
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
+  Paperclip,
+  Pause,
   Pencil,
   Pin,
   Play,
   Plus,
   Power,
+  Globe,
   Radio,
   RotateCcw,
   Send,
+  Settings,
   Sparkles,
   Sun,
   TerminalSquare,
@@ -61,11 +66,14 @@ import {
 import { toast } from "sonner";
 import { haptic } from "@/lib/haptics";
 import { reportError } from "./lib/report-error";
+import { lazyWithReload } from "./lib/lazy-with-reload";
 import { Toaster } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 // Code-split: the terminal pulls in ghostty-web's ~400KB WASM, so only load it
 // when the Terminal tab is actually opened — keeps the initial bundle lean.
-const TermView = lazy(() =>
+// lazyWithReload recovers from the post-deploy stale-chunk case (React #306).
+const TermView = lazyWithReload("TermView", () =>
   import("@/components/TermView").then((m) => ({ default: m.TermView })),
 );
 import { Badge } from "@/components/ui/badge";
@@ -84,6 +92,8 @@ import {
 import { cn } from "@/lib/utils";
 import { Streamdown } from "streamdown";
 import { useExtensionNavTabs } from "./lib/extensions";
+import type { ExtensionNavTab } from "./lib/extensions";
+import BrowserProfiles from "./BrowserProfiles";
 import {
   pushSupported,
   pushPermission,
@@ -91,7 +101,7 @@ import {
   enablePush,
   disablePush,
 } from "./lib/push";
-import { AskCenter } from "./components/ask-center";
+import { AskNavButton, AskPage, AskProvider } from "./components/ask-center";
 
 type Agent = {
   name: string;
@@ -123,7 +133,7 @@ type AgentReport = {
 };
 
 type Session = {
-  agent?: "claude" | "aisdk" | "codex" | "codex-aisdk" | "opencode" | string;
+  agent?: "claude" | "aisdk" | "codex" | "codex-aisdk" | "opencode" | "grok" | string;
   pid?: number;
   cmd?: string;
   cwd?: string;
@@ -142,12 +152,17 @@ type Session = {
   // Build health (from the backend). "blocked" means the session can't make
   // progress until a human acts; statusReason/statusDetail explain why.
   status?: "ok" | "blocked";
-  statusReason?: "model_unavailable" | "out_of_credits" | null;
+  statusReason?: "model_unavailable" | "out_of_credits" | "provider_auth" | "provider_error" | null;
   statusDetail?: string | null;
+  // Live "working" flag from the list call (backend computes it from the tmux
+  // pane / aisdk registry). Lets a collapsed card show working/idle without
+  // holding open a transcript stream — the stream only overrides this while the
+  // card is expanded. Polled every 5s with the rest of the list.
+  busy?: boolean;
 };
 
 type User = { email: string; name?: string; avatar?: string };
-type Repo = { name: string; cwd: string; custom?: boolean };
+type Repo = { name: string; cwd: string; project?: string; custom?: boolean };
 
 // Auto agents: a streamlined agent is JUST a prompt + a schedule. It emits
 // findings (notifications), not reports.
@@ -158,6 +173,9 @@ type AutoAgent = {
   schedule: string;
   enabled: boolean;
   cwd?: string;
+  agent?: AutoAgentBackend;
+  model?: string;
+  thinkingLevel?: string;
   lastRunAt?: number;
   running?: boolean; // mid-run right now (live, from the server poll)
 };
@@ -193,21 +211,61 @@ type QueueMsg = {
   error?: string;
 };
 
+type ComposerAttachment = {
+  id: string;
+  file: File;
+  name: string;
+  size: number;
+  type: string;
+  previewUrl?: string;
+  status: "ready" | "uploading" | "failed";
+  error?: string;
+};
+
 const CLAUDE_MODELS = ["sonnet", "opus", "haiku", "fable"];
 const CODEX_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"];
 // Models the one-shot AI-SDK test option supports (the provider maps these
 // aliases). Kept in sync with the AISDK_MODELS allowlist in serve.ts.
 const AISDK_MODELS = ["opus", "sonnet", "haiku"];
 const CODEX_AISDK_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"];
+const GROK_MODELS = ["grok-composer-2.5-fast", "grok-build"];
 const OPENCODE_MODELS = [
-  "anthropic/claude-sonnet-4-6",
-  "anthropic/claude-opus-4-8",
-  "anthropic/claude-haiku-4-5",
-  "openai/gpt-5.5",
-  "openai/gpt-5.4",
+  "fugu/fugu",
+  "fugu/fugu-ultra",
+  "opencode/big-pickle",
+  "opencode/deepseek-v4-flash-free",
+  "novita-ai/zai-org/glm-5.1",
+  "novita-ai/qwen/qwen3-coder-480b-a35b-instruct",
+  "novita-ai/deepseek/deepseek-v4-pro",
 ];
+const THINKING_LEVELS = ["low", "medium", "high", "xhigh"] as const;
+type ThinkingLevel = (typeof THINKING_LEVELS)[number];
+type AutoAgentBackend = "aisdk" | "codex-aisdk" | "opencode";
+const AUTO_AGENT_OPTIONS: { key: AutoAgentBackend; label: string }[] = [
+  { key: "aisdk", label: "claude" },
+  { key: "codex-aisdk", label: "codex" },
+  { key: "opencode", label: "opencode" },
+];
+function savedThinkingLevel(): ThinkingLevel {
+  const value = localStorage.getItem("lfg_thinking_level");
+  return THINKING_LEVELS.includes(value as ThinkingLevel) ? (value as ThinkingLevel) : "medium";
+}
 
-type AgentKind = "claude" | "aisdk" | "codex" | "codex-aisdk" | "opencode";
+type AgentKind = "claude" | "aisdk" | "codex" | "codex-aisdk" | "opencode" | "grok";
+
+// Which agents honor a thinking/reasoning-effort level. Claude (CLI + ai-sdk)
+// takes an `effort`; Codex (CLI + ai-sdk) takes a `reasoning_effort` — both
+// accept the low/medium/high/xhigh values the picker offers. OpenCode's provider
+// exposes no reasoning knob, so the selector is hidden for it.
+function agentSupportsThinking(agent: AgentKind): boolean {
+  return (
+    agent === "claude" ||
+    agent === "aisdk" ||
+    agent === "grok" ||
+    agent === "codex" ||
+    agent === "codex-aisdk"
+  );
+}
 
 // Per-agent model lists + default model, keyed by the backend agent-kind
 // contract. The new-session dialog and session cards both read from here so the
@@ -217,6 +275,7 @@ const AGENT_MODELS: Record<AgentKind, string[]> = {
   aisdk: AISDK_MODELS,
   codex: CODEX_MODELS,
   "codex-aisdk": CODEX_AISDK_MODELS,
+  grok: GROK_MODELS,
   opencode: OPENCODE_MODELS,
 };
 const AGENT_DEFAULT_MODEL: Record<AgentKind, string> = {
@@ -224,30 +283,31 @@ const AGENT_DEFAULT_MODEL: Record<AgentKind, string> = {
   aisdk: "opus",
   codex: "gpt-5.5",
   "codex-aisdk": "gpt-5.5",
-  opencode: "anthropic/claude-sonnet-4-6",
+  grok: "grok-composer-2.5-fast",
+  opencode: "opencode/big-pickle",
 };
 
 // New-session picker options, in display order. The three AI-SDK agents are the
-// primary, always-visible choices ("aisdk" leads since it's the default); the
-// two legacy CLI agents are tagged `cli` and tucked behind a disclosure toggle.
-// Each carries a short label + a distinct lucide glyph for the toggle.
-const AGENT_OPTIONS: { key: AgentKind; label: string; Icon: typeof Sparkles; cli?: boolean }[] = [
-  { key: "aisdk", label: "claude (ai sdk)", Icon: Sparkles },
-  { key: "codex-aisdk", label: "codex (ai sdk)", Icon: Braces },
+// only choices ("aisdk" leads since it's the default). Each carries a short
+// label + a distinct lucide glyph.
+const AGENT_OPTIONS: { key: AgentKind; label: string; Icon: typeof Sparkles }[] = [
+  { key: "aisdk", label: "claude", Icon: Sparkles },
+  { key: "codex-aisdk", label: "codex", Icon: Braces },
+  { key: "grok", label: "grok", Icon: Bot },
   { key: "opencode", label: "opencode", Icon: Boxes },
-  { key: "claude", label: "claude (cli)", Icon: FlaskConical, cli: true },
-  { key: "codex", label: "codex (cli)", Icon: Code2, cli: true },
 ];
 
 // Maps an agent-kind to its session-card / picker icon. codex variants share the
 // codex mark; claude variants (incl. aisdk) share the claude mark.
 function agentIconSrc(agent?: string): string {
   if (agent === "codex" || agent === "codex-aisdk") return "/agent-codex.svg";
+  if (agent === "grok") return "/agent-grok.svg";
   if (agent === "opencode") return "/agent-opencode.svg";
   return "/agent-claude.svg";
 }
 function agentIconAlt(agent?: string): string {
   if (agent === "codex" || agent === "codex-aisdk") return "Codex";
+  if (agent === "grok") return "Grok";
   if (agent === "opencode") return "OpenCode";
   return "Claude";
 }
@@ -267,6 +327,22 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(data?.error || `${res.status} ${res.statusText}`);
   }
   return data as T;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
+function composeAttachmentMessage(
+  text: string,
+  files: { name: string; path: string }[],
+): string {
+  if (!files.length) return text;
+  const label = files.length === 1 ? "Attached file" : "Attached files";
+  const list = files.map((file) => `- ${file.name}: ${file.path}`).join("\n");
+  return [text, `${label}:\n${list}`].filter(Boolean).join("\n\n");
 }
 
 // Fire-and-forget instrumentation: record which CTA a finding graduated
@@ -298,6 +374,35 @@ function timeAgo(value?: number | null) {
 
 function shortUser(email?: string | null) {
   return email ? email.split("@")[0] : "unassigned";
+}
+
+// A human-friendly label for a project. Current backend payloads use the
+// top-level folder under the repos root. The legacy dash-encoded full-path shape
+// is still accepted so old selected filters degrade cleanly.
+function shortProject(project: string): string {
+  const legacy = project.match(/(?:^|-)repos-(.+)$/)?.[1];
+  if (legacy) return legacy;
+  return project;
+}
+
+function cycleProjectFilter(options: string[], current: string, dir: 1 | -1): string {
+  if (options.length <= 1) return current;
+  const idx = Math.max(0, options.indexOf(current));
+  return options[(idx + dir + options.length) % options.length];
+}
+
+// Fallback mirror of the backend's projectName(cwd): use the top-level folder
+// under a repos root when recognizable, otherwise the cwd basename. Newer
+// /api/repos payloads include `project`, so this mainly supports older payloads.
+function projectName(cwd: string): string {
+  const parts = cwd.split(/[\\/]/).filter(Boolean);
+  const reposIdx = parts.lastIndexOf("repos");
+  if (reposIdx >= 0 && parts[reposIdx + 1]) return parts[reposIdx + 1];
+  return parts[parts.length - 1] || cwd;
+}
+
+function repoProject(repo: Repo): string {
+  return repo.project || projectName(repo.cwd);
 }
 
 function titleForSession(session: Session) {
@@ -364,6 +469,46 @@ function floatToWav(samples: Float32Array, rate: number): Blob {
   return new Blob([buffer], { type: "application/octet-stream" });
 }
 
+// Resample a Float32 PCM window (captured at the AudioContext's native rate) to
+// the 16 kHz mono signed-16-bit PCM the realtime-STT bridge expects, returning a
+// fresh ArrayBuffer ready to ship as a binary WS frame. We request a 16 kHz
+// context up front (so this is usually a straight float→int16 cast), but some
+// browsers — iOS Safari especially — ignore the requested rate and hand back
+// 44.1/48 kHz, so we linear-interpolate down when the rates differ. int16 frames
+// are little-endian on every browser we target, which is what the upstream wants.
+function pcm16kFrom(samples: Float32Array, inRate: number): ArrayBuffer {
+  const clamp = (s: number) => {
+    const v = Math.max(-1, Math.min(1, s));
+    return v < 0 ? v * 32768 : v * 32767;
+  };
+  if (inRate === 16000) {
+    const out = new Int16Array(samples.length);
+    for (let i = 0; i < samples.length; i++) out[i] = clamp(samples[i]);
+    return out.buffer;
+  }
+  const ratio = inRate / 16000;
+  const outLen = Math.max(0, Math.floor(samples.length / ratio));
+  const out = new Int16Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const idx = i * ratio;
+    const i0 = Math.floor(idx);
+    const i1 = Math.min(i0 + 1, samples.length - 1);
+    const frac = idx - i0;
+    out[i] = clamp(samples[i0] * (1 - frac) + samples[i1] * frac);
+  }
+  return out.buffer;
+}
+
+// Join the finalized + in-flight halves of a streaming transcript into the one
+// string the input should show. Both halves are trimmed and empties dropped so a
+// trailing space or a not-yet-started partial never leaks into the field.
+function joinTranscript(committed: string, partial: string): string {
+  return [committed, partial]
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
 type DictationState = "idle" | "recording" | "transcribing";
 
 // RMS below this on a 4096-sample window counts as silence. Speech sits well
@@ -387,12 +532,22 @@ const LEVEL_ATTACK = 0.55;
 const LEVEL_RELEASE = 0.1;
 
 // Push-to-talk dictation with optional hands-free auto-send. Tap to record, tap
-// to stop → POST WAV to the server's Whisper proxy → hand the transcript back.
+// to stop. Audio streams live to the server's realtime-STT bridge
+// (/api/voice/stt-stream → ElevenLabs Scribe v2 Realtime): we capture mic PCM,
+// resample to 16 kHz mono int16, and push it as binary WS frames. The bridge
+// streams back {type:"partial"} (live interim) and {type:"final"} (committed)
+// transcripts — so `onInterim` now reflects the upstream's own running
+// hypothesis instead of a re-POST poll, and the final arrives ~150 ms after you
+// stop instead of after a whole-clip round trip.
 // `onText` receives the transcript on a manual stop (fill the input, let the
 // user edit/send). When `onAutoSubmit` is supplied we also run voice-activity
 // detection: once speech has been heard, `silenceMs` of quiet auto-stops the
 // recording and routes the transcript to `onAutoSubmit` instead — fully
 // hands-free (speak, pause, it sends).
+// We keep the raw captured PCM as a fallback: if the realtime socket never
+// connects (e.g. ELEVENLABS_API_KEY unset → the bridge closes us) or yields no
+// text, stop() POSTs the buffered clip to the batch /api/voice/stt endpoint so
+// dictation degrades gracefully rather than silently dropping the utterance.
 function useDictation(opts: {
   onText: (text: string, base: string) => void;
   onAutoSubmit?: (text: string, base: string) => void;
@@ -415,13 +570,31 @@ function useDictation(opts: {
     stream: MediaStream;
     proc: ScriptProcessorNode;
     src: MediaStreamAudioSourceNode;
-    chunks: Float32Array[];
-    rate: number;
+    chunks: Float32Array[]; // native-rate capture, kept only for batch fallback
+    rate: number; // native AudioContext sample rate
     vad: number | null;
-    interim: number | null;
-    interimInFlight: boolean;
-    abort: AbortController | null;
+    // Realtime-STT socket and its running transcript. `committed` is the text the
+    // bridge has finalized; `partial` is the live hypothesis for audio not yet
+    // committed; their join is what the input shows. `pending` holds resampled
+    // frames captured before the socket finished opening (flushed on "open").
+    // `broken` flips if the socket errors/closes early so stop() batch-falls-back.
+    ws: WebSocket | null;
+    pending: ArrayBuffer[];
+    committed: string;
+    partial: string;
+    broken: boolean;
+    // Resolvers waiting for the next "final" frame — settled by the flush we send
+    // on stop, so we hand back the committed tail instead of a clipped partial.
+    finalWaiters: Array<() => void>;
   } | null>(null);
+
+  // start() is async — the mic/socket aren't live until getUserMedia resolves and
+  // sessionRef is assigned. `startingRef` marks that window; if a release fires
+  // stop() inside it, `pendingStopRef` records the requested stop so start() can
+  // honor it the instant the session exists. Without this, a quick release loses
+  // the take (stop sees a null session and bails) AND leaks a live recording.
+  const startingRef = useRef(false);
+  const pendingStopRef = useRef<{ auto: boolean; discard: boolean } | null>(null);
 
   // Keep the callbacks in refs so the VAD interval / stop always see the latest
   // handlers without needing to tear down and recreate the audio session.
@@ -457,22 +630,80 @@ function useDictation(opts: {
       levelSmoothRef.current = 0;
       setLevel(0);
       if (!s) {
+        // No live session yet. If start() is still acquiring the mic, this is a
+        // release that beat initialization — record the request so start() tears
+        // down (and submits) the moment the session is ready instead of leaking it.
+        if (startingRef.current) pendingStopRef.current = { auto, discard };
         setState("idle");
         return;
       }
       if (s.vad !== null) clearInterval(s.vad);
-      if (s.interim !== null) clearInterval(s.interim);
-      s.abort?.abort();
+      // Stop feeding the mic first so no frame races the flush/close below.
       s.proc.disconnect();
       s.src.disconnect();
       s.stream.getTracks().forEach((t) => t.stop());
       await s.ac.close().catch(() => {});
+      const closeWs = () => {
+        try {
+          s.ws?.close();
+        } catch {
+          /* already closing */
+        }
+      };
       if (discard) {
+        closeWs();
         setState("idle");
         return;
       }
+      const deliver = (text: string) => {
+        const t = text.trim();
+        if (!t) return;
+        const base = capturedBaseRef.current;
+        if (auto && onAutoSubmitRef.current) onAutoSubmitRef.current(t, base);
+        else onTextRef.current(t, base);
+      };
+
+      setState("transcribing");
+
+      // Primary path: ask the realtime bridge to commit the trailing audio, wait
+      // briefly for the final segment, then deliver the joined transcript. We
+      // resolve on the first `final` frame OR a timeout so a missing commit can't
+      // hang the button in "transcribing".
+      if (s.ws && s.ws.readyState === WebSocket.OPEN && !s.broken) {
+        try {
+          s.ws.send(JSON.stringify({ type: "flush" }));
+        } catch {
+          s.broken = true;
+        }
+        if (!s.broken) {
+          await new Promise<void>((resolve) => {
+            let done = false;
+            const fin = () => {
+              if (done) return;
+              done = true;
+              resolve();
+            };
+            s.finalWaiters.push(fin);
+            setTimeout(fin, 1800);
+          });
+        }
+      }
+
+      const streamed = joinTranscript(s.committed, s.partial);
+      closeWs();
+
+      if (streamed && !s.broken) {
+        deliver(streamed);
+        setState("idle");
+        return;
+      }
+
+      // Fallback: the realtime socket never connected (e.g. ELEVENLABS_API_KEY
+      // unset → bridge closed us) or yielded nothing. POST the buffered clip to
+      // the batch endpoint so the utterance isn't silently dropped.
       const total = s.chunks.reduce((n, c) => n + c.length, 0);
       if (!total) {
+        if (streamed) deliver(streamed);
         setState("idle");
         return;
       }
@@ -482,7 +713,6 @@ function useDictation(opts: {
         merged.set(c, offset);
         offset += c.length;
       }
-      setState("transcribing");
       try {
         const res = await fetch("/api/voice/stt", {
           method: "POST",
@@ -491,31 +721,110 @@ function useDictation(opts: {
         });
         const data = (await res.json().catch(() => ({}))) as { text?: string };
         const text = (data.text || "").trim();
-        if (res.ok && text) {
-          const base = capturedBaseRef.current;
-          if (auto && onAutoSubmitRef.current) onAutoSubmitRef.current(text, base);
-          else onTextRef.current(text, base);
-        }
+        if (res.ok && text) deliver(text);
+        else if (streamed) deliver(streamed);
       } catch {
-        /* swallow — the input is untouched, user can retry */
+        // Batch also failed — fall back to whatever the stream gave us, if any.
+        if (streamed) deliver(streamed);
       }
       setState("idle");
     },
     [],
   );
 
-  const start = useCallback(async () => {
-    if (sessionRef.current) return;
+  // `autoStop` (default true) wires the silence-VAD that auto-submits after a
+  // pause — the tap-to-dictate behavior. Press-and-hold passes false: the user
+  // controls the take by holding, so a mid-utterance pause must not cut it off;
+  // release is the only thing that stops + sends.
+  const start = useCallback(async (startOpts?: { autoStop?: boolean }) => {
+    const autoStop = startOpts?.autoStop ?? true;
+    if (sessionRef.current || startingRef.current) return;
+    startingRef.current = true;
+    pendingStopRef.current = null;
     capturedBaseRef.current = baseTextRef.current;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const Ctor =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const ac = new Ctor();
+      // Ask for a 16 kHz context so capture matches the bridge's expected rate
+      // and pcm16kFrom is a straight cast. Browsers that refuse the hint hand
+      // back their native rate, which the resampler handles.
+      let ac: AudioContext;
+      try {
+        ac = new Ctor({ sampleRate: 16000 });
+      } catch {
+        ac = new Ctor();
+      }
       const src = ac.createMediaStreamSource(stream);
       const proc = ac.createScriptProcessor(4096, 1, 1);
       const chunks: Float32Array[] = [];
+
+      // Realtime-STT socket: stream resampled PCM up, receive {partial,final}
+      // transcripts back. Built before capture starts so the first frame has
+      // somewhere to go (queued in `pending` until the socket opens).
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      let ws: WebSocket | null = null;
+      try {
+        ws = new WebSocket(`${proto}//${location.host}/api/voice/stt-stream`);
+        ws.binaryType = "arraybuffer";
+      } catch {
+        ws = null;
+      }
+      if (ws) {
+        ws.onopen = () => {
+          const s = sessionRef.current;
+          if (!s || s.ws !== ws) return;
+          for (const frame of s.pending) {
+            try {
+              ws!.send(frame);
+            } catch {
+              s.broken = true;
+            }
+          }
+          s.pending = [];
+        };
+        ws.onmessage = (ev) => {
+          const s = sessionRef.current;
+          if (!s || s.ws !== ws) return;
+          let d: { type?: string; text?: string };
+          try {
+            d = JSON.parse(typeof ev.data === "string" ? ev.data : "");
+          } catch {
+            return;
+          }
+          if (d.type === "partial") {
+            s.partial = (d.text || "").trim();
+          } else if (d.type === "final") {
+            // Fold the committed segment in and clear the live hypothesis; settle
+            // any flush waiting on this final.
+            s.committed = joinTranscript(s.committed, d.text || "");
+            s.partial = "";
+            const waiters = s.finalWaiters;
+            s.finalWaiters = [];
+            for (const w of waiters) w();
+          } else {
+            return;
+          }
+          onInterimRef.current?.(joinTranscript(s.committed, s.partial), capturedBaseRef.current);
+        };
+        ws.onerror = () => {
+          const s = sessionRef.current;
+          if (s && s.ws === ws) s.broken = true;
+        };
+        ws.onclose = () => {
+          const s = sessionRef.current;
+          if (!s || s.ws !== ws) return;
+          // A close before we've delivered anything means the bridge rejected us
+          // (provider unconfigured) — mark broken so stop() batch-falls-back, and
+          // release any pending flush so the button doesn't hang.
+          if (!s.committed && !s.partial) s.broken = true;
+          const waiters = s.finalWaiters;
+          s.finalWaiters = [];
+          for (const w of waiters) w();
+        };
+      }
+
       // VAD state: `spoke` gates auto-stop so silence before the first word
       // never fires; `lastVoiceAt` is the clock the silence window runs against.
       let spoke = false;
@@ -529,60 +838,34 @@ function useDictation(opts: {
         // Feed the live meter every frame (cheap ref write; the rAF loop reads
         // and smooths it). Kept separate from the auto-submit gate below.
         rawLevelRef.current = rms;
+        // Ship this window to the realtime bridge as 16 kHz int16 PCM. Queue it
+        // if the socket is still opening; drop silently once it's broken.
+        const s = sessionRef.current;
+        if (s && s.ws && !s.broken) {
+          const frame = pcm16kFrom(buf, s.rate);
+          if (s.ws.readyState === WebSocket.OPEN) {
+            try {
+              s.ws.send(frame);
+            } catch {
+              s.broken = true;
+            }
+          } else if (s.ws.readyState === WebSocket.CONNECTING) {
+            s.pending.push(frame);
+          }
+        }
         if (!onAutoSubmitRef.current) return;
         if (rms > VOICE_RMS_THRESHOLD) {
           spoke = true;
           lastVoiceAt = Date.now();
         }
       };
-      src.connect(proc);
-      proc.connect(ac.destination);
-      const vad = onAutoSubmitRef.current
-        ? (setInterval(() => {
-            if (!sessionRef.current || !spoke) return;
-            if (Date.now() - lastVoiceAt >= silenceMs) void stop(true);
-          }, 200) as unknown as number)
-        : null;
-      // Live partial transcription: every INTERIM_MS, re-transcribe the audio
-      // captured so far against the existing batch /stt endpoint and surface it
-      // as a live preview. We skip a tick while a request is still in flight so
-      // the upstream whisper box isn't hammered with overlapping work, and we
-      // drop any response that resolves after the session ended (stale partial).
-      const interim = onInterimRef.current
-        ? (setInterval(() => {
-            void (async () => {
-              const s = sessionRef.current;
-              if (!s || s.interimInFlight) return;
-              const total = s.chunks.reduce((n, c) => n + c.length, 0);
-              if (total < s.rate * 0.4) return; // need ~0.4s before guessing
-              const merged = new Float32Array(total);
-              let off = 0;
-              for (const c of s.chunks) {
-                merged.set(c, off);
-                off += c.length;
-              }
-              s.interimInFlight = true;
-              s.abort = new AbortController();
-              try {
-                const res = await fetch("/api/voice/stt", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/octet-stream" },
-                  body: floatToWav(merged, s.rate),
-                  signal: s.abort.signal,
-                });
-                const data = (await res.json().catch(() => ({}))) as { text?: string };
-                const text = (data.text || "").trim();
-                // Only apply if this is still the live session (drop stale results).
-                if (res.ok && text && sessionRef.current === s && onInterimRef.current)
-                  onInterimRef.current(text, capturedBaseRef.current);
-              } catch {
-                /* aborted on stop, or a transient error — next tick retries */
-              } finally {
-                if (sessionRef.current === s) s.interimInFlight = false;
-              }
-            })();
-          }, 1500) as unknown as number)
-        : null;
+      const vad =
+        autoStop && onAutoSubmitRef.current
+          ? (setInterval(() => {
+              if (!sessionRef.current || !spoke) return;
+              if (Date.now() - lastVoiceAt >= silenceMs) void stop(true);
+            }, 200) as unknown as number)
+          : null;
       sessionRef.current = {
         ac,
         stream,
@@ -591,10 +874,17 @@ function useDictation(opts: {
         chunks,
         rate: ac.sampleRate,
         vad,
-        interim,
-        interimInFlight: false,
-        abort: null,
+        ws,
+        pending: [],
+        committed: "",
+        partial: "",
+        broken: false,
+        finalWaiters: [],
       };
+      // Connect last: audio only starts flowing once the session (and its socket
+      // handle) exists, so the first onaudioprocess frame has somewhere to go.
+      src.connect(proc);
+      proc.connect(ac.destination);
       // Drive the live level on the animation frame clock. Envelope-follow the
       // raw RMS — fast attack tracks how hard/quick you speak (velocity), slow
       // release keeps the glow smooth between words.
@@ -614,42 +904,185 @@ function useDictation(opts: {
       };
       rafRef.current = requestAnimationFrame(tick);
       setState("recording");
+      startingRef.current = false;
+      // A release that fired during init queued a stop — run it now that the
+      // session is live so the take is submitted (and the mic released) instead
+      // of recording forever with no way to stop it.
+      // Read through the ref's declared type — TS otherwise control-flow-narrows
+      // this to the `null` we assigned at start(), unaware stop() can mutate it.
+      const queued = pendingStopRef.current as { auto: boolean; discard: boolean } | null;
+      if (queued) {
+        pendingStopRef.current = null;
+        void stop(queued.auto, queued.discard);
+      }
     } catch {
+      startingRef.current = false;
+      pendingStopRef.current = null;
       setState("idle");
     }
   }, [silenceMs, stop]);
 
   const toggle = useCallback(() => {
     if (state === "transcribing") return;
-    if (sessionRef.current) void stop();
+    // Tapping the button to stop submits the request (stop(auto=true) → routes
+    // the transcript through onAutoSubmit), matching the silence-triggered and
+    // release-to-send paths. Falls back to onText if no onAutoSubmit is wired.
+    if (sessionRef.current) void stop(true);
     else void start();
   }, [state, start, stop]);
 
   return { state, toggle, start, stop, supported, level };
 }
 
-function MicButton({
-  onText,
-  onAutoSubmit,
-  onInterim,
-  baseText,
-  silenceMs,
-  className,
-}: {
-  onText: (text: string, base: string) => void;
-  onAutoSubmit?: (text: string, base: string) => void;
-  onInterim?: (text: string, base: string) => void;
-  baseText?: string;
-  silenceMs?: number;
-  className?: string;
-}) {
-  const { state, toggle, supported, level } = useDictation({
+// Imperative handle so a parent (e.g. the orb's press-and-hold gesture) can
+// drive dictation without a click on the button itself. `submitOnStop` routes
+// the stopped transcript through the auto-submit callback (release-to-send)
+// rather than just inserting it.
+type MicHandle = { start: () => void; stop: (submitOnStop?: boolean) => void };
+
+// How long the mic button must be held before it becomes push-to-talk. A press
+// shorter than this is treated as a tap (toggle dictation); longer engages
+// hold-to-talk (record while held, release to send).
+const MIC_LONG_PRESS_MS = 300;
+
+const MicButton = forwardRef<
+  MicHandle,
+  {
+    onText: (text: string, base: string) => void;
+    onAutoSubmit?: (text: string, base: string) => void;
+    onInterim?: (text: string, base: string) => void;
+    baseText?: string;
+    silenceMs?: number;
+    className?: string;
+    // Fires true while actively recording (tap or hold), false otherwise — lets a
+    // parent reflect "listening" in its own chrome (e.g. glow the session border).
+    onRecordingChange?: (recording: boolean) => void;
+  }
+>(function MicButton(
+  { onText, onAutoSubmit, onInterim, baseText, silenceMs, className, onRecordingChange },
+  ref,
+) {
+  const { state, toggle, start, stop, supported, level } = useDictation({
     onText,
     onAutoSubmit,
     onInterim,
     baseText,
     silenceMs,
   });
+  useImperativeHandle(
+    ref,
+    () => ({
+      start: () => void start(),
+      // submitOnStop → stop(auto=true) delivers via onAutoSubmit (release-to-send).
+      stop: (submitOnStop = true) => void stop(submitOnStop),
+    }),
+    [start, stop],
+  );
+
+  // Press-and-hold vs tap. A pointer held past MIC_LONG_PRESS_MS becomes
+  // push-to-talk: we start recording with the silence-VAD disabled (hold
+  // controls the take) and stop+submit on release. A shorter press falls through
+  // to `toggle` — the existing tap-to-dictate (records, auto-sends after a
+  // pause). Haptics differ on purpose so the two gestures feel distinct: a light
+  // "selection" tick on tap, a firmer "medium" thud when hold engages.
+  const holdTimer = useRef<number | null>(null);
+  const holdFired = useRef(false);
+  const pointerDown = useRef(false);
+  // Set on pointer-up so the synthetic click that follows a touch/mouse gesture
+  // is ignored — keyboard activation (no preceding pointer) still runs `toggle`.
+  const skipNextClick = useRef(false);
+
+  const clearHoldTimer = useCallback(() => {
+    if (holdTimer.current !== null) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+  }, []);
+
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      // Primary button / touch / pen only.
+      if (e.button !== 0) return;
+      if (state === "transcribing") return;
+      pointerDown.current = true;
+      holdFired.current = false;
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        /* capture unsupported — pointerup still fires on the element */
+      }
+      // Only idle → hold can begin a fresh take. If we're already recording
+      // (tapped on earlier), a hold shouldn't restart; release will toggle off.
+      if (state !== "idle") return;
+      clearHoldTimer();
+      holdTimer.current = window.setTimeout(() => {
+        holdTimer.current = null;
+        holdFired.current = true;
+        // "heavy" (35ms, full intensity) — the press-to-talk engage thud. Same
+        // preset vibes uses for long-press; strong enough to actually feel.
+        haptic("heavy");
+        void start({ autoStop: false });
+      }, MIC_LONG_PRESS_MS);
+    },
+    [state, start, clearHoldTimer],
+  );
+
+  const onPointerUp = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (!pointerDown.current) return;
+      pointerDown.current = false;
+      skipNextClick.current = true;
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        /* nothing captured */
+      }
+      clearHoldTimer();
+      if (holdFired.current) {
+        // Hold engaged → release sends.
+        holdFired.current = false;
+        void stop(true);
+      } else {
+        // Quick tap → existing toggle behavior (records, auto-sends on pause).
+        // "medium" so the tap is felt but stays distinct from the heavier hold.
+        haptic("medium");
+        toggle();
+      }
+    },
+    [stop, toggle, clearHoldTimer],
+  );
+
+  const onPointerCancel = useCallback(() => {
+    if (!pointerDown.current) return;
+    pointerDown.current = false;
+    clearHoldTimer();
+    // Interrupted mid-gesture (e.g. the OS stole the pointer). If a hold was
+    // live, end it gracefully by sending what we have rather than dropping it.
+    if (holdFired.current) {
+      holdFired.current = false;
+      void stop(true);
+    }
+  }, [stop, clearHoldTimer]);
+
+  const onClick = useCallback(() => {
+    // Pointer gestures already handled this; only keyboard activation (Enter /
+    // Space, which fires click with no preceding pointer sequence) reaches here.
+    if (skipNextClick.current) {
+      skipNextClick.current = false;
+      return;
+    }
+    if (state === "transcribing") return;
+    haptic("medium");
+    toggle();
+  }, [state, toggle]);
+
+  // Surface "listening" to the parent so it can light up around the composer.
+  // Cleanup clears it if we unmount mid-recording.
+  useEffect(() => {
+    onRecordingChange?.(state === "recording");
+    return () => onRecordingChange?.(false);
+  }, [state, onRecordingChange]);
+
   if (!supported) return null;
   const recording = state === "recording";
   // While recording, the button reacts to the live mic level: it scales up and
@@ -670,11 +1103,16 @@ function MicButton({
   return (
     <button
       type="button"
-      onClick={toggle}
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onClick={onClick}
+      onContextMenu={(e) => e.preventDefault()}
       aria-label={recording ? "Stop dictation" : "Dictate"}
+      title="Tap to dictate · hold to talk"
       style={reactiveStyle}
       className={cn(
-        "flex shrink-0 items-center justify-center rounded-full transition",
+        "flex shrink-0 touch-none select-none items-center justify-center rounded-full transition",
         recording
           ? "bg-destructive text-destructive-foreground"
           : "text-muted-foreground hover:bg-muted",
@@ -687,6 +1125,254 @@ function MicButton({
         <Mic className="size-4" />
       )}
     </button>
+  );
+});
+
+// Composer send button that doubles as push-to-talk. A quick tap sends the
+// current message; a press held past MIC_LONG_PRESS_MS engages voice — it records
+// while held (silence-VAD disabled so a pause won't cut you off) and stops+submits
+// on release, streaming the live transcript into the textarea as you speak. This
+// merges the old separate Send + Mic affordances into one control: tap to send,
+// hold to talk. Keyboard activation (Enter/Space on the focused button) just sends.
+function ComposerSendButton({
+  canSend,
+  sending,
+  baseText,
+  onSend,
+  onText,
+  onInterim,
+  onAutoSubmit,
+  onRecordingChange,
+  className,
+}: {
+  canSend: boolean;
+  sending: boolean;
+  baseText: string;
+  onSend: () => void;
+  onText: (text: string, base: string) => void;
+  onInterim: (text: string, base: string) => void;
+  onAutoSubmit: (text: string, base: string) => void;
+  onRecordingChange?: (recording: boolean) => void;
+  className?: string;
+}) {
+  const { state, start, stop, supported, level } = useDictation({
+    onText,
+    onAutoSubmit,
+    onInterim,
+    baseText,
+  });
+
+  const holdTimer = useRef<number | null>(null);
+  const holdFired = useRef(false);
+  const pointerDown = useRef(false);
+  // Set on pointer-up so the synthetic click that follows a pointer gesture is
+  // ignored — keyboard activation (no preceding pointer) still sends via onClick.
+  const skipNextClick = useRef(false);
+
+  const clearHoldTimer = useCallback(() => {
+    if (holdTimer.current !== null) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+  }, []);
+
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (e.button !== 0) return;
+      if (state === "transcribing" || sending) return;
+      pointerDown.current = true;
+      holdFired.current = false;
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        /* capture unsupported — pointerup still fires on the element */
+      }
+      // Only arm hold-to-talk from idle, and only when dictation is available;
+      // otherwise this stays a plain send button.
+      if (state !== "idle" || !supported) return;
+      clearHoldTimer();
+      holdTimer.current = window.setTimeout(() => {
+        holdTimer.current = null;
+        holdFired.current = true;
+        haptic("heavy"); // the press-to-talk engage thud
+        void start({ autoStop: false });
+      }, MIC_LONG_PRESS_MS);
+    },
+    [state, sending, supported, start, clearHoldTimer],
+  );
+
+  const onPointerUp = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (!pointerDown.current) return;
+      pointerDown.current = false;
+      skipNextClick.current = true;
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        /* nothing captured */
+      }
+      clearHoldTimer();
+      if (holdFired.current || state === "recording") {
+        // Hold engaged → release sends the spoken take.
+        holdFired.current = false;
+        void stop(true);
+        return;
+      }
+      // Quick tap → send the typed message (no-op if there's nothing to send).
+      if (canSend && !sending) {
+        haptic("selection");
+        onSend();
+      }
+    },
+    [stop, state, canSend, sending, onSend, clearHoldTimer],
+  );
+
+  const onPointerCancel = useCallback(() => {
+    if (!pointerDown.current) return;
+    pointerDown.current = false;
+    clearHoldTimer();
+    // Interrupted mid-gesture — if a hold was live, end it gracefully by sending
+    // what we have rather than dropping it.
+    if (holdFired.current) {
+      holdFired.current = false;
+      void stop(true);
+    }
+  }, [stop, clearHoldTimer]);
+
+  const onClick = useCallback(() => {
+    // Pointer gestures already handled this; only keyboard activation reaches here.
+    if (skipNextClick.current) {
+      skipNextClick.current = false;
+      return;
+    }
+    if (state !== "idle" || sending) return;
+    if (canSend) onSend();
+  }, [state, sending, canSend, onSend]);
+
+  // Surface "listening" to the parent so the composer chrome can light up.
+  useEffect(() => {
+    onRecordingChange?.(state === "recording");
+    return () => onRecordingChange?.(false);
+  }, [state, onRecordingChange]);
+
+  const recording = state === "recording";
+  const transcribing = state === "transcribing";
+  // Nothing to send while idle → dim the control, but keep it interactive so
+  // hold-to-talk still works on an empty composer.
+  const dim = !canSend && state === "idle" && !sending;
+
+  // While recording the button reacts to live mic level — scales up and throws a
+  // red glow ring that swells with volume. Inline transitions keep it per-frame
+  // snappy (the className `transition` would lag the updates and feel sluggish).
+  const reactiveStyle: CSSProperties | undefined = recording
+    ? {
+        transform: `scale(${(1 + level * 0.14).toFixed(3)})`,
+        boxShadow: `0 0 ${(8 + level * 22).toFixed(1)}px ${(level * 5).toFixed(
+          1,
+        )}px color-mix(in srgb, var(--destructive) ${Math.round(
+          35 + level * 55,
+        )}%, transparent)`,
+        transition: "transform 80ms linear, box-shadow 80ms linear",
+      }
+    : undefined;
+
+  return (
+    <button
+      type="button"
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onClick={onClick}
+      onContextMenu={(e) => e.preventDefault()}
+      aria-label={
+        recording ? "Release to send voice message" : canSend ? "Send — hold to talk" : "Hold to talk"
+      }
+      title={recording ? "Release to send" : "Tap to send · hold to talk"}
+      style={reactiveStyle}
+      className={cn(
+        "flex shrink-0 touch-none select-none items-center justify-center rounded-full font-semibold transition active:scale-[0.97]",
+        recording
+          ? "bg-destructive text-destructive-foreground"
+          : "bg-foreground/[0.08] text-foreground/80 shadow-sm hover:bg-foreground/[0.12] hover:text-foreground",
+        dim && "opacity-50",
+        className,
+      )}
+    >
+      {sending || transcribing ? (
+        <Loader2 className="size-4 animate-spin" />
+      ) : recording ? (
+        <Mic className="size-4" />
+      ) : (
+        <Send className="size-4" />
+      )}
+    </button>
+  );
+}
+
+// Push-to-talk overlay for the launcher orb. While the orb is held (`active`) it
+// records and streams the live transcript into a centered pill — the same
+// immediate-transcription feel as the composer's mic, but without opening the
+// heavy New Session drawer. On release it stops and hands the final transcript to
+// onResult, which runs the one-shot voice flow (intent → create → spoken reply).
+function OrbVoiceOverlay({
+  active,
+  onResult,
+}: {
+  active: boolean;
+  onResult: (transcript: string) => void;
+}) {
+  const [transcript, setTranscript] = useState("");
+  const holding = useRef(false);
+  const resultRef = useRef(onResult);
+  resultRef.current = onResult;
+
+  const { start, stop, state, level } = useDictation({
+    onText: (t) => setTranscript(t),
+    onInterim: (t) => setTranscript(t),
+    onAutoSubmit: (t) => {
+      setTranscript(t);
+      resultRef.current(t);
+    },
+  });
+
+  useEffect(() => {
+    if (active && !holding.current) {
+      holding.current = true;
+      setTranscript("");
+      // autoStop:false → only the release ends the take, so a mid-thought pause
+      // can't cut it off. Release (active→false) fires stop(true), which delivers
+      // the final transcript through onAutoSubmit → onResult.
+      void start({ autoStop: false });
+    } else if (!active && holding.current) {
+      holding.current = false;
+      void stop(true);
+    }
+  }, [active, start, stop]);
+
+  // Stay mounted through the brief "transcribing" tail after release so the pill
+  // doesn't flicker away before the final transcript lands.
+  if (!active && state === "idle") return null;
+
+  return createPortal(
+    <div className="pointer-events-none fixed inset-x-0 bottom-[var(--lfg-orb-stack-bottom)] z-[60] flex justify-center px-4 md:inset-x-auto md:bottom-auto md:right-4 md:top-[calc(env(safe-area-inset-top)+var(--lfg-orb-size)+2rem)] md:px-0">
+      <div className="flex max-w-md items-center gap-3 rounded-2xl bg-background/90 px-4 py-3 shadow-lg ring-1 ring-border backdrop-blur">
+        {state === "transcribing" ? (
+          <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+        ) : (
+          <span
+            className="size-2.5 shrink-0 rounded-full bg-destructive"
+            style={{
+              transform: `scale(${(1 + level * 1.2).toFixed(2)})`,
+              transition: "transform 80ms linear",
+            }}
+          />
+        )}
+        <span className="text-sm leading-snug text-foreground">
+          {transcript || (state === "transcribing" ? "…" : "Listening…")}
+        </span>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -767,17 +1453,107 @@ export function RootErrorBoundary({ children }: { children: ReactNode }) {
   );
 }
 
-function useLiveSessionStream(sessions: Session[]) {
-  const ids = useMemo(
-    () => sessions.map((session) => session.sessionId).filter((id): id is string => !!id),
+// SSE `data` frames can arrive malformed or truncated (notably on iOS Safari,
+// which has thrown "JSON Parse error: Unterminated string" here). A bad frame
+// must not bubble out of the EventSource listener and crash the live view, so
+// parse defensively and drop anything that won't decode — same posture as the
+// voice WS handler above.
+function parseLiveEvent<T>(data: string): T | null {
+  try {
+    return JSON.parse(data) as T;
+  } catch {
+    return null;
+  }
+}
+
+// Whether a session card starts collapsed when we've never seen it before (no
+// persisted choice). true = lazy by default: a fresh session does NOT open a
+// transcript stream until you expand it; you still see it working/idle/blocked
+// from the list badges. Flip to false to restore the old "everything expanded"
+// behavior. Per-session choices (localStorage `lfg-collapsed:<sid>`) win over this.
+const DEFAULT_COLLAPSED = true;
+
+// Whether a card is collapsed, given its persisted choice and the default above.
+function isCollapsedSid(sid: string): boolean {
+  try {
+    const v = localStorage.getItem(`lfg-collapsed:${sid}`);
+    if (v === "1") return true;
+    if (v === "0") return false;
+  } catch {
+    /* private mode / quota */
+  }
+  return DEFAULT_COLLAPSED;
+}
+
+function markExpandedSid(sid: string): void {
+  try {
+    localStorage.setItem(`lfg-collapsed:${sid}`, "0");
+  } catch {
+    /* private mode / quota */
+  }
+  window.dispatchEvent(new Event("lfg-collapse-change"));
+}
+
+// The set of EXPANDED session ids among `sessions`, kept in sync with the
+// per-card collapse state. SessionCard dispatches `lfg-collapse-change` when the
+// user toggles a card (and the browser fires `storage` for other tabs); we
+// recompute from localStorage on either. Drives which sessions actually stream.
+function useExpandedIds(sessions: Session[], forceExpanded = false): string[] {
+  const sids = useMemo(
+    () => sessions.map((s) => s.sessionId).filter((id): id is string => !!id),
     [sessions],
   );
+  const sidKey = sids.join(",");
+  const read = useCallback(
+    () => (forceExpanded ? sids : sids.filter((sid) => !isCollapsedSid(sid))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sidKey, forceExpanded],
+  );
+  const [expanded, setExpanded] = useState<string[]>(read);
+  useEffect(() => {
+    setExpanded(read());
+    const onChange = () => setExpanded(read());
+    window.addEventListener("lfg-collapse-change", onChange);
+    window.addEventListener("storage", onChange);
+    return () => {
+      window.removeEventListener("lfg-collapse-change", onChange);
+      window.removeEventListener("storage", onChange);
+    };
+  }, [read]);
+  return expanded;
+}
+
+// `sessions` is the full live list (used for the polled busy baseline so every
+// card — even collapsed ones — knows whether its session is working). `streamIds`
+// is the subset to actually open a transcript SSE for (the EXPANDED cards). This
+// is the laziness: we no longer hold a live stream open for every session, only
+// the ones the user has expanded. Collapsed cards fall back to the 5s list poll.
+function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
+  const ids = useMemo(
+    () => streamIds.filter((id): id is string => !!id),
+    [streamIds],
+  );
   const streamKey = ids.join(",");
+  // Busy baseline straight off the list payload — covers sessions we are NOT
+  // streaming. The stream's per-session busy (below) overrides this for expanded
+  // cards, where it updates ~1s instead of every 5s poll.
+  const listBusy = useMemo(() => {
+    const map: Record<string, boolean> = {};
+    for (const session of sessions) {
+      if (session.sessionId) map[session.sessionId] = !!session.busy;
+    }
+    return map;
+  }, [sessions]);
   const [messagesBySid, setMessagesBySid] = useState<Record<string, Message[]>>({});
   const [busyBySid, setBusyBySid] = useState<Record<string, boolean>>({});
   const [promptsBySid, setPromptsBySid] = useState<Record<string, SessionPrompt | null>>({});
   const [queuesBySid, setQueuesBySid] = useState<Record<string, QueueMsg[]>>({});
+  const [loadingBySid, setLoadingBySid] = useState<Record<string, boolean>>({});
   const seenRef = useRef<Record<string, Set<string>>>({});
+  const messagesRef = useRef(messagesBySid);
+  useEffect(() => {
+    messagesRef.current = messagesBySid;
+  }, [messagesBySid]);
   // Per-session timers that auto-retire a lingering "thinking…" shimmer. A
   // thinking block is already complete by the time we read it from the
   // transcript, and the next content line can lag many seconds (model still
@@ -787,11 +1563,12 @@ function useLiveSessionStream(sessions: Session[]) {
 
   useEffect(() => {
     const active = new Set(ids);
+    const live = new Set(Object.keys(listBusy));
     seenRef.current = Object.fromEntries(
-      Object.entries(seenRef.current).filter(([sid]) => active.has(sid)),
+      Object.entries(seenRef.current).filter(([sid]) => live.has(sid)),
     );
     setMessagesBySid((prev) =>
-      Object.fromEntries(Object.entries(prev).filter(([sid]) => active.has(sid))),
+      Object.fromEntries(Object.entries(prev).filter(([sid]) => live.has(sid))),
     );
     setBusyBySid((prev) =>
       Object.fromEntries(Object.entries(prev).filter(([sid]) => active.has(sid))),
@@ -802,15 +1579,37 @@ function useLiveSessionStream(sessions: Session[]) {
     setQueuesBySid((prev) =>
       Object.fromEntries(Object.entries(prev).filter(([sid]) => active.has(sid))),
     );
+    setLoadingBySid((prev) => {
+      const next = Object.fromEntries(Object.entries(prev).filter(([sid]) => live.has(sid)));
+      for (const sid of active) {
+        if (!(messagesRef.current[sid]?.length)) next[sid] = true;
+      }
+      return next;
+    });
 
     if (!ids.length) return;
     const es = new EventSource(`/api/live/stream?ids=${ids.join(",")}`);
+    const loadingFallback = window.setTimeout(() => {
+      setLoadingBySid((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const sid of active) {
+          if (next[sid] && !(messagesRef.current[sid]?.length)) {
+            next[sid] = false;
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }, 8000);
 
     es.addEventListener("msg", (event) => {
-      const payload = JSON.parse(event.data) as { sid: string; m: Message };
+      const payload = parseLiveEvent<{ sid: string; m: Message }>(event.data);
+      if (!payload) return;
       const sid = payload.sid;
       const message = payload.m;
       if (!active.has(sid)) return;
+      setLoadingBySid((prev) => ({ ...prev, [sid]: false }));
       if (message.id && message.kind !== "thinking") {
         const seen = seenRef.current[sid] || (seenRef.current[sid] = new Set());
         if (seen.has(message.id)) return;
@@ -857,9 +1656,15 @@ function useLiveSessionStream(sessions: Session[]) {
       }
     });
 
+    es.addEventListener("ready", (event) => {
+      const payload = parseLiveEvent<{ sid: string }>(event.data);
+      if (!payload || !active.has(payload.sid)) return;
+      setLoadingBySid((prev) => ({ ...prev, [payload.sid]: false }));
+    });
+
     es.addEventListener("busy", (event) => {
-      const payload = JSON.parse(event.data) as { sid: string; busy: boolean };
-      if (!active.has(payload.sid)) return;
+      const payload = parseLiveEvent<{ sid: string; busy: boolean }>(event.data);
+      if (!payload || !active.has(payload.sid)) return;
       setBusyBySid((prev) => ({ ...prev, [payload.sid]: payload.busy }));
       // A thinking block is written to the transcript on its own line, and the
       // live "thinking…" bubble is otherwise only cleared when the *next*
@@ -881,23 +1686,36 @@ function useLiveSessionStream(sessions: Session[]) {
     });
 
     es.addEventListener("prompt", (event) => {
-      const payload = JSON.parse(event.data) as { sid: string; prompt: SessionPrompt | null };
-      if (!active.has(payload.sid)) return;
+      const payload = parseLiveEvent<{ sid: string; prompt: SessionPrompt | null }>(event.data);
+      if (!payload || !active.has(payload.sid)) return;
       setPromptsBySid((prev) => ({ ...prev, [payload.sid]: payload.prompt }));
     });
 
     es.addEventListener("queue", (event) => {
-      const payload = JSON.parse(event.data) as { sid: string; queue: QueueMsg[] };
-      if (!active.has(payload.sid)) return;
+      const payload = parseLiveEvent<{ sid: string; queue: QueueMsg[] }>(event.data);
+      if (!payload || !active.has(payload.sid)) return;
       setQueuesBySid((prev) => ({ ...prev, [payload.sid]: payload.queue ?? [] }));
     });
 
     es.onerror = () => {
-      // EventSource reconnects itself; keep existing pane state while it does.
+      // EventSource reconnects itself; keep existing pane state while it does,
+      // but don't leave an empty pane stuck on "Loading..." forever.
+      setLoadingBySid((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const sid of active) {
+          if (next[sid] && !(messagesRef.current[sid]?.length)) {
+            next[sid] = false;
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
     };
 
     return () => {
       es.close();
+      clearTimeout(loadingFallback);
       for (const id of Object.keys(thinkTimerRef.current)) {
         clearTimeout(thinkTimerRef.current[id]);
         delete thinkTimerRef.current[id];
@@ -921,7 +1739,23 @@ function useLiveSessionStream(sessions: Session[]) {
     }));
   }, []);
 
-  return { messagesBySid, busyBySid, promptsBySid, queuesBySid, addOptimisticMessage };
+  // List-poll busy for all sessions, with the live stream winning for whichever
+  // cards are currently streamed (expanded). Pruning of `busyBySid` to active
+  // stream ids (above) means a card that just collapsed cleanly hands its busy
+  // state back to the list baseline.
+  const mergedBusy = useMemo(
+    () => ({ ...listBusy, ...busyBySid }),
+    [listBusy, busyBySid],
+  );
+
+  return {
+    messagesBySid,
+    busyBySid: mergedBusy,
+    promptsBySid,
+    queuesBySid,
+    loadingBySid,
+    addOptimisticMessage,
+  };
 }
 
 // Header toggle for PWA push notifications. Hidden entirely where the browser
@@ -967,22 +1801,20 @@ function PushBell({ user }: { user?: string | null }) {
   };
 
   return (
-    <Button
-      variant="tint"
-      size="icon-sm"
-      onClick={toggle}
+    <Switch
+      checked={on}
+      onCheckedChange={() => void toggle()}
       disabled={busy}
       aria-label={on ? "Disable notifications" : "Enable notifications"}
-      title={on ? "Notifications on" : "Enable notifications"}
-    >
-      {on ? <Bell className="size-4" /> : <BellOff className="size-4" />}
-    </Button>
+    />
   );
 }
 
 export function App() {
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
   const rootRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
+  const isWide = useIsWide();
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -997,15 +1829,29 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
+  // Mobile inline create composer (anchored at the bottom of the home screen).
+  // `composerExpanded` toggles the compact↔full controls; bumping
+  // `composerFocusNonce` (orb double-tap / "new session" affordances) focuses the
+  // composer's textarea so the soft keyboard opens.
+  const [composerExpanded, setComposerExpanded] = useState(false);
+  const [composerFocusNonce, setComposerFocusNonce] = useState(0);
+  // True while the launcher orb is being press-and-held — opens the New Session
+  // drawer in voice mode and, on release, submits the dictated prompt.
+  const [voiceHold, setVoiceHold] = useState(false);
+  // True while the launcher orb is held for the push-to-talk one-shot voice flow
+  // (live transcript overlay → resolve intent → create session → speak back).
+  const [orbListening, setOrbListening] = useState(false);
+  // True while a one-shot orb question is being looked up — drives the orb's
+  // thinking animation since this flow isn't a LiveKit call.
+  const [orbThinking, setOrbThinking] = useState(false);
+  const [callOpen, setCallOpen] = useState(false);
   const [runLog, setRunLog] = useState<string | null>(null);
   // Auto agents
-  // Base tabs are "live" | "auto"; runtime extensions contribute more (their
-  // nav-tab id becomes a valid tab value), so this is a plain string.
+  // Tabs are "live" | "settings" | "ask" | "term" | "browser". Auto agents and runtime
+  // extension nav-tabs now render inside the Settings page rather than as their
+  // own top-level tabs.
   const [tab, setTab] = useState<string>("live");
   const extNavTabs = useExtensionNavTabs();
-  const allTabIds = ["live", "auto", ...extNavTabs.map((t) => t.id)];
-  const tabIndex = Math.max(0, allTabIds.indexOf(tab));
-  const activeExtTab = extNavTabs.find((t) => t.id === tab);
   const [autoAgents, setAutoAgents] = useState<AutoAgent[]>([]);
   const [schedTz, setSchedTz] = useState<string>(DEFAULT_SCHED_TZ);
   const [findings, setFindings] = useState<AutoFinding[]>([]);
@@ -1020,6 +1866,9 @@ export function App() {
     if (saved && saved !== "__all") return saved;
     return localStorage.getItem("lfg_user") || "__all";
   });
+  const [projectFilter, setProjectFilter] = useState(
+    () => localStorage.getItem("lfg_v2_project_filter") || "__all",
+  );
   const didDefaultFilter = useRef(false);
   // The active profile for this browser ("who are you"). Null until chosen —
   // when null (and a roster exists) we gate the app behind the picker on start.
@@ -1042,10 +1891,9 @@ export function App() {
   //     so `vv.offsetTop` goes positive while the root stays anchored at layout
   //     top — leaving a strip of background below the app. Translate the root
   //     down by `offsetTop` to re-pin it to the visible band.
-  //   • `<main>` reserves `pb-28` for the floating nav pill, and the pill itself
-  //     sits over the keyboard region. While the keyboard is open we collapse
-  //     that padding and hide the pill (see `keyboardOpen`) so the terminal
-  //     fills right up to the keyboard instead of floating above a gap.
+  //   • `<main>` reserves bottom padding for the safe-area inset. While the
+  //     keyboard is open we collapse that padding (see `keyboardOpen`) so the
+  //     terminal fills right up to the keyboard instead of floating above a gap.
   //
   // Scoped to the Terminal tab only. Other pages (Live, Auto, the new-session
   // sheet) want the default browser behavior — `dvh` plus Vaul's own field
@@ -1058,6 +1906,10 @@ export function App() {
         el.style.height = "";
         el.style.transform = "";
       }
+      // Drop the keyboard-height var + flag so the toast/pill offset falls back
+      // to the full orb-stack clearance.
+      document.documentElement.classList.remove("lfg-keyboard-open");
+      document.documentElement.style.removeProperty("--lfg-keyboard-height");
       setKeyboardOpen(false);
     };
     // Not the terminal, or no visualViewport (ancient browsers): fall back to
@@ -1077,7 +1929,17 @@ export function App() {
       // Keyboard height ≈ layout height − visual height. `innerHeight` is the
       // layout viewport (doesn't shrink for the keyboard on iOS); 120px clears
       // URL-bar jitter without missing a real keyboard (~250px+).
-      setKeyboardOpen(window.innerHeight - vv.height > 120);
+      const kb = Math.max(0, window.innerHeight - vv.height);
+      const open = kb > 120;
+      // Publish the live keyboard height + a flag on <html> so toasts and the
+      // dictation pill (portaled to <body>, outside rootRef) can hike up to sit
+      // just above the keyboard via --lfg-orb-stack-bottom.
+      document.documentElement.style.setProperty(
+        "--lfg-keyboard-height",
+        `${Math.round(kb)}px`,
+      );
+      document.documentElement.classList.toggle("lfg-keyboard-open", open);
+      setKeyboardOpen(open);
     };
     sync();
     vv.addEventListener("resize", sync);
@@ -1097,10 +1959,13 @@ export function App() {
         api<{ users: User[] }>("/api/users"),
         api<{ repos: Repo[] }>("/api/repos"),
       ]);
-    setAgents(agentsPayload.agents);
-    setSessions(sessionsPayload.sessions);
-    setUsers(usersPayload.users);
-    setRepos(reposPayload.repos);
+    setAgents(agentsPayload.agents ?? []);
+    // Guard sessions to [] — it feeds `allLiveSessions`/`liveSessions` which call
+    // `.filter()` unconditionally on render, so a malformed/empty payload must
+    // degrade to an empty live view rather than crash it (undefined.filter).
+    setSessions(sessionsPayload.sessions ?? []);
+    setUsers(usersPayload.users ?? []);
+    setRepos(reposPayload.repos ?? []);
   }, []);
 
   // Sessions the user just deleted. The server's list can lag a beat (tmux pane
@@ -1152,7 +2017,7 @@ export function App() {
               setOpenFinding(f);
               toast.dismiss(id);
             }}
-            className="pointer-events-auto flex w-full max-w-sm items-center gap-3 rounded-2xl border border-border bg-card/95 px-3.5 py-3 text-left shadow-[0_8px_28px_rgba(0,0,0,0.22)] backdrop-blur-xl"
+            className="pointer-events-auto flex w-full max-w-sm items-center gap-3 rounded-2xl border border-border bg-card px-3.5 py-3 text-left shadow-[0_8px_28px_rgba(0,0,0,0.22)]"
           >
             <span className="grid size-8 shrink-0 place-items-center rounded-full bg-primary/12 text-primary">
               <Sparkles className="size-4" />
@@ -1175,12 +2040,15 @@ export function App() {
 
   const refreshSessions = useCallback(async () => {
     const payload = await api<{ sessions: Session[] }>("/api/sessions");
-    setSessions(payload.sessions);
+    // Guard to [] — `sessions` is consumed by `.filter()`/`.map()` on render
+    // (allLiveSessions) and just below, so a missing field must not crash.
+    const sessionList = payload.sessions ?? [];
+    setSessions(sessionList);
     // Prune tombstones the server has finally forgotten, so the set can't grow
     // unbounded and a recycled sid is never wrongly suppressed.
     setRemovedSids((prev) => {
       if (!prev.size) return prev;
-      const present = new Set(payload.sessions.map((s) => s.sessionId));
+      const present = new Set(sessionList.map((s) => s.sessionId));
       const next = new Set([...prev].filter((id) => present.has(id)));
       return next.size === prev.size ? prev : next;
     });
@@ -1195,44 +2063,162 @@ export function App() {
   // The spawn is slow (tmux + agent boot), so we DON'T block on it: jump to the
   // live view immediately and hand the request to a sonner toast that shows a
   // loading spinner → success/error on its own. The caller isn't awaited.
+  // Drives the orb's push-to-talk one-shot: take the dictated transcript, resolve
+  // it into a session config (the user's saved settings as the base, with any
+  // spoken overrides applied), create the session, and speak a short confirmation
+  // back. The spawn is slow (tmux + agent boot) so we don't block on it — a sonner
+  // toast tracks it and we jump to the live view immediately.
   const createVoiceSession = useCallback(
-    async (prompt: string) => {
-      const agent = (localStorage.getItem("lfg_v2_agent") as AgentKind | null) || "aisdk";
-      const model =
-        localStorage.getItem(`lfg_model_${agent}`) ||
+    async (transcript: string) => {
+      const baseAgent =
+        (localStorage.getItem("lfg_v2_agent") as AgentKind | null) || "aisdk";
+      const baseModel =
+        localStorage.getItem(`lfg_model_${baseAgent}`) ||
         localStorage.getItem("lfg_model") ||
-        AGENT_DEFAULT_MODEL[agent];
-      const cwd = localStorage.getItem("lfg_v2_repo") || repos[0]?.cwd || "";
+        AGENT_DEFAULT_MODEL[baseAgent];
+      const baseThinking = agentSupportsThinking(baseAgent)
+        ? savedThinkingLevel()
+        : null;
+      // Lock to the active project filter when one is selected, mirroring the
+      // create dialog; otherwise fall back to the last-used / first repo.
+      const scopedCwd =
+        projectFilter !== "__all"
+          ? repos.find((r) => repoProject(r) === projectFilter)?.cwd
+          : undefined;
+      const cwd = scopedCwd || localStorage.getItem("lfg_v2_repo") || repos[0]?.cwd || "";
       const owner =
         (userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : "") ||
         localStorage.getItem("lfg_user") ||
         users[0]?.email ||
         "";
-      if (!cwd) {
-        setNewOpen(true);
+      if (!cwd || !transcript.trim()) {
+        if (!cwd) setNewOpen(true);
         return;
       }
-      setTab("live");
-      toast.promise(
-        api("/api/sessions/new", {
+
+      // Ask the brain to merge spoken overrides ("use codex in the web repo")
+      // onto the saved defaults and write a one-line spoken confirmation. The
+      // menus we pass bound what it may choose; it's validated again server-side.
+      const agentList = AGENT_OPTIONS.map((o) => ({ key: o.key, label: o.label }));
+      const modelUnion = Array.from(
+        new Set(AGENT_OPTIONS.flatMap((o) => AGENT_MODELS[o.key])),
+      );
+      const repoList = repos.map((r) => ({ name: repoProject(r), cwd: r.cwd }));
+
+      type Resolved = {
+        kind: "session" | "question";
+        prompt: string;
+        agent: AgentKind;
+        model: string;
+        cwd: string;
+        thinkingLevel?: string | null;
+        confirmation: string;
+        answer: string;
+      };
+      let resolved: Resolved;
+      try {
+        resolved = await api<Resolved>("/api/voice/intent", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            cwd,
-            prompt,
-            user: owner || undefined,
-            agent,
-            model,
+            transcript,
+            base: { agent: baseAgent, model: baseModel, cwd, thinkingLevel: baseThinking },
+            repos: repoList,
+            agents: agentList,
+            models: modelUnion,
+            thinkingLevels: agentSupportsThinking(baseAgent) ? [...THINKING_LEVELS] : [],
           }),
-        }).then(() => refreshSessions()),
-        {
-          loading: "Creating session…",
-          success: "Session started",
-          error: (e) => (e instanceof Error ? e.message : "Couldn't create session"),
-        },
-      );
+        });
+      } catch {
+        // Intent service unreachable — create literally with the base config.
+        resolved = {
+          kind: "session",
+          prompt: transcript.trim(),
+          agent: baseAgent,
+          model: baseModel,
+          cwd,
+          thinkingLevel: baseThinking,
+          confirmation: "",
+          answer: "",
+        };
+      }
+
+      // The user asked a question, not for work to be done. Hand it to a Claude
+      // Code agent that explores the scoped repo with full context, then speak
+      // its answer back — same toast + spoken feedback as session creation. The
+      // lookup runs in the background; we don't create a visible session or leave
+      // the current view.
+      if (resolved.kind === "question") {
+        const question = resolved.prompt?.trim() || transcript.trim();
+        const run = (async () => {
+          try {
+            const r = await api<{ answer: string }>("/api/voice/consult", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ question, cwd: resolved.cwd || cwd }),
+            });
+            return r.answer?.trim() || resolved.answer.trim();
+          } catch {
+            return resolved.answer.trim(); // fall back to the quick brain's take
+          }
+        })();
+        setOrbThinking(true);
+        const finished = run
+          .then((answer) => {
+            const spoken = answer || "I couldn't find an answer to that.";
+            void speakText(spoken);
+            return spoken;
+          })
+          .finally(() => setOrbThinking(false));
+        toast.promise(finished, {
+          loading: "Looking into it…",
+          success: (a: string) => a,
+          error: "Couldn't answer that",
+        });
+        return;
+      }
+
+      // Keep the agent/model pair coherent: if the brain switched agents but the
+      // model doesn't belong to the new one, snap to that agent's default.
+      const agent = (AGENT_MODELS[resolved.agent] ? resolved.agent : baseAgent) as AgentKind;
+      const model = AGENT_MODELS[agent]?.includes(resolved.model)
+        ? resolved.model
+        : AGENT_DEFAULT_MODEL[agent];
+      const thinkingLevel = agentSupportsThinking(agent)
+        ? (resolved.thinkingLevel ?? undefined)
+        : undefined;
+
+      setTab("live");
+      const createP = api<{ sessionId?: string }>("/api/sessions/new", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cwd: resolved.cwd || cwd,
+          prompt: resolved.prompt || transcript.trim(),
+          user: owner || undefined,
+          agent,
+          model,
+          thinkingLevel,
+        }),
+      })
+        .then((res) => {
+          const sid = res?.sessionId;
+          if (sid) {
+            markExpandedSid(sid);
+          }
+          return refreshSessions();
+        });
+      toast.promise(createP, {
+        loading: "Creating session…",
+        success: "Session started",
+        error: (e) => (e instanceof Error ? e.message : "Couldn't create session"),
+      });
+
+      // Speak the confirmation back — the one-shot "voice agent" reply. Best-effort
+      // and fire-and-forget so a missing TTS key never blocks session creation.
+      if (resolved.confirmation) void speakText(resolved.confirmation);
     },
-    [repos, users, userFilter, refreshSessions],
+    [repos, users, userFilter, projectFilter, refreshSessions],
   );
 
   useEffect(() => {
@@ -1256,6 +2242,20 @@ export function App() {
     }, 5000);
     return () => clearInterval(id);
   }, [refreshSessions, refreshAuto]);
+
+  // Refresh the user roster when the tab regains focus. The roster rarely
+  // changes, so it isn't worth the 5s poll above — but avatars carry a
+  // time-bucketed cache-buster (see gravatar()), so refetching on focus is how
+  // an updated icon shows up without a manual hard-refresh.
+  useEffect(() => {
+    const onFocus = () => {
+      api<{ users: User[] }>("/api/users")
+        .then((p) => setUsers(p.users ?? []))
+        .catch(() => {});
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
 
   useEffect(() => {
     history.replaceState(null, "", selected === "__live" ? "#/__live" : `#/${selected}`);
@@ -1323,6 +2323,10 @@ export function App() {
     localStorage.setItem("lfg_v2_user_filter", userFilter);
   }, [userFilter]);
 
+  useEffect(() => {
+    localStorage.setItem("lfg_v2_project_filter", projectFilter);
+  }, [projectFilter]);
+
   const changeUserFilter = useCallback((value: string) => {
     setUserFilter(value);
     // Selecting a concrete user makes them the active profile (remembered as
@@ -1355,7 +2359,11 @@ export function App() {
     [sessions, removedSids],
   );
 
-  const liveSessions = useMemo(() => {
+  // Unique projects present across the (user-filtered) live sessions plus every
+  // known repo. The repo-derived entries are important for persistence: a saved
+  // project filter should survive app reopen even when that project has no live
+  // session at load time.
+  const userScopedSessions = useMemo(() => {
     if (userFilter === "__all") return allLiveSessions;
     if (userFilter === "__unassigned") {
       return allLiveSessions.filter((session) => !session.assignedUser);
@@ -1363,7 +2371,56 @@ export function App() {
     return allLiveSessions.filter((session) => session.assignedUser === userFilter);
   }, [allLiveSessions, userFilter]);
 
-  const liveStream = useLiveSessionStream(liveSessions);
+  const projectOptions = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...repos.map((repo) => repoProject(repo)),
+          ...userScopedSessions.map((s) => s.project).filter((p): p is string => !!p),
+        ]),
+      ).sort((a, b) => shortProject(a).localeCompare(shortProject(b))),
+    [repos, userScopedSessions],
+  );
+
+  // If the chosen project is no longer a known repo and has no visible session,
+  // fall back to "all" rather than keeping a dead filter.
+  useEffect(() => {
+    if (loading) return;
+    if (projectFilter !== "__all" && !projectOptions.includes(projectFilter)) {
+      setProjectFilter("__all");
+    }
+  }, [loading, projectFilter, projectOptions]);
+
+  const liveSessions = useMemo(() => {
+    if (projectFilter === "__all") return userScopedSessions;
+    return userScopedSessions.filter((session) => session.project === projectFilter);
+  }, [userScopedSessions, projectFilter]);
+
+  // Tab / Shift+Tab cycles the live project filter (mirrors the project menu).
+  const projectKb = useRef({ tab, projectFilter, projectOptions, setProjectFilter });
+  projectKb.current = { tab, projectFilter, projectOptions, setProjectFilter };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const s = projectKb.current;
+      if (s.tab !== "live") return;
+      const options = ["__all", ...s.projectOptions];
+      if (options.length <= 1) return;
+      const el = document.activeElement as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
+      e.preventDefault();
+      s.setProjectFilter(cycleProjectFilter(options, s.projectFilter, e.shiftKey ? -1 : 1));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Stream transcripts only for expanded cards on narrow/mobile layouts;
+  // desktop panes are visually open, so their stream state must not be gated by
+  // a stale mobile collapse preference in localStorage.
+  const expandedIds = useExpandedIds(liveSessions, tab === "live" && isWide);
+  const liveStream = useLiveSessionStream(liveSessions, expandedIds);
 
   function toggleTheme() {
     const next = !document.documentElement.classList.contains("dark");
@@ -1441,7 +2498,7 @@ export function App() {
       "";
     setOpenFinding(null);
     try {
-      await api("/api/sessions/new", {
+      const res = await api<{ sessionId?: string }>("/api/sessions/new", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1450,6 +2507,10 @@ export function App() {
           user: owner || undefined,
         }),
       });
+      const sid = res?.sessionId;
+      if (sid) {
+        markExpandedSid(sid);
+      }
       await api(`/api/auto/findings/${f.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1470,6 +2531,9 @@ export function App() {
     schedule: string;
     enabled: boolean;
     cwd?: string;
+    agent?: AutoAgentBackend;
+    model?: string;
+    thinkingLevel?: string;
   }) {
     try {
       await api("/api/auto/agents", {
@@ -1487,7 +2551,11 @@ export function App() {
   // Single-box create runs async: the composer closes the instant you hit
   // Create, and a loading toast tracks the (repo-inspecting, slow) compose →
   // save → refresh chain to success or error. Nothing blocks the UI.
-  function createAutoAgent(idea: string, cwd: string | undefined) {
+  function createAutoAgent(
+    idea: string,
+    cwd: string | undefined,
+    opts: { agent?: AutoAgentBackend; model?: string; thinkingLevel?: string } = {},
+  ) {
     toast.promise(
       api<{ draft: { name: string; schedule: string; prompt: string } }>(
         "/api/auto/compose",
@@ -1507,6 +2575,9 @@ export function App() {
               schedule: r.draft.schedule,
               enabled: true,
               cwd,
+              agent: opts.agent,
+              model: opts.model,
+              thinkingLevel: opts.thinkingLevel,
             }),
           }),
         )
@@ -1563,37 +2634,109 @@ export function App() {
     );
   }
 
-  return (
-    <div ref={rootRef} className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
-      <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border bg-background/90 px-3 backdrop-blur">
-        <img src="/icon.svg" alt="lfg" className="size-6 shrink-0" />
-        <div className="min-w-0 flex-1 truncate text-sm font-semibold">
-          {activeExtTab ? activeExtTab.label : tab === "auto" ? "Auto agents" : tab === "term" ? "Terminal" : ""}
-        </div>
 
-        {tab === "live" ? (
-          <UserFilterMenu
-            value={userFilter}
-            users={users}
-            onChange={changeUserFilter}
-          />
-        ) : null}
-        <Button
-          variant={tab === "term" ? "default" : "tint"}
-          size="icon-sm"
-          aria-label="Terminal"
-          onClick={() => setTab(tab === "term" ? "live" : "term")}
-        >
-          <TerminalSquare className="size-4" />
-        </Button>
-        <PushBell
-          user={
-            userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : null
-          }
-        />
-        <Button variant="tint" size="icon-sm" onClick={toggleTheme}>
-          {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
-        </Button>
+  return (
+    <AskProvider>
+    <div ref={rootRef} className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
+      {/* Two floating "islands" — brand + Live on the left, an icon-only
+          Settings button on the right — mirroring the bottom nav's
+          gradient-bordered pill so the whole chrome reads as one matched set.
+          Auto + extension tabs now live inside the Settings page. */}
+      <header className="z-40 flex shrink-0 items-center justify-between gap-2 px-3 pb-1 pt-[calc(0.5rem+env(safe-area-inset-top))]">
+        <NavIsland className="shrink-0">
+          <div className="flex h-11 items-center rounded-full bg-background/80 px-1.5 backdrop-blur-xl">
+            {tab === "live" ? (
+              <button
+                type="button"
+                onClick={() => setTab("live")}
+                aria-label="Live"
+                aria-current="page"
+                className="flex items-center rounded-full px-1.5 transition-transform active:scale-[0.96]"
+              >
+                <img src="/icon.svg" alt="lfg" className="mx-1 size-6 shrink-0" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() =>
+                  setTab(tab === "settings" || tab === "ask" ? "live" : "settings")
+                }
+                aria-label="Back"
+                className="flex h-8 items-center gap-1 rounded-full pl-1.5 pr-3 text-[13px] font-medium tracking-[-0.01em] text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground active:scale-[0.96]"
+              >
+                <ChevronLeft className="size-[18px]" />
+                <span>{tab === "settings" || tab === "ask" ? "Live" : "Settings"}</span>
+              </button>
+            )}
+          </div>
+        </NavIsland>
+
+        <NavIsland className="shrink-0">
+          <div className="flex h-11 items-center gap-1.5 rounded-full bg-background/80 px-2 backdrop-blur-xl">
+            {tab === "live" ? (
+              <>
+                {projectOptions.length > 0 ? (
+                  <div className="hidden items-center gap-1 lg:flex">
+                    {projectOptions.slice(0, 3).map((project) => {
+                      const active = projectFilter === project;
+                      return (
+                        <button
+                          key={project}
+                          type="button"
+                          onClick={() => setProjectFilter(active ? "__all" : project)}
+                          aria-pressed={active}
+                          title={project}
+                          className={cn(
+                            "rounded-full px-2.5 py-1 text-[12px] font-medium tracking-[-0.01em] transition-colors duration-150 ease-out active:scale-[0.96]",
+                            active
+                              ? "bg-primary/10 text-primary"
+                              : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+                          )}
+                        >
+                          {shortProject(project)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                <ProjectFilterMenu
+                  value={projectFilter}
+                  projects={projectOptions}
+                  onChange={setProjectFilter}
+                />
+                <UserFilterMenu
+                  value={userFilter}
+                  users={users}
+                  onChange={changeUserFilter}
+                />
+              </>
+            ) : null}
+            {!callOpen ? (
+              <VoiceOrb
+                thinking={orbThinking}
+                hidden={false}
+                // Desktop: double-tap/swipe opens the drawer composer. Mobile: the
+                // create composer is already inline at the bottom, so just focus it.
+                onCompose={() =>
+                  isMobile ? setComposerFocusNonce((n) => n + 1) : setNewOpen(true)
+                }
+                onOpenCall={() => setCallOpen(true)}
+                onHoldStart={() => {
+                  stopSpeaking();
+                  setOrbListening(true);
+                }}
+                onHoldEnd={() => setOrbListening(false)}
+              />
+            ) : null}
+            <AskNavButton active={tab === "ask"} onOpen={() => setTab("ask")} />
+            <IconTab
+              active={tab !== "live"}
+              onClick={() => setTab("settings")}
+              icon={<Settings className="size-[18px]" />}
+              label="Settings"
+            />
+          </div>
+        </NavIsland>
       </header>
 
       {error ? (
@@ -1602,20 +2745,24 @@ export function App() {
         </div>
       ) : null}
 
-      <main className={`min-h-0 flex-1 overflow-y-auto px-3 pt-3 ${keyboardOpen ? "pb-3" : "pb-28"}`}>
+      <main className={`min-h-0 flex-1 overflow-y-auto px-3 pt-3 ${keyboardOpen ? "pb-3" : "pb-[var(--lfg-above-orb)] md:pb-3"}`}>
         {tab === "live" ? (
           <LiveView
             sessions={liveSessions}
             users={users}
             userFilter={userFilter}
+            projectFilter={projectFilter}
             messagesBySid={liveStream.messagesBySid}
             busyBySid={liveStream.busyBySid}
             promptsBySid={liveStream.promptsBySid}
             queuesBySid={liveStream.queuesBySid}
+            loadingBySid={liveStream.loadingBySid}
             onOptimisticMessage={liveStream.addOptimisticMessage}
             onRefresh={refreshSessions}
             onRemove={removeSession}
-            onNew={() => setNewOpen(true)}
+            onNew={() =>
+              isMobile ? setComposerFocusNonce((n) => n + 1) : setNewOpen(true)
+            }
             findings={findings}
             autoAgents={autoAgents}
             onOpenFinding={setOpenFinding}
@@ -1628,53 +2775,72 @@ export function App() {
             onEdit={setEditingAgent}
             onRunNow={runAutoNow}
           />
+        ) : tab === "ask" ? (
+          <AskPage />
         ) : tab === "term" ? (
           <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading terminal…</div>}>
             <TermView />
           </Suspense>
+        ) : tab === "browser" ? (
+          <BrowserProfiles />
+        ) : extNavTabs.some((t) => t.id === tab) ? (
+          extNavTabs.find((t) => t.id === tab)!.render()
         ) : (
-          activeExtTab?.render() ?? null
+          <SettingsView
+            dark={dark}
+            toggleTheme={toggleTheme}
+            user={userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : null}
+            onOpenTerminal={() => setTab("term")}
+            onOpenBrowser={() => setTab("browser")}
+            onOpenAuto={() => setTab("auto")}
+            extTabs={extNavTabs}
+            onOpenExt={setTab}
+          />
         )}
       </main>
 
-      {/* floating pill nav + new-session FAB */}
-      <div className={`pointer-events-none fixed inset-x-0 bottom-0 z-50 flex items-center justify-center gap-2.5 px-4 pb-[calc(0.875rem+env(safe-area-inset-bottom))] ${keyboardOpen ? "hidden" : ""}`}>
-        <div className="pointer-events-auto rounded-full bg-gradient-to-b from-white/70 via-white/25 to-white/10 p-px shadow-[0_8px_28px_rgba(0,0,0,0.18)] dark:from-white/25 dark:via-white/10 dark:to-white/5">
-          <nav className="relative flex items-center gap-1 rounded-full bg-background/85 p-1.5 backdrop-blur-xl">
-            <span
-              aria-hidden
-              className="absolute inset-y-1.5 left-1.5 w-[4.5rem] rounded-full bg-primary/12 transition-transform duration-[260ms] ease-ios"
-              style={{ transform: `translateX(calc(${tabIndex} * (4.5rem + 0.25rem)))` }}
+      {!callOpen ? (
+        <>
+          {isMobile && tab === "live" ? (
+            // Mobile home screen: the create flow lives inline, anchored at the
+            // bottom (same component as the desktop drawer, `variant="inline"`).
+            // The orb has moved up into the top nav island.
+            <NewSessionDialog
+              variant="inline"
+              open
+              expanded={composerExpanded}
+              onExpandedChange={setComposerExpanded}
+              focusNonce={composerFocusNonce}
+              users={users}
+              repos={repos}
+              scopedProject={projectFilter}
+              voiceHold={voiceHold}
+              onReposChanged={loadCore}
+              defaultUser={
+                userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : ""
+              }
+              onClose={() => setComposerExpanded(false)}
+              onCreated={async () => {
+                setComposerExpanded(false);
+                await refreshSessions();
+              }}
             />
-            <PillTab
-              active={tab === "live"}
-              onClick={() => setTab("live")}
-              icon={<Radio className="size-[18px]" />}
-              label="Live"
-            />
-            <PillTab
-              active={tab === "auto"}
-              onClick={() => setTab("auto")}
-              icon={<CalendarClock className="size-[18px]" />}
-              label="Auto"
-            />
-            {extNavTabs.map((t) => (
-              <PillTab
-                key={t.id}
-                active={tab === t.id}
-                onClick={() => setTab(t.id)}
-                icon={t.icon ?? <Flag className="size-[18px]" />}
-                label={t.label}
-              />
-            ))}
-          </nav>
-        </div>
-        <NewSessionFab onOpenDialog={() => setNewOpen(true)} onCreateVoice={createVoiceSession} />
-      </div>
-
-      <VoiceOrb />
-
-      <AskCenter />
+          ) : null}
+          <OrbVoiceOverlay
+            active={orbListening}
+            onResult={(t) => {
+              setOrbListening(false);
+              void createVoiceSession(t);
+            }}
+          />
+        </>
+      ) : null}
+      {callOpen ? (
+        <VoiceCall
+          onClose={() => setCallOpen(false)}
+          onCompose={() => setNewOpen(true)}
+        />
+      ) : null}
 
       {openFinding ? (
         <FindingSheet
@@ -1709,13 +2875,19 @@ export function App() {
         open={newOpen}
         users={users}
         repos={repos}
+        scopedProject={projectFilter}
+        voiceHold={voiceHold}
         onReposChanged={loadCore}
         defaultUser={
           userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : ""
         }
-        onClose={() => setNewOpen(false)}
+        onClose={() => {
+          setNewOpen(false);
+          setVoiceHold(false);
+        }}
         onCreated={async () => {
           setNewOpen(false);
+          setVoiceHold(false);
           setTab("live");
           await refreshSessions();
         }}
@@ -1723,10 +2895,13 @@ export function App() {
 
       <Toaster position="bottom-center" />
     </div>
+    </AskProvider>
   );
 }
 
-function PillTab({
+// Horizontal tab used in the top nav bar. Icon + label sit side by side; the
+// active tab gets a soft primary pill behind it.
+function TopTab({
   active,
   icon,
   label,
@@ -1743,245 +2918,46 @@ function PillTab({
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "relative flex w-[4.5rem] flex-col items-center gap-0.5 rounded-full px-4 py-1.5 transition-[color,transform] duration-200 ease-out",
-        active ? "text-primary" : "text-muted-foreground hover:text-foreground active:scale-[0.96]",
+        "flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium tracking-[-0.01em] transition-colors duration-200 ease-out",
+        active
+          ? "bg-primary/12 text-primary"
+          : "text-muted-foreground hover:text-foreground active:scale-[0.96]",
       )}
     >
       {icon}
-      <span className="text-[10.5px] font-medium tracking-[-0.01em]">{label}</span>
+      <span>{label}</span>
     </button>
   );
 }
 
-// How long the pointer must stay down before the press becomes a hold-to-talk.
-// Below this it's treated as a tap → open the full New Session dialog.
-const FAB_LONG_PRESS_MS = 280;
-// Drag the finger up past this many px (from where the press started) to arm the
-// cancel — release inside the zone discards the recording instead of creating.
-const FAB_CANCEL_DY = 90;
-
-// The new-session control that lives next to the bottom nav. A quick tap opens
-// the full New Session dialog; a press-and-hold drops straight into voice input
-// with a live transcript on screen — release to create a session from what you
-// said, or slide up past the cancel line and release to throw it away.
-function NewSessionFab({
-  onOpenDialog,
-  onCreateVoice,
+// Icon-only variant of TopTab used in the top-right island (Settings).
+function IconTab({
+  active,
+  icon,
+  label,
+  onClick,
 }: {
-  onOpenDialog: () => void;
-  onCreateVoice: (prompt: string) => Promise<void>;
+  active: boolean;
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
 }) {
-  const [recording, setRecording] = useState(false);
-  const [interim, setInterim] = useState("");
-  const [willCancel, setWillCancel] = useState(false);
-  // Refs shadow the state so the window-level pointer handlers (which close over
-  // a single render) always read the live value rather than a stale snapshot.
-  const recordingRef = useRef(false);
-  const cancelRef = useRef(false);
-  const startYRef = useRef(0);
-  const pressTimerRef = useRef<number | null>(null);
-
-  const { state, supported, level, start, stop } = useDictation({
-    onText: (text) => {
-      const t = text.trim();
-      if (t) void onCreateVoice(t);
-    },
-    onInterim: (text) => setInterim(text),
-  });
-
-  const beginRecord = useCallback(() => {
-    recordingRef.current = true;
-    cancelRef.current = false;
-    setWillCancel(false);
-    setInterim("");
-    setRecording(true);
-    haptic("medium");
-    void start();
-  }, [start]);
-
-  // Gesture tracking is bound to the button via EXPLICIT pointer capture
-  // (setPointerCapture in onDown), not window listeners. The recording overlay
-  // mounts on top at z-60 mid-gesture; without explicit capture the browser's
-  // implicit touch capture gets disrupted once that element paints over the
-  // button, so pointermove/pointerup stop arriving and slide-up/release silently
-  // break. Capturing the pointerId to the button guarantees every event for this
-  // one touch is delivered here regardless of what's painted above it.
-  const onMove = useCallback((e: React.PointerEvent) => {
-    if (!recordingRef.current) return;
-    const dy = startYRef.current - e.clientY;
-    const c = dy > FAB_CANCEL_DY;
-    if (c !== cancelRef.current) {
-      cancelRef.current = c;
-      setWillCancel(c);
-      haptic(c ? "warning" : "light");
-    }
-  }, []);
-
-  const onUp = useCallback(
-    (e: React.PointerEvent) => {
-      if (pressTimerRef.current !== null) {
-        clearTimeout(pressTimerRef.current);
-        pressTimerRef.current = null;
-      }
-      try {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      } catch {
-        /* capture may already be gone (e.g. pointercancel) — fine */
-      }
-      if (recordingRef.current) {
-        recordingRef.current = false;
-        setRecording(false);
-        const cancel = cancelRef.current;
-        cancelRef.current = false;
-        setWillCancel(false);
-        haptic(cancel ? "light" : "success");
-        void stop(false, cancel);
-      } else {
-        // Released before the hold threshold — treat as a tap.
-        onOpenDialog();
-      }
-    },
-    [stop, onOpenDialog],
-  );
-
-  const onDown = useCallback(
-    (e: React.PointerEvent) => {
-      if (state === "transcribing") return;
-      startYRef.current = e.clientY;
-      // Route all subsequent events for this pointer to the button itself.
-      try {
-        e.currentTarget.setPointerCapture(e.pointerId);
-      } catch {
-        /* unsupported — falls back to normal target/bubble routing */
-      }
-      pressTimerRef.current = window.setTimeout(() => {
-        pressTimerRef.current = null;
-        if (supported) beginRecord();
-      }, FAB_LONG_PRESS_MS);
-    },
-    [state, supported, beginRecord],
-  );
-
-  useEffect(
-    () => () => {
-      if (pressTimerRef.current !== null) clearTimeout(pressTimerRef.current);
-    },
-    [],
-  );
-
-  const transcribing = state === "transcribing";
-  const overlayOpen = recording || transcribing;
-
   return (
-    <>
-      <div className="pointer-events-auto rounded-full bg-gradient-to-b from-white/70 via-white/25 to-white/10 p-px shadow-[0_8px_28px_rgba(0,0,0,0.18)] dark:from-white/25 dark:via-white/10 dark:to-white/5">
-        <button
-          type="button"
-          aria-label="New session — tap to compose, hold to dictate"
-          onPointerDown={onDown}
-          onPointerMove={onMove}
-          onPointerUp={onUp}
-          onPointerCancel={onUp}
-          onContextMenu={(e) => e.preventDefault()}
-          style={{
-            touchAction: "none",
-            ...(recording
-              ? {
-                  transform: `scale(${(1 + level * 0.14).toFixed(3)})`,
-                  boxShadow: `0 0 ${(10 + level * 26).toFixed(1)}px ${(level * 6).toFixed(
-                    1,
-                  )}px color-mix(in srgb, var(--destructive) ${Math.round(
-                    35 + level * 55,
-                  )}%, transparent)`,
-                  transition: "transform 80ms linear, box-shadow 80ms linear",
-                }
-              : undefined),
-          }}
-          className={cn(
-            "grid size-[3.25rem] select-none place-items-center rounded-full transition-colors",
-            recording
-              ? "bg-destructive text-destructive-foreground"
-              : "bg-primary text-primary-foreground active:scale-[0.96]",
-          )}
-        >
-          {transcribing ? (
-            <Loader2 className="size-5 animate-spin" />
-          ) : recording ? (
-            <Mic className="size-5" />
-          ) : (
-            <Plus className="size-5" />
-          )}
-        </button>
-      </div>
-
-      {overlayOpen ? (
-        <div className="pointer-events-none fixed inset-0 z-[60] flex flex-col items-center justify-between bg-background/80 px-6 pb-40 pt-[calc(env(safe-area-inset-top)+2rem)] backdrop-blur-md">
-          {/* slide-up-to-cancel target */}
-          <div
-            className={cn(
-              "flex flex-col items-center gap-2 transition-colors",
-              willCancel ? "text-destructive" : "text-muted-foreground",
-            )}
-          >
-            <span
-              className={cn(
-                "grid size-12 place-items-center rounded-full border transition-all",
-                willCancel
-                  ? "scale-110 border-destructive bg-destructive/15 text-destructive"
-                  : "border-border bg-card/60",
-              )}
-            >
-              <X className="size-5" />
-            </span>
-            <span className="text-xs font-medium">
-              {willCancel ? "Release to cancel" : "Slide up to cancel"}
-            </span>
-          </div>
-
-          {/* live transcript */}
-          <div className="flex w-full max-w-md flex-1 items-center justify-center py-6">
-            {transcribing ? (
-              <p className="text-center text-base font-medium text-muted-foreground">
-                Transcribing…
-              </p>
-            ) : interim ? (
-              <p
-                className={cn(
-                  "text-center text-xl font-medium leading-relaxed transition-opacity",
-                  willCancel ? "opacity-40" : "opacity-100",
-                )}
-              >
-                {interim}
-              </p>
-            ) : (
-              <p className="text-center text-base text-muted-foreground">Listening…</p>
-            )}
-          </div>
-
-          {/* mic level pulse sitting above the FAB */}
-          <div className="flex flex-col items-center gap-3">
-            <span
-              aria-hidden
-              className="grid place-items-center rounded-full bg-destructive text-destructive-foreground"
-              style={{
-                width: "3.25rem",
-                height: "3.25rem",
-                transform: `scale(${(1 + level * 0.18).toFixed(3)})`,
-                boxShadow: `0 0 ${(12 + level * 30).toFixed(1)}px ${(level * 7).toFixed(
-                  1,
-                )}px color-mix(in srgb, var(--destructive) ${Math.round(
-                  40 + level * 50,
-                )}%, transparent)`,
-                transition: "transform 80ms linear, box-shadow 80ms linear",
-              }}
-            >
-              <Mic className="size-5" />
-            </span>
-            <span className="text-xs text-muted-foreground">Release to create session</span>
-          </div>
-        </div>
-      ) : null}
-    </>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "flex size-9 shrink-0 items-center justify-center rounded-full transition-colors duration-200 ease-out",
+        active
+          ? "bg-primary/12 text-primary"
+          : "text-muted-foreground hover:text-foreground active:scale-[0.96]",
+      )}
+    >
+      {icon}
+    </button>
   );
 }
 
@@ -2016,6 +2992,28 @@ function TabButton({
   );
 }
 
+// The shared "island" shell: a 1px gradient border (p-px) wrapping a rounded
+// pill, with the same soft shadow the bottom nav uses. Children supply their own
+// rounded-full interior so each island can size itself to its contents.
+function NavIsland({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-full bg-gradient-to-b from-white/70 via-white/25 to-white/10 p-px shadow-[0_8px_28px_rgba(0,0,0,0.18)] dark:from-white/25 dark:via-white/10 dark:to-white/5",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
 function UserFilterMenu({
   value,
   users,
@@ -2026,26 +3024,135 @@ function UserFilterMenu({
   onChange: (value: string) => void;
 }) {
   const active = value !== "__all";
+  const selected = users.find((user) => user.email === value);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            aria-label="Filter live sessions by user"
+            title={
+              selected ? (selected.name ?? shortUser(selected.email)) : active ? "Unassigned" : "All users"
+            }
+            className={cn(
+              "relative inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border transition",
+              active ? "border-primary/40 text-primary" : "border-border bg-muted/70 text-foreground",
+            )}
+          />
+        }
+      >
+        {selected?.avatar ? (
+          <img src={selected.avatar} alt="" className="size-full object-cover" />
+        ) : active ? (
+          <UserRound className="size-4 shrink-0" />
+        ) : (
+          <Globe className="size-4 shrink-0" />
+        )}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-48">
+        <DropdownMenuRadioGroup
+          value={value}
+          onValueChange={(next) => onChange(typeof next === "string" ? next : "__all")}
+        >
+          <DropdownMenuLabel>Filter by user</DropdownMenuLabel>
+          <DropdownMenuRadioItem value="__all">
+            <Globe className="size-5 shrink-0 text-muted-foreground" />
+            All users
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="__unassigned">
+            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted">
+              <UserRound className="size-3" />
+            </span>
+            Unassigned
+          </DropdownMenuRadioItem>
+          {users.length ? <DropdownMenuSeparator /> : null}
+          {users.map((user) => (
+            <DropdownMenuRadioItem key={user.email} value={user.email}>
+              {user.avatar ? (
+                <img src={user.avatar} alt="" className="size-5 shrink-0 rounded-full object-cover" />
+              ) : (
+                <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted">
+                  <UserRound className="size-3" />
+                </span>
+              )}
+              <span className="truncate capitalize">{user.name ?? shortUser(user.email)}</span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function ProjectFilterMenu({
+  value,
+  projects,
+  onChange,
+}: {
+  value: string;
+  projects: string[];
+  onChange: (value: string) => void;
+}) {
+  const active = value !== "__all";
+  // Full ordered option list, mirroring the <option>s below, so a vertical
+  // swipe on touch devices can cycle through the same choices.
+  const options = ["__all", ...projects];
+  const touchStartY = useRef<number | null>(null);
+  const didSwipe = useRef(false);
+
+  const cycle = (dir: 1 | -1) => {
+    onChange(cycleProjectFilter(options, value, dir));
+  };
+
   return (
     <label
       className={cn(
-        "relative inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-border bg-muted/70",
-        active ? "text-primary" : "text-foreground",
+        "relative inline-flex h-8 shrink-0 touch-none select-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-semibold transition",
+        active
+          ? "border-primary/30 bg-primary/10 text-primary"
+          : "border-border bg-muted/70 text-muted-foreground",
       )}
-      aria-label="Filter live sessions by user"
+      aria-label="Filter live sessions by project"
+      title={active ? shortProject(value) : "All projects"}
+      onTouchStart={(event) => {
+        touchStartY.current = event.touches[0]?.clientY ?? null;
+        didSwipe.current = false;
+      }}
+      onTouchMove={(event) => {
+        if (touchStartY.current === null) return;
+        const dy = (event.touches[0]?.clientY ?? 0) - touchStartY.current;
+        if (Math.abs(dy) >= 56) {
+          // Swipe up → next project, swipe down → previous.
+          cycle(dy < 0 ? 1 : -1);
+          didSwipe.current = true;
+          touchStartY.current = event.touches[0]?.clientY ?? null;
+        }
+      }}
+      onTouchEnd={() => {
+        touchStartY.current = null;
+      }}
     >
-      <UserRound className="size-4 shrink-0" />
+      <Folder className="size-3.5 shrink-0" />
+      <span className="max-w-28 truncate">{active ? shortProject(value) : "Project"}</span>
+      <ChevronDown className="size-3.5 shrink-0 opacity-60" />
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        aria-label="Filter live sessions by user"
+        aria-label="Filter live sessions by project"
         className="absolute inset-0 cursor-pointer appearance-none bg-transparent text-transparent opacity-0 outline-none"
+        onMouseDown={(event) => {
+          // A swipe gesture shouldn't also pop the native picker open afterwards.
+          if (didSwipe.current) {
+            event.preventDefault();
+            didSwipe.current = false;
+          }
+        }}
       >
-        <option value="__all">All</option>
-        <option value="__unassigned">Unassigned</option>
-        {users.map((user) => (
-          <option key={user.email} value={user.email}>
-            {user.name ?? shortUser(user.email)}
+        <option value="__all">All projects</option>
+        {projects.map((project) => (
+          <option key={project} value={project}>
+            {shortProject(project)}
           </option>
         ))}
       </select>
@@ -2201,10 +3308,12 @@ function LiveView({
   sessions = [],
   users,
   userFilter,
+  projectFilter,
   messagesBySid,
   busyBySid,
   promptsBySid,
   queuesBySid,
+  loadingBySid,
   onOptimisticMessage,
   onRefresh,
   onRemove,
@@ -2216,10 +3325,12 @@ function LiveView({
   sessions: Session[];
   users: User[];
   userFilter: string;
+  projectFilter: string;
   messagesBySid: Record<string, Message[]>;
   busyBySid: Record<string, boolean>;
   promptsBySid: Record<string, SessionPrompt | null>;
   queuesBySid: Record<string, QueueMsg[]>;
+  loadingBySid: Record<string, boolean>;
   onOptimisticMessage: (sid: string, text: string) => void;
   onRefresh: () => Promise<void>;
   onRemove: (sid: string) => void;
@@ -2275,6 +3386,7 @@ function LiveView({
         users={users}
         messages={messagesBySid[session.sessionId ?? ""] ?? EMPTY_MESSAGES}
         busy={!!busyBySid[session.sessionId ?? ""]}
+        loading={!!loadingBySid[session.sessionId ?? ""]}
         prompt={promptsBySid[session.sessionId ?? ""] ?? null}
         queue={queuesBySid[session.sessionId ?? ""] ?? EMPTY_QUEUE}
         onOptimisticMessage={onOptimisticMessage}
@@ -2289,16 +3401,19 @@ function LiveView({
       <RailStage
         sessions={sessions}
         users={users}
+        projectFilter={projectFilter}
         messagesBySid={messagesBySid}
         busyBySid={busyBySid}
         promptsBySid={promptsBySid}
         queuesBySid={queuesBySid}
+        loadingBySid={loadingBySid}
         onOptimisticMessage={onOptimisticMessage}
         onRefresh={onRefresh}
         onRemove={onRemove}
         findings={findings}
         nameFor={nameFor}
         onOpenFinding={onOpenFinding}
+        onNew={onNew}
       />
     );
   }
@@ -2356,43 +3471,66 @@ function LiveView({
 function RailStage({
   sessions = [],
   users,
+  projectFilter,
   messagesBySid,
   busyBySid,
   promptsBySid,
   queuesBySid,
+  loadingBySid,
   onOptimisticMessage,
   onRefresh,
   onRemove,
   findings = [],
   nameFor,
   onOpenFinding,
+  onNew,
 }: {
   sessions: Session[];
   users: User[];
+  projectFilter: string;
   messagesBySid: Record<string, Message[]>;
   busyBySid: Record<string, boolean>;
   promptsBySid: Record<string, SessionPrompt | null>;
   queuesBySid: Record<string, QueueMsg[]>;
+  loadingBySid: Record<string, boolean>;
   onOptimisticMessage: (sid: string, text: string) => void;
   onRefresh: () => Promise<void>;
   onRemove: (sid: string) => void;
   findings: AutoFinding[];
   nameFor: (id: string) => string;
   onOpenFinding: (f: AutoFinding) => void;
+  onNew: () => void;
 }) {
   const MAX_COLUMNS = 4;
-  const [pinned, setPinned] = useState<string[]>(() => {
+  const layoutScope = projectFilter || "__all";
+  const layoutKey = encodeURIComponent(layoutScope);
+  const pinnedStorageKey = `lfg_stage_pinned:${layoutKey}`;
+  const railCollapsedStorageKey = `lfg_rail_collapsed:${layoutKey}`;
+  const readPinned = useCallback((): string[] => {
     try {
-      const raw = localStorage.getItem("lfg_stage_pinned");
-      return raw ? (JSON.parse(raw) as string[]) : [];
+      const raw =
+        localStorage.getItem(pinnedStorageKey) ??
+        (layoutScope === "__all" ? localStorage.getItem("lfg_stage_pinned") : null);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
     } catch {
       return [];
     }
-  });
+  }, [layoutScope, pinnedStorageKey]);
+  const readRailCollapsed = useCallback((): boolean => {
+    try {
+      const raw =
+        localStorage.getItem(railCollapsedStorageKey) ??
+        (layoutScope === "__all" ? localStorage.getItem("lfg_rail_collapsed") : null);
+      return raw === "1";
+    } catch {
+      return false;
+    }
+  }, [layoutScope, railCollapsedStorageKey]);
+  const [pinned, setPinned] = useState<string[]>(readPinned);
   const [preview, setPreview] = useState<string | null>(null);
-  const [railCollapsed, setRailCollapsed] = useState<boolean>(
-    () => localStorage.getItem("lfg_rail_collapsed") === "1",
-  );
+  const [railCollapsed, setRailCollapsed] = useState<boolean>(readRailCollapsed);
   // Keyboard cursor (highlighted rail row) + the shortcuts cheatsheet overlay.
   const [cursor, setCursor] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
@@ -2417,21 +3555,30 @@ function RailStage({
     setPreview((p) => (p && !bySid.has(p) ? null : p));
   }, [bySid]);
 
-  // Persist the pinned set so the workspace survives reloads.
+  // Reload layout state when switching projects; each project gets its own local
+  // pinned columns and rail collapsed state.
+  useEffect(() => {
+    setPinned(readPinned());
+    setPreview(null);
+    setRailCollapsed(readRailCollapsed());
+    anchorRef.current = null;
+  }, [readPinned, readRailCollapsed]);
+
+  // Persist the pinned set so each project workspace survives reloads.
   useEffect(() => {
     try {
-      localStorage.setItem("lfg_stage_pinned", JSON.stringify(pinned));
+      localStorage.setItem(pinnedStorageKey, JSON.stringify(pinned));
     } catch {
       /* private mode / quota — non-fatal */
     }
-  }, [pinned]);
+  }, [pinned, pinnedStorageKey]);
   useEffect(() => {
     try {
-      localStorage.setItem("lfg_rail_collapsed", railCollapsed ? "1" : "0");
+      localStorage.setItem(railCollapsedStorageKey, railCollapsed ? "1" : "0");
     } catch {
       /* non-fatal */
     }
-  }, [railCollapsed]);
+  }, [railCollapsed, railCollapsedStorageKey]);
 
   const validPinned = useMemo(() => pinned.filter((id) => bySid.has(id)), [pinned, bySid]);
   const columnIds = useMemo(() => {
@@ -2441,6 +3588,19 @@ function RailStage({
     }
     return cols.slice(0, MAX_COLUMNS);
   }, [validPinned, preview, bySid]);
+
+  // Stage columns are open transcript surfaces even though they do not use the
+  // mobile card collapse toggle. Keep the app-level lazy stream manager in sync
+  // so direct-opened / previewed / pinned sessions actually start their SSE.
+  useEffect(() => {
+    if (!columnIds.length) return;
+    try {
+      for (const sid of columnIds) localStorage.setItem(`lfg-collapsed:${sid}`, "0");
+    } catch {
+      /* private mode / quota */
+    }
+    window.dispatchEvent(new Event("lfg-collapse-change"));
+  }, [columnIds]);
 
   // Never leave the stage empty when there's something to show: preview the
   // first working session (or the first session) on load.
@@ -2541,23 +3701,68 @@ function RailStage({
     [selectTo, openSession],
   );
 
+  // Quick-interrupt a session by id. Interrupting an idle session is a harmless
+  // server-side no-op, but we still gate on drivability so we never POST for a
+  // session this client can't control.
+  const interruptSid = useCallback(
+    async (sid: string | null) => {
+      if (!sid) return;
+      const sess = bySid.get(sid);
+      if (!sess || !canDriveSession(sess)) return;
+      try {
+        await api(`/api/sessions/${sid}/interrupt`, { method: "POST" });
+        await onRefresh();
+      } catch {
+        // Best-effort: a failed interrupt shouldn't surface as a hard error.
+      }
+    },
+    [bySid, onRefresh],
+  );
+  const closeSession = useCallback(
+    async (sid: string | null) => {
+      if (!sid || !bySid.has(sid)) return;
+      closeColumn(sid);
+      try {
+        await api(`/api/sessions/${sid}/close`, { method: "POST" });
+        onRemove(sid);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Couldn't end session");
+      } finally {
+        await onRefresh();
+      }
+    },
+    [bySid, closeColumn, onRemove, onRefresh],
+  );
+
   // Latest values for the global key handler, so it binds once but never reads
   // stale state.
-  const kb = useRef({ orderedSids, cursor, preview, columnIds, activate, selectTo, togglePin, closeColumn, setCursor, setPreview, setRailCollapsed, setShowHelp });
-  kb.current = { orderedSids, cursor, preview, columnIds, activate, selectTo, togglePin, closeColumn, setCursor, setPreview, setRailCollapsed, setShowHelp };
+  const kb = useRef({ orderedSids, cursor, preview, columnIds, activate, selectTo, togglePin, closeColumn, closeSession, setCursor, setPreview, setRailCollapsed, setShowHelp, showHelp, busyBySid, interruptSid, onNew });
+  kb.current = { orderedSids, cursor, preview, columnIds, activate, selectTo, togglePin, closeColumn, closeSession, setCursor, setPreview, setRailCollapsed, setShowHelp, showHelp, busyBySid, interruptSid, onNew };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const s = kb.current;
+      const order = s.orderedSids;
+      const cur = s.cursor && order.includes(s.cursor) ? s.cursor : order[0] ?? null;
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+
+      // Quick-interrupt: Cmd/Ctrl+. cancels the active run from anywhere — even
+      // while typing in the composer — targeting the focused session if it's
+      // busy, else the first running session.
+      if ((e.metaKey || e.ctrlKey) && e.key === ".") {
+        e.preventDefault();
+        const target = cur && s.busyBySid[cur] ? cur : order.find((id) => s.busyBySid[id]) ?? cur;
+        void s.interruptSid(target);
+        return;
+      }
+
       // Never hijack browser combos or typing in a composer/input.
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const el = document.activeElement as HTMLElement | null;
       const tag = el?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || el?.isContentEditable) return;
 
-      const s = kb.current;
-      const order = s.orderedSids;
-      const cur = s.cursor && order.includes(s.cursor) ? s.cursor : order[0] ?? null;
       const idx = cur ? order.indexOf(cur) : -1;
-      const move = (delta: number, shift: boolean) => {
+      const move = (delta: number, shift: boolean, open: boolean) => {
         if (!order.length) return;
         const next = order[Math.max(0, Math.min(order.length - 1, idx + delta))];
         if (!next) return;
@@ -2566,39 +3771,82 @@ function RailStage({
           if (!anchorRef.current) anchorRef.current = cur ?? next;
           s.setCursor(next);
           s.selectTo(next);
+        } else if (open) {
+          // Arrows switch the primary session directly: move the cursor *and*
+          // open it in the stage in one step.
+          s.activate(next, false);
         } else {
           anchorRef.current = next;
           s.setCursor(next);
         }
       };
 
-      switch (e.key) {
+      // Enter "focuses into" the cursored session: make sure it's open in the
+      // stage, then move keyboard focus into its message composer.
+      const focusInto = (sid: string) => {
+        if (!s.columnIds.includes(sid)) s.activate(sid, false);
+        // Let the column mount/render before grabbing its input.
+        window.setTimeout(() => {
+          const el = document.querySelector(
+            `[data-composer-sid="${sid}"]`,
+          ) as HTMLElement | null;
+          el?.focus();
+        }, 60);
+      };
+
+      switch (key) {
         case "?":
           e.preventDefault();
           s.setShowHelp((v) => !v);
           return;
-        case "Escape":
-          s.setShowHelp((v) => {
-            if (v) return false;
-            if (s.preview) s.setPreview(null);
-            return false;
-          });
+        case "Escape": {
+          // Esc unwinds overlays first (help, then preview); with nothing open
+          // it cancels the active run for the focused/first-busy session.
+          if (s.showHelp) {
+            s.setShowHelp(false);
+            return;
+          }
+          if (s.preview) {
+            s.setPreview(null);
+            return;
+          }
+          const target = cur && s.busyBySid[cur] ? cur : order.find((id) => s.busyBySid[id]) ?? null;
+          if (target) {
+            e.preventDefault();
+            void s.interruptSid(target);
+          }
           return;
-        case "j":
+        }
+        case "c":
+          e.preventDefault();
+          s.onNew();
+          return;
         case "ArrowDown":
           e.preventDefault();
-          move(1, e.shiftKey);
+          move(1, e.shiftKey, true);
           return;
-        case "k":
         case "ArrowUp":
           e.preventDefault();
-          move(-1, e.shiftKey);
+          move(-1, e.shiftKey, true);
+          return;
+        case "j":
+          e.preventDefault();
+          move(1, e.shiftKey, false);
+          return;
+        case "k":
+          e.preventDefault();
+          move(-1, e.shiftKey, false);
           return;
         case "o":
-        case "Enter":
           if (cur) {
             e.preventDefault();
             s.activate(cur, e.shiftKey);
+          }
+          return;
+        case "Enter":
+          if (cur) {
+            e.preventDefault();
+            focusInto(cur);
           }
           return;
         case "p":
@@ -2611,6 +3859,12 @@ function RailStage({
           if (cur && s.columnIds.includes(cur)) {
             e.preventDefault();
             s.closeColumn(cur);
+          }
+          return;
+        case "e":
+          if (cur && !e.repeat) {
+            e.preventDefault();
+            void s.closeSession(cur);
           }
           return;
         case "\\":
@@ -2652,7 +3906,7 @@ function RailStage({
   return (
     <div className="flex h-full min-h-0 gap-3">
       <aside
-        className="flex h-full min-h-0 shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-card/40 transition-[width] duration-200 ease-ios"
+        className="flex h-full min-h-0 shrink-0 flex-col overflow-hidden rounded-xl border border-border bg-card transition-[width] duration-200 ease-ios"
         style={{ width: railCollapsed ? 56 : 280 }}
       >
         <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-2.5">
@@ -2726,7 +3980,13 @@ function RailStage({
             const session = bySid.get(sid);
             if (!session) return null;
             return (
-              <div key={sid} className="h-full min-h-0 min-w-0">
+              <div
+                key={sid}
+                data-stage-sid={sid}
+                className="h-full min-h-0 min-w-0"
+                onClickCapture={() => setCursor(sid)}
+                onFocusCapture={() => setCursor(sid)}
+              >
                 <ErrorBoundary
                   fallback={(reset) => (
                     <section className="live-pane flex h-full min-w-0 flex-col items-center justify-center gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-center text-sm text-destructive">
@@ -2742,6 +4002,7 @@ function RailStage({
                     users={users}
                     messages={messagesBySid[sid] ?? EMPTY_MESSAGES}
                     busy={!!busyBySid[sid]}
+                    loading={!!loadingBySid[sid]}
                     prompt={promptsBySid[sid] ?? null}
                     queue={queuesBySid[sid] ?? EMPTY_QUEUE}
                     onOptimisticMessage={onOptimisticMessage}
@@ -2769,10 +4030,15 @@ function RailStage({
 
 function ShortcutsHelp({ onClose }: { onClose: () => void }) {
   const rows: [string, string][] = [
-    ["j / ↓ · k / ↑", "Move cursor down / up the rail"],
-    ["Enter / o", "Open cursored session"],
+    ["Tab", "Switch project"],
+    ["↓ / ↑", "Switch primary session"],
+    ["j / k", "Move cursor without opening"],
+    ["Enter", "Focus into current session"],
+    ["o", "Open cursored session"],
+    ["c", "New session"],
     ["p", "Pin / unpin cursored session"],
     ["x", "Close cursored column"],
+    ["e", "End cursored session"],
     ["1 – 9", "Open the Nth session"],
     ["\\", "Collapse / expand the rail"],
     ["?", "Toggle this help"],
@@ -2780,7 +4046,7 @@ function ShortcutsHelp({ onClose }: { onClose: () => void }) {
   ];
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
       onClick={onClose}
     >
       <div
@@ -2954,21 +4220,29 @@ const RailItem = memo(function RailItem({
         onTouchEnd={onTouchEnd}
         title={collapsed ? titleForSession(session) : undefined}
         className={cn(
-          "group relative flex cursor-pointer touch-pan-y select-none items-center gap-2 rounded-lg py-1.5 outline-none",
+          "group relative flex cursor-pointer touch-pan-y select-none items-center gap-2 rounded-lg py-1.5 outline-none transition-[background-color,box-shadow] duration-150",
           collapsed ? "justify-center px-0" : "px-2",
-          swiping ? "bg-card" : active ? "bg-primary/10" : "hover:bg-muted",
+          swiping
+            ? "bg-card"
+            : active
+              ? "bg-primary/10"
+              : "hover:bg-muted",
         )}
       >
-        {active ? (
-          <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary" aria-hidden />
-        ) : null}
-        <span
-          aria-label={busy ? "working" : "idle"}
-          className={cn(
-            "size-2 shrink-0 rounded-full",
-            busy ? "animate-pulse bg-warning" : "bg-success/30 ring-1 ring-inset ring-success/20",
-          )}
-        />
+        <span className="relative flex size-6 shrink-0 items-center justify-center">
+          <img
+            src={agentIconSrc(session.agent)}
+            alt={agentIconAlt(session.agent)}
+            className="size-6 rounded-md"
+          />
+          <span
+            aria-label={busy ? "working" : "idle"}
+            className={cn(
+              "absolute -bottom-0.5 -right-0.5 size-2.5 shrink-0 rounded-full ring-2 ring-card",
+              busy ? "animate-pulse bg-warning" : "bg-success",
+            )}
+          />
+        </span>
         {!collapsed ? (
           <>
             <span className="flex min-w-0 flex-1 flex-col">
@@ -3090,10 +4364,14 @@ function PausedBanner({
   if (session.status !== "blocked") return null;
   const sid = session.sessionId;
   const reason = session.statusReason;
-  const canSwitch =
+  const canSwitchClaude =
     reason === "model_unavailable" && session.agent === "claude" && !!session.tmuxTarget && !!sid;
+  const canSwitchOpencode =
+    session.agent === "opencode" &&
+    (reason === "provider_auth" || reason === "provider_error") &&
+    !!sid;
 
-  async function resumeOnOpus() {
+  async function switchModel(model: string) {
     if (!sid) return;
     setWorking(true);
     setErr(null);
@@ -3101,7 +4379,7 @@ function PausedBanner({
       await api(`/api/sessions/${sid}/model`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "opus" }),
+        body: JSON.stringify({ model }),
       });
       await onRefresh();
     } catch (e) {
@@ -3111,10 +4389,21 @@ function PausedBanner({
     }
   }
 
-  const title = reason === "out_of_credits" ? "Build paused — out of credits" : "Build paused";
+  const title =
+    reason === "out_of_credits"
+      ? "Build paused — out of credits"
+      : reason === "provider_auth"
+        ? "Build paused — provider rejected the model"
+        : reason === "provider_error"
+          ? "Build paused — provider error"
+          : "Build paused";
   const detail =
     reason === "out_of_credits"
       ? "This app's build agent ran out of AI credits. Top up the wallet to resume the build."
+      : reason === "provider_auth"
+        ? `${session.statusDetail || "The selected provider rejected the request."} Check the OpenCode provider key or switch models.`
+        : reason === "provider_error"
+          ? `${session.statusDetail || "The selected provider failed the request."} Check the OpenCode provider logs or switch models.`
       : `${session.statusDetail || "The selected model isn't available."} Switch to a working model to pick the build back up.`;
 
   return (
@@ -3125,14 +4414,24 @@ function PausedBanner({
           <div className="mt-0.5 text-foreground/70">{detail}</div>
           {err ? <div className="mt-1 text-destructive">{err}</div> : null}
         </div>
-        {canSwitch ? (
+        {canSwitchClaude ? (
           <button
             type="button"
-            onClick={resumeOnOpus}
+            onClick={() => void switchModel("opus")}
             disabled={working}
             className="shrink-0 rounded-lg bg-warning px-3 py-1.5 font-medium text-white disabled:opacity-50"
           >
             {working ? "Resuming…" : "Resume on Opus"}
+          </button>
+        ) : null}
+        {canSwitchOpencode ? (
+          <button
+            type="button"
+            onClick={() => void switchModel("opencode/big-pickle")}
+            disabled={working}
+            className="shrink-0 rounded-lg bg-warning px-3 py-1.5 font-medium text-white disabled:opacity-50"
+          >
+            {working ? "Switching…" : "Use Big Pickle"}
           </button>
         ) : null}
       </div>
@@ -3144,6 +4443,7 @@ function SessionChat({
   session,
   messages,
   busy,
+  loading,
   prompt,
   queue,
   error,
@@ -3151,10 +4451,12 @@ function SessionChat({
   onOptimisticMessage,
   onRefresh,
   onCollapse,
+  onDictatingChange,
 }: {
   session: Session;
   messages: Message[];
   busy: boolean;
+  loading: boolean;
   prompt: SessionPrompt | null;
   queue: QueueMsg[];
   error: string | null;
@@ -3162,39 +4464,134 @@ function SessionChat({
   onOptimisticMessage: (sid: string, text: string) => void;
   onRefresh: () => Promise<void>;
   onCollapse?: () => void;
+  onDictatingChange?: (recording: boolean) => void;
 }) {
   const sid = session.sessionId;
   const [messageText, setMessageText] = useState("");
   const [sending, setSending] = useState(false);
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [draggingFiles, setDraggingFiles] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewUrls = useRef<string[]>([]);
+
+  useEffect(() => {
+    return () => {
+      for (const url of previewUrls.current) URL.revokeObjectURL(url);
+      previewUrls.current = [];
+    };
+  }, []);
+
+  function addFiles(files: FileList | File[]) {
+    const incoming = Array.from(files).filter((file) => file.size > 0);
+    if (!incoming.length) return;
+    setAttachments((current) => {
+      const room = Math.max(0, 8 - current.length);
+      if (!room) {
+        toast.error("Remove an attachment before adding another.");
+        return current;
+      }
+      if (incoming.length > room) toast.error(`Added ${room} of ${incoming.length} files.`);
+      const next = incoming.slice(0, room).map((file) => {
+        const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
+        if (previewUrl) previewUrls.current.push(previewUrl);
+        return {
+          id: `${file.name}-${file.size}-${file.lastModified}-${crypto.randomUUID()}`,
+          file,
+          name: file.name || "upload",
+          size: file.size,
+          type: file.type,
+          previewUrl,
+          status: "ready" as const,
+        };
+      });
+      return [...current, ...next];
+    });
+  }
+
+  function removeAttachment(id: string) {
+    setAttachments((current) => {
+      const item = current.find((att) => att.id === id);
+      if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      return current.filter((att) => att.id !== id);
+    });
+  }
+
+  async function uploadAttachment(att: ComposerAttachment): Promise<{ name: string; path: string }> {
+    if (!sid) throw new Error("session not found");
+    setAttachments((current) =>
+      current.map((item) =>
+        item.id === att.id ? { ...item, status: "uploading", error: undefined } : item,
+      ),
+    );
+    try {
+      const uploaded = await api<{ path: string; name?: string }>(
+        `/api/sessions/${sid}/upload?filename=${encodeURIComponent(att.name)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": att.type || "application/octet-stream" },
+          body: att.file,
+        },
+      );
+      return { name: uploaded.name || att.name, path: uploaded.path };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setAttachments((current) =>
+        current.map((item) =>
+          item.id === att.id ? { ...item, status: "failed", error: message } : item,
+        ),
+      );
+      throw err;
+    }
+  }
 
   async function sendMessage(e?: FormEvent, overrideText?: string) {
     e?.preventDefault();
     const text = (overrideText ?? messageText).trim();
-    if (!sid || !text) return;
+    const files = attachments;
+    if (!sid || (!text && !files.length)) return;
     setSending(true);
     onError(null);
     setMessageText("");
-    onOptimisticMessage(sid, text);
-    onCollapse?.(); // tuck the card away while it works (auto-expands when done)
     try {
+      const uploaded = files.length ? await Promise.all(files.map(uploadAttachment)) : [];
+      const outgoingText = composeAttachmentMessage(text, uploaded);
+      onOptimisticMessage(sid, outgoingText);
+      onCollapse?.(); // tuck the card away while it works (auto-expands when done)
       await api(`/api/sessions/${sid}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text: outgoingText }),
       });
+      for (const att of files) {
+        if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
+      }
+      setAttachments([]);
       await onRefresh();
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
       setMessageText(text);
+      setAttachments((current) =>
+        current.map((att) => (att.status === "uploading" ? { ...att, status: "ready" } : att)),
+      );
     } finally {
       setSending(false);
+    }
+  }
+
+  async function interrupt() {
+    if (!sid) return;
+    try {
+      await api(`/api/sessions/${sid}/interrupt`, { method: "POST" });
+      await onRefresh();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
     }
   }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <PausedBanner session={session} onRefresh={onRefresh} />
-      <ChatStream messages={messages} busy={busy} />
+      <ChatStream messages={messages} busy={busy} loading={loading} />
 
       <PromptPanel prompt={prompt} sid={sid} onError={onError} />
       <QueuePanel queue={queue} sid={sid} messages={messages} />
@@ -3204,42 +4601,158 @@ function SessionChat({
       ) : null}
 
       {canDriveSession(session) ? (
-        <form onSubmit={sendMessage} className="flex gap-2 border-t border-border/70 bg-muted/35 p-2">
+        <form
+          onSubmit={sendMessage}
+          onDragEnter={(event) => {
+            if (Array.from(event.dataTransfer.types).includes("Files")) setDraggingFiles(true);
+          }}
+          onDragOver={(event) => {
+            if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "copy";
+            setDraggingFiles(true);
+          }}
+          onDragLeave={(event) => {
+            const nextTarget = event.relatedTarget;
+            if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
+              setDraggingFiles(false);
+            }
+          }}
+          onDrop={(event) => {
+            if (!event.dataTransfer.files.length) return;
+            event.preventDefault();
+            setDraggingFiles(false);
+            addFiles(event.dataTransfer.files);
+          }}
+          className={cn(
+            // Sit on the same surface as the chat (no card/border seam) and let
+            // the transcript melt into the bar via a soft gradient fade so the
+            // composer reads as part of the conversation, not a bolted-on panel.
+            "relative bg-background px-2 pb-2 pt-1.5 transition-colors",
+            "before:pointer-events-none before:absolute before:inset-x-0 before:-top-6 before:h-6 before:bg-gradient-to-t before:from-background before:to-transparent before:content-['']",
+            draggingFiles && "bg-primary/8",
+          )}
+        >
           <input
-            value={messageText}
-            onChange={(e) => setMessageText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                e.currentTarget.form?.requestSubmit();
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(event) => {
+              if (event.target.files) addFiles(event.target.files);
+              event.currentTarget.value = "";
+            }}
+          />
+          {attachments.length ? (
+            <div className="mb-2 flex gap-1.5 overflow-x-auto pb-0.5">
+              {attachments.map((att) => (
+                <div
+                  key={att.id}
+                  className={cn(
+                    "group flex h-12 max-w-52 shrink-0 items-center gap-2 rounded-lg border bg-muted/55 pl-1.5 pr-1.5 text-xs",
+                    att.status === "failed" ? "border-destructive/40 bg-destructive/10" : "border-border/70",
+                  )}
+                  title={att.error || att.name}
+                >
+                  {att.previewUrl ? (
+                    <img
+                      src={att.previewUrl}
+                      alt=""
+                      className="size-9 shrink-0 rounded-md object-cover"
+                    />
+                  ) : (
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-background/80 text-muted-foreground">
+                      <Paperclip className="size-4" />
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <div className="truncate font-medium text-foreground">{att.name}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {att.status === "uploading" ? "Uploading..." : att.status === "failed" ? "Failed" : formatBytes(att.size)}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="ml-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                    onClick={() => removeAttachment(att.id)}
+                    aria-label={`Remove ${att.name}`}
+                    title="Remove"
+                    disabled={sending}
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          <div className="flex items-end gap-2">
+            <Button
+              size="icon"
+              type="button"
+              variant={draggingFiles ? "brand-soft" : "tint"}
+              className="size-11 md:size-9"
+              onClick={() => fileInputRef.current?.click()}
+              aria-label="Attach files"
+              title="Attach files"
+              disabled={sending}
+            >
+              <Paperclip className="size-4" />
+            </Button>
+            <Textarea
+              data-composer-sid={sid}
+              value={messageText}
+              onChange={(e) => setMessageText(e.target.value)}
+              onPaste={(event) => {
+                const files = event.clipboardData?.files;
+                if (files?.length) {
+                  event.preventDefault();
+                  addFiles(files);
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  e.currentTarget.form?.requestSubmit();
+                }
+              }}
+              placeholder={attachments.length ? "Add a note" : "Message"}
+              disabled={sending}
+              rows={1}
+              className="min-h-11 max-h-28 min-w-0 flex-1 resize-none overflow-y-auto rounded-2xl border-border/55 bg-muted/65 px-4 py-3 text-base leading-5 shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:border-foreground/20 focus-visible:bg-muted focus-visible:ring-0 md:min-h-9 md:rounded-[1.125rem] md:px-3.5 md:py-2 md:text-sm"
+            />
+            {busy && canDriveSession(session) ? (
+              <Button
+                size="icon"
+                type="button"
+                variant="tint"
+                className="size-11 md:size-9"
+                onClick={() => void interrupt()}
+                aria-label="Stop (Esc or Ctrl/Cmd+.)"
+                title="Stop — Esc or Ctrl/Cmd+."
+              >
+                <Pause className="size-4" />
+              </Button>
+            ) : null}
+            {/* Send doubles as push-to-talk: tap to send, hold to dictate. */}
+            <ComposerSendButton
+              className="size-11 md:size-9"
+              sending={sending}
+              canSend={Boolean(messageText.trim() || attachments.length)}
+              baseText={messageText}
+              onSend={() => void sendMessage()}
+              onRecordingChange={onDictatingChange}
+              onText={(text, base) =>
+                setMessageText(base.trim() ? `${base.trimEnd()} ${text}` : text)
               }
-            }}
-            placeholder="Message"
-            className="h-11 min-w-0 flex-1 rounded-full border border-input bg-background px-4 text-base outline-none focus:border-primary md:h-9 md:px-3.5 md:text-sm"
-          />
-          <MicButton
-            className="size-11 md:size-9"
-            silenceMs={2500}
-            baseText={messageText}
-            onText={(text, base) =>
-              setMessageText(base.trim() ? `${base.trimEnd()} ${text}` : text)
-            }
-            onInterim={(text, base) =>
-              setMessageText(base.trim() ? `${base.trimEnd()} ${text}` : text)
-            }
-            onAutoSubmit={(text, base) => {
-              const combined = base.trim() ? `${base.trimEnd()} ${text}` : text;
-              void sendMessage(undefined, combined);
-            }}
-          />
-          <Button
-            size="icon"
-            className="size-11 md:size-9"
-            type="submit"
-            disabled={sending || !messageText.trim()}
-          >
-            {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-          </Button>
+              onInterim={(text, base) =>
+                setMessageText(base.trim() ? `${base.trimEnd()} ${text}` : text)
+              }
+              onAutoSubmit={(text, base) => {
+                const combined = base.trim() ? `${base.trimEnd()} ${text}` : text;
+                void sendMessage(undefined, combined);
+              }}
+            />
+          </div>
         </form>
       ) : null}
     </div>
@@ -3260,6 +4773,7 @@ function SessionTitleSheet({
   session,
   messages,
   busy,
+  loading,
   prompt,
   queue,
   origin,
@@ -3270,6 +4784,7 @@ function SessionTitleSheet({
   session: Session;
   messages: Message[];
   busy: boolean;
+  loading: boolean;
   prompt: SessionPrompt | null;
   queue: QueueMsg[];
   origin: DOMRect;
@@ -3384,7 +4899,7 @@ function SessionTitleSheet({
       <div
         ref={backdropRef}
         onClick={requestClose}
-        className="absolute inset-0 bg-black/50 supports-backdrop-filter:backdrop-blur-sm"
+        className="absolute inset-0 bg-black/50"
       />
       <div
         ref={panelRef}
@@ -3425,6 +4940,7 @@ function SessionTitleSheet({
             session={session}
             messages={messages}
             busy={busy}
+            loading={loading}
             prompt={prompt}
             queue={queue}
             error={error}
@@ -3439,6 +4955,153 @@ function SessionTitleSheet({
   );
 }
 
+function defaultForkAgent(sourceAgent?: string | null): AgentKind {
+  const saved = localStorage.getItem("lfg_fork_agent") as AgentKind | null;
+  if (saved && AGENT_MODELS[saved]) return saved;
+  return sourceAgent === "codex-aisdk" ? "aisdk" : "codex-aisdk";
+}
+
+function ForkSessionDialog({
+  session,
+  onClose,
+  onCreated,
+}: {
+  session: Session;
+  onClose: () => void;
+  onCreated: () => Promise<void>;
+}) {
+  const [agent, setAgent] = useState<AgentKind>(() => defaultForkAgent(session.agent));
+  const [model, setModel] = useState(
+    () =>
+      localStorage.getItem(`lfg_fork_model_${defaultForkAgent(session.agent)}`) ||
+      AGENT_DEFAULT_MODEL[defaultForkAgent(session.agent)],
+  );
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(() => savedThinkingLevel());
+  const [prompt, setPrompt] = useState("");
+  const sid = session.sessionId;
+  const models = AGENT_MODELS[agent];
+
+  useEffect(() => {
+    if (!models.includes(model)) setModel(models[0]);
+  }, [models, model]);
+
+  function submit(e?: FormEvent) {
+    e?.preventDefault();
+    if (!sid) return;
+    localStorage.setItem("lfg_fork_agent", agent);
+    localStorage.setItem(`lfg_fork_model_${agent}`, model);
+    if (agentSupportsThinking(agent)) localStorage.setItem("lfg_thinking_level", thinkingLevel);
+    onClose();
+    toast.promise(
+      api(`/api/sessions/${sid}/fork`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: prompt.trim() || undefined,
+          user: session.assignedUser || undefined,
+          agent,
+          model,
+          thinkingLevel: agentSupportsThinking(agent) ? thinkingLevel : undefined,
+        }),
+      }).then(() => onCreated()),
+      {
+        loading: "Forking session...",
+        success: "Session forked",
+        error: (err) => (err instanceof Error ? err.message : "Couldn't open session"),
+      },
+    );
+  }
+
+  return (
+    <BottomSheet onClose={onClose} title="Fork session">
+      <form onSubmit={submit} className="px-4 pb-5 pt-3">
+        <div className="mb-3 flex items-center gap-2">
+          <GitFork className="size-4 text-muted-foreground" />
+          <div className="min-w-0">
+            <div className="text-[15px] font-semibold">Fork session</div>
+            <div className="truncate text-xs text-muted-foreground">
+              {titleForSession(session)}
+            </div>
+          </div>
+        </div>
+
+        <Textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="Extra prompt for the new agent..."
+          rows={5}
+          className="min-h-32 resize-none rounded-xl"
+        />
+
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <div className="inline-flex h-8 items-center rounded-full bg-muted p-0.5 text-xs font-semibold">
+            {AGENT_OPTIONS.map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                title={label}
+                aria-label={label}
+                onClick={() => {
+                  setAgent(key);
+                  setModel(localStorage.getItem(`lfg_fork_model_${key}`) || AGENT_DEFAULT_MODEL[key]);
+                }}
+                className={cn(
+                  "flex h-7 w-9 items-center justify-center rounded-full transition",
+                  agent === key ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
+                )}
+              >
+                <img src={agentIconSrc(key)} alt="" className="size-5" />
+              </button>
+            ))}
+          </div>
+
+          <FieldPill>
+            <select
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              aria-label="Model"
+              className="max-w-36 appearance-none truncate bg-transparent pr-1 text-xs font-medium outline-none"
+            >
+              {models.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
+          </FieldPill>
+
+          {agentSupportsThinking(agent) ? (
+            <FieldPill>
+              <select
+                value={thinkingLevel}
+                onChange={(e) => setThinkingLevel(e.target.value as ThinkingLevel)}
+                aria-label="Thinking level"
+                className="max-w-24 appearance-none truncate bg-transparent pr-1 text-xs font-medium outline-none"
+              >
+                {THINKING_LEVELS.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </FieldPill>
+          ) : null}
+        </div>
+
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="brand" disabled={!sid}>
+            <GitFork className="size-4" />
+            Open
+          </Button>
+        </div>
+      </form>
+    </BottomSheet>
+  );
+}
+
 // memo'd: an SSE event for one session replaces the messagesBySid/etc. Record
 // reference, re-rendering LiveView's map. Without memo every card re-renders;
 // with it, only the card whose own message/busy/queue reference changed does —
@@ -3448,6 +5111,7 @@ const SessionCard = memo(function SessionCard({
   users,
   messages,
   busy,
+  loading,
   prompt,
   queue,
   onOptimisticMessage,
@@ -3460,6 +5124,7 @@ const SessionCard = memo(function SessionCard({
   users: User[];
   messages: Message[];
   busy: boolean;
+  loading: boolean;
   prompt: SessionPrompt | null;
   queue: QueueMsg[];
   onOptimisticMessage: (sid: string, text: string) => void;
@@ -3472,6 +5137,7 @@ const SessionCard = memo(function SessionCard({
   onClose?: () => void;
 }) {
   const [error, setError] = useState<string | null>(null);
+  const [forkOpen, setForkOpen] = useState(false);
 
   const sid = session.sessionId;
 
@@ -3518,20 +5184,18 @@ const SessionCard = memo(function SessionCard({
 
   // ── mobile gestures: tap-header-to-collapse + iOS swipe-to-delete ──────────
   const isMobile = useIsMobile();
-  const latest = latestLine(messages);
+  // Fall back to the list payload's last message when we aren't streaming this
+  // card (collapsed) so the collapsed preview line still shows something.
+  const latest = latestLine(messages) || normText(session.last?.text ?? "");
   const sectionRef = useRef<HTMLElement>(null);
+  // True while voice dictation is recording in this card's composer — glows the
+  // card border so it's clear which session is listening.
+  const [dictating, setDictating] = useState(false);
   const headRef = useRef<HTMLDivElement>(null);
   // Collapsed state persists per session so a card stays the way you left it
   // across reloads / re-renders (localStorage, keyed by sid).
   const collapseKey = sid ? `lfg-collapsed:${sid}` : null;
-  const [collapsed, setCollapsed] = useState<boolean>(() => {
-    if (!collapseKey) return false;
-    try {
-      return localStorage.getItem(collapseKey) === "1";
-    } catch {
-      return false;
-    }
-  });
+  const [collapsed, setCollapsed] = useState<boolean>(() => (sid ? isCollapsedSid(sid) : false));
   const [headH, setHeadH] = useState(44);
   const [swipeOpen, setSwipeOpen] = useState(false);
   // True only while a horizontal swipe is in progress. The red delete action is
@@ -3567,6 +5231,9 @@ const SessionCard = memo(function SessionCard({
     } catch {
       /* private mode / quota — non-fatal */
     }
+    // Notify the app-level stream manager so it opens/closes this session's
+    // transcript stream as the card expands/collapses (lazy streaming).
+    window.dispatchEvent(new Event("lfg-collapse-change"));
   }, [collapseKey, collapsed]);
 
   // Auto-expand a card the moment its session stops working (busy true → false),
@@ -3727,12 +5394,20 @@ const SessionCard = memo(function SessionCard({
           session={session}
           messages={messages}
           busy={busy}
+          loading={loading}
           prompt={prompt}
           queue={queue}
           origin={sheetOrigin}
           onOptimisticMessage={onOptimisticMessage}
           onRefresh={onRefresh}
           onClose={() => setSheetOrigin(null)}
+        />
+      ) : null}
+      {forkOpen ? (
+        <ForkSessionDialog
+          session={session}
+          onClose={() => setForkOpen(false)}
+          onCreated={onRefresh}
         />
       ) : null}
       {/* swipe-to-delete action revealed behind the card (mobile only) */}
@@ -3757,8 +5432,12 @@ const SessionCard = memo(function SessionCard({
         onTouchEnd={onTouchEnd}
         style={isMobile && collapsed ? { height: headH } : undefined}
         className={cn(
-          "live-pane relative z-[1] flex h-[22rem] touch-pan-y flex-col overflow-hidden rounded-xl border border-border bg-card text-card-foreground transition-[height,transform] duration-300 ease-ios md:static md:transition-none",
+          "live-pane relative z-[1] flex h-[22rem] touch-pan-y flex-col overflow-hidden rounded-xl border bg-card text-card-foreground transition-[height,transform,border-color,box-shadow] duration-300 ease-ios md:static md:transition-[border-color,box-shadow]",
           variant === "stage" ? "md:h-full" : "md:h-[clamp(30rem,72vh,46rem)]",
+          // Listening: soften the border to primary and throw a faint glow ring.
+          dictating
+            ? "border-primary/60 shadow-[0_0_0_1px_var(--primary),0_0_16px_2px_color-mix(in_srgb,var(--primary)_35%,transparent)]"
+            : "border-border",
         )}
       >
         <div
@@ -3813,7 +5492,10 @@ const SessionCard = memo(function SessionCard({
             ⏸ paused
           </span>
         ) : null}
-        {!collapsedView && (session.agent !== "codex" && session.tmuxTarget && sid ? (
+        {!collapsedView && (
+          (session.agent === "claude" || session.agent === "opencode") &&
+          (session.tmuxTarget || session.agent === "opencode") &&
+          sid ? (
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
@@ -3847,6 +5529,18 @@ const SessionCard = memo(function SessionCard({
             {session.model}
           </span>
         ) : null)}
+        {!collapsedView && busy && canDriveSession(session) ? (
+          <button
+            type="button"
+            onClick={() => void interrupt()}
+            aria-label="Stop (Esc or Ctrl/Cmd+.)"
+            title="Stop — Esc or Ctrl/Cmd+."
+            className="flex h-6 shrink-0 items-center gap-1 rounded-full bg-foreground/[0.06] px-2 text-[10px] font-medium text-foreground/70 hover:bg-foreground/[0.10] hover:text-foreground"
+          >
+            <Pause className="size-3.5" />
+            Stop
+          </button>
+        ) : null}
         <span
           aria-label={busy ? "working" : "idle"}
           className={cn(
@@ -3884,11 +5578,16 @@ const SessionCard = memo(function SessionCard({
                 </DropdownMenuRadioItem>
               ))}
             </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem disabled={!sid} onClick={() => setForkOpen(true)}>
+              <GitFork className="size-4" />
+              Fork
+            </DropdownMenuItem>
             {canDriveSession(session) ? (
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => void interrupt()}>
-                  <CircleStop className="size-4" />
+                  <Pause className="size-4" />
                   Stop
                 </DropdownMenuItem>
                 <DropdownMenuItem variant="destructive" onClick={() => void close()}>
@@ -3917,6 +5616,7 @@ const SessionCard = memo(function SessionCard({
           session={session}
           messages={messages}
           busy={busy}
+          loading={loading}
           prompt={prompt}
           queue={queue}
           error={error}
@@ -3924,6 +5624,7 @@ const SessionCard = memo(function SessionCard({
           onOptimisticMessage={onOptimisticMessage}
           onRefresh={onRefresh}
           onCollapse={() => setCollapsed(true)}
+          onDictatingChange={setDictating}
         />
       )}
       </section>
@@ -3979,7 +5680,15 @@ function buildRenderItems(messages: Message[]): RenderItem[] {
   return items;
 }
 
-const ChatStream = memo(function ChatStream({ messages, busy }: { messages: Message[]; busy: boolean }) {
+const ChatStream = memo(function ChatStream({
+  messages,
+  busy,
+  loading,
+}: {
+  messages: Message[];
+  busy: boolean;
+  loading: boolean;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
   const items = useMemo(() => buildRenderItems(messages), [messages]);
@@ -4019,8 +5728,9 @@ const ChatStream = memo(function ChatStream({ messages, busy }: { messages: Mess
           ) : null}
         </div>
       ) : (
-        <div className="flex h-full min-h-64 items-center justify-center text-center text-sm text-muted-foreground">
-          Connecting to live transcript...
+        <div className="flex h-full min-h-64 flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
+          {loading ? <Loader2 className="size-5 animate-spin" /> : <MessageSquare className="size-5" />}
+          <span>{loading ? "Loading live transcript..." : "No transcript messages yet"}</span>
         </div>
       )}
     </div>
@@ -4071,15 +5781,15 @@ function MessageBubble({ message }: { message: Message }) {
     <div
       className={cn(
         "msg flex",
-        isUser ? "justify-end" : "justify-start",
+        isUser ? "w-full" : "justify-start",
         message.pending && "opacity-60",
       )}
     >
       {isUser ? (
-        // User turns stay on the iOS-blue bubble; their text is plain/escaped,
-        // so the pre-rendered html path is fine and avoids re-parsing.
+        // User turns are plain/escaped and styled as a neutral transcript
+        // divider instead of a chat bubble.
         <div
-          className="msg-text markdown max-w-[92%] user-bubble rounded-2xl bg-primary px-3 py-2 text-primary-foreground"
+          className="msg-text markdown user-bubble w-full px-3 py-2"
           dangerouslySetInnerHTML={{ __html: message.html || escapeHtml(message.text || "") }}
         />
       ) : (
@@ -4481,6 +6191,9 @@ type ResumableSession = {
   title: string;
   lastActivityAt: number | null;
   lastUserText: string | null;
+  // "claude" (resumes via the claude CLI) or "codex" (resumes via a codex-aisdk
+  // harness). Drives the engine label in the resume list.
+  agent: "claude" | "codex";
 };
 
 function NewSessionDialog({
@@ -4488,30 +6201,56 @@ function NewSessionDialog({
   repos,
   users,
   defaultUser,
+  scopedProject,
+  voiceHold,
   onClose,
   onCreated,
   onReposChanged,
+  // Presentation shell for the shared composer core:
+  //  - "drawer" (default): desktop / call-screen bottom sheet (Vaul), opened by
+  //    the orb or the "C" shortcut.
+  //  - "inline": mobile home screen — anchored at the bottom of the viewport,
+  //    compact at rest and expandable. Always mounted (no open/close).
+  variant = "drawer",
+  expanded = false,
+  onExpandedChange,
+  focusNonce = 0,
 }: {
   open: boolean;
   repos: Repo[];
   users: User[];
   defaultUser: string;
+  // The active project filter from the live view. When it's a specific project
+  // (not "__all"), creating a session is locked to that project's repo and the
+  // repo picker is hidden.
+  scopedProject: string;
+  // True while the launcher orb is being press-and-held. The transition
+  // false→true (with the drawer open) starts dictation; true→false stops it and
+  // submits the transcript — i.e. press-and-hold the orb to talk, release to send.
+  voiceHold: boolean;
   onClose: () => void;
   onCreated: () => Promise<void>;
   onReposChanged: () => Promise<void>;
+  variant?: "drawer" | "inline";
+  // Inline only: compact↔full controls toggle (lifted to the parent so the orb
+  // and other affordances can drive it).
+  expanded?: boolean;
+  onExpandedChange?: (next: boolean) => void;
+  // Inline only: bump to focus the textarea (orb double-tap / "new session").
+  focusNonce?: number;
 }) {
   const [agent, setAgent] = useState<AgentKind>(
     () => (localStorage.getItem("lfg_v2_agent") as AgentKind | null) || "aisdk",
   );
-  // Reveal the legacy CLI agents up front only when one is already selected
-  // (e.g. restored from localStorage), so a persisted CLI choice stays visible.
-  const [showCli, setShowCli] = useState(() => agent === "claude" || agent === "codex");
   const [repo, setRepo] = useState(() => localStorage.getItem("lfg_v2_repo") || "");
   const [model, setModel] = useState(
     () =>
       localStorage.getItem(`lfg_model_${localStorage.getItem("lfg_v2_agent") || "aisdk"}`) ||
       localStorage.getItem("lfg_model") ||
       AGENT_DEFAULT_MODEL[(localStorage.getItem("lfg_v2_agent") as AgentKind | null) || "aisdk"],
+  );
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(
+    () => savedThinkingLevel(),
   );
   // Default the owner to the active profile, falling back to the first known user
   // — never empty when a roster exists. An unowned session lands unassigned, and
@@ -4529,6 +6268,19 @@ function NewSessionDialog({
   // expands the section so opening the dialog stays instant; reset on close.
   const [resumeOpen, setResumeOpen] = useState(false);
   const [resumable, setResumable] = useState<ResumableSession[] | null>(null);
+  // Press-and-hold-the-orb voice mode: the orb's long-press opens this drawer
+  // and drives dictation through this handle (start on hold, stop+submit on
+  // release). `holding` tracks the current hold so we only fire on transitions.
+  const micRef = useRef<MicHandle>(null);
+  const holding = useRef(false);
+  // Inline variant: focus the textarea (and pop the soft keyboard) when an
+  // external affordance bumps `focusNonce`. The shadcn Textarea isn't a
+  // forwardRef, so reach it through the wrapping element.
+  const fieldRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (variant !== "inline" || !focusNonce) return;
+    fieldRef.current?.querySelector("textarea")?.focus();
+  }, [focusNonce, variant]);
 
   useEffect(() => {
     if (!open) {
@@ -4571,7 +6323,16 @@ function NewSessionDialog({
   }, [open, defaultUser, users]);
 
   const models = AGENT_MODELS[agent];
-  const selectedRepo = repo || repos[0]?.cwd || "";
+  // When the live view is filtered to a specific project, lock new sessions to
+  // that project's repo (and hide the picker below). Falls back to the normal
+  // localStorage/first-repo default when viewing "All projects" or when the
+  // filtered project has no matching repo in the list.
+  const scopedRepo =
+    scopedProject !== "__all"
+      ? repos.find((r) => repoProject(r) === scopedProject)
+      : undefined;
+  const projectScoped = !!scopedRepo;
+  const selectedRepo = scopedRepo?.cwd || repo || repos[0]?.cwd || "";
   const selectedIsCustom = repos.some((r) => r.cwd === selectedRepo && r.custom);
 
   // Pin an arbitrary git repo on the box (outside LFG_REPOS_ROOT) into the
@@ -4633,6 +6394,20 @@ function NewSessionDialog({
     if (!models.includes(model)) setModel(models[0]);
   }, [models, model]);
 
+  // Drive dictation from the orb's press-and-hold. On hold-begin (and only once
+  // the drawer is actually open, so the MicButton — and its ref — is mounted)
+  // start recording; on release stop and route the transcript to submit. Guarded
+  // by `holding` so a re-render mid-hold doesn't restart the mic.
+  useEffect(() => {
+    if (voiceHold && open && !holding.current) {
+      holding.current = true;
+      micRef.current?.start();
+    } else if (!voiceHold && holding.current) {
+      holding.current = false;
+      micRef.current?.stop(true); // release → stop + submit
+    }
+  }, [voiceHold, open]);
+
   if (!open) return null;
 
   function submit(e?: FormEvent, overrideText?: string) {
@@ -4642,6 +6417,7 @@ function NewSessionDialog({
     localStorage.setItem("lfg_v2_agent", agent);
     localStorage.setItem("lfg_v2_repo", selectedRepo);
     localStorage.setItem(`lfg_model_${agent}`, model);
+    if (agentSupportsThinking(agent)) localStorage.setItem("lfg_thinking_level", thinkingLevel);
     if (agent === "claude") localStorage.setItem("lfg_model", model);
     if (user) localStorage.setItem("lfg_user", user);
     // Close the drawer immediately — the spawn is slow (tmux + agent boot), so we
@@ -4649,26 +6425,276 @@ function NewSessionDialog({
     // spinner. The prompt is only cleared on success, so a failed create leaves
     // the typed task intact for a retry when the drawer is reopened.
     onClose();
-    toast.promise(
-      api("/api/sessions/new", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cwd: selectedRepo,
-          prompt: taskPrompt || undefined,
-          user: user || undefined,
-          agent,
-          model,
-        }),
-      }).then(() => {
-        setPrompt("");
-        return onCreated();
+    // Inline composer stays mounted (no drawer to dismiss); just collapse back to
+    // compact and blur so the soft keyboard closes after firing the create.
+    if (variant === "inline") (document.activeElement as HTMLElement | null)?.blur?.();
+    const createP = api<{ sessionId?: string }>("/api/sessions/new", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cwd: selectedRepo,
+        prompt: taskPrompt || undefined,
+        user: user || undefined,
+        agent,
+        model,
+        thinkingLevel: agentSupportsThinking(agent) ? thinkingLevel : undefined,
       }),
-      {
-        loading: "Creating session…",
-        success: "Session started",
-        error: (err) => (err instanceof Error ? err.message : "Couldn't create session"),
-      },
+    }).then((res) => {
+      const sid = res?.sessionId;
+      if (sid) {
+        markExpandedSid(sid);
+      }
+      setPrompt("");
+      return onCreated();
+    });
+    toast.promise(createP, {
+      loading: "Creating session…",
+      success: "Session started",
+      error: (err) => (err instanceof Error ? err.message : "Couldn't create session"),
+    });
+  }
+
+  // Inline composer resting state: only the prompt + mic + Start show; the agent
+  // pills, model/thinking/repo selectors and resume list are tucked behind the
+  // expand handle. The drawer variant is always "expanded".
+  const compact = variant === "inline" && !expanded;
+
+  const formBody = (
+    <form
+      onSubmit={submit}
+      className={cn(
+        "px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)]",
+        variant === "inline" ? "pt-1.5" : "pt-1",
+      )}
+    >
+      {variant === "inline" ? (
+        <button
+          type="button"
+          onClick={() => onExpandedChange?.(!expanded)}
+          aria-label={expanded ? "Collapse options" : "Show options"}
+          aria-expanded={expanded}
+          className="mb-0.5 flex h-5 w-full items-center justify-center text-muted-foreground transition hover:text-foreground"
+        >
+          {expanded ? (
+            <ChevronDown className="size-4" />
+          ) : (
+            <ChevronUp className="size-4" />
+          )}
+        </button>
+      ) : null}
+
+      <div className="relative" ref={fieldRef}>
+        <Textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+              e.preventDefault();
+              e.currentTarget.form?.requestSubmit();
+            }
+          }}
+          placeholder="Describe the task for a new session…"
+          className={cn(
+            "resize-none border-0 bg-transparent px-1 py-1 pr-10 text-base leading-relaxed shadow-none focus-visible:border-0 focus-visible:ring-0",
+            compact ? "min-h-11" : variant === "inline" ? "min-h-24" : "min-h-40",
+          )}
+        />
+        <MicButton
+          ref={micRef}
+          className="absolute bottom-1 right-1 size-9"
+          silenceMs={2500}
+          baseText={prompt}
+          onText={(text, base) =>
+            setPrompt(base.trim() ? `${base.trimEnd()} ${text}` : text)
+          }
+          onInterim={(text, base) =>
+            setPrompt(base.trim() ? `${base.trimEnd()} ${text}` : text)
+          }
+          onAutoSubmit={(text, base) => {
+            const combined = base.trim() ? `${base.trimEnd()} ${text}` : text;
+            void submit(undefined, combined);
+          }}
+        />
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <div
+              className={cn(
+                "inline-flex h-8 items-center text-xs font-semibold",
+                variant === "inline" ? "gap-0.5" : "rounded-full bg-muted p-0.5",
+              )}
+            >
+              {AGENT_OPTIONS.map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  title={label}
+                  aria-label={label}
+                  onClick={() => {
+                    setAgent(key);
+                    setModel(
+                      localStorage.getItem(`lfg_model_${key}`) || AGENT_DEFAULT_MODEL[key],
+                    );
+                  }}
+                  className={cn(
+                    "flex h-7 w-9 items-center justify-center rounded-full transition",
+                    agent === key
+                      ? variant === "inline"
+                        ? "bg-muted text-foreground"
+                        : "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  <img src={agentIconSrc(key)} alt="" className="size-5" />
+                </button>
+              ))}
+            </div>
+
+            <FieldPill flat={variant === "inline"}>
+              <select
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                aria-label="Model"
+                className="max-w-28 appearance-none truncate bg-transparent pr-1 text-xs font-medium outline-none"
+              >
+                {models.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </FieldPill>
+
+            {agentSupportsThinking(agent) && (
+              <FieldPill flat={variant === "inline"}>
+                <select
+                  value={thinkingLevel}
+                  onChange={(e) => setThinkingLevel(e.target.value as ThinkingLevel)}
+                  aria-label="Thinking level"
+                  className="max-w-24 appearance-none truncate bg-transparent pr-1 text-xs font-medium outline-none"
+                >
+                  {THINKING_LEVELS.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </FieldPill>
+            )}
+
+            {!projectScoped && (
+              <FieldPill flat={variant === "inline"} icon={<Folder className="size-3.5 text-muted-foreground" />}>
+                <select
+                  value={selectedRepo}
+                  onChange={(e) => {
+                    if (e.target.value === "__add__") addCustomPath();
+                    else setRepo(e.target.value);
+                  }}
+                  aria-label="Repo"
+                  className="max-w-28 appearance-none truncate bg-transparent pr-1 text-xs font-medium outline-none"
+                >
+                  {repos.map((item) => (
+                    <option key={item.cwd} value={item.cwd}>
+                      {item.custom ? `${item.name} ↗` : item.name}
+                    </option>
+                  ))}
+                  <option value="__add__">+ Add custom path…</option>
+                </select>
+                {selectedIsCustom && (
+                  <button
+                    type="button"
+                    aria-label="Remove custom path"
+                    title="Remove this custom path"
+                    onClick={() => removeCustomPath(selectedRepo)}
+                    className="ml-0.5 text-muted-foreground hover:text-destructive"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                )}
+              </FieldPill>
+            )}
+          </div>
+
+          {!compact ? (
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => setResumeOpen((v) => !v)}
+              className="flex h-8 items-center gap-0.5 rounded-full px-1 text-xs font-medium text-muted-foreground transition hover:text-foreground"
+            >
+              {resumeOpen ? (
+                <ChevronDown className="size-3.5" />
+              ) : (
+                <ChevronRight className="size-3.5" />
+              )}
+              Resume a recent session
+            </button>
+            {resumeOpen && (
+              <div className="mt-1 max-h-56 overflow-y-auto overscroll-contain rounded-xl bg-muted/50 p-1">
+                {resumable === null ? (
+                  <div className="px-2 py-3 text-center text-xs text-muted-foreground">
+                    Loading…
+                  </div>
+                ) : resumable.length === 0 ? (
+                  <div className="px-2 py-3 text-center text-xs text-muted-foreground">
+                    No recent sessions to resume
+                  </div>
+                ) : (
+                  resumable.map((s) => (
+                    <button
+                      key={s.sessionId}
+                      type="button"
+                      onClick={() => resume(s.sessionId)}
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition hover:bg-background"
+                    >
+                      <RotateCcw className="size-3.5 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-medium text-foreground">
+                          {s.title}
+                        </span>
+                        <span className="block truncate text-[11px] text-muted-foreground">
+                          {s.agent === "codex" ? "codex · " : ""}
+                          {s.project} · {timeAgo(s.lastActivityAt)}
+                        </span>
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+          ) : null}
+
+      <div
+        className={cn(
+          "flex items-center justify-between gap-3",
+          compact ? "mt-2" : "mt-4",
+        )}
+      >
+        <span
+          className={cn(
+            "min-w-0 truncate text-xs",
+            error ? "text-destructive" : "text-muted-foreground",
+          )}
+        >
+          {error || (agent === "claude" ? usage : "") || ""}
+        </span>
+        <Button type="submit" variant="secondary" disabled={busy || !selectedRepo}>
+          {busy ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+          Start
+        </Button>
+      </div>
+    </form>
+  );
+
+  // Mobile home screen: anchor the shared composer inline at the bottom of the
+  // viewport. `interactive-widget=resizes-content` shrinks the layout viewport
+  // when the soft keyboard opens, so `bottom-0` rides just above the keyboard.
+  if (variant === "inline") {
+    return (
+      <div className="pointer-events-auto fixed inset-x-0 bottom-0 z-[55] border-t border-border/60 bg-background/95 shadow-[0_-8px_24px_rgba(0,0,0,0.12)] backdrop-blur-xl">
+        <div className="mx-auto max-w-lg">{formBody}</div>
+      </div>
     );
   }
 
@@ -4686,226 +6712,7 @@ function NewSessionDialog({
     >
       <DrawerContent className="mx-auto max-w-lg">
         <DrawerTitle className="sr-only">New session</DrawerTitle>
-        <form
-          onSubmit={submit}
-          className="px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-1"
-        >
-          <div className="relative">
-          <Textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                e.preventDefault();
-                e.currentTarget.form?.requestSubmit();
-              }
-            }}
-            placeholder="Describe the task for a new session…"
-            className="min-h-40 resize-none border-0 bg-transparent px-1 py-1 pr-10 text-base leading-relaxed shadow-none focus-visible:border-0 focus-visible:ring-0"
-          />
-          <MicButton
-            className="absolute bottom-1 right-1 size-9"
-            silenceMs={2500}
-            baseText={prompt}
-            onText={(text, base) =>
-              setPrompt(base.trim() ? `${base.trimEnd()} ${text}` : text)
-            }
-            onInterim={(text, base) =>
-              setPrompt(base.trim() ? `${base.trimEnd()} ${text}` : text)
-            }
-            onAutoSubmit={(text, base) => {
-              const combined = base.trim() ? `${base.trimEnd()} ${text}` : text;
-              void submit(undefined, combined);
-            }}
-          />
-        </div>
-
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <div className="inline-flex h-8 items-center rounded-full bg-muted p-0.5 text-xs font-semibold">
-            {AGENT_OPTIONS.filter((o) => !o.cli).map(({ key, label }) => (
-              <button
-                key={key}
-                type="button"
-                title={label}
-                aria-label={label}
-                onClick={() => {
-                  setAgent(key);
-                  setModel(
-                    localStorage.getItem(`lfg_model_${key}`) || AGENT_DEFAULT_MODEL[key],
-                  );
-                }}
-                className={cn(
-                  "flex h-7 w-9 items-center justify-center rounded-full transition",
-                  agent === key ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
-                )}
-              >
-                <img src={agentIconSrc(key)} alt="" className="size-5" />
-              </button>
-            ))}
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setShowCli((v) => !v)}
-            className="flex h-8 items-center gap-0.5 rounded-full px-2 text-xs font-medium text-muted-foreground transition hover:text-foreground"
-          >
-            {showCli ? (
-              <ChevronDown className="size-3.5" />
-            ) : (
-              <ChevronRight className="size-3.5" />
-            )}
-            CLI agents
-          </button>
-
-          {showCli && (
-            <div className="inline-flex h-8 items-center rounded-full bg-muted p-0.5 text-xs font-semibold">
-              {AGENT_OPTIONS.filter((o) => o.cli).map(({ key, label }) => (
-                <button
-                  key={key}
-                  type="button"
-                  title={label}
-                  aria-label={label}
-                  onClick={() => {
-                    setAgent(key);
-                    setModel(
-                      localStorage.getItem(`lfg_model_${key}`) || AGENT_DEFAULT_MODEL[key],
-                    );
-                  }}
-                  className={cn(
-                    "flex h-7 w-9 items-center justify-center rounded-full transition",
-                    agent === key ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
-                  )}
-                >
-                  <img src={agentIconSrc(key)} alt="" className="size-5" />
-                </button>
-              ))}
-            </div>
-          )}
-
-          <FieldPill>
-            <select
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              aria-label="Model"
-              className="max-w-28 appearance-none truncate bg-transparent pr-1 text-xs font-medium outline-none"
-            >
-              {models.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </FieldPill>
-
-          <FieldPill icon={<Folder className="size-3.5 text-muted-foreground" />}>
-            <select
-              value={selectedRepo}
-              onChange={(e) => {
-                if (e.target.value === "__add__") addCustomPath();
-                else setRepo(e.target.value);
-              }}
-              aria-label="Repo"
-              className="max-w-28 appearance-none truncate bg-transparent pr-1 text-xs font-medium outline-none"
-            >
-              {repos.map((item) => (
-                <option key={item.cwd} value={item.cwd}>
-                  {item.custom ? `${item.name} ↗` : item.name}
-                </option>
-              ))}
-              <option value="__add__">+ Add custom path…</option>
-            </select>
-            {selectedIsCustom && (
-              <button
-                type="button"
-                aria-label="Remove custom path"
-                title="Remove this custom path"
-                onClick={() => removeCustomPath(selectedRepo)}
-                className="ml-0.5 text-muted-foreground hover:text-destructive"
-              >
-                <X className="size-3.5" />
-              </button>
-            )}
-          </FieldPill>
-
-          <FieldPill icon={<UserRound className="size-3.5 text-muted-foreground" />}>
-            <select
-              value={user}
-              onChange={(e) => setUser(e.target.value)}
-              aria-label="Owner"
-              className="max-w-24 appearance-none truncate bg-transparent pr-1 text-xs font-medium outline-none"
-            >
-              <option value="">Unassigned</option>
-              {users.map((item) => (
-                <option key={item.email} value={item.email}>
-                  {item.name ?? shortUser(item.email)}
-                </option>
-              ))}
-            </select>
-          </FieldPill>
-        </div>
-
-        <div className="mt-3">
-          <button
-            type="button"
-            onClick={() => setResumeOpen((v) => !v)}
-            className="flex h-8 items-center gap-0.5 rounded-full px-1 text-xs font-medium text-muted-foreground transition hover:text-foreground"
-          >
-            {resumeOpen ? (
-              <ChevronDown className="size-3.5" />
-            ) : (
-              <ChevronRight className="size-3.5" />
-            )}
-            Resume a recent session
-          </button>
-          {resumeOpen && (
-            <div className="mt-1 max-h-56 overflow-y-auto overscroll-contain rounded-xl bg-muted/50 p-1">
-              {resumable === null ? (
-                <div className="px-2 py-3 text-center text-xs text-muted-foreground">
-                  Loading…
-                </div>
-              ) : resumable.length === 0 ? (
-                <div className="px-2 py-3 text-center text-xs text-muted-foreground">
-                  No recent sessions to resume
-                </div>
-              ) : (
-                resumable.map((s) => (
-                  <button
-                    key={s.sessionId}
-                    type="button"
-                    onClick={() => resume(s.sessionId)}
-                    className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition hover:bg-background"
-                  >
-                    <RotateCcw className="size-3.5 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-xs font-medium text-foreground">
-                        {s.title}
-                      </span>
-                      <span className="block truncate text-[11px] text-muted-foreground">
-                        {s.project} · {timeAgo(s.lastActivityAt)}
-                      </span>
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="mt-4 flex items-center justify-between gap-3">
-          <span
-            className={cn(
-              "min-w-0 truncate text-xs",
-              error ? "text-destructive" : "text-muted-foreground",
-            )}
-          >
-            {error || (agent === "claude" ? usage : "") || ""}
-          </span>
-          <Button type="submit" variant="brand" disabled={busy || !selectedRepo}>
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-            Start
-          </Button>
-        </div>
-        </form>
+        {formBody}
       </DrawerContent>
     </Drawer>
   );
@@ -4913,13 +6720,89 @@ function NewSessionDialog({
 
 // A compact iOS-style control pill: optional leading icon, a borderless native
 // select, and a trailing chevron — no field label, the value speaks for itself.
-function FieldPill({ icon, children }: { icon?: ReactNode; children: ReactNode }) {
+function FieldPill({ icon, children, flat = false }: { icon?: ReactNode; children: ReactNode; flat?: boolean }) {
   return (
-    <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full bg-muted px-3 text-foreground">
+    <label
+      className={cn(
+        "inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full text-foreground",
+        flat ? "px-1" : "bg-muted px-3",
+      )}
+    >
       {icon}
       {children}
       <ChevronDown className="size-3 shrink-0 text-muted-foreground/70" />
     </label>
+  );
+}
+
+function AutoAgentModelPicker({
+  backend,
+  setBackend,
+  model,
+  setModel,
+  thinkingLevel,
+  setThinkingLevel,
+}: {
+  backend: AutoAgentBackend;
+  setBackend: (v: AutoAgentBackend) => void;
+  model: string;
+  setModel: (v: string) => void;
+  thinkingLevel: ThinkingLevel;
+  setThinkingLevel: (v: ThinkingLevel) => void;
+}) {
+  const models = AGENT_MODELS[backend];
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <div className="inline-flex h-8 items-center rounded-full bg-muted p-0.5 text-xs font-semibold">
+        {AUTO_AGENT_OPTIONS.map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            title={label}
+            aria-label={label}
+            onClick={() => setBackend(key)}
+            className={cn(
+              "flex h-7 w-9 items-center justify-center rounded-full transition",
+              backend === key ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
+            )}
+          >
+            <img src={agentIconSrc(key)} alt="" className="size-5" />
+          </button>
+        ))}
+      </div>
+
+      <FieldPill>
+        <select
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+          aria-label="Auto agent model"
+          className="max-w-36 appearance-none truncate bg-transparent pr-1 text-xs font-medium outline-none"
+        >
+          {models.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
+      </FieldPill>
+
+      {agentSupportsThinking(backend) ? (
+        <FieldPill>
+          <select
+            value={thinkingLevel}
+            onChange={(e) => setThinkingLevel(e.target.value as ThinkingLevel)}
+            aria-label="Auto agent thinking level"
+            className="max-w-24 appearance-none truncate bg-transparent pr-1 text-xs font-medium outline-none"
+          >
+            {THINKING_LEVELS.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </FieldPill>
+      ) : null}
+    </div>
   );
 }
 
@@ -5100,17 +6983,34 @@ function NewAutoAgentComposer({
 }: {
   repos: Repo[];
   onClose: () => void;
-  onCreate: (idea: string, cwd: string | undefined) => void;
+  onCreate: (
+    idea: string,
+    cwd: string | undefined,
+    opts: { agent?: AutoAgentBackend; model?: string; thinkingLevel?: string },
+  ) => void;
 }) {
   const [idea, setIdea] = useState("");
   const [cwd, setCwd] = useState(repos[0]?.cwd ?? "");
+  const [backend, setBackend] = useState<AutoAgentBackend>("aisdk");
+  const [model, setModel] = useState(AGENT_DEFAULT_MODEL.aisdk);
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(savedThinkingLevel());
+  const backendModels = AGENT_MODELS[backend];
+  const supportsThinking = agentSupportsThinking(backend);
+
+  useEffect(() => {
+    if (!backendModels.includes(model)) setModel(AGENT_DEFAULT_MODEL[backend]);
+  }, [backend, backendModels, model]);
 
   // Fire-and-close: hand the idea to the parent (which runs compose → save
   // under a loading toast) and dismiss the sheet immediately. The slow,
   // repo-inspecting work happens in the background — nothing blocks here.
   function submit() {
     if (!idea.trim()) return;
-    onCreate(idea.trim(), cwd || undefined);
+    onCreate(idea.trim(), cwd || undefined, {
+      agent: backend,
+      model,
+      thinkingLevel: supportsThinking ? thinkingLevel : undefined,
+    });
     onClose();
   }
 
@@ -5160,6 +7060,15 @@ function NewAutoAgentComposer({
           </select>
         </div>
 
+        <AutoAgentModelPicker
+          backend={backend}
+          setBackend={setBackend}
+          model={model}
+          setModel={setModel}
+          thinkingLevel={thinkingLevel}
+          setThinkingLevel={setThinkingLevel}
+        />
+
         <div className="mt-2 px-1 text-[11px] text-muted-foreground">
           We'll inspect the selected repo, then name it, pick a schedule, and
           write a watch prompt grounded in the real files — it keeps working
@@ -5192,6 +7101,9 @@ function AgentEditorSheet({
     schedule: string;
     enabled: boolean;
     cwd?: string;
+    agent?: AutoAgentBackend;
+    model?: string;
+    thinkingLevel?: string;
   }) => Promise<void>;
   onDelete: (id: string) => void;
   onRunNow: (id: string) => void;
@@ -5222,11 +7134,24 @@ function AgentEditorSheet({
   // repo list as the Create Session dialog. Default to the agent's saved base,
   // else the first repo.
   const [cwd, setCwd] = useState(existing?.cwd ?? repos[0]?.cwd ?? "");
+  const [backend, setBackend] = useState<AutoAgentBackend>(existing?.agent ?? "aisdk");
+  const [model, setModel] = useState(
+    existing?.model ?? AGENT_DEFAULT_MODEL[existing?.agent ?? "aisdk"],
+  );
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(
+    (existing?.thinkingLevel as ThinkingLevel | undefined) ?? savedThinkingLevel(),
+  );
   const [busy, setBusy] = useState(false);
   const [enhancing, setEnhancing] = useState(false);
   const [enhanceErr, setEnhanceErr] = useState<string | null>(null);
   // Scan only when the schedule changes, not on every keystroke elsewhere.
   const nextPreview = useMemo(() => nextRunAt(schedule, tz), [schedule, tz]);
+  const backendModels = AGENT_MODELS[backend];
+  const supportsThinking = agentSupportsThinking(backend);
+
+  useEffect(() => {
+    if (!backendModels.includes(model)) setModel(AGENT_DEFAULT_MODEL[backend]);
+  }, [backend, backendModels, model]);
 
   // Rewrite the user's rough idea into a sharp watch-agent prompt in place. The
   // server runs a one-shot, tool-less claude pass; we swap the result into the
@@ -5263,6 +7188,9 @@ function AgentEditorSheet({
         schedule: schedule.trim(),
         enabled,
         cwd: cwd || undefined,
+        agent: backend,
+        model: model.trim() || undefined,
+        thinkingLevel: supportsThinking ? thinkingLevel : undefined,
       });
     } finally {
       setBusy(false);
@@ -5457,6 +7385,15 @@ function AgentEditorSheet({
           </select>
         </div>
 
+        <AutoAgentModelPicker
+          backend={backend}
+          setBackend={setBackend}
+          model={model}
+          setModel={setModel}
+          thinkingLevel={thinkingLevel}
+          setThinkingLevel={setThinkingLevel}
+        />
+
         <button
           type="button"
           onClick={() => setEnabled((v) => !v)}
@@ -5504,7 +7441,7 @@ function AgentEditorSheet({
           onChange={(e) => setPrompt(e.target.value)}
           rows={5}
           disabled={enhancing}
-          placeholder="Jot a rough idea of what to watch for, then hit Enhance — it rewrites it into a sharp watch-agent prompt. Runs as a real Claude session with read-only tools and gathers its own context."
+          placeholder="Jot a rough idea of what to watch for, then hit Enhance — it rewrites it into a sharp watch-agent prompt. Runs on the selected agent provider and gathers its own context."
           className="mt-1.5 resize-none text-sm leading-relaxed"
         />
         <div className="mt-1.5 px-1 text-[11px] text-muted-foreground">
@@ -5578,6 +7515,296 @@ function ScheduleSummary({ expr, tz }: { expr: string; tz: string }) {
   );
 }
 
+type ProviderOption = { id: string; label: string; available: boolean };
+type VoiceConfig = {
+  settings: { ttsProvider: string; sttProvider: string };
+  providers: { tts: ProviderOption[]; stt: ProviderOption[] };
+};
+
+function ProviderRow({
+  icon,
+  label,
+  value,
+  options,
+  onChange,
+  disabled,
+}: {
+  icon: ReactNode;
+  label: string;
+  value?: string;
+  options?: ProviderOption[];
+  onChange: (v: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+      <div className="flex items-center gap-3">
+        <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
+          {icon}
+        </span>
+        <span className="text-sm font-medium">{label}</span>
+      </div>
+      <select
+        className="max-w-[55%] rounded-lg border border-border bg-background px-2 py-1 text-sm disabled:opacity-50"
+        value={value ?? ""}
+        disabled={disabled || !options}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={label}
+      >
+        {!options ? (
+          <option value="">Loading…</option>
+        ) : (
+          options.map((o) => (
+            <option key={o.id} value={o.id} disabled={!o.available}>
+              {o.label}
+              {o.available ? "" : " (no key)"}
+            </option>
+          ))
+        )}
+      </select>
+    </div>
+  );
+}
+
+function VoiceSettingsSection() {
+  const [cfg, setCfg] = useState<VoiceConfig | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void fetch("/api/voice/config")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: VoiceConfig | null) => {
+        if (alive && d) setCfg(d);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const update = async (patch: Partial<VoiceConfig["settings"]>) => {
+    setCfg((c) => (c ? { ...c, settings: { ...c.settings, ...patch } } : c));
+    setSaving(true);
+    try {
+      const r = await fetch("/api/voice/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const d = (await r.json().catch(() => null)) as { settings?: VoiceConfig["settings"] } | null;
+      if (d?.settings) setCfg((c) => (c ? { ...c, settings: d.settings! } : c));
+    } catch {
+      // keep the optimistic value; next load reconciles
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="space-y-2">
+      <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        Voice
+      </h2>
+      <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+        <ProviderRow
+          icon={<Radio className="size-4" />}
+          label="Voice output"
+          value={cfg?.settings.ttsProvider}
+          options={cfg?.providers.tts}
+          onChange={(v) => void update({ ttsProvider: v })}
+          disabled={!cfg || saving}
+        />
+        <ProviderRow
+          icon={<Mic className="size-4" />}
+          label="Voice input"
+          value={cfg?.settings.sttProvider}
+          options={cfg?.providers.stt}
+          onChange={(v) => void update({ sttProvider: v })}
+          disabled={!cfg || saving}
+        />
+      </div>
+      <p className="px-4 text-xs text-muted-foreground">
+        Applies to the voice orb and every mic button. Greyed-out providers need an API key set on
+        the server.
+      </p>
+    </section>
+  );
+}
+
+function SettingsView({
+  dark,
+  toggleTheme,
+  user,
+  onOpenTerminal,
+  onOpenBrowser,
+  onOpenAuto,
+  extTabs,
+  onOpenExt,
+}: {
+  dark: boolean;
+  toggleTheme: () => void;
+  user: string | null;
+  onOpenTerminal: () => void;
+  onOpenBrowser: () => void;
+  onOpenAuto: () => void;
+  extTabs: ExtensionNavTab[];
+  onOpenExt: (id: string) => void;
+}) {
+  const initial = (user ?? "").trim().slice(0, 1).toUpperCase() || "?";
+
+  return (
+    <div className="mx-auto max-w-xl space-y-8 pb-10">
+      {/* Account */}
+      <div className="flex items-center gap-3.5 px-1">
+        <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-secondary text-lg font-semibold text-muted-foreground">
+          {initial}
+        </div>
+        <div className="min-w-0">
+          <div className="truncate text-lg font-semibold leading-tight">
+            {user ?? "No user selected"}
+          </div>
+          <div className="text-sm text-muted-foreground">
+            {user ? "Signed in on this device" : "Pick your name in the top filter"}
+          </div>
+        </div>
+      </div>
+
+      {/* Auto agents — opens as its own page. */}
+      <section className="space-y-2">
+        <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Automation
+        </h2>
+        <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
+          <button
+            type="button"
+            onClick={onOpenAuto}
+            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
+          >
+            <div className="flex items-center gap-3">
+              <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
+                <CalendarClock className="size-4" />
+              </span>
+              <span className="text-sm font-medium">Auto agents</span>
+            </div>
+            <ChevronRight className="size-4 text-muted-foreground/60" />
+          </button>
+        </div>
+      </section>
+
+      {/* Tools — open as their own pages. */}
+      <section className="space-y-2">
+        <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Tools
+        </h2>
+        <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+          <button
+            type="button"
+            onClick={onOpenTerminal}
+            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
+          >
+            <div className="flex items-center gap-3">
+              <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
+                <TerminalSquare className="size-4" />
+              </span>
+              <span className="text-sm font-medium">Open terminal</span>
+            </div>
+            <ChevronRight className="size-4 text-muted-foreground/60" />
+          </button>
+          <button
+            type="button"
+            onClick={onOpenBrowser}
+            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
+          >
+            <div className="flex items-center gap-3">
+              <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
+                <Globe className="size-4" />
+              </span>
+              <span className="text-sm font-medium">Browser profiles</span>
+            </div>
+            <ChevronRight className="size-4 text-muted-foreground/60" />
+          </button>
+        </div>
+      </section>
+
+      {/* Extension tabs — each opens as its own page. */}
+      {extTabs.length ? (
+        <section className="space-y-2">
+          <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Extensions
+          </h2>
+          <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+            {extTabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => onOpenExt(t.id)}
+                className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
+                    {t.icon ?? <Flag className="size-4" />}
+                  </span>
+                  <span className="text-sm font-medium">{t.label}</span>
+                </div>
+                <ChevronRight className="size-4 text-muted-foreground/60" />
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {/* Display */}
+      <section className="space-y-2">
+        <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Display
+        </h2>
+        <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
+          <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+            <div className="flex items-center gap-3">
+              <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
+                {dark ? <Moon className="size-4" /> : <Sun className="size-4" />}
+              </span>
+              <span className="text-sm font-medium">Dark mode</span>
+            </div>
+            <Switch
+              checked={dark}
+              onCheckedChange={toggleTheme}
+              aria-label="Toggle dark mode"
+            />
+          </div>
+        </div>
+        <p className="px-4 text-xs text-muted-foreground">
+          Follows your system appearance until you set it here.
+        </p>
+      </section>
+
+      {/* Notifications */}
+      <section className="space-y-2">
+        <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Notifications
+        </h2>
+        <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
+          <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+            <div className="flex items-center gap-3">
+              <span className="flex size-7 items-center justify-center rounded-[7px] bg-destructive text-white">
+                <Bell className="size-4" />
+              </span>
+              <span className="text-sm font-medium">Push notifications</span>
+            </div>
+            <PushBell user={user} />
+          </div>
+        </div>
+        <p className="px-4 text-xs text-muted-foreground">
+          Get a push when one of your sessions needs you.
+        </p>
+      </section>
+
+      <VoiceSettingsSection />
+    </div>
+  );
+}
+
 function AutoManageView({
   autoAgents = [],
   findings = [],
@@ -5634,10 +7861,21 @@ function AutoManageView({
             <div className="order-5 flex w-full min-w-0 items-center gap-1 pl-5 text-xs text-muted-foreground sm:order-3 sm:w-auto sm:max-w-[11rem] sm:pl-0">
               <ScheduleSummary expr={a.schedule} tz={tz} />
             </div>
+            <div className="order-6 flex w-full min-w-0 items-center gap-1 pl-5 text-xs text-muted-foreground sm:order-4 sm:w-auto sm:max-w-[10rem] sm:pl-0">
+              <img
+                src={agentIconSrc(a.agent ?? "aisdk")}
+                alt=""
+                className="size-3.5 shrink-0"
+              />
+              <span className="truncate">
+                {AUTO_AGENT_OPTIONS.find((o) => o.key === (a.agent ?? "aisdk"))?.label ?? "claude"}
+                {a.model ? <span className="text-muted-foreground/70"> · {a.model}</span> : null}
+              </span>
+            </div>
             <Button
               size="icon-sm"
               variant="tint"
-              className="order-3 shrink-0 sm:order-4"
+              className="order-3 shrink-0 sm:order-5"
               onClick={() => onRunNow(a.id)}
               disabled={a.running}
               aria-label={a.running ? "Running…" : "Run now"}
@@ -5651,7 +7889,7 @@ function AutoManageView({
             <Button
               size="icon-sm"
               variant="tint"
-              className="order-4 shrink-0 sm:order-5"
+              className="order-4 shrink-0 sm:order-6"
               onClick={() => onEdit(a)}
               aria-label="Edit"
             >
