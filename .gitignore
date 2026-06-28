@@ -17,3 +17,6 @@ deploy/gpu-stt/instance.env
 # Python bytecode cache
 __pycache__/
 *.py[cod]
+
+# Operator-internal scripts (cp-sql bridge, X sync, security-scan CLI, …)
+scripts-internal/

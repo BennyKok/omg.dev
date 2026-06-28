@@ -123,6 +123,7 @@ src/                 CLI, server, sessions, tmux, agents, integrations
 web/                 React/Vite PWA
 agents/              Example markdown-defined insight agents
 scripts/setup.sh     Installer/provisioning script
+scripts-internal/    Operator-only helpers (gitignored — see CONTRIBUTING.md)
 deploy/              Optional voice, STT, Modal, and ops deployments
 docs/                Notes, designs, and future public images
 ```

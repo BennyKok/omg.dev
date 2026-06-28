@@ -33,6 +33,9 @@ cd web && bun run build       # typecheck + build the UI (commit web/dist)
   kinds), `runner.ts` (collect → prompt → report), `backends/`, and `collectors/`.
 - `agents/*.md` — example agents.
 - `scripts/setup.sh` — the one-command VPS + Tailscale bootstrap.
+- `scripts-internal/` — operator-only helpers (cp-sql bridge, X sync, security-scan
+  CLI). Gitignored; copy from an existing box or author your own. Never commit
+  hosts, paths, or tokens — configure via `.env`.
 
 ## Adding a collector
 
