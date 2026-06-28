@@ -39,13 +39,21 @@ const Toaster = ({ ...props }: ToasterProps) => {
           "--normal-bg": "var(--popover)",
           "--normal-text": "var(--popover-foreground)",
           "--normal-border": "var(--border)",
-          "--border-radius": "var(--radius-xl)",
+          "--border-radius": "var(--radius-lg)",
+          // Anchor width for the Sonner stack; the toast itself shrinks to fit
+          // content via .cn-toast, capped by this value.
+          "--lfg-toast-max": "min(18rem, calc(100vw - 2rem))",
+          "--width": "var(--lfg-toast-max)",
+          "--toast-icon-margin-end": "8px",
           fontFamily: "var(--font-sans)",
         } as React.CSSProperties
       }
       toastOptions={{
         classNames: {
-          toast: "cn-toast !rounded-2xl !bg-popover !text-popover-foreground !border-border font-sans",
+          toast:
+            "cn-toast !min-h-0 !gap-2 !rounded-xl !px-3.5 !py-2.5 !text-[13px] !leading-snug !bg-popover !text-popover-foreground !border-border font-sans",
+          title: "!font-medium",
+          icon: "!mx-0 !size-4 [&>svg]:!size-4",
           description: "hidden",
           success:
             "!bg-popover !text-success !border-success/30",

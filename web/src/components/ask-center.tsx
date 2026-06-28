@@ -176,6 +176,9 @@ export function AskNavButton({
   const { questions, setCollapsed } = useAsk();
   const count = questions.length;
   const waiting = count > 0;
+  // No question in flight: don't show the button in the right top island
+  // (stay visible while the Ask tab is open so the user can navigate back out).
+  if (!waiting && !active) return null;
   return (
     <button
       type="button"
