@@ -94,7 +94,17 @@ export async function startLoginSession(
 ): Promise<{ id: string }> {
   const id = newProfileId();
   const viewport = sanitizeViewport(opts?.viewport);
-  const browser = await chromium.launch({ headless: true });
+  // Meta (Threads/Instagram) blocks *headless* Chromium on login — the page
+  // renders but the credential POST silently fails ("Something went wrong").
+  // Run headed when an X display is available (Xvfb :99 in prod, see
+  // lfg-xvfb.service); fall back to headless if there's no DISPLAY so dev boxes
+  // without a display still work. `--disable-blink-features=AutomationControlled`
+  // drops the `--enable-automation` fingerprint Meta keys on.
+  const headed = !!process.env.DISPLAY;
+  const browser = await chromium.launch({
+    headless: !headed,
+    args: ["--disable-blink-features=AutomationControlled"],
+  });
   const context = await browser.newContext({
     ...(opts?.existingProfileId
       ? { storageState: profileStatePath(opts.existingProfileId) }
@@ -105,7 +115,33 @@ export async function startLoginSession(
     hasTouch: viewport.isMobile,
     ...(viewport.isMobile ? { userAgent: MOBILE_UA } : {}),
   });
+  // Mask the residual automation tell: Playwright leaves navigator.webdriver
+  // === true even headed, which Meta reads as a bot. Hide it before any page
+  // script runs. Applies to every page opened in this context.
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+  });
   const page = await context.newPage();
+  // DIAGNOSTIC: log Meta's actual login responses so we can tell a bot/IP
+  // checkpoint ("something went wrong") apart from bad creds. Remove once the
+  // Threads login issue is resolved.
+  page.on("response", (resp) => {
+    const u = resp.url();
+    if (!/accounts\/login|bloks|challenge|checkpoint|two_factor|web\/accounts/i.test(u))
+      return;
+    void resp
+      .text()
+      .then((body) => {
+        console.log(
+          `[login-diag ${id}] ${resp.status()} ${u.slice(0, 110)} :: ${body
+            .replace(/\s+/g, " ")
+            .slice(0, 500)}`,
+        );
+      })
+      .catch(() => {
+        console.log(`[login-diag ${id}] ${resp.status()} ${u.slice(0, 110)} :: <no body>`);
+      });
+  });
   sessions.set(id, { id, browser, context, page, viewport });
   try {
     await page.goto(url, { waitUntil: "domcontentloaded" });

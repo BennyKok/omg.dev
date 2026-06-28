@@ -3,23 +3,29 @@
 import { readdir, readlink } from "node:fs/promises";
 import { statSync, readFileSync } from "node:fs";
 import { join, basename } from "node:path";
-import { tmuxTargetForPid } from "./tmux";
-import { isManagedName } from "./managed";
+import { panePidForSession, tmuxHasSession, tmuxTargetForPid, capturePane, isBusy } from "./tmux";
+import { isManagedName, listManaged } from "./managed";
 import {
   listEntries as listAisdkEntries,
   isPidAlive,
   patchEntry as patchAisdkEntry,
   findEntryByAnyId as findAisdkEntryByAnyId,
+  isEntryBusy as isAisdkEntryBusy,
 } from "./aisdk-registry";
 import { isClosing } from "./closing";
 import { userAssignments } from "./users";
 import { PATHS } from "./config";
 import { homedir } from "node:os";
+import { projectName } from "./projects";
 
 const HOME = process.env.HOME ?? homedir();
 const PROJECTS_DIR = join(HOME, ".claude", "projects");
 const CODEX_SESSIONS_DIR = join(HOME, ".codex", "sessions");
+const GROK_SESSIONS_DIR = join(HOME, ".grok", "sessions");
+const GROK_ACTIVE_SESSIONS = join(HOME, ".grok", "active_sessions.json");
 const TITLE_MAX = 72;
+const TOOL_USE_TEXT_MAX = 4_000;
+const TOOL_RESULT_TEXT_MAX = 8_000;
 
 export type SessionMsg = {
   // Stable per-line id (the transcript `uuid`). Lets the client dedup messages
@@ -41,7 +47,7 @@ export type SessionMsg = {
 };
 
 export type Session = {
-  agent: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode";
+  agent: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "grok";
   pid: number;
   cmd: string;
   cwd: string | null;
@@ -73,9 +79,16 @@ export type Session = {
   // session reads as an explained pause, not a silent stall. See computeStatus.
   status: "ok" | "blocked";
   // Machine-readable reason when status === "blocked"; null when ok.
-  statusReason: "model_unavailable" | "out_of_credits" | null;
+  statusReason: "model_unavailable" | "out_of_credits" | "provider_auth" | "provider_error" | null;
   // Human-readable one-liner for the banner (e.g. the dead model id), or null.
   statusDetail: string | null;
+  // Whether the session is actively working RIGHT NOW: for a tmux session, its
+  // pane shows a running turn (isBusy); for a pane-less aisdk session, its
+  // registry entry is mid-inference. Computed at list time so the UI can show
+  // "working" from the /api/sessions call alone, without having to open a
+  // transcript stream just to discover it. Always populated by listSessions()
+  // (optional here only so the per-kind object literals don't each set it).
+  busy?: boolean;
 };
 
 // Classify a session's health from the most recent assistant turn. Claude Code
@@ -122,6 +135,17 @@ function computeStatus(
     // and would mislabel healthy sessions as paused.
     if (/credit balance is too low|"type":\s*"(credit_balance_too_low|billing_error)"/i.test(text)) {
       return { status: "blocked", statusReason: "out_of_credits", statusDetail: "Out of API credits" };
+    }
+    if (/opencode turn failed/i.test(text)) {
+      const authErr =
+        /\b(forbidden|unauthorized|authentication|api key|invalid key|access denied|permission denied)\b/i.test(
+          text,
+        );
+      return {
+        status: "blocked",
+        statusReason: authErr ? "provider_auth" : "provider_error",
+        statusDetail: text.replace(/\s+/g, " ").trim().slice(0, 180),
+      };
     }
   }
   return { status: "ok", statusReason: null, statusDetail: null };
@@ -172,6 +196,40 @@ function listCodexProcs(): { pid: number; cmd: string }[] {
   return procs;
 }
 
+type GrokActiveSession = {
+  session_id?: string;
+  pid?: number;
+  cwd?: string;
+  opened_at?: string;
+};
+
+function readProcCmd(pid: number, fallback: string): string {
+  try {
+    const raw = readFileSync(`/proc/${pid}/cmdline`, "utf8");
+    const cmd = raw.split("\0").filter(Boolean).join(" ").trim();
+    return cmd || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function readGrokActiveSessions(): GrokActiveSession[] {
+  try {
+    const rows = JSON.parse(readFileSync(GROK_ACTIVE_SESSIONS, "utf8")) as unknown;
+    return Array.isArray(rows) ? (rows as GrokActiveSession[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function grokSessionIdForPid(pid: number): string | null {
+  for (const row of readGrokActiveSessions()) {
+    if (row.pid === pid && typeof row.session_id === "string" && UUID.test(row.session_id))
+      return row.session_id;
+  }
+  return null;
+}
+
 // Authoritative pid→session map. Claude writes ~/.claude/sessions/<pid>.json
 // with the LIVE sessionId. The `--resume <uuid>` in the command line is the
 // *pre-resume* id (Claude continues into a fresh transcript), so it points at a
@@ -207,11 +265,6 @@ function readPidSession(
 // Returns null until claude has written ~/.claude/sessions/<pid>.json.
 export function sessionIdForPid(pid: number): string | null {
   return readPidSession(pid)?.sessionId ?? null;
-}
-
-function projectName(cwd: string | null): string {
-  if (!cwd) return "—";
-  return cwd.replace(/[/.]/g, "-").replace(/^-/, "");
 }
 
 // User-set title overrides, keyed by sessionId (data/session-titles.json).
@@ -253,6 +306,12 @@ async function firstPromptTitle(path: string): Promise<string | null> {
       const cm = normalizeCodexLine(line);
       if (cm?.role === "user" && cm.kind === "text") {
         const t = stripConversationPrefix(cm.text).trim().replace(/\s+/g, " ");
+        if (t && !t.startsWith("<"))
+          return t.length > TITLE_MAX ? t.slice(0, TITLE_MAX - 1) + "…" : t;
+      }
+      const gm = normalizeGrokLineMessages(line).find((msg) => msg.role === "user" && msg.kind === "text");
+      if (gm) {
+        const t = gm.text.trim().replace(/\s+/g, " ");
         if (t && !t.startsWith("<"))
           return t.length > TITLE_MAX ? t.slice(0, TITLE_MAX - 1) + "…" : t;
       }
@@ -343,6 +402,47 @@ async function findCodexTranscriptById(id: string): Promise<string | null> {
   return null;
 }
 
+async function findGrokTranscriptById(id: string): Promise<string | null> {
+  if (!UUID.test(id)) return null;
+  let dirs: string[];
+  try {
+    dirs = await readdir(GROK_SESSIONS_DIR);
+  } catch {
+    return null;
+  }
+  for (const dir of dirs) {
+    const p = join(GROK_SESSIONS_DIR, dir, id, "chat_history.jsonl");
+    if (await Bun.file(p).exists()) return p;
+  }
+  return null;
+}
+
+async function grokSummaryById(id: string): Promise<{
+  generated_title?: string;
+  current_model_id?: string;
+  updated_at?: string;
+} | null> {
+  if (!UUID.test(id)) return null;
+  let dirs: string[];
+  try {
+    dirs = await readdir(GROK_SESSIONS_DIR);
+  } catch {
+    return null;
+  }
+  for (const dir of dirs) {
+    const p = join(GROK_SESSIONS_DIR, dir, id, "summary.json");
+    try {
+      const f = Bun.file(p);
+      if (await f.exists()) return (await f.json()) as {
+        generated_title?: string;
+        current_model_id?: string;
+        updated_at?: string;
+      };
+    } catch {}
+  }
+  return null;
+}
+
 type CodexThread = {
   id: string;
   path: string;
@@ -352,31 +452,49 @@ type CodexThread = {
   firstUserText: string | null;
 };
 
+// A rollout's header (session_meta line + first user prompt) is written once at
+// session start and never rewritten — rollouts are append-only. So the parse is
+// a pure function of the path: cache it permanently and re-read only the cheap
+// mtime each poll. Without this, every listSessions() re-read+parsed ~384KB of
+// EVERY historical codex rollout (O(all codex sessions ever)) every 5 seconds.
+type CodexHead = { id: string; cwd: string | null; createdAt: number | null; firstUserText: string | null };
+const codexHeadCache = new Map<string, CodexHead | null>();
+
+async function parseCodexHead(path: string): Promise<CodexHead | null> {
+  try {
+    const first = (await Bun.file(path).slice(0, 128 * 1024).text()).split("\n")[0];
+    if (!first) return null;
+    const row = JSON.parse(first) as {
+      type?: string;
+      payload?: { id?: string; cwd?: string; timestamp?: string };
+    };
+    const id = row.payload?.id ?? path.match(UUID)?.[0] ?? null;
+    if (row.type !== "session_meta" || !id) return null;
+    return {
+      id,
+      cwd: row.payload?.cwd ?? null,
+      createdAt: row.payload?.timestamp ? Date.parse(row.payload.timestamp) : null,
+      firstUserText: await firstUserTextFromTop(path),
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function codexThreads(): Promise<CodexThread[]> {
   const out: CodexThread[] = [];
   for (const path of await codexRolloutFiles()) {
+    let head = codexHeadCache.get(path);
+    if (head === undefined) {
+      head = await parseCodexHead(path);
+      codexHeadCache.set(path, head);
+    }
+    if (!head) continue;
+    let updatedAt: number | null = null;
     try {
-      const first = (await Bun.file(path).slice(0, 128 * 1024).text()).split("\n")[0];
-      if (!first) continue;
-      const row = JSON.parse(first) as {
-        type?: string;
-        payload?: { id?: string; cwd?: string; timestamp?: string };
-      };
-      const id = row.payload?.id ?? path.match(UUID)?.[0] ?? null;
-      if (row.type !== "session_meta" || !id) continue;
-      let updatedAt: number | null = null;
-      try {
-        updatedAt = statSync(path).mtimeMs;
-      } catch {}
-      out.push({
-        id,
-        path,
-        cwd: row.payload?.cwd ?? null,
-        createdAt: row.payload?.timestamp ? Date.parse(row.payload.timestamp) : null,
-        updatedAt,
-        firstUserText: await firstUserTextFromTop(path),
-      });
+      updatedAt = statSync(path).mtimeMs;
     } catch {}
+    out.push({ id: head.id, path, cwd: head.cwd, createdAt: head.createdAt, updatedAt, firstUserText: head.firstUserText });
   }
   return out;
 }
@@ -500,6 +618,14 @@ function extractText(content: unknown): string {
   return "";
 }
 
+function compactToolText(text: string, max = TOOL_RESULT_TEXT_MAX): string {
+  if (text.length <= max) return text;
+  const headLen = Math.floor(max * 0.7);
+  const tailLen = max - headLen;
+  const omitted = text.length - headLen - tailLen;
+  return `${text.slice(0, headLen)}\n\n...[${omitted.toLocaleString()} chars omitted from oversized tool output]...\n\n${text.slice(-tailLen)}`;
+}
+
 function codexContentText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -602,15 +728,86 @@ function normalizeCodexLine(line: string): SessionMsg | null {
     return { id: codexLineId(x, text), role: "assistant", kind: "thinking", text, ts };
   }
   if (p.type === "function_call") {
-    const args = p.arguments ? `: ${p.arguments}` : "";
+    const args = p.arguments ? `: ${compactToolText(p.arguments, TOOL_USE_TEXT_MAX)}` : "";
     const text = `${p.name ?? "tool"}${args}`;
     return { id: codexLineId(x, text), role: "assistant", kind: "tool_use", text, ts };
   }
   if (p.type === "function_call_output") {
-    const text = codexOutputText(p.output) || "(result)";
+    const text = compactToolText(codexOutputText(p.output) || "(result)");
     return { id: codexLineId(x, text), role: "tool", kind: "tool_result", text, ts };
   }
   return null;
+}
+
+function grokTextContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return (content as Array<{ type?: string; text?: string }>)
+    .map((c) => (c?.type === "text" && typeof c.text === "string" ? c.text : ""))
+    .filter(Boolean)
+    .join("\n");
+}
+
+function stripGrokUserQuery(text: string): string {
+  const matches = [...text.matchAll(/<user_query>\s*([\s\S]*?)\s*<\/user_query>/gi)];
+  const last = matches[matches.length - 1]?.[1]?.trim();
+  return (last || text).trim();
+}
+
+function normalizeGrokLineMessages(line: string): SessionMsg[] {
+  let x: {
+    type?: string;
+    content?: unknown;
+    model_id?: string;
+    tool_calls?: Array<{ id?: string; name?: string; arguments?: string }>;
+    tool_call_id?: string;
+    summary?: Array<{ text?: string }>;
+  };
+  try {
+    x = JSON.parse(line);
+  } catch {
+    return [];
+  }
+
+  if (x.type === "user") {
+    const text = stripGrokUserQuery(grokTextContent(x.content));
+    return text ? [{ id: null, role: "user", kind: "text", text, ts: null }] : [];
+  }
+
+  if (x.type === "assistant") {
+    const msgs: SessionMsg[] = [];
+    const text = grokTextContent(x.content).trim();
+    if (text) msgs.push({ id: null, role: "assistant", kind: "text", text, ts: null });
+    for (const call of x.tool_calls ?? []) {
+      const args = call.arguments ? `: ${compactToolText(call.arguments, TOOL_USE_TEXT_MAX)}` : "";
+      msgs.push({
+        id: call.id ?? null,
+        role: "assistant",
+        kind: "tool_use",
+        text: `${call.name ?? "tool"}${args}`,
+        ts: null,
+      });
+    }
+    return msgs;
+  }
+
+  if (x.type === "tool_result") {
+    const text = compactToolText(grokTextContent(x.content).trim());
+    return text
+      ? [{ id: x.tool_call_id ?? null, role: "tool", kind: "tool_result", text, ts: null }]
+      : [];
+  }
+
+  if (x.type === "reasoning") {
+    const text = (x.summary ?? [])
+      .map((s) => s.text)
+      .filter((s): s is string => !!s?.trim())
+      .join("\n")
+      .trim();
+    return text ? [{ id: null, role: "assistant", kind: "thinking", text, ts: null }] : [];
+  }
+
+  return [];
 }
 
 export function normalizeLine(line: string): SessionMsg | null {
@@ -628,6 +825,8 @@ export function normalizeLineMessages(line: string): SessionMsg[] {
 function normalizeLineUnsafe(line: string): SessionMsg[] {
   const codex = normalizeCodexLine(line);
   if (codex) return [codex];
+  const grok = normalizeGrokLineMessages(line);
+  if (grok.length) return grok;
 
   let x: {
     type?: string;
@@ -682,7 +881,7 @@ function normalizeLineUnsafe(line: string): SessionMsg[] {
         return;
       }
       if (c.type === "tool_use") {
-        const input = describeInput(c.input);
+        const input = compactToolText(describeInput(c.input), TOOL_USE_TEXT_MAX);
         msgs.push({
           id: blockId(id, idx),
           role,
@@ -697,7 +896,7 @@ function normalizeLineUnsafe(line: string): SessionMsg[] {
           id: blockId(id, idx),
           role,
           kind: "tool_result",
-          text: extractText(c.content) || "(result)",
+          text: compactToolText(extractText(c.content) || "(result)"),
           ts,
         });
       }
@@ -789,6 +988,61 @@ async function previewLast(path: string): Promise<SessionMsg | null> {
   return null;
 }
 
+// --- transcript metadata caches ------------------------------------------
+// Every transcript field listSessions() surfaces is a pure function of the
+// file's bytes, and transcripts are append-only — so (mtimeMs, size) is a sound
+// cache key. Under 5s polling the common case is an idle session whose file is
+// untouched between polls; caching makes that cost zero reads instead of 3–4
+// re-reads of up to 256KB each. Keep the existing helpers as the cold-path
+// implementations so behaviour is identical on a cache miss.
+type TailMeta = { last: SessionMsg | null; lastUser: string | null };
+const tailMetaCache = new Map<string, { mtimeMs: number; size: number; meta: TailMeta }>();
+const liveModelCache = new Map<string, { mtimeMs: number; size: number; model: string | null }>();
+// The first real user prompt (the session title) is written once and never
+// rewritten, so this is keyed by path alone and lives for the process lifetime.
+const firstTitleCache = new Map<string, string>();
+
+function fileSize(path: string): number {
+  try {
+    return Bun.file(path).size;
+  } catch {
+    return 0;
+  }
+}
+
+// last message + last user prompt — shared by every agent loop.
+async function transcriptTailMeta(path: string, mtimeMs: number): Promise<TailMeta> {
+  const size = fileSize(path);
+  const hit = tailMetaCache.get(path);
+  if (hit && hit.mtimeMs === mtimeMs && hit.size === size) return hit.meta;
+  const meta: TailMeta = {
+    last: await previewLast(path).catch(() => null),
+    lastUser: await lastUserText(path).catch(() => null),
+  };
+  tailMetaCache.set(path, { mtimeMs, size, meta });
+  return meta;
+}
+
+// live (most-recent-assistant-turn) model — only the claude loop needs it.
+async function cachedLiveModel(path: string, mtimeMs: number): Promise<string | null> {
+  const size = fileSize(path);
+  const hit = liveModelCache.get(path);
+  if (hit && hit.mtimeMs === mtimeMs && hit.size === size) return hit.model;
+  const model = await lastAssistantModel(path).catch(() => null);
+  liveModelCache.set(path, { mtimeMs, size, model });
+  return model;
+}
+
+async function cachedFirstTitle(path: string): Promise<string | null> {
+  const hit = firstTitleCache.get(path);
+  if (hit != null) return hit;
+  const title = await firstPromptTitle(path).catch(() => null);
+  // Only memoise a real title: a transcript can exist before its first prompt
+  // is written, so a transient null must be retried (not pinned) next poll.
+  if (title) firstTitleCache.set(path, title);
+  return title;
+}
+
 export async function listSessions(): Promise<Session[]> {
   // Drop just-closed sessions up front (see closing.ts): /close kills the
   // process but it lingers for a poll or two, so without this a stopped session
@@ -873,9 +1127,10 @@ export async function listSessions(): Promise<Session[]> {
       try {
         lastActivityAt = statSync(transcriptPath).mtimeMs;
       } catch {}
-      last = await previewLast(transcriptPath).catch(() => null);
-      lastUser = await lastUserText(transcriptPath).catch(() => null);
-      liveModel = await lastAssistantModel(transcriptPath).catch(() => null);
+      const meta = await transcriptTailMeta(transcriptPath, lastActivityAt ?? 0);
+      last = meta.last;
+      lastUser = meta.lastUser;
+      liveModel = await cachedLiveModel(transcriptPath, lastActivityAt ?? 0);
     }
     // Prefer the transcript's live model; fall back to the launch `--model` arg
     // (always present on a lfg-managed session, so the badge shows instantly
@@ -884,7 +1139,7 @@ export async function listSessions(): Promise<Session[]> {
     const health = computeStatus(last, liveModel);
     const project = projectName(e.cwd);
     let title = (sessionId && overrides[sessionId]) || null;
-    if (!title && transcriptPath) title = await firstPromptTitle(transcriptPath);
+    if (!title && transcriptPath) title = await cachedFirstTitle(transcriptPath);
     if (!title) title = e.cwd ? basename(e.cwd) : project;
     const tmuxTarget =
       isHeadless(e.cmd) || !e.authoritative ? null : tmuxTargetForPid(e.pid);
@@ -979,12 +1234,13 @@ export async function listSessions(): Promise<Session[]> {
       try {
         lastActivityAt = statSync(transcriptPath).mtimeMs;
       } catch {}
-      last = await previewLast(transcriptPath).catch(() => null);
-      lastUser = await lastUserText(transcriptPath).catch(() => null);
+      const meta = await transcriptTailMeta(transcriptPath, lastActivityAt ?? 0);
+      last = meta.last;
+      lastUser = meta.lastUser;
     }
     const project = projectName(cwd);
     let title = (sessionId && overrides[sessionId]) || null;
-    if (!title && transcriptPath) title = await firstPromptTitle(transcriptPath);
+    if (!title && transcriptPath) title = await cachedFirstTitle(transcriptPath);
     if (!title) title = cwd ? basename(cwd) : project;
     const tmuxTarget = tmuxTargetForPid(p.pid);
     const tmuxName = tmuxTarget ? tmuxTarget.split(":")[0] : null;
@@ -1009,6 +1265,102 @@ export async function listSessions(): Promise<Session[]> {
       // arg verbatim (its names are catalog-driven, not the Claude aliases).
       model: p.cmd.match(/--model\s+(\S+)/)?.[1] ?? null,
       ...computeStatus(last, null),
+    });
+  }
+
+  const managedGrok = listManaged().filter((m) => m.agent === "grok" && m.sessionId);
+  const managedGrokByName = new Map(managedGrok.map((m) => [m.tmuxName, m]));
+  const activeGrokTmux = new Set<string>();
+  for (const g of readGrokActiveSessions()) {
+    const grokSessionId = typeof g.session_id === "string" && UUID.test(g.session_id)
+      ? g.session_id
+      : null;
+    const pid = typeof g.pid === "number" ? g.pid : null;
+    if (!grokSessionId || !pid || !isPidAlive(pid) || isClosing(pid)) continue;
+
+    let cwd: string | null = g.cwd ?? null;
+    let startedAt: number | null = g.opened_at ? Date.parse(g.opened_at) : null;
+    try {
+      cwd = await readlink(`/proc/${pid}/cwd`);
+    } catch {}
+    try {
+      startedAt = statSync(`/proc/${pid}`).ctimeMs;
+    } catch {}
+
+    const tmuxTarget = tmuxTargetForPid(pid);
+    const tmuxName = tmuxTarget ? tmuxTarget.split(":")[0] : null;
+    if (tmuxName) activeGrokTmux.add(tmuxName);
+    const managedRec = tmuxName ? managedGrokByName.get(tmuxName) : undefined;
+    const sessionId = managedRec?.sessionId ?? grokSessionId;
+    const transcriptPath = await findGrokTranscriptById(grokSessionId);
+    const summary = await grokSummaryById(grokSessionId);
+    let last: SessionMsg | null = null;
+    let lastActivityAt: number | null = summary?.updated_at ? Date.parse(summary.updated_at) : null;
+    let lastUser: string | null = null;
+    if (transcriptPath) {
+      try {
+        lastActivityAt = statSync(transcriptPath).mtimeMs;
+      } catch {}
+      const meta = await transcriptTailMeta(transcriptPath, lastActivityAt ?? 0);
+      last = meta.last;
+      lastUser = meta.lastUser;
+    }
+
+    const project = projectName(cwd);
+    let title = overrides[sessionId] || overrides[grokSessionId] || null;
+    if (!title && summary?.generated_title) title = summary.generated_title;
+    if (!title && transcriptPath) title = await cachedFirstTitle(transcriptPath);
+    if (!title) title = cwd ? basename(cwd) : project;
+    const cmd = readProcCmd(pid, `grok --model ${summary?.current_model_id ?? "grok-composer-2.5-fast"}`);
+
+    out.push({
+      agent: "grok",
+      pid,
+      cmd,
+      cwd,
+      project,
+      title,
+      lastUserText: lastUser,
+      sessionId,
+      startedAt,
+      transcriptPath,
+      lastActivityAt,
+      last,
+      tmuxTarget,
+      tmuxName,
+      managed: !!managedRec || (tmuxName ? isManagedName(tmuxName) : false),
+      assignedUser: tmuxName ? (assigns[tmuxName] ?? null) : null,
+      model: summary?.current_model_id ?? cmd.match(/--model\s+(\S+)/)?.[1] ?? null,
+      ...computeStatus(last, null),
+    });
+  }
+
+  for (const m of managedGrok) {
+    if (activeGrokTmux.has(m.tmuxName) || !tmuxHasSession(m.tmuxName)) continue;
+    const pid = panePidForSession(m.tmuxName);
+    if (!pid || isClosing(pid)) continue;
+    const tmuxTarget = tmuxTargetForPid(pid) ?? `${m.tmuxName}:0.0`;
+    const cmd = readProcCmd(pid, "grok");
+    const project = projectName(m.cwd);
+    out.push({
+      agent: "grok",
+      pid,
+      cmd,
+      cwd: m.cwd,
+      project,
+      title: overrides[m.sessionId!] || (m.cwd ? basename(m.cwd) : project),
+      lastUserText: null,
+      sessionId: m.sessionId!,
+      startedAt: m.createdAt,
+      transcriptPath: null,
+      lastActivityAt: m.createdAt,
+      last: null,
+      tmuxTarget,
+      tmuxName: m.tmuxName,
+      managed: true,
+      assignedUser: assigns[m.tmuxName] ?? null,
+      model: cmd.match(/--model\s+(\S+)/)?.[1] ?? null,
+      ...computeStatus(null, null),
     });
   }
 
@@ -1053,13 +1405,13 @@ export async function listSessions(): Promise<Session[]> {
       // The transcript helpers handle BOTH claude JSONL and codex rollouts
       // (normalizeCodexLine is tried first inside each), so they're safe for a
       // codex rollout path too. Guarded with .catch — never throw out of here.
-      last = await previewLast(transcriptPath).catch(() => null);
-      lastUser = await lastUserText(transcriptPath).catch(() => null);
+      const meta = await transcriptTailMeta(transcriptPath, lastActivityAt ?? 0);
+      last = meta.last;
+      lastUser = meta.lastUser;
     }
     const project = projectName(e.cwd);
     let title = overrides[sessionId] || null;
-    if (!title && transcriptPath)
-      title = await firstPromptTitle(transcriptPath).catch(() => null);
+    if (!title && transcriptPath) title = await cachedFirstTitle(transcriptPath);
     if (!title) title = e.title || (e.cwd ? basename(e.cwd) : project);
     let startedAt: number | null = e.createdAt;
     try {
@@ -1122,7 +1474,30 @@ export async function listSessions(): Promise<Session[]> {
     );
     for (const s of group) s.tmuxTarget = null;
   }
+  // Stamp the live "working" flag onto every session so the list call is
+  // self-sufficient: the client can render which sessions are busy without
+  // opening a transcript stream. Cheap — a tmux pane capture (a few ms each) or
+  // an in-memory registry lookup — and it replaces N eager SSE connections.
+  for (const s of out) s.busy = sessionBusy(s);
   return out;
+}
+
+// Live busy state for a single session, derived the same way the SSE stream
+// derives it (so the list and the stream agree): a tmux session is busy when
+// its pane shows a running turn; a pane-less aisdk session is busy when its
+// registry entry is mid-inference. Defaults to false when state is unknown.
+function sessionBusy(s: Session): boolean {
+  try {
+    if (s.tmuxTarget) {
+      const pane = capturePane(s.tmuxTarget);
+      return pane ? isBusy(pane) : false;
+    }
+    if (s.sessionId) {
+      const entry = findAisdkEntryByAnyId(s.sessionId);
+      if (entry) return isAisdkEntryBusy(entry);
+    }
+  } catch {}
+  return false;
 }
 
 // `claude -p` / `--print` runs headless (no TUI). pgrep gives us the full
@@ -1146,6 +1521,12 @@ function ppidOf(pid: number): number | null {
 
 export async function resolveTranscript(sessionId: string): Promise<string | null> {
   if (!UUID.test(sessionId)) return null;
+  const managedGrok = listManaged().find((m) => m.agent === "grok" && m.sessionId === sessionId);
+  if (managedGrok) {
+    const pid = panePidForSession(managedGrok.tmuxName);
+    const grokId = pid ? grokSessionIdForPid(pid) : null;
+    if (grokId) return findGrokTranscriptById(grokId);
+  }
   const entry = findAisdkEntryByAnyId(sessionId);
   let id = entry?.agent === "codex" && entry.threadId ? entry.threadId : sessionId;
   if (entry?.agent === "codex" && !entry.threadId) {
@@ -1155,7 +1536,23 @@ export async function resolveTranscript(sessionId: string): Promise<string | nul
       patchAisdkEntry(entry.sessionId, { threadId: inferred.id });
     }
   }
-  return (await findTranscriptById(id)) ?? findCodexTranscriptById(id);
+  let p =
+    (await findTranscriptById(id)) ?? (await findCodexTranscriptById(id)) ?? findGrokTranscriptById(id);
+  if (p) return p;
+
+  // For freshly-created headless "js" (aisdk/opencode) sessions we own the id and
+  // the cwd (from the aisdk registry entry). Return the path the transcript *will*
+  // be written to under ~/.claude/projects/... even if the .jsonl does not exist
+  // on disk yet. This lets /api/live/stream establish a tailer immediately; pump
+  // will deliver lines as soon as the harness/provider writes the first content.
+  // (Codex-aisdk uses separate rollout paths and threadIds assigned after turn 1.)
+  if (entry?.cwd && entry.agent !== "codex" && entry.agent !== "codex-aisdk") {
+    for (const d of candidateDirs(entry.cwd)) {
+      const cand = join(PROJECTS_DIR, d, `${id}.jsonl`);
+      return cand;
+    }
+  }
+  return null;
 }
 
 // The cwd a claude transcript was recorded in. Every claude JSONL line carries a
@@ -1303,6 +1700,65 @@ export async function recentMessages(
     msgs.push(...normalizeLineMessages(l));
   }
   return limit > 0 ? msgs.slice(-limit) : msgs;
+}
+
+// One transcript line that matched a search query: a clipped snippet centred on
+// the hit, plus enough provenance (role/kind/ts/index) for the caller to locate
+// it. `index` is the message's position in the scanned window (newest-last).
+export type TranscriptMatch = {
+  role: string;
+  kind: SessionMsg["kind"];
+  ts: number | null;
+  snippet: string;
+  index: number;
+};
+
+// Full-text search over a session's transcript. Reuses normalizeLineMessages so
+// it works for every agent type (Claude + Codex JSONL), then does a case-
+// insensitive substring scan over the normalized prose of each message —
+// including thinking/tool blocks, since the agent often wants to find what a
+// session was reasoning about, not just what it said out loud. Scans the tail
+// (maxBytes, default 4 MB) newest-first so the most recent hits survive the
+// result cap; the returned slice is re-sorted oldest→newest for readability.
+export async function searchTranscript(
+  path: string,
+  query: string,
+  opts: { limit?: number; maxBytes?: number | null; window?: number } = {},
+): Promise<{ total: number; scanned: number; truncated: boolean; results: TranscriptMatch[] }> {
+  const q = query.trim().toLowerCase();
+  if (!q) return { total: 0, scanned: 0, truncated: false, results: [] };
+  const limit = opts.limit && opts.limit > 0 ? Math.min(opts.limit, 50) : 12;
+  const maxBytes = opts.maxBytes === undefined ? 4 * 1024 * 1024 : opts.maxBytes;
+  const win = opts.window && opts.window > 0 ? opts.window : 200;
+
+  const file = Bun.file(path);
+  const size = file.size;
+  const start = maxBytes == null ? 0 : Math.max(0, size - maxBytes);
+  const truncated = start > 0;
+  const text = await file.slice(start).text();
+  const lines = text.split("\n").filter(Boolean);
+  const msgs: SessionMsg[] = [];
+  for (const l of lines) msgs.push(...normalizeLineMessages(l));
+
+  const results: TranscriptMatch[] = [];
+  let total = 0;
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i];
+    if (!m.text) continue;
+    const pos = m.text.toLowerCase().indexOf(q);
+    if (pos < 0) continue;
+    total++;
+    if (results.length >= limit) continue;
+    const half = Math.floor(win / 2);
+    const from = Math.max(0, pos - half);
+    const to = Math.min(m.text.length, pos + q.length + half);
+    let snippet = m.text.slice(from, to).replace(/\s+/g, " ").trim();
+    if (from > 0) snippet = `…${snippet}`;
+    if (to < m.text.length) snippet = `${snippet}…`;
+    results.push({ role: m.role, kind: m.kind, ts: m.ts, snippet, index: i });
+  }
+  results.reverse(); // chronological within the (newest-first capped) set
+  return { total, scanned: msgs.length, truncated, results };
 }
 
 // A prompt read straight from the transcript's structured AskUserQuestion

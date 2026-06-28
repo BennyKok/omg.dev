@@ -45,7 +45,13 @@ export function displayName(email: string): string {
 // (the browser has no MD5) and the roster is served with avatars baked in.
 export function gravatar(email: string): string {
   const h = createHash("md5").update(email.trim().toLowerCase()).digest("hex");
-  return `https://www.gravatar.com/avatar/${h}?d=identicon&s=80`;
+  // Cache-buster: the base URL is keyed only by the email hash, so when a user
+  // swaps their Gravatar photo the URL is unchanged and the browser/CDN keep
+  // serving the stale image forever. Rotate a token on a 10-minute bucket so an
+  // updated avatar propagates within ~10min instead of being pinned, without
+  // hammering Gravatar on every request.
+  const bucket = Math.floor(Date.now() / 600_000);
+  return `https://www.gravatar.com/avatar/${h}?d=identicon&s=80&_=${bucket}`;
 }
 
 export function userRoster(): { email: string; name: string; avatar: string }[] {

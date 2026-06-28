@@ -75,9 +75,10 @@ async function runClaude(
   cwd: string,
   onLog: (s: string) => void,
   extraTools: string[] = [],
+  opts: { model?: string; thinkingLevel?: string } = {},
 ): Promise<string> {
   const allowedTools = [...READONLY_TOOLS, ...extraTools];
-  onLog(`[auto] claude run (${prompt.length} chars) in ${cwd} [tools: ${allowedTools.join(",")}]`);
+  onLog(`[auto] claude run (${prompt.length} chars) in ${cwd} [model: ${opts.model ?? "default"}; tools: ${allowedTools.join(",")}]`);
   // Route through the AI-SDK report backend instead of spawning `claude -p`
   // directly: it drives the same installed claude binary + subscription auth,
   // but stays on the AI SDK surface (same as the interactive harnesses) and
@@ -93,7 +94,11 @@ async function runClaude(
     // the agent's cwd for the duration of the run. chdir is process-global, so
     // the whole chdir→run→restore is serialized under the shared cwd lock.
     return await runInCwd(cwd, () =>
-      pipeToClaudeAiSdk(prompt, onLog, { allowedTools }),
+      pipeToClaudeAiSdk(prompt, onLog, {
+        allowedTools,
+        model: opts.model,
+        thinkingLevel: opts.thinkingLevel,
+      }),
     );
   } catch (e) {
     // The report backend throws on an empty generation; the old `claude -p`
@@ -106,6 +111,37 @@ async function runClaude(
     }
     throw e;
   }
+}
+
+async function runSelectedBackend(
+  agent: AutoAgent,
+  prompt: string,
+  cwd: string,
+  onLog: (s: string) => void,
+): Promise<string> {
+  const backend = agent.agent ?? "aisdk";
+  if (backend === "codex-aisdk") {
+    onLog(`[auto] codex run (${prompt.length} chars) in ${cwd} [model: ${agent.model ?? "default"}]`);
+    const { pipeToCodexAiSdk } = await import("../agents/backends/codex-aisdk-session.ts");
+    return await runInCwd(cwd, () =>
+      pipeToCodexAiSdk(prompt, onLog, {
+        cwd,
+        model: agent.model,
+        thinkingLevel: agent.thinkingLevel,
+      }),
+    );
+  }
+  if (backend === "opencode") {
+    onLog(`[auto] opencode run (${prompt.length} chars) in ${cwd} [model: ${agent.model ?? "default"}]`);
+    const { pipeToOpencodeAiSdk } = await import("../agents/backends/opencode-aisdk-session.ts");
+    return await runInCwd(cwd, () =>
+      pipeToOpencodeAiSdk(prompt, onLog, { cwd, model: agent.model }),
+    );
+  }
+  return await runClaude(prompt, cwd, onLog, agent.tools ?? [], {
+    model: agent.model,
+    thinkingLevel: agent.thinkingLevel,
+  });
 }
 
 export async function runAutoAgent(
@@ -151,7 +187,7 @@ async function runAutoAgentInner(
   if (!agent.cwd) {
     onLog(`[auto] WARNING: agent "${agent.id}" has no base repo (cwd) — defaulting to ${PATHS.root}; set one in the editor`);
   }
-  const result = await runClaude(prompt, cwd, onLog, agent.tools ?? []);
+  const result = await runSelectedBackend(agent, prompt, cwd, onLog);
 
   const parsed = parseFinding(result);
   if (!parsed) {

@@ -13,7 +13,13 @@ import {
 } from "./cron";
 import { VoiceOrb } from "./voice-orb";
 import { VoiceCall } from "./voice-call";
-import { speakText, stopSpeaking } from "./voice-tts";
+import {
+  pauseSpeaking,
+  resumeSpeaking,
+  speakText,
+  stopSpeaking,
+  useSpeechPlayback,
+} from "./voice-tts";
 import type {
   CSSProperties,
   ErrorInfo,
@@ -91,6 +97,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { Streamdown } from "streamdown";
+import { marked } from "marked";
 import { useExtensionNavTabs } from "./lib/extensions";
 import type { ExtensionNavTab } from "./lib/extensions";
 import BrowserProfiles from "./BrowserProfiles";
@@ -161,6 +168,10 @@ type Session = {
   busy?: boolean;
 };
 
+// An optimistic placeholder for a session that's mid-spawn: rendered as a
+// "starting…" card until the real session shows up in the next list refresh.
+type LaunchingSession = { id: string; prompt: string; agent: string };
+
 type User = { email: string; name?: string; avatar?: string };
 type Repo = { name: string; cwd: string; project?: string; custom?: boolean };
 
@@ -222,6 +233,12 @@ type ComposerAttachment = {
   error?: string;
 };
 
+// Match the server's markdown rendering (serve.ts: marked.setOptions({ gfm:
+// true, breaks: false })) so the optimistic placeholder's HTML is identical to
+// what the SSE stream delivers for the real message — no height jump when the
+// pending bubble is swapped for the streamed one.
+marked.setOptions({ gfm: true, breaks: false });
+
 const CLAUDE_MODELS = ["sonnet", "opus", "haiku", "fable"];
 const CODEX_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"];
 // Models the one-shot AI-SDK test option supports (the provider maps these
@@ -234,6 +251,7 @@ const OPENCODE_MODELS = [
   "fugu/fugu-ultra",
   "opencode/big-pickle",
   "opencode/deepseek-v4-flash-free",
+  "novita-ai/zai-org/glm-5.2",
   "novita-ai/zai-org/glm-5.1",
   "novita-ai/qwen/qwen3-coder-480b-a35b-instruct",
   "novita-ai/deepseek/deepseek-v4-pro",
@@ -530,6 +548,22 @@ const LEVEL_FULL_SCALE = 0.22;
 // back rather than strobing on every syllable gap.
 const LEVEL_ATTACK = 0.55;
 const LEVEL_RELEASE = 0.1;
+
+function recordingButtonStyle(level: number): CSSProperties {
+  // A held thumb covers the center of a 36-44px button, so the recording state
+  // needs a fixed growth floor before the audio-reactive pulse is visible.
+  const scale = 1.34 + level * 0.16;
+  const glow = 16 + level * 26;
+  const spread = 4 + level * 8;
+  const opacity = Math.round(45 + level * 45);
+  return {
+    transform: `scale(${scale.toFixed(3)})`,
+    boxShadow: `0 0 0 5px color-mix(in srgb, var(--destructive) 22%, transparent), 0 0 ${glow.toFixed(
+      1,
+    )}px ${spread.toFixed(1)}px color-mix(in srgb, var(--destructive) ${opacity}%, transparent)`,
+    transition: "transform 80ms linear, box-shadow 80ms linear",
+  };
+}
 
 // Push-to-talk dictation with optional hands-free auto-send. Tap to record, tap
 // to stop. Audio streams live to the server's realtime-STT bridge
@@ -1089,17 +1123,7 @@ const MicButton = forwardRef<
   // throws a red glow ring that swells with your volume. Inline transitions keep
   // it snappy (the className `transition` would lag the per-frame updates by
   // ~150ms and make it feel sluggish).
-  const reactiveStyle: CSSProperties | undefined = recording
-    ? {
-        transform: `scale(${(1 + level * 0.14).toFixed(3)})`,
-        boxShadow: `0 0 ${(8 + level * 22).toFixed(1)}px ${(level * 5).toFixed(
-          1,
-        )}px color-mix(in srgb, var(--destructive) ${Math.round(
-          35 + level * 55,
-        )}%, transparent)`,
-        transition: "transform 80ms linear, box-shadow 80ms linear",
-      }
-    : undefined;
+  const reactiveStyle = recording ? recordingButtonStyle(level) : undefined;
   return (
     <button
       type="button"
@@ -1114,7 +1138,7 @@ const MicButton = forwardRef<
       className={cn(
         "flex shrink-0 touch-none select-none items-center justify-center rounded-full transition",
         recording
-          ? "bg-destructive text-destructive-foreground"
+          ? "z-10 bg-destructive text-destructive-foreground"
           : "text-muted-foreground hover:bg-muted",
         className,
       )}
@@ -1264,17 +1288,7 @@ function ComposerSendButton({
   // While recording the button reacts to live mic level — scales up and throws a
   // red glow ring that swells with volume. Inline transitions keep it per-frame
   // snappy (the className `transition` would lag the updates and feel sluggish).
-  const reactiveStyle: CSSProperties | undefined = recording
-    ? {
-        transform: `scale(${(1 + level * 0.14).toFixed(3)})`,
-        boxShadow: `0 0 ${(8 + level * 22).toFixed(1)}px ${(level * 5).toFixed(
-          1,
-        )}px color-mix(in srgb, var(--destructive) ${Math.round(
-          35 + level * 55,
-        )}%, transparent)`,
-        transition: "transform 80ms linear, box-shadow 80ms linear",
-      }
-    : undefined;
+  const reactiveStyle = recording ? recordingButtonStyle(level) : undefined;
 
   return (
     <button
@@ -1292,7 +1306,7 @@ function ComposerSendButton({
       className={cn(
         "flex shrink-0 touch-none select-none items-center justify-center rounded-full font-semibold transition active:scale-[0.97]",
         recording
-          ? "bg-destructive text-destructive-foreground"
+          ? "z-10 bg-destructive text-destructive-foreground"
           : "bg-foreground/[0.08] text-foreground/80 shadow-sm hover:bg-foreground/[0.12] hover:text-foreground",
         dim && "opacity-50",
         className,
@@ -1306,73 +1320,6 @@ function ComposerSendButton({
         <Send className="size-4" />
       )}
     </button>
-  );
-}
-
-// Push-to-talk overlay for the launcher orb. While the orb is held (`active`) it
-// records and streams the live transcript into a centered pill — the same
-// immediate-transcription feel as the composer's mic, but without opening the
-// heavy New Session drawer. On release it stops and hands the final transcript to
-// onResult, which runs the one-shot voice flow (intent → create → spoken reply).
-function OrbVoiceOverlay({
-  active,
-  onResult,
-}: {
-  active: boolean;
-  onResult: (transcript: string) => void;
-}) {
-  const [transcript, setTranscript] = useState("");
-  const holding = useRef(false);
-  const resultRef = useRef(onResult);
-  resultRef.current = onResult;
-
-  const { start, stop, state, level } = useDictation({
-    onText: (t) => setTranscript(t),
-    onInterim: (t) => setTranscript(t),
-    onAutoSubmit: (t) => {
-      setTranscript(t);
-      resultRef.current(t);
-    },
-  });
-
-  useEffect(() => {
-    if (active && !holding.current) {
-      holding.current = true;
-      setTranscript("");
-      // autoStop:false → only the release ends the take, so a mid-thought pause
-      // can't cut it off. Release (active→false) fires stop(true), which delivers
-      // the final transcript through onAutoSubmit → onResult.
-      void start({ autoStop: false });
-    } else if (!active && holding.current) {
-      holding.current = false;
-      void stop(true);
-    }
-  }, [active, start, stop]);
-
-  // Stay mounted through the brief "transcribing" tail after release so the pill
-  // doesn't flicker away before the final transcript lands.
-  if (!active && state === "idle") return null;
-
-  return createPortal(
-    <div className="pointer-events-none fixed inset-x-0 bottom-[var(--lfg-orb-stack-bottom)] z-[60] flex justify-center px-4 md:inset-x-auto md:bottom-auto md:right-4 md:top-[calc(env(safe-area-inset-top)+var(--lfg-orb-size)+2rem)] md:px-0">
-      <div className="flex max-w-md items-center gap-3 rounded-2xl bg-background/90 px-4 py-3 shadow-lg ring-1 ring-border backdrop-blur">
-        {state === "transcribing" ? (
-          <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
-        ) : (
-          <span
-            className="size-2.5 shrink-0 rounded-full bg-destructive"
-            style={{
-              transform: `scale(${(1 + level * 1.2).toFixed(2)})`,
-              transition: "transform 80ms linear",
-            }}
-          />
-        )}
-        <span className="text-sm leading-snug text-foreground">
-          {transcript || (state === "transcribing" ? "…" : "Listening…")}
-        </span>
-      </div>
-    </div>,
-    document.body,
   );
 }
 
@@ -1493,6 +1440,30 @@ function markExpandedSid(sid: string): void {
   }
   window.dispatchEvent(new Event("lfg-collapse-change"));
 }
+
+function markCollapsedSid(sid: string): void {
+  try {
+    localStorage.setItem(`lfg-collapsed:${sid}`, "1");
+  } catch {
+    /* private mode / quota */
+  }
+  window.dispatchEvent(new Event("lfg-collapse-change"));
+}
+
+// Sessions created in this tab within the last ~2s — drives the one-shot card
+// entrance animation. Module-level (not state) so it survives the re-render that
+// brings the new card in; the card reads it on its first mount and the entry is
+// auto-pruned so the animation never replays on later reorders/re-renders.
+const recentlyCreatedSids = new Set<string>();
+function markCreatedSid(sid: string): void {
+  recentlyCreatedSids.add(sid);
+  window.setTimeout(() => recentlyCreatedSids.delete(sid), 2000);
+}
+
+// Monotonic id for optimistic launching-session placeholders (no collisions
+// even when several creates fire in the same millisecond).
+let launchSeq = 0;
+const nextLaunchId = () => `launching-${++launchSeq}`;
 
 // The set of EXPANDED session ids among `sessions`, kept in sync with the
 // per-card collapse state. SessionCard dispatches `lfg-collapse-change` when the
@@ -1729,7 +1700,11 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
       role: "user",
       kind: "text",
       text,
-      html: escapeHtml(text),
+      // Render through the same markdown pipeline the server uses (msgWithHtml)
+      // so the placeholder's HTML matches the streamed message byte-for-byte —
+      // otherwise the <p> margins differ from escapeHtml's plain text and the
+      // bubble jumps height when the real message replaces the placeholder.
+      html: marked.parse(text) as string,
       ts: Date.now(),
       pending: true,
     };
@@ -1835,15 +1810,11 @@ export function App() {
   // composer's textarea so the soft keyboard opens.
   const [composerExpanded, setComposerExpanded] = useState(false);
   const [composerFocusNonce, setComposerFocusNonce] = useState(0);
-  // True while the launcher orb is being press-and-held — opens the New Session
-  // drawer in voice mode and, on release, submits the dictated prompt.
-  const [voiceHold, setVoiceHold] = useState(false);
-  // True while the launcher orb is held for the push-to-talk one-shot voice flow
-  // (live transcript overlay → resolve intent → create session → speak back).
-  const [orbListening, setOrbListening] = useState(false);
-  // True while a one-shot orb question is being looked up — drives the orb's
-  // thinking animation since this flow isn't a LiveKit call.
-  const [orbThinking, setOrbThinking] = useState(false);
+  // Optimistic "starting…" cards: shown in the live list from the moment a
+  // create is submitted until the real session lands (the spawn POST blocks on
+  // agent boot for up to a few seconds). Keeps the create→appear transition
+  // continuous instead of leaving a frozen gap.
+  const [launchingSessions, setLaunchingSessions] = useState<LaunchingSession[]>([]);
   const [callOpen, setCallOpen] = useState(false);
   const [runLog, setRunLog] = useState<string | null>(null);
   // Auto agents
@@ -2053,173 +2024,6 @@ export function App() {
       return next.size === prev.size ? prev : next;
     });
   }, []);
-
-  // Hands-free session creation from the FAB's hold-to-talk gesture. There's no
-  // dialog here, so we reuse the same defaults the New Session dialog persists
-  // (last agent/model/repo/owner) and fall back to the active filter / first
-  // known repo+user. If there's no repo to run in we can't create blind, so we
-  // open the full dialog instead of failing silently.
-  //
-  // The spawn is slow (tmux + agent boot), so we DON'T block on it: jump to the
-  // live view immediately and hand the request to a sonner toast that shows a
-  // loading spinner → success/error on its own. The caller isn't awaited.
-  // Drives the orb's push-to-talk one-shot: take the dictated transcript, resolve
-  // it into a session config (the user's saved settings as the base, with any
-  // spoken overrides applied), create the session, and speak a short confirmation
-  // back. The spawn is slow (tmux + agent boot) so we don't block on it — a sonner
-  // toast tracks it and we jump to the live view immediately.
-  const createVoiceSession = useCallback(
-    async (transcript: string) => {
-      const baseAgent =
-        (localStorage.getItem("lfg_v2_agent") as AgentKind | null) || "aisdk";
-      const baseModel =
-        localStorage.getItem(`lfg_model_${baseAgent}`) ||
-        localStorage.getItem("lfg_model") ||
-        AGENT_DEFAULT_MODEL[baseAgent];
-      const baseThinking = agentSupportsThinking(baseAgent)
-        ? savedThinkingLevel()
-        : null;
-      // Lock to the active project filter when one is selected, mirroring the
-      // create dialog; otherwise fall back to the last-used / first repo.
-      const scopedCwd =
-        projectFilter !== "__all"
-          ? repos.find((r) => repoProject(r) === projectFilter)?.cwd
-          : undefined;
-      const cwd = scopedCwd || localStorage.getItem("lfg_v2_repo") || repos[0]?.cwd || "";
-      const owner =
-        (userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : "") ||
-        localStorage.getItem("lfg_user") ||
-        users[0]?.email ||
-        "";
-      if (!cwd || !transcript.trim()) {
-        if (!cwd) setNewOpen(true);
-        return;
-      }
-
-      // Ask the brain to merge spoken overrides ("use codex in the web repo")
-      // onto the saved defaults and write a one-line spoken confirmation. The
-      // menus we pass bound what it may choose; it's validated again server-side.
-      const agentList = AGENT_OPTIONS.map((o) => ({ key: o.key, label: o.label }));
-      const modelUnion = Array.from(
-        new Set(AGENT_OPTIONS.flatMap((o) => AGENT_MODELS[o.key])),
-      );
-      const repoList = repos.map((r) => ({ name: repoProject(r), cwd: r.cwd }));
-
-      type Resolved = {
-        kind: "session" | "question";
-        prompt: string;
-        agent: AgentKind;
-        model: string;
-        cwd: string;
-        thinkingLevel?: string | null;
-        confirmation: string;
-        answer: string;
-      };
-      let resolved: Resolved;
-      try {
-        resolved = await api<Resolved>("/api/voice/intent", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            transcript,
-            base: { agent: baseAgent, model: baseModel, cwd, thinkingLevel: baseThinking },
-            repos: repoList,
-            agents: agentList,
-            models: modelUnion,
-            thinkingLevels: agentSupportsThinking(baseAgent) ? [...THINKING_LEVELS] : [],
-          }),
-        });
-      } catch {
-        // Intent service unreachable — create literally with the base config.
-        resolved = {
-          kind: "session",
-          prompt: transcript.trim(),
-          agent: baseAgent,
-          model: baseModel,
-          cwd,
-          thinkingLevel: baseThinking,
-          confirmation: "",
-          answer: "",
-        };
-      }
-
-      // The user asked a question, not for work to be done. Hand it to a Claude
-      // Code agent that explores the scoped repo with full context, then speak
-      // its answer back — same toast + spoken feedback as session creation. The
-      // lookup runs in the background; we don't create a visible session or leave
-      // the current view.
-      if (resolved.kind === "question") {
-        const question = resolved.prompt?.trim() || transcript.trim();
-        const run = (async () => {
-          try {
-            const r = await api<{ answer: string }>("/api/voice/consult", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ question, cwd: resolved.cwd || cwd }),
-            });
-            return r.answer?.trim() || resolved.answer.trim();
-          } catch {
-            return resolved.answer.trim(); // fall back to the quick brain's take
-          }
-        })();
-        setOrbThinking(true);
-        const finished = run
-          .then((answer) => {
-            const spoken = answer || "I couldn't find an answer to that.";
-            void speakText(spoken);
-            return spoken;
-          })
-          .finally(() => setOrbThinking(false));
-        toast.promise(finished, {
-          loading: "Looking into it…",
-          success: (a: string) => a,
-          error: "Couldn't answer that",
-        });
-        return;
-      }
-
-      // Keep the agent/model pair coherent: if the brain switched agents but the
-      // model doesn't belong to the new one, snap to that agent's default.
-      const agent = (AGENT_MODELS[resolved.agent] ? resolved.agent : baseAgent) as AgentKind;
-      const model = AGENT_MODELS[agent]?.includes(resolved.model)
-        ? resolved.model
-        : AGENT_DEFAULT_MODEL[agent];
-      const thinkingLevel = agentSupportsThinking(agent)
-        ? (resolved.thinkingLevel ?? undefined)
-        : undefined;
-
-      setTab("live");
-      const createP = api<{ sessionId?: string }>("/api/sessions/new", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cwd: resolved.cwd || cwd,
-          prompt: resolved.prompt || transcript.trim(),
-          user: owner || undefined,
-          agent,
-          model,
-          thinkingLevel,
-        }),
-      })
-        .then((res) => {
-          const sid = res?.sessionId;
-          if (sid) {
-            markExpandedSid(sid);
-          }
-          return refreshSessions();
-        });
-      toast.promise(createP, {
-        loading: "Creating session…",
-        success: "Session started",
-        error: (e) => (e instanceof Error ? e.message : "Couldn't create session"),
-      });
-
-      // Speak the confirmation back — the one-shot "voice agent" reply. Best-effort
-      // and fire-and-forget so a missing TTS key never blocks session creation.
-      if (resolved.confirmation) void speakText(resolved.confirmation);
-    },
-    [repos, users, userFilter, projectFilter, refreshSessions],
-  );
 
   useEffect(() => {
     let cancelled = false;
@@ -2509,7 +2313,8 @@ export function App() {
       });
       const sid = res?.sessionId;
       if (sid) {
-        markExpandedSid(sid);
+        markCreatedSid(sid);
+        markCollapsedSid(sid);
       }
       await api(`/api/auto/findings/${f.id}`, {
         method: "POST",
@@ -2675,30 +2480,6 @@ export function App() {
           <div className="flex h-11 items-center gap-1.5 rounded-full bg-background/80 px-2 backdrop-blur-xl">
             {tab === "live" ? (
               <>
-                {projectOptions.length > 0 ? (
-                  <div className="hidden items-center gap-1 lg:flex">
-                    {projectOptions.slice(0, 3).map((project) => {
-                      const active = projectFilter === project;
-                      return (
-                        <button
-                          key={project}
-                          type="button"
-                          onClick={() => setProjectFilter(active ? "__all" : project)}
-                          aria-pressed={active}
-                          title={project}
-                          className={cn(
-                            "rounded-full px-2.5 py-1 text-[12px] font-medium tracking-[-0.01em] transition-colors duration-150 ease-out active:scale-[0.96]",
-                            active
-                              ? "bg-primary/10 text-primary"
-                              : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
-                          )}
-                        >
-                          {shortProject(project)}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : null}
                 <ProjectFilterMenu
                   value={projectFilter}
                   projects={projectOptions}
@@ -2713,19 +2494,8 @@ export function App() {
             ) : null}
             {!callOpen ? (
               <VoiceOrb
-                thinking={orbThinking}
                 hidden={false}
-                // Desktop: double-tap/swipe opens the drawer composer. Mobile: the
-                // create composer is already inline at the bottom, so just focus it.
-                onCompose={() =>
-                  isMobile ? setComposerFocusNonce((n) => n + 1) : setNewOpen(true)
-                }
                 onOpenCall={() => setCallOpen(true)}
-                onHoldStart={() => {
-                  stopSpeaking();
-                  setOrbListening(true);
-                }}
-                onHoldEnd={() => setOrbListening(false)}
               />
             ) : null}
             <AskNavButton active={tab === "ask"} onOpen={() => setTab("ask")} />
@@ -2749,6 +2519,7 @@ export function App() {
         {tab === "live" ? (
           <LiveView
             sessions={liveSessions}
+            launching={launchingSessions}
             users={users}
             userFilter={userFilter}
             projectFilter={projectFilter}
@@ -2777,6 +2548,8 @@ export function App() {
           />
         ) : tab === "ask" ? (
           <AskPage />
+        ) : tab === "usage" ? (
+          <UsagePage />
         ) : tab === "term" ? (
           <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading terminal…</div>}>
             <TermView />
@@ -2793,6 +2566,7 @@ export function App() {
             onOpenTerminal={() => setTab("term")}
             onOpenBrowser={() => setTab("browser")}
             onOpenAuto={() => setTab("auto")}
+            onOpenUsage={() => setTab("usage")}
             extTabs={extNavTabs}
             onOpenExt={setTab}
           />
@@ -2814,25 +2588,31 @@ export function App() {
               users={users}
               repos={repos}
               scopedProject={projectFilter}
-              voiceHold={voiceHold}
               onReposChanged={loadCore}
               defaultUser={
                 userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : ""
               }
               onClose={() => setComposerExpanded(false)}
+              onLaunchStart={(meta) => {
+                const id = nextLaunchId();
+                setLaunchingSessions((prev) => [{ id, ...meta }, ...prev]);
+                // Backstop: a failed create never calls onCreated, so expire the
+                // placeholder on its own rather than leaving a ghost card.
+                window.setTimeout(
+                  () =>
+                    setLaunchingSessions((prev) => prev.filter((s) => s.id !== id)),
+                  20000,
+                );
+              }}
               onCreated={async () => {
                 setComposerExpanded(false);
                 await refreshSessions();
+                // The real session is now in the list — retire one placeholder
+                // (the oldest, which sits at the tail since new ones prepend).
+                setLaunchingSessions((prev) => prev.slice(0, -1));
               }}
             />
           ) : null}
-          <OrbVoiceOverlay
-            active={orbListening}
-            onResult={(t) => {
-              setOrbListening(false);
-              void createVoiceSession(t);
-            }}
-          />
         </>
       ) : null}
       {callOpen ? (
@@ -2876,26 +2656,175 @@ export function App() {
         users={users}
         repos={repos}
         scopedProject={projectFilter}
-        voiceHold={voiceHold}
         onReposChanged={loadCore}
         defaultUser={
           userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : ""
         }
         onClose={() => {
           setNewOpen(false);
-          setVoiceHold(false);
         }}
         onCreated={async () => {
           setNewOpen(false);
-          setVoiceHold(false);
           setTab("live");
           await refreshSessions();
         }}
       />
 
+      <FloatingSessionAudio
+        onOptimisticMessage={liveStream.addOptimisticMessage}
+        onRefresh={refreshSessions}
+      />
+
       <Toaster position="bottom-center" />
     </div>
     </AskProvider>
+  );
+}
+
+function FloatingSessionAudio({
+  onOptimisticMessage,
+  onRefresh,
+}: {
+  onOptimisticMessage: (sid: string, text: string) => void;
+  onRefresh: () => Promise<void>;
+}) {
+  const playback = useSpeechPlayback();
+  const [, forceTick] = useState(0);
+  const [sending, setSending] = useState(false);
+  const sid = playback.sessionId;
+
+  useEffect(() => {
+    if (playback.status !== "playing") return;
+    const timer = window.setInterval(() => forceTick((n) => n + 1), 250);
+    return () => window.clearInterval(timer);
+  }, [playback.status]);
+
+  const sendToSession = useCallback(
+    async (text: string) => {
+      const t = text.trim();
+      if (!sid || !t || sending) return;
+      setSending(true);
+      try {
+        onOptimisticMessage(sid, t);
+        await api(`/api/sessions/${sid}/send`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: t }),
+        });
+        await onRefresh();
+      } catch (e) {
+        toast.error("Could not send voice message", {
+          description: e instanceof Error ? e.message : String(e),
+        });
+      } finally {
+        setSending(false);
+      }
+    },
+    [sid, sending, onOptimisticMessage, onRefresh],
+  );
+
+  const dictation = useDictation({
+    baseText: "",
+    silenceMs: 1400,
+    onText: (text) => void sendToSession(text),
+    onAutoSubmit: (text) => void sendToSession(text),
+  });
+
+  if (playback.status === "idle") return null;
+
+  const pct =
+    playback.duration > 0
+      ? Math.max(0, Math.min(100, (playback.position / playback.duration) * 100))
+      : 0;
+  const recording = dictation.state === "recording";
+  const busy = playback.status === "loading" || sending || dictation.state === "transcribing";
+
+  return (
+    <div
+      className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+4.75rem)] z-[75] flex justify-center px-3 md:bottom-5"
+      role="region"
+      aria-label="Session audio controls"
+    >
+      <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-background/92 shadow-[0_12px_40px_rgba(0,0,0,0.22)] backdrop-blur-xl">
+        <div className="h-1 bg-muted">
+          <div
+            className="h-full bg-primary transition-[width] duration-200"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <div className="flex items-center gap-2 px-2.5 py-2">
+          <button
+            type="button"
+            onClick={() =>
+              playback.status === "paused" ? void resumeSpeaking() : pauseSpeaking()
+            }
+            disabled={playback.status === "loading"}
+            aria-label={playback.status === "paused" ? "Resume summary" : "Pause summary"}
+            title={playback.status === "paused" ? "Resume" : "Pause"}
+            className="flex size-10 shrink-0 items-center justify-center rounded-full bg-foreground text-background disabled:opacity-50"
+          >
+            {playback.status === "loading" ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : playback.status === "paused" ? (
+              <Play className="size-4 fill-current" />
+            ) : (
+              <Pause className="size-4" />
+            )}
+          </button>
+
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-semibold">
+              {playback.title || "Session summary"}
+            </div>
+            <div className="truncate text-xs text-muted-foreground">
+              {recording
+                ? "Listening for this session"
+                : dictation.state === "transcribing"
+                  ? "Transcribing..."
+                  : playback.text}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (!sid) {
+                toast.error("No session attached to this audio");
+                return;
+              }
+              haptic("medium");
+              dictation.toggle();
+            }}
+            disabled={!sid || busy}
+            aria-label={recording ? "Stop and send voice message" : "Speak to this session"}
+            title={recording ? "Stop and send" : "Speak to this session"}
+            className={cn(
+              "flex size-10 shrink-0 items-center justify-center rounded-full transition",
+              recording
+                ? "bg-destructive text-destructive-foreground"
+                : "bg-muted text-muted-foreground hover:text-foreground",
+              busy && !recording && "opacity-60",
+            )}
+          >
+            {sending || dictation.state === "transcribing" ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Mic className="size-4" />
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={stopSpeaking}
+            aria-label="Close audio controls"
+            title="Close"
+            className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -3108,7 +3037,8 @@ function ProjectFilterMenu({
   return (
     <label
       className={cn(
-        "relative inline-flex h-8 shrink-0 touch-none select-none items-center gap-1.5 rounded-full border px-2.5 text-xs font-semibold transition",
+        "relative inline-flex h-8 shrink-0 touch-none select-none items-center justify-center gap-1 rounded-full border transition",
+        active ? "max-w-[45vw] px-2.5 sm:max-w-[12rem]" : "size-8",
         active
           ? "border-primary/30 bg-primary/10 text-primary"
           : "border-border bg-muted/70 text-muted-foreground",
@@ -3134,8 +3064,12 @@ function ProjectFilterMenu({
       }}
     >
       <Folder className="size-3.5 shrink-0" />
-      <span className="max-w-28 truncate">{active ? shortProject(value) : "Project"}</span>
-      <ChevronDown className="size-3.5 shrink-0 opacity-60" />
+      {active ? (
+        <span className="truncate text-xs font-medium">
+          {shortProject(value)}
+        </span>
+      ) : null}
+      <ChevronDown className="size-3 shrink-0 opacity-60" />
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -3306,6 +3240,7 @@ function LiveView({
   // layer already guards these to [], but default here too so any future caller
   // passing `undefined` degrades to an empty render instead of crashing the view.
   sessions = [],
+  launching = [],
   users,
   userFilter,
   projectFilter,
@@ -3323,6 +3258,7 @@ function LiveView({
   onOpenFinding,
 }: {
   sessions: Session[];
+  launching?: LaunchingSession[];
   users: User[];
   userFilter: string;
   projectFilter: string;
@@ -3340,6 +3276,10 @@ function LiveView({
   onOpenFinding: (f: AutoFinding) => void;
 }) {
   const isWide = useIsWide();
+  // Full-height detail sheet (mobile long-press). Held here, above every card,
+  // so it can switch which session it shows without unmounting. `origin` anchors
+  // the open/close morph to the title the user long-pressed.
+  const [sheet, setSheet] = useState<{ sid: string; origin: DOMRect } | null>(null);
   if (!sessions.length && !findings.length) {
     return (
       <div className="flex min-h-[60dvh] flex-col items-center justify-center gap-3 text-center">
@@ -3369,6 +3309,19 @@ function LiveView({
   const idle = sessions.filter((session) => !busyBySid[session.sessionId ?? ""]);
   const nameFor = (id: string) => autoAgents.find((a) => a.id === id)?.name ?? id;
 
+  // Close every idle session in one tap. Each card drops immediately (onRemove)
+  // and the backend close fires in parallel; a single refresh reconciles.
+  async function clearIdle() {
+    const ids = idle.map((s) => s.sessionId).filter((id): id is string => !!id);
+    if (!ids.length) return;
+    if (!confirm(`Close ${ids.length} idle session${ids.length === 1 ? "" : "s"}?`)) return;
+    for (const id of ids) onRemove(id);
+    await Promise.allSettled(
+      ids.map((id) => api(`/api/sessions/${id}/close`, { method: "POST" })),
+    );
+    await onRefresh();
+  }
+
   const renderCard = (session: Session) => (
     <ErrorBoundary
       key={session.sessionId}
@@ -3392,6 +3345,8 @@ function LiveView({
         onOptimisticMessage={onOptimisticMessage}
         onRefresh={onRefresh}
         onRemove={onRemove}
+        onOpenSheet={(sid, origin) => setSheet({ sid, origin })}
+        entering={recentlyCreatedSids.has(session.sessionId ?? "")}
       />
     </ErrorBoundary>
   );
@@ -3418,17 +3373,50 @@ function LiveView({
     );
   }
 
+  // Sheet navigation follows the on-screen order: working cards first, then idle.
+  const sheetOrder = [...working, ...idle]
+    .map((s) => s.sessionId)
+    .filter((id): id is string => !!id);
+  const sheetSession = sheet ? sessions.find((s) => s.sessionId === sheet.sid) : null;
+
   return (
+    <>
     <div className="flex flex-col gap-5">
-      {working.length ? (
+      {working.length || launching.length ? (
         <section>
           <CategoryHeader
             label="Working"
-            count={working.length}
+            count={working.length + launching.length}
             dotClass="animate-pulse bg-warning"
           />
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-2">
             {working.map(renderCard)}
+            {/* Optimistic placeholders sit at the tail of the working group —
+                where a freshly spawned session appends — so the real card lands
+                in roughly the same spot when it arrives (no cross-list jump). */}
+            {launching.map((l) => (
+              <div
+                key={l.id}
+                className="lfg-pending-card live-pane relative flex items-center gap-2 overflow-hidden rounded-xl border border-primary/30 bg-card px-3 py-2 text-card-foreground shadow-sm md:h-[clamp(30rem,72vh,46rem)] md:items-start md:gap-3 md:p-4"
+              >
+                <img
+                  src={agentIconSrc(l.agent)}
+                  alt=""
+                  className="lfg-pending-breathe size-6 shrink-0"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 text-[15px] font-semibold leading-tight text-foreground md:text-sm md:font-medium">
+                    <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
+                    <span>Starting session…</span>
+                  </div>
+                  {l.prompt ? (
+                    <div className="mt-0.5 hidden truncate text-xs text-muted-foreground md:block">
+                      {l.prompt}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ))}
           </div>
         </section>
       ) : null}
@@ -3453,6 +3441,16 @@ function LiveView({
             label="Idle"
             count={idle.length}
             dotClass="bg-success/30 ring-1 ring-inset ring-success/20"
+            action={
+              <button
+                type="button"
+                onClick={clearIdle}
+                className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+              >
+                <X className="size-3" />
+                Clear all
+              </button>
+            }
           />
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-2">
             {idle.map(renderCard)}
@@ -3460,6 +3458,24 @@ function LiveView({
         </section>
       ) : null}
     </div>
+    {sheet && sheetSession ? (
+      <SessionTitleSheet
+        sid={sheet.sid}
+        session={sheetSession}
+        order={sheetOrder}
+        origin={sheet.origin}
+        messagesBySid={messagesBySid}
+        busyBySid={busyBySid}
+        loadingBySid={loadingBySid}
+        promptsBySid={promptsBySid}
+        queuesBySid={queuesBySid}
+        onSwitch={(nextSid) => setSheet((s) => (s ? { ...s, sid: nextSid } : s))}
+        onOptimisticMessage={onOptimisticMessage}
+        onRefresh={onRefresh}
+        onClose={() => setSheet(null)}
+      />
+    ) : null}
+    </>
   );
 }
 
@@ -4010,6 +4026,7 @@ function RailStage({
                     onRemove={onRemove}
                     variant="stage"
                     onClose={() => closeColumn(sid)}
+                    entering={recentlyCreatedSids.has(sid)}
                   />
                 </ErrorBoundary>
               </div>
@@ -4322,10 +4339,12 @@ function CategoryHeader({
   label,
   count,
   dotClass,
+  action,
 }: {
   label: string;
   count: number;
   dotClass: string;
+  action?: React.ReactNode;
 }) {
   return (
     <div className="mb-2 flex items-center gap-2 px-0.5">
@@ -4336,6 +4355,7 @@ function CategoryHeader({
       <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
         {count}
       </span>
+      {action ? <div className="ml-auto flex items-center">{action}</div> : null}
     </div>
   );
 }
@@ -4769,25 +4789,82 @@ function SessionChat({
 const SHEET_EASE = "cubic-bezier(0.32, 0.72, 0, 1)";
 const SHEET_MS = 420;
 
+// The session title in the details sheet header, pinned to a single line. If
+// the title is too wide to fit and the sheet has stayed open for 10s, a gentle
+// ping-pong marquee scrolls the full title into view (and back) so it can be
+// read without wrapping the header onto a second line.
+function SessionTitleLine({ title }: { title: string }) {
+  const lineRef = useRef<HTMLDivElement>(null);
+  // px the text overflows its line; >0 turns the marquee on.
+  const [shift, setShift] = useState(0);
+
+  useEffect(() => {
+    setShift(0);
+    const id = setTimeout(() => {
+      const el = lineRef.current;
+      if (!el) return;
+      const over = el.scrollWidth - el.clientWidth;
+      if (over > 4) setShift(over);
+    }, 10_000);
+    return () => clearTimeout(id);
+  }, [title]);
+
+  const marquee = shift > 0;
+  // Roughly constant scroll speed, with a floor so short overflows still ease.
+  const duration = Math.max(2600, Math.round(shift * 28) + 1600);
+
+  return (
+    <div className="min-w-0 flex-1 overflow-hidden">
+      <div
+        ref={lineRef}
+        className={cn(
+          "text-[17px] font-semibold leading-tight whitespace-nowrap",
+          marquee ? "lfg-marquee inline-block" : "overflow-hidden text-ellipsis",
+        )}
+        style={
+          marquee
+            ? ({
+                "--lfg-marquee-shift": `-${shift}px`,
+                animationDuration: `${duration}ms`,
+              } as React.CSSProperties)
+            : undefined
+        }
+      >
+        {title}
+      </div>
+    </div>
+  );
+}
+
 function SessionTitleSheet({
+  sid,
   session,
-  messages,
-  busy,
-  loading,
-  prompt,
-  queue,
+  order,
+  messagesBySid,
+  busyBySid,
+  loadingBySid,
+  promptsBySid,
+  queuesBySid,
   origin,
+  onSwitch,
   onOptimisticMessage,
   onRefresh,
   onClose,
 }: {
+  // The active session id. The sheet is a top-level modal (lifted out of any one
+  // SessionCard) so it can swap which session it shows while staying mounted —
+  // the morph-in/out animation always references the original `origin` rect.
+  sid: string;
   session: Session;
-  messages: Message[];
-  busy: boolean;
-  loading: boolean;
-  prompt: SessionPrompt | null;
-  queue: QueueMsg[];
+  // Sid navigation order, matching the on-screen card order (working then idle).
+  order: string[];
+  messagesBySid: Record<string, Message[]>;
+  busyBySid: Record<string, boolean>;
+  loadingBySid: Record<string, boolean>;
+  promptsBySid: Record<string, SessionPrompt | null>;
+  queuesBySid: Record<string, QueueMsg[]>;
   origin: DOMRect;
+  onSwitch: (sid: string) => void;
   onOptimisticMessage: (sid: string, text: string) => void;
   onRefresh: () => Promise<void>;
   onClose: () => void;
@@ -4797,6 +4874,160 @@ function SessionTitleSheet({
   const backdropRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const closingRef = useRef(false);
+  const swipeDismissYRef = useRef(0);
+
+  // Per-session live data, selected for whichever session is active right now.
+  const messages = messagesBySid[sid] ?? EMPTY_MESSAGES;
+  const busy = !!busyBySid[sid];
+  const loading = !!loadingBySid[sid];
+  const prompt = promptsBySid[sid] ?? null;
+  const queue = queuesBySid[sid] ?? EMPTY_QUEUE;
+
+  // Prev/next neighbours in display order (null at the ends — no wrap-around).
+  const idx = order.indexOf(sid);
+  const prevSid = idx > 0 ? order[idx - 1] : null;
+  const nextSid = idx >= 0 && idx < order.length - 1 ? order[idx + 1] : null;
+  const go = useCallback(
+    (target: string | null) => {
+      if (!target || closingRef.current) return;
+      haptic("selection");
+      onSwitch(target);
+    },
+    [onSwitch],
+  );
+
+  // A stale composer error from the previous session shouldn't bleed across.
+  useEffect(() => setError(null), [sid]);
+
+  // The full-height sheet is a pure consumer of `messages`/`loading`, which only
+  // populate while a sid is in the live SSE stream (driven by collapse state).
+  // Force each session we view into the stream so its transcript loads, then
+  // restore every touched sid's real collapse state when the sheet closes.
+  const touchedRef = useRef<Map<string, boolean>>(new Map());
+  useEffect(() => {
+    if (!touchedRef.current.has(sid)) touchedRef.current.set(sid, isCollapsedSid(sid));
+    markExpandedSid(sid);
+  }, [sid]);
+  useEffect(
+    () => () => {
+      for (const [s, wasCollapsed] of touchedRef.current) {
+        try {
+          localStorage.setItem(`lfg-collapsed:${s}`, wasCollapsed ? "1" : "0");
+        } catch {
+          /* private mode / quota — non-fatal */
+        }
+      }
+      window.dispatchEvent(new Event("lfg-collapse-change"));
+    },
+    [],
+  );
+
+  // Crossfade the transcript when switching sessions (the entrance morph below
+  // handles the very first mount, so skip the switch animation that one time).
+  const firstRef = useRef(true);
+  useEffect(() => {
+    if (firstRef.current) {
+      firstRef.current = false;
+      return;
+    }
+    const body = bodyRef.current;
+    if (!body) return;
+    // Clear any inline transform/transition left by an in-progress swipe so the
+    // crossfade starts from a clean slate.
+    body.style.transition = "";
+    body.style.transform = "";
+    body.animate(
+      [
+        { opacity: 0, transform: "translateY(6px)" },
+        { opacity: 1, transform: "translateY(0px)" },
+      ],
+      { duration: 160, easing: "ease-out" },
+    );
+  }, [sid]);
+
+  // Swipe the composer (input bar) left/right to switch sessions. Horizontal
+  // drags that *begin* on the composer form drag the whole transcript with the
+  // finger; releasing past the threshold commits to prev/next (rubber-banding at
+  // the ends). Vertical intent is released back to the scroller untouched, and we
+  // only preventDefault once a horizontal swipe is committed — so tapping into the
+  // textarea, scrolling, and caret placement all behave normally. Native
+  // non-passive listeners (React's are passive) so preventDefault actually holds.
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    const SWIPE_COMMIT = 60; // px of travel needed to flip sessions
+    const st = { active: false, decided: false, horizontal: false, x0: 0, y0: 0, dx: 0 };
+    const setTx = (px: number) => {
+      body.style.transition = "none";
+      body.style.transform = px ? `translateX(${px}px)` : "";
+    };
+    const release = (animate: boolean) => {
+      if (animate) {
+        body.style.transition = "transform 180ms cubic-bezier(0.22,1,0.36,1)";
+        body.style.transform = "";
+      } else {
+        setTx(0);
+      }
+    };
+    const onStart = (e: TouchEvent) => {
+      if (closingRef.current || e.touches.length !== 1) return;
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest("form")) return; // only swipes that start on the input bar
+      const t = e.touches[0];
+      st.active = true;
+      st.decided = false;
+      st.horizontal = false;
+      st.x0 = t.clientX;
+      st.y0 = t.clientY;
+      st.dx = 0;
+    };
+    const onMove = (e: TouchEvent) => {
+      if (!st.active) return;
+      const t = e.touches[0];
+      const dx = t.clientX - st.x0;
+      const dy = t.clientY - st.y0;
+      if (!st.decided) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        st.decided = true;
+        st.horizontal = Math.abs(dx) > Math.abs(dy);
+        if (!st.horizontal) {
+          st.active = false; // vertical → let the textarea / scroller have it
+          return;
+        }
+      }
+      if (!st.horizontal) return;
+      e.preventDefault(); // suppress browser scroll + textarea caret scrub
+      st.dx = dx;
+      // Resist when there's nowhere to go in that direction.
+      const blocked = dx > 0 ? !prevSid : !nextSid;
+      setTx(dx * (blocked ? 0.18 : 0.5));
+    };
+    const onEnd = () => {
+      if (!st.active) return;
+      const { horizontal, dx } = st;
+      st.active = false;
+      if (!horizontal) return;
+      const target = dx > SWIPE_COMMIT ? prevSid : dx < -SWIPE_COMMIT ? nextSid : null;
+      if (target) {
+        // The crossfade effect (on sid change) starts at opacity 0, so it both
+        // resets the drag transform and fades the new session in — no spring-back
+        // needed, and no transform "snap" is visible.
+        go(target);
+      } else {
+        release(true); // nothing committed → ease back to rest
+      }
+    };
+    body.addEventListener("touchstart", onStart, { passive: true });
+    body.addEventListener("touchmove", onMove, { passive: false });
+    body.addEventListener("touchend", onEnd, { passive: true });
+    body.addEventListener("touchcancel", onEnd, { passive: true });
+    return () => {
+      body.removeEventListener("touchstart", onStart);
+      body.removeEventListener("touchmove", onMove);
+      body.removeEventListener("touchend", onEnd);
+      body.removeEventListener("touchcancel", onEnd);
+    };
+  }, [go, prevSid, nextSid]);
 
   // The transform that maps the full-screen panel onto the title's rect.
   // transform-origin is the top-left corner, so scale shrinks toward (0,0) and
@@ -4878,10 +5109,140 @@ function SessionTitleSheet({
     });
   }, [flipTransform, onClose]);
 
-  // Escape-to-close + lock background scroll while open.
+  // Swipe up to dismiss the full-height session sheet, scoped to the composer
+  // input bar so transcript/header gestures keep their normal behavior.
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const DISMISS_Y = 88;
+    const VELOCITY = 0.45; // px/ms
+    const st = { active: false, decided: false, dismissing: false, x0: 0, y0: 0, y: 0, t0: 0 };
+    const canStartFrom = (target: HTMLElement | null) => {
+      return Boolean(target?.closest("form"));
+    };
+    const setY = (y: number, animate = false) => {
+      swipeDismissYRef.current = y;
+      panel.style.transition = animate
+        ? "transform 180ms cubic-bezier(0.22,1,0.36,1), opacity 180ms ease"
+        : "none";
+      panel.style.transform = y ? `translateY(${y}px)` : "";
+      panel.style.opacity = y ? `${1 - Math.min(0.28, Math.abs(y) / 900)}` : "";
+    };
+    const finishDismiss = () => {
+      if (closingRef.current) return;
+      closingRef.current = true;
+      haptic("selection");
+      const backdrop = backdropRef.current;
+      const body = bodyRef.current;
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        onClose();
+      };
+      panel.style.transition =
+        "transform 240ms cubic-bezier(0.32,0.72,0,1), opacity 180ms ease-out";
+      panel.style.transform = "translateY(-110dvh)";
+      panel.style.opacity = "0.72";
+      panel.addEventListener("transitionend", finish, { once: true });
+      window.setTimeout(finish, 280);
+      if (backdrop) {
+        backdrop.style.transition = "opacity 180ms ease-out";
+        backdrop.style.opacity = "0";
+      }
+      if (body) {
+        body.style.transition = "opacity 120ms ease-out";
+        body.style.opacity = "0";
+      }
+    };
+    const onStart = (e: TouchEvent) => {
+      if (closingRef.current || e.touches.length !== 1) return;
+      if (!canStartFrom(e.target as HTMLElement | null)) return;
+      const t = e.touches[0];
+      st.active = true;
+      st.decided = false;
+      st.dismissing = false;
+      st.x0 = t.clientX;
+      st.y0 = t.clientY;
+      st.y = 0;
+      st.t0 = performance.now();
+      panel.getAnimations().forEach((animation) => {
+        if (animation.playState !== "finished") animation.cancel();
+      });
+      setY(0);
+    };
+    const onMove = (e: TouchEvent) => {
+      if (!st.active) return;
+      const t = e.touches[0];
+      const dx = t.clientX - st.x0;
+      const dy = t.clientY - st.y0;
+      if (!st.decided) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        st.decided = true;
+        st.dismissing = dy < 0 && Math.abs(dy) > Math.abs(dx) * 1.2;
+        if (!st.dismissing) {
+          st.active = false;
+          return;
+        }
+      }
+      if (!st.dismissing) return;
+      e.preventDefault();
+      st.y = -Math.min(Math.abs(dy), window.innerHeight * 0.6);
+      setY(st.y);
+      const backdrop = backdropRef.current;
+      if (backdrop) backdrop.style.opacity = `${1 - Math.min(0.35, Math.abs(st.y) / 520)}`;
+    };
+    const onEnd = () => {
+      if (!st.active) return;
+      st.active = false;
+      const dt = Math.max(1, performance.now() - st.t0);
+      const velocity = st.y / dt;
+      if (st.dismissing && (st.y <= -DISMISS_Y || velocity <= -VELOCITY)) {
+        finishDismiss();
+        return;
+      }
+      setY(0, true);
+      const backdrop = backdropRef.current;
+      if (backdrop) {
+        backdrop.style.transition = "opacity 180ms ease";
+        backdrop.style.opacity = "";
+        window.setTimeout(() => {
+          backdrop.style.transition = "";
+        }, 200);
+      }
+      window.setTimeout(() => {
+        panel.style.transition = "";
+      }, 200);
+    };
+    panel.addEventListener("touchstart", onStart, { passive: true });
+    panel.addEventListener("touchmove", onMove, { passive: false });
+    panel.addEventListener("touchend", onEnd, { passive: true });
+    panel.addEventListener("touchcancel", onEnd, { passive: true });
+    return () => {
+      panel.removeEventListener("touchstart", onStart);
+      panel.removeEventListener("touchmove", onMove);
+      panel.removeEventListener("touchend", onEnd);
+      panel.removeEventListener("touchcancel", onEnd);
+    };
+  }, [onClose]);
+
+  // Escape-to-close, arrow-keys-to-switch + lock background scroll while open.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") requestClose();
+      if (e.key === "Escape") {
+        requestClose();
+        return;
+      }
+      // Don't hijack arrows while the user is typing in the composer.
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+        e.preventDefault();
+        go(prevSid);
+      } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+        e.preventDefault();
+        go(nextSid);
+      }
     };
     document.addEventListener("keydown", onKey);
     const prevOverflow = document.body.style.overflow;
@@ -4890,7 +5251,7 @@ function SessionTitleSheet({
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [requestClose]);
+  }, [requestClose, go, prevSid, nextSid]);
 
   const title = titleForSession(session);
 
@@ -4910,7 +5271,7 @@ function SessionTitleSheet({
         className="absolute inset-0 flex flex-col overflow-hidden bg-background text-foreground"
       >
         <div
-          className="flex items-center gap-3 border-b border-border px-4 pb-3"
+          className="flex items-center gap-2 border-b border-border px-4 pb-3"
           style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.75rem)" }}
         >
           <img
@@ -4918,9 +5279,14 @@ function SessionTitleSheet({
             alt={agentIconAlt(session.agent)}
             className="size-7 shrink-0 rounded-lg"
           />
-          <div className="min-w-0 flex-1 text-[17px] font-semibold leading-tight">
-            {title}
-          </div>
+          <SessionTitleLine title={title} />
+          {order.length > 1 ? (
+            // Switching is gesture-driven (swipe the input bar) + arrow keys, so
+            // the header just shows position — no chevron buttons.
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+              {idx + 1}/{order.length}
+            </span>
+          ) : null}
           <Button
             variant="ghost"
             size="icon-sm"
@@ -5117,8 +5483,10 @@ const SessionCard = memo(function SessionCard({
   onOptimisticMessage,
   onRefresh,
   onRemove,
+  onOpenSheet,
   variant = "grid",
   onClose,
+  entering = false,
 }: {
   session: Session;
   users: User[];
@@ -5130,14 +5498,22 @@ const SessionCard = memo(function SessionCard({
   onOptimisticMessage: (sid: string, text: string) => void;
   onRefresh: () => Promise<void>;
   onRemove: (sid: string) => void;
+  // Long-pressing the title asks the parent to open the full-height detail sheet
+  // for this sid, anchored to the title's rect. The sheet lives at the parent so
+  // it can switch between sessions; undefined → the gesture is disabled.
+  onOpenSheet?: (sid: string, origin: DOMRect) => void;
   // "stage" = fill the column height and show a close affordance that removes
   // the column (without ending the session). Default "grid" keeps the classic
   // fixed-height card + mobile gestures.
   variant?: "grid" | "stage";
   onClose?: () => void;
+  // True only on the first render after this session was created in-tab — plays
+  // the one-shot entrance animation on the card root.
+  entering?: boolean;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [forkOpen, setForkOpen] = useState(false);
+  const [summarizing, setSummarizing] = useState(false);
 
   const sid = session.sessionId;
 
@@ -5182,7 +5558,32 @@ const SessionCard = memo(function SessionCard({
     }
   }
 
-  // ── mobile gestures: tap-header-to-collapse + iOS swipe-to-delete ──────────
+  async function speakSummary() {
+    if (!sid || summarizing) return;
+    setSummarizing(true);
+    setError(null);
+    haptic("selection");
+    try {
+      stopSpeaking();
+      const r = await api<{ summary: string }>(`/api/sessions/${sid}/summary`, {
+        method: "POST",
+      });
+      if (!r.summary?.trim()) throw new Error("No summary returned");
+      toast.message("Speaking session summary", { description: r.summary });
+      await speakText(r.summary, {
+        sessionId: sid,
+        title: titleForSession(session),
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      toast.error("Could not summarize session", { description: msg });
+    } finally {
+      setSummarizing(false);
+    }
+  }
+
+  // ── mobile gestures: tap-header-to-collapse + iOS swipe-to-delete + swipe-up-to-collapse ──
   const isMobile = useIsMobile();
   // Fall back to the list payload's last message when we aren't streaming this
   // card (collapsed) so the collapsed preview line still shows something.
@@ -5202,14 +5603,18 @@ const SessionCard = memo(function SessionCard({
   // kept out of the paint tree unless this or swipeOpen is set — otherwise it
   // sits behind every card and bleeds at the edges during fast momentum scroll.
   const [swiping, setSwiping] = useState(false);
+  // True while a vertical swipe-up-dismiss is in progress — drives a reduced
+  // opacity on the card so the gesture has a visual "peeling away" feel.
+  const [swipingUp, setSwipingUp] = useState(false);
   // Mutable drag bookkeeping — kept in a ref so touchmove never re-renders.
   const drag = useRef({
-    startX: 0, startY: 0, x: 0, w: 0,
+    startX: 0, startY: 0, x: 0, dy: 0, w: 0, h: 0,
     dragging: false, decided: false, horizontal: false, justSwiped: false,
   });
   const openRef = useRef(false);
   const OPEN = 116;    // resting reveal width once snapped open — wide enough to
                        // leave a left gap before the icon + "Delete" label
+  const COLLAPSE_Y = 96; // px of upward travel needed to commit a collapse
   const COMMIT = 0.55; // drag past this fraction of the card → delete on release
 
   // Measure the header so a collapsed card animates down to exactly its height.
@@ -5245,9 +5650,12 @@ const SessionCard = memo(function SessionCard({
     wasBusy.current = busy;
   }, [busy]);
 
-  const setX = (px: number) => {
+  const setTransform = (pxX: number, pxY: number) => {
     const el = sectionRef.current;
-    if (el) el.style.transform = px ? `translateX(${px}px)` : "";
+    if (!el) return;
+    const tx = pxX ? `translateX(${pxX}px)` : "";
+    const ty = pxY ? `translateY(${pxY}px)` : "";
+    el.style.transform = [tx, ty].filter(Boolean).join(" ") || "";
   };
 
   async function deleteSession() {
@@ -5278,17 +5686,19 @@ const SessionCard = memo(function SessionCard({
     if (el) el.style.transition = "";
     setSwipeOpen(false);
     openRef.current = false;
-    setX(0);
+    setSwipingUp(false);
+    setTransform(0, 0);
   }
 
-  const onTouchStart = (e: ReactTouchEvent) => {
+const onTouchStart = (e: ReactTouchEvent) => {
     if (!isMobile || e.touches.length !== 1) return;
     if ((e.target as HTMLElement).closest("form")) return; // don't hijack the composer
     const el = sectionRef.current;
     if (!el) return;
     const t = e.touches[0];
     const d = drag.current;
-    d.startX = t.clientX; d.startY = t.clientY; d.w = el.offsetWidth;
+    d.startX = t.clientX; d.startY = t.clientY; d.w = el.offsetWidth; d.h = el.offsetHeight;
+    d.dy = 0;
     d.dragging = true; d.decided = false; d.horizontal = false; d.justSwiped = false;
     el.style.transition = "none";
   };
@@ -5303,47 +5713,97 @@ const SessionCard = memo(function SessionCard({
       if (Math.abs(mx) < 8 && Math.abs(my) < 8) return;
       d.decided = true;
       d.horizontal = Math.abs(mx) > Math.abs(my);
-      if (!d.horizontal) {
-        d.dragging = false; // vertical intent → release to the scroller
-        const el = sectionRef.current;
-        if (el) el.style.transition = "";
-        return;
+      if (d.horizontal) {
+        setSwiping(true); // horizontal swipe → reveal the delete action behind it
+      } else if (my < -4 && !collapsed) {
+        setSwipingUp(true); // vertical swipe up → visual peel-away feedback
       }
-      setSwiping(true); // horizontal swipe → reveal the delete action behind it
     }
-    let nx = (openRef.current ? -OPEN : 0) + mx;
-    if (nx > 0) nx *= 0.3;        // rubber-band past the closed edge
-    if (nx < -d.w) nx = -d.w;
-    d.x = nx;
-    setX(nx);
+    if (d.horizontal) {
+      let nx = (openRef.current ? -OPEN : 0) + mx;
+      if (nx > 0) nx *= 0.3;        // rubber-band past the closed edge
+      if (nx < -d.w) nx = -d.w;
+      d.x = nx;
+      setTransform(nx, 0);
+      return;
+    }
+    // Vertical swipe-up to collapse: only when the card is expanded and the drag
+    // is upward. Track the dy so we can commit on release; apply a subtle
+    // translate + opacity so the gesture feels tactile.
+    if (my < -4 && !collapsed) {
+      d.dy = -Math.min(Math.abs(my), d.h * 0.4); // cap at 40% of card height
+      const el = sectionRef.current;
+      if (el) {
+        const pct = Math.min(1, Math.abs(d.dy) / COLLAPSE_Y);
+        el.style.transform = `translateY(${d.dy}px)`;
+        el.style.opacity = `${1 - pct * 0.35}`; // fade out as you drag up
+      }
+    }
   };
 
   const onTouchEnd = () => {
     const d = drag.current;
     if (!d.dragging) return;
     d.dragging = false;
-    setSwiping(false);
     const el = sectionRef.current;
     if (el) el.style.transition = "";
-    if (!d.horizontal) return;
-    d.justSwiped = Math.abs(d.x) > 6;
-    if (d.x <= -d.w * COMMIT) {
-      commitDelete();
+    if (!d.decided) {
+      setSwiping(false);
+      setSwipingUp(false);
       return;
     }
-    const willOpen = d.x <= -OPEN * 0.5;
-    if (willOpen && !openRef.current) haptic("selection");
-    openRef.current = willOpen;
-    setSwipeOpen(willOpen);
-    setX(willOpen ? -OPEN : 0);
+    if (d.horizontal) {
+      setSwiping(false);
+      d.justSwiped = Math.abs(d.x) > 6;
+      if (d.x <= -d.w * COMMIT) {
+        commitDelete();
+        return;
+      }
+      const willOpen = d.x <= -OPEN * 0.5;
+      if (willOpen && !openRef.current) haptic("selection");
+      openRef.current = willOpen;
+      setSwipeOpen(willOpen);
+      setTransform(willOpen ? -OPEN : 0, 0);
+      return;
+    }
+    setSwipingUp(false);
+    if (d.dy <= -COLLAPSE_Y) {
+      haptic("selection");
+      // Spring the card back to its resting position while fading it in,
+      // then collapse so the built-in CSS height transition shrinks it down.
+      if (el) {
+        el.style.transition = "transform 0.18s ease, opacity 0.18s ease";
+        el.style.transform = "";
+        el.style.opacity = "";
+      }
+      window.setTimeout(() => {
+        if (el) el.style.transition = "";
+        setCollapsed(true);
+      }, 140);
+      return;
+    }
+    // Not enough travel — snap back.
+    const prev = swipingUp;
+    if (el) {
+      el.style.transition = "transform 0.2s ease, opacity 0.2s ease";
+      el.style.transform = "";
+      el.style.opacity = "";
+    }
+    window.setTimeout(() => {
+      if (el && prev) {
+        el.style.transition = "";
+      }
+    }, 220);
   };
 
   // ── long-press the title → morphing full-height sheet ──────────────────────
+  // The sheet itself lives at the parent (so it can switch between sessions and
+  // force whichever sid it shows into the live stream); the card just reports the
+  // long-press and the title's rect to anchor the morph.
   const LONG_PRESS_MS = 420;
   const pressTimer = useRef<number | null>(null);
   const pressOrigin = useRef({ x: 0, y: 0 });
   const longPressFired = useRef(false);
-  const [sheetOrigin, setSheetOrigin] = useState<DOMRect | null>(null);
 
   const clearLongPress = () => {
     if (pressTimer.current !== null) {
@@ -5353,7 +5813,7 @@ const SessionCard = memo(function SessionCard({
   };
 
   const onTitlePointerDown = (e: React.PointerEvent<HTMLElement>) => {
-    if (!isMobile || sheetOrigin) return;
+    if (!isMobile || !onOpenSheet || !sid) return;
     longPressFired.current = false;
     pressOrigin.current = { x: e.clientX, y: e.clientY };
     const el = e.currentTarget;
@@ -5362,7 +5822,7 @@ const SessionCard = memo(function SessionCard({
       if (openRef.current) return; // mid swipe-to-delete — ignore
       longPressFired.current = true;
       haptic("selection");
-      setSheetOrigin(el.getBoundingClientRect());
+      onOpenSheet(sid, el.getBoundingClientRect());
     }, LONG_PRESS_MS);
   };
 
@@ -5389,20 +5849,6 @@ const SessionCard = memo(function SessionCard({
 
   return (
     <div className={cn("relative min-w-0 md:static", variant === "stage" && "md:h-full")}>
-      {sheetOrigin ? (
-        <SessionTitleSheet
-          session={session}
-          messages={messages}
-          busy={busy}
-          loading={loading}
-          prompt={prompt}
-          queue={queue}
-          origin={sheetOrigin}
-          onOptimisticMessage={onOptimisticMessage}
-          onRefresh={onRefresh}
-          onClose={() => setSheetOrigin(null)}
-        />
-      ) : null}
       {forkOpen ? (
         <ForkSessionDialog
           session={session}
@@ -5433,6 +5879,7 @@ const SessionCard = memo(function SessionCard({
         style={isMobile && collapsed ? { height: headH } : undefined}
         className={cn(
           "live-pane relative z-[1] flex h-[22rem] touch-pan-y flex-col overflow-hidden rounded-xl border bg-card text-card-foreground transition-[height,transform,border-color,box-shadow] duration-300 ease-ios md:static md:transition-[border-color,box-shadow]",
+          entering && "lfg-card-in",
           variant === "stage" ? "md:h-full" : "md:h-[clamp(30rem,72vh,46rem)]",
           // Listening: soften the border to primary and throw a faint glow ring.
           dictating
@@ -5446,6 +5893,38 @@ const SessionCard = memo(function SessionCard({
         >
           <button
             type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              void speakSummary();
+            }}
+            disabled={!sid || summarizing}
+            aria-label={summarizing ? "Preparing session summary" : "Speak session summary"}
+            title={summarizing ? "Preparing summary..." : "Speak session summary"}
+            className="relative flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground outline-none hover:bg-muted disabled:cursor-wait disabled:opacity-70"
+          >
+            {busy || summarizing ? (
+              <Loader2
+                className={cn(
+                  "absolute inset-0 m-auto size-6 animate-spin",
+                  summarizing ? "text-primary" : "text-warning",
+                )}
+                strokeWidth={1.75}
+              />
+            ) : null}
+            {/* "aisdk" is Claude Code under the hood (driven via the AI SDK), so
+                it wears the same Claude mark as a tmux claude session; only the
+                new-session picker keeps a distinct label to tell them apart. */}
+            <img
+              src={agentIconSrc(session.agent)}
+              alt={agentIconAlt(session.agent)}
+              className={cn(
+                "rounded-lg transition-all duration-300 ease-ios",
+                busy || summarizing ? "size-4" : "size-6",
+              )}
+            />
+          </button>
+          <button
+            type="button"
             onClick={onHeaderTap}
             onPointerDown={onTitlePointerDown}
             onPointerMove={onTitlePointerMove}
@@ -5454,25 +5933,6 @@ const SessionCard = memo(function SessionCard({
             onContextMenu={(e) => e.preventDefault()}
             className="flex min-w-0 flex-1 select-none items-center gap-2 text-left outline-none [-webkit-touch-callout:none] md:pointer-events-none"
           >
-            <div className="relative flex size-6 shrink-0 items-center justify-center">
-              {busy ? (
-                <Loader2
-                  className="absolute inset-0 size-6 animate-spin text-warning"
-                  strokeWidth={1.75}
-                />
-              ) : null}
-              {/* "aisdk" is Claude Code under the hood (driven via the AI SDK), so
-                  it wears the same Claude mark as a tmux claude session; only the
-                  new-session picker keeps a distinct label to tell them apart. */}
-              <img
-                src={agentIconSrc(session.agent)}
-                alt={agentIconAlt(session.agent)}
-                className={cn(
-                  "rounded-lg transition-all duration-300 ease-ios",
-                  busy ? "size-4" : "size-6",
-                )}
-              />
-            </div>
             <div className="flex min-w-0 flex-1 flex-col">
               <div className="truncate text-[15px] font-semibold leading-tight">
                 {titleForSession(session)}
@@ -5781,15 +6241,18 @@ function MessageBubble({ message }: { message: Message }) {
     <div
       className={cn(
         "msg flex",
-        isUser ? "w-full" : "justify-start",
-        message.pending && "opacity-60",
+        isUser ? "justify-end" : "justify-start",
       )}
     >
       {isUser ? (
-        // User turns are plain/escaped and styled as a neutral transcript
-        // divider instead of a chat bubble.
+        // User turns are plain/escaped and rendered as a content-width bubble
+        // hugged to the right. While in flight a sheen sweeps across it (the same
+        // shimmer language as the "thinking" line) instead of a static dimming.
         <div
-          className="msg-text markdown user-bubble w-full px-3 py-2"
+          className={cn(
+            "msg-text markdown user-bubble w-fit max-w-[85%] px-3 py-2",
+            message.pending && "is-pending",
+          )}
           dangerouslySetInnerHTML={{ __html: message.html || escapeHtml(message.text || "") }}
         />
       ) : (
@@ -6069,7 +6532,7 @@ function ActionsPanel({
 }) {
   const pending = report.actions.filter((action) => action.status === "pending");
   const [selected, setSelected] = useState<string[]>([]);
-  const [busy, setBusy] = useState(false);
+  const [busyMode, setBusyMode] = useState<"combined" | "separate" | null>(null);
 
   useEffect(() => {
     setSelected([]);
@@ -6078,7 +6541,7 @@ function ActionsPanel({
   if (!report.actions.length) return null;
 
   async function executeSelected() {
-    setBusy(true);
+    setBusyMode("separate");
     try {
       await Promise.all(
         selected.map((id) =>
@@ -6092,12 +6555,12 @@ function ActionsPanel({
       await onRefresh();
       setSelected([]);
     } finally {
-      setBusy(false);
+      setBusyMode(null);
     }
   }
 
   async function executeCombined() {
-    setBusy(true);
+    setBusyMode("combined");
     try {
       await api("/api/actions/execute-combined", {
         method: "POST",
@@ -6107,7 +6570,7 @@ function ActionsPanel({
       await onRefresh();
       setSelected([]);
     } finally {
-      setBusy(false);
+      setBusyMode(null);
     }
   }
 
@@ -6123,19 +6586,45 @@ function ActionsPanel({
         <Button
           variant="outline"
           size="sm"
-          disabled={!pending.length}
+          disabled={!pending.length || !!busyMode}
           onClick={() => setSelected(pending.map((action) => action.id))}
         >
           Select ready
         </Button>
-        <Button variant="secondary" size="sm" disabled={!selected.length || busy} onClick={executeCombined}>
-          1 agent
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={!selected.length || !!busyMode}
+          onClick={executeCombined}
+          title="Create one new session to resolve the selected actions together"
+        >
+          {busyMode === "combined" ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <GitFork className="size-4" />
+          )}
+          Group into session
         </Button>
-        <Button variant="brand" size="sm" disabled={!selected.length || busy} onClick={executeSelected}>
-          {busy ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}
-          Execute
+        <Button
+          variant="brand"
+          size="sm"
+          disabled={!selected.length || !!busyMode}
+          onClick={executeSelected}
+          title="Create one new session per selected action"
+        >
+          {busyMode === "separate" ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Play className="size-4" />
+          )}
+          Run separately
         </Button>
       </div>
+      {selected.length ? (
+        <div className="mb-2 text-xs text-muted-foreground">
+          {selected.length} selected · group starts one new resolving session
+        </div>
+      ) : null}
       <div className="divide-y divide-border rounded-lg border border-border">
         {report.actions.map((action) => {
           const actionable = action.status === "pending";
@@ -6202,7 +6691,6 @@ function NewSessionDialog({
   users,
   defaultUser,
   scopedProject,
-  voiceHold,
   onClose,
   onCreated,
   onReposChanged,
@@ -6214,6 +6702,7 @@ function NewSessionDialog({
   variant = "drawer",
   expanded = false,
   onExpandedChange,
+  onLaunchStart,
   focusNonce = 0,
 }: {
   open: boolean;
@@ -6224,12 +6713,12 @@ function NewSessionDialog({
   // (not "__all"), creating a session is locked to that project's repo and the
   // repo picker is hidden.
   scopedProject: string;
-  // True while the launcher orb is being press-and-held. The transition
-  // false→true (with the drawer open) starts dictation; true→false stops it and
-  // submits the transcript — i.e. press-and-hold the orb to talk, release to send.
-  voiceHold: boolean;
   onClose: () => void;
   onCreated: () => Promise<void>;
+  // Fired synchronously the instant the user submits — before the (slow) spawn
+  // request resolves — so the parent can drop an optimistic "starting…" card
+  // into the list and the transition reads as one continuous motion.
+  onLaunchStart?: (meta: { prompt: string; agent: string }) => void;
   onReposChanged: () => Promise<void>;
   variant?: "drawer" | "inline";
   // Inline only: compact↔full controls toggle (lifted to the parent so the orb
@@ -6261,18 +6750,23 @@ function NewSessionDialog({
     () => defaultUser || localStorage.getItem("lfg_user") || users[0]?.email || "",
   );
   const [prompt, setPrompt] = useState("");
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [draggingFiles, setDraggingFiles] = useState(false);
   const [usage, setUsage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewUrls = useRef<string[]>([]);
   // Resumable (closed / rebooted-away) sessions. Fetched lazily when the user
   // expands the section so opening the dialog stays instant; reset on close.
   const [resumeOpen, setResumeOpen] = useState(false);
   const [resumable, setResumable] = useState<ResumableSession[] | null>(null);
-  // Press-and-hold-the-orb voice mode: the orb's long-press opens this drawer
-  // and drives dictation through this handle (start on hold, stop+submit on
-  // release). `holding` tracks the current hold so we only fire on transitions.
-  const micRef = useRef<MicHandle>(null);
-  const holding = useRef(false);
+  // Close the resume sheet and drop the cached list so the next open refetches
+  // (and shows the skeleton) instead of flashing a stale roster.
+  const closeResume = useCallback(() => {
+    setResumeOpen(false);
+    setResumable(null);
+  }, []);
   // Inline variant: focus the textarea (and pop the soft keyboard) when an
   // external affordance bumps `focusNonce`. The shadcn Textarea isn't a
   // forwardRef, so reach it through the wrapping element.
@@ -6281,6 +6775,17 @@ function NewSessionDialog({
     if (variant !== "inline" || !focusNonce) return;
     fieldRef.current?.querySelector("textarea")?.focus();
   }, [focusNonce, variant]);
+  useEffect(() => {
+    return () => {
+      for (const url of previewUrls.current) URL.revokeObjectURL(url);
+      previewUrls.current = [];
+    };
+  }, []);
+  useLayoutEffect(() => {
+    const textarea = fieldRef.current?.querySelector("textarea");
+    if (!textarea) return;
+    textarea.scrollTop = textarea.scrollHeight;
+  }, [prompt]);
 
   useEffect(() => {
     if (!open) {
@@ -6394,26 +6899,77 @@ function NewSessionDialog({
     if (!models.includes(model)) setModel(models[0]);
   }, [models, model]);
 
-  // Drive dictation from the orb's press-and-hold. On hold-begin (and only once
-  // the drawer is actually open, so the MicButton — and its ref — is mounted)
-  // start recording; on release stop and route the transcript to submit. Guarded
-  // by `holding` so a re-render mid-hold doesn't restart the mic.
-  useEffect(() => {
-    if (voiceHold && open && !holding.current) {
-      holding.current = true;
-      micRef.current?.start();
-    } else if (!voiceHold && holding.current) {
-      holding.current = false;
-      micRef.current?.stop(true); // release → stop + submit
-    }
-  }, [voiceHold, open]);
-
   if (!open) return null;
+
+  function addFiles(files: FileList | File[]) {
+    const incoming = Array.from(files).filter((file) => file.size > 0);
+    if (!incoming.length) return;
+    setAttachments((current) => {
+      const room = Math.max(0, 8 - current.length);
+      if (!room) {
+        toast.error("Remove an attachment before adding another.");
+        return current;
+      }
+      if (incoming.length > room) toast.error(`Added ${room} of ${incoming.length} files.`);
+      const next = incoming.slice(0, room).map((file) => {
+        const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
+        if (previewUrl) previewUrls.current.push(previewUrl);
+        return {
+          id: `${file.name}-${file.size}-${file.lastModified}-${crypto.randomUUID()}`,
+          file,
+          name: file.name || "upload",
+          size: file.size,
+          type: file.type,
+          previewUrl,
+          status: "ready" as const,
+        };
+      });
+      return [...current, ...next];
+    });
+  }
+
+  function removeAttachment(id: string) {
+    setAttachments((current) => {
+      const item = current.find((att) => att.id === id);
+      if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      return current.filter((att) => att.id !== id);
+    });
+  }
+
+  async function uploadAttachment(att: ComposerAttachment): Promise<{ name: string; path: string }> {
+    setAttachments((current) =>
+      current.map((item) =>
+        item.id === att.id ? { ...item, status: "uploading", error: undefined } : item,
+      ),
+    );
+    try {
+      const uploaded = await api<{ path: string; name?: string }>(
+        `/api/uploads?filename=${encodeURIComponent(att.name)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": att.type || "application/octet-stream" },
+          body: att.file,
+        },
+      );
+      return { name: uploaded.name || att.name, path: uploaded.path };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setAttachments((current) =>
+        current.map((item) =>
+          item.id === att.id ? { ...item, status: "failed", error: message } : item,
+        ),
+      );
+      throw err;
+    }
+  }
 
   function submit(e?: FormEvent, overrideText?: string) {
     e?.preventDefault();
+    if (busy) return;
     const taskPrompt = (overrideText ?? prompt).trim();
+    const files = attachments;
     setError(null);
+    setBusy(true);
     localStorage.setItem("lfg_v2_agent", agent);
     localStorage.setItem("lfg_v2_repo", selectedRepo);
     localStorage.setItem(`lfg_model_${agent}`, model);
@@ -6428,79 +6984,259 @@ function NewSessionDialog({
     // Inline composer stays mounted (no drawer to dismiss); just collapse back to
     // compact and blur so the soft keyboard closes after firing the create.
     if (variant === "inline") (document.activeElement as HTMLElement | null)?.blur?.();
-    const createP = api<{ sessionId?: string }>("/api/sessions/new", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        cwd: selectedRepo,
-        prompt: taskPrompt || undefined,
-        user: user || undefined,
-        agent,
-        model,
-        thinkingLevel: agentSupportsThinking(agent) ? thinkingLevel : undefined,
-      }),
-    }).then((res) => {
+    const createP = (async () => {
+      const uploaded = files.length ? await Promise.all(files.map(uploadAttachment)) : [];
+      const composedPrompt = composeAttachmentMessage(taskPrompt, uploaded);
+      // Optimistic kick: tell the parent we're launching NOW so a placeholder
+      // card flies into the list immediately, after uploads are resolved and the
+      // prompt contains the file paths the agent can read.
+      onLaunchStart?.({ prompt: composedPrompt, agent });
+      const res = await api<{ sessionId?: string }>("/api/sessions/new", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cwd: selectedRepo,
+          prompt: composedPrompt || undefined,
+          user: user || undefined,
+          agent,
+          model,
+          thinkingLevel: agentSupportsThinking(agent) ? thinkingLevel : undefined,
+        }),
+      });
       const sid = res?.sessionId;
       if (sid) {
-        markExpandedSid(sid);
+        markCreatedSid(sid);
+        markCollapsedSid(sid);
+      }
+      for (const att of files) {
+        if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
       }
       setPrompt("");
+      setAttachments([]);
       return onCreated();
-    });
+    })().catch((err) => {
+      setError(err instanceof Error ? err.message : String(err));
+      setAttachments((current) =>
+        current.map((att) => (att.status === "uploading" ? { ...att, status: "ready" } : att)),
+      );
+      throw err;
+    }).finally(() => setBusy(false));
     toast.promise(createP, {
-      loading: "Creating session…",
+      loading: files.length ? "Uploading and creating session…" : "Creating session…",
       success: "Session started",
       error: (err) => (err instanceof Error ? err.message : "Couldn't create session"),
     });
   }
 
-  // Inline composer resting state: only the prompt + mic + Start show; the agent
-  // pills, model/thinking/repo selectors and resume list are tucked behind the
-  // expand handle. The drawer variant is always "expanded".
+  // Inline composer resting state: only the agent icon + prompt + mic + Start
+  // show; tapping the agent icon morphs the controls row open. The drawer
+  // variant is always expanded.
   const compact = variant === "inline" && !expanded;
+  const selectedAgentOption =
+    AGENT_OPTIONS.find((option) => option.key === agent) ?? AGENT_OPTIONS[0];
+  // Keep every agent in a fixed position so picking one never reshuffles the
+  // icons. The selected agent is highlighted in place rather than hoisted out.
+  const agentButtons = AGENT_OPTIONS;
+
+  // The agent switcher + model / thinking / repo pills. Shared between the
+  // inline composer (revealed in its own row when expanded) and the always-open
+  // drawer variant, so the markup lives in one place.
+  const controlsInner = (
+    <div
+      className={cn(
+        "flex items-center gap-1.5 pb-0.5",
+        // Inline composer reveals these on a single row (horizontal scroll if
+        // they overflow); the drawer has full width to spare, so it wraps.
+        variant === "inline" ? "flex-nowrap" : "flex-wrap",
+      )}
+    >
+      {agentButtons.length ? (
+        <div
+          className={cn(
+            "inline-flex h-8 items-center text-xs font-semibold",
+            variant === "inline" ? "gap-0.5" : "rounded-full bg-muted p-0.5",
+          )}
+        >
+          {agentButtons.map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              title={label}
+              aria-label={label}
+              onClick={() => {
+                // Re-tapping the already-selected agent collapses the row.
+                if (variant === "inline" && expanded && agent === key) {
+                  onExpandedChange?.(false);
+                  return;
+                }
+                setAgent(key);
+                setModel(
+                  localStorage.getItem(`lfg_model_${key}`) || AGENT_DEFAULT_MODEL[key],
+                );
+              }}
+              className={cn(
+                "flex h-7 w-9 items-center justify-center rounded-full transition",
+                agent === key
+                  ? variant === "inline"
+                    ? "bg-muted text-foreground"
+                    : "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground",
+              )}
+            >
+              <img src={agentIconSrc(key)} alt="" className="size-5" />
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <FieldPill flat={variant === "inline"}>
+        <select
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+          aria-label="Model"
+          className="max-w-28 appearance-none truncate bg-transparent pr-1 text-xs font-medium outline-none"
+        >
+          {models.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
+      </FieldPill>
+
+      {agentSupportsThinking(agent) && (
+        <FieldPill flat={variant === "inline"}>
+          <select
+            value={thinkingLevel}
+            onChange={(e) => setThinkingLevel(e.target.value as ThinkingLevel)}
+            aria-label="Thinking level"
+            className="max-w-24 appearance-none truncate bg-transparent pr-1 text-xs font-medium outline-none"
+          >
+            {THINKING_LEVELS.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </FieldPill>
+      )}
+
+      {!projectScoped && (
+        <FieldPill flat={variant === "inline"} icon={<Folder className="size-3.5 text-muted-foreground" />}>
+          <select
+            value={selectedRepo}
+            onChange={(e) => {
+              if (e.target.value === "__add__") addCustomPath();
+              else setRepo(e.target.value);
+            }}
+            aria-label="Repo"
+            className="max-w-28 appearance-none truncate bg-transparent pr-1 text-xs font-medium outline-none"
+          >
+            {repos.map((item) => (
+              <option key={item.cwd} value={item.cwd}>
+                {item.custom ? `${item.name} ↗` : item.name}
+              </option>
+            ))}
+            <option value="__add__">+ Add custom path…</option>
+          </select>
+          {selectedIsCustom && (
+            <button
+              type="button"
+              aria-label="Remove custom path"
+              title="Remove this custom path"
+              onClick={() => removeCustomPath(selectedRepo)}
+              className="ml-0.5 text-muted-foreground hover:text-destructive"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
+        </FieldPill>
+      )}
+    </div>
+  );
+
+  // The recent-session ("resume") button. A dedicated full-screen sheet (below)
+  // opens rather than an inline list — the inline list reflowed the composer and
+  // jumped again when the async fetch landed. In the inline composer it rides
+  // along inside the expandable controls row (revealed only when expanded); the
+  // wrapper keeps it mounted, so toggling expand never flickers the height.
+  const resumeButton = (
+    <button
+      type="button"
+      onClick={() => setResumeOpen(true)}
+      title="Resume a recent session"
+      aria-label="Resume a recent session"
+      className="ml-auto flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground"
+    >
+      <RotateCcw className="size-4" />
+    </button>
+  );
 
   const formBody = (
     <form
       onSubmit={submit}
+      onDragEnter={(event) => {
+        if (Array.from(event.dataTransfer.types).includes("Files")) setDraggingFiles(true);
+      }}
+      onDragOver={(event) => {
+        if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+        setDraggingFiles(true);
+      }}
+      onDragLeave={(event) => {
+        const nextTarget = event.relatedTarget;
+        if (!(nextTarget instanceof Node) || !event.currentTarget.contains(nextTarget)) {
+          setDraggingFiles(false);
+        }
+      }}
+      onDrop={(event) => {
+        if (!event.dataTransfer.files.length) return;
+        event.preventDefault();
+        setDraggingFiles(false);
+        addFiles(event.dataTransfer.files);
+      }}
       className={cn(
-        "px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)]",
+        "max-h-[70dvh] overflow-y-auto overscroll-contain px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] transition-colors",
         variant === "inline" ? "pt-1.5" : "pt-1",
+        draggingFiles && "bg-primary/8",
       )}
     >
-      {variant === "inline" ? (
-        <button
-          type="button"
-          onClick={() => onExpandedChange?.(!expanded)}
-          aria-label={expanded ? "Collapse options" : "Show options"}
-          aria-expanded={expanded}
-          className="mb-0.5 flex h-5 w-full items-center justify-center text-muted-foreground transition hover:text-foreground"
-        >
-          {expanded ? (
-            <ChevronDown className="size-4" />
-          ) : (
-            <ChevronUp className="size-4" />
-          )}
-        </button>
-      ) : null}
-
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(event) => {
+          if (event.target.files) addFiles(event.target.files);
+          event.currentTarget.value = "";
+        }}
+      />
       <div className="relative" ref={fieldRef}>
         <Textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
+          onPaste={(event) => {
+            const files = event.clipboardData?.files;
+            if (files?.length) {
+              event.preventDefault();
+              addFiles(files);
+            }
+          }}
           onKeyDown={(e) => {
             if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
               e.preventDefault();
               e.currentTarget.form?.requestSubmit();
             }
           }}
-          placeholder="Describe the task for a new session…"
+          placeholder={attachments.length ? "Add a note for the files…" : "Describe the task for a new session…"}
           className={cn(
-            "resize-none border-0 bg-transparent px-1 py-1 pr-10 text-base leading-relaxed shadow-none focus-visible:border-0 focus-visible:ring-0",
+            "max-h-[32dvh] resize-none overflow-y-auto border-0 bg-transparent px-1 py-1 pr-10 text-base leading-relaxed shadow-none focus-visible:border-0 focus-visible:ring-0",
             compact ? "min-h-11" : variant === "inline" ? "min-h-24" : "min-h-40",
+            variant !== "inline" && "max-h-[42dvh]",
           )}
         />
         <MicButton
-          ref={micRef}
           className="absolute bottom-1 right-1 size-9"
           silenceMs={2500}
           baseText={prompt}
@@ -6517,153 +7253,89 @@ function NewSessionDialog({
         />
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      {attachments.length ? (
+        <div className="mt-2 flex gap-1.5 overflow-x-auto pb-0.5">
+          {attachments.map((att) => (
             <div
+              key={att.id}
               className={cn(
-                "inline-flex h-8 items-center text-xs font-semibold",
-                variant === "inline" ? "gap-0.5" : "rounded-full bg-muted p-0.5",
+                "group flex h-12 max-w-52 shrink-0 items-center gap-2 rounded-lg border bg-muted/55 pl-1.5 pr-1.5 text-xs",
+                att.status === "failed" ? "border-destructive/40 bg-destructive/10" : "border-border/70",
               )}
+              title={att.error || att.name}
             >
-              {AGENT_OPTIONS.map(({ key, label }) => (
-                <button
-                  key={key}
-                  type="button"
-                  title={label}
-                  aria-label={label}
-                  onClick={() => {
-                    setAgent(key);
-                    setModel(
-                      localStorage.getItem(`lfg_model_${key}`) || AGENT_DEFAULT_MODEL[key],
-                    );
-                  }}
-                  className={cn(
-                    "flex h-7 w-9 items-center justify-center rounded-full transition",
-                    agent === key
-                      ? variant === "inline"
-                        ? "bg-muted text-foreground"
-                        : "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground",
-                  )}
-                >
-                  <img src={agentIconSrc(key)} alt="" className="size-5" />
-                </button>
-              ))}
-            </div>
-
-            <FieldPill flat={variant === "inline"}>
-              <select
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                aria-label="Model"
-                className="max-w-28 appearance-none truncate bg-transparent pr-1 text-xs font-medium outline-none"
-              >
-                {models.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-            </FieldPill>
-
-            {agentSupportsThinking(agent) && (
-              <FieldPill flat={variant === "inline"}>
-                <select
-                  value={thinkingLevel}
-                  onChange={(e) => setThinkingLevel(e.target.value as ThinkingLevel)}
-                  aria-label="Thinking level"
-                  className="max-w-24 appearance-none truncate bg-transparent pr-1 text-xs font-medium outline-none"
-                >
-                  {THINKING_LEVELS.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-              </FieldPill>
-            )}
-
-            {!projectScoped && (
-              <FieldPill flat={variant === "inline"} icon={<Folder className="size-3.5 text-muted-foreground" />}>
-                <select
-                  value={selectedRepo}
-                  onChange={(e) => {
-                    if (e.target.value === "__add__") addCustomPath();
-                    else setRepo(e.target.value);
-                  }}
-                  aria-label="Repo"
-                  className="max-w-28 appearance-none truncate bg-transparent pr-1 text-xs font-medium outline-none"
-                >
-                  {repos.map((item) => (
-                    <option key={item.cwd} value={item.cwd}>
-                      {item.custom ? `${item.name} ↗` : item.name}
-                    </option>
-                  ))}
-                  <option value="__add__">+ Add custom path…</option>
-                </select>
-                {selectedIsCustom && (
-                  <button
-                    type="button"
-                    aria-label="Remove custom path"
-                    title="Remove this custom path"
-                    onClick={() => removeCustomPath(selectedRepo)}
-                    className="ml-0.5 text-muted-foreground hover:text-destructive"
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                )}
-              </FieldPill>
-            )}
-          </div>
-
-          {!compact ? (
-          <div className="mt-3">
-            <button
-              type="button"
-              onClick={() => setResumeOpen((v) => !v)}
-              className="flex h-8 items-center gap-0.5 rounded-full px-1 text-xs font-medium text-muted-foreground transition hover:text-foreground"
-            >
-              {resumeOpen ? (
-                <ChevronDown className="size-3.5" />
+              {att.previewUrl ? (
+                <img
+                  src={att.previewUrl}
+                  alt=""
+                  className="size-9 shrink-0 rounded-md object-cover"
+                />
               ) : (
-                <ChevronRight className="size-3.5" />
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-background/80 text-muted-foreground">
+                  <Paperclip className="size-4" />
+                </div>
               )}
-              Resume a recent session
-            </button>
-            {resumeOpen && (
-              <div className="mt-1 max-h-56 overflow-y-auto overscroll-contain rounded-xl bg-muted/50 p-1">
-                {resumable === null ? (
-                  <div className="px-2 py-3 text-center text-xs text-muted-foreground">
-                    Loading…
-                  </div>
-                ) : resumable.length === 0 ? (
-                  <div className="px-2 py-3 text-center text-xs text-muted-foreground">
-                    No recent sessions to resume
-                  </div>
-                ) : (
-                  resumable.map((s) => (
-                    <button
-                      key={s.sessionId}
-                      type="button"
-                      onClick={() => resume(s.sessionId)}
-                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition hover:bg-background"
-                    >
-                      <RotateCcw className="size-3.5 shrink-0 text-muted-foreground" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-xs font-medium text-foreground">
-                          {s.title}
-                        </span>
-                        <span className="block truncate text-[11px] text-muted-foreground">
-                          {s.agent === "codex" ? "codex · " : ""}
-                          {s.project} · {timeAgo(s.lastActivityAt)}
-                        </span>
-                      </span>
-                    </button>
-                  ))
-                )}
+              <div className="min-w-0">
+                <div className="truncate font-medium text-foreground">{att.name}</div>
+                <div className="text-[11px] text-muted-foreground">
+                  {att.status === "uploading" ? "Uploading..." : att.status === "failed" ? "Failed" : formatBytes(att.size)}
+                </div>
               </div>
+              <button
+                type="button"
+                className="ml-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                onClick={() => removeAttachment(att.id)}
+                aria-label={`Remove ${att.name}`}
+                title="Remove"
+                disabled={busy}
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {variant === "inline" ? (
+        // Single constant-height row: the agent toggle stays put while the
+        // controls (and the recent button tucked at their end) reveal to the
+        // right when expanded. Collapsed shows only the toggle.
+        <div className="mt-2 flex min-h-8 items-center gap-1.5">
+          {/* Collapsed-only handle: shows the current agent and opens the row.
+              When expanded it tucks away so the agent isn't duplicated — the
+              switcher below carries the selected (highlighted) agent, and
+              tapping it again collapses. */}
+          <button
+            type="button"
+            title={selectedAgentOption.label}
+            aria-label="Choose agent"
+            aria-expanded={expanded}
+            onClick={() => onExpandedChange?.(true)}
+            tabIndex={expanded ? -1 : 0}
+            className={cn(
+              "flex h-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-foreground shadow-sm transition-[width,opacity,transform] duration-300 ease-ios active:scale-[0.96]",
+              expanded ? "pointer-events-none w-0 opacity-0" : "w-9 opacity-100",
             )}
+          >
+            <img src={agentIconSrc(agent)} alt="" className="size-5" />
+          </button>
+          <div
+            className={cn(
+              "flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto transition-[max-width,opacity] duration-300 ease-ios",
+              expanded ? "max-w-full opacity-100" : "pointer-events-none max-w-0 opacity-0",
+            )}
+            aria-hidden={!expanded}
+          >
+            {controlsInner}
+            {resumeButton}
           </div>
-          ) : null}
+        </div>
+      ) : (
+        <div className="mt-2 flex flex-wrap items-start gap-1.5">
+          <div className="min-w-0 max-w-none">{controlsInner}</div>
+          {resumeButton}
+        </div>
+      )}
 
       <div
         className={cn(
@@ -6679,11 +7351,36 @@ function NewSessionDialog({
         >
           {error || (agent === "claude" ? usage : "") || ""}
         </span>
-        <Button type="submit" variant="secondary" disabled={busy || !selectedRepo}>
-          {busy ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-          Start
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            size="icon"
+            type="button"
+            variant={draggingFiles ? "brand-soft" : "tint"}
+            className="size-9"
+            onClick={() => fileInputRef.current?.click()}
+            aria-label="Attach files"
+            title="Attach files"
+            disabled={busy}
+          >
+            <Paperclip className="size-4" />
+          </Button>
+          <Button type="submit" variant="secondary" disabled={busy || !selectedRepo}>
+            {busy ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+            Start
+          </Button>
+        </div>
       </div>
+
+      {resumeOpen ? (
+        <ResumeSessionSheet
+          sessions={resumable}
+          onPick={(sessionId) => {
+            closeResume();
+            resume(sessionId);
+          }}
+          onClose={closeResume}
+        />
+      ) : null}
     </form>
   );
 
@@ -6692,7 +7389,13 @@ function NewSessionDialog({
   // when the soft keyboard opens, so `bottom-0` rides just above the keyboard.
   if (variant === "inline") {
     return (
-      <div className="pointer-events-auto fixed inset-x-0 bottom-0 z-[55] border-t border-border/60 bg-background/95 shadow-[0_-8px_24px_rgba(0,0,0,0.12)] backdrop-blur-xl">
+      <div
+        aria-busy={busy}
+        className={cn(
+          "pointer-events-auto fixed inset-x-0 bottom-0 z-[55] border-t border-border/60 bg-background/95 shadow-[0_-8px_24px_rgba(0,0,0,0.12)] backdrop-blur-xl",
+          busy && "lfg-composer-launching",
+        )}
+      >
         <div className="mx-auto max-w-lg">{formBody}</div>
       </div>
     );
@@ -6715,6 +7418,89 @@ function NewSessionDialog({
         {formBody}
       </DrawerContent>
     </Drawer>
+  );
+}
+
+// Full-screen "Resume a recent session" picker. Portaled to <body> so it escapes
+// the composer's backdrop-filter containing block (a fixed child there would be
+// trapped inside the bottom bar). Skeleton rows hold the list's height while the
+// fetch is in flight, so the screen never jumps when the data lands.
+function ResumeSessionSheet({
+  sessions,
+  onPick,
+  onClose,
+}: {
+  sessions: ResumableSession[] | null;
+  onPick: (sessionId: string) => void;
+  onClose: () => void;
+}) {
+  return createPortal(
+    <div className="fixed inset-0 z-[80] flex flex-col bg-background text-foreground lfg-resume-in">
+      <header
+        className="flex shrink-0 items-center gap-2 border-b border-border px-2 pb-3"
+        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.75rem)" }}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Back"
+          className="flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:text-foreground active:scale-95"
+        >
+          <ChevronLeft className="size-5" />
+        </button>
+        <h2 className="text-[15px] font-semibold">Resume a session</h2>
+      </header>
+
+      <div
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2"
+        style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.5rem)" }}
+      >
+        <div className="mx-auto max-w-lg">
+          {sessions === null ? (
+            <div className="animate-pulse space-y-1" aria-hidden>
+              {Array.from({ length: 7 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3 px-3 py-3">
+                  <div className="size-4 shrink-0 rounded-full bg-muted" />
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="h-3 w-1/2 rounded bg-muted" />
+                    <div className="h-2.5 w-3/4 rounded bg-muted/60" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : sessions.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 px-4 py-16 text-center text-sm text-muted-foreground">
+              <RotateCcw className="size-5" />
+              <span>No recent sessions to resume</span>
+            </div>
+          ) : (
+            <div className="space-y-0.5">
+              {sessions.map((s) => (
+                <button
+                  key={s.sessionId}
+                  type="button"
+                  onClick={() => onPick(s.sessionId)}
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-muted active:scale-[0.99]"
+                >
+                  <RotateCcw className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-foreground">
+                      {s.title}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {s.agent === "codex" ? "codex · " : ""}
+                      {s.project} · {timeAgo(s.lastActivityAt)}
+                    </span>
+                  </span>
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -7632,6 +8418,155 @@ function VoiceSettingsSection() {
   );
 }
 
+type UsageWindow = { label: string; pct: number | null; resetsAt: number | null };
+type ProviderUsage = {
+  kind: string;
+  label: string;
+  available: boolean;
+  plan?: string | null;
+  note?: string;
+  windows?: UsageWindow[];
+};
+
+function fmtReset(ms: number | null): string {
+  if (!ms) return "";
+  const diff = ms - Date.now();
+  if (diff <= 0) return "resets now";
+  const mins = Math.round(diff / 60000);
+  if (mins < 60) return `resets in ${mins}m`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 48) return `resets in ${hrs}h`;
+  return `resets in ${Math.round(hrs / 24)}d`;
+}
+
+function UsageBar({ w }: { w: UsageWindow }) {
+  const pct = w.pct == null ? null : Math.max(0, Math.min(100, w.pct));
+  const tone =
+    pct == null
+      ? "bg-muted-foreground/40"
+      : pct >= 90
+        ? "bg-destructive"
+        : pct >= 70
+          ? "bg-amber-500"
+          : "bg-primary";
+  return (
+    <div className="space-y-1">
+      <div className="flex items-baseline justify-between text-xs">
+        <span className="font-medium text-muted-foreground">{w.label}</span>
+        <span className="tabular-nums">
+          {pct == null ? "—" : `${Math.round(pct)}%`}
+          {w.resetsAt ? (
+            <span className="ml-2 text-muted-foreground/70">{fmtReset(w.resetsAt)}</span>
+          ) : null}
+        </span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-foreground/[0.08]">
+        <div
+          className={cn("h-full rounded-full transition-all duration-300 ease-ios", tone)}
+          style={{ width: `${pct ?? 0}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function UsageLimitsSection() {
+  const [providers, setProviders] = useState<ProviderUsage[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const d = await api<{ providers: ProviderUsage[] }>("/api/usage");
+      setProviders(d.providers);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't load usage");
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <section className="space-y-2">
+      <div className="flex items-center justify-between px-4">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Usage &amp; limits
+        </h2>
+        <button
+          type="button"
+          onClick={() => void load()}
+          disabled={refreshing}
+          className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+        >
+          <RotateCcw className={cn("size-3.5", refreshing && "animate-spin")} />
+          Refresh
+        </button>
+      </div>
+      <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+        {providers == null && !error ? (
+          <div className="px-4 py-6 text-center text-sm text-muted-foreground">Loading…</div>
+        ) : error ? (
+          <div className="px-4 py-6 text-center text-sm text-destructive">{error}</div>
+        ) : (
+          providers!.map((p) => (
+            <div key={p.kind} className="flex flex-col gap-2.5 px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <span className="flex size-7 items-center justify-center rounded-[7px] border border-border bg-background">
+                    <img
+                      src={agentIconSrc(p.kind)}
+                      alt={agentIconAlt(p.kind)}
+                      className="size-4"
+                    />
+                  </span>
+                  <span className="text-sm font-medium">{p.label}</span>
+                  {p.plan ? (
+                    <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {p.plan}
+                    </span>
+                  ) : null}
+                </div>
+                {!p.available ? (
+                  <span className="text-xs text-muted-foreground/70">unavailable</span>
+                ) : null}
+              </div>
+              {p.available && p.windows?.length ? (
+                <div className="space-y-2 pl-10">
+                  {p.windows.map((w) => (
+                    <UsageBar key={w.label} w={w} />
+                  ))}
+                </div>
+              ) : (
+                <p className="pl-10 text-xs text-muted-foreground">{p.note ?? "No data"}</p>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+      <p className="px-4 text-xs text-muted-foreground">
+        Claude reads the live subscription usage endpoint; Codex reflects the latest rate-limit
+        snapshot from its most recent session.
+      </p>
+    </section>
+  );
+}
+
+// Usage lives on its own page (opened from Settings) rather than inline, so the
+// per-provider limit bars get the full width instead of crowding the settings list.
+function UsagePage() {
+  return (
+    <div className="mx-auto max-w-xl space-y-8 pb-10">
+      <UsageLimitsSection />
+    </div>
+  );
+}
+
 function SettingsView({
   dark,
   toggleTheme,
@@ -7639,6 +8574,7 @@ function SettingsView({
   onOpenTerminal,
   onOpenBrowser,
   onOpenAuto,
+  onOpenUsage,
   extTabs,
   onOpenExt,
 }: {
@@ -7648,6 +8584,7 @@ function SettingsView({
   onOpenTerminal: () => void;
   onOpenBrowser: () => void;
   onOpenAuto: () => void;
+  onOpenUsage: () => void;
   extTabs: ExtensionNavTab[];
   onOpenExt: (id: string) => void;
 }) {
@@ -7669,6 +8606,28 @@ function SettingsView({
           </div>
         </div>
       </div>
+
+      {/* Usage — opens as its own page. */}
+      <section className="space-y-2">
+        <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Usage
+        </h2>
+        <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
+          <button
+            type="button"
+            onClick={onOpenUsage}
+            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
+          >
+            <div className="flex items-center gap-3">
+              <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
+                <Activity className="size-4" />
+              </span>
+              <span className="text-sm font-medium">Usage &amp; limits</span>
+            </div>
+            <ChevronRight className="size-4 text-muted-foreground/60" />
+          </button>
+        </div>
+      </section>
 
       {/* Auto agents — opens as its own page. */}
       <section className="space-y-2">

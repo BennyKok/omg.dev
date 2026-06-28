@@ -55,26 +55,43 @@ export type VoiceIntentRequest = {
 };
 
 export type VoiceIntentResult = {
+  // "session" → launch a coding agent (the default). "question" → a quick
+  // spoken question the user wants answered now, with no session created.
+  kind: "session" | "question";
   prompt: string;
   agent: string;
   model: string;
   cwd: string;
   thinkingLevel?: string | null;
   confirmation: string;
+  // When kind === "question": one or two short sentences to read back aloud.
+  // Empty for sessions.
+  answer: string;
 };
 
-const SYSTEM = `You convert a person's spoken, dictated request into a config for launching a new AI coding-agent session, plus a short spoken confirmation.
+const SYSTEM = `You handle a person's spoken, dictated one-shot request to an AI coding-agent launcher. First classify what they want with "kind":
+
+- "session" — they want a coding agent to DO or CHANGE something: build a feature, fix a bug, refactor, write code, run a task. The outcome is work and edits. Imperatives like "add", "fix", "implement", "refactor", "build", "change", "make" are sessions.
+- "question" — they want to KNOW or UNDERSTAND something and hear it answered out loud: how something works, where something lives, why a bug happens, what an approach should be, "explain…", "summarize…". Answering MAY require exploring the codebase — that is expected and fine; a separate Claude Code agent does that and reads the answer back. Phrasings like "what", "why", "how does", "where is", "explain", "should I" are questions. The outcome is an explanation, not edits.
+
+When genuinely ambiguous, default to "session".
 
 You are given: the raw transcript, the user's CURRENT default settings (agent, model, repo, thinking level), and the menus of available agents, models, and repos.
 
-Rules:
+For kind "session":
 - The user's current settings are the defaults. Keep them UNLESS the transcript clearly asks for something different (e.g. "use codex", "with opus", "in the web repo", "think hard"). Spoken intent overrides the defaults; otherwise echo the defaults back.
 - Only ever choose an agent/model/repo/thinkingLevel that appears in the provided menus. If the user names something not in a menu, ignore that override and keep the default. Match repos loosely by name (case-insensitive, partial is fine).
 - "prompt" is the actual task to hand the coding agent: clean up the transcript into a clear instruction. Strip out the meta config words (which agent/model/repo to use) — those belong in the config fields, not the prompt. Fix obvious dictation errors. Do not add scope the user didn't ask for.
 - "confirmation" is ONE short, natural spoken sentence (no markdown, no lists) confirming what you're about to start — mention the task briefly and, only if they differ from the defaults or are worth surfacing, the agent/model/repo. Example: "Starting a Codex session in web to add dark mode." Keep it under ~20 words.
+- Leave "answer" empty.
+
+For kind "question":
+- "prompt" is the cleaned, well-formed question to investigate — fix obvious dictation errors, but keep it phrased as a question; do NOT turn it into a task or add scope.
+- "answer" is ONE short, natural spoken sentence (no markdown, no lists) with your best quick guess — a FALLBACK only, used if the deeper codebase lookup is unavailable. Leave it short.
+- Leave "confirmation" empty; echo the default agent/model/repo unchanged.
 
 Respond with ONLY a JSON object, no prose and no code fences:
-{"prompt": string, "agent": string, "model": string, "repo": string, "thinkingLevel": string|null, "confirmation": string}
+{"kind": "session"|"question", "prompt": string, "agent": string, "model": string, "repo": string, "thinkingLevel": string|null, "confirmation": string, "answer": string}
 "agent" is an agent key from the menu, "model" a model from the menu, "repo" a repo NAME from the menu.`;
 
 function buildUserMsg(req: VoiceIntentRequest): string {
@@ -105,12 +122,16 @@ function deterministicFallback(req: VoiceIntentRequest): VoiceIntentResult {
   const repoName =
     req.repos.find((r) => r.cwd === req.base.cwd)?.name ?? "your project";
   return {
+    // On any failure we fall back to creating a session — never silently drop
+    // the user's dictation by guessing "question".
+    kind: "session",
     prompt: req.transcript.trim(),
     agent: req.base.agent,
     model: req.base.model,
     cwd: req.base.cwd,
     thinkingLevel: req.base.thinkingLevel ?? null,
     confirmation: `Starting a session in ${repoName}.`,
+    answer: "",
   };
 }
 
@@ -193,6 +214,13 @@ export async function resolveVoiceIntent(
       ? parsed.thinkingLevel
       : (req.base.thinkingLevel ?? null);
 
+  // "answer" is just a fallback spoken line; the real answer comes from the
+  // Claude Code lookup the frontend kicks off. Trust the classification.
+  const answer =
+    typeof parsed.answer === "string" ? parsed.answer.trim() : "";
+  const kind: "session" | "question" =
+    parsed.kind === "question" ? "question" : "session";
+
   const prompt =
     typeof parsed.prompt === "string" && parsed.prompt.trim()
       ? parsed.prompt.trim()
@@ -202,5 +230,5 @@ export async function resolveVoiceIntent(
       ? parsed.confirmation.trim()
       : fallback.confirmation;
 
-  return { prompt, agent, model, cwd, thinkingLevel, confirmation };
+  return { kind, prompt, agent, model, cwd, thinkingLevel, confirmation, answer };
 }

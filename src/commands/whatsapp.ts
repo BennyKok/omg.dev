@@ -12,6 +12,7 @@ import makeWASocket, {
 import qrcode from "qrcode-terminal";
 import { randomBytes } from "node:crypto";
 import { PATHS } from "../config.ts";
+import { resolveSessionCwd } from "../worktree.ts";
 import { addManaged, removeManaged } from "../managed.ts";
 import { enqueueMessage } from "../sendq.ts";
 import { listSessions, recentMessages, resolveTranscript, sessionIdForPid } from "../sessions.ts";
@@ -426,17 +427,28 @@ async function getOrCreateGroupSession(sock: WASocket, groupJid: string): Promis
   // after turn 1, so we store the key and resolve the threadId lazily in the
   // relay loop via findEntryByAnyId). The legacy CLI paths discover the
   // sessionId from the pane/pidfile as before.
+  const cwdResolved = resolveSessionCwd(AGENT_CWD, tmuxName, { selfRepo: PATHS.root });
+  if (!cwdResolved.ok) throw new Error(cwdResolved.error);
+  const { cwd, worktree } = cwdResolved;
+
   const aisdkId = AGENT === "aisdk" || AGENT === "codex-aisdk" ? randomUUID() : null;
   const spawned =
     AGENT === "aisdk"
-      ? spawnManagedAisdkSession({ name: tmuxName, cwd: AGENT_CWD, model: "opus", sessionId: aisdkId! })
+      ? spawnManagedAisdkSession({ name: tmuxName, cwd, model: "opus", sessionId: aisdkId! })
       : AGENT === "codex-aisdk"
-        ? spawnManagedCodexAisdkSession({ name: tmuxName, cwd: AGENT_CWD, model: "gpt-5.5", key: aisdkId! })
+        ? spawnManagedCodexAisdkSession({ name: tmuxName, cwd, model: "gpt-5.5", key: aisdkId! })
         : AGENT === "codex"
-          ? spawnManagedCodexSession({ name: tmuxName, cwd: AGENT_CWD })
-          : spawnManagedSession({ name: tmuxName, cwd: AGENT_CWD });
+          ? spawnManagedCodexSession({ name: tmuxName, cwd })
+          : spawnManagedSession({ name: tmuxName, cwd });
   if (!spawned.ok) throw new Error(spawned.error || "failed to spawn managed session");
-  addManaged({ tmuxName, cwd: AGENT_CWD, createdAt: Date.now(), agent: AGENT });
+  addManaged({
+    tmuxName,
+    cwd,
+    createdAt: Date.now(),
+    agent: AGENT,
+    repoRoot: worktree?.repoRoot,
+    worktreeBranch: worktree?.branch,
+  });
 
   let sessionId: string | null = null;
   if (aisdkId) {
@@ -463,7 +475,7 @@ async function getOrCreateGroupSession(sock: WASocket, groupJid: string): Promis
     groupName,
     sessionId,
     tmuxName,
-    cwd: AGENT_CWD,
+    cwd,
     agent: AGENT,
     createdAt: Date.now(),
     updatedAt: Date.now(),

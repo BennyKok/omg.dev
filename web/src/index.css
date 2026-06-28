@@ -53,9 +53,8 @@
      screen is owned by the inline create composer. These clearances reserve
      space above that compact composer for scroll content, toasts, the dictation
      pill and the ask-center card. --lfg-composer-clear ≈ the composer's resting
-     height — now includes the always-visible agent/model/thinking/repo row, not
-     just the textarea + Start; bump it if the composer grows. */
-  --lfg-composer-clear: calc(12rem + env(safe-area-inset-bottom));
+     height: prompt, collapsed agent button and Start. */
+  --lfg-composer-clear: calc(9.25rem + env(safe-area-inset-bottom));
   --lfg-orb-stack-bottom: calc(var(--lfg-composer-clear) + 0.5rem);
   --lfg-above-orb: var(--lfg-composer-clear);
 }
@@ -317,7 +316,14 @@ html.lfg-keyboard-open {
   }
 
   .markdown table {
-    width: 100%;
+    /* Scroll a too-wide table inside the bubble instead of letting the
+       auto-layout crush a column to one character wide (which stacked each
+       letter vertically). display:block + overflow-x makes it scrollable;
+       fit-content keeps narrow tables from stretching full width. */
+    display: block;
+    width: fit-content;
+    max-width: 100%;
+    overflow-x: auto;
     margin: 0.6em 0;
     border-collapse: collapse;
     font-size: 0.9em;
@@ -329,6 +335,10 @@ html.lfg-keyboard-open {
     padding: 5px 8px;
     text-align: left;
     vertical-align: top;
+    /* Override .msg-text's overflow-wrap:anywhere so cell text wraps by word,
+       not per character. */
+    overflow-wrap: normal;
+    word-break: normal;
   }
 
   .markdown th {
@@ -338,6 +348,38 @@ html.lfg-keyboard-open {
 
   .report-markdown {
     box-shadow: 0 1px 0 var(--border), 0 6px 16px -8px rgba(0, 0, 0, 0.08);
+  }
+
+  .cn-toast {
+    width: fit-content !important;
+    max-width: var(--lfg-toast-max, min(18rem, calc(100vw - 2rem))) !important;
+    /* Sonner positions each toast absolutely with no left/right, so a
+       fit-content toast falls back to its static (left-aligned) position.
+       Pinning both insets lets the auto inline margins distribute evenly and
+       actually center the shrunk toast within the toaster stack. */
+    left: 0 !important;
+    right: 0 !important;
+    margin-inline: auto !important;
+  }
+
+  /* On phones (≤600px) Sonner switches the toaster to width:100% pinned to the
+     LEFT mobile offset (left:16px) and turns OFF x-position=center's
+     translateX(-50%). That makes each toast's centering containing block a full
+     viewport-wide box shifted right by the offset, so our fit-content toast +
+     margin-inline:auto lands ~16px right of true center. Re-anchor the container
+     symmetrically across the viewport so the auto margins center it for real.
+     (Desktop is unaffected — it keeps Sonner's left:50%/translateX centering.) */
+  @media (max-width: 600px) {
+    [data-sonner-toaster][data-x-position="center"] {
+      left: 0 !important;
+      right: 0 !important;
+      width: 100% !important;
+      transform: none !important;
+    }
+  }
+
+  .cn-toast [data-content] {
+    min-width: 0;
   }
 
   /* Wide report tables scroll inside their own region instead of forcing the
@@ -438,6 +480,40 @@ html.lfg-keyboard-open {
     color: var(--foreground);
   }
 
+  /* In-flight (optimistic) user message: a soft breathing plus a sheen sweeping
+     left→right, so "submitting" reads as motion rather than a dimmed bubble.
+     Clears the instant the real message arrives and `is-pending` is dropped. */
+  .user-bubble.is-pending {
+    position: relative;
+    overflow: hidden;
+    animation: lfg-pending-breathe 1.6s ease-in-out infinite;
+  }
+
+  .user-bubble.is-pending::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      100deg,
+      transparent 25%,
+      rgba(255, 255, 255, 0.32) 50%,
+      transparent 75%
+    );
+    background-size: 200% 100%;
+    animation: lfg-shimmer 1.4s linear infinite;
+    pointer-events: none;
+  }
+
+  @keyframes lfg-pending-breathe {
+    0%,
+    100% {
+      opacity: 0.72;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+
   .user-bubble.markdown code,
   .user-bubble.markdown pre {
     border: 0;
@@ -497,6 +573,22 @@ html.lfg-keyboard-open {
     }
     to {
       background-position: -200% 0;
+    }
+  }
+
+  /* Full-screen resume picker entrance: a brief slide-up + fade, iOS-style. */
+  .lfg-resume-in {
+    animation: lfg-resume-in 0.26s var(--ease-ios);
+  }
+
+  @keyframes lfg-resume-in {
+    from {
+      opacity: 0;
+      transform: translateY(1.5%);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
     }
   }
 
@@ -691,6 +783,68 @@ html.lfg-keyboard-open {
   .lfg-bubble {
     transform-origin: bottom center;
     animation: lfg-bubble-in 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  /* Newly created session card: rises and scales into place with a brief
+     primary glow so the just-spawned session announces itself in the list. */
+  @keyframes lfg-card-in {
+    from { opacity: 0; transform: translateY(12px) scale(0.96); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes lfg-card-flash {
+    0% { box-shadow: 0 0 0 1px var(--primary), 0 0 24px 3px color-mix(in srgb, var(--primary) 40%, transparent); }
+    100% { box-shadow: 0 0 0 0 transparent, 0 0 0 0 transparent; }
+  }
+  .lfg-card-in {
+    animation:
+      lfg-card-in 440ms cubic-bezier(0.32, 0.72, 0, 1) both,
+      lfg-card-flash 1500ms ease-out 140ms both;
+  }
+  /* "Send" pulse: the composer dips and springs back to rest in one motion
+     rather than holding a dimmed end-state for the whole (slow) spawn. The
+     just-launched session is now represented by the pending card in the list,
+     so the composer doesn't need to sit frozen as the progress indicator. */
+  @keyframes lfg-composer-launch {
+    0% { transform: translateY(0) scale(1); }
+    35% { transform: translateY(5px) scale(0.978); opacity: 0.85; }
+    100% { transform: translateY(0) scale(1); opacity: 1; }
+  }
+  .lfg-composer-launching {
+    transform-origin: bottom center;
+    animation: lfg-composer-launch 460ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  }
+  /* Pending (optimistic) session card: rises into the list immediately on
+     submit and softly breathes while the backend boots the agent, so the gap
+     between "tap Start" and the real card landing reads as one continuous
+     motion instead of a frozen wait. */
+  .lfg-pending-card {
+    animation: lfg-card-in 440ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  }
+  @keyframes lfg-pending-breathe {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+  .lfg-pending-breathe {
+    animation: lfg-pending-breathe 1.4s ease-in-out infinite;
+  }
+  /* Ping-pong marquee for a one-line title that's too wide to fit. Pauses at
+     each end (the 0–10% / 90–100% holds) so the start and end of the text are
+     both readable. Scroll distance is fed in via --lfg-marquee-shift and the
+     duration is set inline to keep a roughly constant speed. */
+  @keyframes lfg-marquee {
+    0%, 10%   { transform: translateX(0); }
+    90%, 100% { transform: translateX(var(--lfg-marquee-shift, 0)); }
+  }
+  .lfg-marquee {
+    animation: lfg-marquee 6s ease-in-out infinite alternate;
+    will-change: transform;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .lfg-card-in { animation: none; }
+    .lfg-composer-launching { animation: none; }
+    .lfg-pending-card { animation: none; }
+    .lfg-pending-breathe { animation: none; }
+    .lfg-marquee { animation: none; }
   }
 
   /* Power ring: forms the orb's border to reflect GPU power state. A gradient

@@ -1,7 +1,7 @@
 import { readdir, realpath, stat } from "node:fs/promises";
 import { statSync, mkdirSync, type Dirent } from "node:fs";
 import { tmpdir, homedir } from "node:os";
-import { join } from "node:path";
+import { extname, join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { marked } from "marked";
 import { PATHS } from "../config.ts";
@@ -33,6 +33,7 @@ import {
 import { runAutoAgent } from "../auto/runner.ts";
 import { startAutoScheduler } from "../auto/scheduler.ts";
 import { reportClientError, listClientErrors } from "../client-errors.ts";
+import { getAllUsage } from "../usage.ts";
 import {
   vapidPublicKey,
   saveSubscription,
@@ -53,6 +54,7 @@ import {
   listSessions,
   resolveTranscript,
   recentMessages,
+  searchTranscript,
   messagePage,
   normalizeLineMessages,
   setSessionTitle,
@@ -75,6 +77,7 @@ import {
   spawnManagedSession,
   relaunchSessionWithModel,
   spawnManagedCodexSession,
+  spawnManagedGrokSession,
   spawnManagedAisdkSession,
   spawnManagedCodexAisdkSession,
   spawnManagedOpencodeAisdkSession,
@@ -100,12 +103,69 @@ import {
 } from "../browser/session.ts";
 import { testProfile } from "../browser/tool.ts";
 import { listCustomRepos, addCustomRepo, removeCustomRepo } from "../repos-store.ts";
+import { projectName, reposRoot } from "../projects.ts";
+import { resolveSessionCwd, startWorktreeSweep } from "../worktree.ts";
+import {
+  synthesizeTts,
+  transcribeStt,
+  getVoiceSettings,
+  setVoiceSettings,
+  listProviders,
+  openSttStream,
+  type VoiceSettings,
+  type SttStreamBridge,
+} from "../voice-providers.ts";
 
 // Where the user keeps the repos lfg can launch agents into. Scanned for git
 // repos at runtime; defaults to ~/repos. The lfg repo itself (PATHS.root) is
 // always offered as a target since it is present and trusted.
-const REPOS_ROOT = process.env.LFG_REPOS_ROOT ?? join(homedir(), "repos");
+const REPOS_ROOT = reposRoot();
 const SELF_REPO = PATHS.root;
+
+function uploadExt(contentType: string, filename: string): string {
+  const fromName = extname(filename).toLowerCase().replace(/^\./, "");
+  if (/^[a-z0-9]{1,12}$/.test(fromName)) return fromName;
+  const ct = contentType.toLowerCase();
+  if (ct.includes("png")) return "png";
+  if (ct.includes("webp")) return "webp";
+  if (ct.includes("gif")) return "gif";
+  if (ct.includes("jpeg") || ct.includes("jpg")) return "jpg";
+  if (ct.includes("pdf")) return "pdf";
+  if (ct.includes("markdown")) return "md";
+  if (ct.includes("json")) return "json";
+  if (ct.includes("html")) return "html";
+  if (ct.includes("text")) return "txt";
+  return "bin";
+}
+
+function uploadStem(filename: string): string {
+  const leaf = filename.split(/[\\/]/).pop() || "";
+  const stem = leaf.replace(/\.[^.]*$/, "").replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+  return stem.slice(0, 48) || "upload";
+}
+
+async function persistUpload(req: Request, filename: string, prefix = "upload"): Promise<{ path: string; name: string }> {
+  const ct = (req.headers.get("content-type") || "").toLowerCase();
+  const ext = uploadExt(ct, filename);
+  const buf = new Uint8Array(await req.arrayBuffer());
+  if (!buf.length) throw new Error("empty upload");
+  const dir = join(tmpdir(), "lfg-uploads");
+  mkdirSync(dir, { recursive: true });
+  const safePrefix = prefix.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "upload";
+  const name = `${safePrefix}-${Date.now()}-${randomBytes(3).toString("hex")}-${uploadStem(filename)}.${ext}`;
+  const fp = join(dir, name);
+  await Bun.write(fp, buf);
+  return { path: fp, name: filename || name };
+}
+
+function uploadFilename(req: Request, url: URL): string {
+  const rawName = url.searchParams.get("filename") || req.headers.get("x-file-name") || "";
+  try {
+    return decodeURIComponent(rawName);
+  } catch {
+    return rawName;
+  }
+}
 
 // Allowlisted Claude model aliases. They land both on a launch argv (--model)
 // and in a `/model <alias>` slash command we inject mid-session — so an unknown
@@ -114,9 +174,35 @@ const SELF_REPO = PATHS.root;
 const CLAUDE_MODELS = ["fable", "opus", "sonnet", "haiku"];
 // Models the "aisdk" session kind accepts (the provider maps these aliases).
 const AISDK_MODELS = ["opus", "sonnet", "haiku"];
-const THINKING_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
-type ThinkingLevel = (typeof THINKING_LEVELS)[number];
+const GROK_MODELS = ["grok-composer-2.5-fast", "grok-build"];
+const GROK_DEFAULT_MODEL = "grok-composer-2.5-fast";
+const OPENCODE_DEFAULT_MODEL = "opencode/big-pickle";
+// Models whose provider currently rejects our requests (Sakana's fugu returns a
+// hard 403 Forbidden — see opencode.log). A session born onto one of these
+// streams zero output and silently goes idle, so redirect create + model-switch
+// away from them to OPENCODE_DEFAULT_MODEL instead of letting the turn die. Keep
+// both the "provider/model" and bare slugs since either form can be requested.
+const OPENCODE_DISABLED_MODELS = new Set<string>(["fugu/fugu", "fugu"]);
+const AUTO_AGENT_BACKENDS = ["aisdk", "codex-aisdk", "opencode"] as const;
+// Reasoning/thinking-effort levels, per agent family. Codex (CLI + ai-sdk)
+// accepts none…xhigh; Claude (CLI + ai-sdk) accepts low…xhigh plus `max`. The
+// dashboard picker only offers the low/medium/high/xhigh overlap, but the
+// endpoint validates against the agent's own set so an out-of-range value (e.g.
+// a voice-supplied `none` for Claude, or `max` for Codex) is a clean 400 rather
+// than a session that boots into an error.
+const CODEX_THINKING_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh"] as const;
+const CLAUDE_THINKING_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+// The levels a given agent kind honors, or null when the agent has no
+// thinking/reasoning knob at all (opencode's provider exposes none).
+function thinkingLevelsForAgent(agent: string): readonly string[] | null {
+  if (agent === "claude" || agent === "aisdk" || agent === "grok") return CLAUDE_THINKING_LEVELS;
+  if (agent === "codex" || agent === "codex-aisdk") return CODEX_THINKING_LEVELS;
+  return null;
+}
 import { enqueueMessage, listQueue, retryMessage, clearResolved, reconcileQueued, getMessage } from "../sendq.ts";
+import { startFleetWatcher, subscribeFleet, type FleetEvent } from "../voice-bus.ts";
+import { handleElevenLlm, handleElevenToken } from "../voice-eleven-llm.ts";
+import { resolveVoiceIntent, type VoiceIntentRequest } from "../voice-intent.ts";
 
 const PORT = Number(process.env.LFG_PORT ?? 8766);
 // Bind to loopback by default — the UI is meant to be reached over Tailscale
@@ -170,19 +256,21 @@ async function listRepos() {
   } catch {
     root = REPOS_ROOT;
   }
-  const repos: Array<{ name: string; cwd: string; custom?: boolean }> = [];
+  const repos: Array<{ name: string; cwd: string; project: string; custom?: boolean }> = [];
   const addRepo = async (name: string, cwd: string, custom = false) => {
     if (repos.some((r) => r.cwd === cwd)) return;
     try {
       await stat(join(cwd, ".git"));
-      repos.push(custom ? { name, cwd, custom: true } : { name, cwd });
+      const project = projectName(cwd);
+      if (repos.some((r) => r.project === project)) return;
+      repos.push(custom ? { name, cwd, project, custom: true } : { name, cwd, project });
     } catch {}
   };
   let entries: Dirent[] = [];
   try {
     entries = await readdir(root, { withFileTypes: true });
   } catch {}
-  for (const entry of entries) {
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
     await addRepo(entry.name, join(root, entry.name));
   }
@@ -320,6 +408,7 @@ const STATIC_FILES: Record<string, { path: string; type: string }> = {
   "/agent-claude.svg": { path: join(WEB_DIR, "agent-claude.svg"), type: "image/svg+xml" },
   "/agent-codex.svg": { path: join(WEB_DIR, "agent-codex.svg"), type: "image/svg+xml" },
   "/agent-opencode.svg": { path: join(WEB_DIR, "agent-opencode.svg"), type: "image/svg+xml" },
+  "/agent-grok.svg": { path: join(WEB_DIR, "agent-grok.svg"), type: "image/svg+xml" },
   "/apple-touch-icon.png": { path: join(WEB_DIR, "icon.svg"), type: "image/svg+xml" },
 };
 
@@ -338,6 +427,107 @@ function err(status: number, message: string) {
 function msgWithHtml<T extends { kind: string; text: string }>(m: T) {
   if (m.kind === "text" && m.text) return { ...m, html: marked.parse(m.text) };
   return m;
+}
+
+function compactForSpeech(text: string, max = 700): string {
+  const oneLine = text
+    .replace(/```[\s\S]*?```/g, "code block")
+    .replace(/[`*_#>\[\]()]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (oneLine.length <= max) return oneLine;
+  return `${oneLine.slice(0, max - 1).trim()}…`;
+}
+
+function clipSummaryText(text: string, max = 1200): string {
+  return text.replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+async function openAiSessionSummary(prompt: string): Promise<string | null> {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) return null;
+  const base = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "");
+  const model = process.env.LFG_SESSION_SUMMARY_MODEL || "gpt-4o-mini";
+  try {
+    const r = await fetch(`${base}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.2,
+        max_tokens: 140,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Summarize the coding-agent session for spoken playback. Use 2 short sentences, no markdown. Say what was requested, what changed or happened, and any current blocker.",
+          },
+          { role: "user", content: prompt },
+        ],
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!r.ok) return null;
+    const data = (await r.json().catch(() => null)) as {
+      choices?: { message?: { content?: string } }[];
+    } | null;
+    return data?.choices?.[0]?.message?.content?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+async function summarizeSessionForSpeech(sessionId: string, transcriptPath: string): Promise<{
+  summary: string;
+  generated: boolean;
+}> {
+  const [msgs, live] = await Promise.all([
+    recentMessages(transcriptPath, 160, { maxBytes: 512 * 1024 }),
+    listSessions().catch(() => []),
+  ]);
+  const session = live.find((s) => s.sessionId === sessionId) ?? null;
+  const relevant = msgs
+    .filter((m) => m.kind === "text" && m.text.trim() && (m.role === "user" || m.role === "assistant"))
+    .slice(-80);
+  const transcript = relevant
+    .map((m) => `${m.role}: ${clipSummaryText(m.text, 900)}`)
+    .join("\n");
+  const status = session
+    ? `${session.busy ? "working" : "idle"}${session.status === "blocked" ? `, blocked: ${session.statusDetail || session.statusReason || "needs attention"}` : ""}`
+    : "not currently live";
+  const title = session ? titleForSessionLike(session) : sessionId.slice(0, 8);
+  const generated = transcript
+    ? await openAiSessionSummary(`Session: ${title}\nStatus: ${status}\n\nRecent transcript:\n${transcript}`)
+    : null;
+  if (generated) return { summary: compactForSpeech(generated), generated: true };
+
+  const lastUser = [...relevant].reverse().find((m) => m.role === "user")?.text || "";
+  const lastAssistant = [...relevant].reverse().find((m) => m.role === "assistant")?.text || "";
+  const parts = [
+    title ? `Session ${title}.` : "This session.",
+    lastUser ? `Last request: ${compactForSpeech(lastUser, 180)}.` : "",
+    lastAssistant ? `Latest update: ${compactForSpeech(lastAssistant, 260)}.` : "No assistant update is in the transcript yet.",
+    session?.status === "blocked"
+      ? `It is blocked: ${compactForSpeech(session.statusDetail || "needs attention", 120)}.`
+      : session?.busy
+        ? "It is working now."
+        : "It is idle now.",
+  ].filter(Boolean);
+  return { summary: compactForSpeech(parts.join(" ")), generated: false };
+}
+
+function titleForSessionLike(session: { title?: string | null; lastUserText?: string | null; tmuxName?: string | null; project?: string | null; sessionId?: string | null }) {
+  return (
+    session.title ||
+    session.lastUserText ||
+    session.tmuxName ||
+    session.project ||
+    session.sessionId?.slice(0, 8) ||
+    "session"
+  );
 }
 
 // Compact, spoken-summary-friendly snapshot of every live session, injected into
@@ -398,6 +588,18 @@ async function voiceStatusSnapshot(user?: string | null): Promise<string> {
     // label, not a paragraph.
     const name = clip(s.title || s.tmuxName || s.sessionId?.slice(0, 8) || "session", 60);
     const who = s.assignedUser ? ` [${s.assignedUser}]` : "";
+    // Surface the agent family so the voice assistant can tell OpenCode and
+    // Codex sessions apart from regular Claude ones. Plain Claude (claude/aisdk)
+    // is the common case, so leave it untagged to keep lines terse.
+    const family =
+      s.agent === "codex" || s.agent === "codex-aisdk"
+        ? "codex"
+        : s.agent === "opencode"
+          ? "opencode"
+          : s.agent === "grok"
+            ? "grok"
+          : null;
+    const kind = family ? ` <${family}>` : "";
     let status = "IDLE";
     let detail = "";
     if (s.tmuxTarget) {
@@ -422,7 +624,7 @@ async function voiceStatusSnapshot(user?: string | null): Promise<string> {
     const redundant = last && name.replace(/…$/, "").startsWith(last.slice(0, 30));
     const lastBit = last && !redundant ? ` last ask: "${last}"` : "";
     const when = ago(s.lastActivityAt);
-    lines.push(`- ${name}${who}: ${status}${detail}.${lastBit}${when ? ` (${when})` : ""}`);
+    lines.push(`- ${name}${kind}${who}: ${status}${detail}.${lastBit}${when ? ` (${when})` : ""}`);
   }
   // Pending agent questions for the human — the voice agent should read these
   // out and, when the user replies, answer them via POST /api/ask/<id>/answer.
@@ -454,6 +656,9 @@ const ADVISOR_BRIEF =
   "3 short, plain spoken sentences — no markdown, no code blocks, no bullet " +
   "lists. Be concrete and decisive; the answer is read aloud.";
 let voiceAdvisorId: string | null = null;
+// Which repo the live advisor was spawned against. The working tree is fixed at
+// spawn, so a question about a different repo needs a fresh advisor.
+let voiceAdvisorCwd: string | null = null;
 
 const isAdvisorAnswer = (m: { role: string; kind: string; text?: string }) =>
   m.role === "assistant" && m.kind === "text" && !!m.text?.trim();
@@ -483,27 +688,41 @@ async function waitForAdvisorAnswer(
   return last || "I couldn't reach the advisor in time.";
 }
 
-// Send a question to the persistent Opus advisor and return its spoken answer.
-async function voiceConsult(question: string): Promise<string> {
+// Send a question to the Opus advisor and return its spoken answer. `cwd` is the
+// repo to explore (defaults to the lfg repo for the in-call voice agent); the
+// orb's one-shot "ask a question" passes the user's currently-scoped repo so the
+// answer has that codebase's full context.
+async function voiceConsult(
+  question: string,
+  cwd: string = SELF_REPO,
+): Promise<string> {
   const live = await listSessions();
   let id = voiceAdvisorId;
-  if (!id || !live.find((s) => s.sessionId === id)) {
+  // Reuse the advisor only if it's still alive AND already scoped to the repo we
+  // want to explore — a different repo means its loaded working tree is wrong, so
+  // retire it and spawn fresh.
+  const reusable =
+    !!id && !!live.find((s) => s.sessionId === id) && voiceAdvisorCwd === cwd;
+  if (!reusable) {
+    if (id) await retireVoiceAdvisor();
     // Spawn a fresh advisor; the brief + first question are the kickoff turn, so
     // the answer is simply its first assistant message (baseline 0).
     id = crypto.randomUUID();
     const r = spawnManagedAisdkSession({
       name: `lfg-adv-${randomBytes(2).toString("hex")}`,
-      cwd: SELF_REPO,
+      cwd,
       prompt: `${ADVISOR_BRIEF}\n\nFirst question: ${question}`,
       model: "opus",
       sessionId: id,
     });
     if (!r.ok) throw new Error(r.error || "advisor spawn failed");
     voiceAdvisorId = id;
+    voiceAdvisorCwd = cwd;
     return waitForAdvisorAnswer(id, 0, 120_000);
   }
   // Reuse the live advisor: count existing answers, then send and wait for one
-  // more to appear past that baseline.
+  // more to appear past that baseline. (reusable === true guarantees id here.)
+  if (!id) throw new Error("advisor unexpectedly missing");
   const tp = await resolveTranscript(id);
   const baseline = tp
     ? (await recentMessages(tp, 0, { maxBytes: null })).filter(isAdvisorAnswer)
@@ -521,6 +740,7 @@ async function voiceConsult(question: string): Promise<string> {
 async function retireVoiceAdvisor(): Promise<void> {
   const id = voiceAdvisorId;
   voiceAdvisorId = null; // clear first so a concurrent consult respawns cleanly
+  voiceAdvisorCwd = null;
   if (!id) return;
   try {
     const sess = (await listSessions()).find((s) => s.sessionId === id);
@@ -577,6 +797,16 @@ type TermSocketData = { sessionName: string; cols: number; rows: number };
 // the bridge to write to / tear down.
 const termBridges = new WeakMap<object, PtyBridge>();
 
+// ---- streaming-STT bridge sockets ----
+// The LiveKit voice worker holds a websocket to /api/voice/stt-stream and streams
+// 16 kHz PCM up / gets {partial,final} transcripts back. Each socket owns one
+// upstream realtime-STT bridge (built in voice-providers so the API key stays
+// there); the global ws handlers below find it by socket to forward audio / tear
+// it down. Tagged in ws.data so open/message/close can tell it apart from the
+// terminal and browser-login sockets that share these handlers.
+type SttStreamSocketData = { sttStream: true };
+const sttBridges = new WeakMap<object, SttStreamBridge>();
+
 // ---- cloud-browser login stream sockets ----
 // Browser-login viewer sockets multiplex through the same Bun websocket handlers
 // as the terminal; we tag their data with browserSessionId and bridge them to the
@@ -630,6 +860,34 @@ export async function cmdServe() {
       // as binary frames — the full raw VT byte stream a faithful renderer wants.
       idleTimeout: 600,
       open(ws: ServerWebSocket<TermSocketData>) {
+        // Streaming-STT bridge socket: open the upstream realtime-STT bridge and
+        // pipe its results back as {partial,final} text frames. Built synchronously
+        // (the bridge queues outbound audio until its upstream connects), so the
+        // first PCM frame in message() always finds a bridge.
+        if ((ws.data as unknown as SttStreamSocketData)?.sttStream) {
+          const send = (o: unknown) => {
+            try {
+              ws.send(JSON.stringify(o));
+            } catch {}
+          };
+          const bridge = openSttStream({
+            onPartial: (text) => send({ type: "partial", text }),
+            onFinal: (text) => send({ type: "final", text }),
+            onClose: () => {
+              try {
+                ws.close();
+              } catch {}
+            },
+          });
+          if (!bridge) {
+            try {
+              ws.close();
+            } catch {}
+            return;
+          }
+          sttBridges.set(ws, bridge);
+          return;
+        }
         // Cloud-browser login viewer socket: bridge to the session streamer.
         const bSid = (ws.data as unknown as BrowserSocketData)?.browserSessionId;
         if (typeof bSid === "string") {
@@ -661,6 +919,21 @@ export async function cmdServe() {
         }
       },
       message(ws: ServerWebSocket<TermSocketData>, message) {
+        // Streaming-STT bridge: binary frames are raw 16 kHz PCM; text frames are
+        // the worker's {"type":"flush"|"eof"} control messages.
+        const sttBridge = sttBridges.get(ws);
+        if (sttBridge) {
+          if (typeof message === "string") {
+            try {
+              const ctrl = JSON.parse(message) as { type?: string };
+              if (ctrl.type === "flush") sttBridge.flush();
+              else if (ctrl.type === "eof") sttBridge.close();
+            } catch {}
+          } else {
+            sttBridge.pushPcm(message as Uint8Array);
+          }
+          return;
+        }
         const bCbs = browserSocketCbs.get(ws);
         if (bCbs) {
           if (typeof message === "string") bCbs.onMessage?.(message);
@@ -685,6 +958,13 @@ export async function cmdServe() {
         bridge.write(message as Uint8Array);
       },
       close(ws: ServerWebSocket<TermSocketData>) {
+        // Streaming-STT bridge: tear the upstream realtime-STT socket down.
+        const sttBridge = sttBridges.get(ws);
+        if (sttBridge) {
+          sttBridges.delete(ws);
+          sttBridge.close();
+          return;
+        }
         const bCbs = browserSocketCbs.get(ws);
         if (bCbs) {
           browserSocketCbs.delete(ws);
@@ -713,6 +993,18 @@ export async function cmdServe() {
         const rows = clampDim(url.searchParams.get("rows"), 24);
         const ok = server.upgrade<TermSocketData>(req, {
           data: { sessionName, cols, rows },
+        });
+        if (ok) return undefined; // upgraded — Bun takes over the socket
+        return err(400, "expected a websocket upgrade");
+      }
+
+      // ---- streaming STT bridge (websocket upgrade) ----
+      // The voice worker connects here when STT_WS_URL is set; the socket bridges
+      // its raw-PCM/{flush,eof} protocol to the configured realtime-STT provider
+      // (ElevenLabs Scribe v2 Realtime) in voice-providers.ts.
+      if (path === "/api/voice/stt-stream") {
+        const ok = server.upgrade<SttStreamSocketData>(req, {
+          data: { sttStream: true },
         });
         if (ok) return undefined; // upgraded — Bun takes over the socket
         return err(400, "expected a websocket upgrade");
@@ -845,6 +1137,12 @@ export async function cmdServe() {
             canPublish: true,
             canSubscribe: true,
             canPublishData: true,
+            // Required for localParticipant.setAttributes() — the orb publishes
+            // the speaking user as the `lfg.user` attribute so the voice worker
+            // can assign new sessions on their behalf. Without this grant the
+            // server silently drops the attribute update and CURRENT_USER stays
+            // empty, so orb-created sessions land unassigned.
+            canUpdateOwnMetadata: true,
           },
         })}`;
         const ck = await crypto.subtle.importKey(
@@ -863,122 +1161,71 @@ export async function cmdServe() {
         });
       }
 
-      // ---- voice TTS proxy: forward to the self-hosted SuperTonic service on
-      // the control-plane box. The token + upstream URL live server-side (.env)
-      // so the browser never sees them; the client just plays the returned WAV.
+      // ---- ElevenLabs managed-agent brain (Option B): OpenAI-compatible
+      // custom-LLM endpoint. ElevenLabs owns STT/TTS/turn-taking and calls this
+      // per user turn; we run the Haiku brain + fleet tools here (see
+      // voice-eleven-llm.ts) and stream the spoken reply back as SSE. No Python
+      // worker, no shared LiveKit room — so no duplicate-session race.
+      if (path === "/v1/chat/completions" && req.method === "POST") {
+        return handleElevenLlm(req);
+      }
+      // Per-connect WebRTC token for the browser @elevenlabs/client SDK (keeps
+      // the ElevenLabs API key server-side).
+      if (path === "/api/voice/eleven-token" && req.method === "GET") {
+        return handleElevenToken(req);
+      }
+
+      // ---- voice TTS proxy: synthesize via the configured cloud provider
+      // (ElevenLabs by default; see voice-providers.ts). The API key lives
+      // server-side (.env) so the browser never sees it; the client just plays
+      // the returned raw 24 kHz PCM.
       if (path === "/api/voice/tts" && req.method === "POST") {
-        const up = process.env.TTS_UPSTREAM;
-        const tok = process.env.TTS_TOKEN;
-        if (!up || !tok) return err(503, "tts not configured");
         const body = (await req.json().catch(() => null)) as {
           text?: string;
           voice?: string;
         } | null;
         const text = body?.text?.trim();
         if (!text) return err(400, "expected { text }");
-        try {
-          const r = await fetch(`${up}/tts`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${tok}`,
-            },
-            body: JSON.stringify({ text, voice: body?.voice || "F1" }),
-            signal: AbortSignal.timeout(30000),
-          });
-          if (!r.ok) return err(502, `tts upstream ${r.status}`);
-          return new Response(r.body, {
-            headers: { "Content-Type": "audio/wav", "Cache-Control": "no-store" },
-          });
-        } catch {
-          return err(502, "tts upstream unreachable");
-        }
+        return synthesizeTts(text, body?.voice);
       }
 
-      // ---- voice STT proxy: forward uploaded WAV audio to the self-hosted
-      // transcription service (NVIDIA Parakeet); returns { text }. Keeps the
-      // device thin (no local model). STT can live on its own host separate
-      // from TTS — set STT_UPSTREAM/STT_TOKEN; falls back to TTS_UPSTREAM/
-      // TTS_TOKEN so existing single-host deployments keep working. The
-      // upstream is expected to resample to 16 kHz mono internally.
+      // ---- voice intent: turn a dictated one-shot request (from the orb's
+      // push-to-talk) into a session config. Merges the user's spoken overrides
+      // onto their saved defaults and returns a short spoken confirmation. Used
+      // by createVoiceSession in the frontend before it POSTs /api/sessions/new.
+      if (path === "/api/voice/intent" && req.method === "POST") {
+        const body = (await req.json().catch(() => null)) as
+          | VoiceIntentRequest
+          | null;
+        if (!body?.transcript?.trim() || !body?.base?.cwd) {
+          return err(400, "expected { transcript, base, repos, agents }");
+        }
+        return json(await resolveVoiceIntent(body));
+      }
+
+      // ---- voice STT proxy: transcribe uploaded WAV audio via the configured
+      // cloud provider (ElevenLabs Scribe by default); returns { text }. Keeps
+      // the device thin (no local model). The provider is chosen in Settings
+      // and dispatched in voice-providers.ts.
       if (path === "/api/voice/stt" && req.method === "POST") {
-        const up = process.env.STT_UPSTREAM || process.env.TTS_UPSTREAM;
-        const tok = process.env.STT_TOKEN || process.env.TTS_TOKEN;
-        if (!up || !tok) return err(503, "stt not configured");
         const audio = await req.arrayBuffer();
         if (!audio.byteLength) return err(400, "empty audio");
-        try {
-          const r = await fetch(`${up}/stt`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/octet-stream",
-              Authorization: `Bearer ${tok}`,
-            },
-            body: audio,
-            signal: AbortSignal.timeout(30000),
-          });
-          if (!r.ok) return err(502, `stt upstream ${r.status}`);
-          return new Response(r.body, { headers: { "Content-Type": "application/json" } });
-        } catch {
-          return err(502, "stt upstream unreachable");
-        }
+        return transcribeStt(audio);
       }
 
-      // ---- voice warmth probe: is a Modal voice GPU container live (warm) right
-      // now? The orb polls this during a cold start to show a "warming up…" state
-      // instead of dead air. Modal /health needs no token; a fast 200 = warm, a
-      // timeout = still cold/spinning. (Hitting it also nudges the container up.)
-      if (path === "/api/voice/health" && req.method === "GET") {
-        const up = process.env.TTS_UPSTREAM;
-        if (!up) return json({ warm: false });
-        try {
-          const r = await fetch(`${up}/health`, {
-            signal: AbortSignal.timeout(4000),
-          });
-          return json({ warm: r.ok });
-        } catch {
-          return json({ warm: false });
-        }
+      // ---- voice provider config: which TTS/STT provider the proxies use.
+      // The selection lives server-side (data/voice-settings.json) because the
+      // Python worker's TTS/STT calls go agent→proxy and never see the browser;
+      // localStorage alone wouldn't reach them. Secrets stay in env — this only
+      // stores the *choice*. GET returns current settings + the provider list
+      // (with availability) so the UI can grey out unconfigured ones.
+      if (path === "/api/voice/config" && req.method === "GET") {
+        return json({ settings: await getVoiceSettings(), providers: listProviders() });
       }
-
-      // ---- voice GPU power: long-press on the orb scales the serverless Modal
-      // voice container up (keep one L4 warm) or down (scale to zero, ~$0 idle).
-      // Runs deploy/modal/scale.py with the Modal creds (~/.modal.toml) staying
-      // server-side — the scaling token never reaches the browser.
-      if (path === "/api/voice/power" && req.method === "POST") {
-        const body = (await req.json().catch(() => null)) as {
-          on?: boolean;
-        } | null;
-        const arg = body?.on ? "on" : "off";
-        try {
-          const proc = Bun.spawn(
-            [
-              `${homedir()}/.local/bin/uv`,
-              "run",
-              "--with",
-              "modal",
-              "python",
-              "deploy/modal/scale.py",
-              arg,
-            ],
-            {
-              cwd: join(homedir(), "repos", "lfg"),
-              env: {
-                ...process.env,
-                HOME: homedir(),
-                PATH: `${homedir()}/.local/bin:${process.env.PATH ?? ""}`,
-              },
-              stdout: "pipe",
-              stderr: "pipe",
-            },
-          );
-          const out = await new Response(proc.stdout).text();
-          const code = await proc.exited;
-          if (code !== 0) return err(502, "voice power scale failed");
-          return json({ ok: true, power: arg, detail: out.trim() });
-        } catch {
-          return err(502, "voice power scale error");
-        }
+      if (path === "/api/voice/config" && req.method === "POST") {
+        const b = (await req.json().catch(() => null)) as Partial<VoiceSettings> | null;
+        if (!b) return err(400, "expected body");
+        return json({ settings: await setVoiceSettings(b) });
       }
 
       // ---- voice speaker-ID proxy: forward uploaded WAV to the upstream
@@ -1028,15 +1275,51 @@ export async function cmdServe() {
       if (path === "/api/voice/consult" && req.method === "POST") {
         const body = (await req.json().catch(() => null)) as {
           question?: string;
+          cwd?: string;
         } | null;
         const question = body?.question?.trim();
         if (!question) return err(400, "expected { question }");
         try {
-          const answer = await voiceConsult(question);
+          const answer = await voiceConsult(question, body?.cwd?.trim() || undefined);
           return json({ answer });
         } catch (e) {
           return err(502, e instanceof Error ? e.message : "consult failed");
         }
+      }
+
+      // ---- voice fleet PUSH: SSE stream of session-completion events, scoped
+      // to the speaking user. The voice worker holds this open and reacts the
+      // instant another session lands work (refresh its live context + speak a
+      // proactive heads-up) — replacing connect-time-snapshot-only awareness.
+      if (path === "/api/voice/events" && req.method === "GET") {
+        const user = url.searchParams.get("user");
+        let unsub: (() => void) | null = null;
+        let hb: ReturnType<typeof setInterval> | null = null;
+        let closed = false;
+        const stream = new ReadableStream({
+          start(controller) {
+            const send = (s: string) => {
+              if (closed) return;
+              try {
+                controller.enqueue(s);
+              } catch {
+                closed = true;
+              }
+            };
+            // Greet so the client knows the stream is live (and to flush proxies).
+            send(`event: ready\ndata: {}\n\n`);
+            unsub = subscribeFleet(user, (ev: FleetEvent) => {
+              send(`event: completed\ndata: ${JSON.stringify(ev)}\n\n`);
+            });
+            hb = setInterval(() => send(`event: ping\ndata: {}\n\n`), 20000);
+          },
+          cancel() {
+            closed = true;
+            if (unsub) unsub();
+            if (hb) clearInterval(hb);
+          },
+        });
+        return new Response(stream, { headers: sseHeaders() });
       }
 
       // ---- extension backend proxy (optional, config-driven) ----
@@ -1183,10 +1466,33 @@ export async function cmdServe() {
             schedule?: string;
             enabled?: boolean;
             cwd?: string;
+            agent?: string;
+            model?: string;
+            thinkingLevel?: string;
             tools?: string[];
           } | null;
           if (!b?.name || !b?.prompt || !b?.schedule) {
             return err(400, "name, prompt and schedule are required");
+          }
+          const autoAgent = b.agent?.trim() || undefined;
+          if (autoAgent && !AUTO_AGENT_BACKENDS.includes(autoAgent as any)) {
+            return err(400, `unknown auto agent provider "${autoAgent}"`);
+          }
+          const autoBackend = autoAgent || "aisdk";
+          const model = b.model?.trim() || undefined;
+          if (autoBackend === "aisdk" && model && !AISDK_MODELS.includes(model))
+            return err(400, `unknown model "${model}" (expected one of ${AISDK_MODELS.join(", ")})`);
+          if (autoBackend === "codex-aisdk" && model && !/^[A-Za-z0-9_.:-]{1,80}$/.test(model))
+            return err(400, "invalid codex model name");
+          if (autoBackend === "opencode" && model && !/^[A-Za-z0-9_.:\/-]{1,80}$/.test(model))
+            return err(400, "invalid opencode model name");
+          const thinkingLevel = b.thinkingLevel?.trim() || undefined;
+          if (thinkingLevel) {
+            const allowed = thinkingLevelsForAgent(autoBackend);
+            if (!allowed)
+              return err(400, "thinkingLevel is not supported for opencode auto agents");
+            if (!allowed.includes(thinkingLevel))
+              return err(400, `unknown thinking level "${thinkingLevel}" for ${autoBackend} (expected one of ${allowed.join(", ")})`);
           }
           const agent = await saveAutoAgent({
             id: b.id,
@@ -1195,6 +1501,9 @@ export async function cmdServe() {
             schedule: b.schedule,
             enabled: b.enabled !== false,
             cwd: b.cwd,
+            agent: autoAgent as any,
+            model,
+            thinkingLevel,
             tools: Array.isArray(b.tools) ? b.tools : undefined,
           });
           return json({ agent });
@@ -1593,7 +1902,15 @@ export async function cmdServe() {
 
       // ---- multi-user (session tagging) ----
       if (path === "/api/users") {
-        return json({ users: userRoster() });
+        // no-cache so the browser revalidates the roster on each load and picks
+        // up the rotated avatar cache-buster (see gravatar()) rather than
+        // serving a stale roster from heuristic HTTP caching.
+        return json({ users: userRoster() }, {
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": "no-cache",
+          },
+        });
       }
 
       // ---- cloud-browser profiles ----
@@ -1677,6 +1994,13 @@ export async function cmdServe() {
 
       if (path === "/api/sessions") {
         return json({ sessions: await listSessions() });
+      }
+
+      // Combined usage/limits across every agent provider (Claude, Codex,
+      // Grok, OpenCode) for the Settings → Usage page. Each provider is
+      // self-cached for 60s inside getAllUsage().
+      if (path === "/api/usage") {
+        return json({ providers: await getAllUsage() });
       }
 
       // Claude subscription usage (5-hour + 7-day windows) via the OAuth usage
@@ -1814,15 +2138,84 @@ export async function cmdServe() {
         return json({ ok: true, tmuxName, cwd, sessionId: newId, resumedFrom: sessionId, agent: "claude" });
       }
 
+      {
+        const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/fork$/);
+        if (m && req.method === "POST") {
+          const sourceId = m[1];
+          const body = (await req.json().catch(() => null)) as {
+            prompt?: string;
+            user?: string;
+            model?: string;
+            thinkingLevel?: string;
+            agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "grok";
+          } | null;
+          const source = (await listSessions()).find((s) => s.sessionId === sourceId);
+          const transcript = await resolveTranscript(sourceId);
+          if (!transcript) return err(404, "source session transcript not found");
+
+          const transcriptCwd = transcript.includes("/.codex/")
+            ? await cwdForCodexTranscript(transcript).catch(() => null)
+            : await cwdForTranscript(transcript).catch(() => null);
+          const sourceCwd = source?.cwd || transcriptCwd || SELF_REPO;
+          const repos = await listRepos();
+          const repo =
+            repos.find((r) => r.cwd === sourceCwd) ??
+            repos.find((r) => r.project === projectName(sourceCwd));
+          if (!repo) return err(400, "source session repo is not in the repo picker");
+
+          const extra = body?.prompt?.trim();
+          const title =
+            source?.title ||
+            source?.lastUserText ||
+            source?.tmuxName ||
+            source?.project ||
+            sourceId;
+          const prompt = [
+            "You are starting a fresh agent session from an existing lfg session.",
+            "",
+            "This is NOT a resume. Treat the source transcript as read-only context, then follow the user's extra prompt below.",
+            "",
+            `Source session id: ${sourceId}`,
+            `Source title: ${title}`,
+            `Source cwd: ${sourceCwd}`,
+            `Source transcript JSONL: ${transcript}`,
+            "",
+            "Read the transcript file directly before acting.",
+            "",
+            "User's extra prompt:",
+            extra || "Review the source transcript and continue with the most useful next step.",
+          ].join("\n");
+
+          const r = await fetch(`http://127.0.0.1:${PORT}/api/sessions/new`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              cwd: repo.cwd,
+              prompt,
+              user: body?.user || source?.assignedUser || undefined,
+              agent: body?.agent,
+              model: body?.model,
+              thinkingLevel: body?.thinkingLevel,
+            }),
+          });
+          const text = await r.text();
+          return new Response(text, {
+            status: r.status,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+      }
+
       if (path === "/api/sessions/new" && req.method === "POST") {
         const body = (await req.json().catch(() => null)) as {
           cwd?: string;
           prompt?: string;
           user?: string;
           voice?: boolean;
+          worktree?: boolean;
           model?: string;
           thinkingLevel?: string;
-          agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode";
+          agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "grok";
         } | null;
         // Default flip (Task B): with no agent specified, the default Claude path
         // now goes through the AI SDK ("aisdk") rather than the Claude CLI. Every
@@ -1834,19 +2227,27 @@ export async function cmdServe() {
               ? "codex-aisdk"
               : body?.agent === "opencode"
                 ? "opencode"
-                : body?.agent === "claude"
-                  ? "claude"
-                  : "aisdk";
+                : body?.agent === "grok"
+                  ? "grok"
+                  : body?.agent === "claude"
+                    ? "claude"
+                    : "aisdk";
         // Allowlist Claude models — they land on a shell argv. Unknown value =
         // hard 400, never a silent fallback to some other model. Codex model
         // names are provider/catalog driven, so validate shape instead.
-        const model = body?.model?.trim() || undefined;
+        const requestedModel = body?.model?.trim() || undefined;
+        const model =
+          agent === "opencode" && requestedModel && OPENCODE_DISABLED_MODELS.has(requestedModel)
+            ? OPENCODE_DEFAULT_MODEL
+            : requestedModel;
         if (agent === "claude" && model && !CLAUDE_MODELS.includes(model))
           return err(400, `unknown model "${model}" (expected one of ${CLAUDE_MODELS.join(", ")})`);
         if (agent === "codex" && model && !/^[A-Za-z0-9_.:-]{1,80}$/.test(model))
           return err(400, "invalid codex model name");
         if (agent === "aisdk" && model && !AISDK_MODELS.includes(model))
           return err(400, `unknown model "${model}" (expected one of ${AISDK_MODELS.join(", ")})`);
+        if (agent === "grok" && model && !GROK_MODELS.includes(model))
+          return err(400, `unknown model "${model}" (expected one of ${GROK_MODELS.join(", ")})`);
         // codex-aisdk drives codex through the AI SDK, so its model is a codex
         // slug (gpt-5.x-codex …) — provider/catalog driven like the tmux codex.
         // Validate by shape, same as the codex branch.
@@ -1858,10 +2259,21 @@ export async function cmdServe() {
         if (agent === "opencode" && model && !/^[A-Za-z0-9_.:\/-]{1,80}$/.test(model))
           return err(400, "invalid opencode model name");
         const thinkingLevel = body?.thinkingLevel?.trim() || undefined;
-        if (thinkingLevel && !THINKING_LEVELS.includes(thinkingLevel as ThinkingLevel))
-          return err(400, `unknown thinking level "${thinkingLevel}" (expected one of ${THINKING_LEVELS.join(", ")})`);
-        if (thinkingLevel && agent !== "codex" && agent !== "codex-aisdk")
-          return err(400, "thinkingLevel is only supported for Codex sessions");
+        // Thinking mode is supported on every agent kind that exposes a
+        // reasoning-effort knob: Codex (reasoning_effort) and Claude (the claude
+        // CLI's --effort / the claude-code provider's `effort`). opencode is the
+        // lone exception — its provider exposes no per-call thinking control
+        // (effort is set in opencode's own model config instead). Validate the
+        // value against THAT agent's own level set so an out-of-range value (a
+        // voice-supplied `none` for Claude, or `max` for Codex) is a clean 400
+        // rather than a session that boots straight into a provider error.
+        if (thinkingLevel) {
+          const allowed = thinkingLevelsForAgent(agent);
+          if (!allowed)
+            return err(400, "thinkingLevel is not supported for opencode sessions (set reasoning effort in opencode's own model config)");
+          if (!allowed.includes(thinkingLevel))
+            return err(400, `unknown thinking level "${thinkingLevel}" for ${agent} (expected one of ${allowed.join(", ")})`);
+        }
         // Always spawn in a trusted folder — claude shows a blocking "trust this
         // folder?" dialog for any untrusted cwd, which hangs session startup. The
         // lfg-sessions skill is installed user-level (~/.claude/skills) so the
@@ -1869,8 +2281,15 @@ export async function cmdServe() {
         const requestedCwd = body?.cwd?.trim() || SELF_REPO;
         const repo = (await listRepos()).find((r) => r.cwd === requestedCwd);
         if (!repo) return err(400, "unknown repo");
-        const cwd = repo.cwd;
         const tmuxName = `lfg-${randomBytes(3).toString("hex")}`;
+        const cwdResolved = resolveSessionCwd(repo.cwd, tmuxName, {
+          voice: !!body?.voice,
+          worktree: body?.worktree,
+          selfRepo: SELF_REPO,
+        });
+        if (!cwdResolved.ok) return err(502, cwdResolved.error);
+        const cwd = cwdResolved.cwd;
+        const worktree = cwdResolved.worktree;
         // For the voice orchestrator, append a live snapshot of every OTHER
         // session (built before this one spawns, so it's not in the list) so its
         // first spoken reply can be a proactive blockers-first status briefing.
@@ -1897,9 +2316,22 @@ export async function cmdServe() {
         // the returned sessionId == key (no after-turn-1 id to wait for, unlike
         // codex-aisdk). See the opencode harness header.
         const opencodeKey = agent === "opencode" ? crypto.randomUUID() : null;
+        // Grok does not write ~/.grok/active_sessions.json until a real
+        // conversation starts, so a newly-opened blank TUI has no native id yet.
+        // Mint a stable lfg id up front; listSessions maps it to Grok's native
+        // transcript later once Grok creates one.
+        const grokKey = agent === "grok" ? crypto.randomUUID() : null;
         const r =
           agent === "codex"
             ? spawnManagedCodexSession({ name: tmuxName, cwd, prompt, model, thinkingLevel })
+            : agent === "grok"
+              ? spawnManagedGrokSession({
+                  name: tmuxName,
+                  cwd,
+                  prompt,
+                  model: model ?? GROK_DEFAULT_MODEL,
+                  thinkingLevel,
+                })
             : agent === "aisdk"
               ? spawnManagedAisdkSession({
                   name: tmuxName,
@@ -1907,6 +2339,7 @@ export async function cmdServe() {
                   prompt,
                   model: model ?? "opus",
                   sessionId: aisdkSessionId!,
+                  thinkingLevel,
                 })
               : agent === "codex-aisdk"
                 ? spawnManagedCodexAisdkSession({
@@ -1922,12 +2355,20 @@ export async function cmdServe() {
                       name: tmuxName,
                       cwd,
                       prompt,
-                      model: model ?? "anthropic/claude-sonnet-4-6",
+                      model: model ?? OPENCODE_DEFAULT_MODEL,
                       key: opencodeKey!,
                     })
-                  : spawnManagedSession({ name: tmuxName, cwd, prompt, model });
+                  : spawnManagedSession({ name: tmuxName, cwd, prompt, model, thinkingLevel });
         if (!r.ok) return err(502, r.error || "failed to start session");
-        addManaged({ tmuxName, cwd, createdAt: Date.now(), agent });
+        addManaged({
+          tmuxName,
+          cwd,
+          createdAt: Date.now(),
+          agent,
+          sessionId: grokKey ?? undefined,
+          repoRoot: worktree?.repoRoot,
+          worktreeBranch: worktree?.branch,
+        });
         // Tag the new session to whoever created it so it lands in their filter
         // immediately (best-effort: assignUser ignores an unknown email).
         if (body?.user) assignUser(tmuxName, body.user);
@@ -1936,7 +2377,7 @@ export async function cmdServe() {
         // startup/first prompt, and may first show an update selector that we
         // dismiss automatically. aisdk's id is known immediately — just wait for
         // the harness to register so the session is listable.
-        let sessionId: string | null = aisdkSessionId;
+        let sessionId: string | null = grokKey ?? aisdkSessionId;
         for (let i = 0; i < 12 && !sessionId; i++) {
           await new Promise((res) => setTimeout(res, 500));
           if (agent === "codex") {
@@ -1980,31 +2421,43 @@ export async function cmdServe() {
             await new Promise((res) => setTimeout(res, 250));
           }
         }
-        return json({ ok: true, tmuxName, cwd, sessionId, agent });
+        return json({
+          ok: true,
+          tmuxName,
+          cwd,
+          sessionId,
+          agent,
+          worktree: worktree?.path ?? null,
+        });
       }
 
       {
-        // Image attach: the browser POSTs raw image bytes; we persist them and
-        // hand back an absolute path. The client then includes that path in the
-        // message text — Claude Code reads local image paths as image input.
+        // Pre-session file attach for the home composer. The browser uploads
+        // first, then includes the returned absolute paths in /api/sessions/new's
+        // initial prompt.
+        if (path === "/api/uploads" && req.method === "POST") {
+          try {
+            const uploaded = await persistUpload(req, uploadFilename(req, url), "new-session");
+            return json({ ok: true, ...uploaded });
+          } catch (e) {
+            return err(400, e instanceof Error ? e.message : "upload failed");
+          }
+        }
+      }
+
+      {
+        // File attach: the browser POSTs raw bytes; we persist them and hand
+        // back an absolute path. The client then includes that path in the
+        // message text — coding agents can read local files, and Claude Code
+        // treats local image paths as image input.
         const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/upload$/);
         if (m && req.method === "POST") {
-          const ct = (req.headers.get("content-type") || "").toLowerCase();
-          const ext = ct.includes("png")
-            ? "png"
-            : ct.includes("webp")
-              ? "webp"
-              : ct.includes("gif")
-                ? "gif"
-                : "jpg";
-          const buf = new Uint8Array(await req.arrayBuffer());
-          if (!buf.length) return err(400, "empty upload");
-          const dir = join(tmpdir(), "lfg-uploads");
-          mkdirSync(dir, { recursive: true });
-          const name = `${m[1]}-${Date.now()}-${randomBytes(3).toString("hex")}.${ext}`;
-          const fp = join(dir, name);
-          await Bun.write(fp, buf);
-          return json({ ok: true, path: fp });
+          try {
+            const uploaded = await persistUpload(req, uploadFilename(req, url), m[1]);
+            return json({ ok: true, ...uploaded });
+          } catch (e) {
+            return err(400, e instanceof Error ? e.message : "upload failed");
+          }
         }
       }
 
@@ -2061,6 +2514,15 @@ export async function cmdServe() {
           if (!model) return err(400, "expected { model }");
           const sess = (await listSessions()).find((s) => s.sessionId === m[1]);
           if (!sess) return err(404, "session not found");
+          if (sess.agent === "opencode") {
+            if (!/^[A-Za-z0-9_.:\/-]{1,80}$/.test(model))
+              return err(400, "invalid opencode model name");
+            if (OPENCODE_DISABLED_MODELS.has(model))
+              return err(409, `${model} is disabled because the configured provider returns 403`);
+            const key = findAisdkEntryByAnyId(m[1])?.sessionId ?? m[1];
+            appendAisdkCmd(key, { type: "set_model", model });
+            return json({ ok: true, model });
+          }
           if (sess.agent !== "claude")
             return err(409, "mid-session model change is only supported for Claude sessions");
           if (!CLAUDE_MODELS.includes(model))
@@ -2133,6 +2595,39 @@ export async function cmdServe() {
             id: m[1],
             messages: (await recentMessages(tp, lim, { maxBytes: full ? null : undefined })).map(msgWithHtml),
           });
+        }
+      }
+
+      {
+        // Full-text search inside a session's transcript — lets the voice agent
+        // (and any client) answer "what did session X say about Y?" without
+        // streaming the whole history. Resolves the transcript path the same way
+        // as /messages, then greps normalized prose. POST so the query can carry
+        // spaces/punctuation cleanly.
+        const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/transcript\/search$/);
+        if (m && req.method === "POST") {
+          const tp = await resolveTranscript(m[1]);
+          if (!tp) return err(404, "session transcript not found");
+          const body = (await req.json().catch(() => null)) as {
+            query?: string;
+            limit?: number;
+          } | null;
+          const query = body?.query?.trim();
+          if (!query) return err(400, "expected { query }");
+          const r = await searchTranscript(tp, query, { limit: body?.limit });
+          return json({ id: m[1], query, ...r });
+        }
+      }
+
+      {
+        // Short spoken summary for the dashboard shortcut. The browser uses the
+        // returned text directly for TTS, so keep it plain and capped.
+        const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/summary$/);
+        if (m && req.method === "POST") {
+          const tp = await resolveTranscript(m[1]);
+          if (!tp) return err(404, "session transcript not found");
+          const summary = await summarizeSessionForSpeech(m[1], tp);
+          return json({ id: m[1], ...summary });
         }
       }
 
@@ -2331,6 +2826,8 @@ export async function cmdServe() {
             }),
           )
         ).filter((p): p is { sid: string; tp: string; target: string | null } => !!p);
+        const paneIds = new Set(panes.map((p) => p.sid));
+        const missingIds = ids.filter((sid) => !paneIds.has(sid));
 
         let iv: ReturnType<typeof setInterval> | null = null;
         let pi: ReturnType<typeof setInterval> | null = null;
@@ -2387,10 +2884,11 @@ export async function cmdServe() {
                 // control-plane key, so look it up by either.
                 const entry = findAisdkEntryByAnyId(p.sid);
                 if (!entry) return;
-                const bsig = entry.busy ? "1" : "0";
+                const busy = isAisdkEntryBusy(entry);
+                const bsig = busy ? "1" : "0";
                 if (bsig !== (lastBusy.get(p.sid) ?? "0")) {
                   lastBusy.set(p.sid, bsig);
-                  send(`event: busy\ndata: ${JSON.stringify({ sid: p.sid, busy: entry.busy })}\n\n`);
+                  send(`event: busy\ndata: ${JSON.stringify({ sid: p.sid, busy })}\n\n`);
                 }
                 return;
               }
@@ -2421,15 +2919,30 @@ export async function cmdServe() {
               send(`event: queue\ndata: ${JSON.stringify({ sid: p.sid, queue })}\n\n`);
             };
             (async () => {
+              for (const sid of missingIds) {
+                send(`event: ready\ndata: ${JSON.stringify({ sid })}\n\n`);
+              }
               for (const p of panes) {
-                const msgs = (await recentMessages(p.tp, 40)).map(msgWithHtml);
-                for (const m of msgs)
-                  send(`event: msg\ndata: ${JSON.stringify({ sid: p.sid, m })}\n\n`);
-                offsets.set(p.sid, Bun.file(p.tp).size);
-                lastSig.set(p.sid, " ");
-                lastQ.set(p.sid, "[]");
-                pollOne(p);
-                queueOne(p);
+                try {
+                  const msgs = (await recentMessages(p.tp, 40)).map(msgWithHtml);
+                  for (const m of msgs)
+                    send(`event: msg\ndata: ${JSON.stringify({ sid: p.sid, m })}\n\n`);
+                  offsets.set(p.sid, Bun.file(p.tp).size);
+                  lastSig.set(p.sid, " ");
+                  lastQ.set(p.sid, "[]");
+                  // Seed busy with a sentinel (not "0") so the first pollOne always
+                  // emits the CURRENT busy state as a baseline. Without this, a
+                  // client reconnecting (e.g. after a serve restart) while holding a
+                  // stale busy=true never gets a corrective event, because the new
+                  // connection's implicit "0" baseline matches a now-idle session
+                  // and the change-gate suppresses the emit — leaving the card stuck
+                  // showing "Working".
+                  lastBusy.set(p.sid, "?");
+                  pollOne(p);
+                  queueOne(p);
+                } finally {
+                  send(`event: ready\ndata: ${JSON.stringify({ sid: p.sid })}\n\n`);
+                }
               }
               iv = setInterval(() => {
                 for (const p of panes) pumpOne(p);
@@ -2518,7 +3031,9 @@ export async function cmdServe() {
               // change so the client can render/clear a prompt panel.
               if (target) {
                 let lastSig = " ";
-                let lastBusy = "0";
+                // Sentinel (not "0") so the first poll emits the current busy
+                // baseline — corrects a client holding a stale busy across reconnect.
+                let lastBusy = "?";
                 const pollPrompt = async () => {
                   if (closed) return;
                   const pane = capturePane(target);
@@ -2540,15 +3055,17 @@ export async function cmdServe() {
               } else {
                 // Pane-less (aisdk / codex-aisdk) session: source busy from the
                 // registry — by key or threadId (codex-aisdk's sid is the latter).
-                let lastBusy = "0";
+                // Sentinel baseline so the first poll always emits current state.
+                let lastBusy = "?";
                 const pollBusy = () => {
                   if (closed) return;
                   const entry = findAisdkEntryByAnyId(sid);
                   if (!entry) return;
-                  const bsig = entry.busy ? "1" : "0";
+                  const busy = isAisdkEntryBusy(entry);
+                  const bsig = busy ? "1" : "0";
                   if (bsig !== lastBusy) {
                     lastBusy = bsig;
-                    send(`event: busy\ndata: ${entry.busy ? "true" : "false"}\n\n`);
+                    send(`event: busy\ndata: ${busy ? "true" : "false"}\n\n`);
                   }
                 };
                 pollBusy();
@@ -2589,6 +3106,10 @@ export async function cmdServe() {
   });
 
   startAutoScheduler((l) => console.log(l));
+  startWorktreeSweep((l) => console.log(l));
+  // Watch the fleet for busy -> idle transitions and fan "completed" events out
+  // to voice subscribers (/api/voice/events). Idempotent + best-effort.
+  startFleetWatcher();
 
   console.log(`lfg web → http://${server.hostname}:${server.port}`);
   console.log(`  agents dir: ${AGENTS_DIR}`);

@@ -51,6 +51,74 @@ function resolveCodexPath(): string | undefined {
   }
 }
 
+export async function pipeToCodexAiSdk(
+  prompt: string,
+  log: (s: string) => void,
+  opts: { model?: string; thinkingLevel?: string; cwd?: string } = {},
+): Promise<string> {
+  const model = opts.model ?? "gpt-5.5";
+  const cwd = opts.cwd ?? process.cwd();
+  const thinkingLevel = opts.thinkingLevel;
+  const codexPath = resolveCodexPath();
+  const { streamText } = await import("ai");
+  const { createCodexAppServer } = await import("ai-sdk-provider-codex-cli");
+
+  log(`[runner] piping ${prompt.length} chars to codex via ai-sdk (${model})`);
+  const provider = createCodexAppServer({
+    defaultSettings: {
+      cwd,
+      sandboxPolicy: "danger-full-access",
+      approvalPolicy: "never",
+      autoApprove: true,
+      ...(codexPath ? { codexPath } : {}),
+    },
+  });
+
+  try {
+    const llm = provider(
+      model,
+      thinkingLevel ? { effort: thinkingLevel as any } : undefined,
+    );
+    const result = streamText({
+      model: llm,
+      prompt,
+      providerOptions: {
+        "codex-app-server": {
+          threadMode: "ephemeral",
+          ...(thinkingLevel ? { effort: thinkingLevel } : {}),
+        },
+      },
+    } as any);
+    let chars = 0;
+    let lastEmit = 0;
+    const flush = (force = false) => {
+      const now = Date.now();
+      if (force || now - lastEmit > 800) {
+        lastEmit = now;
+        const k = chars >= 1000 ? `${(chars / 1000).toFixed(1)}k` : String(chars);
+        log(`[runner] codex generating… ${k} chars`);
+      }
+    };
+    for await (const part of result.fullStream as any) {
+      if (part?.type === "text-delta") {
+        chars += String(part.text ?? part.textDelta ?? "").length;
+        flush();
+      } else if (part?.type === "tool-call") {
+        log(`[runner] codex running tool: ${part.toolName ?? "?"}`);
+      } else if (part?.type === "error") {
+        throw new Error(String((part as any).error).slice(0, 800));
+      }
+    }
+    const text = await result.text;
+    flush(true);
+    if (!text || !text.trim()) throw new Error("codex ai-sdk backend produced empty result");
+    log(`[runner] codex ai-sdk done (${text.length} chars)`);
+    return text;
+  } finally {
+    await provider.dispose?.().catch(() => {});
+  }
+}
+
 export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
   // The control-plane key (a uuid) — names the registry/command files. NOT the
   // codex thread id (which we don't know until after turn 1).
