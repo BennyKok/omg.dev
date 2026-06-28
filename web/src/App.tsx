@@ -531,6 +531,22 @@ const LEVEL_FULL_SCALE = 0.22;
 const LEVEL_ATTACK = 0.55;
 const LEVEL_RELEASE = 0.1;
 
+function recordingButtonStyle(level: number): CSSProperties {
+  // A held thumb covers the center of a 36-44px button, so the recording state
+  // needs a fixed growth floor before the audio-reactive pulse is visible.
+  const scale = 1.34 + level * 0.16;
+  const glow = 16 + level * 26;
+  const spread = 4 + level * 8;
+  const opacity = Math.round(45 + level * 45);
+  return {
+    transform: `scale(${scale.toFixed(3)})`,
+    boxShadow: `0 0 0 5px color-mix(in srgb, var(--destructive) 22%, transparent), 0 0 ${glow.toFixed(
+      1,
+    )}px ${spread.toFixed(1)}px color-mix(in srgb, var(--destructive) ${opacity}%, transparent)`,
+    transition: "transform 80ms linear, box-shadow 80ms linear",
+  };
+}
+
 // Push-to-talk dictation with optional hands-free auto-send. Tap to record, tap
 // to stop. Audio streams live to the server's realtime-STT bridge
 // (/api/voice/stt-stream → ElevenLabs Scribe v2 Realtime): we capture mic PCM,
@@ -1089,17 +1105,7 @@ const MicButton = forwardRef<
   // throws a red glow ring that swells with your volume. Inline transitions keep
   // it snappy (the className `transition` would lag the per-frame updates by
   // ~150ms and make it feel sluggish).
-  const reactiveStyle: CSSProperties | undefined = recording
-    ? {
-        transform: `scale(${(1 + level * 0.14).toFixed(3)})`,
-        boxShadow: `0 0 ${(8 + level * 22).toFixed(1)}px ${(level * 5).toFixed(
-          1,
-        )}px color-mix(in srgb, var(--destructive) ${Math.round(
-          35 + level * 55,
-        )}%, transparent)`,
-        transition: "transform 80ms linear, box-shadow 80ms linear",
-      }
-    : undefined;
+  const reactiveStyle = recording ? recordingButtonStyle(level) : undefined;
   return (
     <button
       type="button"
@@ -1114,7 +1120,7 @@ const MicButton = forwardRef<
       className={cn(
         "flex shrink-0 touch-none select-none items-center justify-center rounded-full transition",
         recording
-          ? "bg-destructive text-destructive-foreground"
+          ? "z-10 bg-destructive text-destructive-foreground"
           : "text-muted-foreground hover:bg-muted",
         className,
       )}
@@ -1264,17 +1270,7 @@ function ComposerSendButton({
   // While recording the button reacts to live mic level — scales up and throws a
   // red glow ring that swells with volume. Inline transitions keep it per-frame
   // snappy (the className `transition` would lag the updates and feel sluggish).
-  const reactiveStyle: CSSProperties | undefined = recording
-    ? {
-        transform: `scale(${(1 + level * 0.14).toFixed(3)})`,
-        boxShadow: `0 0 ${(8 + level * 22).toFixed(1)}px ${(level * 5).toFixed(
-          1,
-        )}px color-mix(in srgb, var(--destructive) ${Math.round(
-          35 + level * 55,
-        )}%, transparent)`,
-        transition: "transform 80ms linear, box-shadow 80ms linear",
-      }
-    : undefined;
+  const reactiveStyle = recording ? recordingButtonStyle(level) : undefined;
 
   return (
     <button
@@ -1292,7 +1288,7 @@ function ComposerSendButton({
       className={cn(
         "flex shrink-0 touch-none select-none items-center justify-center rounded-full font-semibold transition active:scale-[0.97]",
         recording
-          ? "bg-destructive text-destructive-foreground"
+          ? "z-10 bg-destructive text-destructive-foreground"
           : "bg-foreground/[0.08] text-foreground/80 shadow-sm hover:bg-foreground/[0.12] hover:text-foreground",
         dim && "opacity-50",
         className,
