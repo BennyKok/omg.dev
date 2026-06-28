@@ -3,6 +3,7 @@
 // its parent chain to the pane's top process, and `send-keys` into that pane.
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
+import { reposRoot } from "./projects";
 
 // Known-good Claude model alias to launch with when a caller doesn't specify
 // one. Never launch a managed `claude` bare — see spawnManagedSession. Opus is
@@ -71,15 +72,28 @@ export function codexBin(): string {
   return (_codexBin = "codex");
 }
 
+let _grokBin: string | null = null;
+export function grokBin(): string {
+  if (_grokBin) return _grokBin;
+  const onPath = Bun.which("grok");
+  if (onPath) return (_grokBin = onPath);
+  const home = process.env.HOME ?? homedir();
+  for (const p of [
+    `${home}/.local/bin/grok`,
+    `${home}/.bun/bin/grok`,
+    `${home}/.grok/downloads/grok-linux-x86_64`,
+    "/usr/local/bin/grok",
+  ]) {
+    if (existsSync(p)) return (_grokBin = p);
+  }
+  return (_grokBin = "grok");
+}
+
 // Spawned agents run with cwd set to one repo, but Claude Code scopes tool
 // access to the cwd tree — which sandboxes the agent to that single repo. The
 // agents are trusted operators of this whole box, so grant tool access to the
 // repos root (every repo under LFG_REPOS_ROOT) via --add-dir. Override the root
 // with LFG_REPOS_ROOT if the repos live elsewhere.
-function reposRoot(): string {
-  return process.env.LFG_REPOS_ROOT ?? `${homedir()}/repos`;
-}
-
 function paneMap(): Map<number, string> {
   const m = new Map<number, string>();
   try {
@@ -220,11 +234,25 @@ export function spawnAgentSession(opts: {
 // first prompt is optional (omit it to land at an empty composer). The caller
 // resolves the new sessionId from panePidForSession(name) once claude writes
 // its pidfile.
+// Map lfg's shared thinking-level vocabulary (none|minimal|low|medium|high|xhigh,
+// the same set Codex uses for reasoning_effort) onto Claude's `effort` levels
+// (low|medium|high|xhigh|max). Claude has no "none"/"minimal" effort, so collapse
+// those to the lowest real level rather than reject them — keeps a single shared
+// thinkingLevel meaningful across both Codex and Claude sessions. Returns
+// undefined for an empty/unknown level so the model/CLI default stands.
+export function claudeEffortFor(level?: string): string | undefined {
+  if (!level) return undefined;
+  if (level === "none" || level === "minimal") return "low";
+  if (["low", "medium", "high", "xhigh", "max"].includes(level)) return level;
+  return undefined;
+}
+
 export function spawnManagedSession(opts: {
   name: string;
   cwd: string;
   prompt?: string;
   model?: string;
+  thinkingLevel?: string;
   // When set, resume the on-disk transcript with this sessionId (`claude
   // --resume <id>`) instead of starting a fresh conversation — the way lfg
   // brings a closed/dead session back after the box (and its tmux server +
@@ -247,6 +275,11 @@ export function spawnManagedSession(opts: {
   // An explicit --model is the only thing that overrides it. DEFAULT_MODEL is a
   // known-good fallback when the caller didn't pick one.
   argv.push("--model", opts.model || DEFAULT_MODEL);
+  // Pin the reasoning effort when the caller asked for one (thinking mode). The
+  // claude CLI exposes this as `--effort <level>`; map our shared thinking-level
+  // vocabulary onto it (see claudeEffortFor). Omitted → CLI default effort.
+  const effort = claudeEffortFor(opts.thinkingLevel);
+  if (effort) argv.push("--effort", effort);
   // `--` terminates option parsing so the variadic --add-dir can't swallow the
   // positional prompt as a second directory (which strands the new session at
   // an empty composer — the first message never gets submitted).
@@ -320,6 +353,39 @@ export function spawnManagedCodexSession(opts: {
   return { ok: true };
 }
 
+export function spawnManagedGrokSession(opts: {
+  name: string;
+  cwd: string;
+  prompt?: string;
+  model?: string;
+  thinkingLevel?: string;
+}): { ok: boolean; error?: string } {
+  const dec = new TextDecoder();
+  const argv = [
+    "tmux",
+    "new-session",
+    "-d",
+    "-s",
+    opts.name,
+    "-c",
+    opts.cwd,
+    grokBin(),
+    "--cwd",
+    opts.cwd,
+    "--always-approve",
+    "--permission-mode",
+    "bypassPermissions",
+  ];
+  if (opts.model) argv.push("--model", opts.model);
+  const effort = claudeEffortFor(opts.thinkingLevel);
+  if (effort) argv.push("--effort", effort);
+  if (opts.prompt && opts.prompt.trim()) argv.push("--", opts.prompt);
+  const create = Bun.spawnSync(argv);
+  if (create.exitCode !== 0)
+    return { ok: false, error: dec.decode(create.stderr) || "new-session failed" };
+  return { ok: true };
+}
+
 // Spawn a headless "aisdk" session: the lfg `aisdk-session` harness, supervised
 // by a tmux session. The pane is only a lifecycle handle (survives serve restarts
 // + reuses tmuxKillSession teardown) — I/O happens via the registry/command files
@@ -331,6 +397,7 @@ export function spawnManagedAisdkSession(opts: {
   prompt?: string;
   model: string;
   sessionId: string;
+  thinkingLevel?: string;
 }): { ok: boolean; error?: string } {
   const dec = new TextDecoder();
   // The provider drives the bundled claude binary, which still honors the trust
@@ -347,6 +414,9 @@ export function spawnManagedAisdkSession(opts: {
     "--cwd", opts.cwd,
     "--tmux", opts.name,
   ];
+  // Forward the requested thinking level; the harness maps it onto the
+  // claude-code provider's `effort` option (see aisdk-session.ts).
+  if (opts.thinkingLevel) argv.push("--thinking-level", opts.thinkingLevel);
   if (opts.prompt && opts.prompt.trim()) argv.push("--", opts.prompt);
   const create = Bun.spawnSync(argv);
   if (create.exitCode !== 0)
@@ -580,8 +650,17 @@ export function questionSelectorOpen(pane: string): boolean {
 // out and the busy state flickered. Match the meter as the primary signal and
 // keep the hint as a fallback (covers the first frame before tokens render).
 const BUSY_METER = /\(\d+m?\s?\d*s\b[^)]*\btokens?\b/i;
+const GROK_SPINNER = "[⠋⠙⠹⠸⠼⠴⠦⠧]";
+const GROK_QUEUED_WORK = new RegExp(`${GROK_SPINNER}\\s+MCP\\s+\\(\\d+\\/\\d+\\).*?\\+\\d+`);
+const GROK_TURN_STATUS = new RegExp(`${GROK_SPINNER}\\s+\\S.*\\b\\d+(?:\\.\\d+)?s\\b.*\\[stop\\]`);
 export function isBusy(pane: string): boolean {
-  return BUSY_METER.test(pane) || /esc to interrupt/i.test(pane);
+  return (
+    BUSY_METER.test(pane) ||
+    /esc to interrupt/i.test(pane) ||
+    GROK_QUEUED_WORK.test(pane) ||
+    GROK_TURN_STATUS.test(pane) ||
+    (/Ctrl\+c:cancel/i.test(pane) && /Ctrl\+Enter:interject/i.test(pane))
+  );
 }
 
 // Claude Code occasionally floats a session-rating overlay just above the
@@ -728,6 +807,27 @@ export function tmuxInterrupt(target: string): boolean {
 // leading and trailing dash runs.
 const RULE_RE = /^─{3,}.*─\s*$/;
 
+function grokInputBoxText(lines: string[]): string | null {
+  for (let bottom = lines.length - 1; bottom >= 0; bottom--) {
+    if (!/^\s*╰.*╯\s*$/.test(lines[bottom])) continue;
+
+    for (let top = bottom - 1; top >= 0; top--) {
+      if (!/^\s*╭.*╮\s*$/.test(lines[top])) continue;
+
+      const content = lines.slice(top + 1, bottom);
+      if (!content.length) break;
+      const inner = content.map((line) => {
+        const m = line.match(/^\s*│(.*)│\s*$/);
+        return m ? (m[1] ?? "").replace(/\s+$/, "") : "";
+      });
+      if (!inner[0]?.trimStart().startsWith("❯")) break;
+      inner[0] = inner[0].replace(/^\s*❯\s?/, "");
+      return inner.join("\n");
+    }
+  }
+  return null;
+}
+
 export function inputBoxText(target: string): string | null {
   const pane = capturePane(target);
   if (pane == null) return null;
@@ -744,6 +844,9 @@ export function inputBoxText(target: string): string | null {
     }
   }
   if (bottom >= 0 && top >= 0) return lines.slice(top + 1, bottom).join("\n");
+
+  const grokBox = grokInputBoxText(lines);
+  if (grokBox != null) return grokBox;
 
   // Codex renders the composer as a single bottom prompt line:
   //   › message text

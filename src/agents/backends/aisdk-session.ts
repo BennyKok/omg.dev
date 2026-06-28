@@ -32,6 +32,17 @@ function arg(argv: string[], name: string): string | undefined {
   return i >= 0 ? argv[i + 1] : undefined;
 }
 
+// Map lfg's shared thinking-level vocabulary onto the claude-code provider's
+// `effort` option (low|medium|high|xhigh|max). Mirrors claudeEffortFor in
+// tmux.ts; duplicated here to keep this harness free of the heavier tmux/serve
+// dependency graph. Undefined → provider default effort.
+function effortFor(level?: string): string | undefined {
+  if (!level) return undefined;
+  if (level === "none" || level === "minimal") return "low";
+  if (["low", "medium", "high", "xhigh", "max"].includes(level)) return level;
+  return undefined;
+}
+
 function resolveClaudePath(): string | undefined {
   try {
     return process.env.LFG_CLAUDE_PATH ?? Bun.which("claude") ?? undefined;
@@ -43,6 +54,7 @@ function resolveClaudePath(): string | undefined {
 export async function cmdAisdkSession(argv: string[]): Promise<void> {
   const sessionIdArg = arg(argv, "--session");
   const model = arg(argv, "--model") ?? "opus";
+  const effort = effortFor(arg(argv, "--thinking-level"));
   const cwd = arg(argv, "--cwd") ?? process.cwd();
   const tmuxName = arg(argv, "--tmux") ?? "";
   // Everything after `--` is the initial prompt (mirrors how spawnManagedSession
@@ -104,6 +116,10 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
       // are mutually exclusive in the provider).
       disallowedTools: ["AskUserQuestion"],
       settingSources: ["user", "project"],
+      // Thinking mode: pin the reasoning effort when the caller asked for one.
+      // The claude-code provider accepts `effort` (low|medium|high|xhigh|max);
+      // omitting it inherits the provider/model default.
+      ...(effort ? { effort } : {}),
       ...(claudePath
         ? { sdkOptions: { pathToClaudeCodeExecutable: claudePath } }
         : {}),

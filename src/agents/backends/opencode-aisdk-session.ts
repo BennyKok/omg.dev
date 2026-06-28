@@ -36,6 +36,7 @@ import {
   type AisdkCommand,
   cmdPath,
   patchEntry,
+  readEntry,
   removeEntry,
   writeEntry,
 } from "../../aisdk-registry.ts";
@@ -79,6 +80,56 @@ function ensureOpencodeOnPath(): void {
   if (!cur.split(sep).includes(dir)) process.env.PATH = dir + sep + cur;
 }
 
+export async function pipeToOpencodeAiSdk(
+  prompt: string,
+  log: (s: string) => void,
+  opts: { model?: string; cwd?: string } = {},
+): Promise<string> {
+  const model = opts.model ?? "opencode/big-pickle";
+  const cwd = opts.cwd ?? process.cwd();
+  ensureOpencodeOnPath();
+  const { streamText } = await import("ai");
+  const { createOpencode } = await import("ai-sdk-provider-opencode-sdk");
+
+  log(`[runner] piping ${prompt.length} chars to opencode via ai-sdk (${model})`);
+  const provider = createOpencode({
+    autoStartServer: true,
+    defaultSettings: { directory: cwd },
+  });
+
+  try {
+    const result = streamText({ model: provider(model), prompt });
+    let textBuf = "";
+    let lastEmit = 0;
+    const flush = (force = false) => {
+      const now = Date.now();
+      if (force || now - lastEmit > 800) {
+        lastEmit = now;
+        const k = textBuf.length >= 1000 ? `${(textBuf.length / 1000).toFixed(1)}k` : String(textBuf.length);
+        log(`[runner] opencode generating… ${k} chars`);
+      }
+    };
+    for await (const part of result.fullStream as any) {
+      if (part?.type === "text-delta") {
+        textBuf += String(part.text ?? part.textDelta ?? "");
+        flush();
+      } else if (part?.type === "tool-call") {
+        log(`[runner] opencode running tool: ${part.toolName ?? "?"}`);
+      } else if (part?.type === "error") {
+        throw new Error(String((part as any).error).slice(0, 800));
+      }
+    }
+    const text = await result.text;
+    flush(true);
+    const out = (text || textBuf).trim();
+    if (!out) throw new Error("opencode ai-sdk backend produced empty result");
+    log(`[runner] opencode ai-sdk done (${out.length} chars)`);
+    return out;
+  } finally {
+    await provider.dispose?.().catch(() => {});
+  }
+}
+
 // ---- Self-persisted Claude-shaped transcript ----------------------------------
 // We replicate exactly what lfg's Claude discovery reads:
 //   path: ~/.claude/projects/<enc-cwd>/<uuid>.jsonl, enc-cwd = cwd with every
@@ -99,11 +150,32 @@ function transcriptPathFor(cwd: string, uuid: string): string {
   return join(homedir(), ".claude", "projects", enc, `${uuid}.jsonl`);
 }
 
+function latestOpencodeError(opencodeSessionId: string): string | null {
+  try {
+    const log = readFileSync(
+      join(homedir(), ".local", "share", "opencode", "log", "opencode.log"),
+      "utf8",
+    );
+    const lines = log.split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i];
+      if (!line.includes(`session.id=${opencodeSessionId}`) || !line.includes("level=ERROR"))
+        continue;
+      const quoted = line.match(/\berror(?:\.error)?="([^"]+)"/)?.[1];
+      if (quoted) return quoted.replace(/\\"/g, '"');
+      const bare = line.match(/\berror=([^ ]+)/)?.[1];
+      if (bare) return bare;
+      return "OpenCode reported an error for this turn";
+    }
+  } catch {}
+  return null;
+}
+
 export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
   // The control-plane key (a uuid) — names the registry/command files AND the
   // transcript file (we own it, so they're one id).
   const keyArg = arg(argv, "--key");
-  const model = arg(argv, "--model") ?? "anthropic/claude-sonnet-4-6";
+  let model = arg(argv, "--model") ?? "anthropic/claude-sonnet-4-6";
   const cwd = arg(argv, "--cwd") ?? process.cwd();
   const tmuxName = arg(argv, "--tmux") ?? "";
   // Everything after `--` is the initial prompt (mirrors the other harnesses).
@@ -164,12 +236,13 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     parentUuid = uuid;
   }
   // content is the assembled block list (text + any tool_use blocks).
-  function writeAssistant(content: unknown[]): void {
+  function writeAssistant(content: unknown[], apiError = false): void {
     if (!content.length) return; // nothing to record (e.g. an empty/aborted turn)
     const uuid = crypto.randomUUID();
     appendLine({
       parentUuid,
       type: "assistant",
+      ...(apiError ? { isApiErrorMessage: true } : {}),
       // model lets lastAssistantModel() show the live model on the card.
       message: { role: "assistant", model, content },
       uuid,
@@ -207,6 +280,18 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     // before the assistant replies.
     writeUser(prompt);
 
+    // If we don't have an opencode resume id in memory yet (e.g. previous turn
+    // ended on a question before we captured metadata), try to hydrate from the
+    // on-disk registry entry (which may have been patched manually or by serve).
+    if (!sessionId) {
+      try {
+        const onDisk = readEntry(key);
+        if (onDisk?.threadId && typeof onDisk.threadId === "string") {
+          sessionId = onDisk.threadId;
+        }
+      } catch {}
+    }
+
     // First turn: no sessionId → the provider creates a fresh opencode session.
     // Later turns: pass the captured sessionId to resume the same conversation.
     // (sessionId lives in the MODEL settings, the 2nd arg — NOT providerOptions,
@@ -224,6 +309,35 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     // throw out of the part loop on a malformed/unknown part.
     let textBuf = "";
     const toolBlocks: unknown[] = [];
+
+    // Live streaming. Unlike the claude/codex harnesses (whose provider writes
+    // incremental JSONL lines the live view tails as the turn runs), this harness
+    // self-persists and otherwise wouldn't touch the transcript until flush at
+    // turn end — so the whole reply pops in at once with nothing in between. To
+    // stream, periodically append the accumulated text so far as a *thinking*
+    // line: the live view renders thinking as a single bubble that is replaced on
+    // each new one (exempt from uuid dedupe) and cleared the moment the final
+    // assistant text line lands. These are ephemeral live-only snapshots — a
+    // fresh uuid each time, and we DON'T advance parentUuid (the real assistant
+    // line below chains directly off the user turn). Throttled so the transcript
+    // file doesn't bloat with one snapshot per token.
+    let lastStream = 0;
+    const streamThinking = (force = false): void => {
+      if (!textBuf.trim()) return;
+      const now = Date.now();
+      if (!force && now - lastStream < 600) return;
+      lastStream = now;
+      appendLine({
+        parentUuid,
+        type: "assistant",
+        message: { role: "assistant", model, content: [{ type: "thinking", thinking: textBuf }] },
+        uuid: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        cwd,
+        sessionId: key,
+      });
+    };
+
     try {
       for await (const part of result.fullStream as any) {
         try {
@@ -233,13 +347,13 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
             // The opencode provider emits an "error" stream part for events it
             // hasn't mapped yet — notably `question.asked` (the interactive
             // question event, which this headless harness can't answer anyway).
-            // Treating that as a fatal turn error would fail the whole turn, so
-            // tolerate it: log and CONTINUE the stream. Any OTHER error still
-            // throws (a real generation failure).
-            if (/question\.asked|not yet mapped/i.test(errText)) {
+            if (/question\.asked|not yet mapped|question asked|asking/i.test(errText)) {
               console.error(
                 `opencode-aisdk-session: ignoring unmapped stream event — ${errText.slice(0, 200)}`,
               );
+              // Do not continue awaiting; finish the turn so we don't hang with busy=true.
+              // Any preceding text/tool output will be flushed below.
+              throw new Error("OPENCODE_QUESTION_ASKED");
             } else {
               throw new Error(errText.slice(0, 800));
             }
@@ -247,12 +361,21 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
             // AI SDK v6 streams text as `text-delta` parts; `.text` (v6) or
             // `.textDelta` (older) carries the chunk.
             textBuf += (part as any).text ?? (part as any).textDelta ?? "";
+            streamThinking();
           } else if (t === "tool-call") {
-            toolBlocks.push({
-              type: "tool_use",
-              name: (part as any).toolName ?? "tool",
-              input: (part as any).input ?? (part as any).args ?? {},
-            });
+            // Flush whatever text preceded this tool so the live view shows the
+            // progress instead of jumping straight to the next phase.
+            streamThinking(true);
+            const toolName = (part as any).toolName ?? (part as any).tool ?? "tool";
+            const input = (part as any).input ?? (part as any).args ?? {};
+            if (/^question$/i.test(String(toolName)) || (input && (input.questions || input.question))) {
+              toolBlocks.push({ type: "tool_use", name: "question", input });
+              // This is an interactive prompt from opencode (multiple choice etc).
+              // The stream will not advance until answered. Finish the turn now
+              // so the harness does not hang with busy=true forever.
+              throw new Error("OPENCODE_QUESTION_ASKED");
+            }
+            toolBlocks.push({ type: "tool_use", name: toolName, input });
           }
         } catch (inner) {
           // A single bad part shouldn't abort the whole turn — but a thrown
@@ -260,30 +383,108 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
           if (inner instanceof Error && inner.message) throw inner;
         }
       }
+
+      // Opportunistic detection: opencode "asking" (with options) sometimes ends the
+      // stream without yielding an explicit "tool-call" for question or a matching
+      // error part (especially after tool uses in build mode). If the log shows a
+      // recent ask, treat it like the other cases so we don't hang.
+      try {
+        const logPath = join(homedir(), ".local", "share", "opencode", "log", "opencode.log");
+        const log = readFileSync(logPath, "utf8");
+        const recent = log.split("\n").slice(-50).join("\n");
+        if (/message=asking|questions=\d+/i.test(recent)) {
+          throw new Error("OPENCODE_QUESTION_ASKED");
+        }
+      } catch (e) {
+        if ((e as any)?.message === "OPENCODE_QUESTION_ASKED") throw e;
+      }
+
       await result.text; // surfaces a failed generation
 
       // Capture opencode's resume sessionId from the resolved metadata and pin
       // it for resume on later turns. It is NOT a transcript id (we own the
       // transcript), so it only ever feeds provider(model, { sessionId }).
-      if (!sessionId) {
-        try {
-          const meta = (await result.providerMetadata) as any;
-          const id = meta?.opencode?.sessionId;
-          if (typeof id === "string" && id) {
+      let turnOpencodeSessionId: string | null = null;
+      try {
+        const meta = (await result.providerMetadata) as any;
+        const id = meta?.opencode?.sessionId;
+        if (typeof id === "string" && id) {
+          turnOpencodeSessionId = id;
+          if (!sessionId) {
             sessionId = id;
             patchEntry(key, { threadId: sessionId });
           }
-        } catch {}
+        }
+      } catch {}
+
+      if (!textBuf.trim() && !toolBlocks.length) {
+        let logged: string | null = null;
+        if (turnOpencodeSessionId) {
+          for (let i = 0; i < 5 && !logged; i++) {
+            if (i) await new Promise((res) => setTimeout(res, 100));
+            logged = latestOpencodeError(turnOpencodeSessionId);
+          }
+        }
+        writeAssistant(
+          [
+            {
+              type: "text",
+              text: logged
+                ? `OpenCode turn failed for ${model}: ${logged}`
+                : `OpenCode returned no assistant output for ${model}; check the OpenCode provider logs.`,
+            },
+          ],
+          true,
+        );
+        return;
       }
     } catch (e) {
       if (signal.aborted) {
         // Interrupted on purpose — still persist whatever streamed so far.
+        // Best-effort: capture opencode sessionId for resume if available.
+        try {
+          const meta = (await result?.providerMetadata) as any;
+          const id = meta?.opencode?.sessionId;
+          if (typeof id === "string" && id && !sessionId) {
+            sessionId = id;
+            patchEntry(key, { threadId: sessionId });
+          }
+        } catch {}
         flushAssistant(textBuf, toolBlocks);
         return;
       }
-      console.error(
-        `opencode-aisdk-session turn failed: ${e instanceof Error ? e.message : e}`,
+      const message = e instanceof Error ? e.message : String(e);
+      if (message === "OPENCODE_QUESTION_ASKED") {
+        // opencode injected an interactive question tool (e.g. "how should I proceed?").
+        // Headless harness cannot answer; record what we have + a clear note and end turn.
+        // Capture sessionId if present so follow-ups can resume the same opencode thread.
+        try {
+          const meta = (await result?.providerMetadata) as any;
+          const id = meta?.opencode?.sessionId;
+          if (typeof id === "string" && id && !sessionId) {
+            sessionId = id;
+            patchEntry(key, { threadId: sessionId });
+          }
+        } catch {}
+        flushAssistant(textBuf, toolBlocks);
+        writeAssistant(
+          [
+            {
+              type: "text",
+              text: "OpenCode asked an interactive question during this turn (see transcript or opencode logs for the options). This headless session cannot answer; reply with your choice or restart the session to continue.",
+            },
+          ],
+          true,
+        );
+        return;
+      }
+      console.error(`opencode-aisdk-session turn failed: ${message}`);
+      flushAssistant(textBuf, toolBlocks);
+      writeAssistant(
+        [{ type: "text", text: `OpenCode turn failed for ${model}: ${message}` }],
+        true,
       );
+      return;
     }
     flushAssistant(textBuf, toolBlocks);
   }
@@ -335,6 +536,12 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
       if (cmd.text.trim()) {
         queue.push(cmd.text);
         void drain();
+      }
+    } else if (cmd.type === "set_model") {
+      const next = cmd.model.trim();
+      if (next) {
+        model = next;
+        patchEntry(key, { model });
       }
     } else if (cmd.type === "interrupt") {
       currentAc?.abort();

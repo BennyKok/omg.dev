@@ -16,7 +16,11 @@ export type ManagedSession = {
   tmuxName: string;
   cwd: string;
   createdAt: number;
-  agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode";
+  agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "grok";
+  sessionId?: string;
+  /** Main repo checkout when cwd is an auto-provisioned worktree. */
+  repoRoot?: string;
+  worktreeBranch?: string;
 };
 
 function readAll(): Record<string, ManagedSession> {

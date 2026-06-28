@@ -15,6 +15,7 @@ import { addManaged } from "../managed.ts";
 import { readEntry as readAisdkEntry } from "../aisdk-registry.ts";
 import { USERS, assignUser } from "../users.ts";
 import { PATHS } from "../config.ts";
+import { resolveSessionCwd } from "../worktree.ts";
 
 const PROJECT_REPO = process.env.LFG_REPO ?? PATHS.root;
 // lfg's own checkout — where the send path (sendq.ts/tmux.ts) lives, and the
@@ -23,6 +24,13 @@ const SELF_REPO = PATHS.root;
 // Agent-dispatched sessions are owned by the operator so they show up under the
 // same per-user filter as hand-started ones (first roster user = the operator).
 const AGENT_OWNER = USERS[0];
+
+function worktreeOperateLines(worktreePath: string, repoRoot: string, session: string): string {
+  return `- You are in your dedicated worktree at \`${worktreePath}\` (branched from \`origin/main\`).
+  Do ALL of your work here — never touch the shared checkout at \`${repoRoot}\`.
+- When you are completely done (after the PR is merged), clean up:
+  \`git -C ${repoRoot} worktree remove --force ${worktreePath}\`.`;
+}
 
 export type ActionResult = {
   ok: boolean;
@@ -106,6 +114,15 @@ async function dispatchAgent(
   // worktree/branch — both must agree so the agent's worktree is uniquely
   // its own (one per dispatched action).
   const session = `agent_${sanitize(agentName)}_${id.slice(0, 6)}`;
+  const cwdResolved = resolveSessionCwd(PROJECT_REPO, session, { selfRepo: SELF_REPO });
+  if (!cwdResolved.ok) {
+    return { ok: false, summary: `failed to prepare worktree: ${cwdResolved.error}` };
+  }
+  const { cwd, worktree } = cwdResolved;
+
+  const operate = worktree
+    ? worktreeOperateLines(worktree.path, worktree.repoRoot, session)
+    : `- You are in the project repo at \`${cwd}\`. Other agents may share this checkout — commit with explicit pathspecs only.`;
 
   const prompt = `You are an automated action agent dispatched by the lfg \`${agentName}\` report (${date}).
 
@@ -113,17 +130,7 @@ async function dispatchAgent(
 ${text}
 
 # How to operate
-- You are in your project repo at ${PROJECT_REPO}. Other agents may be running
-  in parallel against this same checkout, so do NOT work in it directly.
-- FIRST, create your own dedicated git worktree so you never collide with a
-  sibling agent's working tree or branch:
-  \`\`\`
-  git -C ${PROJECT_REPO} fetch --quiet origin main
-  git -C ${PROJECT_REPO} worktree add -b ${session} /tmp/lfg-wt/${session} origin/main
-  cd /tmp/lfg-wt/${session}
-  \`\`\`
-  Do ALL of your work inside that worktree. When you are completely done (after
-  the PR is merged), clean it up: \`git -C ${PROJECT_REPO} worktree remove --force /tmp/lfg-wt/${session}\`.
+${operate}
 - Carry the action out end-to-end as a real code change in your worktree: make
   the fix, commit, push, open a PR (\`gh pr create\`), and then **merge it**
   (\`gh pr merge --squash --delete-branch\`; use \`--auto\` if branch protection
@@ -144,7 +151,7 @@ ${reportContext ? `# Full report for context\n${reportContext.slice(0, 12000)}` 
   const sessionId = randomUUID();
   const spawned = spawnManagedAisdkSession({
     name: session,
-    cwd: PROJECT_REPO,
+    cwd,
     prompt,
     model: "opus",
     sessionId,
@@ -154,7 +161,14 @@ ${reportContext ? `# Full report for context\n${reportContext.slice(0, 12000)}` 
   }
   // Same lifecycle as a user-created session: register it as managed (clean
   // teardown, badge) and tag it to the operator so it shows under the filter.
-  addManaged({ tmuxName: session, cwd: PROJECT_REPO, createdAt: Date.now(), agent: "aisdk" });
+  addManaged({
+    tmuxName: session,
+    cwd,
+    createdAt: Date.now(),
+    agent: "aisdk",
+    repoRoot: worktree?.repoRoot,
+    worktreeBranch: worktree?.branch,
+  });
   assignUser(session, AGENT_OWNER);
 
   // Wait for the harness to register so the session is listable; the sessionId
@@ -268,8 +282,17 @@ async function dispatchCombinedAgent(
     .digest("hex")
     .slice(0, 6);
   const session = `agent_${sanitize(agentName)}_multi_${combinedId}`;
+  const cwdResolved = resolveSessionCwd(PROJECT_REPO, session, { selfRepo: SELF_REPO });
+  if (!cwdResolved.ok) {
+    return { ok: false, summary: `failed to prepare worktree: ${cwdResolved.error}` };
+  }
+  const { cwd, worktree } = cwdResolved;
 
   const taskList = rows.map((r, i) => `${i + 1}. ${r.text}`).join("\n");
+
+  const operate = worktree
+    ? worktreeOperateLines(worktree.path, worktree.repoRoot, session)
+    : `- You are in the project repo at \`${cwd}\`. Other agents may share this checkout — commit with explicit pathspecs only.`;
 
   const prompt = `You are an automated action agent dispatched by the lfg \`${agentName}\` report (${date}). You have been handed **${rows.length} actions** to carry out together in a SINGLE working session.
 
@@ -277,17 +300,7 @@ async function dispatchCombinedAgent(
 ${taskList}
 
 # How to operate
-- You are in your project repo at ${PROJECT_REPO}. Other agents may be running
-  in parallel against this same checkout, so do NOT work in it directly.
-- FIRST, create your own dedicated git worktree so you never collide with a
-  sibling agent's working tree or branch:
-  \`\`\`
-  git -C ${PROJECT_REPO} fetch --quiet origin main
-  git -C ${PROJECT_REPO} worktree add -b ${session} /tmp/lfg-wt/${session} origin/main
-  cd /tmp/lfg-wt/${session}
-  \`\`\`
-  Do ALL of your work inside that worktree. When you are completely done (after
-  the PR(s) are merged), clean it up: \`git -C ${PROJECT_REPO} worktree remove --force /tmp/lfg-wt/${session}\`.
+${operate}
 - Work through EVERY action in the list above end-to-end as real code changes.
   Group **related** actions into a single commit + PR; keep **unrelated** ones
   as separate commits/PRs within this one worktree. Open each PR (\`gh pr
@@ -308,7 +321,7 @@ ${reportContext ? `# Full report for context\n${reportContext.slice(0, 12000)}` 
   const sessionId = randomUUID();
   const spawned = spawnManagedAisdkSession({
     name: session,
-    cwd: PROJECT_REPO,
+    cwd,
     prompt,
     model: "opus",
     sessionId,
@@ -316,7 +329,14 @@ ${reportContext ? `# Full report for context\n${reportContext.slice(0, 12000)}` 
   if (!spawned.ok) {
     return { ok: false, summary: `failed to start agent session: ${spawned.error ?? "unknown"}` };
   }
-  addManaged({ tmuxName: session, cwd: PROJECT_REPO, createdAt: Date.now(), agent: "aisdk" });
+  addManaged({
+    tmuxName: session,
+    cwd,
+    createdAt: Date.now(),
+    agent: "aisdk",
+    repoRoot: worktree?.repoRoot,
+    worktreeBranch: worktree?.branch,
+  });
   assignUser(session, AGENT_OWNER);
 
   for (let i = 0; i < 20 && !readAisdkEntry(sessionId); i++) await Bun.sleep(250);

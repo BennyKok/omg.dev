@@ -18,6 +18,8 @@ export type AiSdkOptions = {
   model?: string;
   /** Tools to allow (mirrors the CLI's --allowedTools). */
   allowedTools?: string[];
+  /** Claude Code reasoning effort. */
+  thinkingLevel?: string;
 };
 
 /** Resolve the installed `claude` binary so the provider drives it directly. */
@@ -30,6 +32,13 @@ function resolveClaudePath(): string | undefined {
   }
 }
 
+function effortFor(level?: string): string | undefined {
+  if (!level) return undefined;
+  if (level === "none" || level === "minimal") return "low";
+  if (["low", "medium", "high", "xhigh", "max"].includes(level)) return level;
+  return undefined;
+}
+
 export async function pipeToClaudeAiSdk(
   prompt: string,
   log: (s: string) => void,
@@ -37,6 +46,7 @@ export async function pipeToClaudeAiSdk(
 ): Promise<string> {
   const model = opts.model ?? process.env.LFG_CLAUDE_MODEL ?? "opus";
   const allowedTools = opts.allowedTools ?? ["WebSearch", "WebFetch"];
+  const effort = effortFor(opts.thinkingLevel);
   const claudePath = process.env.LFG_CLAUDE_PATH ?? resolveClaudePath();
 
   log(`[runner] piping ${prompt.length} chars to claude via ai-sdk (${model})`);
@@ -52,6 +62,7 @@ export async function pipeToClaudeAiSdk(
     // NOT auto-resolve AskUserQuestion and a headless caller can't answer it
     // (would hang). Do NOT add AskUserQuestion to this list.
     allowedTools,
+    ...(effort ? { effort } : {}),
     // Honor the user's ~/.claude/settings.json + project settings, matching the
     // installed CLI's behavior.
     settingSources: ["user", "project"],

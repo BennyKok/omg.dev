@@ -11,6 +11,7 @@ import { randomBytes } from "node:crypto";
 import { PATHS } from "../config.ts";
 
 export type Severity = "high" | "med" | "low";
+export type AutoAgentBackend = "aisdk" | "codex-aisdk" | "opencode";
 
 export type AutoAgent = {
   id: string;
@@ -19,6 +20,9 @@ export type AutoAgent = {
   schedule: string; // 5-field cron expression
   enabled: boolean;
   cwd?: string; // where the Claude session runs; defaults to repo root
+  agent?: AutoAgentBackend; // omitted for old rows = "aisdk" (Claude AI SDK)
+  model?: string;
+  thinkingLevel?: string;
   // Extra tools granted to this agent on top of the read-only default set
   // (Read/Grep/Glob/WebSearch/WebFetch). e.g. ["Bash"] for agents that need to
   // shell out to a data bridge. Empty/undefined = read-only.
@@ -82,6 +86,9 @@ export async function saveAutoAgent(input: {
   schedule: string;
   enabled: boolean;
   cwd?: string;
+  agent?: AutoAgentBackend;
+  model?: string;
+  thinkingLevel?: string;
   tools?: string[];
 }): Promise<AutoAgent> {
   await ensure();
@@ -100,6 +107,9 @@ export async function saveAutoAgent(input: {
     schedule: input.schedule,
     enabled: input.enabled,
     cwd: input.cwd ?? existing?.cwd,
+    agent: input.agent ?? existing?.agent,
+    model: input.model ?? existing?.model,
+    thinkingLevel: input.thinkingLevel ?? existing?.thinkingLevel,
     tools: input.tools ?? existing?.tools,
     lastRunAt: existing?.lastRunAt,
   };

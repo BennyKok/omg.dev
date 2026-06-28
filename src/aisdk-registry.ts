@@ -48,6 +48,7 @@ export type AisdkEntry = {
 
 export type AisdkCommand =
   | { type: "send"; text: string }
+  | { type: "set_model"; model: string }
   | { type: "interrupt" }
   | { type: "close" };
 
@@ -134,4 +135,14 @@ export function isPidAlive(pid: number): boolean {
   } catch {
     return false;
   }
+}
+
+// Authoritative "is this session actually working right now" check. The harness
+// sets `busy:true` at the start of a turn and clears it in a finally — but if the
+// harness process dies mid-turn (killed, OOM, box restart), that finally never
+// runs and `busy` stays stuck true forever, so the live view shows a dead
+// session as permanently "Working". Gate the flag on the harness still being
+// alive so a stuck-busy orphan reads as idle.
+export function isEntryBusy(entry: AisdkEntry): boolean {
+  return !!entry.busy && isPidAlive(entry.harnessPid);
 }
