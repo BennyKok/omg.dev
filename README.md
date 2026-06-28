@@ -73,6 +73,16 @@ Railway is useful for a hosted demo, but `lfg` works best on the machine that
 has your repos, `tmux`, and authenticated agent CLIs. See
 [deploy/railway](./deploy/railway/README.md) for details.
 
+The shared [Dockerfile](./Dockerfile) also works as the base for
+[Fly.io](./deploy/fly/README.md), [Render](./deploy/render/README.md),
+[DigitalOcean](./deploy/digitalocean/README.md), and
+[Koyeb](./deploy/koyeb/README.md). These PaaS targets are best for demos or
+private-network deployments; a VPS remains the cleanest production-style target.
+Because the Vibes SDK path is not live for source installs yet, the Dockerfile
+installs the published bundled release (`lfg-bundle.tar.gz`) instead of building
+from the GitHub source tree. Publish a bundle with `scripts/release.sh <tag>`
+before relying on one-click cloud deploys.
+
 For Hetzner, use the cloud-init template in
 [deploy/hetzner](./deploy/hetzner/README.md). Hetzner's official deploy button
 only preselects Hetzner App images, so the repo ships a first-boot installer
@@ -82,6 +92,8 @@ Railway user requirements:
 
 - Railway account and GitHub access to this repo.
 - Keep Public Networking disabled unless you put auth in front of `lfg`.
+- For Tailscale access, add Railway's Tailscale router as a second service and
+  put `TS_AUTHKEY` on that router service.
 - Optional provider keys in Railway variables, such as `ANTHROPIC_API_KEY`,
   `OPENAI_API_KEY`, or `ELEVENLABS_API_KEY`.
 
