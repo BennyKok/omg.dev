@@ -56,20 +56,31 @@ function subscribe(listener: () => void) {
   return () => listeners.delete(listener);
 }
 
+// `getSnapshot` for useSyncExternalStore MUST return a referentially-stable
+// value while the store is unchanged — returning a freshly-spread object on
+// every call (as an earlier version did to interpolate `position` live) makes
+// React believe the store mutates on every read and re-renders forever, which
+// surfaces in prod as "Maximum update depth exceeded" (React error #185). So
+// the snapshot is just the stored object; live position interpolation lives in
+// `livePosition()`, which consumers read on their own render cadence.
 function snapshot() {
-  if (playback.status === "playing") {
-    const ctx = getCtx();
-    const elapsed = ctx ? Math.max(0, ctx.currentTime - startedAt) : 0;
-    return {
-      ...playback,
-      position: Math.min(playback.duration, pausedAt + elapsed),
-    };
-  }
   return playback;
 }
 
 export function useSpeechPlayback(): SpeechPlayback {
   return useSyncExternalStore(subscribe, snapshot, () => IDLE);
+}
+
+/**
+ * Current playback position in seconds, interpolated from the AudioContext
+ * clock while playing. Not part of the external-store snapshot (that must stay
+ * stable) — call this from a component that re-renders on its own timer.
+ */
+export function livePosition(): number {
+  if (playback.status !== "playing") return playback.position;
+  const ctx = getCtx();
+  const elapsed = ctx ? Math.max(0, ctx.currentTime - startedAt) : 0;
+  return Math.min(playback.duration, pausedAt + elapsed);
 }
 
 function getCtx(): AudioContext | null {

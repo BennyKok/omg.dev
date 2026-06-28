@@ -14,6 +14,7 @@ import {
 import { VoiceOrb } from "./voice-orb";
 import { VoiceCall } from "./voice-call";
 import {
+  livePosition,
   pauseSpeaking,
   resumeSpeaking,
   speakText,
@@ -2732,9 +2733,12 @@ function FloatingSessionAudio({
 
   if (playback.status === "idle") return null;
 
+  // Position is interpolated live (not part of the stable store snapshot); the
+  // forceTick interval above re-renders us every 250ms while playing so the bar
+  // advances smoothly.
   const pct =
     playback.duration > 0
-      ? Math.max(0, Math.min(100, (playback.position / playback.duration) * 100))
+      ? Math.max(0, Math.min(100, (livePosition() / playback.duration) * 100))
       : 0;
   const recording = dictation.state === "recording";
   const busy = playback.status === "loading" || sending || dictation.state === "transcribing";
