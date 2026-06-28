@@ -2,7 +2,9 @@
 
 Run AI coding agents on your own machine, from anywhere.
 
-[![lfg icon](./web/public/icon.svg)](https://lfg.apps.omg.dev)
+<a href="https://lfg.apps.omg.dev">
+  <img src="./web/public/icon.svg" alt="lfg icon" width="96" />
+</a>
 
 `lfg` turns a Linux box or macOS workstation into a private control plane for
 Claude Code, Codex, and opencode. It starts each agent in a long-lived `tmux`
