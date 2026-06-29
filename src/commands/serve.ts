@@ -176,13 +176,21 @@ const CLAUDE_MODELS = ["fable", "opus", "sonnet", "haiku"];
 const AISDK_MODELS = ["opus", "sonnet", "haiku"];
 const GROK_MODELS = ["grok-composer-2.5-fast", "grok-build"];
 const GROK_DEFAULT_MODEL = "grok-composer-2.5-fast";
-const OPENCODE_DEFAULT_MODEL = "opencode/big-pickle";
+const OPENCODE_DEFAULT_MODEL = "opencode-go/deepseek-v4-flash";
 // Models whose provider currently rejects our requests (Sakana's fugu returns a
-// hard 403 Forbidden — see opencode.log). A session born onto one of these
-// streams zero output and silently goes idle, so redirect create + model-switch
-// away from them to OPENCODE_DEFAULT_MODEL instead of letting the turn die. Keep
-// both the "provider/model" and bare slugs since either form can be requested.
-const OPENCODE_DISABLED_MODELS = new Set<string>(["fugu/fugu", "fugu"]);
+// hard 403 Forbidden, and the local Novita credential currently 403s too — see
+// opencode.log). A session born onto one of these streams zero output and
+// silently goes idle, so redirect create + model-switch away from them to the
+// verified OpenCode Go default instead of letting the turn die.
+const OPENCODE_DISABLED_MODELS = new Set<string>([
+  "fugu/fugu",
+  "fugu/fugu-ultra",
+  "fugu",
+  "fugu-ultra",
+  "novita-ai/deepseek/deepseek-v4-pro",
+  "novita-ai/zai-org/glm-5.2",
+  "novita-ai/zai-org/glm-5.1",
+]);
 const AUTO_AGENT_BACKENDS = ["aisdk", "codex-aisdk", "opencode"] as const;
 // Reasoning/thinking-effort levels, per agent family. Codex (CLI + ai-sdk)
 // accepts none…xhigh; Claude (CLI + ai-sdk) accepts low…xhigh plus `max`. The

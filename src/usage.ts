@@ -14,6 +14,7 @@
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { Database } from "bun:sqlite";
 
 export type UsageWindow = {
   label: string;
@@ -214,6 +215,71 @@ function staticProvider(kind: string, label: string, note: string): ProviderUsag
   return { kind, label, available: false, plan: null, note };
 }
 
+function compactCount(n: number): string {
+  if (!Number.isFinite(n)) return "0";
+  if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(n) >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(Math.round(n));
+}
+
+function opencodeStatsNote(): string | null {
+  try {
+    const db = new Database(join(HOME, ".local", "share", "opencode", "opencode.db"), {
+      readonly: true,
+    });
+    try {
+      const since = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      const row = db
+        .query(
+          `select
+             count(*) as sessions,
+             coalesce(sum(cost), 0) as cost,
+             coalesce(sum(tokens_input), 0) as input,
+             coalesce(sum(tokens_output), 0) as output,
+             coalesce(sum(tokens_cache_read), 0) as cache_read
+           from session
+           where time_updated >= ?`,
+        )
+        .get(since) as
+        | {
+            sessions?: number;
+            cost?: number;
+            input?: number;
+            output?: number;
+            cache_read?: number;
+          }
+        | null;
+      if (!row?.sessions) return "Signed in; no local OpenCode usage in the last 7 days";
+      const tokens = (row.input ?? 0) + (row.output ?? 0) + (row.cache_read ?? 0);
+      return `Signed in; 7d local stats: ${row.sessions} sessions, ${compactCount(tokens)} tokens, $${(row.cost ?? 0).toFixed(2)}`;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return null;
+  }
+}
+
+async function opencodeUsage(): Promise<ProviderUsage> {
+  const base = { kind: "opencode", label: "OpenCode", plan: null as string | null };
+  try {
+    const auth = await Bun.file(join(HOME, ".local", "share", "opencode", "auth.json")).json();
+    const hasGo = typeof auth?.["opencode-go"]?.key === "string" && auth["opencode-go"].key.length > 0;
+    const hasAny = Object.values(auth ?? {}).some(
+      (v) => v && typeof v === "object" && typeof (v as { key?: unknown }).key === "string",
+    );
+    if (!hasAny) return { ...base, available: false, note: "Not signed in on this box" };
+    return {
+      ...base,
+      available: true,
+      plan: hasGo ? "go" : null,
+      note: opencodeStatsNote() ?? (hasGo ? "Signed in to OpenCode Go" : "Signed in"),
+    };
+  } catch {
+    return { ...base, available: false, note: "Not signed in on this box" };
+  }
+}
+
 // ----------------------------------------------------------- aggregation ----
 
 let cache: { at: number; data: ProviderUsage[] } | null = null;
@@ -226,9 +292,7 @@ export async function getAllUsage(): Promise<ProviderUsage[]> {
     Promise.resolve(
       staticProvider("grok", "Grok", "No usage data exposed by the Grok CLI"),
     ),
-    Promise.resolve(
-      staticProvider("opencode", "OpenCode", "Pay-as-you-go — no subscription cap"),
-    ),
+    opencodeUsage(),
   ]);
   cache = { at: Date.now(), data };
   return data;

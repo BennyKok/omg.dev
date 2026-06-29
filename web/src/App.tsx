@@ -248,14 +248,20 @@ const AISDK_MODELS = ["opus", "sonnet", "haiku"];
 const CODEX_AISDK_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"];
 const GROK_MODELS = ["grok-composer-2.5-fast", "grok-build"];
 const OPENCODE_MODELS = [
-  "fugu/fugu",
-  "fugu/fugu-ultra",
+  "opencode-go/deepseek-v4-flash",
+  "opencode-go/deepseek-v4-pro",
+  "opencode-go/glm-5.1",
+  "opencode-go/glm-5.2",
+  "opencode-go/kimi-k2.6",
+  "opencode-go/kimi-k2.7-code",
+  "opencode-go/mimo-v2.5",
+  "opencode-go/mimo-v2.5-pro",
+  "opencode-go/minimax-m2.7",
+  "opencode-go/minimax-m3",
+  "opencode-go/qwen3.6-plus",
+  "opencode-go/qwen3.7-max",
+  "opencode-go/qwen3.7-plus",
   "opencode/big-pickle",
-  "opencode/deepseek-v4-flash-free",
-  "novita-ai/zai-org/glm-5.2",
-  "novita-ai/zai-org/glm-5.1",
-  "novita-ai/qwen/qwen3-coder-480b-a35b-instruct",
-  "novita-ai/deepseek/deepseek-v4-pro",
 ];
 const THINKING_LEVELS = ["low", "medium", "high", "xhigh"] as const;
 type ThinkingLevel = (typeof THINKING_LEVELS)[number];
@@ -286,6 +292,10 @@ function agentSupportsThinking(agent: AgentKind): boolean {
   );
 }
 
+function agentShowsClaudeUsage(agent: AgentKind): boolean {
+  return agent === "claude" || agent === "aisdk";
+}
+
 // Per-agent model lists + default model, keyed by the backend agent-kind
 // contract. The new-session dialog and session cards both read from here so the
 // model picker stays correct per agent.
@@ -303,7 +313,7 @@ const AGENT_DEFAULT_MODEL: Record<AgentKind, string> = {
   codex: "gpt-5.5",
   "codex-aisdk": "gpt-5.5",
   grok: "grok-composer-2.5-fast",
-  opencode: "opencode/big-pickle",
+  opencode: "opencode-go/deepseek-v4-flash",
 };
 
 // New-session picker options, in display order. The three AI-SDK agents are the
@@ -6888,7 +6898,7 @@ function NewSessionDialog({
   }
 
   useEffect(() => {
-    if (!open || agent !== "claude") return;
+    if (!open || !agentShowsClaudeUsage(agent)) return;
     api<{ ok: true; fiveHour: { pct: number | null }; sevenDay: { pct: number | null } }>(
       "/api/claude/usage",
     )
@@ -7352,7 +7362,7 @@ function NewSessionDialog({
             error ? "text-destructive" : "text-muted-foreground",
           )}
         >
-          {error || (agent === "claude" ? usage : "") || ""}
+          {error || (agentShowsClaudeUsage(agent) ? usage : "") || ""}
         </span>
         <div className="flex shrink-0 items-center gap-2">
           <Button
