@@ -3073,7 +3073,6 @@ function ProjectFilterMenu({
           {shortProject(value)}
         </span>
       ) : null}
-      <ChevronDown className="size-3 shrink-0 opacity-60" />
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
