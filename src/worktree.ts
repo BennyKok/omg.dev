@@ -3,7 +3,7 @@
 // lfg itself and voice-orchestrator sessions.
 
 import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { MAIN_REF } from "./agents/collectors/git-fresh.ts";
 import { listManaged } from "./managed.ts";
 import { tmuxHasSession } from "./tmux.ts";
@@ -131,7 +131,11 @@ export function sweepStaleWorktrees(opts?: {
 }): WorktreeSweepResult {
   const minAgeMs = opts?.minAgeMs ?? worktreeSweepMinAgeMs();
   const now = opts?.now ?? Date.now();
-  const managed = new Set(listManaged().map((m) => m.tmuxName));
+  const managed = new Set<string>();
+  for (const m of listManaged()) {
+    managed.add(m.tmuxName);
+    managed.add(basename(m.cwd));
+  }
   const result: WorktreeSweepResult = {
     scanned: 0,
     removed: [],
