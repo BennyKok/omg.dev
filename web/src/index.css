@@ -54,7 +54,7 @@
      space above that compact composer for scroll content, toasts, the dictation
      pill and the ask-center card. --lfg-composer-clear ≈ the composer's resting
      height: prompt, collapsed agent button and Start. */
-  --lfg-composer-clear: calc(9.25rem + env(safe-area-inset-bottom));
+  --lfg-composer-clear: calc(10.5rem + env(safe-area-inset-bottom));
   --lfg-orb-stack-bottom: calc(var(--lfg-composer-clear) + 0.5rem);
   --lfg-above-orb: var(--lfg-composer-clear);
 }

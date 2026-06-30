@@ -2491,11 +2491,13 @@ export function App() {
           <div className="flex h-11 items-center gap-1.5 rounded-full bg-background/80 px-2 backdrop-blur-xl">
             {tab === "live" ? (
               <>
-                <ProjectFilterMenu
-                  value={projectFilter}
-                  projects={projectOptions}
-                  onChange={setProjectFilter}
-                />
+                {!isMobile ? (
+                  <ProjectFilterMenu
+                    value={projectFilter}
+                    projects={projectOptions}
+                    onChange={setProjectFilter}
+                  />
+                ) : null}
                 <UserFilterMenu
                   value={userFilter}
                   users={users}
@@ -2599,6 +2601,8 @@ export function App() {
               users={users}
               repos={repos}
               scopedProject={projectFilter}
+              projectOptions={projectOptions}
+              onProjectChange={setProjectFilter}
               onReposChanged={loadCore}
               defaultUser={
                 userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : ""
@@ -6704,6 +6708,8 @@ function NewSessionDialog({
   users,
   defaultUser,
   scopedProject,
+  projectOptions,
+  onProjectChange,
   onClose,
   onCreated,
   onReposChanged,
@@ -6726,6 +6732,11 @@ function NewSessionDialog({
   // (not "__all"), creating a session is locked to that project's repo and the
   // repo picker is hidden.
   scopedProject: string;
+  // Inline only: render the live project selector as a centered tab overlapping
+  // the composer edge. The drawer version keeps project selection in its normal
+  // repo controls instead.
+  projectOptions?: string[];
+  onProjectChange?: (value: string) => void;
   onClose: () => void;
   onCreated: () => Promise<void>;
   // Fired synchronously the instant the user submits — before the (slow) spawn
@@ -7405,10 +7416,19 @@ function NewSessionDialog({
       <div
         aria-busy={busy}
         className={cn(
-          "pointer-events-auto fixed inset-x-0 bottom-0 z-[55] border-t border-border/60 bg-background/95 shadow-[0_-8px_24px_rgba(0,0,0,0.12)] backdrop-blur-xl",
+          "pointer-events-auto fixed inset-x-0 bottom-0 z-[55] border-t border-border/60 bg-background/95 pt-4 shadow-[0_-8px_24px_rgba(0,0,0,0.12)] backdrop-blur-xl",
           busy && "lfg-composer-launching",
         )}
       >
+        {projectOptions && onProjectChange ? (
+          <div className="absolute left-1/2 top-0 z-10 -translate-x-1/2 -translate-y-1/2">
+            <ProjectFilterMenu
+              value={scopedProject}
+              projects={projectOptions}
+              onChange={onProjectChange}
+            />
+          </div>
+        ) : null}
         <div className="mx-auto max-w-lg">{formBody}</div>
       </div>
     );
