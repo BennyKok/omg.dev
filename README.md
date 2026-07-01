@@ -89,6 +89,11 @@ installs the published bundled release (`lfg-bundle.tar.gz`) instead of building
 from the GitHub source tree. Publish a bundle with `scripts/release.sh <tag>`
 before relying on one-click cloud deploys.
 
+Maintainer convention: when asking an agent to "deploy", that means make the
+current changes visible in the running/dev instance, including rebuilds or
+service restarts as needed. Say "release" when you want a new tag and published
+`lfg-bundle.tar.gz`.
+
 For Hetzner, use the cloud-init template in
 [deploy/hetzner](./deploy/hetzner/README.md). Hetzner's official deploy button
 only preselects Hetzner App images, so the repo ships a first-boot installer

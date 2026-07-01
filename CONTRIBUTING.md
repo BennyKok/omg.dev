@@ -53,6 +53,11 @@ Drop a `name.md` in `agents/` with YAML frontmatter (`name`, `title`,
 
 ## House rules
 
+- **Deploy vs. release:** in this repo, "deploy" means make the current changes
+  visible in the running/dev instance: rebuild the web UI if needed, restart the
+  local service/process if needed, and verify the change can be seen. Do not
+  create a git tag, GitHub release, or publish `lfg-bundle.tar.gz` unless the
+  request explicitly says "release".
 - **No secrets or personal data in commits** — config is env-driven via `.env`
   (gitignored). Don't hardcode hosts, paths, tokens, or emails.
 - Match the surrounding code's style and comment density.
