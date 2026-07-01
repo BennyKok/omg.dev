@@ -3344,19 +3344,26 @@ export async function cmdServe() {
               await Promise.all(panes.map(async (p) => {
                 try {
                   const backlogT0 = performance.now();
-                  const rawMsgs = await recentMessagesCached(p.tp, 40);
+                  const page = await messagePage(p.tp, { limit: 40 });
                   const readMs = performance.now() - backlogT0;
                   const renderT0 = performance.now();
-                  const msgs = rawMsgs.map(msgWithHtml);
+                  const msgs = page.messages.map(msgWithHtml);
                   evlog("live_stream_backlog", {
                     rid,
                     sid: p.sid,
                     messages: msgs.length,
+                    nextBefore: page.nextBefore,
                     readMs: Math.round(readMs * 1000) / 1000,
                     renderMs: Math.round((performance.now() - renderT0) * 1000) / 1000,
                     totalMs: Math.round((performance.now() - backlogT0) * 1000) / 1000,
                   });
-                  send(`event: batch\ndata: ${JSON.stringify({ sid: p.sid, messages: msgs })}\n\n`);
+                  send(
+                    `event: batch\ndata: ${JSON.stringify({
+                      sid: p.sid,
+                      messages: msgs,
+                      nextBefore: page.nextBefore,
+                    })}\n\n`,
+                  );
                   offsets.set(p.sid, Bun.file(p.tp).size);
                   lastSig.set(p.sid, " ");
                   lastQ.set(p.sid, "[]");

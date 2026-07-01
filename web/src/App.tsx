@@ -224,6 +224,7 @@ type Message = {
   html?: string;
   ts?: number;
   pending?: boolean;
+  seed?: boolean;
 };
 
 type PromptOption = { index: number; label: string; selected?: boolean };
@@ -234,6 +235,8 @@ type QueueMsg = {
   status: "pending" | "sending" | "queued" | "failed" | "delivered";
   error?: string;
 };
+
+type LoadOlderMessages = (sid: string) => Promise<boolean>;
 
 type ComposerAttachment = {
   id: string;
@@ -529,6 +532,7 @@ function seedMessageForSession(session: Session): Message | null {
     text,
     html: escapeHtml(text).replace(/\n/g, "<br>"),
     ts,
+    seed: true,
   };
 }
 
@@ -1219,7 +1223,7 @@ const MicButton = forwardRef<
         recording
           ? "z-10 bg-destructive text-destructive-foreground"
           : minimal
-            ? "bg-transparent text-muted-foreground hover:bg-transparent hover:text-foreground"
+            ? "relative z-10 bg-transparent text-muted-foreground hover:bg-transparent hover:text-foreground"
             : "text-muted-foreground hover:bg-muted",
         className,
       )}
@@ -1388,7 +1392,7 @@ function ComposerSendButton({
         "flex shrink-0 touch-none select-none items-center justify-center rounded-full font-semibold transition active:scale-[0.97]",
         recording
           ? "z-10 bg-destructive text-destructive-foreground"
-          : "bg-foreground/[0.08] text-foreground/80 shadow-sm hover:bg-foreground/[0.12] hover:text-foreground",
+          : "relative z-10 bg-foreground/[0.08] text-foreground/80 shadow-sm hover:bg-foreground/[0.12] hover:text-foreground",
         dim && "opacity-50",
         className,
       )}
@@ -1604,11 +1608,16 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
   const [promptsBySid, setPromptsBySid] = useState<Record<string, SessionPrompt | null>>({});
   const [queuesBySid, setQueuesBySid] = useState<Record<string, QueueMsg[]>>({});
   const [loadingBySid, setLoadingBySid] = useState<Record<string, boolean>>({});
+  const [nextBeforeBySid, setNextBeforeBySid] = useState<Record<string, number | null>>({});
   const seenRef = useRef<Record<string, Set<string>>>({});
   const messagesRef = useRef(messagesBySid);
+  const nextBeforeRef = useRef(nextBeforeBySid);
   useEffect(() => {
     messagesRef.current = messagesBySid;
   }, [messagesBySid]);
+  useEffect(() => {
+    nextBeforeRef.current = nextBeforeBySid;
+  }, [nextBeforeBySid]);
   // Per-session timers that auto-retire a lingering "thinking…" shimmer. A
   // thinking block is already complete by the time we read it from the
   // transcript, and the next content line can lag many seconds (model still
@@ -1639,10 +1648,13 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
     setQueuesBySid((prev) =>
       Object.fromEntries(Object.entries(prev).filter(([sid]) => active.has(sid))),
     );
+    setNextBeforeBySid((prev) =>
+      Object.fromEntries(Object.entries(prev).filter(([sid]) => live.has(sid))),
+    );
     setLoadingBySid((prev) => {
       const next = Object.fromEntries(Object.entries(prev).filter(([sid]) => live.has(sid)));
       for (const sid of active) {
-        if (!(messagesRef.current[sid]?.length) && !seedBySid[sid]) next[sid] = true;
+        if (!(messagesRef.current[sid]?.some((message) => !message.seed))) next[sid] = true;
       }
       return next;
     });
@@ -1745,7 +1757,11 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
     });
 
     es.addEventListener("batch", (event) => {
-      const payload = parseLiveEvent<{ sid: string; messages: Message[] }>(event.data);
+      const payload = parseLiveEvent<{
+        sid: string;
+        messages: Message[];
+        nextBefore?: number | null;
+      }>(event.data);
       if (!payload || !active.has(payload.sid)) return;
       const sid = payload.sid;
       const messages = Array.isArray(payload.messages) ? payload.messages : [];
@@ -1770,6 +1786,7 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
       if (seen.size > 800) {
         seenRef.current[sid] = new Set(Array.from(seen).slice(-400));
       }
+      setNextBeforeBySid((prev) => ({ ...prev, [sid]: payload.nextBefore ?? null }));
       setMessagesBySid((prev) => {
         const current = prev[sid] ?? [];
         const pending = current.filter((item) => {
@@ -1890,6 +1907,35 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
     }));
   }, []);
 
+  const loadOlderMessages = useCallback<LoadOlderMessages>(async (sid) => {
+    if (!(sid in nextBeforeRef.current)) return true;
+    const before = nextBeforeRef.current[sid];
+    if (before == null) return false;
+    const page = await api<{
+      messages: Message[];
+      nextBefore: number | null;
+    }>(
+      `/api/sessions/${encodeURIComponent(sid)}/messages?page=backward&before=${before}&limit=80`,
+    );
+    const older = Array.isArray(page.messages) ? page.messages : [];
+    setNextBeforeBySid((prev) => ({ ...prev, [sid]: page.nextBefore ?? null }));
+    if (!older.length) return (page.nextBefore ?? null) !== null;
+
+    const seen = seenRef.current[sid] || (seenRef.current[sid] = new Set());
+    for (const message of older) {
+      if (message.id && message.kind !== "thinking") seen.add(message.id);
+    }
+
+    setMessagesBySid((prev) => {
+      const current = prev[sid] ?? [];
+      const existing = new Set(current.map((message) => message.id).filter(Boolean));
+      const prepend = older.filter((message) => !message.id || !existing.has(message.id));
+      if (!prepend.length) return prev;
+      return { ...prev, [sid]: [...prepend, ...current.filter((message) => !message.seed)] };
+    });
+    return (page.nextBefore ?? null) !== null;
+  }, []);
+
   // List-poll busy for all sessions, with the live stream winning for whichever
   // cards are currently streamed (expanded). Pruning of `busyBySid` to active
   // stream ids (above) means a card that just collapsed cleanly hands its busy
@@ -1906,6 +1952,7 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
     queuesBySid,
     loadingBySid,
     addOptimisticMessage,
+    loadOlderMessages,
   };
 }
 
@@ -2880,6 +2927,7 @@ export function App() {
             promptsBySid={liveStream.promptsBySid}
             queuesBySid={liveStream.queuesBySid}
             loadingBySid={liveStream.loadingBySid}
+            onLoadOlderMessages={liveStream.loadOlderMessages}
             onOptimisticMessage={liveStream.addOptimisticMessage}
             onRefresh={refreshSessions}
             onRemove={removeSession}
@@ -3647,6 +3695,7 @@ function LiveView({
   promptsBySid,
   queuesBySid,
   loadingBySid,
+  onLoadOlderMessages,
   onOptimisticMessage,
   onRefresh,
   onRemove,
@@ -3664,6 +3713,7 @@ function LiveView({
   promptsBySid: Record<string, SessionPrompt | null>;
   queuesBySid: Record<string, QueueMsg[]>;
   loadingBySid: Record<string, boolean>;
+  onLoadOlderMessages: LoadOlderMessages;
   onOptimisticMessage: (sid: string, text: string) => void;
   onRefresh: () => Promise<void>;
   onRemove: (sid: string) => void;
@@ -3743,6 +3793,7 @@ function LiveView({
         loading={!!loadingBySid[session.sessionId ?? ""]}
         prompt={promptsBySid[session.sessionId ?? ""] ?? null}
         queue={queuesBySid[session.sessionId ?? ""] ?? EMPTY_QUEUE}
+        onLoadOlderMessages={onLoadOlderMessages}
         onOptimisticMessage={onOptimisticMessage}
         onRefresh={onRefresh}
         onRemove={onRemove}
@@ -3763,6 +3814,7 @@ function LiveView({
         promptsBySid={promptsBySid}
         queuesBySid={queuesBySid}
         loadingBySid={loadingBySid}
+        onLoadOlderMessages={onLoadOlderMessages}
         onOptimisticMessage={onOptimisticMessage}
         onRefresh={onRefresh}
         onRemove={onRemove}
@@ -3844,6 +3896,7 @@ function LiveView({
         loadingBySid={loadingBySid}
         promptsBySid={promptsBySid}
         queuesBySid={queuesBySid}
+        onLoadOlderMessages={onLoadOlderMessages}
         onSwitch={(nextSid) => setSheet((s) => (s ? { ...s, sid: nextSid } : s))}
         onOptimisticMessage={onOptimisticMessage}
         onRefresh={onRefresh}
@@ -3868,6 +3921,7 @@ function RailStage({
   promptsBySid,
   queuesBySid,
   loadingBySid,
+  onLoadOlderMessages,
   onOptimisticMessage,
   onRefresh,
   onRemove,
@@ -3884,6 +3938,7 @@ function RailStage({
   promptsBySid: Record<string, SessionPrompt | null>;
   queuesBySid: Record<string, QueueMsg[]>;
   loadingBySid: Record<string, boolean>;
+  onLoadOlderMessages: LoadOlderMessages;
   onOptimisticMessage: (sid: string, text: string) => void;
   onRefresh: () => Promise<void>;
   onRemove: (sid: string) => void;
@@ -4444,6 +4499,7 @@ function RailStage({
                     loading={!!loadingBySid[sid]}
                     prompt={promptsBySid[sid] ?? null}
                     queue={queuesBySid[sid] ?? EMPTY_QUEUE}
+                    onLoadOlderMessages={onLoadOlderMessages}
                     onOptimisticMessage={onOptimisticMessage}
                     onRefresh={onRefresh}
                     onRemove={onRemove}
@@ -4892,6 +4948,7 @@ function SessionChat({
   loading,
   prompt,
   queue,
+  onLoadOlderMessages,
   error,
   onError,
   onOptimisticMessage,
@@ -4905,6 +4962,7 @@ function SessionChat({
   loading: boolean;
   prompt: SessionPrompt | null;
   queue: QueueMsg[];
+  onLoadOlderMessages: LoadOlderMessages;
   error: string | null;
   onError: (error: string | null) => void;
   onOptimisticMessage: (sid: string, text: string) => void;
@@ -5040,7 +5098,13 @@ function SessionChat({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <PausedBanner session={session} onRefresh={onRefresh} />
-      <ChatStream messages={messages} busy={busy} loading={loading} />
+      <ChatStream
+        sid={sid}
+        messages={messages}
+        busy={busy}
+        loading={loading}
+        onLoadOlderMessages={onLoadOlderMessages}
+      />
 
       <PromptPanel prompt={prompt} sid={sid} onError={onError} />
       <QueuePanel queue={queue} sid={sid} messages={messages} />
@@ -5296,6 +5360,7 @@ function SessionTitleSheet({
   loadingBySid,
   promptsBySid,
   queuesBySid,
+  onLoadOlderMessages,
   origin,
   onSwitch,
   onOptimisticMessage,
@@ -5314,6 +5379,7 @@ function SessionTitleSheet({
   loadingBySid: Record<string, boolean>;
   promptsBySid: Record<string, SessionPrompt | null>;
   queuesBySid: Record<string, QueueMsg[]>;
+  onLoadOlderMessages: LoadOlderMessages;
   origin: DOMRect;
   onSwitch: (sid: string) => void;
   onOptimisticMessage: (sid: string, text: string) => void;
@@ -5787,6 +5853,7 @@ function SessionTitleSheet({
             loading={loading}
             prompt={prompt}
             queue={queue}
+            onLoadOlderMessages={onLoadOlderMessages}
             error={error}
             onError={setError}
             onOptimisticMessage={onOptimisticMessage}
@@ -5958,6 +6025,7 @@ const SessionCard = memo(function SessionCard({
   loading,
   prompt,
   queue,
+  onLoadOlderMessages,
   onOptimisticMessage,
   onRefresh,
   onRemove,
@@ -5973,6 +6041,7 @@ const SessionCard = memo(function SessionCard({
   loading: boolean;
   prompt: SessionPrompt | null;
   queue: QueueMsg[];
+  onLoadOlderMessages: LoadOlderMessages;
   onOptimisticMessage: (sid: string, text: string) => void;
   onRefresh: () => Promise<void>;
   onRemove: (sid: string) => void;
@@ -6551,6 +6620,7 @@ const onTouchStart = (e: ReactTouchEvent) => {
           loading={loading}
           prompt={prompt}
           queue={queue}
+          onLoadOlderMessages={onLoadOlderMessages}
           error={error}
           onError={setError}
           onOptimisticMessage={onOptimisticMessage}
@@ -6613,23 +6683,61 @@ function buildRenderItems(messages: Message[]): RenderItem[] {
 }
 
 const ChatStream = memo(function ChatStream({
+  sid,
   messages,
   busy,
   loading,
+  onLoadOlderMessages,
 }: {
+  sid: string | null;
   messages: Message[];
   busy: boolean;
   loading: boolean;
+  onLoadOlderMessages: LoadOlderMessages;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [stick, setStick] = useState(true);
-  const items = useMemo(() => buildRenderItems(messages), [messages]);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [hasOlder, setHasOlder] = useState(true);
+  const preserveScrollRef = useRef<{ height: number; top: number } | null>(null);
+  const visibleMessages = useMemo(() => messages.filter((message) => !message.seed), [messages]);
+  const items = useMemo(() => buildRenderItems(visibleMessages), [visibleMessages]);
+
+  useEffect(() => {
+    setHasOlder(true);
+    preserveScrollRef.current = null;
+  }, [sid]);
 
   useEffect(() => {
     const el = ref.current;
     if (!el || !stick) return;
     el.scrollTop = el.scrollHeight;
-  }, [messages, busy, stick]);
+  }, [visibleMessages, busy, stick]);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const preserve = preserveScrollRef.current;
+    if (!el || !preserve) return;
+    preserveScrollRef.current = null;
+    el.scrollTop = el.scrollHeight - preserve.height + preserve.top;
+  }, [visibleMessages]);
+
+  const maybeLoadOlder = useCallback(async () => {
+    const el = ref.current;
+    if (!sid || !el || loadingOlder || !hasOlder) return;
+    if (el.scrollTop > 80) return;
+    preserveScrollRef.current = { height: el.scrollHeight, top: el.scrollTop };
+    setStick(false);
+    setLoadingOlder(true);
+    try {
+      const more = await onLoadOlderMessages(sid);
+      setHasOlder(more);
+    } catch {
+      preserveScrollRef.current = null;
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [sid, loadingOlder, hasOlder, onLoadOlderMessages]);
 
   return (
     <div
@@ -6637,11 +6745,18 @@ const ChatStream = memo(function ChatStream({
       onScroll={(event) => {
         const el = event.currentTarget;
         setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 72);
+        void maybeLoadOlder();
       }}
       className="chat-stream min-h-0 flex-1 overflow-y-auto bg-background px-3 py-3"
     >
-      {messages.length ? (
+      {visibleMessages.length ? (
         <div className="flex flex-col gap-3">
+          {loadingOlder ? (
+            <div className="flex justify-center py-1 text-xs text-muted-foreground">
+              <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+              Loading older messages
+            </div>
+          ) : null}
           {items.map((item, index) =>
             item.type === "tools" ? (
               <ToolGroup
@@ -6653,11 +6768,16 @@ const ChatStream = memo(function ChatStream({
               <MessageBubble key={item.key} message={item.message} />
             ),
           )}
-          {busy && !messages.some((message) => message.kind === "thinking") ? (
+          {busy && !visibleMessages.some((message) => message.kind === "thinking") ? (
             <div className="busy-line">
               <span className="bt">Working...</span>
             </div>
           ) : null}
+        </div>
+      ) : loading ? (
+        <div className="flex h-full min-h-64 flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
+          <Loader2 className="size-5 animate-spin" />
+          <span>Loading transcript</span>
         </div>
       ) : (
         <div className="flex h-full min-h-64 flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
