@@ -53,6 +53,10 @@ fi
 LFG_INSTALL_CLAUDE="${LFG_INSTALL_CLAUDE:-0}"
 LFG_INSTALL_CODEX="${LFG_INSTALL_CODEX:-0}"
 LFG_INSTALL_OPENCODE="${LFG_INSTALL_OPENCODE:-0}"
+LFG_INSTALL_HERMES="${LFG_INSTALL_HERMES:-0}"
+LFG_TAILSCALE_SERVE="${LFG_TAILSCALE_SERVE:-0}"
+LFG_TAILSCALE_SERVE_OVERWRITE="${LFG_TAILSCALE_SERVE_OVERWRITE:-0}"
+LFG_TAILSCALE_HTTPS_PORT="${LFG_TAILSCALE_HTTPS_PORT:-443}"
 
 say()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[!]\033[0m %s\n' "$*" >&2; }
@@ -135,6 +139,23 @@ tailscale_sudo() {
   fi
 }
 
+tailscale_serve_endpoint_target() {
+  local port_key="tcp:$1"
+  local cfg
+  cfg="$(tailscale_sudo serve get-config --all 2>/dev/null || true)"
+  [ -n "$cfg" ] || return 0
+  printf '%s' "$cfg" | jq -r --arg port "$port_key" '
+    first(
+      (.services // {})
+      | to_entries[]
+      | (.value.endpoints // {})
+      | to_entries[]
+      | select(.key == $port)
+      | .value
+    ) // empty
+  ' 2>/dev/null
+}
+
 # ---- 1. base packages ----
 if [ "$OS_NAME" = "Linux" ]; then
   [ "$LFG_INSTALL_SYSTEM_DEPS" = "1" ] || die "Missing or unchecked system deps. Re-run with LFG_INSTALL_SYSTEM_DEPS=1, or install git, tmux, curl, ca-certificates, and jq yourself."
@@ -174,9 +195,9 @@ BUN_BIN="$(command -v bun || true)"
 [ -n "$BUN_BIN" ] || die "Bun is required but was not found on PATH."
 BUN_BIN="$(cd "$(dirname "$BUN_BIN")" && pwd)/$(basename "$BUN_BIN")"
 
-# ---- 3. agent CLIs (claude / codex / opencode) ----
+# ---- 3. agent CLIs (claude / codex / opencode / hermes) ----
 # The release bundle ships NO vendored agent binaries - lfg drives whatever
-# `claude` / `codex` / `opencode` it finds on PATH (override via LFG_*_PATH).
+# `claude` / `codex` / `opencode` / `hermes` it finds on PATH (override via LFG_*_PATH).
 # Never install or upgrade these by default: they own user auth/config.
 if ! command -v claude >/dev/null 2>&1; then
   if [ "$LFG_INSTALL_CLAUDE" = "1" ]; then
@@ -205,6 +226,14 @@ if ! command -v opencode >/dev/null 2>&1; then
     "$BUN_BIN" add -g opencode-ai >/dev/null 2>&1 || warn "opencode install failed - the 'opencode' agent kind will be unavailable."
   else
     warn "OpenCode CLI not found. OpenCode sessions will be unavailable until you install/authenticate opencode. Re-run with LFG_INSTALL_OPENCODE=1 only if you want setup to install it with Bun."
+  fi
+fi
+if ! command -v hermes >/dev/null 2>&1; then
+  if [ "$LFG_INSTALL_HERMES" = "1" ]; then
+    say "Installing Hermes Agent (optional)..."
+    curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash || warn "Hermes install failed - the 'hermes' agent kind will be unavailable."
+  else
+    warn "Hermes CLI not found. Hermes sessions will be unavailable until you install/authenticate hermes. Re-run with LFG_INSTALL_HERMES=1 only if you want setup to run Nous Research's installer."
   fi
 fi
 
@@ -427,11 +456,27 @@ else
   install_macos_service
 fi
 
-# ---- 10. expose the UI over the tailnet (HTTPS on MagicDNS), never publicly ----
-if command -v tailscale >/dev/null 2>&1 && tailscale status >/dev/null 2>&1; then
-  say "Configuring tailscale serve -> 127.0.0.1:${LFG_PORT}..."
-  tailscale_sudo serve --bg --https=443 "http://127.0.0.1:$LFG_PORT" || \
-    warn "tailscale serve failed - enable HTTPS/MagicDNS in the Tailscale admin console, then re-run."
+TAILSCALE_SERVE_CONFIGURED=0
+
+# ---- 10. optionally expose the UI over the tailnet (HTTPS on MagicDNS), never publicly ----
+if [ "$LFG_TAILSCALE_SERVE" != "1" ]; then
+  warn "Skipping Tailscale Serve because LFG_TAILSCALE_SERVE=$LFG_TAILSCALE_SERVE."
+elif command -v tailscale >/dev/null 2>&1 && tailscale status >/dev/null 2>&1; then
+  LFG_TAILSCALE_TARGET="http://127.0.0.1:$LFG_PORT"
+  EXISTING_TAILSCALE_TARGET="$(tailscale_serve_endpoint_target "$LFG_TAILSCALE_HTTPS_PORT")"
+  if [ -n "$EXISTING_TAILSCALE_TARGET" ] \
+    && [ "$EXISTING_TAILSCALE_TARGET" != "$LFG_TAILSCALE_TARGET" ] \
+    && [ "$LFG_TAILSCALE_SERVE_OVERWRITE" != "1" ]; then
+    warn "Tailscale Serve HTTPS port $LFG_TAILSCALE_HTTPS_PORT already points at $EXISTING_TAILSCALE_TARGET; leaving it unchanged."
+    warn "Re-run with LFG_TAILSCALE_SERVE_OVERWRITE=1 to replace it, or set LFG_TAILSCALE_HTTPS_PORT to another port."
+  else
+    say "Configuring tailscale serve https/$LFG_TAILSCALE_HTTPS_PORT -> $LFG_TAILSCALE_TARGET..."
+    if tailscale_sudo serve --bg --https="$LFG_TAILSCALE_HTTPS_PORT" "$LFG_TAILSCALE_TARGET"; then
+      TAILSCALE_SERVE_CONFIGURED=1
+    else
+      warn "tailscale serve failed - enable HTTPS/MagicDNS in the Tailscale admin console, then re-run."
+    fi
+  fi
 else
   warn "Tailscale is not connected; lfg will be available on this machine at http://127.0.0.1:$LFG_PORT."
 fi
@@ -447,8 +492,13 @@ if [ "$OS_NAME" = "Linux" ]; then
 else
   say "Done. lfg is running as a launchd user service."
 fi
-[ -n "${URL:-}" ] && echo "    Web UI (tailnet only):  https://$URL"
+[ "$TAILSCALE_SERVE_CONFIGURED" = "1" ] && [ -n "${URL:-}" ] && echo "    Web UI (tailnet only):  https://$URL"
 echo "    Local Web UI:         http://127.0.0.1:$LFG_PORT"
+if [ "$TAILSCALE_SERVE_CONFIGURED" = "1" ]; then
+  echo "    Tailscale cleanup:    sudo tailscale serve --https=$LFG_TAILSCALE_HTTPS_PORT off"
+else
+  echo "    Tailscale setup:      LFG_TAILSCALE_SERVE=1 lfg setup"
+fi
 echo
 cat <<NEXT
 

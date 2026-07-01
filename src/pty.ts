@@ -28,7 +28,7 @@ function loadOpenpty(): any {
           returns: FFIType.int,
         },
       });
-      if (h.symbols.openpty) return h;
+      return h;
     } catch {}
   }
   throw new Error("openpty() not found in system libraries - cannot allocate a PTY");

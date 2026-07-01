@@ -33,10 +33,12 @@ export interface UseCyclePhaseOptions {
 
 export function useCyclePhase({ active, cycleMsBase, speed = 1 }: UseCyclePhaseOptions): number {
   const [phase, setPhase] = useState(0);
+  if (!active && phase !== 0) {
+    setPhase(0);
+  }
 
   useEffect(() => {
     if (!active) {
-      setPhase(0);
       return;
     }
 

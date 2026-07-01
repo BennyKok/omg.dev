@@ -7,7 +7,7 @@ Run AI coding agents on your own machine, from anywhere.
 </a>
 
 `lfg` turns a Linux box or macOS workstation into a private control plane for
-Claude Code, Codex, and opencode. It starts each agent in a long-lived `tmux`
+Claude Code, Codex, OpenCode, Grok, and Hermes. It starts each agent in a long-lived `tmux`
 session, streams the transcript to a web UI, and lets you answer prompts or steer
 work from your phone or laptop.
 
@@ -44,6 +44,7 @@ reliably on GitHub.
   - `claude`
   - `codex`
   - `opencode`
+  - `hermes`
 - Optional: [Tailscale](https://tailscale.com) for private remote access
 
 ## Quick Start
@@ -62,8 +63,13 @@ curl -fsSL https://raw.githubusercontent.com/BennyKok/lfg/main/scripts/setup.sh 
 ```
 
 The setup script downloads the latest release, installs production dependencies,
-writes `.env`, starts the server as a user service, and configures
-`tailscale serve` when Tailscale is available.
+writes `.env`, and starts the server as a user service bound to loopback.
+
+To expose the UI over your private tailnet, opt in to Tailscale Serve:
+
+```bash
+LFG_TAILSCALE_SERVE=1 lfg setup
+```
 
 ## One-click Launch
 
@@ -103,7 +109,7 @@ Hetzner user requirements:
 - Tailscale account plus an ephemeral/preauthorized auth key for unattended
   setup. The installer joins the server with `tailscale up --authkey ...` and
   exposes the loopback-only UI through `tailscale serve`.
-- After boot, authenticate `claude`, `codex`, or `opencode` on the server, or
+- After boot, authenticate `claude`, `codex`, `opencode`, or `hermes` on the server, or
   configure API-key based providers in `.env`.
 
 ## Local Development
@@ -147,6 +153,8 @@ Common settings:
 | `LFG_CLAUDE_PATH` | Override the `claude` binary path. |
 | `LFG_CODEX_PATH` | Override the `codex` binary path. |
 | `LFG_OPENCODE_PATH` | Override the `opencode` binary path. |
+| `LFG_HERMES_PATH` | Override the `hermes` binary path. |
+| `LFG_HERMES_PROVIDER` | Optional provider override passed to `hermes chat --provider`; empty uses Hermes' configured/default provider. |
 | `ANTHROPIC_API_KEY` | Optional API key for Claude SDK-backed flows. |
 | `LFG_WHATSAPP_*` | Optional WhatsApp bridge settings. |
 | `LFG_INSTALL_CHANNEL` | Optional install-channel override: `source`, `release`, or `container`. Normally written by setup/container deploys. |

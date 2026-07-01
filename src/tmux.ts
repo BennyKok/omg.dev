@@ -89,6 +89,23 @@ export function grokBin(): string {
   return (_grokBin = "grok");
 }
 
+let _hermesBin: string | null = null;
+export function hermesBin(): string {
+  if (_hermesBin) return _hermesBin;
+  const onPath = Bun.which("hermes");
+  if (onPath) return (_hermesBin = onPath);
+  const home = process.env.HOME ?? homedir();
+  for (const p of [
+    process.env.LFG_HERMES_PATH ?? "",
+    `${home}/.local/bin/hermes`,
+    `${home}/.bun/bin/hermes`,
+    "/usr/local/bin/hermes",
+  ]) {
+    if (p && existsSync(p)) return (_hermesBin = p);
+  }
+  return (_hermesBin = "hermes");
+}
+
 // Spawned agents run with cwd set to one repo, but Claude Code scopes tool
 // access to the cwd tree — which sandboxes the agent to that single repo. The
 // agents are trusted operators of this whole box, so grant tool access to the
@@ -386,6 +403,34 @@ export function spawnManagedGrokSession(opts: {
   return { ok: true };
 }
 
+export function spawnManagedHermesSession(opts: {
+  name: string;
+  cwd: string;
+  model?: string;
+  provider?: string;
+}): { ok: boolean; error?: string } {
+  const dec = new TextDecoder();
+  const argv = [
+    "tmux",
+    "new-session",
+    "-d",
+    "-s",
+    opts.name,
+    "-c",
+    opts.cwd,
+    hermesBin(),
+    "--yolo",
+    "--cli",
+    "chat",
+  ];
+  if (opts.model) argv.push("--model", opts.model);
+  if (opts.provider) argv.push("--provider", opts.provider);
+  const create = Bun.spawnSync(argv);
+  if (create.exitCode !== 0)
+    return { ok: false, error: dec.decode(create.stderr) || "new-session failed" };
+  return { ok: true };
+}
+
 // Spawn a headless "aisdk" session: the lfg `aisdk-session` harness, supervised
 // by a tmux session. The pane is only a lifecycle handle (survives serve restarts
 // + reuses tmuxKillSession teardown) — I/O happens via the registry/command files
@@ -659,6 +704,7 @@ export function isBusy(pane: string): boolean {
     /esc to interrupt/i.test(pane) ||
     GROK_QUEUED_WORK.test(pane) ||
     GROK_TURN_STATUS.test(pane) ||
+    (/\b(Thinking|Running|Working|Calling|Executing)\b/i.test(pane) && /\bHermes\b/i.test(pane)) ||
     (/Ctrl\+c:cancel/i.test(pane) && /Ctrl\+Enter:interject/i.test(pane))
   );
 }
@@ -847,6 +893,16 @@ export function inputBoxText(target: string): string | null {
 
   const grokBox = grokInputBoxText(lines);
   if (grokBox != null) return grokBox;
+
+  // Hermes' classic CLI is prompt_toolkit-based and commonly renders a simple
+  // bottom prompt rather than a boxed composer.
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = lines[i].match(/^\s*(?:You|User|Human|>>>|❯|>)\s*:?\s*(.*?)\s*$/i);
+    if (!m) continue;
+    const text = m[1] ?? "";
+    if (/^\d+\.\s+/.test(text)) return null;
+    return text;
+  }
 
   // Codex renders the composer as a single bottom prompt line:
   //   › message text

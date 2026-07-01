@@ -92,7 +92,7 @@ mkdir -p "$STAGE/lfg/web" "$STAGE/lfg/vendor"
 say "Staging bundle..."
 cp -r \
   src agents scripts package.json bun.lock tsconfig.json \
-  .env.example README.md LICENSE SECURITY.md CONTRIBUTING.md \
+  .env.example README.md CHANGELOG.md LICENSE SECURITY.md CONTRIBUTING.md \
   "$STAGE/lfg/"
 cp -r web/dist "$STAGE/lfg/web/dist"
 

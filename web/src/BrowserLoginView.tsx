@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ClipboardPaste, CornerDownLeft, Delete, Loader2, RotateCcw, Save, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -67,7 +67,7 @@ export default function BrowserLoginView(props: {
   }, []);
 
   // --- WebSocket lifecycle ---------------------------------------------------
-  useEffect(() => {
+  useLayoutEffect(() => {
     let disposed = false;
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const url = `${proto}//${location.host}/api/browser/sessions/${encodeURIComponent(
@@ -334,6 +334,7 @@ export default function BrowserLoginView(props: {
         <form onSubmit={submitAddress} className="flex min-w-0 items-center gap-2">
           <input
             type="url"
+            aria-label="Browser address"
             inputMode="url"
             value={addressBar}
             onChange={(e) => setAddressBar(e.target.value)}
@@ -370,6 +371,7 @@ export default function BrowserLoginView(props: {
         <input
           ref={entryRef}
           type="text"
+          aria-label="Remote browser keyboard input"
           value={keyEntry}
           onChange={(e) => setKeyEntry(e.target.value)}
           onKeyDown={(e) => {

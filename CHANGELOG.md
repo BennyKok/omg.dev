@@ -1,15 +1,35 @@
 # Changelog
 
-## v0.1.1 - 2026-06-29
+Recent product updates and deployment notes.
 
-### Fixed
+## June 29, 2026 - Safer installs
 
-- Show Claude usage in the new-session footer for the default Claude AI SDK backend.
-- Detect local OpenCode Go credentials on the Usage page instead of reporting OpenCode as pay-as-you-go only.
-- Prefer OpenCode Go models for new OpenCode sessions and avoid known failing Fugu/Novita routes.
+Fresh installs now leave existing Tailscale Serve settings alone unless you explicitly opt in.
 
-### Changed
+- Skips Tailscale Serve setup by default so lfg does not claim HTTPS 443 on install.
+- Adds an opt-in path with `LFG_TAILSCALE_SERVE=1` for private tailnet exposure.
+- Protects existing Serve routes from accidental overwrite unless `LFG_TAILSCALE_SERVE_OVERWRITE=1` is set.
 
-- Expanded the OpenCode model selector with the OpenCode Go catalog.
-- Added local 7-day OpenCode token/cost stats to the Usage page.
+## June 29, 2026 - Project-focused live view
 
+Sessions now group cleanly by repo project, with steadier filters and fewer stale worktree entries.
+
+- Collapsed session worktrees into project names for simpler scanning.
+- Kept resumed worktrees during cleanup so active sessions do not disappear.
+- Removed the extra project-selector arrow for a tighter top bar.
+
+## June 2026 - Agent reliability
+
+Codex and automation paths got stricter defaults and better failure handling.
+
+- Fixed stateless Codex auto-agent runs.
+- Added install-channel awareness so update guidance matches source, release, and container installs.
+- Stabilized speech playback state to avoid repeated render loops.
+
+## June 2026 - Deployment options
+
+Container deploys and hosted setup docs are now part of the project workflow.
+
+- Added Docker-backed targets for Railway, Fly, Render, Koyeb, DigitalOcean, and Hetzner.
+- Published bundled-release flow for cloud installs.
+- Documented operational scripts for voice and GPU STT deployments.

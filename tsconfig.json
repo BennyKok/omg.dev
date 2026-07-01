@@ -10,5 +10,7 @@
     "strict": true,
     "skipLibCheck": true,
     "types": ["bun-types"]
-  }
+  },
+  "include": ["src/**/*.ts", "scripts-internal/**/*.ts", "deploy/**/*.ts"],
+  "exclude": ["web", "node_modules"]
 }

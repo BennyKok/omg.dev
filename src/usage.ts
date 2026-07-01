@@ -292,6 +292,9 @@ export async function getAllUsage(): Promise<ProviderUsage[]> {
     Promise.resolve(
       staticProvider("grok", "Grok", "No usage data exposed by the Grok CLI"),
     ),
+    Promise.resolve(
+      staticProvider("hermes", "Hermes", "Usage is stored in Hermes' own state database"),
+    ),
     opencodeUsage(),
   ]);
   cache = { at: Date.now(), data };

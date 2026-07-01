@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { TouchEvent as ReactTouchEvent } from "react";
 import { init, Terminal as GhosttyTerminal, FitAddon } from "ghostty-web";
-import { Check, ClipboardPaste, Copy, ExternalLink, TerminalSquare, X } from "lucide-react";
+import { Check, ClipboardPaste, Copy, ExternalLink, Keyboard, KeyboardOff, TerminalSquare, X } from "lucide-react";
 
 // One WASM load per page, shared across mount/unmount of the tab.
 let ghosttyReady: Promise<void> | null = null;
@@ -15,11 +15,20 @@ const ensureGhostty = () => (ghosttyReady ??= init());
 // capped. `found` is chronological, so unshifting in order leaves the newest at
 // the front. Returns `prev` unchanged when nothing moved (so React can bail).
 function mergeUrls(prev: string[], found: string[], cap = 8): string[] {
-  const out = [...prev];
-  for (const u of found) {
-    const i = out.indexOf(u);
-    if (i >= 0) out.splice(i, 1);
-    out.unshift(u);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (let i = found.length - 1; i >= 0; i--) {
+    const u = found[i];
+    if (!seen.has(u)) {
+      seen.add(u);
+      out.push(u);
+    }
+  }
+  for (const u of prev) {
+    if (!seen.has(u)) {
+      seen.add(u);
+      out.push(u);
+    }
   }
   const next = out.slice(0, cap);
   return next.length === prev.length && next.every((u, i) => u === prev[i]) ? prev : next;
@@ -39,6 +48,27 @@ const KEYS = {
 
 const TERM_SESSION = "main";
 type TerminalInstance = InstanceType<typeof GhosttyTerminal>;
+type GhosttyWithInput = TerminalInstance & {
+  element?: HTMLElement;
+  textarea?: HTMLTextAreaElement;
+};
+
+function terminalInput(term: TerminalInstance | null) {
+  return (term as GhosttyWithInput | null)?.textarea ?? null;
+}
+
+function focusTerminalKeyboard(term: TerminalInstance | null) {
+  if (!term) return;
+  term.focus();
+  // Mobile browsers are more reliable about opening the soft keyboard for a
+  // real text input than for Ghostty's contenteditable/canvas wrapper.
+  terminalInput(term)?.focus();
+}
+
+function blurTerminalKeyboard(term: TerminalInstance | null) {
+  terminalInput(term)?.blur();
+  term?.blur();
+}
 
 function mouseTrackingMode(term: TerminalInstance) {
   try {
@@ -224,11 +254,19 @@ export function TermView() {
   // pasteInput = the native-input fallback when clipboard reads are blocked.
   const [pasteAt, setPasteAt] = useState<{ x: number; y: number } | null>(null);
   const [pasteInput, setPasteInput] = useState(false);
+  const [keyboardActive, setKeyboardActive] = useState(false);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lpStart = useRef<{ x: number; y: number } | null>(null);
   const pasteInputRef = useRef<HTMLInputElement>(null);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const keyboardActiveRef = useRef(false);
+  const keyboardWasActiveAtPointerDownRef = useRef(false);
+
+  const setTerminalKeyboardActive = useCallback((active: boolean) => {
+    keyboardActiveRef.current = active;
+    setKeyboardActive(active);
+  }, []);
 
   // Send raw bytes (keystrokes / control sequences) to the PTY.
   const sendRaw = useCallback((data: string) => {
@@ -276,7 +314,7 @@ export function TermView() {
       const text = await navigator.clipboard.readText();
       if (text) {
         sendRaw(text);
-        termRef.current?.focus();
+        focusTerminalKeyboard(termRef.current);
         return;
       }
     } catch {
@@ -289,8 +327,18 @@ export function TermView() {
     const v = pasteInputRef.current?.value ?? "";
     if (v) sendRaw(v);
     setPasteInput(false);
-    termRef.current?.focus();
+    focusTerminalKeyboard(termRef.current);
   }, [sendRaw]);
+
+  const toggleKeyboard = useCallback((wasActive = keyboardActiveRef.current) => {
+    if (wasActive) {
+      blurTerminalKeyboard(termRef.current);
+      setTerminalKeyboardActive(false);
+    } else {
+      focusTerminalKeyboard(termRef.current);
+      setTerminalKeyboardActive(true);
+    }
+  }, [setTerminalKeyboardActive]);
 
   const copyLink = useCallback(async (url: string) => {
     try {
@@ -318,6 +366,7 @@ export function TermView() {
     let ro: ResizeObserver | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let cleanupMouseReporting: (() => void) | null = null;
+    let cleanupFocusTracking: (() => void) | null = null;
     let attempt = 0;
 
     // (Re)open the socket. The tmux shell session lives independently of serve,
@@ -371,6 +420,19 @@ export function TermView() {
       term.loadAddon(fit);
       term.open(hostRef.current);
       cleanupMouseReporting = installMouseReporting(hostRef.current, term, sendRaw);
+      const textarea = terminalInput(term);
+      const onInputFocus = () => setTerminalKeyboardActive(true);
+      const onInputBlur = () => setTerminalKeyboardActive(false);
+      hostRef.current.addEventListener("focusin", onInputFocus);
+      hostRef.current.addEventListener("focusout", onInputBlur);
+      textarea?.addEventListener("focus", onInputFocus);
+      textarea?.addEventListener("blur", onInputBlur);
+      cleanupFocusTracking = () => {
+        hostRef.current?.removeEventListener("focusin", onInputFocus);
+        hostRef.current?.removeEventListener("focusout", onInputBlur);
+        textarea?.removeEventListener("focus", onInputFocus);
+        textarea?.removeEventListener("blur", onInputBlur);
+      };
       try { fit.fit(); } catch {}
       termRef.current = term;
 
@@ -397,6 +459,7 @@ export function TermView() {
       disposed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       try { cleanupMouseReporting?.(); } catch {}
+      try { cleanupFocusTracking?.(); } catch {}
       try { ro?.disconnect(); } catch {}
       try { wsRef.current?.close(); } catch {}
       try { term?.dispose(); } catch {}
@@ -467,7 +530,10 @@ export function TermView() {
       </div>
       <div
         ref={hostRef}
-        onClick={() => termRef.current?.focus()}
+        onClick={() => focusTerminalKeyboard(termRef.current)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") focusTerminalKeyboard(termRef.current);
+        }}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={cancelLongPress}
@@ -481,6 +547,9 @@ export function TermView() {
           WebkitTouchCallout: "none",
           userSelect: "none",
         }}
+        role="button"
+        tabIndex={0}
+        aria-label="Focus terminal"
         className="min-h-0 flex-1 overflow-hidden p-1.5"
       />
       {/* Detected links — browser-native open/copy actions for verification
@@ -505,6 +574,7 @@ export function TermView() {
                   {u.replace(/^https?:\/\//, "")}
                 </a>
                 <button
+                  type="button"
                   onClick={() => void copyLink(u)}
                   title="Copy link"
                   aria-label="copy link"
@@ -516,6 +586,7 @@ export function TermView() {
             ))}
           </div>
           <button
+            type="button"
             onClick={() => setLinks([])}
             style={{ touchAction: "manipulation" }}
             className="shrink-0 rounded-md p-1 text-white/40 active:bg-white/10"
@@ -539,6 +610,7 @@ export function TermView() {
           ["enter", "⏎"],
         ].map(([k, label]) => (
           <button
+            type="button"
             key={k}
             onClick={() => sendRaw(KEYS[k as keyof typeof KEYS])}
             style={{ touchAction: "manipulation" }}
@@ -548,9 +620,33 @@ export function TermView() {
           </button>
         ))}
         <button
+          type="button"
+          onPointerDown={() => {
+            keyboardWasActiveAtPointerDownRef.current = keyboardActiveRef.current;
+          }}
+          onClick={(e) =>
+            toggleKeyboard(
+              e.detail === 0
+                ? keyboardActiveRef.current
+                : keyboardWasActiveAtPointerDownRef.current,
+            )
+          }
+          style={{ touchAction: "manipulation" }}
+          aria-pressed={keyboardActive}
+          aria-label={keyboardActive ? "hide keyboard" : "show keyboard"}
+          title={keyboardActive ? "Hide keyboard" : "Show keyboard"}
+          className={`ml-auto flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium active:bg-white/25 ${
+            keyboardActive ? "bg-white text-black" : "bg-white/10 text-white/80"
+          }`}
+        >
+          {keyboardActive ? <KeyboardOff className="size-3.5" /> : <Keyboard className="size-3.5" />}
+          Keyboard
+        </button>
+        <button
+          type="button"
           onClick={doPaste}
           style={{ touchAction: "manipulation" }}
-          className="ml-auto flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1 text-xs font-medium text-white/80 active:bg-white/25"
+          className="flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1 text-xs font-medium text-white/80 active:bg-white/25"
         >
           <ClipboardPaste className="size-3.5" />
           Paste
@@ -560,8 +656,14 @@ export function TermView() {
       {/* Long-press / right-click → floating Paste button at the touch point. */}
       {pasteAt ? (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setPasteAt(null)} />
           <button
+            type="button"
+            className="fixed inset-0 z-40"
+            onClick={() => setPasteAt(null)}
+            aria-label="Dismiss paste menu"
+          />
+          <button
+            type="button"
             onClick={doPaste}
             style={{
               position: "fixed",
@@ -584,6 +686,7 @@ export function TermView() {
           <input
             ref={pasteInputRef}
             autoFocus
+            aria-label="Paste terminal input"
             placeholder="Long-press here → Paste, then Send"
             onKeyDown={(e) => {
               if (e.key === "Enter") submitPasteInput();
@@ -592,12 +695,14 @@ export function TermView() {
             className="min-w-0 flex-1 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white placeholder:text-white/30"
           />
           <button
+            type="button"
             onClick={submitPasteInput}
             className="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-black active:scale-95"
           >
             Send
           </button>
           <button
+            type="button"
             onClick={() => setPasteInput(false)}
             className="rounded-lg p-2 text-white/50 active:bg-white/10"
             aria-label="cancel paste"

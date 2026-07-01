@@ -4,7 +4,7 @@ import { readdir, readlink } from "node:fs/promises";
 import { statSync, readFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { panePidForSession, tmuxHasSession, tmuxTargetForPid, capturePane, isBusy } from "./tmux";
-import { isManagedName, listManaged } from "./managed";
+import { isManagedName, listManaged, patchManaged, type ManagedSession } from "./managed";
 import {
   listEntries as listAisdkEntries,
   isPidAlive,
@@ -47,7 +47,7 @@ export type SessionMsg = {
 };
 
 export type Session = {
-  agent: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "grok";
+  agent: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "grok" | "hermes";
   pid: number;
   cmd: string;
   cwd: string | null;
@@ -55,6 +55,8 @@ export type Session = {
   title: string;
   lastUserText: string | null;
   sessionId: string | null;
+  nativeSessionId?: string | null;
+  launching?: boolean;
   startedAt: number | null;
   transcriptPath: string | null;
   lastActivityAt: number | null;
@@ -149,6 +151,83 @@ function computeStatus(
     }
   }
   return { status: "ok", statusReason: null, statusDetail: null };
+}
+
+function rememberNativeSession(m: ManagedSession | undefined, nativeId: string | null | undefined) {
+  if (!m || !nativeId || m.nativeSessionId === nativeId) return;
+  patchManaged(m.tmuxName, { nativeSessionId: nativeId, launchState: "running" });
+}
+
+function managedVisibleId(m: ManagedSession | undefined, nativeId: string | null | undefined): string | null {
+  return m?.sessionId ?? nativeId ?? null;
+}
+
+function managedTitle(
+  m: ManagedSession | undefined,
+  visibleId: string | null,
+  nativeId: string | null | undefined,
+  overrides: Record<string, string>,
+): string | null {
+  return (
+    (visibleId && overrides[visibleId]) ||
+    (nativeId && overrides[nativeId]) ||
+    m?.title ||
+    null
+  );
+}
+
+function managedLaunchRow(
+  m: ManagedSession,
+  overrides: Record<string, string>,
+  assigns: Record<string, string>,
+): Session | null {
+  const sessionId = m.sessionId ?? m.nativeSessionId ?? null;
+  if (!sessionId || !tmuxHasSession(m.tmuxName)) return null;
+  const pid = panePidForSession(m.tmuxName) ?? 0;
+  if (pid && isClosing(pid)) return null;
+  const tmuxTarget = pid ? tmuxTargetForPid(pid) ?? `${m.tmuxName}:0.0` : `${m.tmuxName}:0.0`;
+  const project = projectName(m.cwd, { repoRoot: m.repoRoot });
+  const title =
+    managedTitle(m, sessionId, m.nativeSessionId, overrides) ||
+    (m.cwd ? basename(m.cwd) : project);
+  const agent = m.agent ?? "claude";
+  const fallbackCmd =
+    agent === "codex" || agent === "codex-aisdk"
+      ? `lfg ${agent} --model ${m.model ?? ""}`.trim()
+      : agent === "grok"
+        ? `grok --model ${m.model ?? ""}`.trim()
+        : agent === "hermes"
+          ? `hermes --model ${m.model ?? ""}`.trim()
+          : agent === "opencode"
+            ? `lfg opencode-aisdk-session --model ${m.model ?? ""}`.trim()
+            : `lfg aisdk-session --model ${m.model ?? ""}`.trim();
+  const cmd = pid ? readProcCmd(pid, fallbackCmd) : fallbackCmd;
+  const model = m.model ?? cmd.match(/--model\s+(\S+)/)?.[1] ?? null;
+  return {
+    agent,
+    pid,
+    cmd,
+    cwd: m.cwd,
+    project,
+    title,
+    lastUserText: m.title ?? null,
+    sessionId,
+    nativeSessionId: m.nativeSessionId ?? null,
+    launching: m.launchState === "launching",
+    startedAt: m.createdAt,
+    transcriptPath: null,
+    lastActivityAt: m.createdAt,
+    last: null,
+    tmuxTarget: agent === "aisdk" || agent === "codex-aisdk" || agent === "opencode" ? null : tmuxTarget,
+    tmuxName: m.tmuxName,
+    managed: true,
+    assignedUser: assigns[m.tmuxName] ?? null,
+    model:
+      agent === "codex" || agent === "codex-aisdk" || agent === "opencode" || agent === "grok" || agent === "hermes"
+        ? model
+        : modelAlias(model),
+    ...computeStatus(null, null),
+  };
 }
 
 const UUID = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/;
@@ -1101,6 +1180,10 @@ export async function listSessions(): Promise<Session[]> {
 
   const overrides = await readTitleOverrides();
   const assigns = userAssignments();
+  const managedSessions = listManaged();
+  const managedByName = new Map(managedSessions.map((m) => [m.tmuxName, m]));
+  const sessionProject = (cwd: string | null, tmuxName: string | null | undefined) =>
+    projectName(cwd, { repoRoot: tmuxName ? managedByName.get(tmuxName)?.repoRoot : null });
   const out: Session[] = [];
   for (const e of enriched) {
     let transcriptPath: string | null = null;
@@ -1137,13 +1220,16 @@ export async function listSessions(): Promise<Session[]> {
     // before the first assistant turn).
     const model = modelAlias(liveModel) ?? modelAlias(e.cmd.match(/--model\s+(\S+)/)?.[1]);
     const health = computeStatus(last, liveModel);
-    const project = projectName(e.cwd);
-    let title = (sessionId && overrides[sessionId]) || null;
-    if (!title && transcriptPath) title = await cachedFirstTitle(transcriptPath);
-    if (!title) title = e.cwd ? basename(e.cwd) : project;
     const tmuxTarget =
       isHeadless(e.cmd) || !e.authoritative ? null : tmuxTargetForPid(e.pid);
     const tmuxName = tmuxTarget ? tmuxTarget.split(":")[0] : null;
+    const managedRec = tmuxName ? managedByName.get(tmuxName) : undefined;
+    rememberNativeSession(managedRec, sessionId);
+    const visibleSessionId = managedVisibleId(managedRec, sessionId);
+    const project = sessionProject(e.cwd, tmuxName);
+    let title = managedTitle(managedRec, visibleSessionId, sessionId, overrides);
+    if (!title && transcriptPath) title = await cachedFirstTitle(transcriptPath);
+    if (!title) title = e.cwd ? basename(e.cwd) : project;
     out.push({
       agent: "claude",
       pid: e.pid,
@@ -1152,7 +1238,9 @@ export async function listSessions(): Promise<Session[]> {
       project,
       title,
       lastUserText: lastUser,
-      sessionId,
+      sessionId: visibleSessionId,
+      nativeSessionId: sessionId,
+      launching: managedRec?.launchState === "launching" && !sessionId,
       startedAt: e.startedAt,
       transcriptPath,
       lastActivityAt,
@@ -1238,12 +1326,15 @@ export async function listSessions(): Promise<Session[]> {
       last = meta.last;
       lastUser = meta.lastUser;
     }
-    const project = projectName(cwd);
-    let title = (sessionId && overrides[sessionId]) || null;
-    if (!title && transcriptPath) title = await cachedFirstTitle(transcriptPath);
-    if (!title) title = cwd ? basename(cwd) : project;
     const tmuxTarget = tmuxTargetForPid(p.pid);
     const tmuxName = tmuxTarget ? tmuxTarget.split(":")[0] : null;
+    const managedRec = tmuxName ? managedByName.get(tmuxName) : undefined;
+    rememberNativeSession(managedRec, sessionId);
+    const visibleSessionId = managedVisibleId(managedRec, sessionId);
+    const project = sessionProject(cwd, tmuxName);
+    let title = managedTitle(managedRec, visibleSessionId, sessionId, overrides);
+    if (!title && transcriptPath) title = await cachedFirstTitle(transcriptPath);
+    if (!title) title = cwd ? basename(cwd) : project;
     out.push({
       agent: "codex",
       pid: p.pid,
@@ -1252,7 +1343,9 @@ export async function listSessions(): Promise<Session[]> {
       project,
       title,
       lastUserText: lastUser,
-      sessionId,
+      sessionId: visibleSessionId,
+      nativeSessionId: sessionId,
+      launching: managedRec?.launchState === "launching" && !sessionId,
       startedAt,
       transcriptPath,
       lastActivityAt,
@@ -1268,7 +1361,7 @@ export async function listSessions(): Promise<Session[]> {
     });
   }
 
-  const managedGrok = listManaged().filter((m) => m.agent === "grok" && m.sessionId);
+  const managedGrok = managedSessions.filter((m) => m.agent === "grok" && m.sessionId);
   const managedGrokByName = new Map(managedGrok.map((m) => [m.tmuxName, m]));
   const activeGrokTmux = new Set<string>();
   for (const g of readGrokActiveSessions()) {
@@ -1291,6 +1384,7 @@ export async function listSessions(): Promise<Session[]> {
     const tmuxName = tmuxTarget ? tmuxTarget.split(":")[0] : null;
     if (tmuxName) activeGrokTmux.add(tmuxName);
     const managedRec = tmuxName ? managedGrokByName.get(tmuxName) : undefined;
+    rememberNativeSession(managedRec, grokSessionId);
     const sessionId = managedRec?.sessionId ?? grokSessionId;
     const transcriptPath = await findGrokTranscriptById(grokSessionId);
     const summary = await grokSummaryById(grokSessionId);
@@ -1306,7 +1400,7 @@ export async function listSessions(): Promise<Session[]> {
       lastUser = meta.lastUser;
     }
 
-    const project = projectName(cwd);
+    const project = projectName(cwd, { repoRoot: managedRec?.repoRoot });
     let title = overrides[sessionId] || overrides[grokSessionId] || null;
     if (!title && summary?.generated_title) title = summary.generated_title;
     if (!title && transcriptPath) title = await cachedFirstTitle(transcriptPath);
@@ -1322,6 +1416,8 @@ export async function listSessions(): Promise<Session[]> {
       title,
       lastUserText: lastUser,
       sessionId,
+      nativeSessionId: grokSessionId,
+      launching: managedRec?.launchState === "launching" && !transcriptPath,
       startedAt,
       transcriptPath,
       lastActivityAt,
@@ -1341,7 +1437,7 @@ export async function listSessions(): Promise<Session[]> {
     if (!pid || isClosing(pid)) continue;
     const tmuxTarget = tmuxTargetForPid(pid) ?? `${m.tmuxName}:0.0`;
     const cmd = readProcCmd(pid, "grok");
-    const project = projectName(m.cwd);
+    const project = projectName(m.cwd, { repoRoot: m.repoRoot });
     out.push({
       agent: "grok",
       pid,
@@ -1351,6 +1447,39 @@ export async function listSessions(): Promise<Session[]> {
       title: overrides[m.sessionId!] || (m.cwd ? basename(m.cwd) : project),
       lastUserText: null,
       sessionId: m.sessionId!,
+      nativeSessionId: m.nativeSessionId ?? null,
+      launching: m.launchState === "launching",
+      startedAt: m.createdAt,
+      transcriptPath: null,
+      lastActivityAt: m.createdAt,
+      last: null,
+      tmuxTarget,
+      tmuxName: m.tmuxName,
+      managed: true,
+      assignedUser: assigns[m.tmuxName] ?? null,
+      model: cmd.match(/--model\s+(\S+)/)?.[1] ?? null,
+      ...computeStatus(null, null),
+    });
+  }
+
+  for (const m of listManaged().filter((row) => row.agent === "hermes" && row.sessionId)) {
+    if (!tmuxHasSession(m.tmuxName)) continue;
+    const pid = panePidForSession(m.tmuxName);
+    if (!pid || isClosing(pid)) continue;
+    const tmuxTarget = tmuxTargetForPid(pid) ?? `${m.tmuxName}:0.0`;
+    const cmd = readProcCmd(pid, "hermes");
+    const project = projectName(m.cwd, { repoRoot: m.repoRoot });
+    out.push({
+      agent: "hermes",
+      pid,
+      cmd,
+      cwd: m.cwd,
+      project,
+      title: overrides[m.sessionId!] || m.title || (m.cwd ? basename(m.cwd) : project),
+      lastUserText: m.title ?? null,
+      sessionId: m.sessionId!,
+      nativeSessionId: m.nativeSessionId ?? null,
+      launching: m.launchState === "launching",
       startedAt: m.createdAt,
       transcriptPath: null,
       lastActivityAt: m.createdAt,
@@ -1394,7 +1523,10 @@ export async function listSessions(): Promise<Session[]> {
         ? await findCodexTranscriptById(codexThreadId)
         : null
       : await findTranscriptById(e.sessionId);
-    const sessionId = isCodex ? (codexThreadId ?? e.sessionId) : e.sessionId;
+    const nativeSessionId = isCodex ? codexThreadId : e.sessionId;
+    const managedRec = e.tmuxName ? managedByName.get(e.tmuxName) : undefined;
+    rememberNativeSession(managedRec, nativeSessionId);
+    const sessionId = managedVisibleId(managedRec, e.sessionId) ?? e.sessionId;
     let last: SessionMsg | null = null;
     let lastActivityAt: number | null = null;
     let lastUser: string | null = null;
@@ -1409,8 +1541,8 @@ export async function listSessions(): Promise<Session[]> {
       last = meta.last;
       lastUser = meta.lastUser;
     }
-    const project = projectName(e.cwd);
-    let title = overrides[sessionId] || null;
+    const project = projectName(e.cwd, { repoRoot: managedRec?.repoRoot });
+    let title = managedTitle(managedRec, sessionId, nativeSessionId, overrides);
     if (!title && transcriptPath) title = await cachedFirstTitle(transcriptPath);
     if (!title) title = e.title || (e.cwd ? basename(e.cwd) : project);
     let startedAt: number | null = e.createdAt;
@@ -1430,6 +1562,8 @@ export async function listSessions(): Promise<Session[]> {
       title,
       lastUserText: lastUser,
       sessionId,
+      nativeSessionId,
+      launching: managedRec?.launchState === "launching" && !transcriptPath,
       startedAt,
       transcriptPath,
       lastActivityAt,
@@ -1437,7 +1571,7 @@ export async function listSessions(): Promise<Session[]> {
       // No pane I/O — but keep the supervisor name so kill + managed badge work.
       tmuxTarget: null,
       tmuxName: e.tmuxName || null,
-      managed: isManagedName(e.tmuxName),
+      managed: !!managedRec || isManagedName(e.tmuxName),
       assignedUser: e.tmuxName ? (assigns[e.tmuxName] ?? null) : null,
       // Codex slugs and opencode "provider/model" ids aren't Claude aliases —
       // pass them through raw. modelAlias would leave them unchanged anyway, but
@@ -1446,6 +1580,16 @@ export async function listSessions(): Promise<Session[]> {
       ...computeStatus(last, null),
     });
   }
+
+  const representedManaged = new Set(
+    out.map((s) => s.tmuxName).filter((name): name is string => !!name),
+  );
+  for (const m of managedSessions) {
+    if (representedManaged.has(m.tmuxName)) continue;
+    const row = managedLaunchRow(m, overrides, assigns);
+    if (row) out.push(row);
+  }
+
   // Order by start time (stable), not recency: sorting by lastActivityAt made
   // panes reshuffle every time a session became the most-active one. startedAt
   // never changes for a live session, so positions stay put and a new session
@@ -1488,6 +1632,7 @@ export async function listSessions(): Promise<Session[]> {
 // registry entry is mid-inference. Defaults to false when state is unknown.
 function sessionBusy(s: Session): boolean {
   try {
+    if (s.launching) return true;
     if (s.tmuxTarget) {
       const pane = capturePane(s.tmuxTarget);
       return pane ? isBusy(pane) : false;
@@ -1521,6 +1666,24 @@ function ppidOf(pid: number): number | null {
 
 export async function resolveTranscript(sessionId: string): Promise<string | null> {
   if (!UUID.test(sessionId)) return null;
+  const managed = listManaged().find((m) => m.sessionId === sessionId);
+  if (managed?.nativeSessionId && managed.nativeSessionId !== sessionId) {
+    const native =
+      (managed.agent === "grok"
+        ? findGrokTranscriptById(managed.nativeSessionId)
+        : managed.agent === "codex" || managed.agent === "codex-aisdk"
+          ? await findCodexTranscriptById(managed.nativeSessionId)
+          : await findTranscriptById(managed.nativeSessionId)) ??
+      (await findTranscriptById(managed.nativeSessionId)) ??
+      (await findCodexTranscriptById(managed.nativeSessionId)) ??
+      findGrokTranscriptById(managed.nativeSessionId);
+    if (native) return native;
+    if (managed.cwd && managed.agent !== "codex" && managed.agent !== "codex-aisdk" && managed.agent !== "grok") {
+      for (const d of candidateDirs(managed.cwd)) {
+        return join(PROJECTS_DIR, d, `${managed.nativeSessionId}.jsonl`);
+      }
+    }
+  }
   const managedGrok = listManaged().find((m) => m.agent === "grok" && m.sessionId === sessionId);
   if (managedGrok) {
     const pid = panePidForSession(managedGrok.tmuxName);
@@ -1546,7 +1709,7 @@ export async function resolveTranscript(sessionId: string): Promise<string | nul
   // on disk yet. This lets /api/live/stream establish a tailer immediately; pump
   // will deliver lines as soon as the harness/provider writes the first content.
   // (Codex-aisdk uses separate rollout paths and threadIds assigned after turn 1.)
-  if (entry?.cwd && entry.agent !== "codex" && entry.agent !== "codex-aisdk") {
+  if (entry?.cwd && entry.agent !== "codex") {
     for (const d of candidateDirs(entry.cwd)) {
       const cand = join(PROJECTS_DIR, d, `${id}.jsonl`);
       return cand;
@@ -1644,16 +1807,18 @@ export async function listResumable(
   }
   candidates.sort((a, b) => b.mtime - a.mtime);
   const overrides = await readTitleOverrides();
+  const managedByCwd = new Map(listManaged().map((m) => [m.cwd, m]));
   const out: ResumableSession[] = [];
   for (const c of candidates.slice(0, limit)) {
     const cwd = await cwdForTranscript(c.path).catch(() => null);
+    const managedRec = cwd ? managedByCwd.get(cwd) : undefined;
     let title = overrides[c.id] || null;
     if (!title) title = await firstPromptTitle(c.path).catch(() => null);
     if (!title) title = cwd ? basename(cwd) : "—";
     out.push({
       sessionId: c.id,
       cwd,
-      project: projectName(cwd),
+      project: projectName(cwd, { repoRoot: managedRec?.repoRoot }),
       title,
       lastActivityAt: c.mtime,
       lastUserText: await lastUserText(c.path).catch(() => null),
@@ -1666,10 +1831,11 @@ export async function listResumable(
   // parses each rollout's session_meta (id/cwd/title), so we just filter+map.
   for (const t of await codexThreads().catch(() => [] as Awaited<ReturnType<typeof codexThreads>>)) {
     if (exclude.has(t.id)) continue;
+    const managedRec = t.cwd ? managedByCwd.get(t.cwd) : undefined;
     out.push({
       sessionId: t.id,
       cwd: t.cwd,
-      project: projectName(t.cwd),
+      project: projectName(t.cwd, { repoRoot: managedRec?.repoRoot }),
       title: overrides[t.id] || t.firstUserText || (t.cwd ? basename(t.cwd) : "—"),
       lastActivityAt: t.updatedAt ?? t.createdAt,
       lastUserText: t.firstUserText,
@@ -1695,11 +1861,70 @@ export async function recentMessages(
   const start = maxBytes == null ? 0 : Math.max(0, size - maxBytes);
   const text = await file.slice(start).text();
   const lines = text.split("\n").filter(Boolean);
+  if (limit > 0) {
+    const out: SessionMsg[] = [];
+    for (let i = lines.length - 1; i >= 0 && out.length < limit; i--) {
+      const msgs = normalizeLineMessages(lines[i]);
+      for (let j = msgs.length - 1; j >= 0 && out.length < limit; j--) {
+        out.push(msgs[j]);
+      }
+    }
+    return out.reverse();
+  }
   const msgs: SessionMsg[] = [];
   for (const l of lines) {
     msgs.push(...normalizeLineMessages(l));
   }
-  return limit > 0 ? msgs.slice(-limit) : msgs;
+  return msgs;
+}
+
+type RecentMessagesCacheEntry = {
+  mtimeMs: number;
+  size: number;
+  at: number;
+  messages: SessionMsg[];
+};
+const recentMessagesCache = new Map<string, RecentMessagesCacheEntry>();
+const RECENT_MESSAGES_CACHE_MAX = 160;
+
+function recentMessagesCacheKey(path: string, limit: number, maxBytes: number | null): string {
+  return `${path}\0${limit}\0${maxBytes ?? "all"}`;
+}
+
+function rememberRecentMessages(key: string, entry: RecentMessagesCacheEntry) {
+  recentMessagesCache.set(key, entry);
+  if (recentMessagesCache.size <= RECENT_MESSAGES_CACHE_MAX) return;
+  const oldest = [...recentMessagesCache.entries()].sort((a, b) => a[1].at - b[1].at)[0]?.[0];
+  if (oldest) recentMessagesCache.delete(oldest);
+}
+
+export async function recentMessagesCached(
+  path: string,
+  limit = 40,
+  opts: { maxBytes?: number | null } = {},
+): Promise<SessionMsg[]> {
+  const st = statSync(path);
+  const maxBytes = opts.maxBytes === undefined ? 256 * 1024 : opts.maxBytes;
+  const key = recentMessagesCacheKey(path, limit, maxBytes);
+  const cached = recentMessagesCache.get(key);
+  if (cached && cached.size === st.size && cached.mtimeMs === st.mtimeMs) {
+    cached.at = Date.now();
+    return cached.messages;
+  }
+  const messages = await recentMessages(path, limit, opts);
+  rememberRecentMessages(key, {
+    mtimeMs: st.mtimeMs,
+    size: st.size,
+    at: Date.now(),
+    messages,
+  });
+  return messages;
+}
+
+export function warmRecentMessages(paths: string[], limit = 40): void {
+  for (const path of paths.slice(0, RECENT_MESSAGES_CACHE_MAX)) {
+    void recentMessagesCached(path, limit).catch(() => {});
+  }
 }
 
 // One transcript line that matched a search query: a clipped snippet centred on

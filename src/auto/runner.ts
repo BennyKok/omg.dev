@@ -138,6 +138,13 @@ async function runSelectedBackend(
       pipeToOpencodeAiSdk(prompt, onLog, { cwd, model: agent.model }),
     );
   }
+  if (backend === "hermes") {
+    onLog(`[auto] hermes run (${prompt.length} chars) in ${cwd} [model: ${agent.model ?? "default"}]`);
+    const { pipeToHermesCli } = await import("../agents/backends/hermes-cli.ts");
+    return await runInCwd(cwd, () =>
+      pipeToHermesCli(prompt, onLog, { cwd, model: agent.model }),
+    );
+  }
   return await runClaude(prompt, cwd, onLog, agent.tools ?? [], {
     model: agent.model,
     thinkingLevel: agent.thinkingLevel,

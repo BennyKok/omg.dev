@@ -16,8 +16,11 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
       const keys = await caches.keys();
-      await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
-      await self.clients.claim();
+      const cleanup = [];
+      for (const key of keys) {
+        if (key !== CACHE) cleanup.push(caches.delete(key));
+      }
+      await Promise.all([...cleanup, self.clients.claim()]);
     })(),
   );
 });
@@ -117,11 +120,10 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil(
     (async () => {
       const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      for (const c of all) {
-        if ("focus" in c) {
-          await c.focus();
-          return;
-        }
+      const client = all.find((c) => "focus" in c);
+      if (client) {
+        await client.focus();
+        return;
       }
       if (self.clients.openWindow) await self.clients.openWindow(target);
     })(),

@@ -12,7 +12,6 @@ import {
   type SimpleSchedule,
 } from "./cron";
 import { VoiceOrb } from "./voice-orb";
-import { VoiceCall } from "./voice-call";
 import {
   livePosition,
   pauseSpeaking,
@@ -61,6 +60,7 @@ import {
   Globe,
   Radio,
   RotateCcw,
+  ScrollText,
   Send,
   Settings,
   Sparkles,
@@ -83,6 +83,10 @@ import { Switch } from "@/components/ui/switch";
 const TermView = lazyWithReload("TermView", () =>
   import("@/components/TermView").then((m) => ({ default: m.TermView })),
 );
+const VoiceCall = lazyWithReload("VoiceCall", () =>
+  import("./voice-call").then((m) => ({ default: m.VoiceCall })),
+);
+const BrowserProfiles = lazyWithReload("BrowserProfiles", () => import("./BrowserProfiles"));
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
@@ -98,10 +102,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { Streamdown } from "streamdown";
-import { marked } from "marked";
+import changelogMarkdown from "../../CHANGELOG.md?raw";
 import { useExtensionNavTabs } from "./lib/extensions";
 import type { ExtensionNavTab } from "./lib/extensions";
-import BrowserProfiles from "./BrowserProfiles";
 import {
   pushSupported,
   pushPermission,
@@ -117,6 +120,19 @@ type Agent = {
   enabled: boolean;
   inputCount: number;
   lastReport: ReportRef | null;
+};
+
+type CodingAgentInfo = {
+  key: AgentKind;
+  label: string;
+  visible: boolean;
+  status: {
+    configured: boolean;
+    setupRunning: boolean;
+    canAutoSetup: boolean;
+    checks: { label: string; ok: boolean; detail?: string }[];
+    instructions: string[];
+  };
 };
 
 type ReportRef = {
@@ -168,10 +184,6 @@ type Session = {
   // card is expanded. Polled every 5s with the rest of the list.
   busy?: boolean;
 };
-
-// An optimistic placeholder for a session that's mid-spawn: rendered as a
-// "starting…" card until the real session shows up in the next list refresh.
-type LaunchingSession = { id: string; prompt: string; agent: string };
 
 type User = { email: string; name?: string; avatar?: string };
 type Repo = { name: string; cwd: string; project?: string; custom?: boolean };
@@ -234,12 +246,6 @@ type ComposerAttachment = {
   error?: string;
 };
 
-// Match the server's markdown rendering (serve.ts: marked.setOptions({ gfm:
-// true, breaks: false })) so the optimistic placeholder's HTML is identical to
-// what the SSE stream delivers for the real message — no height jump when the
-// pending bubble is swapped for the streamed one.
-marked.setOptions({ gfm: true, breaks: false });
-
 const CLAUDE_MODELS = ["sonnet", "opus", "haiku", "fable"];
 const CODEX_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"];
 // Models the one-shot AI-SDK test option supports (the provider maps these
@@ -247,6 +253,11 @@ const CODEX_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"];
 const AISDK_MODELS = ["opus", "sonnet", "haiku"];
 const CODEX_AISDK_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"];
 const GROK_MODELS = ["grok-composer-2.5-fast", "grok-build"];
+const HERMES_MODELS = [
+  "nousresearch/hermes-4-405b",
+  "nousresearch/hermes-4-70b",
+  "nousresearch/hermes-3-llama-3.1-405b",
+];
 const OPENCODE_MODELS = [
   "opencode-go/deepseek-v4-flash",
   "opencode-go/deepseek-v4-pro",
@@ -265,18 +276,19 @@ const OPENCODE_MODELS = [
 ];
 const THINKING_LEVELS = ["low", "medium", "high", "xhigh"] as const;
 type ThinkingLevel = (typeof THINKING_LEVELS)[number];
-type AutoAgentBackend = "aisdk" | "codex-aisdk" | "opencode";
+type AutoAgentBackend = "aisdk" | "codex-aisdk" | "opencode" | "hermes";
 const AUTO_AGENT_OPTIONS: { key: AutoAgentBackend; label: string }[] = [
   { key: "aisdk", label: "claude" },
   { key: "codex-aisdk", label: "codex" },
   { key: "opencode", label: "opencode" },
+  { key: "hermes", label: "hermes" },
 ];
 function savedThinkingLevel(): ThinkingLevel {
   const value = localStorage.getItem("lfg_thinking_level");
   return THINKING_LEVELS.includes(value as ThinkingLevel) ? (value as ThinkingLevel) : "medium";
 }
 
-type AgentKind = "claude" | "aisdk" | "codex" | "codex-aisdk" | "opencode" | "grok";
+type AgentKind = "claude" | "aisdk" | "codex" | "codex-aisdk" | "opencode" | "grok" | "hermes";
 
 // Which agents honor a thinking/reasoning-effort level. Claude (CLI + ai-sdk)
 // takes an `effort`; Codex (CLI + ai-sdk) takes a `reasoning_effort` — both
@@ -305,6 +317,7 @@ const AGENT_MODELS: Record<AgentKind, string[]> = {
   codex: CODEX_MODELS,
   "codex-aisdk": CODEX_AISDK_MODELS,
   grok: GROK_MODELS,
+  hermes: HERMES_MODELS,
   opencode: OPENCODE_MODELS,
 };
 const AGENT_DEFAULT_MODEL: Record<AgentKind, string> = {
@@ -313,6 +326,7 @@ const AGENT_DEFAULT_MODEL: Record<AgentKind, string> = {
   codex: "gpt-5.5",
   "codex-aisdk": "gpt-5.5",
   grok: "grok-composer-2.5-fast",
+  hermes: "nousresearch/hermes-4-405b",
   opencode: "opencode-go/deepseek-v4-flash",
 };
 
@@ -323,6 +337,7 @@ const AGENT_OPTIONS: { key: AgentKind; label: string; Icon: typeof Sparkles }[] 
   { key: "aisdk", label: "claude", Icon: Sparkles },
   { key: "codex-aisdk", label: "codex", Icon: Braces },
   { key: "grok", label: "grok", Icon: Bot },
+  { key: "hermes", label: "hermes", Icon: Sparkles },
   { key: "opencode", label: "opencode", Icon: Boxes },
 ];
 
@@ -331,12 +346,14 @@ const AGENT_OPTIONS: { key: AgentKind; label: string; Icon: typeof Sparkles }[] 
 function agentIconSrc(agent?: string): string {
   if (agent === "codex" || agent === "codex-aisdk") return "/agent-codex.svg";
   if (agent === "grok") return "/agent-grok.svg";
+  if (agent === "hermes") return "/agent-hermes.svg?v=20260629";
   if (agent === "opencode") return "/agent-opencode.svg";
   return "/agent-claude.svg";
 }
 function agentIconAlt(agent?: string): string {
   if (agent === "codex" || agent === "codex-aisdk") return "Codex";
   if (agent === "grok") return "Grok";
+  if (agent === "hermes") return "Hermes";
   if (agent === "opencode") return "OpenCode";
   return "Claude";
 }
@@ -356,6 +373,30 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(data?.error || `${res.status} ${res.statusText}`);
   }
   return data as T;
+}
+
+function evlog(event: string, fields: Record<string, unknown> = {}) {
+  try {
+    const payload = JSON.stringify({
+      event,
+      source: "browser",
+      pageMs: Math.round(performance.now() * 1000) / 1000,
+      path: location.pathname + location.search,
+      ...fields,
+    });
+    if (navigator.sendBeacon) {
+      const blob = new Blob([payload], { type: "application/json" });
+      if (navigator.sendBeacon("/api/evlog", blob)) return;
+    }
+    void fetch("/api/evlog", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: payload,
+      keepalive: true,
+    }).catch(() => {});
+  } catch {
+    // Diagnostics must never affect the UI path being measured.
+  }
 }
 
 function formatBytes(bytes: number): string {
@@ -434,6 +475,13 @@ function repoProject(repo: Repo): string {
   return repo.project || projectName(repo.cwd);
 }
 
+function autoAgentProject(agent: AutoAgent, repos: Repo[]): string {
+  const fallbackCwd = repos.find((repo) => repo.name === "lfg")?.cwd || repos[0]?.cwd || "";
+  const cwd = agent.cwd || fallbackCwd;
+  if (!cwd) return "-";
+  return repoProject(repos.find((repo) => repo.cwd === cwd) ?? { name: cwd, cwd });
+}
+
 function titleForSession(session: Session) {
   return (
     session.title ||
@@ -463,6 +511,25 @@ function escapeHtml(value: string) {
 
 function normText(value?: string) {
   return (value || "").replace(/\s+/g, " ").trim();
+}
+
+function seedMessageForSession(session: Session): Message | null {
+  const sid = session.sessionId;
+  const last = session.last;
+  const lastIsProse =
+    last?.kind === "text" && (last.role === "assistant" || last.role === "user") && !!last.text;
+  const text = normText(lastIsProse ? last.text : session.lastUserText || "");
+  if (!sid || !text) return null;
+  const role = lastIsProse && last.role === "assistant" ? "assistant" : "user";
+  const ts = (lastIsProse ? last.ts : null) ?? session.lastActivityAt ?? session.startedAt ?? Date.now();
+  return {
+    id: `seed-${sid}-${ts}-${role}`,
+    role,
+    kind: "text",
+    text,
+    html: escapeHtml(text).replace(/\n/g, "<br>"),
+    ts,
+  };
 }
 
 // Encode captured PCM (Float32) as a 16-bit mono WAV — the format the server's
@@ -999,12 +1066,13 @@ const MicButton = forwardRef<
     baseText?: string;
     silenceMs?: number;
     className?: string;
+    minimal?: boolean;
     // Fires true while actively recording (tap or hold), false otherwise — lets a
     // parent reflect "listening" in its own chrome (e.g. glow the session border).
     onRecordingChange?: (recording: boolean) => void;
   }
 >(function MicButton(
-  { onText, onAutoSubmit, onInterim, baseText, silenceMs, className, onRecordingChange },
+  { onText, onAutoSubmit, onInterim, baseText, silenceMs, className, minimal = false, onRecordingChange },
   ref,
 ) {
   const { state, toggle, start, stop, supported, level } = useDictation({
@@ -1150,7 +1218,9 @@ const MicButton = forwardRef<
         "flex shrink-0 touch-none select-none items-center justify-center rounded-full transition",
         recording
           ? "z-10 bg-destructive text-destructive-foreground"
-          : "text-muted-foreground hover:bg-muted",
+          : minimal
+            ? "bg-transparent text-muted-foreground hover:bg-transparent hover:text-foreground"
+            : "text-muted-foreground hover:bg-muted",
         className,
       )}
     >
@@ -1471,11 +1541,6 @@ function markCreatedSid(sid: string): void {
   window.setTimeout(() => recentlyCreatedSids.delete(sid), 2000);
 }
 
-// Monotonic id for optimistic launching-session placeholders (no collisions
-// even when several creates fire in the same millisecond).
-let launchSeq = 0;
-const nextLaunchId = () => `launching-${++launchSeq}`;
-
 // The set of EXPANDED session ids among `sessions`, kept in sync with the
 // per-card collapse state. SessionCard dispatches `lfg-collapse-change` when the
 // user toggles a card (and the browser fires `storage` for other tabs); we
@@ -1526,6 +1591,14 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
     }
     return map;
   }, [sessions]);
+  const seedBySid = useMemo(() => {
+    const map: Record<string, Message> = {};
+    for (const session of sessions) {
+      const seed = seedMessageForSession(session);
+      if (session.sessionId && seed) map[session.sessionId] = seed;
+    }
+    return map;
+  }, [sessions]);
   const [messagesBySid, setMessagesBySid] = useState<Record<string, Message[]>>({});
   const [busyBySid, setBusyBySid] = useState<Record<string, boolean>>({});
   const [promptsBySid, setPromptsBySid] = useState<Record<string, SessionPrompt | null>>({});
@@ -1549,9 +1622,14 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
     seenRef.current = Object.fromEntries(
       Object.entries(seenRef.current).filter(([sid]) => live.has(sid)),
     );
-    setMessagesBySid((prev) =>
-      Object.fromEntries(Object.entries(prev).filter(([sid]) => live.has(sid))),
-    );
+    setMessagesBySid((prev) => {
+      const next: Record<string, Message[]> = {};
+      for (const sid of live) {
+        const current = prev[sid];
+        next[sid] = current?.length ? current : seedBySid[sid] ? [seedBySid[sid]] : [];
+      }
+      return next;
+    });
     setBusyBySid((prev) =>
       Object.fromEntries(Object.entries(prev).filter(([sid]) => active.has(sid))),
     );
@@ -1564,14 +1642,32 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
     setLoadingBySid((prev) => {
       const next = Object.fromEntries(Object.entries(prev).filter(([sid]) => live.has(sid)));
       for (const sid of active) {
-        if (!(messagesRef.current[sid]?.length)) next[sid] = true;
+        if (!(messagesRef.current[sid]?.length) && !seedBySid[sid]) next[sid] = true;
       }
       return next;
     });
 
     if (!ids.length) return;
-    const es = new EventSource(`/api/live/stream?ids=${ids.join(",")}`);
+    const rid =
+      crypto.randomUUID?.() ??
+      `live-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    const t0 = performance.now();
+    const firstMsg = new Set<string>();
+    const firstReady = new Set<string>();
+    evlog("live_stream_client_start", { rid, ids, idsCount: ids.length });
+    const es = new EventSource(`/api/live/stream?ids=${ids.join(",")}&rid=${encodeURIComponent(rid)}`);
+    es.onopen = () => {
+      evlog("live_stream_client_open", {
+        rid,
+        elapsedMs: Math.round((performance.now() - t0) * 1000) / 1000,
+      });
+    };
     const loadingFallback = window.setTimeout(() => {
+      evlog("live_stream_client_loading_fallback", {
+        rid,
+        ids: [...active],
+        elapsedMs: Math.round((performance.now() - t0) * 1000) / 1000,
+      });
       setLoadingBySid((prev) => {
         let changed = false;
         const next = { ...prev };
@@ -1591,6 +1687,16 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
       const sid = payload.sid;
       const message = payload.m;
       if (!active.has(sid)) return;
+      if (!firstMsg.has(sid)) {
+        firstMsg.add(sid);
+        evlog("live_stream_client_first_msg", {
+          rid,
+          sid,
+          kind: message.kind,
+          role: message.role,
+          elapsedMs: Math.round((performance.now() - t0) * 1000) / 1000,
+        });
+      }
       setLoadingBySid((prev) => ({ ...prev, [sid]: false }));
       if (message.id && message.kind !== "thinking") {
         const seen = seenRef.current[sid] || (seenRef.current[sid] = new Set());
@@ -1638,9 +1744,58 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
       }
     });
 
+    es.addEventListener("batch", (event) => {
+      const payload = parseLiveEvent<{ sid: string; messages: Message[] }>(event.data);
+      if (!payload || !active.has(payload.sid)) return;
+      const sid = payload.sid;
+      const messages = Array.isArray(payload.messages) ? payload.messages : [];
+      if (!firstMsg.has(sid) && messages.length) {
+        const first = messages[0];
+        firstMsg.add(sid);
+        evlog("live_stream_client_first_msg", {
+          rid,
+          sid,
+          kind: first.kind,
+          role: first.role,
+          batch: true,
+          count: messages.length,
+          elapsedMs: Math.round((performance.now() - t0) * 1000) / 1000,
+        });
+      }
+      setLoadingBySid((prev) => ({ ...prev, [sid]: false }));
+      const seen = seenRef.current[sid] || (seenRef.current[sid] = new Set());
+      for (const message of messages) {
+        if (message.id && message.kind !== "thinking") seen.add(message.id);
+      }
+      if (seen.size > 800) {
+        seenRef.current[sid] = new Set(Array.from(seen).slice(-400));
+      }
+      setMessagesBySid((prev) => {
+        const current = prev[sid] ?? [];
+        const pending = current.filter((item) => {
+          if (!item.pending) return false;
+          const pendingNeedle = normText(item.text).slice(0, 48);
+          if (!pendingNeedle) return true;
+          return !messages.some((message) => {
+            if (message.role !== "user" || message.kind !== "text") return false;
+            return normText(message.text).slice(0, 48).includes(pendingNeedle);
+          });
+        });
+        return { ...prev, [sid]: [...messages, ...pending].slice(-80) };
+      });
+    });
+
     es.addEventListener("ready", (event) => {
       const payload = parseLiveEvent<{ sid: string }>(event.data);
       if (!payload || !active.has(payload.sid)) return;
+      if (!firstReady.has(payload.sid)) {
+        firstReady.add(payload.sid);
+        evlog("live_stream_client_ready", {
+          rid,
+          sid: payload.sid,
+          elapsedMs: Math.round((performance.now() - t0) * 1000) / 1000,
+        });
+      }
       setLoadingBySid((prev) => ({ ...prev, [payload.sid]: false }));
     });
 
@@ -1680,6 +1835,10 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
     });
 
     es.onerror = () => {
+      evlog("live_stream_client_error", {
+        rid,
+        elapsedMs: Math.round((performance.now() - t0) * 1000) / 1000,
+      });
       // EventSource reconnects itself; keep existing pane state while it does,
       // but don't leave an empty pane stuck on "Loading..." forever.
       setLoadingBySid((prev) => {
@@ -1696,6 +1855,12 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
     };
 
     return () => {
+      evlog("live_stream_client_close", {
+        rid,
+        elapsedMs: Math.round((performance.now() - t0) * 1000) / 1000,
+        firstMsgCount: firstMsg.size,
+        readyCount: firstReady.size,
+      });
       es.close();
       clearTimeout(loadingFallback);
       for (const id of Object.keys(thinkTimerRef.current)) {
@@ -1703,6 +1868,10 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
         delete thinkTimerRef.current[id];
       }
     };
+  // Only reconnect the SSE when the streamed session-id set changes. listBusy
+  // and seedBySid update frequently with status/list refreshes; including them
+  // here would tear down the transcript stream and replay backlogs mid-session.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streamKey]);
 
   const addOptimisticMessage = useCallback((sid: string, text: string) => {
@@ -1711,11 +1880,7 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
       role: "user",
       kind: "text",
       text,
-      // Render through the same markdown pipeline the server uses (msgWithHtml)
-      // so the placeholder's HTML matches the streamed message byte-for-byte —
-      // otherwise the <p> margins differ from escapeHtml's plain text and the
-      // bubble jumps height when the real message replaces the placeholder.
-      html: marked.parse(text) as string,
+      html: escapeHtml(text).replace(/\n/g, "<br>"),
       ts: Date.now(),
       pending: true,
     };
@@ -1803,6 +1968,7 @@ export function App() {
   const isWide = useIsWide();
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [codingAgents, setCodingAgents] = useState<CodingAgentInfo[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [repos, setRepos] = useState<Repo[]>([]);
@@ -1821,11 +1987,6 @@ export function App() {
   // composer's textarea so the soft keyboard opens.
   const [composerExpanded, setComposerExpanded] = useState(false);
   const [composerFocusNonce, setComposerFocusNonce] = useState(0);
-  // Optimistic "starting…" cards: shown in the live list from the moment a
-  // create is submitted until the real session lands (the spawn POST blocks on
-  // agent boot for up to a few seconds). Keeps the create→appear transition
-  // continuous instead of leaving a frozen gap.
-  const [launchingSessions, setLaunchingSessions] = useState<LaunchingSession[]>([]);
   const [callOpen, setCallOpen] = useState(false);
   const [runLog, setRunLog] = useState<string | null>(null);
   // Auto agents
@@ -1837,6 +1998,7 @@ export function App() {
   const [autoAgents, setAutoAgents] = useState<AutoAgent[]>([]);
   const [schedTz, setSchedTz] = useState<string>(DEFAULT_SCHED_TZ);
   const [findings, setFindings] = useState<AutoFinding[]>([]);
+  const [toastedFindingIds, setToastedFindingIds] = useState<Set<string>>(() => new Set());
   const [openFinding, setOpenFinding] = useState<AutoFinding | null>(null);
   const [editingAgent, setEditingAgent] = useState<AutoAgent | "new" | null>(null);
   const seededAuto = useRef(false);
@@ -1924,8 +2086,8 @@ export function App() {
       setKeyboardOpen(open);
     };
     sync();
-    vv.addEventListener("resize", sync);
-    vv.addEventListener("scroll", sync);
+    vv.addEventListener("resize", sync, { passive: true });
+    vv.addEventListener("scroll", sync, { passive: true });
     return () => {
       vv.removeEventListener("resize", sync);
       vv.removeEventListener("scroll", sync);
@@ -1934,20 +2096,33 @@ export function App() {
   }, [loading, tab]);
 
   const loadCore = useCallback(async () => {
-    const [agentsPayload, sessionsPayload, usersPayload, reposPayload] =
-      await Promise.all([
-        api<{ agents: Agent[] }>("/api/agents"),
-        api<{ sessions: Session[] }>("/api/sessions"),
-        api<{ users: User[] }>("/api/users"),
-        api<{ repos: Repo[] }>("/api/repos"),
-      ]);
-    setAgents(agentsPayload.agents ?? []);
-    // Guard sessions to [] — it feeds `allLiveSessions`/`liveSessions` which call
-    // `.filter()` unconditionally on render, so a malformed/empty payload must
-    // degrade to an empty live view rather than crash it (undefined.filter).
-    setSessions(sessionsPayload.sessions ?? []);
-    setUsers(usersPayload.users ?? []);
-    setRepos(reposPayload.repos ?? []);
+    const tasks = [
+      // These power secondary/legacy settings surfaces. During a rolling deploy
+      // the browser can briefly run newer JS against the previous backend, where
+      // /api/coding-agents may not exist yet. Do not let optional settings
+      // endpoints block the live session list from painting.
+      api<{ agents: Agent[] }>("/api/agents")
+        .then((payload) => setAgents(payload.agents ?? []))
+        .catch(() => setAgents([])),
+      api<{ agents: CodingAgentInfo[] }>("/api/coding-agents")
+        .then((payload) => setCodingAgents(payload.agents ?? []))
+        .catch(() => setCodingAgents([])),
+      api<{ sessions: Session[] }>("/api/sessions").then((payload) => {
+        // Guard sessions to [] — it feeds `allLiveSessions`/`liveSessions` which
+        // call `.filter()` unconditionally on render, so a malformed/empty
+        // payload must degrade to an empty live view rather than crash.
+        setSessions(payload.sessions ?? []);
+      }),
+      api<{ users: User[] }>("/api/users").then((payload) =>
+        setUsers(payload.users ?? []),
+      ),
+      api<{ repos: Repo[] }>("/api/repos").then((payload) =>
+        setRepos(payload.repos ?? []),
+      ),
+    ];
+    const results = await Promise.allSettled(tasks);
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") throw failed.reason;
   }, []);
 
   // Sessions the user just deleted. The server's list can lag a beat (tmux pane
@@ -1965,6 +2140,29 @@ export function App() {
     });
     setSessions((prev) => prev.filter((s) => s.sessionId !== sid));
   }, []);
+
+  const hideToastedFinding = useCallback((id: string) => {
+    setToastedFindingIds((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }, []);
+
+  const showToastedFinding = useCallback((id: string) => {
+    setToastedFindingIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const liveFindings = useMemo(
+    () => findings.filter((f) => !toastedFindingIds.has(f.id)),
+    [findings, toastedFindingIds],
+  );
 
   // Pull auto agents + open findings. New findings (after the first load) raise
   // a toast in the live view.
@@ -1985,10 +2183,12 @@ export function App() {
       seededAuto.current = true;
       return;
     }
+    const agentNames = new Map((ag.agents ?? []).map((a) => [a.id, a.name]));
     for (const f of findingList) {
       if (seenFindings.current.has(f.id)) continue;
       seenFindings.current.add(f.id);
-      const name = (ag.agents ?? []).find((a) => a.id === f.agentId)?.name ?? f.agentId;
+      hideToastedFinding(f.id);
+      const name = agentNames.get(f.agentId) ?? f.agentId;
       // Announce the finding via the shared Sonner toast system.
       toast.custom(
         (id) => (
@@ -1997,9 +2197,10 @@ export function App() {
             onClick={() => {
               setTab("live");
               setOpenFinding(f);
+              showToastedFinding(f.id);
               toast.dismiss(id);
             }}
-            className="pointer-events-auto flex w-full max-w-sm items-center gap-3 rounded-2xl border border-border bg-card px-3.5 py-3 text-left shadow-[0_8px_28px_rgba(0,0,0,0.22)]"
+            className="pointer-events-auto flex w-full min-w-0 items-center gap-3 text-left"
           >
             <span className="grid size-8 shrink-0 place-items-center rounded-full bg-primary/12 text-primary">
               <Sparkles className="size-4" />
@@ -2015,17 +2216,23 @@ export function App() {
             </span>
           </button>
         ),
-        { duration: 6500 },
+        {
+          duration: 6500,
+          className: "lfg-finding-toast",
+          onDismiss: () => showToastedFinding(f.id),
+          onAutoClose: () => showToastedFinding(f.id),
+        },
       );
     }
-  }, []);
+  }, [hideToastedFinding, showToastedFinding]);
 
-  const refreshSessions = useCallback(async () => {
+  const refreshSessions = useCallback(async (_opts?: { retireLaunchId?: string }) => {
     const payload = await api<{ sessions: Session[] }>("/api/sessions");
     // Guard to [] — `sessions` is consumed by `.filter()`/`.map()` on render
     // (allLiveSessions) and just below, so a missing field must not crash.
     const sessionList = payload.sessions ?? [];
     setSessions(sessionList);
+    setError((current) => (current === "not found" ? null : current));
     // Prune tombstones the server has finally forgotten, so the set can't grow
     // unbounded and a recycled sid is never wrongly suppressed.
     setRemovedSids((prev) => {
@@ -2038,13 +2245,15 @@ export function App() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([loadCore(), refreshAuto().catch(() => {})])
+    setLoading(true);
+    loadCore()
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+    refreshAuto().catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -2191,10 +2400,11 @@ export function App() {
       Array.from(
         new Set([
           ...repos.map((repo) => repoProject(repo)),
+          ...autoAgents.map((agent) => autoAgentProject(agent, repos)),
           ...userScopedSessions.map((s) => s.project).filter((p): p is string => !!p),
         ]),
       ).sort((a, b) => shortProject(a).localeCompare(shortProject(b))),
-    [repos, userScopedSessions],
+    [autoAgents, repos, userScopedSessions],
   );
 
   // If the chosen project is no longer a known repo and has no visible session,
@@ -2210,6 +2420,78 @@ export function App() {
     if (projectFilter === "__all") return userScopedSessions;
     return userScopedSessions.filter((session) => session.project === projectFilter);
   }, [userScopedSessions, projectFilter]);
+
+  const projectScopedAutoAgents = useMemo(() => {
+    if (projectFilter === "__all") return autoAgents;
+    return autoAgents.filter((agent) => autoAgentProject(agent, repos) === projectFilter);
+  }, [autoAgents, projectFilter, repos]);
+
+  const projectScopedFindings = useMemo(() => {
+    if (projectFilter === "__all") return liveFindings;
+    const agentIds = new Set(projectScopedAutoAgents.map((agent) => agent.id));
+    return liveFindings.filter((finding) => agentIds.has(finding.agentId));
+  }, [liveFindings, projectFilter, projectScopedAutoAgents]);
+
+  const liveStatusIds = useMemo(
+    () => allLiveSessions.map((s) => s.sessionId).filter((id): id is string => !!id),
+    [allLiveSessions],
+  );
+  const liveStatusKey = liveStatusIds.join(",");
+  useEffect(() => {
+    if (tab !== "live" || !liveStatusKey) return;
+    const es = new EventSource(`/api/live/status?ids=${liveStatusKey}`);
+    es.addEventListener("status", (event) => {
+      const rows = parseLiveEvent<
+        Array<
+          Pick<
+            Session,
+            | "sessionId"
+            | "busy"
+            | "title"
+            | "lastUserText"
+            | "lastActivityAt"
+            | "status"
+            | "statusReason"
+            | "statusDetail"
+            | "model"
+          >
+        >
+      >(event.data);
+      if (!rows?.length) return;
+      const bySid = new Map(rows.map((row) => [row.sessionId, row]));
+      setSessions((prev) => {
+        let changed = false;
+        const next = prev.map((session) => {
+          const sid = session.sessionId;
+          const patch = sid ? bySid.get(sid) : undefined;
+          if (!patch) return session;
+          const merged = { ...session, ...patch };
+          let rowChanged = false;
+          for (const key of Object.keys(patch) as Array<keyof typeof patch>) {
+            if (session[key] !== merged[key]) {
+              rowChanged = true;
+              break;
+            }
+          }
+          if (!rowChanged) return session;
+          changed = true;
+          return merged;
+        });
+        return changed ? next : prev;
+      });
+    });
+    return () => es.close();
+  }, [liveStatusKey, tab]);
+
+  const cycleMobileProjectFilter = useCallback(
+    (dir: 1 | -1) => {
+      const options = ["__all", ...projectOptions];
+      if (options.length <= 1) return false;
+      setProjectFilter((current) => cycleProjectFilter(options, current, dir));
+      return true;
+    },
+    [projectOptions],
+  );
 
   // Tab / Shift+Tab cycles the live project filter (mirrors the project menu).
   const projectKb = useRef({ tab, projectFilter, projectOptions, setProjectFilter });
@@ -2231,10 +2513,10 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Stream transcripts only for expanded cards on narrow/mobile layouts;
-  // desktop panes are visually open, so their stream state must not be gated by
-  // a stale mobile collapse preference in localStorage.
-  const expandedIds = useExpandedIds(liveSessions, tab === "live" && isWide);
+  // Stream detailed transcripts only for sessions the UI has explicitly opened.
+  // Wide-screen stage columns mark their session as expanded when previewed or
+  // pinned; rail-only rows keep using lightweight list/status data.
+  const expandedIds = useExpandedIds(liveSessions, false);
   const liveStream = useLiveSessionStream(liveSessions, expandedIds);
 
   function toggleTheme() {
@@ -2288,9 +2570,14 @@ export function App() {
     }
   }
 
-  // Reply graduates a finding into a real Claude session, seeded with the
-  // finding's context plus the user's instruction.
-  async function replyToFinding(f: AutoFinding, text: string) {
+  // Reply graduates a finding into a real agent session, seeded with the
+  // finding's context plus the user's instruction. By default it inherits the
+  // originating auto agent's backend/model, while the sheet can override them.
+  async function replyToFinding(
+    f: AutoFinding,
+    text: string,
+    opts: { agent?: AutoAgentBackend; model?: string; thinkingLevel?: string } = {},
+  ) {
     const composed =
       `An automated watch agent ("${agentName(f.agentId)}") flagged this:\n\n` +
       `${f.title}\n\n` +
@@ -2302,9 +2589,10 @@ export function App() {
     // otherwise a user-filtered live view drops the unassigned session; (2) land
     // it in the SAME repo the auto agent is based in, so the session inherits
     // that repo's settings (.claude/settings.json) — falling back to the last
-    // selected repo only if the agent has no base; (3) leave `agent` unset so it
-    // takes the default aisdk path, which the live-view filter admits explicitly.
-    const agentCwd = autoAgents.find((a) => a.id === f.agentId)?.cwd;
+    // selected repo only if the agent has no base; (3) launch on the originating
+    // auto agent's backend/model unless the user changed it in the finding sheet.
+    const sourceAgent = autoAgents.find((a) => a.id === f.agentId);
+    const agentCwd = sourceAgent?.cwd;
     const cwd = agentCwd || localStorage.getItem("lfg_v2_repo") || repos[0]?.cwd || "";
     const owner =
       (userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : "") ||
@@ -2320,6 +2608,9 @@ export function App() {
           cwd: cwd || undefined,
           prompt: composed,
           user: owner || undefined,
+          agent: opts.agent ?? sourceAgent?.agent ?? "aisdk",
+          model: opts.model ?? sourceAgent?.model,
+          thinkingLevel: opts.thinkingLevel ?? sourceAgent?.thinkingLevel,
         }),
       });
       const sid = res?.sessionId;
@@ -2433,7 +2724,52 @@ export function App() {
     }
   }
 
-  if (loading) return <AppShellSkeleton />;
+  const refreshCodingAgents = useCallback(async () => {
+    const payload = await api<{ agents: CodingAgentInfo[] }>("/api/coding-agents");
+    setCodingAgents(payload.agents ?? []);
+  }, []);
+
+  async function setCodingAgentVisible(kind: AgentKind, visible: boolean) {
+    const previous = codingAgents;
+    setCodingAgents((current) =>
+      current.map((item) => (item.key === kind ? { ...item, visible } : item)),
+    );
+    try {
+      const payload = await api<{ agents: CodingAgentInfo[] }>(`/api/coding-agents/${kind}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visible }),
+      });
+      setCodingAgents(payload.agents ?? []);
+    } catch (e) {
+      setCodingAgents(previous);
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  function setupCodingAgent(kind: AgentKind) {
+    setCodingAgents((current) =>
+      current.map((item) =>
+        item.key === kind
+          ? { ...item, status: { ...item.status, setupRunning: true } }
+          : item,
+      ),
+    );
+    toast.promise(
+      api<{ agents: CodingAgentInfo[] }>(`/api/coding-agents/${kind}/setup`, {
+        method: "POST",
+      })
+        .then((payload) => {
+          setCodingAgents(payload.agents ?? []);
+          window.setTimeout(() => void refreshCodingAgents(), 3000);
+        }),
+      {
+        loading: "Starting setup…",
+        success: "Setup started",
+        error: (e) => (e instanceof Error ? e.message : "Couldn't start setup"),
+      },
+    );
+  }
 
   // First start on this browser: ask who you are before showing the app. Only
   // gates when a roster exists and no profile is chosen yet — once picked it's
@@ -2450,6 +2786,10 @@ export function App() {
     );
   }
 
+  const mainBottomPadding =
+    tab === "live" && !keyboardOpen
+      ? "pb-[var(--lfg-above-orb)] md:pb-3"
+      : "pb-3";
 
   return (
     <AskProvider>
@@ -2528,11 +2868,10 @@ export function App() {
         </div>
       ) : null}
 
-      <main className={`min-h-0 flex-1 overflow-y-auto px-3 pt-3 ${keyboardOpen ? "pb-3" : "pb-[var(--lfg-above-orb)] md:pb-3"}`}>
+      <main className={`min-h-0 flex-1 overflow-y-auto px-3 pt-3 ${mainBottomPadding}`}>
         {tab === "live" ? (
           <LiveView
             sessions={liveSessions}
-            launching={launchingSessions}
             users={users}
             userFilter={userFilter}
             projectFilter={projectFilter}
@@ -2547,14 +2886,20 @@ export function App() {
             onNew={() =>
               isMobile ? setComposerFocusNonce((n) => n + 1) : setNewOpen(true)
             }
-            findings={findings}
-            autoAgents={autoAgents}
+            findings={projectScopedFindings}
+            autoAgents={projectScopedAutoAgents}
             onOpenFinding={setOpenFinding}
           />
         ) : tab === "auto" ? (
           <AutoManageView
-            autoAgents={autoAgents}
-            findings={findings}
+            autoAgents={projectScopedAutoAgents}
+            findings={
+              projectFilter === "__all"
+                ? findings
+                : findings.filter((finding) =>
+                    projectScopedAutoAgents.some((agent) => agent.id === finding.agentId),
+                  )
+            }
             tz={schedTz}
             onEdit={setEditingAgent}
             onRunNow={runAutoNow}
@@ -2563,12 +2908,23 @@ export function App() {
           <AskPage />
         ) : tab === "usage" ? (
           <UsagePage />
+        ) : tab === "coding-agents" ? (
+          <CodingAgentsPage
+            agents={codingAgents}
+            onVisibleChange={(kind, visible) => void setCodingAgentVisible(kind, visible)}
+            onSetup={setupCodingAgent}
+            onRefresh={() => void refreshCodingAgents()}
+          />
+        ) : tab === "changelog" ? (
+          <ChangelogPage />
         ) : tab === "term" ? (
           <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading terminal…</div>}>
             <TermView />
           </Suspense>
         ) : tab === "browser" ? (
-          <BrowserProfiles />
+          <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading browser profiles...</div>}>
+            <BrowserProfiles />
+          </Suspense>
         ) : extNavTabs.some((t) => t.id === tab) ? (
           extNavTabs.find((t) => t.id === tab)!.render()
         ) : (
@@ -2578,8 +2934,10 @@ export function App() {
             user={userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : null}
             onOpenTerminal={() => setTab("term")}
             onOpenBrowser={() => setTab("browser")}
+            onOpenCodingAgents={() => setTab("coding-agents")}
             onOpenAuto={() => setTab("auto")}
             onOpenUsage={() => setTab("usage")}
+            onOpenChangelog={() => setTab("changelog")}
             extTabs={extNavTabs}
             onOpenExt={setTab}
           />
@@ -2603,44 +2961,36 @@ export function App() {
               scopedProject={projectFilter}
               projectOptions={projectOptions}
               onProjectChange={setProjectFilter}
+              onProjectSwipe={cycleMobileProjectFilter}
               onReposChanged={loadCore}
+              codingAgents={codingAgents}
               defaultUser={
                 userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : ""
               }
               onClose={() => setComposerExpanded(false)}
-              onLaunchStart={(meta) => {
-                const id = nextLaunchId();
-                setLaunchingSessions((prev) => [{ id, ...meta }, ...prev]);
-                // Backstop: a failed create never calls onCreated, so expire the
-                // placeholder on its own rather than leaving a ghost card.
-                window.setTimeout(
-                  () =>
-                    setLaunchingSessions((prev) => prev.filter((s) => s.id !== id)),
-                  20000,
-                );
-              }}
-              onCreated={async () => {
-                setComposerExpanded(false);
-                await refreshSessions();
-                // The real session is now in the list — retire one placeholder
-                // (the oldest, which sits at the tail since new ones prepend).
-                setLaunchingSessions((prev) => prev.slice(0, -1));
+              onCreated={async (result) => {
+                const launchId = result?.launchId;
+                await refreshSessions(launchId ? { retireLaunchId: launchId } : undefined);
               }}
             />
           ) : null}
         </>
       ) : null}
       {callOpen ? (
-        <VoiceCall
-          onClose={() => setCallOpen(false)}
-          onCompose={() => setNewOpen(true)}
-        />
+        <Suspense fallback={null}>
+          <VoiceCall
+            onClose={() => setCallOpen(false)}
+            onCompose={() => setNewOpen(true)}
+          />
+        </Suspense>
       ) : null}
 
       {openFinding ? (
         <FindingSheet
+          key={openFinding.id}
           finding={openFinding}
           agentName={agentName(openFinding.agentId)}
+          sourceAgent={autoAgents.find((a) => a.id === openFinding.agentId)}
           onClose={() => setOpenFinding(null)}
           onReply={replyToFinding}
           onDismiss={dismissFinding}
@@ -2650,6 +3000,7 @@ export function App() {
       {editingAgent === "new" ? (
         <NewAutoAgentComposer
           repos={repos}
+          scopedProject={projectFilter}
           onClose={() => setEditingAgent(null)}
           onCreate={createAutoAgent}
         />
@@ -2672,6 +3023,7 @@ export function App() {
         repos={repos}
         scopedProject={projectFilter}
         onReposChanged={loadCore}
+        codingAgents={codingAgents}
         defaultUser={
           userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : ""
         }
@@ -3036,10 +3388,12 @@ function ProjectFilterMenu({
   value,
   projects,
   onChange,
+  solidSurface = false,
 }: {
   value: string;
   projects: string[];
   onChange: (value: string) => void;
+  solidSurface?: boolean;
 }) {
   const active = value !== "__all";
   // Full ordered option list, mirroring the <option>s below, so a vertical
@@ -3057,9 +3411,13 @@ function ProjectFilterMenu({
       className={cn(
         "relative inline-flex h-8 shrink-0 touch-none select-none items-center justify-center gap-1 rounded-full border transition",
         active ? "max-w-[45vw] px-2.5 sm:max-w-[12rem]" : "size-8",
-        active
-          ? "border-primary/30 bg-primary/10 text-primary"
-          : "border-border bg-muted/70 text-muted-foreground",
+        solidSurface
+          ? active
+            ? "border-primary/40 bg-background text-primary shadow-sm"
+            : "border-border bg-background text-muted-foreground shadow-sm"
+          : active
+            ? "border-primary/30 bg-primary/10 text-primary"
+            : "border-border bg-muted/70 text-muted-foreground",
       )}
       aria-label="Filter live sessions by project"
       title={active ? shortProject(value) : "All projects"}
@@ -3182,6 +3540,25 @@ function useIsMobile() {
   return mobile;
 }
 
+function isTextEditingElement(el: Element | null): el is HTMLElement {
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.isContentEditable) return true;
+  if (el instanceof HTMLTextAreaElement) return true;
+  if (!(el instanceof HTMLInputElement)) return false;
+  return !["button", "checkbox", "file", "hidden", "radio", "range", "reset", "submit"].includes(
+    el.type,
+  );
+}
+
+function composerIsEditing(target: EventTarget | null): boolean {
+  const el = target instanceof HTMLElement ? target : null;
+  const form = el?.closest("form");
+  if (!form) return false;
+
+  const active = document.activeElement;
+  return active instanceof HTMLElement && form.contains(active) && isTextEditingElement(active);
+}
+
 // Wide screens (≥1024px — incl. iPad in landscape) get the rail + stage
 // workspace; below that (phones, iPad portrait) we keep the familiar stacked
 // grid where narrow columns would be too cramped. Mirrors useIsMobile.
@@ -3212,6 +3589,7 @@ function useStableBusy(busyBySid: Record<string, boolean>, delay = 2500) {
   useEffect(() => {
     const cur = stableRef.current;
     const patch: Record<string, boolean> = {};
+    const createdTimers: ReturnType<typeof setTimeout>[] = [];
     for (const sid of Object.keys(busyBySid)) {
       const want = !!busyBySid[sid];
       const shown = !!cur[sid];
@@ -3228,11 +3606,15 @@ function useStableBusy(busyBySid: Record<string, boolean>, delay = 2500) {
           delete timers.current[sid];
           setStable((p) => ({ ...p, [sid]: false }));
         }, delay);
+        createdTimers.push(timers.current[sid]);
       } else if (!(sid in cur)) {
         patch[sid] = false;
       }
     }
     if (Object.keys(patch).length) setStable((p) => ({ ...p, ...patch }));
+    return () => {
+      for (const timer of createdTimers) clearTimeout(timer);
+    };
   }, [busyBySid, delay]);
 
   useEffect(() => {
@@ -3257,7 +3639,6 @@ function LiveView({
   // layer already guards these to [], but default here too so any future caller
   // passing `undefined` degrades to an empty render instead of crashing the view.
   sessions = [],
-  launching = [],
   users,
   userFilter,
   projectFilter,
@@ -3275,7 +3656,6 @@ function LiveView({
   onOpenFinding,
 }: {
   sessions: Session[];
-  launching?: LaunchingSession[];
   users: User[];
   userFilter: string;
   projectFilter: string;
@@ -3322,8 +3702,12 @@ function LiveView({
   // Reorder into two categories — working agents on top, idle below — while
   // preserving the stable start-time order within each group (sessions arrives
   // pre-sorted). A card moves between groups the moment its busy state flips.
-  const working = sessions.filter((session) => !!busyBySid[session.sessionId ?? ""]);
-  const idle = sessions.filter((session) => !busyBySid[session.sessionId ?? ""]);
+  const working = sessions.filter(
+    (session) => !!busyBySid[session.sessionId ?? ""] || recentlyCreatedSids.has(session.sessionId ?? ""),
+  );
+  const idle = sessions.filter(
+    (session) => !busyBySid[session.sessionId ?? ""] && !recentlyCreatedSids.has(session.sessionId ?? ""),
+  );
   const nameFor = (id: string) => autoAgents.find((a) => a.id === id)?.name ?? id;
 
   // Close every idle session in one tap. Each card drops immediately (onRemove)
@@ -3399,41 +3783,15 @@ function LiveView({
   return (
     <>
     <div className="flex flex-col gap-5">
-      {working.length || launching.length ? (
+      {working.length ? (
         <section>
           <CategoryHeader
             label="Working"
-            count={working.length + launching.length}
+            count={working.length}
             dotClass="animate-pulse bg-warning"
           />
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-2">
             {working.map(renderCard)}
-            {/* Optimistic placeholders sit at the tail of the working group —
-                where a freshly spawned session appends — so the real card lands
-                in roughly the same spot when it arrives (no cross-list jump). */}
-            {launching.map((l) => (
-              <div
-                key={l.id}
-                className="lfg-pending-card live-pane relative flex items-center gap-2 overflow-hidden rounded-xl border border-primary/30 bg-card px-3 py-2 text-card-foreground shadow-sm md:h-[clamp(30rem,72vh,46rem)] md:items-start md:gap-3 md:p-4"
-              >
-                <img
-                  src={agentIconSrc(l.agent)}
-                  alt=""
-                  className="lfg-pending-breathe size-6 shrink-0"
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 text-[15px] font-semibold leading-tight text-foreground md:text-sm md:font-medium">
-                    <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
-                    <span>Starting session…</span>
-                  </div>
-                  {l.prompt ? (
-                    <div className="mt-0.5 hidden truncate text-xs text-muted-foreground md:block">
-                      {l.prompt}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            ))}
           </div>
         </section>
       ) : null}
@@ -3590,7 +3948,7 @@ function RailStage({
 
   // Reload layout state when switching projects; each project gets its own local
   // pinned columns and rail collapsed state.
-  useEffect(() => {
+  useLayoutEffect(() => {
     setPinned(readPinned());
     setPreview(null);
     setRailCollapsed(readRailCollapsed());
@@ -3676,12 +4034,39 @@ function RailStage({
   const working = sessions.filter((s) => stableBusy[s.sessionId ?? ""]);
   const idle = sessions.filter((s) => !stableBusy[s.sessionId ?? ""]);
 
-  // Flat rail order the keyboard cursor walks (Working then Idle; findings are
-  // not navigable). Keep the cursor pointing at a live session.
-  const orderedSids = useMemo(
-    () => [...working, ...idle].map((s) => s.sessionId ?? "").filter(Boolean),
-    [working, idle],
-  );
+  const projectRailGroups = useMemo(() => {
+    if (projectFilter !== "__all") return [];
+    const groups = new Map<string, { label: string; sessions: Session[] }>();
+    for (const session of sessions) {
+      const project = session.project || "";
+      const key = project || "__no_project";
+      const label = project ? shortProject(project) : "No project";
+      const group = groups.get(key);
+      if (group) {
+        group.sessions.push(session);
+      } else {
+        groups.set(key, { label, sessions: [session] });
+      }
+    }
+    return Array.from(groups.entries())
+      .map(([key, group]) => ({ key, ...group }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [projectFilter, sessions]);
+
+  const railOrderedSessions =
+    projectFilter === "__all"
+      ? projectRailGroups.flatMap((group) => group.sessions)
+      : [...working, ...idle];
+
+  // Flat rail order the keyboard cursor walks (matching the visible rail;
+  // findings are not navigable). Keep the cursor pointing at a live session.
+  const orderedSids = useMemo(() => {
+    const ids: string[] = [];
+    for (const session of railOrderedSessions) {
+      if (session.sessionId) ids.push(session.sessionId);
+    }
+    return ids;
+  }, [railOrderedSessions]);
   useEffect(() => {
     setCursor((c) => (c && orderedSids.includes(c) ? c : orderedSids[0] ?? null));
   }, [orderedSids]);
@@ -3936,6 +4321,30 @@ function RailStage({
     );
   };
 
+  const autoRailGroup =
+    findings.length && !railCollapsed ? (
+      <RailGroup label="Auto" count={findings.length} collapsed={railCollapsed}>
+        {findings.map((f) => (
+          <button
+            key={f.id}
+            type="button"
+            onClick={() => onOpenFinding(f)}
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-muted"
+          >
+            <span className={cn("size-2 shrink-0 rounded-full", SEV_DOT[f.severity])} />
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate text-[13px] font-medium leading-tight">
+                {nameFor(f.agentId)}
+              </span>
+              <span className="truncate text-[11px] leading-tight text-muted-foreground">
+                {f.title}
+              </span>
+            </span>
+          </button>
+        ))}
+      </RailGroup>
+    ) : null;
+
   return (
     <div className="flex h-full min-h-0 gap-3">
       <aside
@@ -3962,38 +4371,35 @@ function RailStage({
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
-          {working.length ? (
-            <RailGroup label="Working" count={working.length} collapsed={railCollapsed}>
-              {working.map(renderRailItem)}
-            </RailGroup>
-          ) : null}
-          {findings.length && !railCollapsed ? (
-            <RailGroup label="Auto" count={findings.length} collapsed={railCollapsed}>
-              {findings.map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  onClick={() => onOpenFinding(f)}
-                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-muted"
+          {projectFilter === "__all" ? (
+            <>
+              {projectRailGroups.map((group) => (
+                <RailGroup
+                  key={group.key}
+                  label={group.label}
+                  count={group.sessions.length}
+                  collapsed={railCollapsed}
                 >
-                  <span className={cn("size-2 shrink-0 rounded-full", SEV_DOT[f.severity])} />
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-[13px] font-medium leading-tight">
-                      {nameFor(f.agentId)}
-                    </span>
-                    <span className="truncate text-[11px] leading-tight text-muted-foreground">
-                      {f.title}
-                    </span>
-                  </span>
-                </button>
+                  {group.sessions.map(renderRailItem)}
+                </RailGroup>
               ))}
-            </RailGroup>
-          ) : null}
-          {idle.length ? (
-            <RailGroup label="Idle" count={idle.length} collapsed={railCollapsed}>
-              {idle.map(renderRailItem)}
-            </RailGroup>
-          ) : null}
+              {autoRailGroup}
+            </>
+          ) : (
+            <>
+              {working.length ? (
+                <RailGroup label="Working" count={working.length} collapsed={railCollapsed}>
+                  {working.map(renderRailItem)}
+                </RailGroup>
+              ) : null}
+              {autoRailGroup}
+              {idle.length ? (
+                <RailGroup label="Idle" count={idle.length} collapsed={railCollapsed}>
+                  {idle.map(renderRailItem)}
+                </RailGroup>
+              ) : null}
+            </>
+          )}
         </div>
       </aside>
 
@@ -4079,12 +4485,15 @@ function ShortcutsHelp({ onClose }: { onClose: () => void }) {
     ["Esc", "Close help / preview"],
   ];
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/40"
+        onClick={onClose}
+        aria-label="Close keyboard shortcuts"
+      />
       <div
-        className="w-full max-w-sm rounded-2xl border border-border bg-card p-4 shadow-[0_8px_28px_rgba(0,0,0,0.22)]"
+        className="relative w-full max-w-sm rounded-2xl border border-border bg-card p-4 shadow-[0_8px_28px_rgba(0,0,0,0.22)]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-center justify-between">
@@ -4603,7 +5012,10 @@ function SessionChat({
         if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
       }
       setAttachments([]);
-      await onRefresh();
+      setSending(false);
+      void onRefresh().catch((err) => {
+        onError(err instanceof Error ? err.message : String(err));
+      });
     } catch (err) {
       onError(err instanceof Error ? err.message : String(err));
       setMessageText(text);
@@ -4673,6 +5085,7 @@ function SessionChat({
           <input
             ref={fileInputRef}
             type="file"
+            aria-label="Attach files"
             multiple
             className="hidden"
             onChange={(event) => {
@@ -4735,28 +5148,49 @@ function SessionChat({
             >
               <Paperclip className="size-4" />
             </Button>
-            <Textarea
-              data-composer-sid={sid}
-              value={messageText}
-              onChange={(e) => setMessageText(e.target.value)}
-              onPaste={(event) => {
-                const files = event.clipboardData?.files;
-                if (files?.length) {
-                  event.preventDefault();
-                  addFiles(files);
-                }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  e.currentTarget.form?.requestSubmit();
-                }
-              }}
-              placeholder={attachments.length ? "Add a note" : "Message"}
-              disabled={sending}
-              rows={1}
-              className="min-h-11 max-h-28 min-w-0 flex-1 resize-none overflow-y-auto rounded-2xl border-border/55 bg-muted/65 px-4 py-3 text-base leading-5 shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:border-foreground/20 focus-visible:bg-muted focus-visible:ring-0 md:min-h-9 md:rounded-[1.125rem] md:px-3.5 md:py-2 md:text-sm"
-            />
+            <div className="relative min-w-0 flex-1">
+              <Textarea
+                data-composer-sid={sid}
+                value={messageText}
+                onChange={(e) => setMessageText(e.target.value)}
+                onPaste={(event) => {
+                  const files = event.clipboardData?.files;
+                  if (files?.length) {
+                    event.preventDefault();
+                    addFiles(files);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    e.currentTarget.form?.requestSubmit();
+                  }
+                }}
+                placeholder={attachments.length ? "Add a note" : "Message"}
+                disabled={sending}
+                rows={1}
+                className="min-h-11 max-h-28 min-w-0 resize-none overflow-y-auto rounded-2xl border-border/55 bg-muted/65 px-4 py-3 text-base leading-5 shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:border-foreground/20 focus-visible:bg-muted focus-visible:ring-0 md:min-h-9 md:rounded-[1.125rem] md:px-3.5 md:py-2 md:pr-10 md:text-sm"
+              />
+              <div className="absolute bottom-0.5 right-1 hidden md:block">
+                <MicButton
+                  minimal
+                  className="size-8"
+                  silenceMs={2500}
+                  baseText={messageText}
+                  onRecordingChange={onDictatingChange}
+                  onText={(text, base) =>
+                    setMessageText(base.trim() ? `${base.trimEnd()} ${text}` : text)
+                  }
+                  onInterim={(text, base) =>
+                    setMessageText(base.trim() ? `${base.trimEnd()} ${text}` : text)
+                  }
+                  onAutoSubmit={(text, base) => {
+                    const combined = base.trim() ? `${base.trimEnd()} ${text}` : text;
+                    void sendMessage(undefined, combined);
+                  }}
+                />
+              </div>
+            </div>
             {busy && canDriveSession(session) ? (
               <Button
                 size="icon"
@@ -4815,7 +5249,7 @@ function SessionTitleLine({ title }: { title: string }) {
   // px the text overflows its line; >0 turns the marquee on.
   const [shift, setShift] = useState(0);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setShift(0);
     const id = setTimeout(() => {
       const el = lineRef.current;
@@ -4888,10 +5322,10 @@ function SessionTitleSheet({
 }) {
   const [error, setError] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const backdropRef = useRef<HTMLDivElement>(null);
+  const backdropRef = useRef<HTMLButtonElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const closingRef = useRef(false);
-  const swipeDismissYRef = useRef(0);
+  const switchDirRef = useRef<1 | -1 | null>(null);
 
   // Per-session live data, selected for whichever session is active right now.
   const messages = messagesBySid[sid] ?? EMPTY_MESSAGES;
@@ -4907,14 +5341,24 @@ function SessionTitleSheet({
   const go = useCallback(
     (target: string | null) => {
       if (!target || closingRef.current) return;
+      const targetIdx = order.indexOf(target);
+      const dir: 1 | -1 = targetIdx > idx ? 1 : -1;
+      switchDirRef.current = dir;
       haptic("selection");
+      const body = bodyRef.current;
+      if (body) {
+        body.getAnimations().forEach((animation) => animation.cancel());
+        body.style.transition = "";
+        body.style.transform = "";
+        body.style.opacity = "";
+      }
       onSwitch(target);
     },
-    [onSwitch],
+    [idx, onSwitch, order],
   );
 
   // A stale composer error from the previous session shouldn't bleed across.
-  useEffect(() => setError(null), [sid]);
+  useLayoutEffect(() => setError(null), [sid]);
 
   // The full-height sheet is a pure consumer of `messages`/`loading`, which only
   // populate while a sid is in the live SSE stream (driven by collapse state).
@@ -4939,8 +5383,8 @@ function SessionTitleSheet({
     [],
   );
 
-  // Crossfade the transcript when switching sessions (the entrance morph below
-  // handles the very first mount, so skip the switch animation that one time).
+  // Slide the newly selected session in from the side its card/page would occupy.
+  // The entrance morph below handles the very first mount, so skip this once.
   const firstRef = useRef(true);
   useEffect(() => {
     if (firstRef.current) {
@@ -4949,16 +5393,23 @@ function SessionTitleSheet({
     }
     const body = bodyRef.current;
     if (!body) return;
+    const dir = switchDirRef.current;
+    switchDirRef.current = null;
+    const reduceMotion =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    if (!dir || reduceMotion) return;
+    const inbound = dir === 1 ? 18 : -18;
     // Clear any inline transform/transition left by an in-progress swipe so the
-    // crossfade starts from a clean slate.
+    // transcript layout starts from a clean slate.
+    body.getAnimations().forEach((animation) => animation.cancel());
     body.style.transition = "";
     body.style.transform = "";
     body.animate(
       [
-        { opacity: 0, transform: "translateY(6px)" },
-        { opacity: 1, transform: "translateY(0px)" },
+        { opacity: 0, transform: `translateX(${inbound}px)` },
+        { opacity: 1, transform: "translateX(0px)" },
       ],
-      { duration: 160, easing: "ease-out" },
+      { duration: 150, easing: "ease-out" },
     );
   }, [sid]);
 
@@ -4990,6 +5441,7 @@ function SessionTitleSheet({
       if (closingRef.current || e.touches.length !== 1) return;
       const target = e.target as HTMLElement | null;
       if (!target?.closest("form")) return; // only swipes that start on the input bar
+      if (composerIsEditing(target)) return;
       const t = e.touches[0];
       st.active = true;
       st.decided = false;
@@ -5126,24 +5578,21 @@ function SessionTitleSheet({
     });
   }, [flipTransform, onClose]);
 
-  // Swipe up to dismiss the full-height session sheet, scoped to the composer
-  // input bar so transcript/header gestures keep their normal behavior.
+  // Full-details-only gesture: swipe up from the session composer to dismiss
+  // the zoomed-in sheet. This deliberately starts only from the input bar area,
+  // leaving transcript scroll and header touches alone.
   useEffect(() => {
     const panel = panelRef.current;
     if (!panel) return;
     const DISMISS_Y = 88;
     const VELOCITY = 0.45; // px/ms
     const st = { active: false, decided: false, dismissing: false, x0: 0, y0: 0, y: 0, t0: 0 };
-    const canStartFrom = (target: HTMLElement | null) => {
-      return Boolean(target?.closest("form"));
-    };
     const setY = (y: number, animate = false) => {
-      swipeDismissYRef.current = y;
       panel.style.transition = animate
         ? "transform 180ms cubic-bezier(0.22,1,0.36,1), opacity 180ms ease"
         : "none";
-      panel.style.transform = y ? `translateY(${y}px)` : "";
-      panel.style.opacity = y ? `${1 - Math.min(0.28, Math.abs(y) / 900)}` : "";
+      panel.style.transform = y ? `translate3d(0, ${y}px, 0)` : "";
+      panel.style.opacity = y ? `${1 - Math.min(0.16, Math.abs(y) / 1200)}` : "";
     };
     const finishDismiss = () => {
       if (closingRef.current) return;
@@ -5157,30 +5606,38 @@ function SessionTitleSheet({
         done = true;
         onClose();
       };
+      panel.getAnimations().forEach((animation) => animation.cancel());
       panel.style.transition =
-        "transform 240ms cubic-bezier(0.32,0.72,0,1), opacity 180ms ease-out";
-      panel.style.transform = "translateY(-110dvh)";
-      panel.style.opacity = "0.72";
-      panel.addEventListener("transitionend", finish, { once: true });
-      window.setTimeout(finish, 280);
+        "transform 300ms cubic-bezier(0.32,0.72,0,1), opacity 220ms ease-out";
+      panel.style.transform = "translate3d(0, -105%, 0)";
+      panel.style.opacity = "0.92";
+      const onTransitionEnd = (event: TransitionEvent) => {
+        if (event.propertyName !== "transform") return;
+        panel.removeEventListener("transitionend", onTransitionEnd);
+        finish();
+      };
+      panel.addEventListener("transitionend", onTransitionEnd);
+      window.setTimeout(finish, 340);
       if (backdrop) {
-        backdrop.style.transition = "opacity 180ms ease-out";
+        backdrop.style.transition = "opacity 240ms ease-out";
         backdrop.style.opacity = "0";
       }
       if (body) {
-        body.style.transition = "opacity 120ms ease-out";
+        body.style.transition = "transform 260ms cubic-bezier(0.32,0.72,0,1), opacity 180ms ease-out";
+        body.style.transform = "translate3d(0, -18px, 0)";
         body.style.opacity = "0";
       }
     };
-    const onStart = (e: TouchEvent) => {
-      if (closingRef.current || e.touches.length !== 1) return;
-      if (!canStartFrom(e.target as HTMLElement | null)) return;
-      const t = e.touches[0];
+    const onStart = (event: TouchEvent) => {
+      if (closingRef.current || event.touches.length !== 1) return;
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest("form")) return;
+      const touch = event.touches[0];
       st.active = true;
       st.decided = false;
       st.dismissing = false;
-      st.x0 = t.clientX;
-      st.y0 = t.clientY;
+      st.x0 = touch.clientX;
+      st.y0 = touch.clientY;
       st.y = 0;
       st.t0 = performance.now();
       panel.getAnimations().forEach((animation) => {
@@ -5188,11 +5645,11 @@ function SessionTitleSheet({
       });
       setY(0);
     };
-    const onMove = (e: TouchEvent) => {
+    const onMove = (event: TouchEvent) => {
       if (!st.active) return;
-      const t = e.touches[0];
-      const dx = t.clientX - st.x0;
-      const dy = t.clientY - st.y0;
+      const touch = event.touches[0];
+      const dx = touch.clientX - st.x0;
+      const dy = touch.clientY - st.y0;
       if (!st.decided) {
         if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
         st.decided = true;
@@ -5203,7 +5660,7 @@ function SessionTitleSheet({
         }
       }
       if (!st.dismissing) return;
-      e.preventDefault();
+      event.preventDefault();
       st.y = -Math.min(Math.abs(dy), window.innerHeight * 0.6);
       setY(st.y);
       const backdrop = backdropRef.current;
@@ -5229,6 +5686,8 @@ function SessionTitleSheet({
       }
       window.setTimeout(() => {
         panel.style.transition = "";
+        panel.style.transform = "";
+        panel.style.opacity = "";
       }, 200);
     };
     panel.addEventListener("touchstart", onStart, { passive: true });
@@ -5274,17 +5733,19 @@ function SessionTitleSheet({
 
   return createPortal(
     <div className="fixed inset-0 z-[90]">
-      <div
+      <button
+        type="button"
         ref={backdropRef}
         onClick={requestClose}
         className="absolute inset-0 bg-black/50"
+        aria-label="Close session details"
       />
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        style={{ transformOrigin: "top left", willChange: "transform" }}
+        style={{ transformOrigin: "top left" }}
         className="absolute inset-0 flex flex-col overflow-hidden bg-background text-foreground"
       >
         <div
@@ -5582,15 +6043,67 @@ const SessionCard = memo(function SessionCard({
     haptic("selection");
     try {
       stopSpeaking();
-      const r = await api<{ summary: string }>(`/api/sessions/${sid}/summary`, {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}/summary/stream`, {
         method: "POST",
       });
-      if (!r.summary?.trim()) throw new Error("No summary returned");
-      toast.message("Speaking session summary", { description: r.summary });
-      await speakText(r.summary, {
-        sessionId: sid,
-        title: titleForSession(session),
-      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error || `summary failed (${res.status})`);
+      }
+      if (!res.body) throw new Error("No summary stream returned");
+
+      toast.message("Speaking session summary");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let pending = "";
+      let full = "";
+      let spoken = false;
+      let speech = Promise.resolve();
+      const title = titleForSession(session);
+
+      const enqueue = (text: string) => {
+        const t = text.replace(/\s+/g, " ").trim();
+        if (!t) return;
+        spoken = true;
+        speech = speech.then(() => speakText(t, { sessionId: sid, title }));
+      };
+      const drainSentences = (force = false) => {
+        for (;;) {
+          const m = pending.match(/^([\s\S]*?[.!?])(?:\s+|$)/);
+          if (!m) break;
+          enqueue(m[1]);
+          pending = pending.slice(m[0].length);
+        }
+        if (pending.length > 220) {
+          const cut = Math.max(
+            pending.lastIndexOf(",", 220),
+            pending.lastIndexOf(";", 220),
+            pending.lastIndexOf(" ", 220),
+          );
+          if (cut > 80) {
+            enqueue(pending.slice(0, cut));
+            pending = pending.slice(cut + 1);
+          }
+        }
+        if (force && pending.trim()) {
+          enqueue(pending);
+          pending = "";
+        }
+      };
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        if (!chunk) continue;
+        full += chunk;
+        pending += chunk;
+        drainSentences();
+      }
+      pending += decoder.decode();
+      drainSentences(true);
+      if (!spoken || !full.trim()) throw new Error("No summary returned");
+      await speech;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
@@ -5600,7 +6113,7 @@ const SessionCard = memo(function SessionCard({
     }
   }
 
-  // ── mobile gestures: tap-header-to-collapse + iOS swipe-to-delete + swipe-up-to-collapse ──
+  // ── mobile gestures: tap-header-to-collapse + iOS swipe-to-delete ─────────
   const isMobile = useIsMobile();
   // Fall back to the list payload's last message when we aren't streaming this
   // card (collapsed) so the collapsed preview line still shows something.
@@ -5620,18 +6133,14 @@ const SessionCard = memo(function SessionCard({
   // kept out of the paint tree unless this or swipeOpen is set — otherwise it
   // sits behind every card and bleeds at the edges during fast momentum scroll.
   const [swiping, setSwiping] = useState(false);
-  // True while a vertical swipe-up-dismiss is in progress — drives a reduced
-  // opacity on the card so the gesture has a visual "peeling away" feel.
-  const [swipingUp, setSwipingUp] = useState(false);
   // Mutable drag bookkeeping — kept in a ref so touchmove never re-renders.
   const drag = useRef({
-    startX: 0, startY: 0, x: 0, dy: 0, w: 0, h: 0,
+    startX: 0, startY: 0, x: 0, w: 0,
     dragging: false, decided: false, horizontal: false, justSwiped: false,
   });
   const openRef = useRef(false);
   const OPEN = 116;    // resting reveal width once snapped open — wide enough to
                        // leave a left gap before the icon + "Delete" label
-  const COLLAPSE_Y = 96; // px of upward travel needed to commit a collapse
   const COMMIT = 0.55; // drag past this fraction of the card → delete on release
 
   // Measure the header so a collapsed card animates down to exactly its height.
@@ -5703,7 +6212,6 @@ const SessionCard = memo(function SessionCard({
     if (el) el.style.transition = "";
     setSwipeOpen(false);
     openRef.current = false;
-    setSwipingUp(false);
     setTransform(0, 0);
   }
 
@@ -5714,8 +6222,7 @@ const onTouchStart = (e: ReactTouchEvent) => {
     if (!el) return;
     const t = e.touches[0];
     const d = drag.current;
-    d.startX = t.clientX; d.startY = t.clientY; d.w = el.offsetWidth; d.h = el.offsetHeight;
-    d.dy = 0;
+    d.startX = t.clientX; d.startY = t.clientY; d.w = el.offsetWidth;
     d.dragging = true; d.decided = false; d.horizontal = false; d.justSwiped = false;
     el.style.transition = "none";
   };
@@ -5732,8 +6239,9 @@ const onTouchStart = (e: ReactTouchEvent) => {
       d.horizontal = Math.abs(mx) > Math.abs(my);
       if (d.horizontal) {
         setSwiping(true); // horizontal swipe → reveal the delete action behind it
-      } else if (my < -4 && !collapsed) {
-        setSwipingUp(true); // vertical swipe up → visual peel-away feedback
+      } else {
+        d.dragging = false; // vertical intent → let the transcript/page scroll
+        return;
       }
     }
     if (d.horizontal) {
@@ -5743,18 +6251,6 @@ const onTouchStart = (e: ReactTouchEvent) => {
       d.x = nx;
       setTransform(nx, 0);
       return;
-    }
-    // Vertical swipe-up to collapse: only when the card is expanded and the drag
-    // is upward. Track the dy so we can commit on release; apply a subtle
-    // translate + opacity so the gesture feels tactile.
-    if (my < -4 && !collapsed) {
-      d.dy = -Math.min(Math.abs(my), d.h * 0.4); // cap at 40% of card height
-      const el = sectionRef.current;
-      if (el) {
-        const pct = Math.min(1, Math.abs(d.dy) / COLLAPSE_Y);
-        el.style.transform = `translateY(${d.dy}px)`;
-        el.style.opacity = `${1 - pct * 0.35}`; // fade out as you drag up
-      }
     }
   };
 
@@ -5766,7 +6262,6 @@ const onTouchStart = (e: ReactTouchEvent) => {
     if (el) el.style.transition = "";
     if (!d.decided) {
       setSwiping(false);
-      setSwipingUp(false);
       return;
     }
     if (d.horizontal) {
@@ -5783,34 +6278,6 @@ const onTouchStart = (e: ReactTouchEvent) => {
       setTransform(willOpen ? -OPEN : 0, 0);
       return;
     }
-    setSwipingUp(false);
-    if (d.dy <= -COLLAPSE_Y) {
-      haptic("selection");
-      // Spring the card back to its resting position while fading it in,
-      // then collapse so the built-in CSS height transition shrinks it down.
-      if (el) {
-        el.style.transition = "transform 0.18s ease, opacity 0.18s ease";
-        el.style.transform = "";
-        el.style.opacity = "";
-      }
-      window.setTimeout(() => {
-        if (el) el.style.transition = "";
-        setCollapsed(true);
-      }, 140);
-      return;
-    }
-    // Not enough travel — snap back.
-    const prev = swipingUp;
-    if (el) {
-      el.style.transition = "transform 0.2s ease, opacity 0.2s ease";
-      el.style.transform = "";
-      el.style.opacity = "";
-    }
-    window.setTimeout(() => {
-      if (el && prev) {
-        el.style.transition = "";
-      }
-    }, 220);
   };
 
   // ── long-press the title → morphing full-height sheet ──────────────────────
@@ -5970,7 +6437,7 @@ const onTouchStart = (e: ReactTouchEvent) => {
           </span>
         ) : null}
         {!collapsedView && (
-          (session.agent === "claude" || session.agent === "opencode") &&
+          (session.agent === "claude" || session.agent === "opencode" || session.agent === "hermes") &&
           (session.tmuxTarget || session.agent === "opencode") &&
           sid ? (
           <DropdownMenu>
@@ -6194,8 +6661,8 @@ const ChatStream = memo(function ChatStream({
         </div>
       ) : (
         <div className="flex h-full min-h-64 flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
-          {loading ? <Loader2 className="size-5 animate-spin" /> : <MessageSquare className="size-5" />}
-          <span>{loading ? "Loading live transcript..." : "No transcript messages yet"}</span>
+          <MessageSquare className="size-5" />
+          <span>No transcript messages yet</span>
         </div>
       )}
     </div>
@@ -6292,7 +6759,7 @@ function PromptPanel({
   const [pending, setPending] = useState<number | null>(null);
 
   // Reset the lock whenever the prompt itself changes (answered → new / gone).
-  useEffect(() => {
+  useLayoutEffect(() => {
     setPending(null);
   }, [sig]);
 
@@ -6386,10 +6853,12 @@ function QueuePanel({
   // pending/sending are dropped the moment their text surfaces in the live
   // transcript too, in case the status update is slow to arrive.
   const isInTranscript = useMemo(() => {
-    const needles = messages
-      .filter((m) => m.role === "user" && m.kind === "text" && !m.pending)
-      .map((m) => normText(m.text).slice(0, 48))
-      .filter(Boolean);
+    const needles: string[] = [];
+    for (const message of messages) {
+      if (message.role !== "user" || message.kind !== "text" || message.pending) continue;
+      const needle = normText(message.text).slice(0, 48);
+      if (needle) needles.push(needle);
+    }
     return (text: string) => {
       const needle = normText(text).slice(0, 48);
       if (!needle) return false;
@@ -6512,10 +6981,9 @@ function AgentView({
       {report ? (
         <>
           <ActionsPanel report={report} agent={agent.name} onRefresh={onRefreshReport} />
-          <article
-            className="markdown report-markdown rounded-xl border border-border bg-card p-3"
-            dangerouslySetInnerHTML={{ __html: report.html }}
-          />
+          <article className="markdown report-markdown rounded-xl border border-border bg-card p-3">
+            <Streamdown>{report.raw}</Streamdown>
+          </article>
         </>
       ) : (
         <div className="rounded-xl border border-border bg-card p-8 text-center text-muted-foreground">
@@ -6539,7 +7007,7 @@ function ActionsPanel({
   const [selected, setSelected] = useState<string[]>([]);
   const [busyMode, setBusyMode] = useState<"combined" | "separate" | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setSelected([]);
   }, [report.date, agent]);
 
@@ -6701,6 +7169,7 @@ function NewSessionDialog({
   onClose,
   onCreated,
   onReposChanged,
+  onProjectSwipe,
   // Presentation shell for the shared composer core:
   //  - "drawer" (default): desktop / call-screen bottom sheet (Vaul), opened by
   //    the orb or the "C" shortcut.
@@ -6709,8 +7178,8 @@ function NewSessionDialog({
   variant = "drawer",
   expanded = false,
   onExpandedChange,
-  onLaunchStart,
   focusNonce = 0,
+  codingAgents,
 }: {
   open: boolean;
   repos: Repo[];
@@ -6726,11 +7195,9 @@ function NewSessionDialog({
   projectOptions?: string[];
   onProjectChange?: (value: string) => void;
   onClose: () => void;
-  onCreated: () => Promise<void>;
-  // Fired synchronously the instant the user submits — before the (slow) spawn
-  // request resolves — so the parent can drop an optimistic "starting…" card
-  // into the list and the transition reads as one continuous motion.
-  onLaunchStart?: (meta: { prompt: string; agent: string }) => void;
+  onCreated: (result?: { launchId?: string; sessionId?: string }) => Promise<void>;
+  // Inline only: horizontal swipes cycle the live-view project filter.
+  onProjectSwipe?: (dir: 1 | -1) => boolean;
   onReposChanged: () => Promise<void>;
   variant?: "drawer" | "inline";
   // Inline only: compact↔full controls toggle (lifted to the parent so the orb
@@ -6739,6 +7206,7 @@ function NewSessionDialog({
   onExpandedChange?: (next: boolean) => void;
   // Inline only: bump to focus the textarea (orb double-tap / "new session").
   focusNonce?: number;
+  codingAgents?: CodingAgentInfo[];
 }) {
   const [agent, setAgent] = useState<AgentKind>(
     () => (localStorage.getItem("lfg_v2_agent") as AgentKind | null) || "aisdk",
@@ -6765,7 +7233,7 @@ function NewSessionDialog({
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [draggingFiles, setDraggingFiles] = useState(false);
   const [usage, setUsage] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [pendingCreates, setPendingCreates] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewUrls = useRef<string[]>([]);
@@ -6783,10 +7251,117 @@ function NewSessionDialog({
   // external affordance bumps `focusNonce`. The shadcn Textarea isn't a
   // forwardRef, so reach it through the wrapping element.
   const fieldRef = useRef<HTMLDivElement>(null);
+  const inlineShellRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (variant !== "inline" || !focusNonce) return;
     fieldRef.current?.querySelector("textarea")?.focus();
   }, [focusNonce, variant]);
+  useEffect(() => {
+    if (variant !== "inline" || !onProjectSwipe) return;
+    const shell = inlineShellRef.current;
+    if (!shell) return;
+    const SWIPE_COMMIT = 64;
+    const st = { active: false, decided: false, horizontal: false, x0: 0, y0: 0, dx: 0 };
+    const reducedMotion = () =>
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const setTx = (px: number) => {
+      shell.style.transition = "none";
+      shell.style.transform = px ? `translateX(${px}px)` : "";
+      shell.style.opacity = px ? String(Math.max(0.72, 1 - Math.abs(px) / 520)) : "";
+    };
+    const release = () => {
+      shell.style.transition =
+        "transform 190ms cubic-bezier(0.22,1,0.36,1), opacity 190ms ease-out";
+      shell.style.transform = "";
+      shell.style.opacity = "";
+    };
+    const finish = (dir: 1 | -1) => {
+      const changed = onProjectSwipe(dir);
+      if (!changed || reducedMotion()) {
+        release();
+        return;
+      }
+      const width = Math.max(320, window.innerWidth || shell.clientWidth || 320);
+      const out = dir === 1 ? -width : width;
+      const inbound = -out;
+      shell.style.transition =
+        "transform 130ms cubic-bezier(0.32,0.72,0,1), opacity 130ms ease-out";
+      shell.style.transform = `translateX(${out}px)`;
+      shell.style.opacity = "0.15";
+      window.setTimeout(() => {
+        shell.style.transition = "none";
+        shell.style.transform = `translateX(${inbound}px)`;
+        shell.style.opacity = "0.35";
+        requestAnimationFrame(() => {
+          shell.style.transition =
+            "transform 210ms cubic-bezier(0.22,1,0.36,1), opacity 210ms ease-out";
+          shell.style.transform = "";
+          shell.style.opacity = "";
+        });
+      }, 130);
+    };
+    const onStart = (event: TouchEvent) => {
+      if (event.touches.length !== 1 || pendingCreates > 0) return;
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest("form")) return;
+      if (target.closest("select, button, input[type='file'], [data-no-composer-swipe]")) return;
+      if (composerIsEditing(target)) return;
+      const touch = event.touches[0];
+      st.active = true;
+      st.decided = false;
+      st.horizontal = false;
+      st.x0 = touch.clientX;
+      st.y0 = touch.clientY;
+      st.dx = 0;
+    };
+    const onMove = (event: TouchEvent) => {
+      if (!st.active) return;
+      const touch = event.touches[0];
+      const dx = touch.clientX - st.x0;
+      const dy = touch.clientY - st.y0;
+      if (!st.decided) {
+        if (Math.abs(dx) < 9 && Math.abs(dy) < 9) return;
+        st.decided = true;
+        st.horizontal = Math.abs(dx) > Math.abs(dy) * 1.18;
+        if (!st.horizontal) {
+          st.active = false;
+          return;
+        }
+      }
+      if (!st.horizontal) return;
+      event.preventDefault();
+      st.dx = dx;
+      setTx(dx * 0.48);
+    };
+    const onEnd = () => {
+      if (!st.active) return;
+      const { horizontal, dx } = st;
+      st.active = false;
+      if (!horizontal) return;
+      if (dx > SWIPE_COMMIT) {
+        haptic("selection");
+        finish(-1);
+      } else if (dx < -SWIPE_COMMIT) {
+        haptic("selection");
+        finish(1);
+      } else {
+        release();
+      }
+    };
+    shell.addEventListener("touchstart", onStart, { passive: true });
+    shell.addEventListener("touchmove", onMove, { passive: false });
+    shell.addEventListener("touchend", onEnd, { passive: true });
+    shell.addEventListener("touchcancel", onEnd, { passive: true });
+    return () => {
+      shell.removeEventListener("touchstart", onStart);
+      shell.removeEventListener("touchmove", onMove);
+      shell.removeEventListener("touchend", onEnd);
+      shell.removeEventListener("touchcancel", onEnd);
+      shell.style.transition = "";
+      shell.style.transform = "";
+      shell.style.opacity = "";
+    };
+  }, [onProjectSwipe, pendingCreates, variant]);
   useEffect(() => {
     return () => {
       for (const url of previewUrls.current) URL.revokeObjectURL(url);
@@ -6799,7 +7374,7 @@ function NewSessionDialog({
     textarea.scrollTop = textarea.scrollHeight;
   }, [prompt]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) {
       setResumeOpen(false);
       setResumable(null);
@@ -6851,6 +7426,7 @@ function NewSessionDialog({
   const projectScoped = !!scopedRepo;
   const selectedRepo = scopedRepo?.cwd || repo || repos[0]?.cwd || "";
   const selectedIsCustom = repos.some((r) => r.cwd === selectedRepo && r.custom);
+  const launching = pendingCreates > 0;
 
   // Pin an arbitrary git repo on the box (outside LFG_REPOS_ROOT) into the
   // picker. The path is resolved/validated server-side; on success we refresh
@@ -6910,6 +7486,22 @@ function NewSessionDialog({
   useEffect(() => {
     if (!models.includes(model)) setModel(models[0]);
   }, [models, model]);
+
+  const visibleAgentOptions = useMemo(() => {
+    const visible = new Set<string>();
+    for (const item of codingAgents ?? []) {
+      if (item.visible) visible.add(item.key);
+    }
+    const filtered = codingAgents ? AGENT_OPTIONS.filter((option) => visible.has(option.key)) : AGENT_OPTIONS;
+    return filtered.length ? filtered : AGENT_OPTIONS;
+  }, [codingAgents]);
+
+  useEffect(() => {
+    if (visibleAgentOptions.some((option) => option.key === agent)) return;
+    const next = visibleAgentOptions[0]?.key ?? "aisdk";
+    setAgent(next);
+    setModel(localStorage.getItem(`lfg_model_${next}`) || AGENT_DEFAULT_MODEL[next]);
+  }, [agent, visibleAgentOptions]);
 
   if (!open) return null;
 
@@ -6977,78 +7569,83 @@ function NewSessionDialog({
 
   function submit(e?: FormEvent, overrideText?: string) {
     e?.preventDefault();
-    if (busy) return;
     const taskPrompt = (overrideText ?? prompt).trim();
     const files = attachments;
+    if (!taskPrompt && !files.length) return;
+    const launchUser = user || null;
+    const launchAgent = agent;
+    const launchModel = model;
+    const launchThinkingLevel = thinkingLevel;
+    const revokedUrls = new Set(files.map((att) => att.previewUrl).filter((url): url is string => !!url));
     setError(null);
-    setBusy(true);
-    localStorage.setItem("lfg_v2_agent", agent);
-    localStorage.setItem("lfg_v2_repo", selectedRepo);
-    localStorage.setItem(`lfg_model_${agent}`, model);
-    if (agentSupportsThinking(agent)) localStorage.setItem("lfg_thinking_level", thinkingLevel);
-    if (agent === "claude") localStorage.setItem("lfg_model", model);
-    if (user) localStorage.setItem("lfg_user", user);
-    // Close the drawer immediately — the spawn is slow (tmux + agent boot), so we
-    // hand it to a background sonner toast rather than holding the form open on a
-    // spinner. The prompt is only cleared on success, so a failed create leaves
-    // the typed task intact for a retry when the drawer is reopened.
-    onClose();
-    // Inline composer stays mounted (no drawer to dismiss); just collapse back to
-    // compact and blur so the soft keyboard closes after firing the create.
-    if (variant === "inline") (document.activeElement as HTMLElement | null)?.blur?.();
-    const createP = (async () => {
-      const uploaded = files.length ? await Promise.all(files.map(uploadAttachment)) : [];
-      const composedPrompt = composeAttachmentMessage(taskPrompt, uploaded);
-      // Optimistic kick: tell the parent we're launching NOW so a placeholder
-      // card flies into the list immediately, after uploads are resolved and the
-      // prompt contains the file paths the agent can read.
-      onLaunchStart?.({ prompt: composedPrompt, agent });
-      const res = await api<{ sessionId?: string }>("/api/sessions/new", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cwd: selectedRepo,
-          prompt: composedPrompt || undefined,
-          user: user || undefined,
-          agent,
-          model,
-          thinkingLevel: agentSupportsThinking(agent) ? thinkingLevel : undefined,
-        }),
-      });
-      const sid = res?.sessionId;
-      if (sid) {
-        markCreatedSid(sid);
-        markCollapsedSid(sid);
-      }
-      for (const att of files) {
-        if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
-      }
-      setPrompt("");
-      setAttachments([]);
-      return onCreated();
-    })().catch((err) => {
-      setError(err instanceof Error ? err.message : String(err));
-      setAttachments((current) =>
-        current.map((att) => (att.status === "uploading" ? { ...att, status: "ready" } : att)),
-      );
-      throw err;
-    }).finally(() => setBusy(false));
-    toast.promise(createP, {
-      loading: files.length ? "Uploading and creating session…" : "Creating session…",
-      success: "Session started",
-      error: (err) => (err instanceof Error ? err.message : "Couldn't create session"),
+    setPrompt("");
+    setAttachments([]);
+    previewUrls.current = previewUrls.current.filter((url) => {
+      if (!revokedUrls.has(url)) return true;
+      URL.revokeObjectURL(url);
+      return false;
     });
+    setPendingCreates((n) => n + 1);
+    localStorage.setItem("lfg_v2_agent", launchAgent);
+    localStorage.setItem("lfg_v2_repo", selectedRepo);
+    localStorage.setItem(`lfg_model_${launchAgent}`, launchModel);
+    if (agentSupportsThinking(launchAgent)) localStorage.setItem("lfg_thinking_level", launchThinkingLevel);
+    if (launchAgent === "claude") localStorage.setItem("lfg_model", launchModel);
+    if (launchUser) localStorage.setItem("lfg_user", launchUser);
+    // Close only the drawer flow. The inline home composer is the fast-entry
+    // path: keep it open and focused so the next session can be typed while this
+    // one boots in the background.
+    if (variant === "inline") {
+      onExpandedChange?.(true);
+      requestAnimationFrame(() => fieldRef.current?.querySelector("textarea")?.focus());
+    } else {
+      onClose();
+    }
+    void (async () => {
+      try {
+        const uploaded = files.length ? await Promise.all(files.map(uploadAttachment)) : [];
+        const composedPrompt = composeAttachmentMessage(taskPrompt, uploaded);
+        const res = await api<{ sessionId?: string }>("/api/sessions/new", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cwd: selectedRepo,
+            prompt: composedPrompt || undefined,
+            user: launchUser || undefined,
+            agent: launchAgent,
+            model: launchModel,
+            thinkingLevel: agentSupportsThinking(launchAgent) ? launchThinkingLevel : undefined,
+          }),
+        });
+        const sid = res?.sessionId;
+        if (sid) {
+          markCreatedSid(sid);
+          markCollapsedSid(sid);
+        }
+        await onCreated({ launchId: sid, sessionId: sid });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setError(message);
+        toast.error(message || "Couldn't create session");
+        setAttachments((current) =>
+          current.map((att) => (att.status === "uploading" ? { ...att, status: "ready" } : att)),
+        );
+      } finally {
+        setPendingCreates((n) => Math.max(0, n - 1));
+      }
+    })();
   }
 
   // Inline composer resting state: only the agent icon + prompt + mic + Start
   // show; tapping the agent icon morphs the controls row open. The drawer
   // variant is always expanded.
   const compact = variant === "inline" && !expanded;
+  const canSubmit = !!selectedRepo && (!!prompt.trim() || attachments.length > 0);
   const selectedAgentOption =
-    AGENT_OPTIONS.find((option) => option.key === agent) ?? AGENT_OPTIONS[0];
+    visibleAgentOptions.find((option) => option.key === agent) ?? visibleAgentOptions[0] ?? AGENT_OPTIONS[0];
   // Keep every agent in a fixed position so picking one never reshuffles the
   // icons. The selected agent is highlighted in place rather than hoisted out.
-  const agentButtons = AGENT_OPTIONS;
+  const agentButtons = visibleAgentOptions;
 
   // The agent switcher + model / thinking / repo pills. Shared between the
   // inline composer (revealed in its own row when expanded) and the always-open
@@ -7217,6 +7814,7 @@ function NewSessionDialog({
       <input
         ref={fileInputRef}
         type="file"
+        aria-label="Attach files"
         multiple
         className="hidden"
         onChange={(event) => {
@@ -7249,6 +7847,7 @@ function NewSessionDialog({
           )}
         />
         <MicButton
+          minimal
           className="absolute bottom-1 right-1 size-9"
           silenceMs={2500}
           baseText={prompt}
@@ -7299,7 +7898,6 @@ function NewSessionDialog({
                 onClick={() => removeAttachment(att.id)}
                 aria-label={`Remove ${att.name}`}
                 title="Remove"
-                disabled={busy}
               >
                 <X className="size-3.5" />
               </button>
@@ -7372,12 +7970,11 @@ function NewSessionDialog({
             onClick={() => fileInputRef.current?.click()}
             aria-label="Attach files"
             title="Attach files"
-            disabled={busy}
           >
             <Paperclip className="size-4" />
           </Button>
-          <Button type="submit" variant="secondary" disabled={busy || !selectedRepo}>
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+          <Button type="submit" variant="secondary" disabled={!canSubmit}>
+            <Send className="size-4" />
             Start
           </Button>
         </div>
@@ -7402,10 +7999,10 @@ function NewSessionDialog({
   if (variant === "inline") {
     return (
       <div
-        aria-busy={busy}
+        aria-busy={launching}
         className={cn(
           "pointer-events-auto fixed inset-x-0 bottom-0 z-[55] border-t border-border/60 bg-background/95 pt-4 shadow-[0_-8px_24px_rgba(0,0,0,0.12)] backdrop-blur-xl",
-          busy && "lfg-composer-launching",
+          launching && "lfg-composer-launching",
         )}
       >
         {projectOptions && onProjectChange ? (
@@ -7414,10 +8011,13 @@ function NewSessionDialog({
               value={scopedProject}
               projects={projectOptions}
               onChange={onProjectChange}
+              solidSurface
             />
           </div>
         ) : null}
-        <div className="mx-auto max-w-lg">{formBody}</div>
+        <div ref={inlineShellRef} className="mx-auto max-w-lg will-change-transform">
+          {formBody}
+        </div>
       </div>
     );
   }
@@ -7456,7 +8056,7 @@ function ResumeSessionSheet({
   onClose: () => void;
 }) {
   return createPortal(
-    <div className="fixed inset-0 z-[80] flex flex-col bg-background text-foreground lfg-resume-in">
+    <div className="pointer-events-auto fixed inset-0 z-[80] flex flex-col bg-background text-foreground lfg-resume-in">
       <header
         className="flex shrink-0 items-center gap-2 border-b border-border px-2 pb-3"
         style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.75rem)" }}
@@ -7645,19 +8245,44 @@ function BottomSheet({
 function FindingSheet({
   finding,
   agentName,
+  sourceAgent,
   onClose,
   onReply,
   onDismiss,
 }: {
   finding: AutoFinding;
   agentName: string;
+  sourceAgent?: AutoAgent;
   onClose: () => void;
-  onReply: (f: AutoFinding, text: string) => Promise<void>;
+  onReply: (
+    f: AutoFinding,
+    text: string,
+    opts?: { agent?: AutoAgentBackend; model?: string; thinkingLevel?: string },
+  ) => Promise<void>;
   onDismiss: (f: AutoFinding) => void;
 }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [backend, setBackend] = useState<AutoAgentBackend>(sourceAgent?.agent ?? "aisdk");
+  const [model, setModel] = useState(
+    sourceAgent?.model ?? AGENT_DEFAULT_MODEL[sourceAgent?.agent ?? "aisdk"],
+  );
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(
+    (sourceAgent?.thinkingLevel as ThinkingLevel | undefined) ?? savedThinkingLevel(),
+  );
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const backendModels = AGENT_MODELS[backend];
+  const supportsThinking = agentSupportsThinking(backend);
+
+  useEffect(() => {
+    if (!backendModels.includes(model)) setModel(AGENT_DEFAULT_MODEL[backend]);
+  }, [backend, backendModels, model]);
+
+  const launchOpts = (): { agent: AutoAgentBackend; model: string; thinkingLevel?: string } => ({
+    agent: backend,
+    model,
+    thinkingLevel: supportsThinking ? thinkingLevel : undefined,
+  });
 
   // Present the finding like a live session you can talk to right away: focus
   // the composer as soon as the sheet settles so the user can start typing
@@ -7675,7 +8300,7 @@ function FindingSheet({
     setBusy(true);
     logFindingAction(finding.id, "reply", true);
     try {
-      await onReply(finding, t);
+      await onReply(finding, t, launchOpts());
     } finally {
       setBusy(false);
     }
@@ -7690,7 +8315,11 @@ function FindingSheet({
     setBusy(true);
     logFindingAction(finding.id, "execute", !!text.trim());
     try {
-      await onReply(finding, text.trim() || "Go ahead and implement this fix now.");
+      await onReply(
+        finding,
+        text.trim() || "Go ahead and implement this fix now.",
+        launchOpts(),
+      );
     } finally {
       setBusy(false);
     }
@@ -7710,8 +8339,8 @@ function FindingSheet({
         {finding.reasoning.length ? (
           <>
             <ul className="mt-3 flex flex-col gap-1.5">
-              {finding.reasoning.map((r, i) => (
-                <li key={i} className="flex gap-2 text-[13.5px] text-foreground/90">
+              {finding.reasoning.map((r) => (
+                <li key={r} className="flex gap-2 text-[13.5px] text-foreground/90">
                   <span className="text-muted-foreground">•</span>
                   <span>{r}</span>
                 </li>
@@ -7726,6 +8355,17 @@ function FindingSheet({
             {finding.suggest}
           </div>
         ) : null}
+
+        <div className="mt-4">
+          <AutoAgentModelPicker
+            backend={backend}
+            setBackend={setBackend}
+            model={model}
+            setModel={setModel}
+            thinkingLevel={thinkingLevel}
+            setThinkingLevel={setThinkingLevel}
+          />
+        </div>
 
         <div className="mt-5 flex items-end gap-2 rounded-2xl border border-border bg-background px-3 py-2">
           <Textarea
@@ -7785,10 +8425,12 @@ function FindingSheet({
 // Everything stays editable afterward via the full editor (tap the agent).
 function NewAutoAgentComposer({
   repos,
+  scopedProject,
   onClose,
   onCreate,
 }: {
   repos: Repo[];
+  scopedProject: string;
   onClose: () => void;
   onCreate: (
     idea: string,
@@ -7797,7 +8439,11 @@ function NewAutoAgentComposer({
   ) => void;
 }) {
   const [idea, setIdea] = useState("");
-  const [cwd, setCwd] = useState(repos[0]?.cwd ?? "");
+  const scopedRepo =
+    scopedProject !== "__all"
+      ? repos.find((repo) => repoProject(repo) === scopedProject)
+      : undefined;
+  const [cwd, setCwd] = useState(scopedRepo?.cwd ?? repos[0]?.cwd ?? "");
   const [backend, setBackend] = useState<AutoAgentBackend>("aisdk");
   const [model, setModel] = useState(AGENT_DEFAULT_MODEL.aisdk);
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(savedThinkingLevel());
@@ -8012,6 +8658,7 @@ function AgentEditorSheet({
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
+            aria-label="Auto agent name"
             placeholder="agent-name"
             className="flex-1 bg-transparent text-[17px] font-semibold outline-none placeholder:text-muted-foreground"
           />
@@ -8159,6 +8806,7 @@ function AgentEditorSheet({
                 <input
                   value={schedule}
                   onChange={(e) => setSchedule(e.target.value)}
+                  aria-label="Cron schedule"
                   placeholder="0 9 * * *"
                   className="mt-2 w-full rounded-lg bg-muted px-2 py-1 font-mono text-[13px] outline-none"
                 />
@@ -8294,23 +8942,15 @@ function ScheduleSummary({ expr, tz }: { expr: string; tz: string }) {
   // describeCron is cheap; nextRunAt scans, so compute it only when expr/tz
   // change — NOT on every 30s re-render.
   const desc = useMemo(() => describeCron(expr, navLocale), [expr]);
-  const nextRef = useRef<number | null>(null);
-  const [, force] = useState(0);
-  useEffect(() => {
-    nextRef.current = nextRunAt(expr, tz);
-    force((n) => n + 1);
-  }, [expr, tz]);
+  const [tick, force] = useState(0);
+  const next = useMemo(() => nextRunAt(expr, tz), [expr, tz, tick]);
   // Tick the relative label; only rescan when the previous run actually passed.
   useEffect(() => {
     const id = setInterval(() => {
-      if (nextRef.current != null && Date.now() >= nextRef.current) {
-        nextRef.current = nextRunAt(expr, tz);
-      }
       force((n) => n + 1);
     }, 30_000);
     return () => clearInterval(id);
-  }, [expr, tz]);
-  const next = nextRef.current;
+  }, []);
   return (
     <span className="flex items-center gap-1" title={expr}>
       <CalendarClock className="size-3.5 shrink-0" />
@@ -8436,6 +9076,116 @@ function VoiceSettingsSection() {
         the server.
       </p>
     </section>
+  );
+}
+
+function CodingAgentsPage({
+  agents,
+  onVisibleChange,
+  onSetup,
+  onRefresh,
+}: {
+  agents: CodingAgentInfo[];
+  onVisibleChange: (kind: AgentKind, visible: boolean) => void;
+  onSetup: (kind: AgentKind) => void;
+  onRefresh: () => void;
+}) {
+  return (
+    <div className="mx-auto max-w-xl space-y-3 pb-10">
+      <div className="flex items-center justify-between px-4">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Coding agents
+        </h2>
+        <button
+          type="button"
+          onClick={onRefresh}
+          className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <RotateCcw className="size-3.5" />
+          Refresh
+        </button>
+      </div>
+
+      <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+        {agents.map((agent) => {
+          const configured = agent.status.configured;
+          return (
+            <div key={agent.key} className="px-4 py-3">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-[8px] border border-border bg-background">
+                    <img
+                      src={agentIconSrc(agent.key)}
+                      alt={agentIconAlt(agent.key)}
+                      className="size-5"
+                    />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-semibold">{agent.label}</span>
+                      <Badge variant={configured ? "default" : "secondary"}>
+                        {configured ? "Ready" : "Needs setup"}
+                      </Badge>
+                    </div>
+                    <div className="mt-1 space-y-1">
+                      {agent.status.checks.map((check) => (
+                        <div
+                          key={check.label}
+                          className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+                        >
+                          {check.ok ? (
+                            <Check className="size-3.5 shrink-0 text-success" />
+                          ) : (
+                            <X className="size-3.5 shrink-0 text-destructive" />
+                          )}
+                          <span className="shrink-0">{check.label}</span>
+                          {check.detail ? (
+                            <span className="min-w-0 truncate text-muted-foreground/70">
+                              {check.detail}
+                            </span>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <Switch
+                  checked={agent.visible}
+                  onCheckedChange={(visible) => onVisibleChange(agent.key, visible)}
+                  aria-label={`${agent.label} visible in composer`}
+                />
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2 pl-11">
+                {agent.status.instructions.map((instruction) => (
+                  <span key={instruction} className="min-w-0 flex-1 text-xs text-muted-foreground">
+                    {instruction}
+                  </span>
+                ))}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!agent.status.canAutoSetup || agent.status.setupRunning}
+                  onClick={() => onSetup(agent.key)}
+                  title={
+                    agent.status.canAutoSetup
+                      ? "Run setup for this agent"
+                      : "No automatic setup is available"
+                  }
+                >
+                  {agent.status.setupRunning ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Play className="size-4" />
+                  )}
+                  {agent.status.setupRunning ? "Running…" : "Run setup"}
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -8588,14 +9338,26 @@ function UsagePage() {
   );
 }
 
+function ChangelogPage() {
+  return (
+    <div className="mx-auto max-w-xl space-y-5 pb-10">
+      <article className="markdown rounded-2xl border border-border bg-card/40 px-4 py-4">
+        <Streamdown>{changelogMarkdown}</Streamdown>
+      </article>
+    </div>
+  );
+}
+
 function SettingsView({
   dark,
   toggleTheme,
   user,
   onOpenTerminal,
   onOpenBrowser,
+  onOpenCodingAgents,
   onOpenAuto,
   onOpenUsage,
+  onOpenChangelog,
   extTabs,
   onOpenExt,
 }: {
@@ -8604,8 +9366,10 @@ function SettingsView({
   user: string | null;
   onOpenTerminal: () => void;
   onOpenBrowser: () => void;
+  onOpenCodingAgents: () => void;
   onOpenAuto: () => void;
   onOpenUsage: () => void;
+  onOpenChangelog: () => void;
   extTabs: ExtensionNavTab[];
   onOpenExt: (id: string) => void;
 }) {
@@ -8655,7 +9419,20 @@ function SettingsView({
         <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Automation
         </h2>
-        <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
+        <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+          <button
+            type="button"
+            onClick={onOpenCodingAgents}
+            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
+          >
+            <div className="flex items-center gap-3">
+              <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
+                <Bot className="size-4" />
+              </span>
+              <span className="text-sm font-medium">Coding agents</span>
+            </div>
+            <ChevronRight className="size-4 text-muted-foreground/60" />
+          </button>
           <button
             type="button"
             onClick={onOpenAuto}
@@ -8781,6 +9558,28 @@ function SettingsView({
       </section>
 
       <VoiceSettingsSection />
+
+      {/* About */}
+      <section className="space-y-2">
+        <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          About
+        </h2>
+        <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
+          <button
+            type="button"
+            onClick={onOpenChangelog}
+            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
+          >
+            <div className="flex items-center gap-3">
+              <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
+                <ScrollText className="size-4" />
+              </span>
+              <span className="text-sm font-medium">Changelog</span>
+            </div>
+            <ChevronRight className="size-4 text-muted-foreground/60" />
+          </button>
+        </div>
+      </section>
     </div>
   );
 }

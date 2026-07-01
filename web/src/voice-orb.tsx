@@ -9,7 +9,7 @@ import { startElevenVoice, type ElevenHandle } from "./eleven-voice";
 // Toggle in the browser console:
 //   localStorage.setItem("lfg_voice_eleven","1")  // managed agent
 //   localStorage.removeItem("lfg_voice_eleven")    // LiveKit (default)
-function useElevenManagedAgent(): boolean {
+function readElevenManagedAgent(): boolean {
   try {
     return localStorage.getItem("lfg_voice_eleven") === "1";
   } catch {
@@ -249,7 +249,7 @@ export function VoiceOrb({
     if (roomRef.current || elevenRef.current || status !== "idle")
       void disconnect();
     else if (onOpenCall) onOpenCall(); // phone-call mode owns the connection
-    else if (useElevenManagedAgent())
+    else if (readElevenManagedAgent())
       void connectEleven(); // Option B: managed agent, inline on the orb
     else void connect();
   }, [status, connect, connectEleven, disconnect, onOpenCall]);

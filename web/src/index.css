@@ -382,6 +382,10 @@ html.lfg-keyboard-open {
     min-width: 0;
   }
 
+  .lfg-finding-toast {
+    width: var(--lfg-toast-max, min(27rem, calc(100vw - 2rem))) !important;
+  }
+
   /* Wide report tables scroll inside their own region instead of forcing the
      whole page to scroll horizontally on mobile. */
   .report-markdown .table-wrap {

@@ -40,9 +40,9 @@ const Toaster = ({ ...props }: ToasterProps) => {
           "--normal-text": "var(--popover-foreground)",
           "--normal-border": "var(--border)",
           "--border-radius": "var(--radius-lg)",
-          // Anchor width for the Sonner stack; the toast itself shrinks to fit
+          // Anchor width for the Sonner stack; the toast itself can shrink to
           // content via .cn-toast, capped by this value.
-          "--lfg-toast-max": "min(18rem, calc(100vw - 2rem))",
+          "--lfg-toast-max": "min(27rem, calc(100vw - 2rem))",
           "--width": "var(--lfg-toast-max)",
           "--toast-icon-margin-end": "8px",
           fontFamily: "var(--font-sans)",

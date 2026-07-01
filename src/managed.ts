@@ -16,8 +16,16 @@ export type ManagedSession = {
   tmuxName: string;
   cwd: string;
   createdAt: number;
-  agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "grok";
+  agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "grok" | "hermes";
+  // Stable id shown to clients for lfg-created sessions. For agents that mint a
+  // native transcript id later (Claude/Codex CLI, Codex AI-SDK, Grok), this is
+  // the durable control-plane id while nativeSessionId records the provider id.
   sessionId?: string;
+  nativeSessionId?: string;
+  launchState?: "launching" | "running" | "failed";
+  launchError?: string;
+  model?: string;
+  title?: string;
   /** Main repo checkout when cwd is an auto-provisioned worktree. */
   repoRoot?: string;
   worktreeBranch?: string;
@@ -43,6 +51,14 @@ export function listManaged(): ManagedSession[] {
 export function addManaged(rec: ManagedSession): void {
   const all = readAll();
   all[rec.tmuxName] = rec;
+  writeAll(all);
+}
+
+export function patchManaged(tmuxName: string, patch: Partial<ManagedSession>): void {
+  const all = readAll();
+  const cur = all[tmuxName];
+  if (!cur) return;
+  all[tmuxName] = { ...cur, ...patch };
   writeAll(all);
 }
 

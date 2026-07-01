@@ -1,7 +1,7 @@
 import { readdir, realpath, stat } from "node:fs/promises";
-import { statSync, mkdirSync, type Dirent } from "node:fs";
+import { appendFileSync, statSync, mkdirSync, readFileSync, type Dirent } from "node:fs";
 import { tmpdir, homedir } from "node:os";
-import { extname, join } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import { marked } from "marked";
 import { PATHS, installInfo } from "../config.ts";
@@ -54,6 +54,8 @@ import {
   listSessions,
   resolveTranscript,
   recentMessages,
+  recentMessagesCached,
+  warmRecentMessages,
   searchTranscript,
   messagePage,
   normalizeLineMessages,
@@ -64,6 +66,7 @@ import {
   cwdForTranscript,
   cwdForCodexTranscript,
   type PendingPrompt,
+  type Session,
 } from "../sessions.ts";
 import {
   capturePane,
@@ -78,6 +81,7 @@ import {
   relaunchSessionWithModel,
   spawnManagedCodexSession,
   spawnManagedGrokSession,
+  spawnManagedHermesSession,
   spawnManagedAisdkSession,
   spawnManagedCodexAisdkSession,
   spawnManagedOpencodeAisdkSession,
@@ -85,7 +89,7 @@ import {
   panePidForSession,
   isBusy,
 } from "../tmux.ts";
-import { addManaged, removeManaged } from "../managed.ts";
+import { addManaged, patchManaged, removeManaged } from "../managed.ts";
 import { PtyBridge, termSessionName } from "../pty.ts";
 import { capturePaneScroll, capturePaneEscaped, paneWidth } from "../tmux.ts";
 import { detectUrls } from "../links.ts";
@@ -115,12 +119,37 @@ import {
   type VoiceSettings,
   type SttStreamBridge,
 } from "../voice-providers.ts";
+import {
+  isCodingAgentKind,
+  listCodingAgents,
+  runCodingAgentSetup,
+  setCodingAgentVisibility,
+} from "../coding-agents.ts";
 
 // Where the user keeps the repos lfg can launch agents into. Scanned for git
 // repos at runtime; defaults to ~/repos. The lfg repo itself (PATHS.root) is
 // always offered as a target since it is present and trusted.
 const REPOS_ROOT = reposRoot();
 const SELF_REPO = PATHS.root;
+const EVLOG_DIR = join(PATHS.data, "evlogs");
+
+function evlog(event: string, fields: Record<string, unknown> = {}) {
+  try {
+    mkdirSync(EVLOG_DIR, { recursive: true });
+    const day = new Date().toISOString().slice(0, 10);
+    appendFileSync(
+      join(EVLOG_DIR, `${day}.jsonl`),
+      `${JSON.stringify({
+        ts: new Date().toISOString(),
+        monoMs: Math.round(performance.now() * 1000) / 1000,
+        event,
+        ...fields,
+      })}\n`,
+    );
+  } catch {
+    // Diagnostics must never affect the app path being measured.
+  }
+}
 
 function uploadExt(contentType: string, filename: string): string {
   const fromName = extname(filename).toLowerCase().replace(/^\./, "");
@@ -176,6 +205,13 @@ const CLAUDE_MODELS = ["fable", "opus", "sonnet", "haiku"];
 const AISDK_MODELS = ["opus", "sonnet", "haiku"];
 const GROK_MODELS = ["grok-composer-2.5-fast", "grok-build"];
 const GROK_DEFAULT_MODEL = "grok-composer-2.5-fast";
+const HERMES_MODELS = [
+  "nousresearch/hermes-4-405b",
+  "nousresearch/hermes-4-70b",
+  "nousresearch/hermes-3-llama-3.1-405b",
+];
+const HERMES_DEFAULT_MODEL = "nousresearch/hermes-4-405b";
+const HERMES_PROVIDER = process.env.LFG_HERMES_PROVIDER?.trim() || undefined;
 const OPENCODE_DEFAULT_MODEL = "opencode-go/deepseek-v4-flash";
 // Models whose provider currently rejects our requests (Sakana's fugu returns a
 // hard 403 Forbidden, and the local Novita credential currently 403s too — see
@@ -191,7 +227,7 @@ const OPENCODE_DISABLED_MODELS = new Set<string>([
   "novita-ai/zai-org/glm-5.2",
   "novita-ai/zai-org/glm-5.1",
 ]);
-const AUTO_AGENT_BACKENDS = ["aisdk", "codex-aisdk", "opencode"] as const;
+const AUTO_AGENT_BACKENDS = ["aisdk", "codex-aisdk", "opencode", "hermes"] as const;
 // Reasoning/thinking-effort levels, per agent family. Codex (CLI + ai-sdk)
 // accepts none…xhigh; Claude (CLI + ai-sdk) accepts low…xhigh plus `max`. The
 // dashboard picker only offers the low/medium/high/xhigh overlap, but the
@@ -290,6 +326,25 @@ async function listRepos() {
   for (const r of await listCustomRepos()) await addRepo(r.name, r.cwd, true);
   repos.sort((a, b) => a.name.localeCompare(b.name));
   return repos;
+}
+
+function repoRootForManagedCwd(cwd: string): string | undefined {
+  const top = Bun.spawnSync({
+    cmd: ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const topLevel = top.exitCode === 0 ? top.stdout.toString().trim() : "";
+  const proc = Bun.spawnSync({
+    cmd: ["git", "-C", cwd, "rev-parse", "--git-common-dir"],
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (proc.exitCode !== 0) return topLevel || undefined;
+  const common = proc.stdout.toString().trim();
+  if (!common) return topLevel || undefined;
+  const absCommon = resolve(cwd, common);
+  return absCommon.includes("/.git/worktrees/") ? dirname(absCommon.split("/.git/worktrees/")[0] + "/.git") : topLevel || cwd;
 }
 
 // ---------- agent reports ----------
@@ -417,8 +472,36 @@ const STATIC_FILES: Record<string, { path: string; type: string }> = {
   "/agent-codex.svg": { path: join(WEB_DIR, "agent-codex.svg"), type: "image/svg+xml" },
   "/agent-opencode.svg": { path: join(WEB_DIR, "agent-opencode.svg"), type: "image/svg+xml" },
   "/agent-grok.svg": { path: join(WEB_DIR, "agent-grok.svg"), type: "image/svg+xml" },
+  "/agent-hermes.svg": { path: join(WEB_DIR, "agent-hermes.svg"), type: "image/svg+xml" },
   "/apple-touch-icon.png": { path: join(WEB_DIR, "icon.svg"), type: "image/svg+xml" },
 };
+
+async function webIndexResponse() {
+  // Runtime extension injection: LFG core ships no proprietary UI. Our
+  // deployments set LFG_EXTENSIONS (comma-separated ESM URLs) — each is
+  // injected as a module <script> AFTER the app bundle, so it runs once
+  // window.lfg (host React + registerExtension) exists and contributes UI
+  // (e.g. a private tab). Open-source forks set nothing → clean core.
+  let html = await Bun.file(INDEX_PATH).text();
+  const exts = (process.env.LFG_EXTENSIONS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (exts.length) {
+    const tags = exts
+      .map((src) => `<script type="module" src="${src.replace(/"/g, "&quot;")}"></script>`)
+      .join("");
+    html = html.includes("</body>")
+      ? html.replace("</body>", `${tags}</body>`)
+      : html + tags;
+  }
+  return new Response(html, {
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-cache",
+    },
+  });
+}
 
 function json(obj: unknown, init?: ResponseInit) {
   return new Response(JSON.stringify(obj), {
@@ -432,9 +515,45 @@ function err(status: number, message: string) {
 }
 
 // Attach rendered markdown for assistant/user prose; tool/thinking stay raw.
-function msgWithHtml<T extends { kind: string; text: string }>(m: T) {
-  if (m.kind === "text" && m.text) return { ...m, html: marked.parse(m.text) };
+type HtmlMessage = { kind: string; text: string; html?: string };
+const messageHtmlCache = new Map<string, string>();
+const MESSAGE_HTML_CACHE_MAX = 4_000;
+
+function messageHtmlCacheKey(m: HtmlMessage): string {
+  const id = "id" in m && typeof m.id === "string" ? m.id : "";
+  return `${id}\0${m.kind}\0${m.text.length}\0${m.text.slice(0, 96)}`;
+}
+
+function rememberMessageHtml(key: string, html: string) {
+  if (messageHtmlCache.has(key)) messageHtmlCache.delete(key);
+  messageHtmlCache.set(key, html);
+  if (messageHtmlCache.size <= MESSAGE_HTML_CACHE_MAX) return;
+  const oldest = messageHtmlCache.keys().next().value;
+  if (oldest) messageHtmlCache.delete(oldest);
+}
+
+function msgWithHtml<T extends HtmlMessage>(m: T) {
+  if (m.kind === "text" && m.text) {
+    const key = messageHtmlCacheKey(m);
+    const cached = messageHtmlCache.get(key);
+    if (cached !== undefined) return { ...m, html: cached };
+    const html = marked.parse(m.text) as string;
+    rememberMessageHtml(key, html);
+    return { ...m, html };
+  }
   return m;
+}
+
+function warmRenderedBacklogs(sessions: Session[], limit = 40): void {
+  for (const session of sessions.slice(0, MESSAGE_HTML_CACHE_MAX)) {
+    const path = session.transcriptPath;
+    if (!path) continue;
+    void recentMessagesCached(path, limit)
+      .then((messages) => {
+        for (const message of messages) msgWithHtml(message);
+      })
+      .catch(() => {});
+  }
 }
 
 function compactForSpeech(text: string, max = 700): string {
@@ -451,67 +570,79 @@ function clipSummaryText(text: string, max = 1200): string {
   return text.replace(/\s+/g, " ").trim().slice(0, max);
 }
 
-async function openAiSessionSummary(prompt: string): Promise<string | null> {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) return null;
-  const base = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "");
-  const model = process.env.LFG_SESSION_SUMMARY_MODEL || "gpt-4o-mini";
+const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
+
+function sessionSummaryTimeoutMs(): number {
+  const raw = Number(process.env.LFG_SESSION_SUMMARY_TIMEOUT_MS || "");
+  return Number.isFinite(raw) && raw > 0 ? Math.max(500, Math.min(15_000, raw)) : 2_500;
+}
+
+function claudeOauthToken(): string | null {
   try {
-    const r = await fetch(`${base}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.2,
-        max_tokens: 140,
-        messages: [
-          {
-            role: "system",
-            content:
-              "Summarize the coding-agent session for spoken playback. Use 2 short sentences, no markdown. Say what was requested, what changed or happened, and any current blocker.",
-          },
-          { role: "user", content: prompt },
-        ],
-      }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!r.ok) return null;
-    const data = (await r.json().catch(() => null)) as {
-      choices?: { message?: { content?: string } }[];
-    } | null;
-    return data?.choices?.[0]?.message?.content?.trim() || null;
+    const raw = readFileSync(join(homedir(), ".claude", ".credentials.json"), "utf8");
+    const creds = JSON.parse(raw) as { claudeAiOauth?: { accessToken?: string } };
+    return creds?.claudeAiOauth?.accessToken ?? null;
   } catch {
     return null;
   }
 }
 
-async function summarizeSessionForSpeech(sessionId: string, transcriptPath: string): Promise<{
-  summary: string;
-  generated: boolean;
+function sessionSummaryModel(): string {
+  return process.env.LFG_SESSION_SUMMARY_MODEL || process.env.LFG_VOICE_MODEL || "claude-haiku-4-5";
+}
+
+async function claudeSessionSummary(prompt: string): Promise<string | null> {
+  const token = claudeOauthToken();
+  if (!token) return null;
+  try {
+    const r = await fetch(ANTHROPIC_MESSAGES_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "anthropic-beta": "oauth-2025-04-20",
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: sessionSummaryModel(),
+        max_tokens: 140,
+        system:
+          "Summarize the coding-agent session for spoken playback. Use 2 short sentences, no markdown. Say what was requested, what changed or happened, and any current blocker.",
+        messages: [{ role: "user", content: prompt }],
+      }),
+      signal: AbortSignal.timeout(sessionSummaryTimeoutMs()),
+    });
+    if (!r.ok) return null;
+    const data = (await r.json().catch(() => null)) as { content?: Array<{ type?: string; text?: string }> } | null;
+    return data?.content
+      ?.filter((b) => b?.type === "text")
+      .map((b) => b.text || "")
+      .join("")
+      .trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+async function sessionSummaryContext(sessionId: string, transcriptPath: string): Promise<{
+  prompt: string;
+  fallback: string;
 }> {
   const [msgs, live] = await Promise.all([
-    recentMessages(transcriptPath, 160, { maxBytes: 512 * 1024 }),
+    recentMessages(transcriptPath, 64, { maxBytes: 192 * 1024 }),
     listSessions().catch(() => []),
   ]);
   const session = live.find((s) => s.sessionId === sessionId) ?? null;
   const relevant = msgs
     .filter((m) => m.kind === "text" && m.text.trim() && (m.role === "user" || m.role === "assistant"))
-    .slice(-80);
+    .slice(-24);
   const transcript = relevant
-    .map((m) => `${m.role}: ${clipSummaryText(m.text, 900)}`)
+    .map((m) => `${m.role}: ${clipSummaryText(m.text, 500)}`)
     .join("\n");
   const status = session
     ? `${session.busy ? "working" : "idle"}${session.status === "blocked" ? `, blocked: ${session.statusDetail || session.statusReason || "needs attention"}` : ""}`
     : "not currently live";
   const title = session ? titleForSessionLike(session) : sessionId.slice(0, 8);
-  const generated = transcript
-    ? await openAiSessionSummary(`Session: ${title}\nStatus: ${status}\n\nRecent transcript:\n${transcript}`)
-    : null;
-  if (generated) return { summary: compactForSpeech(generated), generated: true };
-
   const lastUser = [...relevant].reverse().find((m) => m.role === "user")?.text || "";
   const lastAssistant = [...relevant].reverse().find((m) => m.role === "assistant")?.text || "";
   const parts = [
@@ -524,7 +655,89 @@ async function summarizeSessionForSpeech(sessionId: string, transcriptPath: stri
         ? "It is working now."
         : "It is idle now.",
   ].filter(Boolean);
-  return { summary: compactForSpeech(parts.join(" ")), generated: false };
+  return {
+    prompt: `Session: ${title}\nStatus: ${status}\n\nRecent transcript:\n${transcript || "(no transcript text)"}`,
+    fallback: compactForSpeech(parts.join(" ")),
+  };
+}
+
+async function summarizeSessionForSpeech(sessionId: string, transcriptPath: string): Promise<{
+  summary: string;
+  generated: boolean;
+  model?: string;
+}> {
+  const ctx = await sessionSummaryContext(sessionId, transcriptPath);
+  const generated = await claudeSessionSummary(ctx.prompt);
+  if (generated) return { summary: compactForSpeech(generated), generated: true, model: sessionSummaryModel() };
+  return { summary: ctx.fallback, generated: false };
+}
+
+async function streamSessionSummaryForSpeech(sessionId: string, transcriptPath: string): Promise<Response> {
+  const ctx = await sessionSummaryContext(sessionId, transcriptPath);
+  const token = claudeOauthToken();
+  if (!token) return new Response(ctx.fallback, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+
+  const upstream = await fetch(ANTHROPIC_MESSAGES_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "anthropic-beta": "oauth-2025-04-20",
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: sessionSummaryModel(),
+      max_tokens: 140,
+      stream: true,
+      system:
+        "Summarize the coding-agent session for spoken playback. Use 2 short sentences, no markdown. Say what was requested, what changed or happened, and any current blocker.",
+      messages: [{ role: "user", content: ctx.prompt }],
+    }),
+    signal: AbortSignal.timeout(15_000),
+  }).catch(() => null);
+
+  if (!upstream?.ok || !upstream.body) {
+    return new Response(ctx.fallback, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+  }
+
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let buf = "";
+      try {
+        const reader = upstream.body!.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split(/\r?\n/);
+          buf = lines.pop() ?? "";
+          for (const line of lines) {
+            if (!line.startsWith("data:")) continue;
+            const payload = line.slice(5).trim();
+            if (!payload) continue;
+            const ev = JSON.parse(payload) as any;
+            const delta = ev?.type === "content_block_delta" ? ev.delta : null;
+            if (delta?.type === "text_delta" && delta.text) {
+              controller.enqueue(encoder.encode(delta.text));
+            }
+          }
+        }
+      } catch {
+        if (!controller.desiredSize) return;
+      } finally {
+        controller.close();
+      }
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-LFG-Summary-Model": sessionSummaryModel(),
+    },
+  });
 }
 
 function titleForSessionLike(session: { title?: string | null; lastUserText?: string | null; tmuxName?: string | null; project?: string | null; sessionId?: string | null }) {
@@ -606,6 +819,8 @@ async function voiceStatusSnapshot(user?: string | null): Promise<string> {
           ? "opencode"
           : s.agent === "grok"
             ? "grok"
+            : s.agent === "hermes"
+              ? "hermes"
           : null;
     const kind = family ? ` <${family}>` : "";
     let status = "IDLE";
@@ -820,12 +1035,13 @@ const sttBridges = new WeakMap<object, SttStreamBridge>();
 // as the terminal; we tag their data with browserSessionId and bridge them to the
 // WSLike transport that ../browser/session.ts expects.
 type BrowserSocketData = { browserSessionId: string };
+type AppSocketData = TermSocketData | SttStreamSocketData | BrowserSocketData;
 const browserSocketCbs = new WeakMap<
   object,
   { onMessage?: (d: string) => void; onClose?: () => void }
 >();
 
-function makeBrowserWS(ws: ServerWebSocket<TermSocketData>): WSLike {
+function makeBrowserWS(ws: ServerWebSocket<AppSocketData>): WSLike {
   const cbs: { onMessage?: (d: string) => void; onClose?: () => void } = {};
   browserSocketCbs.set(ws, cbs);
   return {
@@ -857,7 +1073,7 @@ function clampDim(raw: string | null, fallback: number): number {
 }
 
 export async function cmdServe() {
-  const server = Bun.serve({
+  const server = Bun.serve<AppSocketData>({
     port: PORT,
     hostname: HOST,
     idleTimeout: 240,
@@ -867,7 +1083,7 @@ export async function cmdServe() {
       // text frames are JSON control messages (resize). Output is streamed back
       // as binary frames — the full raw VT byte stream a faithful renderer wants.
       idleTimeout: 600,
-      open(ws: ServerWebSocket<TermSocketData>) {
+      open(ws: ServerWebSocket<AppSocketData>) {
         // Streaming-STT bridge socket: open the upstream realtime-STT bridge and
         // pipe its results back as {partial,final} text frames. Built synchronously
         // (the bridge queues outbound audio until its upstream connects), so the
@@ -902,6 +1118,12 @@ export async function cmdServe() {
           attachStream(bSid, makeBrowserWS(ws));
           return;
         }
+        if (!("sessionName" in ws.data)) {
+          try {
+            ws.close();
+          } catch {}
+          return;
+        }
         try {
           const { sessionName, cols, rows } = ws.data;
           const bridge = new PtyBridge(
@@ -926,7 +1148,7 @@ export async function cmdServe() {
           } catch {}
         }
       },
-      message(ws: ServerWebSocket<TermSocketData>, message) {
+      message(ws: ServerWebSocket<AppSocketData>, message) {
         // Streaming-STT bridge: binary frames are raw 16 kHz PCM; text frames are
         // the worker's {"type":"flush"|"eof"} control messages.
         const sttBridge = sttBridges.get(ws);
@@ -965,7 +1187,7 @@ export async function cmdServe() {
         // Binary frame = raw keystrokes.
         bridge.write(message as Uint8Array);
       },
-      close(ws: ServerWebSocket<TermSocketData>) {
+      close(ws: ServerWebSocket<AppSocketData>) {
         // Streaming-STT bridge: tear the upstream realtime-STT socket down.
         const sttBridge = sttBridges.get(ws);
         if (sttBridge) {
@@ -994,12 +1216,39 @@ export async function cmdServe() {
       const url = new URL(req.url);
       const path = url.pathname;
 
+      if (path === "/api/evlog") {
+        if (req.method === "POST") {
+          const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+          const event = typeof body?.event === "string" ? body.event : "client_event";
+          evlog(event, {
+            source: "browser",
+            href: req.headers.get("referer") ?? undefined,
+            ...((body && typeof body === "object" ? body : {}) as Record<string, unknown>),
+          });
+          return json({ ok: true, path: join(EVLOG_DIR, `${new Date().toISOString().slice(0, 10)}.jsonl`) });
+        }
+        if (req.method === "GET") {
+          const file = join(EVLOG_DIR, `${new Date().toISOString().slice(0, 10)}.jsonl`);
+          const limit = Math.min(1000, Math.max(1, parseInt(url.searchParams.get("limit") ?? "200", 10) || 200));
+          const text = (() => {
+            try {
+              return readFileSync(file, "utf8");
+            } catch {
+              return "";
+            }
+          })();
+          const lines = text.trim() ? text.trim().split("\n").slice(-limit) : [];
+          return json({ path: file, lines });
+        }
+        return err(405, "method not allowed");
+      }
+
       // ---- browser terminal (websocket upgrade) ----
       if (path === "/api/term") {
         const sessionName = termSessionName(url.searchParams.get("session") || "main");
         const cols = clampDim(url.searchParams.get("cols"), 80);
         const rows = clampDim(url.searchParams.get("rows"), 24);
-        const ok = server.upgrade<TermSocketData>(req, {
+        const ok = server.upgrade(req, {
           data: { sessionName, cols, rows },
         });
         if (ok) return undefined; // upgraded — Bun takes over the socket
@@ -1011,7 +1260,7 @@ export async function cmdServe() {
       // its raw-PCM/{flush,eof} protocol to the configured realtime-STT provider
       // (ElevenLabs Scribe v2 Realtime) in voice-providers.ts.
       if (path === "/api/voice/stt-stream") {
-        const ok = server.upgrade<SttStreamSocketData>(req, {
+        const ok = server.upgrade(req, {
           data: { sttStream: true },
         });
         if (ok) return undefined; // upgraded — Bun takes over the socket
@@ -1022,7 +1271,7 @@ export async function cmdServe() {
       {
         const m = path.match(/^\/api\/browser\/sessions\/([^/]+)\/stream$/);
         if (m) {
-          const ok = server.upgrade<BrowserSocketData>(req, {
+          const ok = server.upgrade(req, {
             data: { browserSessionId: decodeURIComponent(m[1]) },
           });
           if (ok) return undefined;
@@ -1048,30 +1297,7 @@ export async function cmdServe() {
 
       // ---- static ----
       if (path === "/" || path === "/index.html") {
-        // Runtime extension injection: LFG core ships no proprietary UI. Our
-        // deployments set LFG_EXTENSIONS (comma-separated ESM URLs) — each is
-        // injected as a module <script> AFTER the app bundle, so it runs once
-        // window.lfg (host React + registerExtension) exists and contributes UI
-        // (e.g. a private tab). Open-source forks set nothing → clean core.
-        let html = await Bun.file(INDEX_PATH).text();
-        const exts = (process.env.LFG_EXTENSIONS || "")
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean);
-        if (exts.length) {
-          const tags = exts
-            .map((src) => `<script type="module" src="${src.replace(/"/g, "&quot;")}"></script>`)
-            .join("");
-          html = html.includes("</body>")
-            ? html.replace("</body>", `${tags}</body>`)
-            : html + tags;
-        }
-        return new Response(html, {
-          headers: {
-            "Content-Type": "text/html; charset=utf-8",
-            "Cache-Control": "no-cache",
-          },
-        });
+        return webIndexResponse();
       }
       if (path === "/sw.js") {
         const src = await Bun.file(join(WEB_DIR, "sw.js")).text();
@@ -1234,6 +1460,34 @@ export async function cmdServe() {
         const b = (await req.json().catch(() => null)) as Partial<VoiceSettings> | null;
         if (!b) return err(400, "expected body");
         return json({ settings: await setVoiceSettings(b) });
+      }
+
+      // ---- coding-agent config: which session backends are shown in the
+      // composer, plus lightweight setup health/actions for Settings.
+      if (path === "/api/coding-agents" && req.method === "GET") {
+        return json({ agents: await listCodingAgents() });
+      }
+      {
+        const m = path.match(/^\/api\/coding-agents\/([a-z0-9_-]+)$/);
+        if (m && req.method === "POST") {
+          const kind = m[1];
+          if (!isCodingAgentKind(kind)) return err(404, "unknown coding agent");
+          const b = (await req.json().catch(() => null)) as { visible?: unknown } | null;
+          if (!b || typeof b.visible !== "boolean") return err(400, "expected { visible: boolean }");
+          await setCodingAgentVisibility(kind, b.visible);
+          return json({ agents: await listCodingAgents() });
+        }
+      }
+      {
+        const m = path.match(/^\/api\/coding-agents\/([a-z0-9_-]+)\/setup$/);
+        if (m && req.method === "POST") {
+          const kind = m[1];
+          if (!isCodingAgentKind(kind)) return err(404, "unknown coding agent");
+          void runCodingAgentSetup(kind).catch((e) =>
+            console.error(`[coding-agents] ${kind} setup failed:`, e),
+          );
+          return json({ ok: true, agents: await listCodingAgents() });
+        }
       }
 
       // ---- voice speaker-ID proxy: forward uploaded WAV to the upstream
@@ -1494,11 +1748,13 @@ export async function cmdServe() {
             return err(400, "invalid codex model name");
           if (autoBackend === "opencode" && model && !/^[A-Za-z0-9_.:\/-]{1,80}$/.test(model))
             return err(400, "invalid opencode model name");
+          if (autoBackend === "hermes" && model && !/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
+            return err(400, "invalid hermes model name");
           const thinkingLevel = b.thinkingLevel?.trim() || undefined;
           if (thinkingLevel) {
             const allowed = thinkingLevelsForAgent(autoBackend);
             if (!allowed)
-              return err(400, "thinkingLevel is not supported for opencode auto agents");
+              return err(400, `thinkingLevel is not supported for ${autoBackend} auto agents`);
             if (!allowed.includes(thinkingLevel))
               return err(400, `unknown thinking level "${thinkingLevel}" for ${autoBackend} (expected one of ${allowed.join(", ")})`);
           }
@@ -1764,7 +2020,7 @@ export async function cmdServe() {
             status?: "open" | "dismissed" | "session" | "read";
             sessionId?: string;
           } | null;
-          const patch: { status?: typeof b.status; sessionId?: string } = {};
+          const patch: { status?: NonNullable<typeof b>["status"]; sessionId?: string } = {};
           if (b?.status) patch.status = b.status;
           if (b?.sessionId) patch.sessionId = b.sessionId;
           const f = await updateFinding(m[1], patch);
@@ -2001,7 +2257,15 @@ export async function cmdServe() {
       }
 
       if (path === "/api/sessions") {
-        return json({ sessions: await listSessions() });
+        const sessions = await listSessions();
+        warmRecentMessages(
+          sessions
+            .map((session) => session.transcriptPath)
+            .filter((path): path is string => !!path),
+          40,
+        );
+        warmRenderedBacklogs(sessions, 40);
+        return json({ sessions });
       }
 
       if (path === "/api/install") {
@@ -2122,7 +2386,13 @@ export async function cmdServe() {
             resume: sessionId,
           });
           if (!r.ok) return err(502, r.error || "failed to resume session");
-          addManaged({ tmuxName, cwd, createdAt: Date.now(), agent: "codex-aisdk" });
+          addManaged({
+            tmuxName,
+            cwd,
+            createdAt: Date.now(),
+            agent: "codex-aisdk",
+            repoRoot: repoRootForManagedCwd(cwd),
+          });
           if (body?.user) assignUser(tmuxName, body.user);
           // Wait for the harness to register so the session is listable. The
           // threadId is seeded up front (== resumedFrom), so it's the live id.
@@ -2138,7 +2408,13 @@ export async function cmdServe() {
         const tmuxName = `lfg-${randomBytes(3).toString("hex")}`;
         const r = spawnManagedSession({ name: tmuxName, cwd, model, resume: sessionId, prompt: body?.prompt });
         if (!r.ok) return err(502, r.error || "failed to resume session");
-        addManaged({ tmuxName, cwd, createdAt: Date.now(), agent: "claude" });
+        addManaged({
+          tmuxName,
+          cwd,
+          createdAt: Date.now(),
+          agent: "claude",
+          repoRoot: repoRootForManagedCwd(cwd),
+        });
         if (body?.user) assignUser(tmuxName, body.user);
         // Claude resumes into a fresh sessionId/transcript — wait for the pidfile.
         let newId: string | null = null;
@@ -2159,7 +2435,7 @@ export async function cmdServe() {
             user?: string;
             model?: string;
             thinkingLevel?: string;
-            agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "grok";
+            agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "grok" | "hermes";
           } | null;
           const source = (await listSessions()).find((s) => s.sessionId === sourceId);
           const transcript = await resolveTranscript(sourceId);
@@ -2172,6 +2448,7 @@ export async function cmdServe() {
           const repos = await listRepos();
           const repo =
             repos.find((r) => r.cwd === sourceCwd) ??
+            repos.find((r) => r.project === source?.project) ??
             repos.find((r) => r.project === projectName(sourceCwd));
           if (!repo) return err(400, "source session repo is not in the repo picker");
 
@@ -2227,7 +2504,7 @@ export async function cmdServe() {
           worktree?: boolean;
           model?: string;
           thinkingLevel?: string;
-          agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "grok";
+          agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "grok" | "hermes";
         } | null;
         // Default flip (Task B): with no agent specified, the default Claude path
         // now goes through the AI SDK ("aisdk") rather than the Claude CLI. Every
@@ -2241,9 +2518,11 @@ export async function cmdServe() {
                 ? "opencode"
                 : body?.agent === "grok"
                   ? "grok"
-                  : body?.agent === "claude"
-                    ? "claude"
-                    : "aisdk";
+                  : body?.agent === "hermes"
+                    ? "hermes"
+                    : body?.agent === "claude"
+                      ? "claude"
+                      : "aisdk";
         // Allowlist Claude models — they land on a shell argv. Unknown value =
         // hard 400, never a silent fallback to some other model. Codex model
         // names are provider/catalog driven, so validate shape instead.
@@ -2260,6 +2539,8 @@ export async function cmdServe() {
           return err(400, `unknown model "${model}" (expected one of ${AISDK_MODELS.join(", ")})`);
         if (agent === "grok" && model && !GROK_MODELS.includes(model))
           return err(400, `unknown model "${model}" (expected one of ${GROK_MODELS.join(", ")})`);
+        if (agent === "hermes" && model && !/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
+          return err(400, "invalid hermes model name");
         // codex-aisdk drives codex through the AI SDK, so its model is a codex
         // slug (gpt-5.x-codex …) — provider/catalog driven like the tmux codex.
         // Validate by shape, same as the codex branch.
@@ -2282,7 +2563,7 @@ export async function cmdServe() {
         if (thinkingLevel) {
           const allowed = thinkingLevelsForAgent(agent);
           if (!allowed)
-            return err(400, "thinkingLevel is not supported for opencode sessions (set reasoning effort in opencode's own model config)");
+            return err(400, `thinkingLevel is not supported for ${agent} sessions`);
           if (!allowed.includes(thinkingLevel))
             return err(400, `unknown thinking level "${thinkingLevel}" for ${agent} (expected one of ${allowed.join(", ")})`);
         }
@@ -2333,6 +2614,46 @@ export async function cmdServe() {
         // Mint a stable lfg id up front; listSessions maps it to Grok's native
         // transcript later once Grok creates one.
         const grokKey = agent === "grok" ? crypto.randomUUID() : null;
+        const hermesKey = agent === "hermes" ? crypto.randomUUID() : null;
+        const launchId =
+          aisdkSessionId ??
+          codexAisdkKey ??
+          opencodeKey ??
+          grokKey ??
+          hermesKey ??
+          crypto.randomUUID();
+        const createdAt = Date.now();
+        const launchModel =
+          agent === "grok"
+            ? model ?? GROK_DEFAULT_MODEL
+            : agent === "hermes"
+              ? model ?? HERMES_DEFAULT_MODEL
+              : agent === "opencode"
+                ? model ?? OPENCODE_DEFAULT_MODEL
+                : agent === "codex-aisdk"
+                  ? model ?? "gpt-5.5"
+                  : agent === "aisdk"
+                    ? model ?? "opus"
+                    : model;
+        addManaged({
+          tmuxName,
+          cwd,
+          createdAt,
+          agent,
+          sessionId: launchId,
+          nativeSessionId:
+            agent === "aisdk" || agent === "opencode" || agent === "hermes"
+              ? launchId
+              : undefined,
+          launchState: "launching",
+          model: launchModel,
+          title: prompt?.slice(0, 72),
+          repoRoot: worktree?.repoRoot,
+          worktreeBranch: worktree?.branch,
+        });
+        // Tag the new session before spawn so a concurrent /api/sessions refresh
+        // can show the durable row under the right user filter immediately.
+        if (body?.user) assignUser(tmuxName, body.user);
         const r =
           agent === "codex"
             ? spawnManagedCodexSession({ name: tmuxName, cwd, prompt, model, thinkingLevel })
@@ -2343,6 +2664,13 @@ export async function cmdServe() {
                   prompt,
                   model: model ?? GROK_DEFAULT_MODEL,
                   thinkingLevel,
+                })
+            : agent === "hermes"
+              ? spawnManagedHermesSession({
+                  name: tmuxName,
+                  cwd,
+                  model: model ?? HERMES_DEFAULT_MODEL,
+                  provider: HERMES_PROVIDER,
                 })
             : agent === "aisdk"
               ? spawnManagedAisdkSession({
@@ -2371,73 +2699,29 @@ export async function cmdServe() {
                       key: opencodeKey!,
                     })
                   : spawnManagedSession({ name: tmuxName, cwd, prompt, model, thinkingLevel });
-        if (!r.ok) return err(502, r.error || "failed to start session");
-        addManaged({
-          tmuxName,
-          cwd,
-          createdAt: Date.now(),
-          agent,
-          sessionId: grokKey ?? undefined,
-          repoRoot: worktree?.repoRoot,
-          worktreeBranch: worktree?.branch,
-        });
-        // Tag the new session to whoever created it so it lands in their filter
-        // immediately (best-effort: assignUser ignores an unknown email).
-        if (body?.user) assignUser(tmuxName, body.user);
-        // Resolve the sessionId so the client can deep-link straight into the
-        // new session. Claude writes a pidfile; Codex writes its rollout after
-        // startup/first prompt, and may first show an update selector that we
-        // dismiss automatically. aisdk's id is known immediately — just wait for
-        // the harness to register so the session is listable.
-        let sessionId: string | null = grokKey ?? aisdkSessionId;
-        for (let i = 0; i < 12 && !sessionId; i++) {
-          await new Promise((res) => setTimeout(res, 500));
-          if (agent === "codex") {
-            dismissCodexUpdatePrompt(`${tmuxName}:0.0`);
-            sessionId =
-              (await listSessions()).find((s) => s.tmuxName === tmuxName)?.sessionId ??
-              null;
-          } else {
-            const pid = panePidForSession(tmuxName);
-            if (pid) sessionId = sessionIdForPid(pid);
-          }
+        if (!r.ok) {
+          removeManaged(tmuxName);
+          assignUser(tmuxName, null);
+          return err(502, r.error || "failed to start session");
         }
-        if (agent === "aisdk") {
-          for (let i = 0; i < 20 && !readAisdkEntry(aisdkSessionId!); i++)
-            await new Promise((res) => setTimeout(res, 250));
+        if (agent === "hermes" && hermesKey && prompt?.trim()) {
+          enqueueMessage(hermesKey, prompt);
         }
-        // opencode: the harness writes the transcript at the key, so the
-        // sessionId IS the key — just wait for the harness to register so the
-        // session is listable (no after-turn-1 threadId to wait for).
-        if (agent === "opencode") {
-          for (let i = 0; i < 20 && !readAisdkEntry(opencodeKey!); i++)
-            await new Promise((res) => setTimeout(res, 250));
-          sessionId = opencodeKey;
-        }
-        // codex-aisdk: wait for the harness to register (so the session is
-        // listable), then prefer the codex threadId once turn 1 reports it (it
-        // deep-links to the rollout transcript). The threadId only lands after
-        // the first turn completes, so don't block on it — fall back to the
-        // control-plane key, a stable handle serve maps back internally. Total
-        // added wait stays bounded (~5s registration + ~3s threadId).
-        if (agent === "codex-aisdk") {
-          for (let i = 0; i < 20 && !readAisdkEntry(codexAisdkKey!); i++)
-            await new Promise((res) => setTimeout(res, 250));
-          sessionId = codexAisdkKey;
-          for (let i = 0; i < 12; i++) {
-            const tid = readAisdkEntry(codexAisdkKey!)?.threadId;
-            if (tid) {
-              sessionId = tid;
-              break;
+        if (agent === "codex") {
+          void (async () => {
+            for (let i = 0; i < 12; i++) {
+              await new Promise((res) => setTimeout(res, 500));
+              if (dismissCodexUpdatePrompt(`${tmuxName}:0.0`)) break;
             }
-            await new Promise((res) => setTimeout(res, 250));
-          }
+          })();
         }
+        if (agent === "aisdk" || agent === "opencode" || agent === "hermes")
+          patchManaged(tmuxName, { launchState: "running" });
         return json({
           ok: true,
           tmuxName,
           cwd,
-          sessionId,
+          sessionId: launchId,
           agent,
           worktree: worktree?.path ?? null,
         });
@@ -2535,6 +2819,14 @@ export async function cmdServe() {
             appendAisdkCmd(key, { type: "set_model", model });
             return json({ ok: true, model });
           }
+          if (sess.agent === "hermes") {
+            if (!/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
+              return err(400, "invalid hermes model name");
+            if (!sess.tmuxTarget)
+              return err(409, "session is not in a tmux pane — cannot change model");
+            const msg = enqueueMessage(m[1], `/model ${model}`);
+            return json({ ok: true, msg });
+          }
           if (sess.agent !== "claude")
             return err(409, "mid-session model change is only supported for Claude sessions");
           if (!CLAUDE_MODELS.includes(model))
@@ -2548,12 +2840,13 @@ export async function cmdServe() {
           // continues). For a healthy session the in-place `/model` is gentler
           // (no process restart), so keep that path for the normal case.
           if (sess.statusReason === "model_unavailable") {
-            if (!sess.sessionId || !sess.cwd)
+            const nativeSessionId = sess.nativeSessionId ?? sess.sessionId;
+            if (!nativeSessionId || !sess.cwd)
               return err(409, "cannot relaunch: session id or cwd unknown");
             const r = relaunchSessionWithModel({
               tmuxTarget: sess.tmuxTarget,
               cwd: sess.cwd,
-              sessionId: sess.sessionId,
+              sessionId: nativeSessionId,
               model,
             });
             if (!r.ok) return err(500, r.error || "relaunch failed");
@@ -2605,7 +2898,7 @@ export async function cmdServe() {
             : Math.min(200, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 30));
           return json({
             id: m[1],
-            messages: (await recentMessages(tp, lim, { maxBytes: full ? null : undefined })).map(msgWithHtml),
+            messages: (await (full ? recentMessages : recentMessagesCached)(tp, lim, { maxBytes: full ? null : undefined })).map(msgWithHtml),
           });
         }
       }
@@ -2628,6 +2921,18 @@ export async function cmdServe() {
           if (!query) return err(400, "expected { query }");
           const r = await searchTranscript(tp, query, { limit: body?.limit });
           return json({ id: m[1], query, ...r });
+        }
+      }
+
+      {
+        // Streaming spoken summary for the dashboard shortcut. Haiku starts
+        // returning text before the full summary is done; the browser feeds
+        // completed sentences into TTS as they arrive.
+        const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/summary\/stream$/);
+        if (m && req.method === "POST") {
+          const tp = await resolveTranscript(m[1]);
+          if (!tp) return err(404, "session transcript not found");
+          return streamSessionSummaryForSpeech(m[1], tp);
         }
       }
 
@@ -2810,9 +3115,73 @@ export async function cmdServe() {
         if (m && req.method === "GET") {
           const tp = await resolveTranscript(m[1]);
           if (!tp) return err(404, "session transcript not found");
-          const msgs = (await recentMessages(tp, 60)).map(msgWithHtml);
+          const msgs = (await recentMessagesCached(tp, 60)).map(msgWithHtml);
           return json({ id: m[1], messages: msgs });
         }
+      }
+
+      if (path === "/api/live/status") {
+        const ids = (url.searchParams.get("ids") ?? "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => /^[0-9a-fA-F-]{36}$/.test(s))
+          .slice(0, 120);
+        const wanted = new Set(ids);
+        let iv: ReturnType<typeof setInterval> | null = null;
+        let hb: ReturnType<typeof setInterval> | null = null;
+        let closed = false;
+        const slim = (s: Session) => ({
+          sessionId: s.sessionId,
+          busy: !!s.busy,
+          title: s.title ?? null,
+          lastUserText: s.lastUserText ?? null,
+          lastActivityAt: s.lastActivityAt ?? null,
+          status: s.status ?? "ok",
+          statusReason: s.statusReason ?? null,
+          statusDetail: s.statusDetail ?? null,
+          model: s.model ?? null,
+        });
+        const stream = new ReadableStream({
+          start(controller) {
+            const send = (s: string) => {
+              if (closed) return;
+              try {
+                controller.enqueue(s);
+              } catch {
+                closed = true;
+              }
+            };
+            let lastSig = "";
+            const publish = async () => {
+              if (closed) return;
+              const t0 = performance.now();
+              const rows = (await listSessions())
+                .filter((s) => s.sessionId && (!wanted.size || wanted.has(s.sessionId)))
+                .map(slim);
+              const sig = JSON.stringify(rows);
+              const changed = sig !== lastSig;
+              if (changed) {
+                lastSig = sig;
+                send(`event: status\ndata: ${sig}\n\n`);
+              }
+              evlog("live_status_tick", {
+                idsCount: ids.length,
+                sessions: rows.length,
+                changed,
+                durationMs: Math.round((performance.now() - t0) * 1000) / 1000,
+              });
+            };
+            void publish();
+            iv = setInterval(() => void publish(), 2000);
+            hb = setInterval(() => send(`: hb\n\n`), 15000);
+          },
+          cancel() {
+            closed = true;
+            if (iv) clearInterval(iv);
+            if (hb) clearInterval(hb);
+          },
+        });
+        return new Response(stream, { headers: sseHeaders() });
       }
 
       // Multiplexed live stream: one connection tails many transcripts and
@@ -2822,24 +3191,17 @@ export async function cmdServe() {
       // folds them into a single SSE; events carry a `sid` so the client can
       // route them to the right pane.
       if (path === "/api/live/stream") {
+        const rid =
+          (url.searchParams.get("rid") || "").replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 80) ||
+          randomBytes(6).toString("hex");
         const ids = (url.searchParams.get("ids") ?? "")
           .split(",")
           .map((s) => s.trim())
           .filter((s) => /^[0-9a-fA-F-]{36}$/.test(s))
           .slice(0, 24);
-        const all = await listSessions();
-        const panes = (
-          await Promise.all(
-            ids.map(async (sid) => {
-              const tp = await resolveTranscript(sid);
-              if (!tp) return null;
-              const target = all.find((s) => s.sessionId === sid)?.tmuxTarget ?? null;
-              return { sid, tp, target };
-            }),
-          )
-        ).filter((p): p is { sid: string; tp: string; target: string | null } => !!p);
-        const paneIds = new Set(panes.map((p) => p.sid));
-        const missingIds = ids.filter((sid) => !paneIds.has(sid));
+        evlog("live_stream_request", { rid, ids, idsCount: ids.length });
+        type LivePane = { sid: string; tp: string; target: string | null };
+        let panes: LivePane[] = [];
 
         let iv: ReturnType<typeof setInterval> | null = null;
         let pi: ReturnType<typeof setInterval> | null = null;
@@ -2855,17 +3217,21 @@ export async function cmdServe() {
                 closed = true;
               }
             };
+            send(`: open\n\n`);
+            evlog("live_stream_start", { rid, idsCount: ids.length });
             const offsets = new Map<string, number>();
             const bufs = new Map<string, string>();
             const lastSig = new Map<string, string>();
-            const pumpOne = async (p: { sid: string; tp: string }) => {
+            const pumpOne = async (p: LivePane) => {
               if (closed) return;
               try {
+                const pumpT0 = performance.now();
                 const f = Bun.file(p.tp);
                 const size = f.size;
                 let offset = offsets.get(p.sid) ?? 0;
                 if (size < offset) offset = 0; // rotated/truncated
                 if (size > offset) {
+                  const bytes = size - offset;
                   const chunk = await f.slice(offset, size).text();
                   offsets.set(p.sid, size);
                   let buf = (bufs.get(p.sid) ?? "") + chunk;
@@ -2879,15 +3245,18 @@ export async function cmdServe() {
                         `event: msg\ndata: ${JSON.stringify({ sid: p.sid, m: msgWithHtml(msg) })}\n\n`,
                       );
                   }
+                  evlog("live_stream_pump", {
+                    rid,
+                    sid: p.sid,
+                    bytes,
+                    lines: lines.filter(Boolean).length,
+                    durationMs: Math.round((performance.now() - pumpT0) * 1000) / 1000,
+                  });
                 }
               } catch {}
             };
             const lastBusy = new Map<string, string>();
-            const pollOne = async (p: {
-              sid: string;
-              tp: string;
-              target: string | null;
-            }) => {
+            const pollOne = async (p: LivePane) => {
               if (closed) return;
               if (!p.target) {
                 // Pane-less (aisdk / codex-aisdk) session: busy comes from the
@@ -2930,15 +3299,64 @@ export async function cmdServe() {
               lastQ.set(p.sid, sig);
               send(`event: queue\ndata: ${JSON.stringify({ sid: p.sid, queue })}\n\n`);
             };
+            const hydrateTargets = async () => {
+              if (closed || !panes.length) return;
+              const listT0 = performance.now();
+              const all = await listSessions();
+              evlog("live_stream_list_sessions", {
+                rid,
+                sessionCount: all.length,
+                durationMs: Math.round((performance.now() - listT0) * 1000) / 1000,
+                phase: "target_hydration",
+              });
+              const bySid = new Map(all.map((s) => [s.sessionId, s.tmuxTarget ?? null]));
+              for (const p of panes) p.target = bySid.get(p.sid) ?? null;
+            };
             (async () => {
+              const resolveT0 = performance.now();
+              const resolved = await Promise.all(
+                ids.map(async (sid) => {
+                  const sidT0 = performance.now();
+                  const tp = await resolveTranscript(sid);
+                  evlog("live_stream_resolve_transcript", {
+                    rid,
+                    sid,
+                    found: !!tp,
+                    durationMs: Math.round((performance.now() - sidT0) * 1000) / 1000,
+                  });
+                  return tp ? ({ sid, tp, target: null } satisfies LivePane) : null;
+                }),
+              );
+              if (closed) return;
+              panes = resolved.filter((p): p is NonNullable<typeof p> => !!p);
+              const paneIds = new Set(panes.map((p) => p.sid));
+              const missingIds = ids.filter((sid) => !paneIds.has(sid));
+              evlog("live_stream_resolved", {
+                rid,
+                panesCount: panes.length,
+                missingCount: missingIds.length,
+                durationMs: Math.round((performance.now() - resolveT0) * 1000) / 1000,
+              });
               for (const sid of missingIds) {
                 send(`event: ready\ndata: ${JSON.stringify({ sid })}\n\n`);
+                evlog("live_stream_ready", { rid, sid, missing: true });
               }
-              for (const p of panes) {
+              await Promise.all(panes.map(async (p) => {
                 try {
-                  const msgs = (await recentMessages(p.tp, 40)).map(msgWithHtml);
-                  for (const m of msgs)
-                    send(`event: msg\ndata: ${JSON.stringify({ sid: p.sid, m })}\n\n`);
+                  const backlogT0 = performance.now();
+                  const rawMsgs = await recentMessagesCached(p.tp, 40);
+                  const readMs = performance.now() - backlogT0;
+                  const renderT0 = performance.now();
+                  const msgs = rawMsgs.map(msgWithHtml);
+                  evlog("live_stream_backlog", {
+                    rid,
+                    sid: p.sid,
+                    messages: msgs.length,
+                    readMs: Math.round(readMs * 1000) / 1000,
+                    renderMs: Math.round((performance.now() - renderT0) * 1000) / 1000,
+                    totalMs: Math.round((performance.now() - backlogT0) * 1000) / 1000,
+                  });
+                  send(`event: batch\ndata: ${JSON.stringify({ sid: p.sid, messages: msgs })}\n\n`);
                   offsets.set(p.sid, Bun.file(p.tp).size);
                   lastSig.set(p.sid, " ");
                   lastQ.set(p.sid, "[]");
@@ -2954,8 +3372,15 @@ export async function cmdServe() {
                   queueOne(p);
                 } finally {
                   send(`event: ready\ndata: ${JSON.stringify({ sid: p.sid })}\n\n`);
+                  evlog("live_stream_ready", { rid, sid: p.sid, missing: false });
                 }
-              }
+              }));
+              void hydrateTargets().then(() => {
+                for (const p of panes) {
+                  pollOne(p);
+                  queueOne(p);
+                }
+              });
               iv = setInterval(() => {
                 for (const p of panes) pumpOne(p);
               }, 700);
@@ -3028,7 +3453,7 @@ export async function cmdServe() {
               };
               // backlog, then tail
               (async () => {
-                const msgs = (await recentMessages(tp, 40)).map(msgWithHtml);
+                const msgs = (await recentMessagesCached(tp, 40)).map(msgWithHtml);
                 for (const msg of msgs)
                   send(`event: msg\ndata: ${JSON.stringify(msg)}\n\n`);
                 offset = Bun.file(tp).size;
@@ -3111,6 +3536,15 @@ export async function cmdServe() {
           });
           return new Response(stream, { headers: sseHeaders() });
         }
+      }
+
+      if (
+        req.method === "GET" &&
+        !path.startsWith("/api/") &&
+        !path.startsWith("/assets/") &&
+        req.headers.get("accept")?.includes("text/html")
+      ) {
+        return webIndexResponse();
       }
 
       return err(404, "not found");

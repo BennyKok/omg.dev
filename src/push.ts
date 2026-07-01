@@ -13,7 +13,10 @@
 
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import type { webcrypto } from "node:crypto";
 import { PATHS } from "./config.ts";
+
+type JsonWebKey = webcrypto.JsonWebKey;
 
 const dir = () => join(PATHS.data, "push");
 const vapidPath = () => join(dir(), "vapid.json");
@@ -67,10 +70,11 @@ async function vapid(): Promise<VapidFile> {
   )) as CryptoKeyPair;
   const privateJwk = await crypto.subtle.exportKey("jwk", pair.privateKey);
   const raw = await crypto.subtle.exportKey("raw", pair.publicKey); // 65-byte uncompressed point
-  cached = { privateJwk, publicKeyB64Url: b64url(raw), subject: SUBJECT };
+  const next: VapidFile = { privateJwk, publicKeyB64Url: b64url(raw), subject: SUBJECT };
+  cached = next;
   await ensureDir();
-  await Bun.write(vapidPath(), JSON.stringify(cached, null, 2));
-  return cached;
+  await Bun.write(vapidPath(), JSON.stringify(next, null, 2));
+  return next;
 }
 
 /** The application server public key the browser passes to pushManager.subscribe(). */
