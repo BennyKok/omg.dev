@@ -6006,18 +6006,6 @@ const onTouchStart = (e: ReactTouchEvent) => {
             {session.model}
           </span>
         ) : null)}
-        {!collapsedView && busy && canDriveSession(session) ? (
-          <button
-            type="button"
-            onClick={() => void interrupt()}
-            aria-label="Stop (Esc or Ctrl/Cmd+.)"
-            title="Stop — Esc or Ctrl/Cmd+."
-            className="flex h-6 shrink-0 items-center gap-1 rounded-full bg-foreground/[0.06] px-2 text-[10px] font-medium text-foreground/70 hover:bg-foreground/[0.10] hover:text-foreground"
-          >
-            <Pause className="size-3.5" />
-            Stop
-          </button>
-        ) : null}
         <span
           aria-label={busy ? "working" : "idle"}
           className={cn(
