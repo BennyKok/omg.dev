@@ -45,7 +45,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ChevronUp,
   Folder,
   GitFork,
   Loader2,
@@ -425,10 +424,6 @@ function agentSupportsThinking(agent: AgentKind): boolean {
   );
 }
 
-function agentShowsClaudeUsage(agent: AgentKind): boolean {
-  return agent === "claude" || agent === "aisdk";
-}
-
 // Per-agent model lists + default model, keyed by the backend agent-kind
 // contract. The new-session dialog and session cards both read from here so the
 // model picker stays correct per agent.
@@ -656,6 +651,18 @@ function isDraftAssistantMessage(message: Message) {
     typeof message.id === "string" &&
     message.id.startsWith("draft-")
   );
+}
+
+function collapseThinkingRuns(messages: Message[]) {
+  const out: Message[] = [];
+  for (const message of messages) {
+    if (message.kind === "thinking" && out[out.length - 1]?.kind === "thinking") {
+      out[out.length - 1] = message;
+    } else {
+      out.push(message);
+    }
+  }
+  return out;
 }
 
 // A settled (non-draft) assistant text turn. These arrive whole — either
@@ -2193,7 +2200,7 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
       }>(event.data);
       if (!payload || !active.has(payload.sid)) return;
       const sid = payload.sid;
-      const messages = Array.isArray(payload.messages) ? payload.messages : [];
+      const messages = collapseThinkingRuns(Array.isArray(payload.messages) ? payload.messages : []);
       if (!firstMsg.has(sid) && messages.length) {
         const first = messages[0];
         firstMsg.add(sid);
@@ -2346,7 +2353,7 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
     }>(
       `/api/sessions/${encodeURIComponent(sid)}/messages?page=backward&before=${before}&limit=80`,
     );
-    const older = Array.isArray(page.messages) ? page.messages : [];
+    const older = collapseThinkingRuns(Array.isArray(page.messages) ? page.messages : []);
     setNextBeforeBySid((prev) => ({ ...prev, [sid]: page.nextBefore ?? null }));
     if (!older.length) return (page.nextBefore ?? null) !== null;
 
@@ -4235,6 +4242,136 @@ function UserFilterMenu({
   );
 }
 
+// Apple-Watch-style activity rings for provider usage limits: one concentric
+// ring per limit window (Claude → 5-hour + weekly; Codex → its own windows;
+// etc). Provider-agnostic — it just renders whatever windows it's handed.
+const USAGE_RING_COLORS = ["#fb923c", "#38bdf8", "#a78bfa", "#34d399"];
+// Which usage provider (from /api/usage) backs a given agent kind. The ai-sdk
+// variants share the underlying provider account with their CLI counterpart.
+function usageProviderKind(agent: AgentKind): string {
+  if (agent === "aisdk") return "claude";
+  if (agent === "codex-aisdk") return "codex";
+  return agent;
+}
+
+function UsageRings({
+  windows,
+  size = 22,
+  className,
+}: {
+  windows: UsageWindow[];
+  size?: number;
+  className?: string;
+}) {
+  const c = size / 2;
+  const sw = size >= 40 ? 4 : 3;
+  const gap = sw + 1.5;
+  const outer = c - sw / 2 - 0.5;
+  const shown = windows.slice(0, USAGE_RING_COLORS.length);
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      className={cn("shrink-0 -rotate-90", className)}
+      role="img"
+      aria-label={shown
+        .map((w) => `${w.label} ${Math.round(w.pct ?? 0)}%`)
+        .join(", ")}
+    >
+      {shown.map((w, i) => {
+        const r = outer - i * gap;
+        if (r <= 0) return null;
+        const circ = 2 * Math.PI * r;
+        const clamped = Math.max(0, Math.min(100, w.pct ?? 0));
+        const color = USAGE_RING_COLORS[i % USAGE_RING_COLORS.length];
+        return (
+          <g key={w.label}>
+            <circle cx={c} cy={c} r={r} fill="none" stroke={color} strokeOpacity={0.2} strokeWidth={sw} />
+            <circle
+              cx={c}
+              cy={c}
+              r={r}
+              fill="none"
+              stroke={color}
+              strokeWidth={sw}
+              strokeLinecap="round"
+              strokeDasharray={circ}
+              strokeDashoffset={circ * (1 - clamped / 100)}
+            />
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// The composer's usage indicator: compact rings that expand into an animated
+// popover breaking down each limit window (label, %, reset time). Works for any
+// provider that reports windows; falls back to the provider note otherwise.
+function UsageRingsButton({ provider }: { provider: ProviderUsage }) {
+  const windows = provider.windows ?? [];
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            aria-label={`${provider.label} usage`}
+            title={`${provider.label} usage`}
+            className="flex shrink-0 items-center justify-center rounded-full p-1 transition active:scale-90"
+          >
+            {windows.length ? (
+              <UsageRings windows={windows} />
+            ) : (
+              <UsageRings windows={[{ label: "usage", pct: null, resetsAt: null }]} />
+            )}
+          </button>
+        }
+      />
+      <DropdownMenuContent side="top" align="start" sideOffset={8} className="w-64 p-3">
+        <div className="mb-2 flex items-center gap-2">
+          <img src={agentIconSrc(provider.kind)} alt="" className="size-4" />
+          <span className="text-sm font-medium">{provider.label}</span>
+          {provider.plan ? (
+            <span className="rounded-full bg-secondary px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              {provider.plan}
+            </span>
+          ) : null}
+        </div>
+        {windows.length ? (
+          <div className="flex items-center gap-3">
+            <UsageRings windows={windows} size={52} className="my-0.5" />
+            <div className="min-w-0 flex-1 space-y-1.5">
+              {windows.map((w, i) => (
+                <div key={w.label} className="flex items-center gap-2 text-xs">
+                  <span
+                    className="size-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: USAGE_RING_COLORS[i % USAGE_RING_COLORS.length] }}
+                  />
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground">{w.label}</span>
+                  <span className="shrink-0 font-medium tabular-nums">
+                    {w.pct == null ? "—" : `${Math.round(w.pct)}%`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {provider.available ? provider.note ?? "No limit data reported" : provider.note ?? "Not signed in"}
+          </p>
+        )}
+        {windows.some((w) => w.resetsAt) ? (
+          <p className="mt-2 border-t border-border/60 pt-2 text-[11px] text-muted-foreground/80">
+            {windows.find((w) => w.resetsAt) ? fmtReset(windows.find((w) => w.resetsAt)!.resetsAt) : ""}
+          </p>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function ProjectFilterMenu({
   value,
   projects,
@@ -4581,22 +4718,24 @@ function LiveView({
   const [sheet, setSheet] = useState<{ sid: string; origin: DOMRect } | null>(null);
   if (!sessions.length && !findings.length) {
     return (
-      <div className="flex min-h-[60dvh] flex-col items-center justify-center gap-3 text-center">
-        <div className="flex size-14 items-center justify-center rounded-2xl bg-muted">
-          <MessageSquare className="size-6 text-muted-foreground" />
-        </div>
-        <div>
-          <div className="font-semibold">No running sessions</div>
-          <div className="mt-1 text-sm text-muted-foreground">
-            {userFilter === "__all"
-              ? "Start Claude or Codex from v2."
-              : "No sessions match this user filter."}
+      <div className="flex min-h-[60dvh] flex-col items-center justify-center">
+        <div className="lfg-gborder flex flex-col items-center gap-3 rounded-3xl border border-transparent bg-card px-8 py-10 text-center shadow-[0_12px_40px_-24px_rgba(0,0,0,0.5)]">
+          <div className="lfg-gborder flex size-14 items-center justify-center rounded-2xl border border-transparent bg-muted">
+            <MessageSquare className="size-6 text-muted-foreground" />
           </div>
+          <div>
+            <div className="font-semibold">No running sessions</div>
+            <div className="mt-1 text-sm text-muted-foreground">
+              {userFilter === "__all"
+                ? "Start Claude or Codex from v2."
+                : "No sessions match this user filter."}
+            </div>
+          </div>
+          <Button variant="brand" className="lfg-gborder lfg-gborder--brand" onClick={onNew}>
+            <Plus className="size-4" />
+            New session
+          </Button>
         </div>
-        <Button variant="brand" onClick={onNew}>
-          <Plus className="size-4" />
-          New session
-        </Button>
       </div>
     );
   }
@@ -5664,7 +5803,7 @@ function AutoFindingCard({
     <button
       type="button"
       onClick={onOpen}
-      className="live-pane flex flex-col gap-1 rounded-xl border border-border bg-card px-3 py-2.5 text-left transition active:scale-[0.99]"
+      className="live-pane lfg-gborder flex flex-col gap-1 rounded-xl border border-transparent bg-card px-3 py-2.5 text-left transition active:scale-[0.99]"
     >
       <div className="flex items-center gap-2">
         <span className={cn("size-2 shrink-0 rounded-full", SEV_DOT[finding.severity])} />
@@ -6109,7 +6248,7 @@ function SessionChat({
                 placeholder={attachments.length ? "Add a note" : "Message"}
                 disabled={sending}
                 rows={1}
-                className="min-h-11 max-h-28 min-w-0 resize-none overflow-y-auto rounded-2xl border-border/55 bg-muted/65 px-4 py-3 pr-10 text-base leading-5 shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:border-foreground/20 focus-visible:bg-muted focus-visible:ring-0 md:min-h-9 md:rounded-[1.125rem] md:px-3.5 md:py-2 md:text-sm"
+                className="lfg-gfield min-h-11 max-h-28 min-w-0 resize-none overflow-y-auto rounded-2xl border-transparent px-4 py-3 pr-10 text-base leading-5 shadow-sm transition-colors placeholder:text-muted-foreground md:min-h-9 md:rounded-[1.125rem] md:px-3.5 md:py-2 md:text-sm"
               />
               <div className="absolute bottom-1.5 right-1 block md:bottom-0.5">
                 <MicButton
@@ -7483,9 +7622,10 @@ const onTouchStart = (e: ReactTouchEvent) => {
           entering && "lfg-card-in",
           variant === "stage" ? "md:h-full" : "md:h-[clamp(30rem,72vh,46rem)]",
           // Listening: soften the border to primary and throw a faint glow ring.
+          // Otherwise the flat border gives way to a glass gradient edge.
           dictating
             ? "border-primary/60 shadow-[0_0_0_1px_var(--primary),0_0_16px_2px_color-mix(in_srgb,var(--primary)_35%,transparent)]"
-            : "border-border",
+            : "border-transparent lfg-gborder",
         )}
       >
         <div
@@ -7707,6 +7847,7 @@ const ChatStream = memo(function ChatStream({
   const [stick, setStick] = useState(true);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasOlder, setHasOlder] = useState(true);
+  const [diffBarVisible, setDiffBarVisible] = useState(false);
   const preserveScrollRef = useRef<{ height: number; top: number } | null>(null);
   const visibleMessages = useMemo(() => messages.filter((message) => !message.seed), [messages]);
   const items = useMemo(() => buildRenderItems(visibleMessages), [visibleMessages]);
@@ -7795,7 +7936,12 @@ const ChatStream = memo(function ChatStream({
         setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 72);
         void maybeLoadOlder();
       }}
-      className="chat-stream min-h-0 flex-1 overflow-y-auto bg-background px-3 py-3"
+      className={cn(
+        "chat-stream min-h-0 flex-1 overflow-y-auto bg-background px-3 pt-3",
+        // Only reserve room for the floating "files changed / Review" bar
+        // while it's actually shown, so it never overlaps the last message.
+        diffBarVisible ? "pb-16" : "pb-3",
+      )}
     >
       {visibleMessages.length || busy ? (
         <ConversationContent>
@@ -7856,7 +8002,7 @@ const ChatStream = memo(function ChatStream({
     </div>
     {/* Floating "diffs for review" bar: appears when this session's worktree
         has changes; opens the pierre-style diff viewer. */}
-    <SessionDiffBar sid={sid} />
+    <SessionDiffBar sid={sid} onVisibilityChange={setDiffBarVisible} />
     </div>
   );
 });
@@ -8459,7 +8605,7 @@ function NewSessionDialog({
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [draggingFiles, setDraggingFiles] = useState(false);
   const [annotatingId, setAnnotatingId] = useState<string | null>(null);
-  const [usage, setUsage] = useState<string | null>(null);
+  const [usage, setUsage] = useState<ProviderUsage | null>(null);
   const [pendingCreates, setPendingCreates] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -8717,14 +8863,12 @@ function NewSessionDialog({
   }
 
   useEffect(() => {
-    if (!open || !agentShowsClaudeUsage(agent)) return;
-    api<{ ok: true; fiveHour: { pct: number | null }; sevenDay: { pct: number | null } }>(
-      "/api/claude/usage",
-    )
-      .then((payload) =>
-        setUsage(`5 hr ${Math.round(payload.fiveHour.pct ?? 0)}% · week ${Math.round(payload.sevenDay.pct ?? 0)}%`),
-      )
-      .catch(() => setUsage("usage unavailable"));
+    if (!open) return;
+    setUsage(null);
+    const wantKind = usageProviderKind(agent);
+    api<{ providers: ProviderUsage[] }>("/api/usage")
+      .then((payload) => setUsage(payload.providers.find((p) => p.kind === wantKind) ?? null))
+      .catch(() => setUsage(null));
   }, [open, agent]);
 
   useEffect(() => {
@@ -8898,8 +9042,8 @@ function NewSessionDialog({
     <div
       className={cn(
         "flex items-center gap-1.5 pb-0.5",
-        // Inline composer reveals these on a single row (horizontal scroll if
-        // they overflow); the drawer has full width to spare, so it wraps.
+        // Inline popover keeps agent icons + model + thinking on a single row;
+        // the wider drawer wraps.
         variant === "inline" ? "flex-nowrap" : "flex-wrap",
       )}
     >
@@ -9025,6 +9169,30 @@ function NewSessionDialog({
     </button>
   );
 
+  // Inline composer: the agent icon sits at the start of the input's action row
+  // and opens the full agent / model / thinking / repo controls in a popover
+  // *above* it — reclaiming the separate row those controls used to occupy while
+  // the tall field leaves plenty of empty space.
+  const agentPopover = (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            title={selectedAgentOption.label}
+            aria-label={`Agent: ${selectedAgentOption.label}`}
+            className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm transition active:scale-[0.96]"
+          >
+            <img src={agentIconSrc(agent)} alt="" className="size-5" />
+          </button>
+        }
+      />
+      <DropdownMenuContent side="top" align="start" sideOffset={8} alignOffset={-12} className="w-max max-w-[calc(100vw-1rem)] p-2.5">
+        {controlsInner}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
   const formBody = (
     <>
     <form
@@ -9067,7 +9235,16 @@ function NewSessionDialog({
           event.currentTarget.value = "";
         }}
       />
-      <div className="relative" ref={fieldRef}>
+      <div
+        className={cn(
+          "lfg-gfield rounded-2xl",
+          // Inline: a single row with the agent icon, field, and mic all
+          // vertically centered, with a touch more breathing room.
+          variant === "inline" ? "flex items-center gap-1.5 px-2.5 py-2" : "relative px-2 py-1",
+        )}
+        ref={fieldRef}
+      >
+        {variant === "inline" ? agentPopover : null}
         <Textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
@@ -9086,14 +9263,15 @@ function NewSessionDialog({
           }}
           placeholder={attachments.length ? "Add a note for the files…" : "Describe the task for a new session…"}
           className={cn(
-            "max-h-[32dvh] resize-none overflow-y-auto border-0 bg-transparent px-1 py-1 pr-10 text-base leading-relaxed shadow-none focus-visible:border-0 focus-visible:ring-0",
-            compact ? "min-h-11" : variant === "inline" ? "min-h-24" : "min-h-40",
-            variant !== "inline" && "max-h-[42dvh]",
+            "max-h-[32dvh] resize-none overflow-y-auto border-0 bg-transparent text-base leading-relaxed shadow-none focus-visible:border-0 focus-visible:ring-0",
+            variant === "inline"
+              ? "min-h-9 flex-1 px-1 py-1.5"
+              : "min-h-40 max-h-[42dvh] px-1 py-1 pr-10",
           )}
         />
         <MicButton
           minimal
-          className="absolute bottom-1 right-1 size-9"
+          className={cn("size-9 shrink-0", variant !== "inline" && "absolute bottom-1 right-1")}
           silenceMs={2500}
           baseText={prompt}
           onText={(text, base) =>
@@ -9163,74 +9341,53 @@ function NewSessionDialog({
         </div>
       ) : null}
 
-      {variant === "inline" ? (
-        // Single constant-height row: the agent toggle stays put while the
-        // controls (and the recent button tucked at their end) reveal to the
-        // right when expanded. Collapsed shows only the toggle.
-        <div className="mt-2 flex min-h-8 items-center gap-1.5">
-          {/* Collapsed-only handle: shows the current agent and opens the row.
-              When expanded it tucks away so the agent isn't duplicated — the
-              switcher below carries the selected (highlighted) agent, and
-              tapping it again collapses. */}
-          <button
-            type="button"
-            title={selectedAgentOption.label}
-            aria-label="Choose agent"
-            aria-expanded={expanded}
-            onClick={() => onExpandedChange?.(true)}
-            tabIndex={expanded ? -1 : 0}
-            className={cn(
-              "flex h-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-foreground shadow-sm transition-[width,opacity,transform] duration-300 ease-ios active:scale-[0.96]",
-              expanded ? "pointer-events-none w-0 opacity-0" : "w-9 opacity-100",
-            )}
-          >
-            <img src={agentIconSrc(agent)} alt="" className="size-5" />
-          </button>
-          <div
-            className={cn(
-              "flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto transition-[max-width,opacity] duration-300 ease-ios",
-              expanded ? "max-w-full opacity-100" : "pointer-events-none max-w-0 opacity-0",
-            )}
-            aria-hidden={!expanded}
-          >
-            {controlsInner}
-            {resumeButton}
-          </div>
-        </div>
-      ) : (
+      {/* The drawer variant keeps its always-open controls row; the inline
+          composer carries these inside the agent popover instead. */}
+      {variant !== "inline" ? (
         <div className="mt-2 flex flex-wrap items-start gap-1.5">
           <div className="min-w-0 max-w-none">{controlsInner}</div>
           {resumeButton}
         </div>
-      )}
+      ) : null}
 
       <div
         className={cn(
-          "flex items-center justify-between gap-3",
+          "flex items-center gap-2",
           compact ? "mt-2" : "mt-4",
         )}
       >
+        {/* Left: Apple-Watch-style usage rings; tap to expand the breakdown. */}
+        {variant === "inline" && usage ? <UsageRingsButton provider={usage} /> : null}
         <span
           className={cn(
-            "min-w-0 truncate text-xs",
+            "min-w-0 flex-1 truncate text-xs",
             error ? "text-destructive" : "text-muted-foreground",
           )}
         >
-          {error || (agentShowsClaudeUsage(agent) ? usage : "") || ""}
+          {error || ""}
         </span>
+        {/* Right cluster: folder + photo + send, stacked together. */}
         <div className="flex shrink-0 items-center gap-2">
+          {variant === "inline" && projectOptions && onProjectChange ? (
+            <ProjectFilterMenu
+              value={scopedProject}
+              projects={projectOptions}
+              onChange={onProjectChange}
+              solidSurface
+            />
+          ) : null}
           <Button
-            size="icon"
+            size="icon-sm"
             type="button"
-            variant={draggingFiles ? "brand-soft" : "tint"}
-            className="size-9"
+            variant={draggingFiles ? "brand-soft" : "outline"}
+            className="size-8 rounded-full shadow-sm"
             onClick={() => fileInputRef.current?.click()}
             aria-label="Attach files"
             title="Attach files"
           >
             <Paperclip className="size-4" />
           </Button>
-          <Button type="submit" variant="secondary" disabled={!canSubmit}>
+          <Button type="submit" size="sm" variant="secondary" disabled={!canSubmit}>
             <Send className="size-4" />
             Start
           </Button>
@@ -9270,20 +9427,10 @@ function NewSessionDialog({
       <div
         aria-busy={launching}
         className={cn(
-          "pointer-events-auto fixed inset-x-0 bottom-0 z-[55] border-t border-border/60 bg-background/95 pt-4 shadow-[0_-8px_24px_rgba(0,0,0,0.12)] backdrop-blur-xl",
+          "pointer-events-auto fixed inset-x-0 bottom-0 z-[55] bg-background/95 pt-4 shadow-[0_-8px_24px_rgba(0,0,0,0.12)] backdrop-blur-xl",
           launching && "lfg-composer-launching",
         )}
       >
-        {projectOptions && onProjectChange ? (
-          <div className="absolute left-1/2 top-0 z-10 -translate-x-1/2 -translate-y-1/2">
-            <ProjectFilterMenu
-              value={scopedProject}
-              projects={projectOptions}
-              onChange={onProjectChange}
-              solidSurface
-            />
-          </div>
-        ) : null}
         <div ref={inlineShellRef} className="mx-auto max-w-lg will-change-transform">
           {formBody}
         </div>
@@ -11000,11 +11147,13 @@ function NotepadNotes({
   onResume,
   onNoteStatus,
   action,
+  showHeader = true,
 }: {
   notes: SessionNote[];
   onResume: (note: SessionNote) => void;
   onNoteStatus: (note: SessionNote, status: SessionNote["status"]) => void;
   action?: React.ReactNode;
+  showHeader?: boolean;
 }) {
   // Keep notepad as a chronological feed: most recently touched notes first.
   const sorted = [...notes].sort((a, b) => {
@@ -11018,7 +11167,9 @@ function NotepadNotes({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   return (
     <section className="space-y-2">
-      <CategoryHeader label="Notepad" count={notes.length} dotClass="bg-primary" action={action} />
+      {showHeader ? (
+        <CategoryHeader label="Notepad" count={notes.length} dotClass="bg-primary" action={action} />
+      ) : null}
       {sorted.length ? (
         <div className="overflow-hidden rounded-xl border border-border bg-card divide-y divide-border">
           {sorted.map((note) => {
@@ -11183,6 +11334,7 @@ function MobileNotepadHome({
         notes={notes}
         onResume={onResume}
         onNoteStatus={onNoteStatus}
+        showHeader={false}
       />
     </div>
   );
