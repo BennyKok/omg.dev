@@ -26,6 +26,8 @@ export type AisdkEntry = {
   cwd: string;
   model: string;
   busy: boolean; // true while a turn is generating — feeds the live-view busy dot
+  draftText?: string | null; // transient streamed assistant text; never persisted to transcripts
+  draftUpdatedAt?: number | null;
   title?: string | null; // first user prompt, for the card before a transcript exists
   createdAt: number;
   // Which AI-SDK backend this entry drives. Absent on legacy Claude entries —

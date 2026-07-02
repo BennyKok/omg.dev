@@ -1666,7 +1666,9 @@ function ppidOf(pid: number): number | null {
 
 export async function resolveTranscript(sessionId: string): Promise<string | null> {
   if (!UUID.test(sessionId)) return null;
-  const managed = listManaged().find((m) => m.sessionId === sessionId);
+  const managed = listManaged().find(
+    (m) => m.sessionId === sessionId || m.nativeSessionId === sessionId,
+  );
   if (managed?.nativeSessionId && managed.nativeSessionId !== sessionId) {
     const native =
       (managed.agent === "grok"
@@ -2088,14 +2090,68 @@ export async function messagePage(
   nextBefore: number | null;
   total: number;
 }> {
-  const all = await recentMessages(path, 0, { maxBytes: null });
   const limit = Math.max(1, Math.min(500, opts.limit ?? 220));
-  const rawEnd = opts.before ?? all.length;
-  const end = Math.max(0, Math.min(all.length, rawEnd));
-  const start = Math.max(0, end - limit);
-  return {
-    messages: all.slice(start, end),
-    nextBefore: start > 0 ? start : null,
-    total: all.length,
-  };
+  const file = Bun.file(path);
+  const size = file.size;
+  const end = Math.max(0, Math.min(size, opts.before ?? size));
+  if (end <= 0) return { messages: [], nextBefore: null, total: 0 };
+
+  // `before` is a byte cursor, not a message index. Read backwards in bounded
+  // windows and include whole JSONL records, so opening a large transcript only
+  // parses the tail page instead of the entire file.
+  let windowBytes = 256 * 1024;
+  const decoder = new TextDecoder();
+
+  while (true) {
+    const start = Math.max(0, end - windowBytes);
+    const bytes = new Uint8Array(await file.slice(start, end).arrayBuffer());
+    let firstComplete = 0;
+    if (start > 0) {
+      firstComplete = bytes.indexOf(10) + 1;
+      if (firstComplete <= 0) {
+        if (start === 0) firstComplete = 0;
+        else {
+          windowBytes = Math.min(size, windowBytes * 2);
+          continue;
+        }
+      }
+    }
+
+    const lines: Array<{ offset: number; messages: SessionMsg[] }> = [];
+    for (let lineStart = firstComplete; lineStart < bytes.length; ) {
+      let lineEnd = lineStart;
+      while (lineEnd < bytes.length && bytes[lineEnd] !== 10) lineEnd++;
+      if (lineEnd > lineStart) {
+        const text = decoder.decode(bytes.subarray(lineStart, lineEnd));
+        const messages = normalizeLineMessages(text);
+        if (messages.length) lines.push({ offset: start + lineStart, messages });
+      }
+      lineStart = lineEnd + 1;
+    }
+
+    let count = 0;
+    let firstLine = lines.length;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      count += lines[i].messages.length;
+      firstLine = i;
+      if (count >= limit) break;
+    }
+
+    if (count < limit && start > 0) {
+      windowBytes = Math.min(size, windowBytes * 2);
+      continue;
+    }
+
+    const selected = firstLine < lines.length ? lines.slice(firstLine) : [];
+    const messages = selected.flatMap((line) => line.messages);
+    const nextBefore = selected.length && selected[0].offset > 0 ? selected[0].offset : null;
+    return {
+      messages,
+      nextBefore,
+      // Kept for wire compatibility. The old exact total required a full
+      // transcript parse; clients use `nextBefore` to decide whether more pages
+      // exist.
+      total: nextBefore == null ? messages.length : -1,
+    };
+  }
 }

@@ -22,19 +22,25 @@ import {
 } from "./voice-tts";
 import type {
   CSSProperties,
+  Dispatch,
   ErrorInfo,
   FormEvent,
+  MutableRefObject,
   ReactNode,
+  SetStateAction,
   TouchEvent as ReactTouchEvent,
 } from "react";
 import {
   Activity,
+  ArrowDown,
   ArrowUp,
+  Brain,
   Bot,
   Boxes,
   Braces,
   CalendarClock,
   Flag,
+  AlertTriangle,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -88,6 +94,8 @@ const VoiceCall = lazyWithReload("VoiceCall", () =>
 );
 const BrowserProfiles = lazyWithReload("BrowserProfiles", () => import("./BrowserProfiles"));
 import { Badge } from "@/components/ui/badge";
+import { ImageAnnotator } from "@/components/ImageAnnotator";
+import { SessionDiffBar } from "@/components/SessionDiffView";
 import { Textarea } from "@/components/ui/textarea";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import {
@@ -98,6 +106,9 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -113,6 +124,21 @@ import {
   disablePush,
 } from "./lib/push";
 import { AskNavButton, AskPage, AskProvider } from "./components/ask-center";
+import {
+  Conversation,
+  ConversationContent,
+  ConversationEmptyState,
+} from "@/components/ai-elements/conversation";
+import {
+  Message as AiMessage,
+  MessageContent,
+  MessageResponse,
+} from "@/components/ai-elements/message";
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger,
+} from "@/components/ai-elements/reasoning";
 
 type Agent = {
   name: string;
@@ -216,6 +242,65 @@ type AutoFinding = {
   sessionId?: string;
 };
 
+type SessionNote = {
+  id: string;
+  sourceSessionId: string;
+  sourceNativeSessionId?: string | null;
+  agent: string;
+  title: string;
+  cwd: string | null;
+  project: string;
+  summary: string;
+  nextActions: string[];
+  blockers: string[];
+  resumePrompt: string;
+  createdAt: number;
+  updatedAt: number;
+  closedAt?: number;
+  status: "open" | "snoozed" | "done" | "dismissed";
+};
+
+type PatternSuggestion = {
+  id: string;
+  key: string;
+  title: string;
+  reasoning: string;
+  recommendation: string;
+  evidence: string[];
+  createdAt: number;
+  updatedAt: number;
+  status: "open" | "accepted" | "dismissed";
+};
+
+type SessionBrainDecision = {
+  sessionId: string;
+  title: string;
+  action: "keep_live" | "needs_input" | "archive_and_close" | "close_no_note";
+  reason: string;
+  confidence: number;
+  noteId?: string;
+  closed?: boolean;
+  guardrail?: string;
+};
+
+type SessionBrainRun = {
+  id: string;
+  startedAt: number;
+  finishedAt?: number;
+  autoClose: boolean;
+  scanned: number;
+  decisions: SessionBrainDecision[];
+  suggestions: string[];
+  errors: string[];
+};
+
+type SessionBrainConfig = {
+  enabled: boolean;
+  autoClose: boolean;
+  intervalMin: number;
+  minIdleMin: number;
+};
+
 type Message = {
   id?: string;
   role?: string;
@@ -225,7 +310,36 @@ type Message = {
   ts?: number;
   pending?: boolean;
   seed?: boolean;
+  // A draft assistant turn we joined mid-stream: its text was already fully
+  // accumulated when we connected, so it renders settled instead of replaying
+  // the word-by-word streaming reveal. See DRAFT_CATCHUP_MIN_CHARS.
+  catchUp?: boolean;
 };
+
+type AiStreamPart = {
+  type: "text-delta" | "text-start" | "text-end" | "error" | string;
+  id?: string;
+  delta?: string;
+  text?: string;
+  reset?: boolean;
+  ts?: number;
+};
+
+const STREAMING_RESPONSE_ANIMATION = {
+  animation: "blurIn",
+  duration: 160,
+  easing: "ease-out",
+  sep: "word",
+  stagger: 10,
+} as const;
+
+// When the first draft snapshot we receive on a fresh live connection already
+// carries at least this many chars, we're joining an assistant turn that was
+// generated before we opened the transcript — replaying its word-by-word reveal
+// would blur-in the whole wall of text for seconds ("stuck in animation"). Above
+// this threshold the draft renders settled; a turn that starts small and grows
+// while we watch stays under it and animates normally.
+const DRAFT_CATCHUP_MIN_CHARS = 160;
 
 type PromptOption = { index: number; label: string; selected?: boolean };
 type SessionPrompt = { question?: string; options: PromptOption[] };
@@ -250,11 +364,11 @@ type ComposerAttachment = {
 };
 
 const CLAUDE_MODELS = ["sonnet", "opus", "haiku", "fable"];
-const CODEX_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"];
+const CODEX_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark"];
 // Models the one-shot AI-SDK test option supports (the provider maps these
 // aliases). Kept in sync with the AISDK_MODELS allowlist in serve.ts.
-const AISDK_MODELS = ["opus", "sonnet", "haiku"];
-const CODEX_AISDK_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"];
+const AISDK_MODELS = ["fable", "opus", "sonnet", "haiku"];
+const CODEX_AISDK_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark"];
 const GROK_MODELS = ["grok-composer-2.5-fast", "grok-build"];
 const HERMES_MODELS = [
   "nousresearch/hermes-4-405b",
@@ -262,6 +376,11 @@ const HERMES_MODELS = [
   "nousresearch/hermes-3-llama-3.1-405b",
 ];
 const OPENCODE_MODELS = [
+  "opencode/big-pickle",
+  "opencode/deepseek-v4-flash-free",
+  "opencode/mimo-v2.5-free",
+  "opencode/nemotron-3-ultra-free",
+  "opencode/north-mini-code-free",
   "opencode-go/deepseek-v4-flash",
   "opencode-go/deepseek-v4-pro",
   "opencode-go/glm-5.1",
@@ -275,7 +394,6 @@ const OPENCODE_MODELS = [
   "opencode-go/qwen3.6-plus",
   "opencode-go/qwen3.7-max",
   "opencode-go/qwen3.7-plus",
-  "opencode/big-pickle",
 ];
 const THINKING_LEVELS = ["low", "medium", "high", "xhigh"] as const;
 type ThinkingLevel = (typeof THINKING_LEVELS)[number];
@@ -418,6 +536,26 @@ function composeAttachmentMessage(
   return [text, `${label}:\n${list}`].filter(Boolean).join("\n\n");
 }
 
+// Swap a composer attachment's file for an annotated version (drawn-on copy
+// from ImageAnnotator), replacing the preview thumbnail in place so the edit
+// feels like it happened to the same attachment, not a new one.
+function applyAnnotatedAttachment(
+  setAttachments: Dispatch<SetStateAction<ComposerAttachment[]>>,
+  previewUrls: MutableRefObject<string[]>,
+  id: string,
+  file: File,
+) {
+  const previewUrl = URL.createObjectURL(file);
+  previewUrls.current.push(previewUrl);
+  setAttachments((current) =>
+    current.map((att) => {
+      if (att.id !== id) return att;
+      if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
+      return { ...att, file, name: file.name, size: file.size, type: file.type, previewUrl, status: "ready" as const };
+    }),
+  );
+}
+
 // Fire-and-forget instrumentation: record which CTA a finding graduated
 // through (composer send vs one-tap "Make the change" vs dismiss) and whether
 // the user had typed an instruction first. Never block or surface errors — a
@@ -449,10 +587,13 @@ function shortUser(email?: string | null) {
   return email ? email.split("@")[0] : "unassigned";
 }
 
+const MOBILE_NOTEPAD_FILTER = "__notepad";
+
 // A human-friendly label for a project. Current backend payloads use the
 // top-level folder under the repos root. The legacy dash-encoded full-path shape
 // is still accepted so old selected filters degrade cleanly.
 function shortProject(project: string): string {
+  if (project === MOBILE_NOTEPAD_FILTER) return "Notepad";
   const legacy = project.match(/(?:^|-)repos-(.+)$/)?.[1];
   if (legacy) return legacy;
   return project;
@@ -506,6 +647,22 @@ function latestLine(messages: Message[]): string {
   const last = items[items.length - 1];
   if (!last) return "";
   return last.type === "tools" ? toolGroupLabel(last.items) : normText(last.message.text);
+}
+
+function isDraftAssistantMessage(message: Message) {
+  return (
+    message.role === "assistant" &&
+    message.kind === "text" &&
+    typeof message.id === "string" &&
+    message.id.startsWith("draft-")
+  );
+}
+
+// A settled (non-draft) assistant text turn. These arrive whole — either
+// replacing the streaming draft on a live backend or straight from a
+// non-streaming one — so they get a one-shot entrance to cover the swap.
+function isFinalAssistantText(message: Message) {
+  return message.role === "assistant" && message.kind === "text" && !isDraftAssistantMessage(message);
 }
 
 function escapeHtml(value: string) {
@@ -671,6 +828,12 @@ function useDictation(opts: {
   // `base` is the input text captured when recording began, so the live partial
   // and the eventual final result compose against the same anchor.
   onInterim?: (text: string, base: string) => void;
+  // Called when the user dismisses an in-progress recording (mic picked up
+  // nothing usable, wrong words, etc.) instead of stopping it normally. `base`
+  // is the pre-recording text, so the caller can restore the field to exactly
+  // what it looked like before dictation started — wiping out any garbled
+  // interim transcript that streamed in via onInterim.
+  onCancel?: (base: string) => void;
   baseText?: string;
   silenceMs?: number;
 }) {
@@ -717,6 +880,7 @@ function useDictation(opts: {
   const onTextRef = useRef(opts.onText);
   const onAutoSubmitRef = useRef(opts.onAutoSubmit);
   const onInterimRef = useRef(opts.onInterim);
+  const onCancelRef = useRef(opts.onCancel);
   const baseTextRef = useRef(opts.baseText ?? "");
   // Base text snapshotted at record-start, shared by interim + final so the
   // final transcript cleanly replaces the live partial without double-appending.
@@ -725,6 +889,7 @@ function useDictation(opts: {
   onTextRef.current = opts.onText;
   onAutoSubmitRef.current = opts.onAutoSubmit;
   onInterimRef.current = opts.onInterim;
+  onCancelRef.current = opts.onCancel;
   baseTextRef.current = opts.baseText ?? "";
 
   const supported =
@@ -769,6 +934,7 @@ function useDictation(opts: {
       if (discard) {
         closeWs();
         setState("idle");
+        onCancelRef.current?.(capturedBaseRef.current);
         return;
       }
       const deliver = (text: string) => {
@@ -1047,19 +1213,34 @@ function useDictation(opts: {
     else void start();
   }, [state, start, stop]);
 
-  return { state, toggle, start, stop, supported, level };
+  // Dismiss an in-progress recording (or one still acquiring the mic) without
+  // transcribing or sending anything — for when the mic clearly didn't catch
+  // it right and stopping-and-sending would just push garbage into the chat.
+  const cancel = useCallback(() => {
+    if (state === "transcribing") return;
+    void stop(false, true);
+  }, [state, stop]);
+
+  return { state, toggle, start, stop, cancel, supported, level };
 }
 
 // Imperative handle so a parent (e.g. the orb's press-and-hold gesture) can
 // drive dictation without a click on the button itself. `submitOnStop` routes
 // the stopped transcript through the auto-submit callback (release-to-send)
 // rather than just inserting it.
-type MicHandle = { start: () => void; stop: (submitOnStop?: boolean) => void };
+type MicHandle = { start: () => void; stop: (submitOnStop?: boolean) => void; cancel: () => void };
 
 // How long the mic button must be held before it becomes push-to-talk. A press
 // shorter than this is treated as a tap (toggle dictation); longer engages
 // hold-to-talk (record while held, release to send).
 const MIC_LONG_PRESS_MS = 300;
+
+// How far (px) a held pointer must drag away from where it went down before a
+// recording arms as "release to cancel" — the WhatsApp-style slide-away-to-
+// dismiss gesture, so a bad take can be tossed with no dedicated button and no
+// stationary-hold timer to wait out. Comfortably past incidental finger wobble
+// on a small touch target, well short of needing to leave the composer.
+const MIC_CANCEL_DRAG_PX = 48;
 
 const MicButton = forwardRef<
   MicHandle,
@@ -1067,6 +1248,10 @@ const MicButton = forwardRef<
     onText: (text: string, base: string) => void;
     onAutoSubmit?: (text: string, base: string) => void;
     onInterim?: (text: string, base: string) => void;
+    // Fires when the recording is dismissed instead of stopped — restore the
+    // field to `base` (the text from before dictation started) so a garbled
+    // partial transcript doesn't linger after the user backs out.
+    onCancel?: (base: string) => void;
     baseText?: string;
     silenceMs?: number;
     className?: string;
@@ -1076,13 +1261,14 @@ const MicButton = forwardRef<
     onRecordingChange?: (recording: boolean) => void;
   }
 >(function MicButton(
-  { onText, onAutoSubmit, onInterim, baseText, silenceMs, className, minimal = false, onRecordingChange },
+  { onText, onAutoSubmit, onInterim, onCancel, baseText, silenceMs, className, minimal = false, onRecordingChange },
   ref,
 ) {
-  const { state, toggle, start, stop, supported, level } = useDictation({
+  const { state, toggle, start, stop, cancel, supported, level } = useDictation({
     onText,
     onAutoSubmit,
     onInterim,
+    onCancel,
     baseText,
     silenceMs,
   });
@@ -1092,9 +1278,26 @@ const MicButton = forwardRef<
       start: () => void start(),
       // submitOnStop → stop(auto=true) delivers via onAutoSubmit (release-to-send).
       stop: (submitOnStop = true) => void stop(submitOnStop),
+      cancel: () => cancel(),
     }),
-    [start, stop],
+    [start, stop, cancel],
   );
+
+  // Escape dismisses an in-flight recording without transcribing/sending it —
+  // the keyboard-accessible escape hatch for "the mic didn't catch that right."
+  // Scoped to only listen while actually recording so it doesn't shadow Escape
+  // handlers elsewhere in the app (closing dialogs, etc.) the rest of the time.
+  useEffect(() => {
+    if (state !== "recording") return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      haptic("selection");
+      cancel();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [state, cancel]);
 
   // Press-and-hold vs tap. A pointer held past MIC_LONG_PRESS_MS becomes
   // push-to-talk: we start recording with the silence-VAD disabled (hold
@@ -1104,10 +1307,22 @@ const MicButton = forwardRef<
   // "selection" tick on tap, a firmer "medium" thud when hold engages.
   const holdTimer = useRef<number | null>(null);
   const holdFired = useRef(false);
+  // Where the pointer went down, so onPointerMove can measure how far it's
+  // dragged away. Set on every pointerdown; only consulted once a recording is
+  // actually live (holdFired, or the tap-mode session was already recording).
+  const dragOrigin = useRef<{ x: number; y: number } | null>(null);
+  // Armed once the held pointer has dragged past MIC_CANCEL_DRAG_PX from
+  // dragOrigin — release then cancels (discards) instead of stopping+sending.
+  // Dragging back under the threshold disarms it again, so the gesture can be
+  // aborted mid-drag same as WhatsApp's slide-to-cancel.
+  const cancelDragArmed = useRef(false);
   const pointerDown = useRef(false);
   // Set on pointer-up so the synthetic click that follows a touch/mouse gesture
   // is ignored — keyboard activation (no preceding pointer) still runs `toggle`.
   const skipNextClick = useRef(false);
+  // Mirrors cancelDragArmed into render so the button can preview the cancel
+  // (icon/color swap) while the drag is still live, before release.
+  const [cancelArmed, setCancelArmed] = useState(false);
 
   const clearHoldTimer = useCallback(() => {
     if (holdTimer.current !== null) {
@@ -1123,13 +1338,16 @@ const MicButton = forwardRef<
       if (state === "transcribing") return;
       pointerDown.current = true;
       holdFired.current = false;
+      cancelDragArmed.current = false;
+      dragOrigin.current = { x: e.clientX, y: e.clientY };
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
       } catch {
         /* capture unsupported — pointerup still fires on the element */
       }
       // Only idle → hold can begin a fresh take. If we're already recording
-      // (tapped on earlier), a hold shouldn't restart; release will toggle off.
+      // (tapped on earlier), a hold shouldn't restart it — but the drag-to-
+      // cancel above still applies to that live recording via onPointerMove.
       if (state !== "idle") return;
       clearHoldTimer();
       holdTimer.current = window.setTimeout(() => {
@@ -1144,6 +1362,25 @@ const MicButton = forwardRef<
     [state, start, clearHoldTimer],
   );
 
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (!pointerDown.current) return;
+      // Only matters once a recording is actually live — either this hold
+      // engaged one (holdFired) or the button was already tap-recording when
+      // the pointer went down.
+      if (!holdFired.current && state !== "recording") return;
+      const origin = dragOrigin.current;
+      if (!origin) return;
+      const dist = Math.hypot(e.clientX - origin.x, e.clientY - origin.y);
+      const armed = dist > MIC_CANCEL_DRAG_PX;
+      if (armed === cancelDragArmed.current) return;
+      cancelDragArmed.current = armed;
+      setCancelArmed(armed);
+      haptic(armed ? "warning" : "selection");
+    },
+    [state],
+  );
+
   const onPointerUp = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
       if (!pointerDown.current) return;
@@ -1155,8 +1392,17 @@ const MicButton = forwardRef<
         /* nothing captured */
       }
       clearHoldTimer();
-      if (holdFired.current) {
-        // Hold engaged → release sends.
+      setCancelArmed(false);
+      const wasDraggedAway = cancelDragArmed.current;
+      cancelDragArmed.current = false;
+      if (wasDraggedAway) {
+        // Dragged away before releasing → dismiss instead of sending, whether
+        // this was a fresh hold-to-talk or an already tap-recording session.
+        holdFired.current = false;
+        haptic("selection");
+        cancel();
+      } else if (holdFired.current) {
+        // Hold engaged, released back on the button → send.
         holdFired.current = false;
         void stop(true);
       } else {
@@ -1166,20 +1412,27 @@ const MicButton = forwardRef<
         toggle();
       }
     },
-    [stop, toggle, clearHoldTimer],
+    [stop, toggle, cancel, clearHoldTimer],
   );
 
   const onPointerCancel = useCallback(() => {
     if (!pointerDown.current) return;
     pointerDown.current = false;
     clearHoldTimer();
-    // Interrupted mid-gesture (e.g. the OS stole the pointer). If a hold was
-    // live, end it gracefully by sending what we have rather than dropping it.
-    if (holdFired.current) {
+    setCancelArmed(false);
+    // Interrupted mid-gesture (e.g. the OS stole the pointer). Honor an
+    // already-armed cancel; otherwise if a hold was live, end it gracefully by
+    // sending what we have rather than dropping it.
+    const wasDraggedAway = cancelDragArmed.current;
+    cancelDragArmed.current = false;
+    if (wasDraggedAway) {
+      holdFired.current = false;
+      cancel();
+    } else if (holdFired.current) {
       holdFired.current = false;
       void stop(true);
     }
-  }, [stop, clearHoldTimer]);
+  }, [stop, cancel, clearHoldTimer]);
 
   const onClick = useCallback(() => {
     // Pointer gestures already handled this; only keyboard activation (Enter /
@@ -1200,6 +1453,13 @@ const MicButton = forwardRef<
     return () => onRecordingChange?.(false);
   }, [state, onRecordingChange]);
 
+  // Belt-and-suspenders: if recording ends any other way (silence auto-stop,
+  // Escape) while a cancel-drag happened to be armed, drop the preview so a
+  // stray pointerup later doesn't look like it's still arming a cancel.
+  useEffect(() => {
+    if (state !== "recording") setCancelArmed(false);
+  }, [state]);
+
   if (!supported) return null;
   const recording = state === "recording";
   // While recording, the button reacts to the live mic level: it scales up and
@@ -1211,24 +1471,35 @@ const MicButton = forwardRef<
     <button
       type="button"
       onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
       onClick={onClick}
       onContextMenu={(e) => e.preventDefault()}
-      aria-label={recording ? "Stop dictation" : "Dictate"}
-      title="Tap to dictate · hold to talk"
+      aria-label={
+        recording
+          ? cancelArmed
+            ? "Release to cancel dictation"
+            : "Stop dictation — hold and drag away, or press Esc, to cancel"
+          : "Dictate"
+      }
+      title={recording ? "Tap to send · hold + drag away to cancel · Esc to cancel" : "Tap to dictate · hold to talk"}
       style={reactiveStyle}
       className={cn(
         "flex shrink-0 touch-none select-none items-center justify-center rounded-full transition",
         recording
-          ? "z-10 bg-destructive text-destructive-foreground"
+          ? cancelArmed
+            ? "z-10 bg-muted-foreground text-background"
+            : "z-10 bg-destructive text-destructive-foreground"
           : minimal
             ? "relative z-10 bg-transparent text-muted-foreground hover:bg-transparent hover:text-foreground"
             : "text-muted-foreground hover:bg-muted",
         className,
       )}
     >
-      {state === "transcribing" ? (
+      {cancelArmed ? (
+        <X className="size-4" />
+      ) : state === "transcribing" ? (
         <Loader2 className="size-4 animate-spin" />
       ) : (
         <Mic className="size-4" />
@@ -1237,20 +1508,19 @@ const MicButton = forwardRef<
   );
 });
 
-// Composer send button that doubles as push-to-talk. A quick tap sends the
-// current message; a press held past MIC_LONG_PRESS_MS engages voice — it records
-// while held (silence-VAD disabled so a pause won't cut you off) and stops+submits
-// on release, streaming the live transcript into the textarea as you speak. This
-// merges the old separate Send + Mic affordances into one control: tap to send,
-// hold to talk. Keyboard activation (Enter/Space on the focused button) just sends.
+// Composer send button. A quick tap steers with the current message; when text
+// is present, a long press queues it without interrupting. With an empty
+// composer, long press remains push-to-talk.
 function ComposerSendButton({
   canSend,
   sending,
   baseText,
   onSend,
+  onQueue,
   onText,
   onInterim,
   onAutoSubmit,
+  onCancel,
   onRecordingChange,
   className,
 }: {
@@ -1258,25 +1528,50 @@ function ComposerSendButton({
   sending: boolean;
   baseText: string;
   onSend: () => void;
+  onQueue: () => void;
   onText: (text: string, base: string) => void;
   onInterim: (text: string, base: string) => void;
   onAutoSubmit: (text: string, base: string) => void;
+  onCancel?: (base: string) => void;
   onRecordingChange?: (recording: boolean) => void;
   className?: string;
 }) {
-  const { state, start, stop, supported, level } = useDictation({
+  const { state, start, stop, cancel, supported, level } = useDictation({
     onText,
     onAutoSubmit,
     onInterim,
+    onCancel,
     baseText,
   });
 
+  // Escape bails out of an in-progress push-to-talk hold without sending it —
+  // the button itself can't offer a tap-to-cancel target while a pointer is
+  // captured on it mid-hold, so the keyboard is the only alternate path.
+  useEffect(() => {
+    if (state !== "recording") return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      haptic("selection");
+      cancel();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [state, cancel]);
+
   const holdTimer = useRef<number | null>(null);
-  const holdFired = useRef(false);
+  const holdFired = useRef<"queue" | "voice" | null>(null);
+  // Where the pointer went down, so onPointerMove can measure the drag-away
+  // distance — same slide-to-cancel gesture as MicButton (see MIC_CANCEL_DRAG_PX).
+  const dragOrigin = useRef<{ x: number; y: number } | null>(null);
+  const cancelDragArmed = useRef(false);
   const pointerDown = useRef(false);
   // Set on pointer-up so the synthetic click that follows a pointer gesture is
   // ignored — keyboard activation (no preceding pointer) still sends via onClick.
   const skipNextClick = useRef(false);
+  // Mirrors cancelDragArmed into render so the button can preview the cancel
+  // (icon/color swap) while the drag is still live, before release.
+  const [cancelArmed, setCancelArmed] = useState(false);
 
   const clearHoldTimer = useCallback(() => {
     if (holdTimer.current !== null) {
@@ -1290,24 +1585,49 @@ function ComposerSendButton({
       if (e.button !== 0) return;
       if (state === "transcribing" || sending) return;
       pointerDown.current = true;
-      holdFired.current = false;
+      holdFired.current = null;
+      cancelDragArmed.current = false;
+      dragOrigin.current = { x: e.clientX, y: e.clientY };
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
       } catch {
         /* capture unsupported — pointerup still fires on the element */
       }
-      // Only arm hold-to-talk from idle, and only when dictation is available;
-      // otherwise this stays a plain send button.
-      if (state !== "idle" || !supported) return;
+      // A held send with content preserves the old queue behavior. Empty holds
+      // can still start push-to-talk when dictation is available.
+      if (state !== "idle") return;
+      if (!canSend && !supported) return;
       clearHoldTimer();
       holdTimer.current = window.setTimeout(() => {
         holdTimer.current = null;
-        holdFired.current = true;
-        haptic("heavy"); // the press-to-talk engage thud
+        holdFired.current = canSend ? "queue" : "voice";
+        haptic("heavy");
+        if (canSend) {
+          onQueue();
+          return;
+        }
+        if (!supported) return;
         void start({ autoStop: false });
       }, MIC_LONG_PRESS_MS);
     },
-    [state, sending, supported, start, clearHoldTimer],
+    [state, sending, canSend, onQueue, supported, start, clearHoldTimer],
+  );
+
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (!pointerDown.current) return;
+      if (holdFired.current === "queue") return;
+      if (!holdFired.current && state !== "recording") return;
+      const origin = dragOrigin.current;
+      if (!origin) return;
+      const dist = Math.hypot(e.clientX - origin.x, e.clientY - origin.y);
+      const armed = dist > MIC_CANCEL_DRAG_PX;
+      if (armed === cancelDragArmed.current) return;
+      cancelDragArmed.current = armed;
+      setCancelArmed(armed);
+      haptic(armed ? "warning" : "selection");
+    },
+    [state],
   );
 
   const onPointerUp = useCallback(
@@ -1321,9 +1641,23 @@ function ComposerSendButton({
         /* nothing captured */
       }
       clearHoldTimer();
-      if (holdFired.current || state === "recording") {
-        // Hold engaged → release sends the spoken take.
-        holdFired.current = false;
+      setCancelArmed(false);
+      const wasDraggedAway = cancelDragArmed.current;
+      cancelDragArmed.current = false;
+      if (wasDraggedAway) {
+        // Dragged away before releasing → dismiss the take instead of sending it.
+        holdFired.current = null;
+        haptic("selection");
+        cancel();
+        return;
+      }
+      if (holdFired.current === "queue") {
+        holdFired.current = null;
+        return;
+      }
+      if (holdFired.current === "voice" || state === "recording") {
+        // Hold engaged, released back on the button → send the spoken take.
+        holdFired.current = null;
         void stop(true);
         return;
       }
@@ -1333,20 +1667,29 @@ function ComposerSendButton({
         onSend();
       }
     },
-    [stop, state, canSend, sending, onSend, clearHoldTimer],
+    [stop, cancel, state, canSend, sending, onSend, clearHoldTimer],
   );
 
   const onPointerCancel = useCallback(() => {
     if (!pointerDown.current) return;
     pointerDown.current = false;
     clearHoldTimer();
-    // Interrupted mid-gesture — if a hold was live, end it gracefully by sending
-    // what we have rather than dropping it.
-    if (holdFired.current) {
-      holdFired.current = false;
+    setCancelArmed(false);
+    // Interrupted mid-gesture. Honor an already-armed cancel; otherwise if a
+    // hold was live, end it gracefully by sending what we have rather than
+    // dropping it.
+    const wasDraggedAway = cancelDragArmed.current;
+    cancelDragArmed.current = false;
+    if (wasDraggedAway) {
+      holdFired.current = null;
+      cancel();
+    } else if (holdFired.current === "voice") {
+      holdFired.current = null;
       void stop(true);
+    } else {
+      holdFired.current = null;
     }
-  }, [stop, clearHoldTimer]);
+  }, [stop, cancel, clearHoldTimer]);
 
   const onClick = useCallback(() => {
     // Pointer gestures already handled this; only keyboard activation reaches here.
@@ -1364,6 +1707,13 @@ function ComposerSendButton({
     return () => onRecordingChange?.(false);
   }, [state, onRecordingChange]);
 
+  // Belt-and-suspenders: if recording ends any other way (silence auto-stop,
+  // Escape) while a cancel-drag happened to be armed, drop the preview so a
+  // stray pointerup later doesn't look like it's still arming a cancel.
+  useEffect(() => {
+    if (state !== "recording") setCancelArmed(false);
+  }, [state]);
+
   const recording = state === "recording";
   const transcribing = state === "transcribing";
   // Nothing to send while idle → dim the control, but keep it interactive so
@@ -1379,25 +1729,42 @@ function ComposerSendButton({
     <button
       type="button"
       onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
       onClick={onClick}
       onContextMenu={(e) => e.preventDefault()}
       aria-label={
-        recording ? "Release to send voice message" : canSend ? "Send — hold to talk" : "Hold to talk"
+        recording
+          ? cancelArmed
+            ? "Release to cancel voice message"
+            : "Release to send voice message — drag away, or press Esc, to cancel"
+          : canSend
+            ? "Steer — hold to queue"
+            : "Hold to talk"
       }
-      title={recording ? "Release to send" : "Tap to send · hold to talk"}
+      title={
+        recording
+          ? "Release to send · drag away or Esc to cancel"
+          : canSend
+            ? "Tap to steer · hold to queue"
+            : "Hold to talk"
+      }
       style={reactiveStyle}
       className={cn(
         "flex shrink-0 touch-none select-none items-center justify-center rounded-full font-semibold transition active:scale-[0.97]",
         recording
-          ? "z-10 bg-destructive text-destructive-foreground"
+          ? cancelArmed
+            ? "z-10 bg-muted-foreground text-background"
+            : "z-10 bg-destructive text-destructive-foreground"
           : "relative z-10 bg-foreground/[0.08] text-foreground/80 shadow-sm hover:bg-foreground/[0.12] hover:text-foreground",
         dim && "opacity-50",
         className,
       )}
     >
-      {sending || transcribing ? (
+      {cancelArmed ? (
+        <X className="size-4" />
+      ) : sending || transcribing ? (
         <Loader2 className="size-4 animate-spin" />
       ) : recording ? (
         <Mic className="size-4" />
@@ -1666,6 +2033,10 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
     const t0 = performance.now();
     const firstMsg = new Set<string>();
     const firstReady = new Set<string>();
+    // Per-connection: sids for which we've already received a draft snapshot.
+    // The first one on a connection is the server replaying the current
+    // in-flight draft in full (catch-up); later ones are live growth.
+    const draftSeen = new Set<string>();
     evlog("live_stream_client_start", { rid, ids, idsCount: ids.length });
     const es = new EventSource(`/api/live/stream?ids=${ids.join(",")}&rid=${encodeURIComponent(rid)}`);
     es.onopen = () => {
@@ -1731,7 +2102,13 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
                 const needle = normText(message.text).slice(0, 48);
                 return !needle || !needle.includes(normText(item.text).slice(0, 48));
               })
-            : current.filter((item) => item.kind !== "thinking");
+            : current.filter((item) => {
+                if (item.kind === "thinking") return false;
+                if (message.role === "assistant" && message.kind === "text" && isDraftAssistantMessage(item)) {
+                  return false;
+                }
+                return true;
+              });
           next = [...next, message];
         }
         return { ...prev, [sid]: next.slice(-80) };
@@ -1754,6 +2131,58 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
       } else {
         delete timers[sid];
       }
+    });
+
+    es.addEventListener("ai_part", (event) => {
+      const payload = parseLiveEvent<{
+        sid: string;
+        part: AiStreamPart;
+      }>(event.data);
+      if (!payload || !active.has(payload.sid)) return;
+      const sid = payload.sid;
+      const part = payload.part;
+      if (part?.type !== "text-delta" || !part.id) return;
+      setLoadingBySid((prev) => ({ ...prev, [sid]: false }));
+      const timers = thinkTimerRef.current;
+      if (timers[sid]) {
+        clearTimeout(timers[sid]);
+        delete timers[sid];
+      }
+      const firstDraftForSid = !draftSeen.has(sid);
+      draftSeen.add(sid);
+      setMessagesBySid((prev) => {
+        const current = prev[sid] ?? [];
+        const existing = current.find(
+          (message) => isDraftAssistantMessage(message) && message.id === part.id,
+        );
+        const text = part.reset
+          ? (part.text ?? part.delta ?? "")
+          : `${existing?.text ?? ""}${part.delta ?? ""}`;
+        if (!text) return prev;
+        // A draft we're joining mid-stream (first snapshot on this connection,
+        // already carrying substantial text) renders settled — otherwise the
+        // whole accumulated blob blur-reveals word-by-word for seconds on every
+        // open. The flag sticks across the draft's remaining growth so a later
+        // delta never re-triggers a full-blob reveal.
+        const catchUp =
+          existing?.catchUp ??
+          (firstDraftForSid && !!part.reset && text.length > DRAFT_CATCHUP_MIN_CHARS);
+        const message: Message = {
+          id: part.id,
+          role: "assistant",
+          kind: "text",
+          text,
+          ts: part.ts ?? Date.now(),
+          catchUp,
+        };
+        return {
+          ...prev,
+          [sid]: [
+            ...current.filter((item) => item.kind !== "thinking" && item.id !== part.id),
+            message,
+          ].slice(-80),
+        };
+      });
     });
 
     es.addEventListener("batch", (event) => {
@@ -2011,6 +2440,7 @@ function PushBell({ user }: { user?: string | null }) {
 export function App() {
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
   const rootRef = useRef<HTMLDivElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
   const isMobile = useIsMobile();
   const isWide = useIsWide();
   const [keyboardOpen, setKeyboardOpen] = useState(false);
@@ -2034,6 +2464,7 @@ export function App() {
   // composer's textarea so the soft keyboard opens.
   const [composerExpanded, setComposerExpanded] = useState(false);
   const [composerFocusNonce, setComposerFocusNonce] = useState(0);
+  const [notepadOpen, setNotepadOpen] = useState(false);
   const [callOpen, setCallOpen] = useState(false);
   const [runLog, setRunLog] = useState<string | null>(null);
   // Auto agents
@@ -2048,6 +2479,11 @@ export function App() {
   const [toastedFindingIds, setToastedFindingIds] = useState<Set<string>>(() => new Set());
   const [openFinding, setOpenFinding] = useState<AutoFinding | null>(null);
   const [editingAgent, setEditingAgent] = useState<AutoAgent | "new" | null>(null);
+  const [brainNotes, setBrainNotes] = useState<SessionNote[]>([]);
+  const [brainSuggestions, setBrainSuggestions] = useState<PatternSuggestion[]>([]);
+  const [brainRuns, setBrainRuns] = useState<SessionBrainRun[]>([]);
+  const [brainConfig, setBrainConfig] = useState<SessionBrainConfig | null>(null);
+  const [brainRunning, setBrainRunning] = useState(false);
   const seededAuto = useRef(false);
   const seenFindings = useRef<Set<string>>(new Set());
   const [userFilter, setUserFilter] = useState(() => {
@@ -2273,6 +2709,19 @@ export function App() {
     }
   }, [hideToastedFinding, showToastedFinding]);
 
+  const refreshBrain = useCallback(async () => {
+    const [config, notes, suggestions, runs] = await Promise.all([
+      api<{ config: SessionBrainConfig }>("/api/session-brain/config"),
+      api<{ notes: SessionNote[] }>("/api/session-brain/notes?status=open"),
+      api<{ suggestions: PatternSuggestion[] }>("/api/session-brain/suggestions?status=open"),
+      api<{ runs: SessionBrainRun[] }>("/api/session-brain/runs?limit=12"),
+    ]);
+    setBrainConfig(config.config ?? null);
+    setBrainNotes(notes.notes ?? []);
+    setBrainSuggestions(suggestions.suggestions ?? []);
+    setBrainRuns(runs.runs ?? []);
+  }, []);
+
   const refreshSessions = useCallback(async (_opts?: { retireLaunchId?: string }) => {
     const payload = await api<{ sessions: Session[] }>("/api/sessions");
     // Guard to [] — `sessions` is consumed by `.filter()`/`.map()` on render
@@ -2301,18 +2750,20 @@ export function App() {
         if (!cancelled) setLoading(false);
       });
     refreshAuto().catch(() => {});
+    refreshBrain().catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [loadCore, refreshAuto]);
+  }, [loadCore, refreshAuto, refreshBrain]);
 
   useEffect(() => {
     const id = setInterval(() => {
       refreshSessions().catch(() => {});
       refreshAuto().catch(() => {});
+      refreshBrain().catch(() => {});
     }, 5000);
     return () => clearInterval(id);
-  }, [refreshSessions, refreshAuto]);
+  }, [refreshSessions, refreshAuto, refreshBrain]);
 
   // Refresh the user roster when the tab regains focus. The roster rarely
   // changes, so it isn't worth the 5s poll above — but avatars carry a
@@ -2453,27 +2904,35 @@ export function App() {
       ).sort((a, b) => shortProject(a).localeCompare(shortProject(b))),
     [autoAgents, repos, userScopedSessions],
   );
+  const mobileProjectOptions = useMemo(
+    () => [MOBILE_NOTEPAD_FILTER, ...projectOptions],
+    [projectOptions],
+  );
 
   // If the chosen project is no longer a known repo and has no visible session,
   // fall back to "all" rather than keeping a dead filter.
   useEffect(() => {
     if (loading) return;
-    if (projectFilter !== "__all" && !projectOptions.includes(projectFilter)) {
+    const validMobileNotepad = isMobile && projectFilter === MOBILE_NOTEPAD_FILTER;
+    if (projectFilter !== "__all" && !validMobileNotepad && !projectOptions.includes(projectFilter)) {
       setProjectFilter("__all");
     }
-  }, [loading, projectFilter, projectOptions]);
+  }, [isMobile, loading, projectFilter, projectOptions]);
 
   const liveSessions = useMemo(() => {
+    if (projectFilter === MOBILE_NOTEPAD_FILTER) return [];
     if (projectFilter === "__all") return userScopedSessions;
     return userScopedSessions.filter((session) => session.project === projectFilter);
   }, [userScopedSessions, projectFilter]);
 
   const projectScopedAutoAgents = useMemo(() => {
+    if (projectFilter === MOBILE_NOTEPAD_FILTER) return [];
     if (projectFilter === "__all") return autoAgents;
     return autoAgents.filter((agent) => autoAgentProject(agent, repos) === projectFilter);
   }, [autoAgents, projectFilter, repos]);
 
   const projectScopedFindings = useMemo(() => {
+    if (projectFilter === MOBILE_NOTEPAD_FILTER) return [];
     if (projectFilter === "__all") return liveFindings;
     const agentIds = new Set(projectScopedAutoAgents.map((agent) => agent.id));
     return liveFindings.filter((finding) => agentIds.has(finding.agentId));
@@ -2532,13 +2991,118 @@ export function App() {
 
   const cycleMobileProjectFilter = useCallback(
     (dir: 1 | -1) => {
-      const options = ["__all", ...projectOptions];
+      const options = ["__all", ...mobileProjectOptions];
       if (options.length <= 1) return false;
       setProjectFilter((current) => cycleProjectFilter(options, current, dir));
       return true;
     },
-    [projectOptions],
+    [mobileProjectOptions],
   );
+
+  useEffect(() => {
+    if (!isMobile || tab !== "live" || callOpen) return;
+    const main = mainRef.current;
+    if (!main) return;
+    const SWIPE_COMMIT = 64;
+    const EDGE_GUARD = 24;
+    const st = { active: false, decided: false, horizontal: false, x0: 0, y0: 0, dx: 0 };
+    const reducedMotion = () =>
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const setTx = (px: number) => {
+      main.style.transition = "none";
+      main.style.transform = px ? `translateX(${px}px)` : "";
+      main.style.opacity = px ? String(Math.max(0.72, 1 - Math.abs(px) / 520)) : "";
+    };
+    const release = () => {
+      main.style.transition =
+        "transform 190ms cubic-bezier(0.22,1,0.36,1), opacity 190ms ease-out";
+      main.style.transform = "";
+      main.style.opacity = "";
+    };
+    const finish = (dir: 1 | -1) => {
+      const changed = cycleMobileProjectFilter(dir);
+      if (!changed || reducedMotion()) {
+        release();
+        return;
+      }
+      const width = Math.max(320, window.innerWidth || main.clientWidth || 320);
+      const out = dir === 1 ? -width : width;
+      const inbound = -out;
+      main.style.transition =
+        "transform 130ms cubic-bezier(0.32,0.72,0,1), opacity 130ms ease-out";
+      main.style.transform = `translateX(${out}px)`;
+      main.style.opacity = "0.15";
+      window.setTimeout(() => {
+        main.style.transition = "none";
+        main.style.transform = `translateX(${inbound}px)`;
+        main.style.opacity = "0.35";
+        requestAnimationFrame(() => {
+          main.style.transition =
+            "transform 210ms cubic-bezier(0.22,1,0.36,1), opacity 210ms ease-out";
+          main.style.transform = "";
+          main.style.opacity = "";
+        });
+      }, 130);
+    };
+    const onStart = (event: TouchEvent) => {
+      if (event.touches.length !== 1 || composerExpanded) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target || blocksLiveProjectSwipe(target)) return;
+      const touch = event.touches[0];
+      const width = window.innerWidth || main.clientWidth || 0;
+      if (touch.clientX < EDGE_GUARD || (width && touch.clientX > width - EDGE_GUARD)) return;
+      st.active = true;
+      st.decided = false;
+      st.horizontal = false;
+      st.x0 = touch.clientX;
+      st.y0 = touch.clientY;
+      st.dx = 0;
+    };
+    const onMove = (event: TouchEvent) => {
+      if (!st.active) return;
+      const touch = event.touches[0];
+      const dx = touch.clientX - st.x0;
+      const dy = touch.clientY - st.y0;
+      if (!st.decided) {
+        if (Math.abs(dx) < 9 && Math.abs(dy) < 9) return;
+        st.decided = true;
+        st.horizontal = Math.abs(dx) > Math.abs(dy) * 1.18;
+        if (!st.horizontal) {
+          st.active = false;
+          return;
+        }
+      }
+      if (!st.horizontal) return;
+      event.preventDefault();
+      st.dx = dx;
+      setTx(dx * 0.48);
+    };
+    const onEnd = () => {
+      if (!st.active) return;
+      const { horizontal, dx } = st;
+      st.active = false;
+      if (!horizontal) return;
+      if (Math.abs(dx) < SWIPE_COMMIT) {
+        release();
+        return;
+      }
+      haptic("selection");
+      finish(dx < 0 ? 1 : -1);
+    };
+    main.addEventListener("touchstart", onStart, { passive: true });
+    main.addEventListener("touchmove", onMove, { passive: false });
+    main.addEventListener("touchend", onEnd, { passive: true });
+    main.addEventListener("touchcancel", onEnd, { passive: true });
+    return () => {
+      main.removeEventListener("touchstart", onStart);
+      main.removeEventListener("touchmove", onMove);
+      main.removeEventListener("touchend", onEnd);
+      main.removeEventListener("touchcancel", onEnd);
+      main.style.transition = "";
+      main.style.transform = "";
+      main.style.opacity = "";
+    };
+  }, [callOpen, composerExpanded, cycleMobileProjectFilter, isMobile, tab]);
 
   // Tab / Shift+Tab cycles the live project filter (mirrors the project menu).
   const projectKb = useRef({ tab, projectFilter, projectOptions, setProjectFilter });
@@ -2771,6 +3335,173 @@ export function App() {
     }
   }
 
+  async function runBrainNow() {
+    setBrainRunning(true);
+    try {
+      await api("/api/session-brain/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      await Promise.all([refreshBrain(), refreshSessions()]);
+      toast.success("Session brain finished");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Session brain failed");
+    } finally {
+      setBrainRunning(false);
+    }
+  }
+
+  async function updateBrainConfig(patch: Partial<SessionBrainConfig>) {
+    const normalizedPatch =
+      typeof patch.enabled === "boolean" && typeof patch.autoClose !== "boolean"
+        ? { ...patch, autoClose: patch.enabled }
+        : patch;
+    if (
+      brainConfig &&
+      Object.entries(normalizedPatch).every(([key, value]) => brainConfig[key as keyof SessionBrainConfig] === value)
+    ) {
+      return;
+    }
+    const previous = brainConfig;
+    const fallback: SessionBrainConfig = {
+      enabled: false,
+      autoClose: false,
+      intervalMin: 60,
+      minIdleMin: 45,
+    };
+    setBrainConfig((current) => ({ ...(current ?? fallback), ...normalizedPatch }));
+    try {
+      const res = await api<{ config: SessionBrainConfig }>("/api/session-brain/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(normalizedPatch),
+      });
+      setBrainConfig(res.config);
+    } catch (e) {
+      setBrainConfig(previous);
+      toast.error(e instanceof Error ? e.message : "Couldn't update session brain settings");
+    }
+  }
+
+  async function setNoteStatus(note: SessionNote, status: SessionNote["status"]) {
+    const previousStatus = note.status;
+    // Re-insert a note we optimistically removed, keeping it deduped in case a
+    // refresh already brought it back.
+    const restoreNote = () =>
+      setBrainNotes((prev) => (prev.some((n) => n.id === note.id) ? prev : [note, ...prev]));
+    setBrainNotes((prev) => prev.filter((n) => n.id !== note.id));
+    try {
+      await api(`/api/session-brain/notes/${note.id}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      await refreshBrain();
+      // Done/Dismiss are destructive from the user's view (the note leaves the
+      // list for good), so make them reversible: Undo restores it locally and
+      // POSTs the prior status back to the server.
+      if (status === "done" || status === "dismissed") {
+        toast.success(status === "done" ? "Marked done" : "Dismissed", {
+          action: {
+            label: "Undo",
+            onClick: () => {
+              restoreNote();
+              api(`/api/session-brain/notes/${note.id}/status`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ status: previousStatus }),
+              })
+                .then(() => refreshBrain())
+                .catch((e) => toast.error(e instanceof Error ? e.message : "Couldn't undo"));
+            },
+          },
+        });
+      }
+    } catch (e) {
+      // The server rejected the update — restore the note so it doesn't
+      // silently disappear on a failed status change.
+      restoreNote();
+      toast.error(e instanceof Error ? e.message : "Couldn't update note");
+      await refreshBrain().catch(() => {});
+    }
+  }
+
+  async function setSuggestionStatus(
+    suggestion: PatternSuggestion,
+    status: PatternSuggestion["status"],
+  ) {
+    setBrainSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
+    try {
+      await api(`/api/session-brain/suggestions/${suggestion.id}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      await refreshBrain();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't update suggestion");
+      await refreshBrain().catch(() => {});
+    }
+  }
+
+  async function resumeBrainNote(note: SessionNote) {
+    try {
+      const sourceStillLive = allLiveSessions.some((session) => session.sessionId === note.sourceSessionId);
+      const resumeSessionId = sourceStillLive
+        ? note.sourceSessionId
+        : note.sourceNativeSessionId || note.sourceSessionId;
+      const owner =
+        (userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : "") ||
+        localStorage.getItem("lfg_user") ||
+        users[0]?.email ||
+        "";
+      const res = await api<{ sessionId?: string }>("/api/sessions/resume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: resumeSessionId,
+          prompt: note.resumePrompt,
+          user: owner || undefined,
+        }),
+      });
+      if (res.sessionId) {
+        markCreatedSid(res.sessionId);
+        markCollapsedSid(res.sessionId);
+      } else {
+        throw new Error("Resume started, but no live session id was returned");
+      }
+      await setNoteStatus(note, "done");
+      setTab("live");
+      await refreshSessions();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't resume note");
+    }
+  }
+
+  async function sendSessionToBrain(sid: string) {
+    try {
+      const payload = await api<{ decision: SessionBrainDecision | null }>(
+        `/api/sessions/${sid}/brain`,
+        { method: "POST" },
+      );
+      const decision = payload.decision;
+      if (decision?.closed) {
+        removeSession(sid);
+        toast.success("Archived to brain and closed");
+      } else if (decision?.guardrail) {
+        toast.message("Brain kept the session live", { description: decision.guardrail });
+      } else if (decision?.action === "archive_and_close") {
+        toast.message("Brain wrote a note", { description: "The session stayed live." });
+      } else {
+        toast.message("Brain reviewed the session", { description: decision?.reason });
+      }
+      await Promise.all([refreshBrain(), refreshSessions()]);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't send session to brain");
+    }
+  }
+
   const refreshCodingAgents = useCallback(async () => {
     const payload = await api<{ agents: CodingAgentInfo[] }>("/api/coding-agents");
     setCodingAgents(payload.agents ?? []);
@@ -2915,8 +3646,17 @@ export function App() {
         </div>
       ) : null}
 
-      <main className={`min-h-0 flex-1 overflow-y-auto px-3 pt-3 ${mainBottomPadding}`}>
-        {tab === "live" ? (
+      <main ref={mainRef} className={`min-h-0 flex-1 overflow-y-auto px-3 pt-3 ${mainBottomPadding}`}>
+        {tab === "live" && isMobile && projectFilter === MOBILE_NOTEPAD_FILTER ? (
+          <MobileNotepadHome
+            notes={brainNotes}
+            running={brainRunning}
+            onRunNow={runBrainNow}
+            onOpenBrain={() => setTab("brain")}
+            onResume={resumeBrainNote}
+            onNoteStatus={setNoteStatus}
+          />
+        ) : tab === "live" ? (
           <LiveView
             sessions={liveSessions}
             users={users}
@@ -2931,6 +3671,7 @@ export function App() {
             onOptimisticMessage={liveStream.addOptimisticMessage}
             onRefresh={refreshSessions}
             onRemove={removeSession}
+            onBrain={sendSessionToBrain}
             onNew={() =>
               isMobile ? setComposerFocusNonce((n) => n + 1) : setNewOpen(true)
             }
@@ -2951,6 +3692,19 @@ export function App() {
             tz={schedTz}
             onEdit={setEditingAgent}
             onRunNow={runAutoNow}
+          />
+        ) : tab === "brain" ? (
+          <SessionBrainView
+            config={brainConfig}
+            notes={brainNotes}
+            suggestions={brainSuggestions}
+            runs={brainRuns}
+            running={brainRunning}
+            onRunNow={runBrainNow}
+            onConfigChange={updateBrainConfig}
+            onResume={resumeBrainNote}
+            onNoteStatus={setNoteStatus}
+            onSuggestionStatus={setSuggestionStatus}
           />
         ) : tab === "ask" ? (
           <AskPage />
@@ -2984,6 +3738,9 @@ export function App() {
             onOpenBrowser={() => setTab("browser")}
             onOpenCodingAgents={() => setTab("coding-agents")}
             onOpenAuto={() => setTab("auto")}
+            onOpenBrain={() => setTab("brain")}
+            brainConfig={brainConfig}
+            onBrainConfigChange={updateBrainConfig}
             onOpenUsage={() => setTab("usage")}
             onOpenChangelog={() => setTab("changelog")}
             extTabs={extNavTabs}
@@ -3007,7 +3764,7 @@ export function App() {
               users={users}
               repos={repos}
               scopedProject={projectFilter}
-              projectOptions={projectOptions}
+              projectOptions={mobileProjectOptions}
               onProjectChange={setProjectFilter}
               onProjectSwipe={cycleMobileProjectFilter}
               onReposChanged={loadCore}
@@ -3042,6 +3799,22 @@ export function App() {
           onClose={() => setOpenFinding(null)}
           onReply={replyToFinding}
           onDismiss={dismissFinding}
+        />
+      ) : null}
+
+      {isMobile ? (
+        <MobileNotepadSheet
+          open={notepadOpen}
+          notes={brainNotes}
+          running={brainRunning}
+          onRunNow={runBrainNow}
+          onOpenBrain={() => {
+            setNotepadOpen(false);
+            setTab("brain");
+          }}
+          onResume={resumeBrainNote}
+          onNoteStatus={setNoteStatus}
+          onClose={() => setNotepadOpen(false)}
         />
       ) : null}
 
@@ -3145,6 +3918,21 @@ function FloatingSessionAudio({
     onAutoSubmit: (text) => void sendToSession(text),
   });
 
+  // Escape dismisses an in-progress voice reply without transcribing/sending
+  // it — same escape hatch as the composer's mic button, for when the mic
+  // didn't pick up what you meant to say.
+  useEffect(() => {
+    if (dictation.state !== "recording") return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      haptic("selection");
+      dictation.cancel();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [dictation.state, dictation.cancel]);
+
   if (playback.status === "idle") return null;
 
   // Position is interpolated live (not part of the stable store snapshot); the
@@ -3203,6 +3991,21 @@ function FloatingSessionAudio({
             </div>
           </div>
 
+          {recording ? (
+            <button
+              type="button"
+              onClick={() => {
+                haptic("selection");
+                dictation.cancel();
+              }}
+              aria-label="Cancel voice message"
+              title="Cancel (Esc)"
+              className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            >
+              <X className="size-4" />
+            </button>
+          ) : null}
+
           <button
             type="button"
             onClick={() => {
@@ -3215,7 +4018,7 @@ function FloatingSessionAudio({
             }}
             disabled={!sid || busy}
             aria-label={recording ? "Stop and send voice message" : "Speak to this session"}
-            title={recording ? "Stop and send" : "Speak to this session"}
+            title={recording ? "Stop and send (Esc to cancel)" : "Speak to this session"}
             className={cn(
               "flex size-10 shrink-0 items-center justify-center rounded-full transition",
               recording
@@ -3487,7 +4290,11 @@ function ProjectFilterMenu({
         touchStartY.current = null;
       }}
     >
-      <Folder className="size-3.5 shrink-0" />
+      {value === MOBILE_NOTEPAD_FILTER ? (
+        <ScrollText className="size-3.5 shrink-0" />
+      ) : (
+        <Folder className="size-3.5 shrink-0" />
+      )}
       {active ? (
         <span className="truncate text-xs font-medium">
           {shortProject(value)}
@@ -3607,6 +4414,49 @@ function composerIsEditing(target: EventTarget | null): boolean {
   return active instanceof HTMLElement && form.contains(active) && isTextEditingElement(active);
 }
 
+function hasHorizontalScrollAncestor(target: EventTarget | null): boolean {
+  let el = target instanceof HTMLElement ? target : null;
+  while (el && el !== document.body) {
+    const style = window.getComputedStyle(el);
+    const overflowX = style.overflowX;
+    const canScrollX =
+      el.scrollWidth > el.clientWidth + 2 &&
+      (overflowX === "auto" || overflowX === "scroll" || overflowX === "overlay");
+    if (canScrollX) return true;
+    el = el.parentElement;
+  }
+  return false;
+}
+
+function blocksSessionSwipe(target: EventTarget | null): boolean {
+  const el = target instanceof Element ? target : null;
+  if (!el) return false;
+  if (hasHorizontalScrollAncestor(target)) return true;
+  return !!el.closest(
+    [
+      "a[href]",
+      "button",
+      "input",
+      "textarea",
+      "select",
+      "summary",
+      "table",
+      "pre",
+      "code",
+      "[contenteditable='true']",
+      "[role='button']",
+      "[role='link']",
+      "[data-no-composer-swipe]",
+    ].join(","),
+  );
+}
+
+function blocksLiveProjectSwipe(target: EventTarget | null): boolean {
+  const el = target instanceof Element ? target : null;
+  if (!el) return false;
+  return !!el.closest("form, .live-pane") || blocksSessionSwipe(target);
+}
+
 // Wide screens (≥1024px — incl. iPad in landscape) get the rail + stage
 // workspace; below that (phones, iPad portrait) we keep the familiar stacked
 // grid where narrow columns would be too cramped. Mirrors useIsMobile.
@@ -3699,6 +4549,7 @@ function LiveView({
   onOptimisticMessage,
   onRefresh,
   onRemove,
+  onBrain,
   onNew,
   findings = [],
   autoAgents = [],
@@ -3717,6 +4568,7 @@ function LiveView({
   onOptimisticMessage: (sid: string, text: string) => void;
   onRefresh: () => Promise<void>;
   onRemove: (sid: string) => void;
+  onBrain: (sid: string) => Promise<void>;
   onNew: () => void;
   findings: AutoFinding[];
   autoAgents: AutoAgent[];
@@ -3797,6 +4649,7 @@ function LiveView({
         onOptimisticMessage={onOptimisticMessage}
         onRefresh={onRefresh}
         onRemove={onRemove}
+        onBrain={onBrain}
         onOpenSheet={(sid, origin) => setSheet({ sid, origin })}
         entering={recentlyCreatedSids.has(session.sessionId ?? "")}
       />
@@ -3818,6 +4671,7 @@ function LiveView({
         onOptimisticMessage={onOptimisticMessage}
         onRefresh={onRefresh}
         onRemove={onRemove}
+        onBrain={onBrain}
         findings={findings}
         nameFor={nameFor}
         onOpenFinding={onOpenFinding}
@@ -3889,6 +4743,7 @@ function LiveView({
       <SessionTitleSheet
         sid={sheet.sid}
         session={sheetSession}
+        users={users}
         order={sheetOrder}
         origin={sheet.origin}
         messagesBySid={messagesBySid}
@@ -3900,6 +4755,7 @@ function LiveView({
         onSwitch={(nextSid) => setSheet((s) => (s ? { ...s, sid: nextSid } : s))}
         onOptimisticMessage={onOptimisticMessage}
         onRefresh={onRefresh}
+        onRemove={onRemove}
         onClose={() => setSheet(null)}
       />
     ) : null}
@@ -3925,6 +4781,7 @@ function RailStage({
   onOptimisticMessage,
   onRefresh,
   onRemove,
+  onBrain,
   findings = [],
   nameFor,
   onOpenFinding,
@@ -3942,6 +4799,7 @@ function RailStage({
   onOptimisticMessage: (sid: string, text: string) => void;
   onRefresh: () => Promise<void>;
   onRemove: (sid: string) => void;
+  onBrain: (sid: string) => Promise<void>;
   findings: AutoFinding[];
   nameFor: (id: string) => string;
   onOpenFinding: (f: AutoFinding) => void;
@@ -4503,6 +5361,7 @@ function RailStage({
                     onOptimisticMessage={onOptimisticMessage}
                     onRefresh={onRefresh}
                     onRemove={onRemove}
+                    onBrain={onBrain}
                     variant="stage"
                     onClose={() => closeColumn(sid)}
                     entering={recentlyCreatedSids.has(sid)}
@@ -4975,6 +5834,7 @@ function SessionChat({
   const [sending, setSending] = useState(false);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [draggingFiles, setDraggingFiles] = useState(false);
+  const [annotatingId, setAnnotatingId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewUrls = useRef<string[]>([]);
 
@@ -5048,7 +5908,11 @@ function SessionChat({
     }
   }
 
-  async function sendMessage(e?: FormEvent, overrideText?: string) {
+  async function sendMessage(
+    e?: FormEvent,
+    overrideText?: string,
+    mode: "steer" | "queue" = "steer",
+  ) {
     e?.preventDefault();
     const text = (overrideText ?? messageText).trim();
     const files = attachments;
@@ -5064,7 +5928,7 @@ function SessionChat({
       await api(`/api/sessions/${sid}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: outgoingText }),
+        body: JSON.stringify({ text: outgoingText, mode }),
       });
       for (const att of files) {
         if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
@@ -5185,6 +6049,18 @@ function SessionChat({
                       {att.status === "uploading" ? "Uploading..." : att.status === "failed" ? "Failed" : formatBytes(att.size)}
                     </div>
                   </div>
+                  {att.previewUrl ? (
+                    <button
+                      type="button"
+                      className="flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                      onClick={() => setAnnotatingId(att.id)}
+                      aria-label={`Annotate ${att.name}`}
+                      title="Annotate"
+                      disabled={sending}
+                    >
+                      <Pencil className="size-3.5" />
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="ml-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
@@ -5233,9 +6109,9 @@ function SessionChat({
                 placeholder={attachments.length ? "Add a note" : "Message"}
                 disabled={sending}
                 rows={1}
-                className="min-h-11 max-h-28 min-w-0 resize-none overflow-y-auto rounded-2xl border-border/55 bg-muted/65 px-4 py-3 text-base leading-5 shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:border-foreground/20 focus-visible:bg-muted focus-visible:ring-0 md:min-h-9 md:rounded-[1.125rem] md:px-3.5 md:py-2 md:pr-10 md:text-sm"
+                className="min-h-11 max-h-28 min-w-0 resize-none overflow-y-auto rounded-2xl border-border/55 bg-muted/65 px-4 py-3 pr-10 text-base leading-5 shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:border-foreground/20 focus-visible:bg-muted focus-visible:ring-0 md:min-h-9 md:rounded-[1.125rem] md:px-3.5 md:py-2 md:text-sm"
               />
-              <div className="absolute bottom-0.5 right-1 hidden md:block">
+              <div className="absolute bottom-1.5 right-1 block md:bottom-0.5">
                 <MicButton
                   minimal
                   className="size-8"
@@ -5252,6 +6128,7 @@ function SessionChat({
                     const combined = base.trim() ? `${base.trimEnd()} ${text}` : text;
                     void sendMessage(undefined, combined);
                   }}
+                  onCancel={(base) => setMessageText(base)}
                 />
               </div>
             </div>
@@ -5268,13 +6145,14 @@ function SessionChat({
                 <Pause className="size-4" />
               </Button>
             ) : null}
-            {/* Send doubles as push-to-talk: tap to send, hold to dictate. */}
+            {/* Tap steers the active turn; long-press queues without interrupting. */}
             <ComposerSendButton
               className="size-11 md:size-9"
               sending={sending}
               canSend={Boolean(messageText.trim() || attachments.length)}
               baseText={messageText}
               onSend={() => void sendMessage()}
+              onQueue={() => void sendMessage(undefined, undefined, "queue")}
               onRecordingChange={onDictatingChange}
               onText={(text, base) =>
                 setMessageText(base.trim() ? `${base.trimEnd()} ${text}` : text)
@@ -5286,10 +6164,22 @@ function SessionChat({
                 const combined = base.trim() ? `${base.trimEnd()} ${text}` : text;
                 void sendMessage(undefined, combined);
               }}
+              onCancel={(base) => setMessageText(base)}
             />
           </div>
         </form>
       ) : null}
+      <ImageAnnotator
+        open={!!annotatingId}
+        file={attachments.find((att) => att.id === annotatingId)?.file ?? null}
+        onOpenChange={(next) => {
+          if (!next) setAnnotatingId(null);
+        }}
+        onSave={(file) => {
+          if (annotatingId) applyAnnotatedAttachment(setAttachments, previewUrls, annotatingId, file);
+          setAnnotatingId(null);
+        }}
+      />
     </div>
   );
 }
@@ -5351,9 +6241,144 @@ function SessionTitleLine({ title }: { title: string }) {
   );
 }
 
+function SessionActionsMenu({
+  session,
+  users,
+  onRefresh,
+  onRemove,
+  onError,
+  triggerClassName,
+}: {
+  session: Session;
+  users: User[];
+  onRefresh: () => Promise<void>;
+  onRemove: (sid: string) => void;
+  onError: (error: string | null) => void;
+  triggerClassName?: string;
+}) {
+  const [forkOpen, setForkOpen] = useState(false);
+  const sid = session.sessionId;
+
+  async function assign(user: string) {
+    if (!sid) return;
+    onError(null);
+    try {
+      await api(`/api/sessions/${sid}/user`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user: user || null }),
+      });
+      await onRefresh();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function interrupt() {
+    if (!sid) return;
+    onError(null);
+    try {
+      await api(`/api/sessions/${sid}/interrupt`, { method: "POST" });
+      await onRefresh();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function close() {
+    if (!sid || !confirm(`End ${titleForSession(session)}?`)) return;
+    onError(null);
+    onRemove(sid); // drop the card now; the tombstone survives the next poll
+    try {
+      await api(`/api/sessions/${sid}/close`, { method: "POST" });
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      await onRefresh().catch((err) =>
+        onError(err instanceof Error ? err.message : String(err)),
+      );
+    }
+  }
+
+  return (
+    <>
+      {forkOpen ? (
+        <ForkSessionDialog
+          session={session}
+          onClose={() => setForkOpen(false)}
+          onCreated={onRefresh}
+        />
+      ) : null}
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <button
+              type="button"
+              className={cn(
+                "flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted",
+                triggerClassName,
+              )}
+              aria-label="Session menu"
+            />
+          }
+        >
+          <MoreVertical className="size-4" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-44">
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger disabled={!sid}>
+              <span className="min-w-0 flex-1">Assign to</span>
+              {session.assignedUser ? (
+                <span className="max-w-24 truncate text-xs text-muted-foreground">
+                  {shortUser(session.assignedUser)}
+                </span>
+              ) : null}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent align="start" className="min-w-48">
+              <DropdownMenuRadioGroup
+                value={session.assignedUser ?? ""}
+                onValueChange={(value) =>
+                  void assign(typeof value === "string" ? value : "")
+                }
+              >
+                <DropdownMenuLabel>Assign to</DropdownMenuLabel>
+                <DropdownMenuRadioItem value="">Unassigned</DropdownMenuRadioItem>
+                {users.map((user) => (
+                  <DropdownMenuRadioItem key={user.email} value={user.email}>
+                    {user.name ?? shortUser(user.email)}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem disabled={!sid} onClick={() => setForkOpen(true)}>
+            <GitFork className="size-4" />
+            Fork
+          </DropdownMenuItem>
+          {canDriveSession(session) ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => void interrupt()}>
+                <Pause className="size-4" />
+                Stop
+              </DropdownMenuItem>
+              <DropdownMenuItem variant="destructive" onClick={() => void close()}>
+                <X className="size-4" />
+                End session
+              </DropdownMenuItem>
+            </>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
+  );
+}
+
 function SessionTitleSheet({
   sid,
   session,
+  users,
   order,
   messagesBySid,
   busyBySid,
@@ -5365,6 +6390,7 @@ function SessionTitleSheet({
   onSwitch,
   onOptimisticMessage,
   onRefresh,
+  onRemove,
   onClose,
 }: {
   // The active session id. The sheet is a top-level modal (lifted out of any one
@@ -5372,6 +6398,7 @@ function SessionTitleSheet({
   // the morph-in/out animation always references the original `origin` rect.
   sid: string;
   session: Session;
+  users: User[];
   // Sid navigation order, matching the on-screen card order (working then idle).
   order: string[];
   messagesBySid: Record<string, Message[]>;
@@ -5384,6 +6411,7 @@ function SessionTitleSheet({
   onSwitch: (sid: string) => void;
   onOptimisticMessage: (sid: string, text: string) => void;
   onRefresh: () => Promise<void>;
+  onRemove: (sid: string) => void;
   onClose: () => void;
 }) {
   const [error, setError] = useState<string | null>(null);
@@ -5479,13 +6507,12 @@ function SessionTitleSheet({
     );
   }, [sid]);
 
-  // Swipe the composer (input bar) left/right to switch sessions. Horizontal
-  // drags that *begin* on the composer form drag the whole transcript with the
-  // finger; releasing past the threshold commits to prev/next (rubber-banding at
-  // the ends). Vertical intent is released back to the scroller untouched, and we
-  // only preventDefault once a horizontal swipe is committed — so tapping into the
-  // textarea, scrolling, and caret placement all behave normally. Native
-  // non-passive listeners (React's are passive) so preventDefault actually holds.
+  // Swipe the session body or composer left/right to switch sessions. Horizontal
+  // drags move the whole transcript with the finger; releasing past the threshold
+  // commits to prev/next (rubber-banding at the ends). Vertical intent is
+  // released back to the scroller untouched, and we only preventDefault once a
+  // horizontal swipe is committed, so scrolling and controls behave normally.
+  // Native non-passive listeners (React's are passive) so preventDefault holds.
   useEffect(() => {
     const body = bodyRef.current;
     if (!body) return;
@@ -5505,9 +6532,13 @@ function SessionTitleSheet({
     };
     const onStart = (e: TouchEvent) => {
       if (closingRef.current || e.touches.length !== 1) return;
-      const target = e.target as HTMLElement | null;
-      if (!target?.closest("form")) return; // only swipes that start on the input bar
-      if (composerIsEditing(target)) return;
+      const target = e.target instanceof Element ? e.target : null;
+      const startedInComposer = !!target?.closest("form");
+      if (startedInComposer) {
+        if (composerIsEditing(e.target)) return;
+      } else if (blocksSessionSwipe(e.target)) {
+        return;
+      }
       const t = e.touches[0];
       st.active = true;
       st.decided = false;
@@ -5818,6 +6849,15 @@ function SessionTitleSheet({
           className="flex items-center gap-2 border-b border-border px-4 pb-3"
           style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.75rem)" }}
         >
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Close session details"
+            onClick={requestClose}
+            className="shrink-0"
+          >
+            <ChevronDown />
+          </Button>
           <img
             src={agentIconSrc(session.agent)}
             alt={agentIconAlt(session.agent)}
@@ -5831,15 +6871,14 @@ function SessionTitleSheet({
               {idx + 1}/{order.length}
             </span>
           ) : null}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Close"
-            onClick={requestClose}
-            className="shrink-0"
-          >
-            <X />
-          </Button>
+          <SessionActionsMenu
+            session={session}
+            users={users}
+            onRefresh={onRefresh}
+            onRemove={onRemove}
+            onError={setError}
+            triggerClassName="size-9"
+          />
         </div>
         <div
           ref={bodyRef}
@@ -6029,6 +7068,7 @@ const SessionCard = memo(function SessionCard({
   onOptimisticMessage,
   onRefresh,
   onRemove,
+  onBrain,
   onOpenSheet,
   variant = "grid",
   onClose,
@@ -6045,6 +7085,7 @@ const SessionCard = memo(function SessionCard({
   onOptimisticMessage: (sid: string, text: string) => void;
   onRefresh: () => Promise<void>;
   onRemove: (sid: string) => void;
+  onBrain: (sid: string) => Promise<void>;
   // Long-pressing the title asks the parent to open the full-height detail sheet
   // for this sid, anchored to the title's rect. The sheet lives at the parent so
   // it can switch between sessions; undefined → the gesture is disabled.
@@ -6059,26 +7100,9 @@ const SessionCard = memo(function SessionCard({
   entering?: boolean;
 }) {
   const [error, setError] = useState<string | null>(null);
-  const [forkOpen, setForkOpen] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
 
   const sid = session.sessionId;
-
-  async function assign(user: string) {
-    if (!sid) return;
-    await api(`/api/sessions/${sid}/user`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user: user || null }),
-    });
-    await onRefresh();
-  }
-
-  async function interrupt() {
-    if (!sid) return;
-    await api(`/api/sessions/${sid}/interrupt`, { method: "POST" });
-    await onRefresh();
-  }
 
   async function changeModel(model: string) {
     if (!sid || !model || model === session.model) return;
@@ -6092,16 +7116,6 @@ const SessionCard = memo(function SessionCard({
       await onRefresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  async function close() {
-    if (!sid || !confirm(`End ${titleForSession(session)}?`)) return;
-    onRemove(sid); // drop the card now; the tombstone survives the next poll
-    try {
-      await api(`/api/sessions/${sid}/close`, { method: "POST" });
-    } finally {
-      await onRefresh();
     }
   }
 
@@ -6198,6 +7212,9 @@ const SessionCard = memo(function SessionCard({
   const [collapsed, setCollapsed] = useState<boolean>(() => (sid ? isCollapsedSid(sid) : false));
   const [headH, setHeadH] = useState(44);
   const [swipeOpen, setSwipeOpen] = useState(false);
+  const [brainSwipeOpen, setBrainSwipeOpen] = useState(false);
+  const [braining, setBraining] = useState(false);
+  const [swipeIntent, setSwipeIntent] = useState<"delete" | "brain" | null>(null);
   // True only while a horizontal swipe is in progress. The red delete action is
   // kept out of the paint tree unless this or swipeOpen is set — otherwise it
   // sits behind every card and bleeds at the edges during fast momentum scroll.
@@ -6207,7 +7224,7 @@ const SessionCard = memo(function SessionCard({
     startX: 0, startY: 0, x: 0, w: 0,
     dragging: false, decided: false, horizontal: false, justSwiped: false,
   });
-  const openRef = useRef(false);
+  const openRef = useRef<"none" | "delete" | "brain">("none");
   const OPEN = 116;    // resting reveal width once snapped open — wide enough to
                        // leave a left gap before the icon + "Delete" label
   const COMMIT = 0.55; // drag past this fraction of the card → delete on release
@@ -6263,11 +7280,24 @@ const SessionCard = memo(function SessionCard({
     }
   }
 
+  async function brainSession() {
+    if (!sid || braining) return;
+    setBraining(true);
+    closeSwipe();
+    haptic("selection");
+    try {
+      await onBrain(sid);
+    } finally {
+      setBraining(false);
+    }
+  }
+
   function commitDelete() {
     const el = sectionRef.current;
     haptic("warning");
     setSwipeOpen(false);
-    openRef.current = false;
+    setBrainSwipeOpen(false);
+    openRef.current = "none";
     if (el) {
       el.style.transition = "transform 0.26s var(--ease-ios), opacity 0.26s";
       el.style.transform = `translateX(-${el.offsetWidth}px)`;
@@ -6280,7 +7310,9 @@ const SessionCard = memo(function SessionCard({
     const el = sectionRef.current;
     if (el) el.style.transition = "";
     setSwipeOpen(false);
-    openRef.current = false;
+    setBrainSwipeOpen(false);
+    setSwipeIntent(null);
+    openRef.current = "none";
     setTransform(0, 0);
   }
 
@@ -6314,10 +7346,11 @@ const onTouchStart = (e: ReactTouchEvent) => {
       }
     }
     if (d.horizontal) {
-      let nx = (openRef.current ? -OPEN : 0) + mx;
-      if (nx > 0) nx *= 0.3;        // rubber-band past the closed edge
+      let nx = (openRef.current === "delete" ? -OPEN : openRef.current === "brain" ? OPEN : 0) + mx;
       if (nx < -d.w) nx = -d.w;
+      if (nx > d.w) nx = d.w;
       d.x = nx;
+      setSwipeIntent(nx < -6 ? "delete" : nx > 6 ? "brain" : null);
       setTransform(nx, 0);
       return;
     }
@@ -6327,6 +7360,7 @@ const onTouchStart = (e: ReactTouchEvent) => {
     const d = drag.current;
     if (!d.dragging) return;
     d.dragging = false;
+    setSwipeIntent(null);
     const el = sectionRef.current;
     if (el) el.style.transition = "";
     if (!d.decided) {
@@ -6340,11 +7374,16 @@ const onTouchStart = (e: ReactTouchEvent) => {
         commitDelete();
         return;
       }
-      const willOpen = d.x <= -OPEN * 0.5;
-      if (willOpen && !openRef.current) haptic("selection");
-      openRef.current = willOpen;
-      setSwipeOpen(willOpen);
-      setTransform(willOpen ? -OPEN : 0, 0);
+      if (d.x >= d.w * COMMIT) {
+        void brainSession();
+        return;
+      }
+      const nextOpen = d.x <= -OPEN * 0.5 ? "delete" : d.x >= OPEN * 0.5 ? "brain" : "none";
+      if (nextOpen !== "none" && openRef.current === "none") haptic("selection");
+      openRef.current = nextOpen;
+      setSwipeOpen(nextOpen === "delete");
+      setBrainSwipeOpen(nextOpen === "brain");
+      setTransform(nextOpen === "delete" ? -OPEN : nextOpen === "brain" ? OPEN : 0, 0);
       return;
     }
   };
@@ -6372,7 +7411,7 @@ const onTouchStart = (e: ReactTouchEvent) => {
     const el = e.currentTarget;
     pressTimer.current = window.setTimeout(() => {
       pressTimer.current = null;
-      if (openRef.current) return; // mid swipe-to-delete — ignore
+      if (openRef.current !== "none") return; // mid swipe action — ignore
       longPressFired.current = true;
       haptic("selection");
       onOpenSheet(sid, el.getBoundingClientRect());
@@ -6390,7 +7429,7 @@ const onTouchStart = (e: ReactTouchEvent) => {
     if (!isMobile) return;
     if (longPressFired.current) { longPressFired.current = false; return; }
     if (drag.current.justSwiped) { drag.current.justSwiped = false; return; }
-    if (openRef.current) { closeSwipe(); return; }
+    if (openRef.current !== "none") { closeSwipe(); return; }
     haptic("selection");
     setCollapsed((v) => !v);
   };
@@ -6402,13 +7441,22 @@ const onTouchStart = (e: ReactTouchEvent) => {
 
   return (
     <div className={cn("relative min-w-0 md:static", variant === "stage" && "md:h-full")}>
-      {forkOpen ? (
-        <ForkSessionDialog
-          session={session}
-          onClose={() => setForkOpen(false)}
-          onCreated={onRefresh}
-        />
-      ) : null}
+      {/* swipe-to-brain action revealed behind the card (mobile only) */}
+      <button
+        type="button"
+        aria-label="Send session to brain"
+        tabIndex={brainSwipeOpen ? 0 : -1}
+        onClick={() => void brainSession()}
+        disabled={braining}
+        className={cn(
+          "absolute inset-0 flex items-center justify-start gap-2 rounded-xl bg-primary pl-6 text-sm font-semibold text-white md:hidden",
+          brainSwipeOpen || swipeIntent === "brain" ? "" : "hidden",
+          brainSwipeOpen ? "" : "pointer-events-none",
+        )}
+      >
+        {braining ? <Loader2 className="size-5 animate-spin" /> : <Brain className="size-5" />}
+        Brain
+      </button>
       {/* swipe-to-delete action revealed behind the card (mobile only) */}
       <button
         type="button"
@@ -6417,7 +7465,7 @@ const onTouchStart = (e: ReactTouchEvent) => {
         onClick={commitDelete}
         className={cn(
           "absolute inset-0 flex items-center justify-end gap-2 rounded-xl bg-destructive pr-6 text-sm font-semibold text-white md:hidden",
-          swipeOpen || swiping ? "" : "hidden", // out of the paint tree unless mid-swipe
+          swipeOpen || swipeIntent === "delete" ? "" : "hidden", // out of the paint tree unless mid-swipe
           swipeOpen ? "" : "pointer-events-none",
         )}
       >
@@ -6552,53 +7600,13 @@ const onTouchStart = (e: ReactTouchEvent) => {
           )}
         />
         {!collapsedView && (
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <button
-                type="button"
-                className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
-                aria-label="Session menu"
-              />
-            }
-          >
-            <MoreVertical className="size-4" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-44">
-            <DropdownMenuRadioGroup
-              value={session.assignedUser ?? ""}
-              onValueChange={(value) =>
-                assign(typeof value === "string" ? value : "").catch((err) => setError(String(err)))
-              }
-            >
-              <DropdownMenuLabel>Assign to</DropdownMenuLabel>
-              <DropdownMenuRadioItem value="">Unassigned</DropdownMenuRadioItem>
-              {users.map((user) => (
-                <DropdownMenuRadioItem key={user.email} value={user.email}>
-                  {user.name ?? shortUser(user.email)}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem disabled={!sid} onClick={() => setForkOpen(true)}>
-              <GitFork className="size-4" />
-              Fork
-            </DropdownMenuItem>
-            {canDriveSession(session) ? (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => void interrupt()}>
-                  <Pause className="size-4" />
-                  Stop
-                </DropdownMenuItem>
-                <DropdownMenuItem variant="destructive" onClick={() => void close()}>
-                  <X className="size-4" />
-                  End session
-                </DropdownMenuItem>
-              </>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
+          <SessionActionsMenu
+            session={session}
+            users={users}
+            onRefresh={onRefresh}
+            onRemove={onRemove}
+            onError={setError}
+          />
         )}
         {variant === "stage" && onClose ? (
           <button
@@ -6661,9 +7669,9 @@ type RenderItem =
   | { type: "msg"; message: Message; key: string }
   | { type: "tools"; items: Message[]; key: string };
 
-// Coalesce adjacent tool_use/tool_result messages into a single collapsible
-// group so a busy session doesn't flood the pane with dozens of fold rows
-// (matches the v1 live view). Prose and thinking stay as their own items.
+// Coalesce adjacent tool_use/tool_result messages into one compact status row
+// so a busy session doesn't flood the pane. Prose and thinking stay as their
+// own items.
 function buildRenderItems(messages: Message[]): RenderItem[] {
   const items: RenderItem[] = [];
   messages.forEach((message, index) => {
@@ -6702,11 +7710,50 @@ const ChatStream = memo(function ChatStream({
   const preserveScrollRef = useRef<{ height: number; top: number } | null>(null);
   const visibleMessages = useMemo(() => messages.filter((message) => !message.seed), [messages]);
   const items = useMemo(() => buildRenderItems(visibleMessages), [visibleMessages]);
+  const showTypingIndicator =
+    busy && !visibleMessages.some((message) => message.kind === "thinking");
+
+  // One-shot entrance for freshly-arrived assistant turns so the draft→final
+  // swap (and non-streaming arrivals) fade in instead of popping. Ref-based —
+  // not module-level like the card entrance — because the board can mount one
+  // ChatStream per column and a shared set would clobber across columns. The
+  // backlog is seeded silently on session switch so opening a busy session
+  // doesn't replay entrances for its whole history; `entering` markers expire
+  // so re-renders (scroll, delta streams, collapse/expand) never replay them.
+  const seenIdsRef = useRef<Set<string>>(new Set());
+  const enteringIdsRef = useRef<Map<string, number>>(new Map());
+  const seededSidRef = useRef<string | null>(null);
+  if (seededSidRef.current !== sid) {
+    seededSidRef.current = sid;
+    seenIdsRef.current = new Set(
+      visibleMessages.filter((m) => m.id && isFinalAssistantText(m)).map((m) => m.id as string),
+    );
+    enteringIdsRef.current = new Map();
+  } else {
+    const now = Date.now();
+    for (const [id, expiry] of enteringIdsRef.current) {
+      if (expiry <= now) enteringIdsRef.current.delete(id);
+    }
+    for (const m of visibleMessages) {
+      if (!m.id || !isFinalAssistantText(m) || seenIdsRef.current.has(m.id)) continue;
+      seenIdsRef.current.add(m.id);
+      // Only animate turns that land while the session is live; a settled
+      // transcript stays put.
+      if (busy) enteringIdsRef.current.set(m.id, now + 500);
+    }
+  }
 
   useEffect(() => {
     setHasOlder(true);
     preserveScrollRef.current = null;
   }, [sid]);
+
+  const scrollToBottom = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    setStick(true);
+  }, []);
 
   useEffect(() => {
     const el = ref.current;
@@ -6740,7 +7787,8 @@ const ChatStream = memo(function ChatStream({
   }, [sid, loadingOlder, hasOlder, onLoadOlderMessages]);
 
   return (
-    <div
+    <div className="relative flex min-h-0 flex-1 flex-col">
+    <Conversation
       ref={ref}
       onScroll={(event) => {
         const el = event.currentTarget;
@@ -6749,8 +7797,8 @@ const ChatStream = memo(function ChatStream({
       }}
       className="chat-stream min-h-0 flex-1 overflow-y-auto bg-background px-3 py-3"
     >
-      {visibleMessages.length ? (
-        <div className="flex flex-col gap-3">
+      {visibleMessages.length || busy ? (
+        <ConversationContent>
           {loadingOlder ? (
             <div className="flex justify-center py-1 text-xs text-muted-foreground">
               <Loader2 className="mr-1.5 size-3.5 animate-spin" />
@@ -6765,84 +7813,130 @@ const ChatStream = memo(function ChatStream({
                 live={busy && index === items.length - 1}
               />
             ) : (
-              <MessageBubble key={item.key} message={item.message} />
+              <MessageBubble
+                key={item.key}
+                message={item.message}
+                live={busy && index === items.length - 1}
+                entering={!!item.message.id && enteringIdsRef.current.has(item.message.id)}
+              />
             ),
           )}
-          {busy && !visibleMessages.some((message) => message.kind === "thinking") ? (
-            <div className="busy-line">
-              <span className="bt">Working...</span>
-            </div>
-          ) : null}
-        </div>
+          <TypingIndicator visible={showTypingIndicator} />
+        </ConversationContent>
       ) : loading ? (
-        <div className="flex h-full min-h-64 flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
+        <ConversationEmptyState
+          icon={<Loader2 className="size-5 animate-spin" />}
+          title="Loading transcript"
+        >
           <Loader2 className="size-5 animate-spin" />
           <span>Loading transcript</span>
-        </div>
+        </ConversationEmptyState>
       ) : (
-        <div className="flex h-full min-h-64 flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
-          <MessageSquare className="size-5" />
-          <span>No transcript messages yet</span>
-        </div>
+        <ConversationEmptyState title="No transcript messages yet" />
       )}
+    </Conversation>
+    {/* Floating jump-to-latest control: appears once the user scrolls away
+        from the bottom. The wrapper is click-through so it never blocks taps
+        on the messages beneath it. */}
+    <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center">
+      <button
+        type="button"
+        onClick={scrollToBottom}
+        aria-hidden={stick}
+        tabIndex={stick ? -1 : 0}
+        aria-label="Scroll to latest"
+        className={cn(
+          "lfg-scroll-pill pointer-events-auto flex items-center gap-1.5 rounded-full border border-border bg-card/95 px-3 py-1.5 text-xs font-medium text-foreground shadow-md backdrop-blur",
+          stick && "lfg-scroll-pill--hidden",
+        )}
+      >
+        <ArrowDown className="size-3.5" />
+        {busy ? <span>New activity</span> : null}
+      </button>
+    </div>
+    {/* Floating "diffs for review" bar: appears when this session's worktree
+        has changes; opens the pierre-style diff viewer. */}
+    <SessionDiffBar sid={sid} />
     </div>
   );
 });
 
 function ToolGroup({ items, live }: { items: Message[]; live: boolean }) {
+  const label = toolGroupLabel(items);
+  const last = items[items.length - 1];
+  const animationKey = `${live ? "live" : "done"}-${items.length}-${last?.id ?? last?.ts ?? label}`;
   return (
-    <details className={cn("tool-fold tool-group", live && "tool-group--live")}>
-      <summary>
-        <span className="tg-count">{toolGroupLabel(items)}</span>
-      </summary>
-      <div className="tg-body flex flex-col gap-1">
-        {items.map((message, index) => (
-          <ToolLine key={message.id ?? `${message.kind}-${message.ts}-${index}`} message={message} />
-        ))}
+    <div
+      key={animationKey}
+      className={cn(
+        "tool-call-row not-prose flex w-fit max-w-full items-center gap-2 rounded-full px-2.5 py-1 text-xs text-muted-foreground",
+        live && "tool-call-row--live text-foreground",
+      )}
+      aria-label={`${live ? "Running" : "Completed"} tool call${items.length === 1 ? "" : "s"}: ${label}`}
+    >
+      <span
+        className={cn(
+          "size-1.5 shrink-0 rounded-full bg-muted-foreground/55",
+          live && "animate-pulse bg-foreground",
+        )}
+        aria-hidden="true"
+      />
+      <span className="truncate font-mono">{label}</span>
+    </div>
+  );
+}
+
+function TypingIndicator({ visible = true }: { visible?: boolean }) {
+  return (
+    <div
+      className={cn("typing-indicator-slot", visible && "is-visible")}
+      aria-hidden={!visible}
+    >
+      <div className="typing-indicator" role="status" aria-label="Assistant is typing">
+        <span aria-hidden="true" />
+        <span aria-hidden="true" />
+        <span aria-hidden="true" />
       </div>
-    </details>
+    </div>
   );
 }
 
-function ToolLine({ message }: { message: Message }) {
-  const isUse = message.kind === "tool_use";
-  const label = isUse ? toolName(message.text) : "result";
-  // Drop the leading "Name:" from the summary so the chip isn't doubled
-  // (e.g. "[Bash] Bash: …" → "[Bash] …").
-  const summary = isUse
-    ? normText(message.text).replace(/^[^\s:]+:?\s*/, "")
-    : normText(message.text);
-  return (
-    <details className="tool-fold">
-      <summary>
-        <span className={cn("msg-kind", `k-${message.kind}`)}>{label}</span>
-        {summary.slice(0, 90)}
-      </summary>
-      <pre className="tool-body">{(message.text || "").slice(0, 6000)}</pre>
-    </details>
-  );
-}
-
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({
+  message,
+  live = false,
+  entering = false,
+}: {
+  message: Message;
+  // Whether the session is actively working on THIS turn — drives the thinking
+  // shimmer so historical reasoning renders static instead of forever "Thinking...".
+  live?: boolean;
+  // First appearance of a settled assistant turn while live — plays a one-shot
+  // entrance so the draft→final swap doesn't flash.
+  entering?: boolean;
+}) {
   if (message.kind === "thinking") {
-    return <div className="think-live">{message.text || "thinking..."}</div>;
+    return (
+      <AiMessage className="msg" from="assistant">
+        <MessageContent>
+          <Reasoning isStreaming={live}>
+            <ReasoningTrigger isStreaming={live} />
+            <ReasoningContent>{message.text || "thinking..."}</ReasoningContent>
+          </Reasoning>
+        </MessageContent>
+      </AiMessage>
+    );
   }
 
   const isUser = message.role === "user";
   return (
-    <div
-      className={cn(
-        "msg flex",
-        isUser ? "justify-end" : "justify-start",
-      )}
-    >
+    <AiMessage className={cn("msg", entering && "lfg-msg-in")} from={isUser ? "user" : "assistant"}>
       {isUser ? (
         // User turns are plain/escaped and rendered as a content-width bubble
-        // hugged to the right. While in flight a sheen sweeps across it (the same
-        // shimmer language as the "thinking" line) instead of a static dimming.
-        <div
+        // hugged to the right. Pending state is handled in the border so the
+        // text stays steady while the send is in flight.
+        <MessageContent
           className={cn(
-            "msg-text markdown user-bubble w-fit max-w-[85%] px-3 py-2",
+            "msg-text markdown user-bubble w-fit max-w-[85%]",
             message.pending && "is-pending",
           )}
           dangerouslySetInnerHTML={{ __html: message.html || escapeHtml(message.text || "") }}
@@ -6850,9 +7944,21 @@ function MessageBubble({ message }: { message: Message }) {
       ) : (
         // Assistant turns render markdown from the raw source via Streamdown,
         // which tolerates half-finished markdown mid-stream (no html injection).
-        <Streamdown className="msg-text markdown max-w-[92%]">{message.text || ""}</Streamdown>
+        <MessageContent>
+          {message.text ? (
+            <MessageResponse
+              animated={STREAMING_RESPONSE_ANIMATION}
+              isAnimating={isDraftAssistantMessage(message) && !message.catchUp}
+              mode={isDraftAssistantMessage(message) ? "streaming" : "static"}
+            >
+              {message.text}
+            </MessageResponse>
+          ) : (
+            <TypingIndicator />
+          )}
+        </MessageContent>
       )}
-    </div>
+    </AiMessage>
   );
 }
 
@@ -6998,13 +8104,13 @@ function QueuePanel({
     <div className="send-queue border-t border-border/70 px-3 py-2">
       <div className="flex flex-col gap-1">
         {live.map((item) => (
-          <div
-            key={item.id}
-            className={cn(
-              "flex items-center gap-2 rounded-lg border px-2 py-1.5 text-xs",
-              item.status === "failed"
-                ? "border-destructive/30 bg-destructive/10 text-destructive"
-                : item.status === "queued"
+            <div
+              key={item.id}
+              className={cn(
+                "send-queue-card flex items-center gap-2 border text-xs",
+                item.status === "failed"
+                  ? "border-destructive/30 bg-destructive/10 text-destructive"
+                  : item.status === "queued"
                   ? "border-warning/30 bg-warning/12 text-warning"
                   : "border-primary/30 bg-primary/10 text-primary",
             )}
@@ -7352,6 +8458,7 @@ function NewSessionDialog({
   const [prompt, setPrompt] = useState("");
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [draggingFiles, setDraggingFiles] = useState(false);
+  const [annotatingId, setAnnotatingId] = useState<string | null>(null);
   const [usage, setUsage] = useState<string | null>(null);
   const [pendingCreates, setPendingCreates] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -7439,16 +8546,33 @@ function NewSessionDialog({
       const touch = event.touches[0];
       const dx = touch.clientX - st.x0;
       const dy = touch.clientY - st.y0;
+      const maybeOpenHistory = () => {
+        if (dy < -64 && Math.abs(dy) > Math.abs(dx) * 1.25) {
+          event.preventDefault();
+          haptic("selection");
+          setResumeOpen(true);
+          st.active = false;
+          return true;
+        }
+        return false;
+      };
       if (!st.decided) {
         if (Math.abs(dx) < 9 && Math.abs(dy) < 9) return;
         st.decided = true;
         st.horizontal = Math.abs(dx) > Math.abs(dy) * 1.18;
         if (!st.horizontal) {
-          st.active = false;
+          if (maybeOpenHistory()) return;
+          if (dy > 18 || Math.abs(dy) > 80) st.active = false;
           return;
         }
       }
-      if (!st.horizontal) return;
+      if (!st.horizontal) {
+        if (maybeOpenHistory()) return;
+        if (dy > 18 || Math.abs(dy) > 80) {
+          st.active = false;
+        }
+        return;
+      }
       event.preventDefault();
       st.dx = dx;
       setTx(dx * 0.48);
@@ -7902,6 +9026,7 @@ function NewSessionDialog({
   );
 
   const formBody = (
+    <>
     <form
       onSubmit={submit}
       onDragEnter={(event) => {
@@ -7981,6 +9106,7 @@ function NewSessionDialog({
             const combined = base.trim() ? `${base.trimEnd()} ${text}` : text;
             void submit(undefined, combined);
           }}
+          onCancel={(base) => setPrompt(base)}
         />
       </div>
 
@@ -8012,6 +9138,17 @@ function NewSessionDialog({
                   {att.status === "uploading" ? "Uploading..." : att.status === "failed" ? "Failed" : formatBytes(att.size)}
                 </div>
               </div>
+              {att.previewUrl ? (
+                <button
+                  type="button"
+                  className="flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                  onClick={() => setAnnotatingId(att.id)}
+                  aria-label={`Annotate ${att.name}`}
+                  title="Annotate"
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="ml-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
@@ -8111,6 +9248,18 @@ function NewSessionDialog({
         />
       ) : null}
     </form>
+    <ImageAnnotator
+      open={!!annotatingId}
+      file={attachments.find((att) => att.id === annotatingId)?.file ?? null}
+      onOpenChange={(next) => {
+        if (!next) setAnnotatingId(null);
+      }}
+      onSave={(file) => {
+        if (annotatingId) applyAnnotatedAttachment(setAttachments, previewUrls, annotatingId, file);
+        setAnnotatingId(null);
+      }}
+    />
+    </>
   );
 
   // Mobile home screen: anchor the shared composer inline at the bottom of the
@@ -9476,6 +10625,9 @@ function SettingsView({
   onOpenBrowser,
   onOpenCodingAgents,
   onOpenAuto,
+  onOpenBrain,
+  brainConfig,
+  onBrainConfigChange,
   onOpenUsage,
   onOpenChangelog,
   extTabs,
@@ -9488,6 +10640,9 @@ function SettingsView({
   onOpenBrowser: () => void;
   onOpenCodingAgents: () => void;
   onOpenAuto: () => void;
+  onOpenBrain: () => void;
+  brainConfig: SessionBrainConfig | null;
+  onBrainConfigChange: (patch: Partial<SessionBrainConfig>) => void;
   onOpenUsage: () => void;
   onOpenChangelog: () => void;
   extTabs: ExtensionNavTab[];
@@ -9566,6 +10721,38 @@ function SettingsView({
             </div>
             <ChevronRight className="size-4 text-muted-foreground/60" />
           </button>
+          <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+            <button
+              type="button"
+              onClick={onOpenBrain}
+              className="flex min-w-0 flex-1 items-center gap-3 text-left"
+            >
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-foreground text-background">
+                <Brain className="size-4" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium">Session brain</span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {brainConfig?.enabled ? "Automatic cleanup enabled" : "Automatic cleanup paused"}
+                </span>
+              </span>
+            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={onOpenBrain}
+                aria-label="Open session brain settings"
+                className="flex size-7 items-center justify-center rounded-lg text-muted-foreground/60 hover:bg-muted hover:text-foreground"
+              >
+                <ChevronRight className="size-4" />
+              </button>
+              <Switch
+                checked={brainConfig?.enabled ?? false}
+                onCheckedChange={(enabled) => onBrainConfigChange({ enabled })}
+                aria-label="Enable session brain"
+              />
+            </div>
+          </div>
         </div>
       </section>
 
@@ -9804,6 +10991,399 @@ function AutoManageView({
       >
         <Plus className="size-4" /> New auto agent
       </button>
+    </div>
+  );
+}
+
+function NotepadNotes({
+  notes,
+  onResume,
+  onNoteStatus,
+  action,
+}: {
+  notes: SessionNote[];
+  onResume: (note: SessionNote) => void;
+  onNoteStatus: (note: SessionNote, status: SessionNote["status"]) => void;
+  action?: React.ReactNode;
+}) {
+  // Keep notepad as a chronological feed: most recently touched notes first.
+  const sorted = [...notes].sort((a, b) => {
+    const bTime = b.updatedAt || b.createdAt || 0;
+    const aTime = a.updatedAt || a.createdAt || 0;
+    return bTime - aTime;
+  });
+  // Accordion, not independent toggles: on mobile a single open note keeps the
+  // list short and scannable — opening one folds the rest away instead of
+  // pushing everything down into a long feed.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  return (
+    <section className="space-y-2">
+      <CategoryHeader label="Notepad" count={notes.length} dotClass="bg-primary" action={action} />
+      {sorted.length ? (
+        <div className="overflow-hidden rounded-xl border border-border bg-card divide-y divide-border">
+          {sorted.map((note) => {
+            const open = expandedId === note.id;
+            const place = note.project || note.cwd || "No project";
+            return (
+              <div key={note.id} className={cn("transition-colors", open && "bg-foreground/[0.02]")}>
+                {/* Whole row is the toggle; detail + actions live behind the fold. */}
+                <button
+                  type="button"
+                  aria-expanded={open}
+                  onClick={() => setExpandedId((id) => (id === note.id ? null : note.id))}
+                  className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
+                >
+                  <img
+                    src={agentIconSrc(note.agent)}
+                    alt=""
+                    className="size-7 shrink-0 rounded-lg ring-1 ring-inset ring-border/60"
+                  />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-sm font-medium leading-tight">
+                      {note.title}
+                    </span>
+                    <span className="mt-0.5 flex items-center gap-1.5 text-[11px] leading-tight text-muted-foreground">
+                      <span className="truncate">{place}</span>
+                      <span className="text-muted-foreground/40">·</span>
+                      <span className="shrink-0 tabular-nums">{relTime(note.updatedAt)}</span>
+                    </span>
+                  </span>
+                  {note.blockers.length ? (
+                    <AlertTriangle
+                      className="size-3.5 shrink-0 text-warning"
+                      aria-label="Has blockers"
+                    />
+                  ) : null}
+                  {note.nextActions.length ? (
+                    <span
+                      className="shrink-0 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-primary"
+                      aria-label={`${note.nextActions.length} next actions`}
+                    >
+                      {note.nextActions.length}
+                    </span>
+                  ) : null}
+                  <ChevronDown
+                    className={cn(
+                      "size-4 shrink-0 text-muted-foreground/60 transition-transform duration-200 ease-ios motion-reduce:transition-none",
+                      open && "rotate-180",
+                    )}
+                  />
+                </button>
+                {/* grid 0fr→1fr height reveal, mirroring .typing-indicator-slot;
+                    reduced-motion drops the transition. Content stays mounted but
+                    goes inert while collapsed so its buttons aren't tabbable. */}
+                <div
+                  className={cn(
+                    "grid transition-[grid-template-rows] duration-200 ease-ios motion-reduce:transition-none",
+                    open ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+                  )}
+                >
+                  <div className="min-h-0 overflow-hidden" inert={open ? undefined : true}>
+                    <div className="space-y-3 px-3 pb-3 pl-[calc(0.75rem+1.75rem+0.75rem)]">
+                      <p className="text-[13px] leading-relaxed text-foreground/80">{note.summary}</p>
+                      {note.nextActions.length ? (
+                        <div className="space-y-1.5">
+                          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+                            Next steps
+                          </div>
+                          {note.nextActions.map((item) => (
+                            <div key={item} className="flex gap-2 text-xs leading-relaxed text-foreground/75">
+                              <span className="mt-[0.4rem] size-1.5 shrink-0 rounded-full bg-primary/70" />
+                              <span>{item}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                      {note.blockers.length ? (
+                        <div className="space-y-1.5">
+                          <div className="text-[10px] font-semibold uppercase tracking-wide text-warning/80">
+                            Blockers
+                          </div>
+                          {note.blockers.map((blocker) => (
+                            <div
+                              key={blocker}
+                              className="rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-xs leading-relaxed text-warning"
+                            >
+                              {blocker}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                      <div className="flex flex-wrap justify-end gap-2 pt-0.5">
+                        <Button size="sm" variant="outline" onClick={() => onResume(note)}>
+                          <RotateCcw className="mr-1.5 size-3.5" /> Resume
+                        </Button>
+                        <Button size="sm" variant="tint" onClick={() => onNoteStatus(note, "done")}>
+                          <Check className="mr-1.5 size-3.5" /> Done
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => onNoteStatus(note, "dismissed")}
+                        >
+                          <X className="mr-1.5 size-3.5" /> Dismiss
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+          The session brain writes a note here whenever a session ends with unfinished work.
+        </div>
+      )}
+    </section>
+  );
+}
+
+function MobileNotepadHome({
+  notes,
+  running,
+  onRunNow,
+  onOpenBrain,
+  onResume,
+  onNoteStatus,
+}: {
+  notes: SessionNote[];
+  running: boolean;
+  onRunNow: () => void;
+  onOpenBrain: () => void;
+  onResume: (note: SessionNote) => void;
+  onNoteStatus: (note: SessionNote, status: SessionNote["status"]) => void;
+}) {
+  return (
+    <div className="mx-auto flex max-w-lg flex-col gap-4 pb-10">
+      <div className="flex items-center justify-between gap-3 px-1">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/12 text-primary">
+            <ScrollText className="size-5" />
+          </span>
+          <div className="min-w-0">
+            <h1 className="truncate text-lg font-semibold leading-tight">Notepad</h1>
+            <div className="text-xs text-muted-foreground">
+              {notes.length} open
+            </div>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button size="icon-sm" variant="tint" onClick={onOpenBrain} aria-label="Session brain">
+            <Brain className="size-4" />
+          </Button>
+          <Button size="sm" onClick={onRunNow} disabled={running}>
+            {running ? <Loader2 className="size-4 animate-spin" /> : <Brain className="size-4" />}
+            Run
+          </Button>
+        </div>
+      </div>
+      <NotepadNotes
+        notes={notes}
+        onResume={onResume}
+        onNoteStatus={onNoteStatus}
+      />
+    </div>
+  );
+}
+
+function MobileNotepadSheet({
+  open,
+  notes,
+  running,
+  onRunNow,
+  onOpenBrain,
+  onResume,
+  onNoteStatus,
+  onClose,
+}: {
+  open: boolean;
+  notes: SessionNote[];
+  running: boolean;
+  onRunNow: () => void;
+  onOpenBrain: () => void;
+  onResume: (note: SessionNote) => void;
+  onNoteStatus: (note: SessionNote, status: SessionNote["status"]) => void;
+  onClose: () => void;
+}) {
+  return (
+    <Drawer
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <DrawerContent className="mx-auto max-w-lg">
+        <DrawerTitle className="sr-only">Notepad</DrawerTitle>
+        <div className="max-h-[78dvh] overflow-y-auto px-2 pt-1">
+          <MobileNotepadHome
+            notes={notes}
+            running={running}
+            onRunNow={onRunNow}
+            onOpenBrain={onOpenBrain}
+            onResume={onResume}
+            onNoteStatus={onNoteStatus}
+          />
+        </div>
+      </DrawerContent>
+    </Drawer>
+  );
+}
+
+function SessionBrainView({
+  config,
+  notes,
+  suggestions,
+  runs,
+  running,
+  onRunNow,
+  onConfigChange,
+  onResume,
+  onNoteStatus,
+  onSuggestionStatus,
+}: {
+  config: SessionBrainConfig | null;
+  notes: SessionNote[];
+  suggestions: PatternSuggestion[];
+  runs: SessionBrainRun[];
+  running: boolean;
+  onRunNow: () => void;
+  onConfigChange: (patch: Partial<SessionBrainConfig>) => void;
+  onResume: (note: SessionNote) => void;
+  onNoteStatus: (note: SessionNote, status: SessionNote["status"]) => void;
+  onSuggestionStatus: (
+    suggestion: PatternSuggestion,
+    status: PatternSuggestion["status"],
+  ) => void;
+}) {
+  const latest = runs[0];
+  return (
+    <div className="mx-auto flex max-w-3xl flex-col gap-4 pb-10">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+        <div className="min-w-0">
+          <h1 className="text-lg font-semibold leading-tight">Session brain</h1>
+          <div className="text-xs text-muted-foreground">
+            {latest
+              ? `Last run ${relTime(latest.finishedAt ?? latest.startedAt)} ago · ${latest.scanned} scanned`
+              : "No runs yet"}
+          </div>
+        </div>
+        <Button onClick={onRunNow} disabled={running} size="sm">
+          {running ? <Loader2 className="mr-1.5 size-4 animate-spin" /> : <Brain className="mr-1.5 size-4" />}
+          Run brain
+        </Button>
+      </div>
+
+      <section className="overflow-hidden rounded-xl border border-border bg-card">
+        <div className="flex items-center justify-between gap-4 px-3 py-3">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold">Session brain</div>
+            <div className="text-xs text-muted-foreground">
+              Runs every {config?.intervalMin ?? 60} minutes, writes notes, and safely closes archived sessions.
+            </div>
+          </div>
+          <Switch
+            checked={config?.enabled ?? false}
+            onCheckedChange={(enabled) => onConfigChange({ enabled })}
+            aria-label="Enable session brain"
+          />
+        </div>
+      </section>
+
+      <NotepadNotes
+        notes={notes}
+        onResume={onResume}
+        onNoteStatus={onNoteStatus}
+      />
+
+      <section className="space-y-2">
+        <CategoryHeader label="Prompt Improvements" count={suggestions.length} dotClass="bg-warning" />
+        {suggestions.length ? (
+          <div className="flex flex-col gap-2">
+            {suggestions.map((suggestion) => (
+              <article
+                key={suggestion.id}
+                className="rounded-xl border border-border bg-card px-3 py-3"
+              >
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-warning/15 text-warning">
+                    <Sparkles className="size-3.5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <h2 className="text-sm font-semibold">{suggestion.title}</h2>
+                    <p className="mt-1 text-xs leading-snug text-muted-foreground">
+                      {suggestion.reasoning}
+                    </p>
+                    <p className="mt-2 text-sm leading-snug">{suggestion.recommendation}</p>
+                    {suggestion.evidence.length ? (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {suggestion.evidence.slice(0, 4).map((item) => (
+                          <span
+                            key={item}
+                            className="max-w-full truncate rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
+                          >
+                            {item}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="mt-3 flex justify-end gap-2">
+                  <Button
+                    size="sm"
+                    variant="tint"
+                    onClick={() => onSuggestionStatus(suggestion, "accepted")}
+                  >
+                    <Check className="mr-1.5 size-3.5" /> Accept
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => onSuggestionStatus(suggestion, "dismissed")}
+                  >
+                    Dismiss
+                  </Button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+            No open suggestions.
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-2">
+        <CategoryHeader label="Recent Runs" count={runs.length} dotClass="bg-muted-foreground" />
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          {runs.length ? (
+            runs.map((run) => {
+              const archived = run.decisions.filter((d) => d.action === "archive_and_close").length;
+              const needsInput = run.decisions.filter((d) => d.action === "needs_input").length;
+              return (
+                <div key={run.id} className="border-b border-border px-3 py-2 last:border-b-0">
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span className="font-medium">{relTime(run.finishedAt ?? run.startedAt)} ago</span>
+                    <span className="text-xs text-muted-foreground">
+                      {run.scanned} scanned · {archived} archived · {needsInput} input
+                    </span>
+                  </div>
+                  {run.errors.length ? (
+                    <div className="mt-1 truncate text-xs text-destructive">{run.errors[0]}</div>
+                  ) : null}
+                </div>
+              );
+            })
+          ) : (
+            <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+              No run history.
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   );
 }

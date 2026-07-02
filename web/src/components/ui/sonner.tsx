@@ -60,7 +60,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
           error:
             "!bg-popover !text-destructive !border-destructive/30",
           actionButton:
-            "!h-8 !w-8 !min-w-8 !rounded-full !p-0 !flex !items-center !justify-center !gap-0 !text-[0] [&>svg]:!h-4 [&>svg]:!w-4 [&>*:not(svg)]:!hidden",
+            "cn-toast-action !h-7 !w-auto !min-w-0 !shrink-0 !rounded-lg !px-2.5 !py-0 !text-[12px] !font-medium !bg-foreground/10 !text-foreground hover:!bg-foreground/15 !transition-colors [&>svg]:!size-3.5",
         },
       }}
       {...props}

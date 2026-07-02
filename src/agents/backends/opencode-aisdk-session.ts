@@ -40,6 +40,7 @@ import {
   removeEntry,
   writeEntry,
 } from "../../aisdk-registry.ts";
+import { makeDraftPublisher } from "./draft.ts";
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -111,7 +112,7 @@ export async function pipeToOpencodeAiSdk(
     };
     for await (const part of result.fullStream as any) {
       if (part?.type === "text-delta") {
-        textBuf += String(part.text ?? part.textDelta ?? "");
+        textBuf += String(part.text ?? part.textDelta ?? part.delta ?? "");
         flush();
       } else if (part?.type === "tool-call") {
         log(`[runner] opencode running tool: ${part.toolName ?? "?"}`);
@@ -274,6 +275,11 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
   let currentAc: AbortController | null = null;
   let draining = false;
   let closing = false;
+  // Publish in-flight assistant text to the registry entry (keyed by the
+  // control-plane uuid) so the web live view animates the reply as it streams,
+  // exactly like the claude/codex harnesses. Independent of the self-persisted
+  // "thinking" transcript snapshots below (which feed transcript readers).
+  const publishDraft = makeDraftPublisher(key);
 
   async function runTurn(prompt: string, signal: AbortSignal): Promise<void> {
     // Record the user turn immediately so it surfaces in the live view even
@@ -339,6 +345,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     };
 
     try {
+      publishDraft("", true); // reset the animated draft at turn start
       for await (const part of result.fullStream as any) {
         try {
           const t = part?.type;
@@ -358,10 +365,12 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
               throw new Error(errText.slice(0, 800));
             }
           } else if (t === "text-delta") {
-            // AI SDK v6 streams text as `text-delta` parts; `.text` (v6) or
-            // `.textDelta` (older) carries the chunk.
-            textBuf += (part as any).text ?? (part as any).textDelta ?? "";
+            // AI SDK streams text as `text-delta` parts; tolerate both current
+            // and older provider field names.
+            textBuf +=
+              (part as any).text ?? (part as any).textDelta ?? (part as any).delta ?? "";
             streamThinking();
+            publishDraft(textBuf);
           } else if (t === "tool-call") {
             // Flush whatever text preceded this tool so the live view shows the
             // progress instead of jumping straight to the next phase.
@@ -399,6 +408,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
         if ((e as any)?.message === "OPENCODE_QUESTION_ASKED") throw e;
       }
 
+      publishDraft(textBuf, true);
       await result.text; // surfaces a failed generation
 
       // Capture opencode's resume sessionId from the resolved metadata and pin
@@ -504,12 +514,12 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
       while (queue.length && !closing) {
         const prompt = queue.shift()!;
         currentAc = new AbortController();
-        patchEntry(key, { busy: true });
+        patchEntry(key, { busy: true, draftText: null, draftUpdatedAt: null });
         try {
           await runTurn(prompt, currentAc.signal);
         } finally {
           currentAc = null;
-          patchEntry(key, { busy: false });
+          patchEntry(key, { busy: false, draftText: null, draftUpdatedAt: null });
         }
       }
     } finally {

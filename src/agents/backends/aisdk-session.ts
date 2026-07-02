@@ -25,6 +25,7 @@ import {
   removeEntry,
   writeEntry,
 } from "../../aisdk-registry.ts";
+import { makeDraftPublisher } from "./draft.ts";
 import { readFileSync } from "node:fs";
 
 function arg(argv: string[], name: string): string | undefined {
@@ -80,6 +81,7 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
   // serve will surface the session in the live view.
   writeEntry({
     sessionId,
+    agent: "claude",
     harnessPid: process.pid,
     tmuxName,
     cwd,
@@ -94,6 +96,8 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
   let currentAc: AbortController | null = null;
   let draining = false;
   let closing = false;
+
+  const publishDraft = makeDraftPublisher(sessionId);
 
   async function runTurn(prompt: string, signal: AbortSignal): Promise<void> {
     const first = !startedOnce;
@@ -127,15 +131,26 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
 
     const result = streamText({ model: llm, prompt, abortSignal: signal });
     try {
+      let draft = "";
+      publishDraft("", true);
       for await (const part of result.fullStream as any) {
-        if (part?.type === "error") {
+        if (part?.type === "text-delta") {
+          const delta = String(part.text ?? part.textDelta ?? part.delta ?? "");
+          if (delta) {
+            draft += delta;
+            publishDraft(draft);
+          }
+        } else if (part?.type === "error") {
           throw new Error(String((part as any).error).slice(0, 800));
         }
       }
+      publishDraft(draft, true);
       await result.text; // surfaces a failed generation
     } catch (e) {
       if (signal.aborted) return; // interrupted on purpose — not an error
       console.error(`aisdk-session turn failed: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      publishDraft("", true);
     }
   }
 
@@ -146,12 +161,12 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
       while (queue.length && !closing) {
         const prompt = queue.shift()!;
         currentAc = new AbortController();
-        patchEntry(sessionId, { busy: true });
+        patchEntry(sessionId, { busy: true, draftText: null, draftUpdatedAt: null });
         try {
           await runTurn(prompt, currentAc.signal);
         } finally {
           currentAc = null;
-          patchEntry(sessionId, { busy: false });
+          patchEntry(sessionId, { busy: false, draftText: null, draftUpdatedAt: null });
         }
       }
     } finally {

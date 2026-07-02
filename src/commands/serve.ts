@@ -32,6 +32,26 @@ import {
 } from "../auto/store.ts";
 import { runAutoAgent } from "../auto/runner.ts";
 import { startAutoScheduler } from "../auto/scheduler.ts";
+import { runSessionBrain, runSessionBrainForSession } from "../session-brain/runner.ts";
+import { startSessionBrainScheduler } from "../session-brain/scheduler.ts";
+import { setBrainPromptSender } from "../session-brain/merge-guard.ts";
+import {
+  computeSessionDiff,
+  computeSessionDiffStat,
+  computeSessionDiffSummary,
+  computeSessionFilePatch,
+} from "../session-diff.ts";
+import {
+  listPatternSuggestions,
+  listSessionBrainRuns,
+  listSessionNotes,
+  readSessionBrainConfig,
+  updatePatternSuggestionStatus,
+  updateSessionBrainConfig,
+  updateSessionNoteStatus,
+  type PatternSuggestionStatus,
+  type SessionNoteStatus,
+} from "../session-brain/store.ts";
 import { reportClientError, listClientErrors } from "../client-errors.ts";
 import { getAllUsage } from "../usage.ts";
 import {
@@ -68,6 +88,13 @@ import {
   type PendingPrompt,
   type Session,
 } from "../sessions.ts";
+import {
+  enqueueTranscriptIndex,
+  indexedMessagePage,
+  indexTranscript,
+  searchAllTranscriptIndexes,
+  searchTranscriptIndex,
+} from "../transcript-index.ts";
 import {
   capturePane,
   parsePrompt,
@@ -202,7 +229,7 @@ function uploadFilename(req: Request, url: URL): string {
 // `/model` aliases (same set the --model flag accepts).
 const CLAUDE_MODELS = ["fable", "opus", "sonnet", "haiku"];
 // Models the "aisdk" session kind accepts (the provider maps these aliases).
-const AISDK_MODELS = ["opus", "sonnet", "haiku"];
+const AISDK_MODELS = ["fable", "opus", "sonnet", "haiku"];
 const GROK_MODELS = ["grok-composer-2.5-fast", "grok-build"];
 const GROK_DEFAULT_MODEL = "grok-composer-2.5-fast";
 const HERMES_MODELS = [
@@ -544,13 +571,102 @@ function msgWithHtml<T extends HtmlMessage>(m: T) {
   return m;
 }
 
+function visibleTranscriptMessages<T extends { kind: string }>(messages: T[]): T[] {
+  return messages.filter((message) => message.kind !== "tool_result");
+}
+
+type DraftState = { id: string; text: string };
+
+type AiTextDeltaPart = {
+  type: "text-delta";
+  id: string;
+  delta?: string;
+  text?: string;
+  reset?: boolean;
+  ts: number;
+};
+
+function sendAiTextDeltaPart(
+  send: (s: string) => void,
+  sid: string,
+  entry: { sessionId: string; draftText?: string | null; draftUpdatedAt?: number | null },
+  lastDraft: Map<string, DraftState>,
+  wrapSid: boolean,
+): void {
+  const id = `draft-${entry.sessionId}`;
+  const text = entry.draftText ?? "";
+  const prev = lastDraft.get(sid);
+  if (!text) {
+    if (prev) lastDraft.delete(sid);
+    return;
+  }
+  let part: AiTextDeltaPart;
+  if (!prev || prev.id !== id || !text.startsWith(prev.text)) {
+    part = { type: "text-delta", id, text, reset: true, ts: entry.draftUpdatedAt ?? Date.now() };
+  } else {
+    const delta = text.slice(prev.text.length);
+    if (!delta) return;
+    part = { type: "text-delta", id, delta, ts: entry.draftUpdatedAt ?? Date.now() };
+  }
+  lastDraft.set(sid, { id, text });
+  const data = wrapSid ? { sid, part } : part;
+  send(`event: ai_part\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+function interruptLiveSession(session: Session): { ok: boolean; error?: string; status?: number } {
+  const sid = session.sessionId;
+  if (!sid) return { ok: false, error: "live session has no id", status: 409 };
+  if (
+    session.agent === "aisdk" ||
+    session.agent === "codex-aisdk" ||
+    session.agent === "opencode"
+  ) {
+    const key = findAisdkEntryByAnyId(sid)?.sessionId ?? sid;
+    appendAisdkCmd(key, { type: "interrupt" });
+    return { ok: true };
+  }
+  if (!session.tmuxTarget)
+    return { ok: false, error: "session is not in a tmux pane — cannot interrupt", status: 409 };
+  if (!tmuxInterrupt(session.tmuxTarget)) return { ok: false, error: "interrupt failed", status: 502 };
+  return { ok: true };
+}
+
+function sendPromptToLiveSession(
+  session: Session,
+  text: string,
+  opts: { mode?: "steer" | "queue" } = {},
+): { ok: boolean; msg?: unknown; error?: string } {
+  const prompt = text.trim();
+  if (!prompt) return { ok: true };
+  const sid = session.sessionId;
+  if (!sid) return { ok: false, error: "live session has no id" };
+  if ((opts.mode ?? "steer") === "steer" && session.busy) {
+    const interrupted = interruptLiveSession(session);
+    if (!interrupted.ok) return interrupted;
+  }
+  if (
+    session.agent === "aisdk" ||
+    session.agent === "codex-aisdk" ||
+    session.agent === "opencode"
+  ) {
+    const key = findAisdkEntryByAnyId(sid)?.sessionId ?? sid;
+    appendAisdkCmd(key, { type: "send", text: prompt });
+    return {
+      ok: true,
+      msg: { id: randomBytes(8).toString("hex"), text: prompt, status: "delivered" },
+    };
+  }
+  if (!session.tmuxTarget) return { ok: false, error: "session is not in a tmux pane — cannot send" };
+  return { ok: true, msg: enqueueMessage(sid, prompt) };
+}
+
 function warmRenderedBacklogs(sessions: Session[], limit = 40): void {
   for (const session of sessions.slice(0, MESSAGE_HTML_CACHE_MAX)) {
     const path = session.transcriptPath;
     if (!path) continue;
     void recentMessagesCached(path, limit)
       .then((messages) => {
-        for (const message of messages) msgWithHtml(message);
+        for (const message of visibleTranscriptMessages(messages)) msgWithHtml(message);
       })
       .catch(() => {});
   }
@@ -1843,6 +1959,86 @@ export async function cmdServe() {
         return json({ findings: await listFindings(status) });
       }
 
+      if (path === "/api/session-brain/notes" && req.method === "GET") {
+        const status = url.searchParams.get("status") || undefined;
+        return json({ notes: await listSessionNotes(status) });
+      }
+      if (path === "/api/session-brain/config" && req.method === "GET") {
+        return json({ config: await readSessionBrainConfig() });
+      }
+      if (path === "/api/session-brain/config" && req.method === "POST") {
+        const b = (await req.json().catch(() => null)) as {
+          enabled?: boolean;
+          autoClose?: boolean;
+          intervalMin?: number;
+          minIdleMin?: number;
+        } | null;
+        if (!b || typeof b !== "object") return err(400, "config patch required");
+        const enabled = typeof b.enabled === "boolean" ? b.enabled : undefined;
+        const config = await updateSessionBrainConfig({
+          enabled,
+          // One visible switch controls the whole session-brain system. If a
+          // caller explicitly patches autoClose we still honor it for
+          // compatibility, otherwise enabling/disabling the brain carries the
+          // cleanup behavior with it.
+          autoClose: typeof b.autoClose === "boolean" ? b.autoClose : enabled,
+          intervalMin: typeof b.intervalMin === "number" ? b.intervalMin : undefined,
+          minIdleMin: typeof b.minIdleMin === "number" ? b.minIdleMin : undefined,
+        });
+        return json({ config });
+      }
+      if (path === "/api/session-brain/suggestions" && req.method === "GET") {
+        const status = url.searchParams.get("status") || undefined;
+        return json({ suggestions: await listPatternSuggestions(status) });
+      }
+      if (path === "/api/session-brain/runs" && req.method === "GET") {
+        const limit = Number(url.searchParams.get("limit")) || 20;
+        return json({ runs: await listSessionBrainRuns(limit) });
+      }
+      if (path === "/api/session-brain/run" && req.method === "POST") {
+        const b = (await req.json().catch(() => null)) as {
+          autoClose?: boolean;
+          limit?: number;
+        } | null;
+        const run = await runSessionBrain(
+          { autoClose: b?.autoClose, limit: b?.limit },
+          (l) => console.log(l),
+        );
+        return json({ run });
+      }
+      {
+        const m = path.match(/^\/api\/session-brain\/notes\/([a-z0-9]+)\/status$/);
+        if (m && req.method === "POST") {
+          const b = (await req.json().catch(() => null)) as { status?: string } | null;
+          const status = b?.status;
+          if (
+            status !== "open" &&
+            status !== "snoozed" &&
+            status !== "done" &&
+            status !== "dismissed"
+          )
+            return err(400, "invalid note status");
+          const note = await updateSessionNoteStatus(m[1], status as SessionNoteStatus);
+          if (!note) return err(404, "note not found");
+          return json({ note });
+        }
+      }
+      {
+        const m = path.match(/^\/api\/session-brain\/suggestions\/([a-z0-9]+)\/status$/);
+        if (m && req.method === "POST") {
+          const b = (await req.json().catch(() => null)) as { status?: string } | null;
+          const status = b?.status;
+          if (status !== "open" && status !== "accepted" && status !== "dismissed")
+            return err(400, "invalid suggestion status");
+          const suggestion = await updatePatternSuggestionStatus(
+            m[1],
+            status as PatternSuggestionStatus,
+          );
+          if (!suggestion) return err(404, "suggestion not found");
+          return json({ suggestion });
+        }
+      }
+
       // ── Client (frontend) error auto-report → auto-fix ────────────────────
       // The web app funnels uncaught errors here. Each report is stored, shown
       // to the human via the findings feed + push, and (for real shipped builds)
@@ -2364,9 +2560,24 @@ export async function cmdServe() {
         if (!sessionId) return err(400, "sessionId required");
         const model = body?.model?.trim() || undefined;
         // Already running? Don't double-spawn — point the client at the live one.
-        const live = (await listSessions()).find((s) => s.sessionId === sessionId);
-        if (live)
-          return json({ ok: true, tmuxName: live.tmuxName, cwd: live.cwd, sessionId, alreadyLive: true, agent: live.agent });
+        const live = (await listSessions()).find(
+          (s) => s.sessionId === sessionId || s.nativeSessionId === sessionId,
+        );
+        if (live) {
+          const sent = sendPromptToLiveSession(live, body?.prompt ?? "");
+          if (!sent.ok) return err(409, sent.error || "couldn't send resume prompt");
+          return json({
+            ok: true,
+            tmuxName: live.tmuxName,
+            cwd: live.cwd,
+            sessionId: live.sessionId ?? sessionId,
+            resumedFrom: live.nativeSessionId ?? sessionId,
+            alreadyLive: true,
+            sentPrompt: !!body?.prompt?.trim(),
+            msg: sent.msg,
+            agent: live.agent,
+          });
+        }
         const transcript = await resolveTranscript(sessionId);
         if (!transcript) return err(404, "no transcript found for that session");
 
@@ -2391,6 +2602,11 @@ export async function cmdServe() {
             cwd,
             createdAt: Date.now(),
             agent: "codex-aisdk",
+            sessionId: key,
+            nativeSessionId: sessionId,
+            launchState: "running",
+            model: model ?? "gpt-5.5",
+            title: body?.prompt?.slice(0, 72),
             repoRoot: repoRootForManagedCwd(cwd),
           });
           if (body?.user) assignUser(tmuxName, body.user);
@@ -2398,7 +2614,14 @@ export async function cmdServe() {
           // threadId is seeded up front (== resumedFrom), so it's the live id.
           for (let i = 0; i < 20 && !readAisdkEntry(key); i++)
             await new Promise((res) => setTimeout(res, 250));
-          return json({ ok: true, tmuxName, cwd, sessionId, resumedFrom: sessionId, agent: "codex-aisdk" });
+          return json({
+            ok: true,
+            tmuxName,
+            cwd,
+            sessionId: key,
+            resumedFrom: sessionId,
+            agent: "codex-aisdk",
+          });
         }
 
         // claude path: resume drives the claude CLI.
@@ -2406,7 +2629,13 @@ export async function cmdServe() {
           return err(400, `unknown model "${model}" (expected one of ${CLAUDE_MODELS.join(", ")})`);
         const cwd = (await cwdForTranscript(transcript)) ?? SELF_REPO;
         const tmuxName = `lfg-${randomBytes(3).toString("hex")}`;
-        const r = spawnManagedSession({ name: tmuxName, cwd, model, resume: sessionId, prompt: body?.prompt });
+        const r = spawnManagedSession({
+          name: tmuxName,
+          cwd,
+          model,
+          resume: sessionId,
+          prompt: body?.prompt,
+        });
         if (!r.ok) return err(502, r.error || "failed to resume session");
         addManaged({
           tmuxName,
@@ -2423,6 +2652,7 @@ export async function cmdServe() {
           const pid = panePidForSession(tmuxName);
           if (pid) newId = sessionIdForPid(pid);
         }
+        if (!newId) return err(502, "session resumed, but no live session id was discovered");
         return json({ ok: true, tmuxName, cwd, sessionId: newId, resumedFrom: sessionId, agent: "claude" });
       }
 
@@ -2762,32 +2992,18 @@ export async function cmdServe() {
         if (m && req.method === "POST") {
           const body = (await req.json().catch(() => null)) as {
             text?: string;
+            mode?: "steer" | "queue";
           } | null;
           const text = body?.text?.trim();
           if (!text) return err(400, "expected { text }");
-          const sess = (await listSessions()).find((s) => s.sessionId === m[1]);
+          const mode = body?.mode === "queue" ? "queue" : "steer";
+          const sess = (await listSessions()).find(
+            (s) => s.sessionId === m[1] || s.nativeSessionId === m[1],
+          );
           if (!sess) return err(404, "session not found");
-          // aisdk / codex-aisdk sessions have no pane — push the turn through the
-          // harness's command file instead of the tmux send-keys queue. The new
-          // user turn surfaces in the transcript (and thus the live view) once
-          // the harness runs it. For codex-aisdk the live-view id is the codex
-          // threadId, not the control-plane key the command file is named by, so
-          // map it back via the registry.
-          if (
-            sess.agent === "aisdk" ||
-            sess.agent === "codex-aisdk" ||
-            sess.agent === "opencode"
-          ) {
-            const key = findAisdkEntryByAnyId(m[1])?.sessionId ?? m[1];
-            appendAisdkCmd(key, { type: "send", text });
-            return json({ ok: true, msg: { id: randomBytes(8).toString("hex"), text, status: "delivered" } });
-          }
-          if (!sess.tmuxTarget)
-            return err(409, "session is not in a tmux pane — cannot send");
-          // Enqueue and return immediately; the queue confirms delivery in the
-          // background and the client tracks status via the `queue` SSE event.
-          const msg = enqueueMessage(m[1], text);
-          return json({ ok: true, msg });
+          const sent = sendPromptToLiveSession(sess, text, { mode });
+          if (!sent.ok) return err(409, sent.error || "couldn't send message");
+          return json({ ok: true, msg: sent.msg });
         }
       }
 
@@ -2875,20 +3091,26 @@ export async function cmdServe() {
         if (m && req.method === "GET") {
           const tp = await resolveTranscript(m[1]);
           if (!tp) return err(404, "session transcript not found");
+          enqueueTranscriptIndex(tp, m[1]);
           if (url.searchParams.get("page") === "backward") {
             const rawLimit = parseInt(url.searchParams.get("limit") ?? "220", 10);
             const rawBefore = url.searchParams.get("before");
             const before =
               rawBefore == null ? null : Math.max(0, parseInt(rawBefore, 10) || 0);
-            const page = await messagePage(tp, {
-              before,
-              limit: Number.isFinite(rawLimit) ? rawLimit : 220,
-            });
+            const page =
+              (await indexedMessagePage(tp, m[1], {
+                before,
+                limit: Number.isFinite(rawLimit) ? rawLimit : 220,
+              })) ??
+              (await messagePage(tp, {
+                before,
+                limit: Number.isFinite(rawLimit) ? rawLimit : 220,
+              }));
             return json({
               id: m[1],
               total: page.total,
               nextBefore: page.nextBefore,
-              messages: page.messages.map(msgWithHtml),
+              messages: visibleTranscriptMessages(page.messages).map(msgWithHtml),
             });
           }
           const full = url.searchParams.get("full") === "1";
@@ -2896,9 +3118,22 @@ export async function cmdServe() {
           const lim = full
             ? Math.max(0, Math.min(20000, Number.isFinite(rawLimit) ? rawLimit : 0))
             : Math.min(200, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 30));
+          if (!full) {
+            const page = await indexedMessagePage(tp, m[1], { limit: lim });
+            if (page) {
+              return json({
+                id: m[1],
+                messages: page.messages.map(msgWithHtml),
+              });
+            }
+          }
           return json({
             id: m[1],
-            messages: (await (full ? recentMessages : recentMessagesCached)(tp, lim, { maxBytes: full ? null : undefined })).map(msgWithHtml),
+            messages: visibleTranscriptMessages(
+              await (full ? recentMessages : recentMessagesCached)(tp, lim, {
+                maxBytes: full ? null : undefined,
+              }),
+            ).map(msgWithHtml),
           });
         }
       }
@@ -2919,9 +3154,58 @@ export async function cmdServe() {
           } | null;
           const query = body?.query?.trim();
           if (!query) return err(400, "expected { query }");
-          const r = await searchTranscript(tp, query, { limit: body?.limit });
+          const r = await searchTranscriptIndex(tp, m[1], query, { limit: body?.limit }).catch(() =>
+            searchTranscript(tp, query, { limit: body?.limit }),
+          );
           return json({ id: m[1], query, ...r });
         }
+      }
+
+      if (path === "/api/transcripts/search" && req.method === "POST") {
+        const body = (await req.json().catch(() => null)) as {
+          query?: string;
+          limit?: number;
+        } | null;
+        const query = body?.query?.trim();
+        if (!query) return err(400, "expected { query }");
+        return json({ query, ...(await searchAllTranscriptIndexes(query, { limit: body?.limit })) });
+      }
+
+      if (path === "/api/transcripts/index" && req.method === "POST") {
+        const body = (await req.json().catch(() => null)) as {
+          limit?: number;
+        } | null;
+        const limit = Math.max(1, Math.min(200, body?.limit ?? 50));
+        const live = await listSessions();
+        const liveIds = new Set(live.map((s) => s.sessionId).filter((x): x is string => !!x));
+        const resumable = await listResumable({ limit, excludeIds: liveIds });
+        const targets = [
+          ...live
+            .filter((session) => session.sessionId && session.transcriptPath)
+            .map((session) => ({
+              sessionId: session.sessionId as string,
+              path: session.transcriptPath as string,
+            })),
+          ...(await Promise.all(
+            resumable.map(async (session) => {
+              const path = await resolveTranscript(session.sessionId).catch(() => null);
+              return path ? { sessionId: session.sessionId, path } : null;
+            }),
+          )).filter((target): target is { sessionId: string; path: string } => !!target),
+        ];
+        const seen = new Set<string>();
+        const results: Array<{ sessionId: string; indexed: number; size: number; offset: number }> = [];
+        for (const target of targets) {
+          if (seen.has(target.sessionId)) continue;
+          seen.add(target.sessionId);
+          const r = await indexTranscript(target.path, target.sessionId);
+          results.push({ sessionId: target.sessionId, ...r });
+        }
+        return json({
+          indexedSessions: results.length,
+          indexedMessages: results.reduce((sum, result) => sum + result.indexed, 0),
+          results,
+        });
       }
 
       {
@@ -3034,26 +3318,58 @@ export async function cmdServe() {
         if (m && req.method === "POST") {
           const sess = (await listSessions()).find((s) => s.sessionId === m[1]);
           if (!sess) return err(404, "session not found");
-          if (
-            sess.agent === "aisdk" ||
-            sess.agent === "codex-aisdk" ||
-            sess.agent === "opencode"
-          ) {
-            // Abort the current turn via the harness (AbortController on its
-            // side). Map a codex-aisdk threadId back to the control-plane key.
-            const key = findAisdkEntryByAnyId(m[1])?.sessionId ?? m[1];
-            appendAisdkCmd(key, { type: "interrupt" });
-            return json({ ok: true });
-          }
-          if (!sess.tmuxTarget)
-            return err(409, "session is not in a tmux pane — cannot interrupt");
           // A single Escape stops the current turn. This doubles as "steer":
           // any message already sitting in Claude's own queue gets processed as
           // the next turn once the running one is interrupted. We deliberately
           // don't drop pending sends — that would discard the message the user
           // is steering with.
-          if (!tmuxInterrupt(sess.tmuxTarget)) return err(502, "interrupt failed");
+          const interrupted = interruptLiveSession(sess);
+          if (!interrupted.ok)
+            return err(interrupted.status ?? 502, interrupted.error || "interrupt failed");
           return json({ ok: true });
+        }
+      }
+
+      {
+        const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/diff-stat$/);
+        if (m && req.method === "GET") {
+          const sess = (await listSessions()).find((s) => s.sessionId === m[1]);
+          if (!sess) return err(404, "session not found");
+          return json({ stat: computeSessionDiffStat(sess.cwd) });
+        }
+      }
+
+      {
+        const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/diff$/);
+        if (m && req.method === "GET") {
+          const sess = (await listSessions()).find((s) => s.sessionId === m[1]);
+          if (!sess) return err(404, "session not found");
+          // ?summary=1 → fast file-list overview (no patch bodies); the viewer
+          // then lazy-loads each file via /diff-file.
+          const summary = url.searchParams.get("summary") === "1";
+          return json({ diff: summary ? computeSessionDiffSummary(sess.cwd) : computeSessionDiff(sess.cwd) });
+        }
+      }
+
+      {
+        const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/diff-file$/);
+        if (m && req.method === "GET") {
+          const sess = (await listSessions()).find((s) => s.sessionId === m[1]);
+          if (!sess) return err(404, "session not found");
+          const p = url.searchParams.get("path");
+          if (!p) return err(400, "missing path");
+          const file = computeSessionFilePatch(sess.cwd, p);
+          if (!file) return err(404, "no diff for path");
+          return json({ file });
+        }
+      }
+
+      {
+        const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/brain$/);
+        if (m && req.method === "POST") {
+          const run = await runSessionBrainForSession(m[1], (l) => console.log(l));
+          if (run.errors.length && !run.decisions.length) return err(404, run.errors[0] || "session not found");
+          return json({ run, decision: run.decisions[0] ?? null });
         }
       }
 
@@ -3115,7 +3431,9 @@ export async function cmdServe() {
         if (m && req.method === "GET") {
           const tp = await resolveTranscript(m[1]);
           if (!tp) return err(404, "session transcript not found");
-          const msgs = (await recentMessagesCached(tp, 60)).map(msgWithHtml);
+          enqueueTranscriptIndex(tp, m[1]);
+          const page = await indexedMessagePage(tp, m[1], { limit: 60 });
+          const msgs = (page?.messages ?? visibleTranscriptMessages(await recentMessagesCached(tp, 60))).map(msgWithHtml);
           return json({ id: m[1], messages: msgs });
         }
       }
@@ -3200,11 +3518,12 @@ export async function cmdServe() {
           .filter((s) => /^[0-9a-fA-F-]{36}$/.test(s))
           .slice(0, 24);
         evlog("live_stream_request", { rid, ids, idsCount: ids.length });
-        type LivePane = { sid: string; tp: string; target: string | null };
+        type LivePane = { sid: string; tp: string | null; target: string | null };
         let panes: LivePane[] = [];
 
         let iv: ReturnType<typeof setInterval> | null = null;
         let pi: ReturnType<typeof setInterval> | null = null;
+        let di: ReturnType<typeof setInterval> | null = null;
         let hb: ReturnType<typeof setInterval> | null = null;
         let closed = false;
         const stream = new ReadableStream({
@@ -3225,6 +3544,14 @@ export async function cmdServe() {
             const pumpOne = async (p: LivePane) => {
               if (closed) return;
               try {
+                if (!p.tp) {
+                  const tp = await resolveTranscript(p.sid);
+                  if (!tp) return;
+                  p.tp = tp;
+                  enqueueTranscriptIndex(tp, p.sid);
+                  offsets.set(p.sid, Bun.file(tp).size);
+                  return;
+                }
                 const pumpT0 = performance.now();
                 const f = Bun.file(p.tp);
                 const size = f.size;
@@ -3239,7 +3566,7 @@ export async function cmdServe() {
                   bufs.set(p.sid, lines.pop() ?? "");
                   for (const l of lines) {
                     if (!l) continue;
-                    const msgs = normalizeLineMessages(l);
+                    const msgs = visibleTranscriptMessages(normalizeLineMessages(l));
                     for (const msg of msgs)
                       send(
                         `event: msg\ndata: ${JSON.stringify({ sid: p.sid, m: msgWithHtml(msg) })}\n\n`,
@@ -3256,6 +3583,13 @@ export async function cmdServe() {
               } catch {}
             };
             const lastBusy = new Map<string, string>();
+            const lastDraft = new Map<string, DraftState>();
+            const pollDraftOne = (p: LivePane) => {
+              if (closed || p.target) return;
+              const entry = findAisdkEntryByAnyId(p.sid);
+              if (!entry || !isAisdkEntryBusy(entry)) return;
+              sendAiTextDeltaPart(send, p.sid, entry, lastDraft, true);
+            };
             const pollOne = async (p: LivePane) => {
               if (closed) return;
               if (!p.target) {
@@ -3271,6 +3605,8 @@ export async function cmdServe() {
                   lastBusy.set(p.sid, bsig);
                   send(`event: busy\ndata: ${JSON.stringify({ sid: p.sid, busy })}\n\n`);
                 }
+                if (busy) sendAiTextDeltaPart(send, p.sid, entry, lastDraft, true);
+                else lastDraft.delete(p.sid);
                 return;
               }
               const pane = capturePane(p.target);
@@ -3318,13 +3654,17 @@ export async function cmdServe() {
                 ids.map(async (sid) => {
                   const sidT0 = performance.now();
                   const tp = await resolveTranscript(sid);
+                  if (tp) enqueueTranscriptIndex(tp, sid);
+                  const entry = findAisdkEntryByAnyId(sid);
                   evlog("live_stream_resolve_transcript", {
                     rid,
                     sid,
                     found: !!tp,
                     durationMs: Math.round((performance.now() - sidT0) * 1000) / 1000,
                   });
-                  return tp ? ({ sid, tp, target: null } satisfies LivePane) : null;
+                  return tp || entry
+                    ? ({ sid, tp, target: null } satisfies LivePane)
+                    : null;
                 }),
               );
               if (closed) return;
@@ -3343,11 +3683,21 @@ export async function cmdServe() {
               }
               await Promise.all(panes.map(async (p) => {
                 try {
+                  if (!p.tp) {
+                    lastSig.set(p.sid, " ");
+                    lastQ.set(p.sid, "[]");
+                    lastBusy.set(p.sid, "?");
+                    pollOne(p);
+                    queueOne(p);
+                    return;
+                  }
                   const backlogT0 = performance.now();
-                  const page = await messagePage(p.tp, { limit: 40 });
+                  const page =
+                    (await indexedMessagePage(p.tp, p.sid, { limit: 40 })) ??
+                    (await messagePage(p.tp, { limit: 40 }));
                   const readMs = performance.now() - backlogT0;
                   const renderT0 = performance.now();
-                  const msgs = page.messages.map(msgWithHtml);
+                  const msgs = visibleTranscriptMessages(page.messages).map(msgWithHtml);
                   evlog("live_stream_backlog", {
                     rid,
                     sid: p.sid,
@@ -3398,6 +3748,9 @@ export async function cmdServe() {
                   void reconcileQueued(p.sid).then((c) => c && queueOne(p));
                 }
               }, 1000);
+              di = setInterval(() => {
+                for (const p of panes) pollDraftOne(p);
+              }, 150);
             })();
             hb = setInterval(() => send(`: hb\n\n`), 15000);
           },
@@ -3405,6 +3758,7 @@ export async function cmdServe() {
             closed = true;
             if (iv) clearInterval(iv);
             if (pi) clearInterval(pi);
+            if (di) clearInterval(di);
             if (hb) clearInterval(hb);
           },
         });
@@ -3414,14 +3768,17 @@ export async function cmdServe() {
       {
         const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/stream$/);
         if (m) {
+          const session = (await listSessions()).find(
+            (s) => s.sessionId === m[1] || s.nativeSessionId === m[1],
+          );
+          const sid = session?.sessionId ?? m[1];
           const tp = await resolveTranscript(m[1]);
           if (!tp) return err(404, "session transcript not found");
-          const target =
-            (await listSessions()).find((s) => s.sessionId === m[1])
-              ?.tmuxTarget ?? null;
-          const sid = m[1];
+          enqueueTranscriptIndex(tp, sid);
+          const target = session?.tmuxTarget ?? null;
           let iv: ReturnType<typeof setInterval> | null = null;
           let pi: ReturnType<typeof setInterval> | null = null;
+          let di: ReturnType<typeof setInterval> | null = null;
           let qi: ReturnType<typeof setInterval> | null = null;
           let hb: ReturnType<typeof setInterval> | null = null;
           let closed = false;
@@ -3451,7 +3808,7 @@ export async function cmdServe() {
                     buf = lines.pop() ?? "";
                     for (const l of lines) {
                       if (!l) continue;
-                      const msgs = normalizeLineMessages(l);
+                      const msgs = visibleTranscriptMessages(normalizeLineMessages(l));
                       for (const msg of msgs)
                         send(`event: msg\ndata: ${JSON.stringify(msgWithHtml(msg))}\n\n`);
                     }
@@ -3460,7 +3817,8 @@ export async function cmdServe() {
               };
               // backlog, then tail
               (async () => {
-                const msgs = (await recentMessagesCached(tp, 40)).map(msgWithHtml);
+                const page = await indexedMessagePage(tp, sid, { limit: 40 });
+                const msgs = (page?.messages ?? visibleTranscriptMessages(await recentMessagesCached(tp, 40))).map(msgWithHtml);
                 for (const msg of msgs)
                   send(`event: msg\ndata: ${JSON.stringify(msg)}\n\n`);
                 offset = Bun.file(tp).size;
@@ -3501,6 +3859,7 @@ export async function cmdServe() {
                 // registry — by key or threadId (codex-aisdk's sid is the latter).
                 // Sentinel baseline so the first poll always emits current state.
                 let lastBusy = "?";
+                const lastDraft = new Map<string, DraftState>();
                 const pollBusy = () => {
                   if (closed) return;
                   const entry = findAisdkEntryByAnyId(sid);
@@ -3511,9 +3870,18 @@ export async function cmdServe() {
                     lastBusy = bsig;
                     send(`event: busy\ndata: ${busy ? "true" : "false"}\n\n`);
                   }
+                  if (!busy) lastDraft.delete(sid);
+                };
+                const pollDraft = () => {
+                  if (closed) return;
+                  const entry = findAisdkEntryByAnyId(sid);
+                  if (!entry || !isAisdkEntryBusy(entry)) return;
+                  sendAiTextDeltaPart(send, sid, entry, lastDraft, false);
                 };
                 pollBusy();
+                pollDraft();
                 pi = setInterval(pollBusy, 1000);
+                di = setInterval(pollDraft, 150);
               }
               // Emit the outbound send-queue on change so the composer can show
               // each message's delivery status (pending/queued/delivered/failed).
@@ -3535,11 +3903,12 @@ export async function cmdServe() {
             },
             cancel() {
               closed = true;
-              if (iv) clearInterval(iv);
-              if (pi) clearInterval(pi);
-              if (qi) clearInterval(qi);
-              if (hb) clearInterval(hb);
-            },
+            if (iv) clearInterval(iv);
+            if (pi) clearInterval(pi);
+            if (di) clearInterval(di);
+            if (qi) clearInterval(qi);
+            if (hb) clearInterval(hb);
+          },
           });
           return new Response(stream, { headers: sseHeaders() });
         }
@@ -3559,6 +3928,10 @@ export async function cmdServe() {
   });
 
   startAutoScheduler((l) => console.log(l));
+  // Let the session-brain merge-guard nudge a live session's agent (queue mode)
+  // when it detects unmerged worktree work before archiving.
+  setBrainPromptSender((session, text, opts) => sendPromptToLiveSession(session, text, opts));
+  startSessionBrainScheduler((l) => console.log(l));
   startWorktreeSweep((l) => console.log(l));
   // Watch the fleet for busy -> idle transitions and fan "completed" events out
   // to voice subscribers (/api/voice/events). Idempotent + best-effort.

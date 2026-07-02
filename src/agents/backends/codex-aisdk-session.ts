@@ -36,7 +36,9 @@ import {
   removeEntry,
   writeEntry,
 } from "../../aisdk-registry.ts";
-import { readFileSync } from "node:fs";
+import { makeDraftPublisher } from "./draft.ts";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
 
 function arg(argv: string[], name: string): string | undefined {
   const i = argv.indexOf(name);
@@ -44,8 +46,24 @@ function arg(argv: string[], name: string): string | undefined {
 }
 
 function resolveCodexPath(): string | undefined {
+  const usable = (path: string | undefined | null): string | undefined => {
+    if (!path) return undefined;
+    try {
+      const real = realpathSync(path);
+      return existsSync(real) ? real : undefined;
+    } catch {
+      return undefined;
+    }
+  };
   try {
-    return process.env.LFG_CODEX_PATH ?? Bun.which("codex") ?? undefined;
+    const explicit = usable(process.env.LFG_CODEX_PATH);
+    if (explicit) return explicit;
+    // The provider defaults to its optional local @openai/codex dependency when
+    // codexPath is absent. Prefer the user's global CLI so resumed app-server
+    // sessions do not get pinned to an older repo-local wrapper.
+    const global = usable(`${homedir()}/.bun/bin/codex`);
+    if (global) return global;
+    return usable(Bun.which("codex")) ?? undefined;
   } catch {
     return undefined;
   }
@@ -101,7 +119,7 @@ export async function pipeToCodexAiSdk(
     };
     for await (const part of result.fullStream as any) {
       if (part?.type === "text-delta") {
-        chars += String(part.text ?? part.textDelta ?? "").length;
+        chars += String(part.text ?? part.textDelta ?? part.delta ?? "").length;
         flush();
       } else if (part?.type === "tool-call") {
         log(`[runner] codex running tool: ${part.toolName ?? "?"}`);
@@ -206,6 +224,8 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
   let draining = false;
   let closing = false;
 
+  const publishDraft = makeDraftPublisher(key);
+
   async function runTurn(prompt: string, signal: AbortSignal): Promise<void> {
     // No AskUserQuestion handling needed here: the codex app-server provider
     // auto-responds {answers:{}} to any interactive question, so this headless
@@ -233,11 +253,20 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
       },
     } as any);
     try {
+      let draft = "";
+      publishDraft("", true);
       for await (const part of result.fullStream as any) {
-        if (part?.type === "error") {
+        if (part?.type === "text-delta") {
+          const delta = String(part.text ?? part.textDelta ?? part.delta ?? "");
+          if (delta) {
+            draft += delta;
+            publishDraft(draft);
+          }
+        } else if (part?.type === "error") {
           throw new Error(String((part as any).error).slice(0, 800));
         }
       }
+      publishDraft(draft, true);
       await result.text; // surfaces a failed generation
       // The threadId only appears once a persistent turn has completed; read it
       // from the resolved metadata and pin it for resume + transcript discovery.
@@ -256,6 +285,8 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
       console.error(
         `codex-aisdk-session turn failed: ${e instanceof Error ? e.message : e}`,
       );
+    } finally {
+      publishDraft("", true);
     }
   }
 
@@ -266,12 +297,12 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
       while (queue.length && !closing) {
         const prompt = queue.shift()!;
         currentAc = new AbortController();
-        patchEntry(key, { busy: true });
+        patchEntry(key, { busy: true, draftText: null, draftUpdatedAt: null });
         try {
           await runTurn(prompt, currentAc.signal);
         } finally {
           currentAc = null;
-          patchEntry(key, { busy: false });
+          patchEntry(key, { busy: false, draftText: null, draftUpdatedAt: null });
         }
       }
     } finally {
