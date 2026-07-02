@@ -46,6 +46,8 @@
   --ring: #007aff;
   --radius: 0.75rem;
   --code-bg: rgba(120, 120, 128, 0.08);
+  /* Opaque fill behind the .lfg-gfield gradient edge (padding-box layer). */
+  --lfg-field-fill: #ffffff;
   --text-2: #3c3c43;
   --border-strong: rgba(60, 60, 67, 0.29);
   --lfg-orb-size: 4.5rem;
@@ -106,6 +108,7 @@ html.lfg-keyboard-open {
   --input: rgba(84, 84, 88, 0.35);
   --ring: #0a84ff;
   --code-bg: rgba(118, 118, 128, 0.16);
+  --lfg-field-fill: #1c1c1e;
   --text-2: rgba(235, 235, 245, 0.78);
   --border-strong: rgba(84, 84, 88, 0.65);
 }
@@ -928,6 +931,120 @@ html.lfg-keyboard-open {
 }
 
 @layer components {
+  /* ── Reusable gradient border ──────────────────────────────────────────────
+     A 1px gradient ring composited on the border edge via a masked ::before,
+     mirroring .tool-call-row / .lfg-status-dot. `isolation: isolate` + the
+     ::before's `z-index: -1` float the ring above the host's own background but
+     beneath its content, so it works over any fill without a wrapper div. The
+     host supplies its own background and border-radius (the ring inherits the
+     radius); pair with `border-transparent` so the ring replaces — not doubles —
+     a flat border. Drop `lfg-gborder` onto any rounded card / button /
+     container; add `lfg-gborder--brand` to tint the edge iOS-blue for CTAs. */
+  .lfg-gborder {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .lfg-gborder::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      160deg,
+      rgba(255, 255, 255, 0.9),
+      color-mix(in oklab, var(--border-strong) 55%, transparent) 42%,
+      color-mix(in oklab, var(--border) 45%, transparent) 72%,
+      rgba(255, 255, 255, 0.55)
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .dark .lfg-gborder::before {
+    background: linear-gradient(
+      160deg,
+      rgba(255, 255, 255, 0.26),
+      rgba(255, 255, 255, 0.08) 45%,
+      rgba(255, 255, 255, 0.03) 72%,
+      rgba(255, 255, 255, 0.12)
+    );
+  }
+
+  /* iOS-blue tinted edge + a whisper of glow — for primary CTAs. */
+  .lfg-gborder--brand::before {
+    background: linear-gradient(
+      160deg,
+      color-mix(in oklab, var(--primary) 85%, white),
+      color-mix(in oklab, var(--primary) 50%, transparent) 45%,
+      color-mix(in oklab, var(--primary) 28%, transparent) 72%,
+      color-mix(in oklab, var(--primary) 70%, white)
+    );
+  }
+
+  .lfg-gborder--brand {
+    box-shadow: 0 6px 20px -12px color-mix(in oklab, var(--primary) 80%, transparent);
+  }
+
+  .dark .lfg-gborder--brand::before {
+    background: linear-gradient(
+      160deg,
+      color-mix(in oklab, var(--primary) 90%, white),
+      color-mix(in oklab, var(--primary) 42%, transparent) 45%,
+      color-mix(in oklab, var(--primary) 24%, transparent) 72%,
+      color-mix(in oklab, var(--primary) 65%, white)
+    );
+  }
+
+  /* ── Gradient-edged form field ──────────────────────────────────────────────
+     Replaced elements (<input>/<textarea>) don't render ::before in WebKit, so
+     the .lfg-gborder ring can't reach them. This paints the gradient edge with
+     the element's own background instead: an opaque fill clipped to padding-box
+     over a gradient clipped to border-box, above a 1px transparent border (the
+     .tool-call-row / .user-bubble technique). Works on inputs, textareas, and
+     any wrapper. Set --lfg-field-fill to change the interior; on focus the edge
+     warms to the accent so the field reads as active without a layout shift.
+     `bg-clip-*`/`bg-*` utilities would fight the background shorthand, so drop
+     those and lean on this class for the surface. */
+  .lfg-gfield {
+    border: 1px solid transparent;
+    background:
+      linear-gradient(var(--lfg-field-fill), var(--lfg-field-fill)) padding-box,
+      linear-gradient(
+        160deg,
+        color-mix(in oklab, var(--foreground) 24%, transparent),
+        color-mix(in oklab, var(--foreground) 8%, transparent) 44%,
+        color-mix(in oklab, var(--foreground) 4%, transparent) 72%,
+        color-mix(in oklab, var(--foreground) 14%, transparent)
+      ) border-box;
+    transition:
+      background 180ms ease,
+      box-shadow 180ms ease;
+  }
+
+  .lfg-gfield:focus-within,
+  .lfg-gfield:focus-visible {
+    background:
+      linear-gradient(var(--lfg-field-fill), var(--lfg-field-fill)) padding-box,
+      linear-gradient(
+        160deg,
+        color-mix(in oklab, var(--primary) 80%, white),
+        color-mix(in oklab, var(--primary) 45%, transparent) 45%,
+        color-mix(in oklab, var(--primary) 28%, transparent) 72%,
+        color-mix(in oklab, var(--primary) 62%, white)
+      ) border-box;
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 22%, transparent);
+  }
+
   /* Server status indicator: glass gradient border + green gradient fill,
      with smooth fade/scale on appearance and color crossfade between states. */
   .lfg-status-dot {

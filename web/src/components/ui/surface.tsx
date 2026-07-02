@@ -13,9 +13,11 @@ export function surfaceClass({
   tone?: "default" | "brand";
 } = {}) {
   return cn(
-    "rounded-lg ring-1 ring-inset",
-    tone === "default" && "bg-foreground/[0.04] ring-foreground/[0.05]",
-    tone === "brand" && "bg-brand/10 ring-brand/15",
+    // Gradient glass edge (lfg-gborder) replaces the flat inset ring so every
+    // surface picks up the same treatment as the live-view cards.
+    "lfg-gborder rounded-lg",
+    tone === "default" && "bg-foreground/[0.04]",
+    tone === "brand" && "bg-brand/10",
     interactive &&
       "transition-[background-color,transform] duration-200 ease-ios hover:bg-foreground/[0.07] active:scale-[0.98]",
   );

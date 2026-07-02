@@ -8,22 +8,22 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground shadow-[0_1px_2px_oklch(0_0_0/15%),0_2px_6px_oklch(0_0_0/10%)] hover:bg-primary/90 hover:shadow-[0_1px_3px_oklch(0_0_0/20%),0_3px_8px_oklch(0_0_0/12%)]",
+        default: "lfg-gborder bg-primary text-primary-foreground shadow-[0_1px_2px_oklch(0_0_0/15%),0_2px_6px_oklch(0_0_0/10%)] hover:bg-primary/90 hover:shadow-[0_1px_3px_oklch(0_0_0/20%),0_3px_8px_oklch(0_0_0/12%)]",
         // Primary brand CTA — coral gradient with warm halo. Matches the
         // design's "Start building" / FAB / send-arrow treatment exactly.
-        brand: "bg-brand-gradient hover:brightness-[1.04]",
+        brand: "lfg-gborder lfg-gborder--brand bg-brand-gradient hover:brightness-[1.04]",
         // Quiet icon chip — faint foreground tint, used for ghost-style
         // affordances (cog, dismiss X). Different from `ghost` because it
         // shows a visible chip *at rest*, not only on hover.
-        tint: "bg-foreground/[0.06] text-foreground/70 hover:bg-foreground/[0.10] hover:text-foreground",
+        tint: "lfg-gborder bg-foreground/[0.06] text-foreground/70 hover:bg-foreground/[0.10] hover:text-foreground",
         // Soft brand tint — a brand-tinted chip at rest, for secondary
         // brand affordances (e.g. "Add sign-in"). Lighter than `brand`'s
         // filled gradient CTA.
-        "brand-soft": "bg-brand/12 text-brand hover:bg-brand/20",
+        "brand-soft": "lfg-gborder bg-brand/12 text-brand hover:bg-brand/20",
         outline:
-          "border-border bg-input/30 hover:bg-input/50 hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground",
+          "lfg-gborder bg-input/30 hover:bg-input/50 hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground",
         secondary:
-          "bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
+          "lfg-gborder bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
         ghost:
           "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
         destructive:

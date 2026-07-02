@@ -298,6 +298,7 @@ type SessionBrainConfig = {
   autoClose: boolean;
   intervalMin: number;
   minIdleMin: number;
+  model: string;
 };
 
 type Message = {
@@ -3376,6 +3377,7 @@ export function App() {
       autoClose: false,
       intervalMin: 60,
       minIdleMin: 45,
+      model: "claude-sonnet-5",
     };
     setBrainConfig((current) => ({ ...(current ?? fallback), ...normalizedPatch }));
     try {
@@ -6164,8 +6166,8 @@ function SessionChat({
             // Sit on the same surface as the chat (no card/border seam) and let
             // the transcript melt into the bar via a soft gradient fade so the
             // composer reads as part of the conversation, not a bolted-on panel.
-            "relative bg-background px-2 pb-2 pt-1.5 transition-colors",
-            "before:pointer-events-none before:absolute before:inset-x-0 before:-top-6 before:h-6 before:bg-gradient-to-t before:from-background before:to-transparent before:content-['']",
+            "relative overflow-x-clip bg-background px-2 pb-2 pt-1.5 transition-colors",
+            "before:pointer-events-none before:absolute before:inset-x-0 before:-top-6 before:h-[calc(1.5rem+1px)] before:bg-gradient-to-t before:from-background before:to-transparent before:content-['']",
             draggingFiles && "bg-primary/8",
             launching && "lfg-composer-launching",
           )}
@@ -8815,18 +8817,31 @@ function NewSessionDialog({
       .catch(() => setResumable([]));
   }, [open, resumeOpen, resumable]);
 
-  function resume(sessionId: string) {
-    // Carry the chosen model only when it's a Claude alias (resume drives the
-    // claude CLI); otherwise let the backend default it. Owner tags the resumed
-    // session to whoever's active, same as a fresh create.
-    const claudeModel = ["fable", "opus", "sonnet", "haiku"].includes(model) ? model : undefined;
+  function resume(session: ResumableSession) {
+    const resumePrompt = prompt.trim();
+    const resumeModel =
+      session.agent === "claude"
+        ? ["fable", "opus", "sonnet", "haiku"].includes(model)
+          ? model
+          : undefined
+        : AGENT_MODELS["codex-aisdk"].includes(model)
+          ? model
+          : AGENT_DEFAULT_MODEL["codex-aisdk"];
     onClose();
     toast.promise(
       api("/api/sessions/resume", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, user: user || undefined, model: claudeModel }),
-      }).then(() => onCreated()),
+        body: JSON.stringify({
+          sessionId: session.sessionId,
+          prompt: resumePrompt || undefined,
+          user: user || undefined,
+          model: resumeModel,
+        }),
+      }).then(() => {
+        if (resumePrompt) setPrompt("");
+        return onCreated();
+      }),
       {
         loading: "Resuming session…",
         success: "Session resumed",
@@ -9224,7 +9239,7 @@ function NewSessionDialog({
           </button>
         }
       />
-      <DropdownMenuContent side="top" align="start" sideOffset={8} alignOffset={-12} className="w-max max-w-[calc(100vw-1rem)] p-2.5">
+      <DropdownMenuContent side="top" align="start" sideOffset={8} alignOffset={-12} className="w-max max-w-[calc(100vw-1rem)] py-2 pr-4 pl-12">
         {controlsInner}
       </DropdownMenuContent>
     </DropdownMenu>
@@ -9277,7 +9292,9 @@ function NewSessionDialog({
           "lfg-gfield rounded-2xl",
           // Inline: a single row with the agent icon, field, and mic all
           // vertically centered, with a touch more breathing room.
-          variant === "inline" ? "flex items-center gap-1.5 px-2.5 py-2" : "relative px-2 py-1",
+          variant === "inline"
+            ? "flex items-center gap-1.5 overflow-hidden px-2.5 py-2"
+            : "relative px-2 py-1",
         )}
         ref={fieldRef}
       >
@@ -9434,9 +9451,9 @@ function NewSessionDialog({
       {resumeOpen ? (
         <ResumeSessionSheet
           sessions={resumable}
-          onPick={(sessionId) => {
+          onPick={(session) => {
             closeResume();
-            resume(sessionId);
+            resume(session);
           }}
           onClose={closeResume}
         />
@@ -9464,7 +9481,7 @@ function NewSessionDialog({
       <div
         aria-busy={launching}
         className={cn(
-          "pointer-events-auto fixed inset-x-0 bottom-0 z-[55] bg-background/95 pt-4 shadow-[0_-8px_24px_rgba(0,0,0,0.12)] backdrop-blur-xl",
+          "pointer-events-auto fixed inset-x-0 bottom-0 z-[55] overflow-x-clip bg-background/95 pt-4 shadow-[0_-8px_24px_rgba(0,0,0,0.12)] backdrop-blur-xl",
           launching && "lfg-composer-launching",
         )}
       >
@@ -9505,7 +9522,7 @@ function ResumeSessionSheet({
   onClose,
 }: {
   sessions: ResumableSession[] | null;
-  onPick: (sessionId: string) => void;
+  onPick: (session: ResumableSession) => void;
   onClose: () => void;
 }) {
   return createPortal(
@@ -9553,7 +9570,7 @@ function ResumeSessionSheet({
                 <button
                   key={s.sessionId}
                   type="button"
-                  onClick={() => onPick(s.sessionId)}
+                  onClick={() => onPick(s)}
                   className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-muted active:scale-[0.99]"
                 >
                   <RotateCcw className="size-4 shrink-0 text-muted-foreground" />
@@ -11179,19 +11196,58 @@ function AutoManageView({
   );
 }
 
+// Scroll-aware edge-fade mask for an internal scroll area. Returns a ref to put
+// on the scroll container plus a mask-image style that fades ONLY the edge that
+// currently has hidden content — so nothing fades at rest, and the fade lives on
+// the content (not the card border, which stays crisp).
+function useEdgeFadeMask<T extends HTMLElement>(fadePx = 24) {
+  const ref = useRef<T | null>(null);
+  const [edges, setEdges] = useState({ top: false, bottom: false });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => {
+      const { scrollTop, scrollHeight, clientHeight } = el;
+      const top = scrollTop > 1;
+      const bottom = scrollTop + clientHeight < scrollHeight - 1;
+      setEdges((prev) => (prev.top === top && prev.bottom === bottom ? prev : { top, bottom }));
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", update);
+      ro.disconnect();
+    };
+  }, []);
+  const top = edges.top ? "transparent" : "#000";
+  const bottom = edges.bottom ? "transparent" : "#000";
+  const mask = `linear-gradient(to bottom, ${top} 0, #000 ${fadePx}px, #000 calc(100% - ${fadePx}px), ${bottom} 100%)`;
+  return {
+    ref,
+    style: { maskImage: mask, WebkitMaskImage: mask } as React.CSSProperties,
+  };
+}
+
 function NotepadNotes({
   notes,
   onResume,
   onNoteStatus,
   action,
   showHeader = true,
+  scrollable = false,
 }: {
   notes: SessionNote[];
   onResume: (note: SessionNote) => void;
   onNoteStatus: (note: SessionNote, status: SessionNote["status"]) => void;
   action?: React.ReactNode;
   showHeader?: boolean;
+  // When true, the note list becomes its own bounded scroll area with an
+  // edge-fade mask instead of relying on the page to scroll.
+  scrollable?: boolean;
 }) {
+  const fade = useEdgeFadeMask<HTMLDivElement>();
   // Keep notepad as a chronological feed: most recently touched notes first.
   const sorted = [...notes].sort((a, b) => {
     const bTime = b.updatedAt || b.createdAt || 0;
@@ -11208,7 +11264,21 @@ function NotepadNotes({
         <CategoryHeader label="Notepad" count={notes.length} dotClass="bg-primary" action={action} />
       ) : null}
       {sorted.length ? (
-        <div className="overflow-hidden rounded-xl border border-border bg-card divide-y divide-border">
+        <div
+          className={cn(
+            "overflow-hidden",
+            // Flat feed (like the chat) when scrollable; bordered card otherwise.
+            !scrollable && "rounded-xl border border-border bg-card",
+          )}
+        >
+          <div
+            ref={scrollable ? fade.ref : undefined}
+            style={scrollable ? fade.style : undefined}
+            className={cn(
+              "divide-y divide-border",
+              scrollable && "max-h-[78dvh] overflow-y-auto overscroll-contain",
+            )}
+          >
           {sorted.map((note) => {
             const open = expandedId === note.id;
             const place = note.project || note.cwd || "No project";
@@ -11318,6 +11388,7 @@ function NotepadNotes({
               </div>
             );
           })}
+          </div>
         </div>
       ) : (
         <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
@@ -11345,33 +11416,12 @@ function MobileNotepadHome({
 }) {
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-4 pb-10">
-      <div className="flex items-center justify-between gap-3 px-1">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/12 text-primary">
-            <ScrollText className="size-5" />
-          </span>
-          <div className="min-w-0">
-            <h1 className="truncate text-lg font-semibold leading-tight">Notepad</h1>
-            <div className="text-xs text-muted-foreground">
-              {notes.length} open
-            </div>
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button size="icon-sm" variant="tint" onClick={onOpenBrain} aria-label="Session brain">
-            <Brain className="size-4" />
-          </Button>
-          <Button size="sm" onClick={onRunNow} disabled={running}>
-            {running ? <Loader2 className="size-4 animate-spin" /> : <Brain className="size-4" />}
-            Run
-          </Button>
-        </div>
-      </div>
       <NotepadNotes
         notes={notes}
         onResume={onResume}
         onNoteStatus={onNoteStatus}
         showHeader={false}
+        scrollable
       />
     </div>
   );
@@ -11477,6 +11527,40 @@ function SessionBrainView({
             onCheckedChange={(enabled) => onConfigChange({ enabled })}
             aria-label="Enable session brain"
           />
+        </div>
+        <div className="flex items-center justify-between gap-4 border-t border-border px-3 py-3">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold">Model</div>
+            <div className="text-xs text-muted-foreground">
+              LLM the brain uses to classify and summarize sessions.
+            </div>
+          </div>
+          <FieldPill>
+            <select
+              value={config?.model ?? "claude-sonnet-5"}
+              onChange={(e) => onConfigChange({ model: e.target.value })}
+              aria-label="Session brain model"
+              className="max-w-40 appearance-none truncate bg-transparent pr-1 text-xs font-medium outline-none"
+            >
+              {(() => {
+                const opts = [
+                  { value: "claude-sonnet-5", label: "Sonnet 5" },
+                  { value: "claude-opus-4-8", label: "Opus 4.8" },
+                  { value: "claude-haiku-4-5", label: "Haiku 4.5" },
+                  { value: "claude-fable-5", label: "Fable 5" },
+                ];
+                const current = config?.model;
+                if (current && !opts.some((o) => o.value === current)) {
+                  opts.unshift({ value: current, label: current });
+                }
+                return opts.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ));
+              })()}
+            </select>
+          </FieldPill>
         </div>
       </section>
 

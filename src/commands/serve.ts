@@ -1972,6 +1972,7 @@ export async function cmdServe() {
           autoClose?: boolean;
           intervalMin?: number;
           minIdleMin?: number;
+          model?: string;
         } | null;
         if (!b || typeof b !== "object") return err(400, "config patch required");
         const enabled = typeof b.enabled === "boolean" ? b.enabled : undefined;
@@ -1984,6 +1985,7 @@ export async function cmdServe() {
           autoClose: typeof b.autoClose === "boolean" ? b.autoClose : enabled,
           intervalMin: typeof b.intervalMin === "number" ? b.intervalMin : undefined,
           minIdleMin: typeof b.minIdleMin === "number" ? b.minIdleMin : undefined,
+          model: typeof b.model === "string" && b.model.trim() ? b.model.trim() : undefined,
         });
         return json({ config });
       }

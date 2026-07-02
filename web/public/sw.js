@@ -6,7 +6,7 @@
 // is picked up immediately when online, cache is only a fallback offline).
 // Everything else — dev modules (/@vite, /src, /node_modules), websockets and
 // the whole /api surface (SSE live streams!) — is passed straight through.
-const CACHE = "lfg-v2-shell";
+const CACHE = "lfg-shell-__VERSION__";
 
 self.addEventListener("install", () => {
   self.skipWaiting();

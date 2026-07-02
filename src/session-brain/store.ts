@@ -80,6 +80,10 @@ export type SessionBrainConfig = {
   // When true, the brain refuses to archive a session whose worktree branch has
   // unmerged commits/changes and instead asks the agent to resolve them first.
   mergeGuard: boolean;
+  // Anthropic model the brain's classifier/summarizer runs on. Seeded from
+  // LFG_SESSION_BRAIN_MODEL / LFG_SESSION_SUMMARY_MODEL at first write; once
+  // persisted here, this value wins over the env vars.
+  model: string;
 };
 
 // Per-session record tracking outstanding "please merge before I archive"
@@ -143,6 +147,7 @@ export function defaultSessionBrainConfig(): SessionBrainConfig {
     intervalMin: numberEnv("LFG_SESSION_BRAIN_INTERVAL_MIN", 60, 5, 24 * 60),
     minIdleMin: numberEnv("LFG_SESSION_BRAIN_MIN_IDLE_MIN", 45, 0, 24 * 60),
     mergeGuard: boolEnv("LFG_SESSION_BRAIN_MERGE_GUARD", true),
+    model: process.env.LFG_SESSION_BRAIN_MODEL || process.env.LFG_SESSION_SUMMARY_MODEL || "claude-sonnet-5",
   };
 }
 
@@ -160,6 +165,7 @@ function normalizeConfig(input: Partial<SessionBrainConfig> | null | undefined):
       Math.min(24 * 60, Number.isFinite(input?.minIdleMin) ? Number(input?.minIdleMin) : defaults.minIdleMin),
     ),
     mergeGuard: typeof input?.mergeGuard === "boolean" ? input.mergeGuard : defaults.mergeGuard,
+    model: typeof input?.model === "string" && input.model.trim() ? input.model.trim() : defaults.model,
   };
 }
 

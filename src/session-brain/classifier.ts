@@ -43,8 +43,8 @@ function oauthToken(): string | null {
   }
 }
 
-function modelName(): string {
-  return process.env.LFG_SESSION_BRAIN_MODEL || process.env.LFG_SESSION_SUMMARY_MODEL || "claude-haiku-4-5";
+function modelName(override?: string): string {
+  return override || process.env.LFG_SESSION_BRAIN_MODEL || process.env.LFG_SESSION_SUMMARY_MODEL || "claude-sonnet-5";
 }
 
 function timeoutMs(): number {
@@ -239,7 +239,7 @@ function heuristicClassify(features: SessionFeatures): ClassifiedSession {
   };
 }
 
-export async function classifySession(features: SessionFeatures): Promise<{
+export async function classifySession(features: SessionFeatures, model?: string): Promise<{
   classification: ClassifiedSession;
   generated: boolean;
 }> {
@@ -273,7 +273,7 @@ Return ONLY JSON:
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: modelName(),
+        model: modelName(model),
         max_tokens: 900,
         system,
         messages: [
@@ -303,7 +303,7 @@ Return ONLY JSON:
 export async function suggestPromptImprovements(input: {
   notes: Array<{ title: string; summary: string; nextActions: string[]; blockers: string[] }>;
   decisions: Array<{ action: string; reason: string; title: string }>;
-}): Promise<Array<{
+}, model?: string): Promise<Array<{
   key: string;
   title: string;
   reasoning: string;
@@ -323,7 +323,7 @@ export async function suggestPromptImprovements(input: {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: modelName(),
+        model: modelName(model),
         max_tokens: 1_000,
         system:
           "Analyze recurring patterns in LFG coding-agent sessions. Suggest concrete improvements to system prompts or run instructions. Return ONLY JSON array with key,title,reasoning,recommendation,evidence[].",

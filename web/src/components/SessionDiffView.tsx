@@ -273,7 +273,13 @@ function SessionDiffViewer({ sid, onClose }: { sid: string; onClose: () => void 
 
 // The floating bar. Polls diff-stat while mounted; renders nothing unless the
 // session's worktree actually has changes.
-export const SessionDiffBar = memo(function SessionDiffBar({ sid }: { sid: string | null }) {
+export const SessionDiffBar = memo(function SessionDiffBar({
+  sid,
+  onVisibilityChange,
+}: {
+  sid: string | null;
+  onVisibilityChange?: (visible: boolean) => void;
+}) {
   const [stat, setStat] = useState<DiffStat | null>(null);
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -300,6 +306,13 @@ export const SessionDiffBar = memo(function SessionDiffBar({ sid }: { sid: strin
 
   const hasDiffs = !!sid && !!stat?.isWorktree && stat.files > 0;
   const label = useMemo(() => (stat ? `${stat.files} file${stat.files === 1 ? "" : "s"}` : ""), [stat]);
+
+  // Let the parent reserve bottom scroll padding only while the bar is shown,
+  // so the pill never overlaps the last message.
+  useEffect(() => {
+    onVisibilityChange?.(hasDiffs);
+  }, [hasDiffs, onVisibilityChange]);
+  useEffect(() => () => onVisibilityChange?.(false), [onVisibilityChange]);
 
   if (!sid) return null;
 

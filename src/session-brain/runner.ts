@@ -191,7 +191,7 @@ async function runSessionBrainInner(
         reason: d.reason,
         title: d.title,
       })),
-    });
+    }, config.model);
     for (const s of suggestions) {
       const saved = await upsertPatternSuggestion(s);
       run.suggestions.push(saved.id);
@@ -217,7 +217,7 @@ async function processSessionForBrain(
     ? !!(await pendingToolPrompt(session.transcriptPath).catch(() => null))
     : false;
   const features = featuresForSession(session, messages, pending);
-  const { classification, generated } = await classifySession(features);
+  const { classification, generated } = await classifySession(features, config.model);
 
   const isCloseAction =
     classification.action === "archive_and_close" || classification.action === "close_no_note";

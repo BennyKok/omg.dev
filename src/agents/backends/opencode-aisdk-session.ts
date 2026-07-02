@@ -276,9 +276,8 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
   let draining = false;
   let closing = false;
   // Publish in-flight assistant text to the registry entry (keyed by the
-  // control-plane uuid) so the web live view animates the reply as it streams,
-  // exactly like the claude/codex harnesses. Independent of the self-persisted
-  // "thinking" transcript snapshots below (which feed transcript readers).
+  // control-plane uuid) so the web live view animates the reply as it streams
+  // without persisting partial snapshots into the transcript.
   const publishDraft = makeDraftPublisher(key);
 
   async function runTurn(prompt: string, signal: AbortSignal): Promise<void> {
@@ -316,34 +315,6 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     let textBuf = "";
     const toolBlocks: unknown[] = [];
 
-    // Live streaming. Unlike the claude/codex harnesses (whose provider writes
-    // incremental JSONL lines the live view tails as the turn runs), this harness
-    // self-persists and otherwise wouldn't touch the transcript until flush at
-    // turn end — so the whole reply pops in at once with nothing in between. To
-    // stream, periodically append the accumulated text so far as a *thinking*
-    // line: the live view renders thinking as a single bubble that is replaced on
-    // each new one (exempt from uuid dedupe) and cleared the moment the final
-    // assistant text line lands. These are ephemeral live-only snapshots — a
-    // fresh uuid each time, and we DON'T advance parentUuid (the real assistant
-    // line below chains directly off the user turn). Throttled so the transcript
-    // file doesn't bloat with one snapshot per token.
-    let lastStream = 0;
-    const streamThinking = (force = false): void => {
-      if (!textBuf.trim()) return;
-      const now = Date.now();
-      if (!force && now - lastStream < 600) return;
-      lastStream = now;
-      appendLine({
-        parentUuid,
-        type: "assistant",
-        message: { role: "assistant", model, content: [{ type: "thinking", thinking: textBuf }] },
-        uuid: crypto.randomUUID(),
-        timestamp: new Date().toISOString(),
-        cwd,
-        sessionId: key,
-      });
-    };
-
     try {
       publishDraft("", true); // reset the animated draft at turn start
       for await (const part of result.fullStream as any) {
@@ -369,12 +340,11 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
             // and older provider field names.
             textBuf +=
               (part as any).text ?? (part as any).textDelta ?? (part as any).delta ?? "";
-            streamThinking();
             publishDraft(textBuf);
           } else if (t === "tool-call") {
             // Flush whatever text preceded this tool so the live view shows the
             // progress instead of jumping straight to the next phase.
-            streamThinking(true);
+            publishDraft(textBuf, true);
             const toolName = (part as any).toolName ?? (part as any).tool ?? "tool";
             const input = (part as any).input ?? (part as any).args ?? {};
             if (/^question$/i.test(String(toolName)) || (input && (input.questions || input.question))) {
