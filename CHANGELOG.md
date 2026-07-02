@@ -2,6 +2,16 @@
 
 Recent product updates and deployment notes.
 
+## July 2, 2026 - Configurable session brain & refreshed UI edges
+
+The session brain can now run on the model you choose, and the interface picks up a consistent gradient-glass edge across buttons, inputs, and surfaces.
+
+- Added a per-config model for the session brain (classify/summarize), seeded from env and adjustable from the Session Brain view; defaults to Sonnet 5.
+- Introduced reusable gradient-border and gradient-edged form-field treatments, applied across buttons, inputs, and surfaces.
+- Gave the notepad its own bounded scroll area with a scroll-aware edge fade.
+- Let session resume carry a prompt and an agent-aware model.
+- Fixed live streaming for AI SDK sessions and versioned the service-worker shell cache.
+
 ## June 29, 2026 - Safer installs
 
 Fresh installs now leave existing Tailscale Serve settings alone unless you explicitly opt in.
