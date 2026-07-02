@@ -5974,8 +5974,22 @@ function SessionChat({
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [draggingFiles, setDraggingFiles] = useState(false);
   const [annotatingId, setAnnotatingId] = useState<string | null>(null);
+  // True while voice dictation is recording into this composer — morphs the
+  // field taller so the growing transcript has room. Also bubbled to the parent.
+  const [dictating, setDictating] = useState(false);
+  // Brief one-shot "launch" pulse on the composer as a message is sent, so the
+  // send reads as the turn springing out of the input into the transcript.
+  const [launching, setLaunching] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewUrls = useRef<string[]>([]);
+
+  const handleDictatingChange = useCallback(
+    (recording: boolean) => {
+      setDictating(recording);
+      onDictatingChange?.(recording);
+    },
+    [onDictatingChange],
+  );
 
   useEffect(() => {
     return () => {
@@ -6063,6 +6077,9 @@ function SessionChat({
       const uploaded = files.length ? await Promise.all(files.map(uploadAttachment)) : [];
       const outgoingText = composeAttachmentMessage(text, uploaded);
       onOptimisticMessage(sid, outgoingText);
+      // Pulse the composer so the send visibly launches into the transcript.
+      setLaunching(true);
+      window.setTimeout(() => setLaunching(false), 480);
       onCollapse?.(); // tuck the card away while it works (auto-expands when done)
       await api(`/api/sessions/${sid}/send`, {
         method: "POST",
@@ -6147,6 +6164,7 @@ function SessionChat({
             "relative bg-background px-2 pb-2 pt-1.5 transition-colors",
             "before:pointer-events-none before:absolute before:inset-x-0 before:-top-6 before:h-6 before:bg-gradient-to-t before:from-background before:to-transparent before:content-['']",
             draggingFiles && "bg-primary/8",
+            launching && "lfg-composer-launching",
           )}
         >
           <input
@@ -6248,7 +6266,15 @@ function SessionChat({
                 placeholder={attachments.length ? "Add a note" : "Message"}
                 disabled={sending}
                 rows={1}
-                className="lfg-gfield min-h-11 max-h-28 min-w-0 resize-none overflow-y-auto rounded-2xl border-transparent px-4 py-3 pr-10 text-base leading-5 shadow-sm transition-colors placeholder:text-muted-foreground md:min-h-9 md:rounded-[1.125rem] md:px-3.5 md:py-2 md:text-sm"
+                className={cn(
+                  "lfg-gfield min-w-0 resize-none overflow-y-auto rounded-2xl border-transparent px-4 py-3 pr-10 text-base leading-5 shadow-sm placeholder:text-muted-foreground md:rounded-[1.125rem] md:px-3.5 md:py-2 md:text-sm",
+                  // Morph the field height smoothly (voice expand + auto-grow) and
+                  // keep an explicit cap in both states so it never runs away.
+                  "transition-[min-height,max-height,background-color,border-color,box-shadow] duration-300 ease-ios",
+                  dictating
+                    ? "min-h-24 max-h-44 md:min-h-20 md:max-h-40"
+                    : "min-h-11 max-h-28 md:min-h-9",
+                )}
               />
               <div className="absolute bottom-1.5 right-1 block md:bottom-0.5">
                 <MicButton
@@ -6256,7 +6282,7 @@ function SessionChat({
                   className="size-8"
                   silenceMs={2500}
                   baseText={messageText}
-                  onRecordingChange={onDictatingChange}
+                  onRecordingChange={handleDictatingChange}
                   onText={(text, base) =>
                     setMessageText(base.trim() ? `${base.trimEnd()} ${text}` : text)
                   }
@@ -6292,7 +6318,7 @@ function SessionChat({
               baseText={messageText}
               onSend={() => void sendMessage()}
               onQueue={() => void sendMessage(undefined, undefined, "queue")}
-              onRecordingChange={onDictatingChange}
+              onRecordingChange={handleDictatingChange}
               onText={(text, base) =>
                 setMessageText(base.trim() ? `${base.trimEnd()} ${text}` : text)
               }
@@ -8075,7 +8101,15 @@ function MessageBubble({
 
   const isUser = message.role === "user";
   return (
-    <AiMessage className={cn("msg", entering && "lfg-msg-in")} from={isUser ? "user" : "assistant"}>
+    <AiMessage
+      className={cn(
+        "msg",
+        entering && "lfg-msg-in",
+        // A just-sent (optimistic) user turn springs up out of the composer.
+        isUser && message.pending && "lfg-user-send",
+      )}
+      from={isUser ? "user" : "assistant"}
+    >
       {isUser ? (
         // User turns are plain/escaped and rendered as a content-width bubble
         // hugged to the right. Pending state is handled in the border so the
