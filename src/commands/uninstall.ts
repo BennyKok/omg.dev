@@ -69,26 +69,39 @@ function defaultDependencies(): UninstallDependencies {
   };
 }
 
+/** Marker written into launchers by scripts/setup.sh. Keep the two in sync. */
+const LAUNCHER_MARKER = "# omg.dev launcher";
+
 /**
- * Remove the command symlinks setup owns.
+ * Remove the commands setup owns.
  *
- * Setup links BOTH `omg` and `lfg` at src/cli.ts, so sweeping only `lfg` left
- * `omg` behind pointing at a file uninstall had just deleted - a dangling
- * symlink on PATH that shadows a later reinstall's own link and fails with a
- * confusing ENOENT rather than "not installed".
+ * Setup installs BOTH `omg` and `lfg`, so sweeping only `lfg` left `omg` behind
+ * pointing at a file uninstall had just deleted - a dangling command on PATH
+ * that shadows a later reinstall and fails with a confusing ENOENT rather than
+ * "not installed".
+ *
+ * Two shapes exist: the launcher script current installs write, and the plain
+ * symlink older ones created. Both are recognised; anything else is left alone.
  */
 function removeOwnedCommands(home: string, root: string): string[] {
   const removed: string[] = [];
   for (const name of ["omg", "lfg"]) {
     const command = join(home, ".local", "bin", name);
+    let ours = false;
     try {
-      if (!lstatSync(command).isSymbolicLink()) continue;
+      if (lstatSync(command).isSymbolicLink()) {
+        // The plain symlink older installs created.
+        ours = resolve(dirname(command), readlinkSync(command)) === join(root, "src", "cli.ts");
+      } else {
+        // The launcher current installs write. It is a real file, so the
+        // symlink-only check silently stopped recognising our own command -
+        // which would have left `omg` on PATH pointing at a deleted install.
+        ours = readFileSync(command, "utf8").includes(LAUNCHER_MARKER);
+      }
     } catch {
       continue;
     }
-    // Only ours: a link the user pointed somewhere else stays put.
-    const target = resolve(dirname(command), readlinkSync(command));
-    if (target !== join(root, "src", "cli.ts")) continue;
+    if (!ours) continue;
     rmSync(command);
     removed.push(name);
   }
