@@ -427,15 +427,25 @@ else
 fi
 
 # ---- 2. Bun ----
+# Extend PATH *before* deciding bun is missing.
+#
+# The check used to run first, so setup died with "Bun is required but was not
+# found on PATH" on machines where the very next line would have found it. That
+# is the normal state on macOS: bun installs to ~/.bun/bin, and setup
+# deliberately does not edit your shell profile there (LFG_UPDATE_SHELL_RC
+# defaults to 0), so the login PATH does not include it. `omg setup` was
+# unusable in a plain terminal on a Mac with bun installed and working.
+export PATH="$HOME/.bun/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 if ! command -v bun >/dev/null 2>&1; then
   if [ "$LFG_INSTALL_BUN" = "1" ]; then
     say "Installing Bun..."
     curl -fsSL https://bun.sh/install | bash
+    # The installer drops it here; pick it up without a new shell.
+    export PATH="$HOME/.bun/bin:$PATH"
   else
-    die "Bun is required but was not found on PATH. Install Bun yourself, or re-run with LFG_INSTALL_BUN=1 to let setup run the Bun installer."
+    die "Bun is required but was not found. Install it with: curl -fsSL https://bun.sh/install | bash — or re-run with OMG_INSTALL_BUN=1 to let setup do it."
   fi
 fi
-export PATH="$HOME/.bun/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 ensure_path_line 'export PATH="$HOME/.bun/bin:$PATH"'
 BUN_BIN="$(command -v bun || true)"
 [ -n "$BUN_BIN" ] || die "Bun is required but was not found on PATH."
