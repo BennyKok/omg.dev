@@ -2,6 +2,20 @@
 
 Recent product updates and deployment notes.
 
+## August 9, 2026 - Starting an opencode session from a finding works again (v0.1.320)
+
+- **"thinkingLevel is not supported for opencode sessions" is fixed.** Replying
+  to an auto finding with opencode selected failed outright: the sheet correctly
+  sends no thinking level for a backend that has no reasoning knob, but the
+  launch then filled it back in from the auto agent the finding came from. The
+  level is now judged against the backend that actually runs, not the one the
+  finding originated on.
+- **Switching an auto agent to opencode no longer corrupts it.** Saving an edit
+  kept the thinking level the agent held as claude, writing a record that passed
+  validation on the way in and failed later at launch. A backend switch now drops
+  a level the new backend cannot take — including a claude `max` carried onto
+  grok, whose CLI exits on it rather than ignoring it.
+
 ## August 9, 2026 - Two features stop shipping to people who do not use them (v0.1.319)
 
 - **The WhatsApp bridge is gone.** It was 17MB of every install — baileys plus
