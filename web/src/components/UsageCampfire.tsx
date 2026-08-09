@@ -22,7 +22,7 @@ import { Flame } from "lucide-react";
 import NumberFlow, { NumberFlowGroup } from "@number-flow/react";
 import { cn } from "@/lib/utils";
 import { haptic } from "@/lib/haptics";
-import { omgAssetUrl } from "@/lib/omg-client";
+import { agentIconSrc } from "@/lib/session-ui";
 import {
   useUsageFeed,
   type ProviderUsage,
@@ -64,7 +64,6 @@ export function toggleUsageCampfire() {
 // ── constants / helpers ─────────────────────────────────────────────────────
 
 const MAX_RINGS = 4;
-const AGENT_ICON_VERSION = "20260718";
 
 // Warm palette (hardcoded — theme tokens go near-black on black in light mode)
 const TONE = {
@@ -76,18 +75,6 @@ const TONE = {
   soft: "rgba(255, 245, 230, 0.55)",
   faint: "rgba(255, 245, 230, 0.32)",
 } as const;
-
-function agentIconSrc(kind: string): string {
-  const v = `?v=${AGENT_ICON_VERSION}`;
-  if (kind === "codex" || kind === "codex-aisdk") return omgAssetUrl(`/agent-codex.svg${v}`);
-  if (kind === "grok") return omgAssetUrl(`/agent-grok.svg${v}`);
-  if (kind === "cursor") return omgAssetUrl(`/agent-cursor.svg${v}`);
-  if (kind === "hermes") return omgAssetUrl(`/agent-hermes.svg${v}`);
-  if (kind === "opencode") return omgAssetUrl(`/agent-opencode.svg${v}`);
-  if (kind === "pi") return omgAssetUrl(`/agent-pi.svg${v}`);
-  if (kind === "copilot") return omgAssetUrl(`/agent-copilot.svg${v}`);
-  return omgAssetUrl(`/agent-claude.svg${v}`);
-}
 
 function isTextEditingElement(el: Element | null): boolean {
   if (!(el instanceof HTMLElement)) return false;

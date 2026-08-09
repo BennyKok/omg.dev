@@ -10,7 +10,10 @@ import type { ClaudeAccountInfo, CodingAgentInfo, Session } from "../App";
 import { omgAssetUrl } from "./omg-client";
 import { cn } from "./utils";
 
-export const AGENT_ICON_VERSION = "20260718";
+// Bump whenever an agent mark in web/public changes: versioned icon URLs are
+// served `immutable, max-age=1y`, so a redrawn SVG at the same `?v=` keeps
+// serving the old art out of the browser cache forever.
+export const AGENT_ICON_VERSION = "20260809";
 
 /**
  * The session-card / picker icon for an agent kind. Codex variants share the
