@@ -36,6 +36,8 @@ type PromptOptions = {
   confirmLabel?: string
   cancelLabel?: string
   inputLabel?: string
+  /** Mask the input and keep it out of autofill — for secrets like API keys. */
+  password?: boolean
 }
 
 type DialogRequest =
@@ -162,6 +164,9 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }) {
               </DialogHeader>
               <input
                 autoFocus
+                type={request.options.password ? "password" : "text"}
+                autoComplete={request.options.password ? "off" : undefined}
+                spellCheck={request.options.password ? false : undefined}
                 aria-label={request.options.inputLabel ?? request.options.title}
                 value={promptValue}
                 onChange={(event) => setPromptValue(event.target.value)}

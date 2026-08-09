@@ -8,6 +8,7 @@ import {
   getCodingAgentAuth,
   listCodingAgents,
   parseAuthOutput,
+  startCodingAgentAuth,
   startToolAuth,
   withCursorOmgMcp,
   withOpencodeOmgMcp,
@@ -343,5 +344,30 @@ describe("coding agent auth detection", () => {
     const codexAgent = agents.find((agent) => agent.key === "codex-aisdk");
     expect(codexAgent?.status.configured).toBe(true);
     expect(codexAgent?.status.accountConnected).toBe(false);
+  });
+});
+
+describe("pi provider sign-in", () => {
+  // pi is the one agent signed into per provider rather than once per kind, so
+  // the request names a provider and every other kind must keep ignoring it.
+  test("an unknown pi provider is refused rather than passed through", async () => {
+    expect(startCodingAgentAuth("pi", { piProvider: "google" })).rejects.toThrow(
+      /Unknown pi provider/i,
+    );
+    expect(startCodingAgentAuth("pi", { piProvider: "../../etc/passwd" })).rejects.toThrow(
+      /Unknown pi provider/i,
+    );
+  });
+
+  test("a key-based pi provider is not offered a browser flow", async () => {
+    // OpenCode Zen authenticates with a pasted key; starting a device flow for
+    // it would hang forever waiting for an approval that cannot arrive.
+    expect(startCodingAgentAuth("pi", { piProvider: "opencode" })).rejects.toThrow(
+      /API key/i,
+    );
+  });
+
+  test("agents with no browser login still say so", async () => {
+    expect(startCodingAgentAuth("cursor")).rejects.toThrow(/does not support browser login/i);
   });
 });

@@ -2,6 +2,7 @@ import type { Agent } from "./agents/registry.ts";
 import type { AutoAgent } from "./auto/store.ts";
 import type { CodingAgentInfo, CodingAgentKind } from "./coding-agents.ts";
 import { readModelDiscoveryCacheSync } from "./model-discovery.ts";
+import { PI_AUTH_PROVIDER_IDS } from "./pi-auth.ts";
 import type { Session } from "./sessions.ts";
 
 export type SkillCatalogItem = {
@@ -54,7 +55,35 @@ export const HERMES_MODELS: string[] = [
 // the one model the free plan is entitled to (no Claude model clears its
 // minPlan) — pi-session.ts merges it into pi's Anthropic provider config as a
 // custom model id so it resolves like the aliases above instead of erroring.
-export const PI_MODELS: string[] = ["fable", "opus", "sonnet", "haiku", "deepseek/deepseek-v4-flash"];
+//
+// Models from pi's other providers carry a `<providerId>/` prefix that
+// pi-session.ts strips back into `--provider`/`--model`. They are only offered
+// once that provider is signed in — see accessibleModelsForAgent below — so an
+// unconnected user still sees exactly the Anthropic list pi has always had.
+export const PI_CODEX_MODELS: string[] = [
+  "openai-codex/gpt-5.6-sol",
+  "openai-codex/gpt-5.6-terra",
+  "openai-codex/gpt-5.6-luna",
+  "openai-codex/gpt-5.5",
+  "openai-codex/gpt-5.4",
+];
+export const PI_OPENCODE_MODELS: string[] = [
+  "opencode/claude-opus-4-8",
+  "opencode/claude-sonnet-5",
+  "opencode/gpt-5.6-sol",
+  "opencode/kimi-k2.7-code",
+  "opencode/minimax-m3",
+  "opencode/deepseek-v4-flash-free",
+];
+export const PI_MODELS: string[] = [
+  "fable",
+  "opus",
+  "sonnet",
+  "haiku",
+  "deepseek/deepseek-v4-flash",
+  ...PI_CODEX_MODELS,
+  ...PI_OPENCODE_MODELS,
+];
 // Live `opencode models` discovery is authoritative and owns this list once the
 // catalog cache exists. Until then — a first boot, an offline box, or a failed
 // discovery run — the picker renders this fallback verbatim, and an anonymous
@@ -444,6 +473,9 @@ const ACCOUNT_OWNED_AGENT_KEYS = new Set<CodingAgentKind>([
   "codex-aisdk",
 ]);
 
+/** Prefixes that gate a pi model behind a sign-in, from pi-auth's provider list. */
+const PI_GATED_PROVIDER_IDS = new Set<string>(PI_AUTH_PROVIDER_IDS);
+
 function hasConnectedModelAccount(codingAgents: CodingAgentInfo[]): boolean {
   return codingAgents.some(
     (agent) =>
@@ -452,12 +484,43 @@ function hasConnectedModelAccount(codingAgents: CodingAgentInfo[]): boolean {
   );
 }
 
+/**
+ * pi's connected providers, as the coding-agent status reports them. Passed
+ * separately from `accountConnected` because pi is the one agent where "signed
+ * in" is per provider rather than one account for the whole kind.
+ */
+export type PiProviderState = { id: string; connected: boolean };
+
+function piProvidersFrom(codingAgents: CodingAgentInfo[]): PiProviderState[] {
+  return codingAgents.find((agent) => agent.key === "pi")?.status.providers ?? [];
+}
+
 /** Models the current user can honestly launch from the picker. */
 export function accessibleModelsForAgent(
   key: CodingAgentKind,
   models: string[],
   accountConnected: boolean,
+  piProviders: readonly PiProviderState[] = [],
 ): string[] {
+  if (key === "pi") {
+    // Every pi model belongs to a provider: a `<providerId>/` prefix names it,
+    // and everything else — including Anthropic's own slashed custom ids like
+    // deepseek/deepseek-v4-flash — belongs to Anthropic. Offer a model only
+    // when its provider is signed in, or picking pi after connecting just
+    // ChatGPT would default to `sonnet` and launch against Anthropic with no
+    // Anthropic credential at all.
+    const connected = new Set(piProviders.filter((p) => p.connected).map((p) => p.id));
+    const reachable = models.filter((model) => {
+      const slash = model.indexOf("/");
+      const prefix = slash > 0 ? model.slice(0, slash) : null;
+      if (prefix && PI_GATED_PROVIDER_IDS.has(prefix)) return connected.has(prefix);
+      return connected.has("anthropic");
+    });
+    // With nothing connected pi is already reported as unconfigured and gets
+    // filtered out of the composer; show its default list rather than an empty
+    // picker for the surfaces that render it anyway.
+    return reachable.length ? reachable : models.filter((model) => !model.includes("/"));
+  }
   if (key !== "opencode" || accountConnected) return models;
   const anonymous = models.filter((model) => /^opencode\/.+-free$/.test(model));
   return anonymous.length ? anonymous : [...OPENCODE_MODELS];
@@ -485,7 +548,7 @@ export function defaultModelForAgent(
   const accountConnected = hasConnectedModelAccount(codingAgents);
   return defaultModelForCatalogItem(
     key,
-    accessibleModelsForAgent(key, modelsForAgent(key), accountConnected),
+    accessibleModelsForAgent(key, modelsForAgent(key), accountConnected, piProvidersFrom(codingAgents)),
     accountConnected,
   );
 }
@@ -493,9 +556,10 @@ export function defaultModelForAgent(
 export function listModelCatalog(codingAgents: CodingAgentInfo[] = []): ModelCatalogItem[] {
   const configured = new Map(codingAgents.map((agent) => [agent.key, agent]));
   const accountConnected = hasConnectedModelAccount(codingAgents);
+  const piProviders = piProvidersFrom(codingAgents);
   return MODEL_CATALOG_KEYS.map((key) => {
     const status = configured.get(key);
-    const models = accessibleModelsForAgent(key, modelsForAgent(key), accountConnected);
+    const models = accessibleModelsForAgent(key, modelsForAgent(key), accountConnected, piProviders);
     return {
       key,
       label: LABELS[key],

@@ -389,7 +389,22 @@ export type CodingAgentInfo = {
     installCommand?: string;
     loginCommand?: string;
     accounts?: ClaudeAccountInfo[];
+    providers?: PiProviderInfo[];
   };
+};
+
+/**
+ * A model provider the pi agent can sign into. pi is the only agent where
+ * "connected" is per provider rather than one account for the whole kind, so it
+ * gets its own row list instead of reusing the Claude account shape.
+ */
+export type PiProviderInfo = {
+  id: string;
+  label: string;
+  method: "oauth" | "api-key";
+  connected: boolean;
+  /** Key came from the environment, so we must not offer to disconnect it. */
+  fromEnv?: boolean;
 };
 
 export type ClaudeAccountInfo = {
@@ -403,13 +418,15 @@ export type ClaudeAccountInfo = {
 
 const AgentAccessModeContext = createContext<AgentAccessMode>("configured");
 
-type AuthProvider = "claude" | "codex" | "grok" | "github";
+type AuthProvider = "claude" | "codex" | "grok" | "github" | "pi-anthropic" | "pi-codex";
 
 const AUTH_PROVIDER_LABELS: Record<AuthProvider, string> = {
   claude: "Claude",
   codex: "Codex",
   grok: "Grok",
   github: "GitHub",
+  "pi-anthropic": "Claude",
+  "pi-codex": "ChatGPT",
 };
 
 
@@ -6644,6 +6661,54 @@ export function App() {
     return startBrowserAuth(key, `/api/connections/${key}/auth`);
   }
 
+  // pi signs in per model provider, so the request carries which one. The
+  // browser flow past this point is identical to every other provider's.
+  async function loginPiProvider(provider: PiProviderInfo) {
+    if (provider.method === "api-key") return connectPiApiKeyProvider(provider);
+    return startBrowserAuth("pi", "/api/coding-agents/pi/auth", undefined, {
+      provider: provider.id,
+    });
+  }
+
+  async function connectPiApiKeyProvider(provider: PiProviderInfo) {
+    const key = await appDialog.prompt({
+      title: `Connect ${provider.label}`,
+      description: `Paste your ${provider.label} API key. It is stored with pi's other credentials and never leaves this machine.`,
+      placeholder: "API key",
+      confirmLabel: "Connect",
+      password: true,
+    });
+    if (!key) return;
+    try {
+      await api("/api/coding-agents/pi/api-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: provider.id, key }),
+      });
+      await refreshCodingAgents({ refreshModels: true });
+      toast.success(`${provider.label} connected`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : `Couldn't connect ${provider.label}`);
+    }
+  }
+
+  async function disconnectPiProvider(provider: PiProviderInfo) {
+    const confirmed = await appDialog.confirm({
+      title: `Disconnect ${provider.label}?`,
+      description: "pi will stop offering this provider's models until you connect it again.",
+      confirmLabel: "Disconnect",
+      destructive: true,
+    });
+    if (!confirmed) return;
+    try {
+      await api(`/api/coding-agents/pi/providers/${provider.id}`, { method: "DELETE" });
+      await refreshCodingAgents({ refreshModels: true });
+      toast.success(`${provider.label} disconnected`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : `Couldn't disconnect ${provider.label}`);
+    }
+  }
+
   async function addClaudeAccount() {
     try {
       const { account } = await api<{ account: ClaudeAccountInfo }>(
@@ -7195,6 +7260,8 @@ export function App() {
             onLogin={(kind, accountId) => loginCodingAgent(kind, undefined, accountId)}
             onAddClaudeAccount={addClaudeAccount}
             onRemoveClaudeAccount={removeClaudeAccountFromSettings}
+            onConnectPiProvider={(provider) => void loginPiProvider(provider)}
+            onDisconnectPiProvider={(provider) => void disconnectPiProvider(provider)}
             onSetupCheck={runSetupCheck}
             onRefresh={() => void refreshCodingAgents({ refreshModels: true })}
           />
@@ -20323,7 +20390,9 @@ function CodingAgentAuthPanel({
             </Button>
           ) : null}
 
-          {session.provider === "claude" && session.needsCode ? (
+          {/* Driven by the session, not by a provider allow-list: pi's Anthropic
+              sign-in asks for the same pasted code the Claude CLI's does. */}
+          {session.needsCode ? (
             <form className="space-y-2" onSubmit={(event) => void submitCode(event)}>
               <label className="block text-xs font-medium text-muted-foreground" htmlFor={`claude-auth-code-${inline ? "inline" : "dialog"}`}>
                 Paste the code Claude shows after approval

@@ -13,6 +13,16 @@ import {
   listClaudeAccounts,
   type ClaudeAccount,
 } from "./claude-accounts.ts";
+import {
+  hasPiProviderAuth,
+  isPiAuthProviderId,
+  piAuthProviders,
+  piProviderLabel,
+  piProviderMethod,
+  startPiOAuthLogin,
+  type PiAuthProviderId,
+  type PiProviderInfo,
+} from "./pi-auth.ts";
 
 export type CodingAgentKind =
   | "claude"
@@ -59,6 +69,8 @@ export type CodingAgentStatus = {
   loginCommand?: string;
   /** Claude-only: isolated subscription accounts available to session launchers. */
   accounts?: ClaudeAccount[];
+  /** pi-only: model providers it can sign into, and whether each is connected. */
+  providers?: PiProviderInfo[];
 };
 
 export type CodingAgentInfo = {
@@ -68,14 +80,36 @@ export type CodingAgentInfo = {
   status: CodingAgentStatus;
 };
 
-/** Providers whose CLI can drive a login from the browser instead of a terminal. */
-export type AuthProvider = "claude" | "codex" | "grok" | "github";
+/**
+ * Providers that can drive a login from the browser instead of a terminal.
+ *
+ * All but one are a vendor CLI we spawn and scrape. `pi-codex` is the
+ * exception: pi ships no login subcommand, so we drive its OAuth in-process
+ * through the bundled pi-ai library instead (see pi-auth.ts). The distinction
+ * is invisible past this module — both kinds produce the same device-code
+ * session the UI renders.
+ */
+export type AuthProvider =
+  | "claude"
+  | "codex"
+  | "grok"
+  | "github"
+  | "pi-anthropic"
+  | "pi-codex";
 
 const AUTH_PROVIDER_LABELS: Record<AuthProvider, string> = {
   claude: "Claude",
   codex: "Codex",
   grok: "Grok",
   github: "GitHub",
+  "pi-anthropic": "Claude",
+  "pi-codex": "ChatGPT",
+};
+
+/** pi's provider ids are its own; the sign-in UI names them per vendor. */
+const PI_AUTH_PROVIDERS: Partial<Record<PiAuthProviderId, AuthProvider>> = {
+  anthropic: "pi-anthropic",
+  "openai-codex": "pi-codex",
 };
 
 export type CodingAgentAuthSession = {
@@ -91,7 +125,12 @@ export type CodingAgentAuthSession = {
 };
 
 type InternalAuthSession = CodingAgentAuthSession & {
-  process: ReturnType<typeof Bun.spawn>;
+  /** Unset for in-process logins (pi), which have no CLI to spawn or scrape. */
+  process?: ReturnType<typeof Bun.spawn>;
+  /** How to abort this login, whichever kind it is. */
+  cancel: () => void;
+  /** In-process logins that ask for a pasted code answer it through this. */
+  submitCode?: (code: string) => boolean;
   output: string;
   ready: Promise<void>;
   markReady: () => void;
@@ -507,10 +546,12 @@ function hasCursorAuth(): boolean {
 }
 
 // pi's auth is file-based (~/.pi/agent/auth.json) or the ANTHROPIC_API_KEY env
-// var — there is no interactive login step (see pi-session.ts header).
+// var. Connecting a provider is now a real sign-in (see pi-auth.ts), and the
+// check lives there: the old test here treated the mere existence of auth.json
+// as proof, but pi writes that file as `{}` the first time it starts, so every
+// box that had ever launched pi reported "Ready" with no credentials at all.
 function hasPiAuth(): boolean {
-  const home = userHome();
-  return !!process.env.ANTHROPIC_API_KEY || existsSync(`${home}/.pi/agent/auth.json`);
+  return hasPiProviderAuth();
 }
 
 function hasHermesConfig(): boolean {
@@ -647,13 +688,13 @@ export function parseAuthOutput(
 }
 
 function publicAuthSession(session: InternalAuthSession): CodingAgentAuthSession {
-  const { process: _process, output: _output, ready: _ready, markReady: _markReady, expiresAt: _expiresAt, ...result } = session;
+  const { process: _process, cancel: _cancel, output: _output, ready: _ready, markReady: _markReady, expiresAt: _expiresAt, ...result } = session;
   return result;
 }
 
 function stopAuthSession(session: InternalAuthSession): void {
   if (session.status === "starting" || session.status === "waiting") {
-    try { session.process.kill(); } catch {}
+    try { session.cancel(); } catch {}
   }
 }
 
@@ -671,7 +712,7 @@ function updateAuthSessionFromOutput(session: InternalAuthSession): void {
     // to polling for the approval instead of leaving a successful browser login
     // stuck behind an invisible terminal prompt.
     if (session.provider === "github") {
-      const stdin = session.process.stdin;
+      const stdin = session.process?.stdin;
       if (stdin && typeof stdin !== "number") {
         stdin.write("\n");
         void Promise.resolve(stdin.flush()).catch(() => {});
@@ -699,11 +740,110 @@ async function collectAuthOutput(
 
 export async function startCodingAgentAuth(
   kind: CodingAgentKind,
-  opts: { claudeAccountId?: string } = {},
+  opts: { claudeAccountId?: string; piProvider?: string } = {},
 ): Promise<CodingAgentAuthSession> {
+  if (kind === "pi") {
+    const id = opts.piProvider ?? "openai-codex";
+    if (!isPiAuthProviderId(id)) throw new Error(`Unknown pi provider ${id}`);
+    if (piProviderMethod(id) !== "oauth") {
+      throw new Error(`${piProviderLabel(id)} is connected with an API key, not a browser sign-in`);
+    }
+    return startPiAuthSession(id);
+  }
   const provider = authProviderFor(kind);
   if (!provider) throw new Error(`${CODING_AGENT_LABELS[kind]} does not support browser login yet`);
   return startAuthSession(kind, provider, opts);
+}
+
+/**
+ * Browser sign-in for a pi provider, driven in-process.
+ *
+ * Same session lifecycle as the CLI-backed providers — the UI polls the same
+ * endpoint and cannot tell them apart — but instead of spawning a binary and
+ * regexing its stdout we get the device code as a typed callback, and we know
+ * the login succeeded because pi-ai hands us the credential rather than because
+ * a process exited 0.
+ */
+async function startPiAuthSession(id: PiAuthProviderId): Promise<CodingAgentAuthSession> {
+  const provider = PI_AUTH_PROVIDERS[id];
+  if (!provider) throw new Error(`${piProviderLabel(id)} has no browser sign-in`);
+  for (const existing of authSessions.values()) {
+    if (existing.provider === provider && (existing.status === "starting" || existing.status === "waiting")) {
+      stopAuthSession(existing);
+      authSessions.delete(existing.id);
+    }
+  }
+
+  let markReady = () => {};
+  const ready = new Promise<void>((resolve) => { markReady = resolve; });
+  // The login's cancel handle only exists after the login starts, but the
+  // session must exist before it — the notify callback writes into it. Route
+  // cancellation through a mutable holder rather than letting either one
+  // reference the other before it is initialized.
+  let cancelLogin: () => void = () => {};
+  const session: InternalAuthSession = {
+    id: randomUUID(),
+    kind: "pi",
+    provider,
+    status: "starting",
+    needsCode: false,
+    cancel: () => cancelLogin(),
+    output: "",
+    ready,
+    markReady,
+    expiresAt: Date.now() + AUTH_SESSION_TTL_MS,
+  };
+  authSessions.set(session.id, session);
+
+  const login = startPiOAuthLogin(id, (event) => {
+    if (event.type === "device_code") {
+      session.userCode = event.userCode;
+      session.authorizationUrl = event.verificationUri;
+    } else if (event.type === "auth_url") {
+      session.authorizationUrl = event.url;
+    } else if (event.type === "needs_code") {
+      session.needsCode = true;
+    }
+    if (session.authorizationUrl && session.status === "starting") {
+      session.status = "waiting";
+      session.markReady();
+    }
+  });
+  cancelLogin = login.cancel;
+  session.submitCode = login.submitCode;
+
+  void login.done.then(
+    () => {
+      session.status = "complete";
+      session.markReady();
+    },
+    (e: unknown) => {
+      if (session.status === "complete") return;
+      session.status = "error";
+      session.error = e instanceof Error ? e.message : `${piProviderLabel(id)} sign-in failed`;
+      session.markReady();
+    },
+  );
+  setTimeout(() => {
+    if (!authSessions.has(session.id)) return;
+    if (session.status === "starting" || session.status === "waiting") {
+      session.status = "error";
+      session.error = "Login expired. Start again for a new code.";
+      stopAuthSession(session);
+      session.markReady();
+    }
+  }, AUTH_SESSION_TTL_MS);
+
+  await Promise.race([
+    session.ready,
+    new Promise<void>((resolve) => setTimeout(resolve, 15_000)),
+  ]);
+  if (session.status === "starting") {
+    stopAuthSession(session);
+    session.status = "error";
+    session.error = session.error ?? "The login page could not be prepared. Please try again.";
+  }
+  return publicAuthSession(session);
 }
 
 /** Tool connections share the same device-login session owner as coding
@@ -756,6 +896,7 @@ async function startAuthSession(
     status: "starting",
     needsCode: false,
     process: proc,
+    cancel: () => proc.kill(),
     output: "",
     ready,
     markReady,
@@ -814,11 +955,19 @@ export function getCodingAgentAuth(id: string): CodingAgentAuthSession | null {
 export async function submitCodingAgentAuthCode(id: string, code: string): Promise<CodingAgentAuthSession> {
   const session = authSessions.get(id);
   if (!session) throw new Error("Login session not found. Start again.");
-  if (session.provider !== "claude" || !session.needsCode) throw new Error("This login does not accept a code");
+  if (!session.needsCode) throw new Error("This login does not accept a code");
   if (session.status !== "waiting") throw new Error("This login is no longer waiting for a code");
   const value = code.trim();
   if (!value) throw new Error("Enter the code from Claude");
-  const stdin = session.process.stdin;
+  // In-process logins (pi) resolve the prompt directly; CLI-backed ones have
+  // to have it typed at the stdin of the process still waiting on it.
+  if (session.submitCode) {
+    if (!session.submitCode(value)) throw new Error("This login is no longer waiting for a code");
+    session.needsCode = false;
+    return publicAuthSession(session);
+  }
+  if (session.provider !== "claude") throw new Error("This login does not accept a code");
+  const stdin = session.process?.stdin;
   if (!stdin || typeof stdin === "number") throw new Error("Claude login is no longer accepting a code");
   session.needsCode = false;
   stdin.write(`${value}\n`);
@@ -882,13 +1031,13 @@ function statusFor(kind: CodingAgentKind): CodingAgentStatus {
     addAuth("Hermes config", hasHermesConfig(), "set LFG_HERMES_PROVIDER if your install needs it");
     instructions.push("Install Hermes and set LFG_HERMES_PROVIDER when your provider is not the default.");
   } else if (kind === "pi") {
+    const providers = piAuthProviders();
+    accountConnected = providers.some((p) => p.connected && !p.fromEnv);
     addBinary("pi runtime", piPath());
-    addAuth("pi auth", hasPiAuth(), "set ANTHROPIC_API_KEY or configure ~/.pi/agent/auth.json");
-    instructions.push(
-      "Install pi with `OMG_INSTALL_PI=1 omg setup`, then set ANTHROPIC_API_KEY or configure ~/.pi/agent/auth.json — pi has no login step.",
-    );
-    // No setup.sh install path and no login subcommand: pi is ready as soon as
-    // the bundled runtime exists and its file-based auth is in place.
+    addAuth("pi auth", hasPiAuth(), "connect a provider, or set ANTHROPIC_API_KEY");
+    // pi has no `pi login` subcommand, so there is nothing to run in a terminal
+    // and no installer to invoke — the runtime ships with LFG. Sign-in happens
+    // per provider through the rows above, driven in-process by pi-auth.ts.
     canAutoSetup = false;
     canLoginInTerminal = false;
   } else if (kind === "copilot") {
@@ -921,6 +1070,7 @@ function statusFor(kind: CodingAgentKind): CodingAgentStatus {
     ...(kind === "claude" || kind === "aisdk"
       ? { accounts: listClaudeAccounts() }
       : {}),
+    ...(kind === "pi" ? { providers: piAuthProviders() } : {}),
   };
 }
 
