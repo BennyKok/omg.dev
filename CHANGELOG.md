@@ -2,6 +2,36 @@
 
 Recent product updates and deployment notes.
 
+## August 9, 2026 - pi can sign in, and the agents page stops shouting (v0.1.322)
+
+- **You can sign in to pi from Settings.** pi shipped with no sign-in at all —
+  just an `ANTHROPIC_API_KEY` note and two disabled buttons — because it has no
+  `pi login` command to drive; its login lives inside the interactive TUI. We now
+  use pi's own credential library in-process, so three providers connect from the
+  same UI as every other agent: **Claude (Pro/Max)** and **ChatGPT (Codex)** by
+  OAuth, and **OpenCode Zen** by API key. Credentials are written to pi's own
+  `~/.pi/agent/auth.json` under pi's lock, so a token refresh happening at the
+  same time cannot rotate a refresh token out from under itself.
+- **pi can actually run as the provider you connected.** pi sessions could only
+  ever name one provider, so ChatGPT and Zen models would have been unreachable
+  even after signing in. Models now carry their provider, and only models whose
+  provider is connected are offered.
+- **pi no longer reports "Ready" when nothing is configured.** The check treated
+  the existence of `auth.json` as proof of sign-in, but pi creates that file as
+  `{}` on first launch — so every machine that had ever started pi looked
+  connected. It now looks inside, and also counts env vars and pinned provider
+  keys.
+- **The coding-agents settings page shows the state that matters.** It used to
+  print two badges, every check with its resolved binary path, an instructions
+  sentence, an install command and a login command — per agent, times seven. A
+  working agent now says nothing; a broken one says what is missing, and the
+  diagnostics are one tap down.
+- **`omg setup` stopped handing out a URL it never checked.** On macOS the
+  summary's first line was `http://omg.local:8766` whenever `dns-sd` existed,
+  assuming the mDNS name had been claimed — which setup cannot see, and which
+  fails when mDNS is off or the name is already taken on the network. The summary
+  now shows only addresses it verified.
+
 ## August 9, 2026 - The browser tool goes, and macOS installs work in a plain shell (v0.1.321)
 
 - **The cloud-browser login profiles are gone.** They did not work reliably
