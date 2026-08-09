@@ -29,10 +29,32 @@ export function pushPermission(): NotificationPermission | "unsupported" {
   return Notification.permission;
 }
 
+/**
+ * The service worker to subscribe through.
+ *
+ * NOT `navigator.serviceWorker.ready` on its own: that promise never settles
+ * when no worker ever takes control of the page. Standalone lfg always
+ * registers one, but an embedded surface runs inside a HOST page that may have
+ * no worker at all — and there `ready` hangs forever, so the notification
+ * toggle would spin silently after the permission prompt was granted. Time it
+ * out and report the real reason instead.
+ */
+const SW_READY_TIMEOUT_MS = 5_000;
+
+async function pushRegistration(): Promise<ServiceWorkerRegistration | null> {
+  if (!pushSupported()) return null;
+  const existing = await navigator.serviceWorker.getRegistration().catch(() => null);
+  if (existing) return existing;
+  return await Promise.race([
+    navigator.serviceWorker.ready.catch(() => null),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), SW_READY_TIMEOUT_MS)),
+  ]);
+}
+
 /** Whether this browser already holds a live push subscription. */
 export async function isSubscribed(): Promise<boolean> {
-  if (!pushSupported()) return false;
-  const reg = await navigator.serviceWorker.ready;
+  const reg = await pushRegistration();
+  if (!reg) return false;
   return !!(await reg.pushManager.getSubscription());
 }
 
@@ -51,7 +73,12 @@ export async function enablePush(user?: string | null): Promise<boolean> {
   if (!keyRes.ok) throw new Error("Could not load push key");
   const { key } = (await keyRes.json()) as { key: string };
 
-  const reg = await navigator.serviceWorker.ready;
+  const reg = await pushRegistration();
+  if (!reg) {
+    throw new Error(
+      "No service worker is available on this page, so notifications can't be delivered here",
+    );
+  }
   let sub = await reg.pushManager.getSubscription();
   if (!sub) {
     sub = await reg.pushManager.subscribe({
@@ -64,7 +91,17 @@ export async function enablePush(user?: string | null): Promise<boolean> {
   await omgFetch("/api/push/subscribe", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys, user: user ?? null }),
+    body: JSON.stringify({
+      endpoint: json.endpoint,
+      // p256dh + auth are what let the server encrypt the notice INTO the push.
+      // Without them delivery falls back to a wake-only push whose content the
+      // worker must fetch — which only works same-origin.
+      keys: json.keys,
+      user: user ?? null,
+      // Where this device actually runs the app, so deep links stay valid even
+      // when the worker that opens them lives on a different origin.
+      appBaseUrl: typeof window === "undefined" ? null : window.location.origin,
+    }),
   });
   return true;
 }

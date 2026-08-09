@@ -4,7 +4,7 @@
 // should return null — silence is the default, not a padded report.
 
 import { PATHS } from "../config.ts";
-import { notifyAll } from "../push.ts";
+import { notifyAll, type PushNotification } from "../push.ts";
 import { runInCwd } from "./cwd-lock.ts";
 import {
   type AutoAgent,
@@ -40,6 +40,23 @@ function normSeverity(s: unknown): Severity {
   if (v.startsWith("h")) return "high";
   if (v.startsWith("l")) return "low";
   return "med";
+}
+
+/**
+ * Render a finding as the notification carried inside the push.
+ *
+ * The service worker used to build this itself by fetching /api/auto/findings
+ * after a contentless wake. That only works when the app and this box share an
+ * origin, so the text is composed here instead and encrypted into the message.
+ */
+function findingNotification(finding: Finding, occurrences?: number): PushNotification {
+  const body = finding.suggest || finding.reasoning?.[0] || "New activity in your sessions";
+  return {
+    title: occurrences && occurrences > 1 ? `${finding.title} (×${occurrences})` : finding.title,
+    body,
+    url: "/",
+    tag: `finding-${finding.id}`,
+  };
 }
 
 function parseFinding(text: string): { finding: unknown } | null {
@@ -272,7 +289,7 @@ async function runAutoAgentInner(
     // sighting says "this is persistent", and every 5th says "this is still
     // being ignored". Silence in between avoids retraining you to swipe it away.
     if (n === 2 || n % 5 === 0) {
-      void notifyAll().catch(() => {});
+      void notifyAll({ notification: findingNotification(recurred, n) }).catch(() => {});
     }
     return recurred;
   }
@@ -286,8 +303,9 @@ async function runAutoAgentInner(
     suggest: f.suggest ? String(f.suggest) : undefined,
   });
   onLog(`[auto] new finding: ${title}`);
-  // Wake installed PWAs via Web Push. Payload-less: the service worker fetches
-  // the finding itself. Best-effort — never let a push failure sink the run.
-  void notifyAll().catch(() => {});
+  // Wake installed PWAs via Web Push, carrying the finding in the message so
+  // devices on a hosted surface can render it without calling back to this
+  // box. Best-effort — never let a push failure sink the run.
+  void notifyAll({ notification: findingNotification(finding) }).catch(() => {});
   return finding;
 }

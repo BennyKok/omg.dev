@@ -121,6 +121,9 @@ async function showOmgNotification(title, options) {
 }
 
 async function showLatest(payload) {
+  // Encrypted-payload push: everything needed is in the message, so render it
+  // without calling back to the API. This is the path that works when the app
+  // is served from an origin that is not the lfg box.
   if (payload?.title) {
     await showOmgNotification(payload.title, {
       body: payload.body || "",
@@ -128,6 +131,7 @@ async function showLatest(payload) {
       badge: "/icon-maskable.svg",
       tag: payload.tag || "lfg",
       renotify: true,
+      requireInteraction: !!payload.requireInteraction,
       data: { url: payload.url || "/" },
     });
     return;
@@ -205,9 +209,19 @@ self.addEventListener("notificationclick", (event) => {
       const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
       const client = all.find((c) => "focus" in c);
       if (client) {
-        if ("navigate" in client) await client.navigate(target);
+        // navigate() rejects for a cross-origin target — which an absolute url
+        // from a hosted surface legitimately is. Focus the window regardless,
+        // then let openWindow handle the destination we could not navigate to.
+        let navigated = true;
+        if ("navigate" in client) {
+          try {
+            await client.navigate(target);
+          } catch {
+            navigated = false;
+          }
+        }
         await client.focus();
-        return;
+        if (navigated) return;
       }
       if (self.clients.openWindow) await self.clients.openWindow(target);
     })(),

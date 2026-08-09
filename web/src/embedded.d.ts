@@ -25,6 +25,41 @@ export interface OmgErrorSink {
   appVersion?: string;
 }
 
+/**
+ * Push notifications in an embedded surface.
+ *
+ * The machine encrypts each notice INTO the push (RFC 8291), so the worker that
+ * receives it needs no callback to the machine — which matters here, because
+ * the receiving worker belongs to the HOST's origin, where the machine's
+ * /api/push/pending does not exist.
+ *
+ * A host that wants notifications only has to render the decrypted message in
+ * its own service worker:
+ *
+ *     self.addEventListener("push", (event) => {
+ *       const n = event.data?.json();
+ *       if (!n?.title) return;
+ *       event.waitUntil(self.registration.showNotification(n.title, {
+ *         body: n.body || "",
+ *         tag: n.tag,
+ *         requireInteraction: !!n.requireInteraction,
+ *         data: { url: n.url },
+ *       }));
+ *     });
+ *
+ * `url` arrives absolute, resolved against the origin the device subscribed
+ * from. The host never sees the notification text — it is encrypted end to end
+ * between the machine and the device.
+ */
+export interface OmgPushNotification {
+  title: string;
+  body?: string;
+  /** Absolute deep link into the surface the device subscribed from. */
+  url?: string;
+  tag?: string;
+  requireInteraction?: boolean;
+}
+
 /** Presentation-only identity supplied by an embedding host. */
 export interface EmbeddedViewer {
   id: string;

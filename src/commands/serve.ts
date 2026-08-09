@@ -3100,7 +3100,22 @@ a{color:#60a5fa}
         // Wake the user with a push (user-scoped). Voice talk-back happens when
         // they engage: open questions are surfaced in the voice snapshot below,
         // so the voice agent can read them out and answer on the user's behalf.
-        void notifyAll({ user: q.user }).catch(() => {});
+        // Carry the question in the push itself. A wake-only push would make
+        // the worker fetch /api/push/pending, which it can only reach when the
+        // app is served from this box.
+        void notifyAll({
+          user: q.user,
+          notification: {
+            title: "omg needs your input",
+            body:
+              q.options?.length
+                ? `${q.question} — ${q.options.join(" / ")}`
+                : q.question,
+            url: "/",
+            tag: `ask-${q.id}`,
+            requireInteraction: true,
+          },
+        }).catch(() => {});
         // Pushback asks never block — the answer arrives via session injection.
         if (q.pushback || b.wait === false) return json({ id: q.id, status: q.status });
         // Cap the block so a stuck request can't pin a connection forever.
