@@ -2,6 +2,25 @@
 
 Recent product updates and deployment notes.
 
+## August 9, 2026 - The named local URL goes, and the mobile app joins the audit (v0.1.323)
+
+- **The named local URL (`omg.local`) is gone**, along with its Settings toggle.
+  It advertised a `.local` name for this machine's loopback over mDNS while the
+  server ran, on macOS only — and the caveat under the switch was most of the
+  story: you still had to install the PWA from `localhost`, because browsers only
+  treat localhost and loopback IPs as secure origins, so the `.local` name could
+  never register a service worker. A toggle whose own help text tells you not to
+  use it for the main flow was not worth its surface area. Setting an explicit
+  `OMG_LOCAL_HOSTNAME` in `omg setup` is untouched and still works.
+- **The mobile app is finally covered by the dependency-advisory gate.** `mobile/`
+  is an Expo project on an npm lockfile and is not a workspace member, so
+  `bun audit` structurally could not see it — it was filed as a known exclusion
+  whose stated fix ("convert it to bun.lock") nobody was ever going to do. Two
+  high-severity advisories were sitting in there, visible to Dependabot and
+  invisible to our own green audit runs. The gate now audits each root with the
+  tool that can read it, so both advisories are recorded, dated, and re-verified
+  against the advisory API on every run.
+
 ## August 9, 2026 - pi can sign in, and the agents page stops shouting (v0.1.322)
 
 - **You can sign in to pi from Settings.** pi shipped with no sign-in at all —
