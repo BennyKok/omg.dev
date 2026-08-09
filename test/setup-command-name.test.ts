@@ -82,10 +82,23 @@ function exposeCommands(
   expect(linkStart, "link_command not found in scripts/setup.sh").toBeGreaterThanOrEqual(0);
   const linkEnd = source.indexOf("\n}", linkStart) + 2;
 
+  // And the ownership predicate both of them consult. It is a third thing that
+  // has to agree with the other two — a command is "ours" in exactly one place,
+  // whether it is the launcher current installs write or the symlink older ones
+  // left behind.
+  const markerStart = source.indexOf('LAUNCHER_MARKER="');
+  expect(markerStart, "LAUNCHER_MARKER not found in scripts/setup.sh").toBeGreaterThanOrEqual(0);
+  const markerEnd = source.indexOf("\n", markerStart) + 1;
+  const ownStart = source.indexOf("is_our_command() {");
+  expect(ownStart, "is_our_command not found in scripts/setup.sh").toBeGreaterThanOrEqual(0);
+  const ownEnd = source.indexOf("\n}", ownStart) + 2;
+
   const script = [
     "set -euo pipefail",
     'say() { printf "==> %s\\n" "$*"; }',
     'warn() { printf "!! %s\\n" "$*"; }',
+    source.slice(markerStart, markerEnd),
+    source.slice(ownStart, ownEnd),
     source.slice(linkStart, linkEnd),
     source.slice(start, end),
   ].join("\n");
