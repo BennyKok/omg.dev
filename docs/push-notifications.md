@@ -61,15 +61,45 @@ to the page's origin — but a payload-less wake would have that worker fetch
 `/api/push/pending` from the *host's* server, which knows nothing about your
 box's queue.
 
-The encrypted payload removes the callback, so this topology works. What the
-host must do:
+The encrypted payload removes the callback. The second half is picking the
+right service worker to subscribe through, which the surface cannot work out on
+its own.
 
-- **Render `event.data.json()`** in its service worker. The message is
-  `{ title, body?, url?, tag?, requireInteraction? }`. Any worker following the
-  usual Web Push convention already does this.
-- Nothing else. No proxying of `/api/push/*`, no shared VAPID key, no access to
-  the notification text — it is encrypted end to end between the box and the
-  device.
+A push subscription belongs to a **registration**, and a hosted page usually has
+more than one. `app.omg.dev` serves a root cache-drain worker with no push
+handler at all, plus a dedicated push worker on `/__vibes_push/` that already
+holds the host's own subscription under the host's VAPID key. Both wrong
+choices fail quietly:
+
+- Subscribe on the root registration and the browser accepts it, the machine
+  sends successfully, and every notification is handed to a worker that ignores
+  it.
+- Reuse the host's subscription and the machine signs with a different VAPID
+  key, so the push service rejects each delivery with `403`.
+
+So an embedded surface refuses to guess. The host declares a scope:
+
+```tsx
+<OmgAppSurface
+  transport={transport}
+  hostedPush={{ scope: "/__omg_push/", workerUrl: "/__omg_push/sw.js" }}
+/>
+```
+
+What the host must provide:
+
+- **A dedicated scope.** Not one that already carries the host's own
+  subscription — one registration holds exactly one subscription.
+- **A worker that renders `event.data.json()`.** The message is
+  `{ title, body?, url?, tag?, requireInteraction? }`, about eight lines to
+  handle. It must be served with `Service-Worker-Allowed` for its scope.
+
+Nothing else. No proxying of `/api/push/*`, no shared VAPID key, and no access
+to the notification text — it is encrypted end to end between the box and the
+device.
+
+Without `hostedPush` the notification toggle reports that the host has not
+provided a scope, instead of enrolling the device into silence.
 
 Deep links are sent absolute, resolved against the `appBaseUrl` the device
 recorded when it subscribed, so a worker on another origin still opens the

@@ -60,6 +60,25 @@ export interface OmgPushNotification {
   requireInteraction?: boolean;
 }
 
+/**
+ * A service-worker scope the host dedicates to OMG push notifications.
+ *
+ * A push subscription belongs to a service-worker registration, and only the
+ * host knows which of its registrations runs a worker that renders
+ * notifications — a root app-shell or cache-drain worker usually does not.
+ * Guessing enrols the device into silence, so an embedded surface asks instead.
+ *
+ * The scope must be dedicated: one registration holds exactly one push
+ * subscription, so a scope already carrying the host's own subscription cannot
+ * also carry OMG's.
+ */
+export interface HostPushConfig {
+  /** Scope of the dedicated registration, e.g. "/__omg_push/". */
+  scope: string;
+  /** Worker URL to register when that scope has no registration yet. */
+  workerUrl?: string;
+}
+
 /** Presentation-only identity supplied by an embedding host. */
 export interface EmbeddedViewer {
   id: string;
@@ -90,6 +109,12 @@ export interface OmgAppSurfaceProps {
    * on a provider key the connected machine may or may not hold.
    */
   hostedTranscription?: HostedTranscription;
+  /**
+   * A service-worker scope the host dedicates to OMG push notifications.
+   * Without it the notification toggle stays unavailable in an embedded
+   * surface, rather than enrolling the device into silence.
+   */
+  hostedPush?: HostPushConfig;
   errorSink?: OmgErrorSink;
 }
 

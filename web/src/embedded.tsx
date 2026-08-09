@@ -10,6 +10,7 @@ import "./index.css";
 import { RootErrorBoundary } from "./App";
 import { AppDialogProvider } from "./components/ui/app-dialog";
 import { configureOmgTransport, type OmgErrorSink } from "./lib/omg-client";
+import { configureHostPush, type HostPushConfig } from "./lib/push";
 import { BareSurfaceProvider } from "./lib/bare-surface";
 import {
   EmbeddedHostOptionsProvider,
@@ -23,6 +24,20 @@ export type {
   EmbeddedViewer,
   HostedTranscription,
 } from "./lib/embedded-host-options";
+export type { HostPushConfig } from "./lib/push";
+
+/**
+ * The notification a host's push worker receives, already decrypted by the
+ * browser. Render it with showNotification(); nothing else is required.
+ */
+export interface OmgPushNotification {
+  title: string;
+  body?: string;
+  /** Absolute deep link into the surface the device subscribed from. */
+  url?: string;
+  tag?: string;
+  requireInteraction?: boolean;
+}
 
 export { createGrantTransport } from "@omg-dev/client";
 export type {
@@ -56,6 +71,24 @@ export interface OmgAppSurfaceProps {
    * on a provider key the connected box may or may not hold.
    */
   hostedTranscription?: HostedTranscription;
+  /**
+   * A service-worker scope the host dedicates to OMG push notifications.
+   *
+   * Without it the notification toggle stays unavailable in an embedded
+   * surface, because a push subscription belongs to a service-worker
+   * registration and only the host knows which of its registrations runs a
+   * worker that renders notifications. Guessing enrols the device into
+   * silence: the browser accepts the subscription and delivers every push to a
+   * worker that ignores it.
+   *
+   * The scope must be dedicated. One registration holds one subscription, so a
+   * scope already carrying the host's own subscription cannot also carry ours.
+   *
+   * The worker itself is ~8 lines — see OmgPushNotification for the payload it
+   * receives. Notification text is encrypted between the machine and the
+   * device, so the host cannot read it.
+   */
+  hostedPush?: HostPushConfig;
   /**
    * Central sink for client errors, in addition to the report that goes through
    * the transport into the user's own lfg instance. A hosted surface should set
@@ -216,12 +249,15 @@ export function OmgAppSurface({
   connectionOnboarding = true,
   viewer,
   hostedTranscription,
+  hostedPush,
   errorSink,
 }: OmgAppSurfaceProps) {
   // A full LFG app is the sole owner of its runtime transport. Install it
   // synchronously so child effects cannot race the host boundary; there is no
   // cleanup that can revert another Strict Mode mount back to same-origin.
   configureOmgTransport(transport, { assetBaseUrl, errorSink });
+  // Same reasoning as the transport: declare it before any child can read it.
+  configureHostPush(hostedPush ?? null);
   const [router] = useState<AnyRouter>(() =>
     createOmgRouter(
       createMemoryHistory({ initialEntries: [initialPath(sessionId)] }),
