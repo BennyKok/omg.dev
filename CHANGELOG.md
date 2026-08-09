@@ -2,6 +2,23 @@
 
 Recent product updates and deployment notes.
 
+## August 9, 2026 - The browser tool goes, and macOS installs work in a plain shell (v0.1.321)
+
+- **The cloud-browser login profiles are gone.** They did not work reliably
+  enough to keep, and they were the most expensive thing left: playwright's
+  20MB driver plus a ~150MB Chromium that setup never installed, so a default
+  install paid for the feature and still could not run it. Anything like this
+  belongs in a plugin system, added on top at runtime, rather than carried by
+  every install on the chance someone wants it.
+- **`omg` and `lfg` work in a plain terminal on macOS.** They were symlinks to a
+  `#!/usr/bin/env bun` script, and setup deliberately does not edit your shell
+  profile there — so both failed with "env: bun: No such file or directory" on
+  machines where bun was installed and working. Setup now writes a launcher that
+  finds bun the way the npm CLI does.
+- **`omg setup` no longer dies claiming bun is missing** when it is installed.
+  The check ran one line before the code that adds `~/.bun/bin` to `PATH`.
+- `node_modules` is 66MB to 46MB; nothing in it is larger than 7MB.
+
 ## August 9, 2026 - Starting an opencode session from a finding works again (v0.1.320)
 
 - **"thinkingLevel is not supported for opencode sessions" is fixed.** Replying
