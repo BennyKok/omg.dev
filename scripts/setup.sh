@@ -994,10 +994,8 @@ if command -v tailscale >/dev/null 2>&1; then
   TAILNET_URL="$(tailscale status --json 2>/dev/null | jq -r '.Self.DNSName // empty' | sed 's/\.$//' || true)"
 fi
 
-# Only a name setup itself confirmed resolves to loopback gets printed. `omg
-# serve` may also advertise omg.local over mDNS, but setup cannot verify that
-# the name is answering from here, so it stays out of the summary rather than
-# handing out a URL that might not load.
+# Only a name setup itself confirmed resolves to loopback gets printed, rather
+# than any address we merely believe should work.
 NAMED_URL=""
 if [ "$LOCAL_HOSTNAME_READY" = "1" ]; then
   NAMED_URL="http://$LFG_LOCAL_HOSTNAME:$LFG_PORT"

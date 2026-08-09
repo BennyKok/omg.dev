@@ -1,7 +1,7 @@
 // Bootstrap gathers its data into a `tasks` object and then hand-writes the
 // response from named fields. Adding a task is therefore only half the job:
 // the work runs, the result is discarded, and the client sees nothing — with
-// no error anywhere. That happened to `localUrl` in this very session, and the
+// no error anywhere. That has happened to a real bootstrap key, and the
 // identical shape had just been fixed in setGlobalSettings, which also writes
 // an explicit key list.
 //
