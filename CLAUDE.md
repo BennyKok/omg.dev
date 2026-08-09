@@ -32,6 +32,14 @@ workspace graph, which covers `web/` — `bun audit` resolves the *workspace*
 lockfile, so auditing a member directory re-reads the root rather than that
 member's own bun.lock.
 
+Each root in `AUDIT_ROOTS` names the tool that can read it. `mobile/` is an Expo
+app on an npm lockfile and is not a workspace member, so it is audited with
+`npm audit --package-lock-only`; nothing bun runs can see that graph. Adding a
+lockfile in a new ecosystem means teaching the gate that tool, not parking the
+lockfile in `EXCLUDED_LOCKFILES` — an exclusion whose escape route is "convert
+the lockfile someday" is the `--ignore` mistake with extra steps, and that is
+exactly how two high-severity advisories sat unwatched in `mobile/`.
+
 - Accepted advisories live in `scripts/audit-exceptions.json`, each with a
   written reason and a hard `reviewBy` date.
 - The gate fails on: an unaccepted high/critical advisory, an entry past its

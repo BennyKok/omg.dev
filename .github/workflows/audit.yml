@@ -25,6 +25,13 @@ name: audit
 # root rather than that member's own bun.lock. scripts/audit.ts asserts its
 # roots are genuinely distinct rather than letting a duplicate inflate the
 # coverage number.
+#
+# It also audits mobile/ with `npm audit`, because that app is an Expo project on
+# an npm lockfile and is not a workspace member — nothing bun runs can see its
+# graph. It was recorded as a known exclusion whose stated escape route
+# ("convert it to bun.lock") nobody was ever going to take, and two high
+# advisories were living there unwatched. That is the same shape as the --ignore
+# flag above, so the gate learned npm instead.
 
 on:
   push:
@@ -50,8 +57,18 @@ jobs:
         with:
           bun-version: latest
 
-      # No `bun install` on purpose: `bun audit` resolves the lockfile directly,
-      # so the gate reads exactly what is committed and finishes in seconds.
+      # npm is preinstalled on ubuntu-latest, but pin it rather than inherit
+      # whatever the runner image ships: the mobile root is audited with
+      # `npm audit`, and a missing npm would make the gate throw instead of
+      # silently reporting mobile as clean.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No install step on purpose, for either tool: `bun audit` resolves the
+      # lockfile directly and `npm audit --package-lock-only` reads the committed
+      # package-lock.json, so the gate reads exactly what is committed and
+      # finishes in seconds.
       - name: Gate on new, expired, stale and now-fixed advisories
         env:
           # Advisory lookups work unauthenticated, but CI shares an IP pool and
@@ -60,13 +77,19 @@ jobs:
         run: bun run scripts/audit.ts
 
       # Always-visible full report, including the lows and the accepted entries,
-      # so an accepted exception can never quietly become invisible.
+      # so an accepted exception can never quietly become invisible. Every audit
+      # root appears here: reporting only the bun graph is how mobile's accepted
+      # advisories would go unseen in the one place someone looks for them.
       - name: Full advisory report
         if: always()
         run: |
           {
-            echo '## bun audit — full report'
+            echo '## bun audit — workspace graph'
             echo '```'
             bun audit 2>&1 || true
+            echo '```'
+            echo '## npm audit — mobile/'
+            echo '```'
+            (cd mobile && npm audit --package-lock-only 2>&1) || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

@@ -51,18 +51,42 @@ export const EXCEPTIONS_PATH = join(SCRIPT_DIR, "audit-exceptions.json");
 /** Severities that fail the gate. Everything else is reported only. */
 export const BLOCKING_SEVERITIES = ["high", "critical"] as const;
 
+/** Which CLI reads a given root's lockfile. `bun audit` cannot read package-lock.json. */
+export type AuditTool = "bun" | "npm";
+
+/** The lockfile each tool resolves, used to cross-check coverage against `git ls-files`. */
+export const LOCKFILE_BY_TOOL: Record<AuditTool, string> = {
+  bun: "bun.lock",
+  npm: "package-lock.json",
+};
+
 /**
- * Every distinct dependency graph `bun audit` can read here.
+ * Every distinct dependency graph the gate reads here.
  *
  * "Distinct" is doing real work in that sentence. `bun audit` resolves the
  * *workspace* lockfile, not whichever bun.lock happens to sit in the directory
  * it is run from — so listing a workspace member here does not audit anything
  * new, it audits the root a second time under a different label. assertRootsAreDistinct()
  * below refuses to run in that state rather than reporting inflated coverage.
+ *
+ * A root also names the tool that can read it. `mobile` is an Expo app on an npm
+ * lockfile and is not a member of the root `workspaces` list, so nothing bun runs
+ * will ever see its graph; it needs `npm audit`. It spent its whole life recorded
+ * as a known exclusion whose stated escape route ("convert it to bun.lock") was
+ * never going to happen, and two high-severity advisories were living in it. An
+ * exclusion with no exit condition is the same shape of mistake as the `--ignore`
+ * flag this file replaced, so the tool moved instead of the lockfile.
  */
-export const AUDIT_ROOTS: { dir: string; why: string }[] = [
-  { dir: ".", why: "the workspace graph — the CLI, agent backends, packages/* and web/" },
+export const AUDIT_ROOTS: { dir: string; why: string; tool: AuditTool }[] = [
+  { dir: ".", why: "the workspace graph — the CLI, agent backends, packages/* and web/", tool: "bun" },
+  { dir: "mobile", why: "the Expo mobile app — its own npm graph, outside the root workspaces list", tool: "npm" },
 ];
+
+/** The lockfile a configured root audits, relative to the repo root. */
+export function rootLockfile(root: { dir: string; tool: AuditTool }): string {
+  const name = LOCKFILE_BY_TOOL[root.tool];
+  return root.dir === "." ? name : `${root.dir}/${name}`;
+}
 
 /**
  * Lockfiles the gate knowingly does not cover, each with a reason. The coverage
@@ -70,10 +94,6 @@ export const AUDIT_ROOTS: { dir: string; why: string }[] = [
  * one, so a new lockfile anywhere fails until someone picks a bucket for it.
  */
 export const EXCLUDED_LOCKFILES: { file: string; why: string }[] = [
-  {
-    file: "mobile/package-lock.json",
-    why: "npm lockfile — `bun audit` only reads bun.lock. Convert it to bun.lock and move it into AUDIT_ROOTS to bring the mobile app under the gate.",
-  },
   {
     file: "web/bun.lock",
     why: "`web` is a member of the root `workspaces` list, so `bun audit` run there resolves the ROOT lockfile and never reads this file — auditing it as a separate root double-counts the root graph. web/'s dependencies are already covered by the root audit. This lockfile is only consumed by `bun install` inside web/.",
@@ -142,6 +162,32 @@ export interface RawAdvisory {
 }
 export type BunAuditReport = Record<string, RawAdvisory[]>;
 
+/**
+ * `npm audit --json`, which reports a different shape from bun's.
+ *
+ * npm keys by package and splits `via` into two kinds of element: an object is a
+ * real advisory against THIS package, while a bare string is the name of another
+ * package this one inherits the problem from. Only the objects carry a GHSA url,
+ * and that distinction is the whole reason this parser is not a one-liner: in
+ * mobile's graph two `image-size` advisories are reported against fourteen
+ * packages, because every metro/expo ancestor lists them transitively. Recording
+ * the ancestors as findings would demand fourteen exception entries for two
+ * problems and make the fix look bigger than it is, so string `via` entries are
+ * dropped — the advisory is already recorded against the package that actually
+ * carries the vulnerable code.
+ */
+export interface NpmAuditVia {
+  source?: number;
+  name?: string;
+  url?: string;
+  title?: string;
+  severity?: Severity;
+  range?: string;
+}
+export interface NpmAuditReport {
+  vulnerabilities?: Record<string, { name?: string; severity?: Severity; via?: (NpmAuditVia | string)[] }>;
+}
+
 /** One (advisory, package, lockfile) tuple — the unit the gate reasons about. */
 export interface Finding {
   ghsa: string;
@@ -205,6 +251,37 @@ export function findingsFromReport(report: BunAuditReport, root: string): Findin
         severity: advisory.severity,
         title: advisory.title,
         vulnerableVersions: advisory.vulnerable_versions,
+      };
+      byKey.set(findingKey(finding), finding);
+    }
+  }
+  return [...byKey.values()].sort((a, b) => findingKey(a).localeCompare(findingKey(b)));
+}
+
+/**
+ * Flatten one `npm audit --json` report into the same findings the bun path
+ * produces, so everything downstream — evaluate(), the exception list, the
+ * advisory re-verification — stays tool-agnostic.
+ *
+ * A `via` object without a url is skipped rather than guessed at: findingKey()
+ * is built on the GHSA id, so an entry with no id cannot be accepted by an
+ * exception and would fail the gate forever with nothing a human could record.
+ */
+export function findingsFromNpmReport(report: NpmAuditReport, root: string): Finding[] {
+  const byKey = new Map<string, Finding>();
+  for (const entry of Object.values(report?.vulnerabilities ?? {})) {
+    for (const via of entry?.via ?? []) {
+      // A string names an ancestor package, not an advisory — see NpmAuditReport.
+      if (typeof via !== "object" || !via?.url) continue;
+      const finding: Finding = {
+        ghsa: ghsaFromUrl(via.url),
+        // Attribute to the package the advisory is actually against, which is
+        // not always the key we found it under.
+        package: via.name ?? entry?.name ?? "unknown",
+        root,
+        severity: via.severity ?? entry?.severity ?? "high",
+        title: via.title ?? "",
+        vulnerableVersions: via.range ?? "*",
       };
       byKey.set(findingKey(finding), finding);
     }
@@ -368,25 +445,37 @@ export function loadExceptions(path = EXCEPTIONS_PATH): Exceptions {
   return exceptions;
 }
 
-async function auditRoot(dir: string): Promise<Finding[]> {
+async function auditRoot(root: { dir: string; tool: AuditTool }): Promise<Finding[]> {
+  const { dir, tool } = root;
   const cwd = join(REPO_ROOT, dir);
-  const proc = Bun.spawn(["bun", "audit", "--json"], { cwd, stdout: "pipe", stderr: "pipe" });
+  // npm needs --package-lock-only so it audits the committed lockfile rather
+  // than an installed tree: mobile/node_modules is not present in CI, and
+  // without the flag npm reports an empty graph there — which reads as "clean".
+  const cmd = tool === "npm" ? ["npm", "audit", "--json", "--package-lock-only"] : ["bun", "audit", "--json"];
+  const proc = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
   ]);
   await proc.exited;
-  // `bun audit` exits 1 whenever it finds anything, so its exit code says
+  // Both tools exit 1 whenever they find anything, so the exit code says
   // nothing about success. Unparseable stdout is the real failure signal — and
   // it is the one that matters, because an empty report reads exactly like
   // "clean".
-  let report: BunAuditReport;
+  let parsed: unknown;
   try {
-    report = JSON.parse(stdout || "{}") as BunAuditReport;
+    parsed = JSON.parse(stdout || "{}");
   } catch {
-    throw new Error(`bun audit failed in ${dir || "."}:\n${stderr.trim() || stdout.trim()}`);
+    throw new Error(`${tool} audit failed in ${dir || "."}:\n${stderr.trim() || stdout.trim()}`);
   }
-  return findingsFromReport(report, dir);
+  // npm reports its own failures as JSON with an `error` key and exit 1, which
+  // parses fine and yields zero vulnerabilities. Treat that as a broken run.
+  if (tool === "npm") {
+    const err = (parsed as { error?: { summary?: string; detail?: string } }).error;
+    if (err) throw new Error(`npm audit failed in ${dir}:\n${err.summary ?? ""}\n${err.detail ?? ""}`.trim());
+    return findingsFromNpmReport(parsed as NpmAuditReport, dir);
+  }
+  return findingsFromReport(parsed as BunAuditReport, dir);
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -413,7 +502,7 @@ async function main() {
   assertRootsAreDistinct(readManifest);
 
   const findings: Finding[] = [];
-  for (const root of AUDIT_ROOTS) findings.push(...(await auditRoot(root.dir)));
+  for (const root of AUDIT_ROOTS) findings.push(...(await auditRoot(root)));
 
   if (rewrite) {
     const existing = loadExceptions();

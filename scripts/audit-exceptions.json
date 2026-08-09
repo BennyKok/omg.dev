@@ -3,7 +3,7 @@
     "Accepted dependency advisories. Enforced by scripts/audit.ts (`bun run audit`), which",
     "fails CI on any high/critical advisory NOT listed here, on any entry past its reviewBy",
     "date, on any entry no longer present in the graph, and on any `no-fix-available` entry",
-    "that upstream has since fixed \u2014 including a fix published under a renamed package.",
+    "that upstream has since fixed — including a fix published under a renamed package.",
     "",
     "This replaced a bare `bun audit --ignore=GHSA-...` flag, which had no exit condition and",
     "spent two months suppressing an advisory that had already been fixed upstream.",
@@ -23,5 +23,30 @@
     ],
     "defaultReviewDays": 90
   },
-  "accepted": []
+  "accepted": [
+    {
+      "ghsa": "GHSA-5p2g-fcmc-qvqq",
+      "package": "image-size",
+      "root": "mobile",
+      "severity": "high",
+      "title": "image-size: JXL and HEIF parsers allow denial of service through infinite loops",
+      "vulnerableVersions": "<=2.0.2",
+      "justification": "no-fix-available",
+      "reason": "Reached only through metro/expo, which use image-size at BUILD time to read asset dimensions; the JXL/HEIF infinite loop needs a hostile image inside our own repo, and no image-size code ships in the app binary. No fix exists to take: every published version is vulnerable (<=2.0.2 covers latest 2.0.2, first_patched_version null on both advisories), and npm audit fixAvailable points at expo@53.0.27 — a four-major DOWNGRADE from our ~57.0.0, not a fix. The gate re-verifies this against the advisory API on every run and fails the moment image-size or a renamed successor ships a patch.",
+      "acceptedOn": "2026-08-09",
+      "reviewBy": "2026-11-07"
+    },
+    {
+      "ghsa": "GHSA-w3rx-r6r6-pgpr",
+      "package": "image-size",
+      "root": "mobile",
+      "severity": "high",
+      "title": "image-size: ICNS parser allows denial of service through an infinite loop",
+      "vulnerableVersions": "<=2.0.2",
+      "justification": "no-fix-available",
+      "reason": "Same package, parser and reachability as GHSA-5p2g-fcmc-qvqq: build-time metro/expo asset sizing, nothing shipped in the app binary, triggered only by a hostile ICNS file in our own repo. No fix exists to take: latest image-size 2.0.2 is itself in range and both advisories report first_patched_version null, while npm audit fixAvailable suggests expo@53.0.27, a four-major downgrade from our ~57.0.0. The gate re-verifies against the advisory API on every run and fails as soon as a real patch appears.",
+      "acceptedOn": "2026-08-09",
+      "reviewBy": "2026-11-07"
+    }
+  ]
 }
