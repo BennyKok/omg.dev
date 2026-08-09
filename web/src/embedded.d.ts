@@ -83,7 +83,21 @@ export interface OmgAppSurfaceProps {
    * session ownership, filtering, or authorization semantics.
    */
   viewer?: EmbeddedViewer;
+  /**
+   * Route dictation audio to the host's own transcription broker instead of to
+   * the LFG server this UI was served from. A hosted surface should set this:
+   * transcription is funded and metered by the platform, so it must not depend
+   * on a provider key the connected machine may or may not hold.
+   */
+  hostedTranscription?: HostedTranscription;
   errorSink?: OmgErrorSink;
+}
+
+export interface HostedTranscription {
+  /** Absolute wss:// URL of the transcription broker. */
+  url: string;
+  /** Fresh viewer JWT, or null when the session can no longer be proven. */
+  getToken: () => Promise<string | null>;
 }
 
 export declare function OmgAppSurface(

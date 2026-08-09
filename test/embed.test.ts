@@ -43,12 +43,37 @@ describe("host viewer contract", () => {
     ) as string;
 
     expect(embedded).toContain("viewer?: EmbeddedViewer;");
-    expect(embedded).toContain("value={{ connectionOnboarding, viewer }}");
+    // Asserted as a set rather than one exact literal: pinning the whole
+    // provider value made adding any sibling option a test failure, which is
+    // noise, not a contract. What matters is that viewer is still passed down.
+    expect(embedded).toMatch(/value=\{\{[^}]*\bviewer\b[^}]*\}\}/);
+    expect(embedded).toMatch(/value=\{\{[^}]*\bconnectionOnboarding\b[^}]*\}\}/);
     expect(options).toContain("viewer?: EmbeddedViewer;");
     expect(declarations).toContain("export interface EmbeddedViewer");
     expect(declarations).toContain("viewer?: EmbeddedViewer;");
     expect(options).toContain("never assign sessions or change authorization");
     expect(embedded).not.toMatch(/body:\s*JSON\.stringify\([^)]*viewer/);
+  });
+
+  // web/src/embedded.d.ts is hand-maintained, so a prop added to the .tsx can
+  // ship with runtime support and no type for it. That happened with
+  // hostedTranscription: the published bundle had the code, the declaration did
+  // not, and the only symptom was TS2322 in a consumer AFTER the release was
+  // cut. Every surface prop must appear in both files.
+  test("every OmgAppSurface prop is declared in the shipped types", () => {
+    const read = (p: string) => require("node:fs").readFileSync(p, "utf8") as string;
+    const propsOf = (src: string) => {
+      const body = src.match(/export interface OmgAppSurfaceProps \{([\s\S]*?)\n\}/)?.[1] ?? "";
+      return new Set(
+        [...body.matchAll(/^\s{2}(\w+)\??:/gm)].map((m) => m[1]),
+      );
+    };
+    const fromSource = propsOf(read("web/src/embedded.tsx"));
+    const fromTypes = propsOf(read("web/src/embedded.d.ts"));
+
+    expect(fromSource.size).toBeGreaterThan(0);
+    const undeclared = [...fromSource].filter((p) => !fromTypes.has(p));
+    expect(undeclared).toEqual([]);
   });
 });
 
