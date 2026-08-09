@@ -16,10 +16,12 @@ import {
   classifyFix,
   evaluate,
   findingKey,
+  findingsFromNpmReport,
   findingsFromReport,
   fixInvalidatesAcceptance,
   ghsaFromUrl,
   isBlocking,
+  rootLockfile,
 } from "./audit.ts";
 
 function entry(over: Partial<AcceptedEntry> = {}): AcceptedEntry {
@@ -108,6 +110,81 @@ describe("audit gate", () => {
     // Accepting it at the root must not silently accept it in web/.
     const verdict = evaluate([...root, ...web], exceptionsOf([entry()]), "2026-08-02");
     expect(verdict.unaccepted.map((f) => f.root)).toEqual(["web"]);
+  });
+
+  test("npm reports flatten to the same findings as bun reports", () => {
+    const findings = findingsFromNpmReport(
+      {
+        vulnerabilities: {
+          "image-size": {
+            name: "image-size",
+            severity: "high",
+            via: [
+              {
+                name: "image-size",
+                url: "https://github.com/advisories/GHSA-5p2g-fcmc-qvqq",
+                title: "infinite loop",
+                severity: "high",
+                range: "<=2.0.2",
+              },
+            ],
+          },
+        },
+      },
+      "mobile",
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      ghsa: "GHSA-5p2g-fcmc-qvqq",
+      package: "image-size",
+      root: "mobile",
+      severity: "high",
+      vulnerableVersions: "<=2.0.2",
+    });
+    // Same identity shape as the bun path, so one exception format covers both.
+    expect(findingKey(findings[0])).toBe("mobile|image-size|GHSA-5p2g-fcmc-qvqq");
+  });
+
+  test("npm's transitive ancestors do not each become a finding", () => {
+    // The real shape of mobile's graph: two image-size advisories reported
+    // against fourteen packages, because every metro/expo ancestor inherits
+    // them. Recording ancestors would demand an exception entry per ancestor.
+    const advisoryVia = {
+      name: "image-size",
+      url: "https://github.com/advisories/GHSA-5p2g-fcmc-qvqq",
+      title: "infinite loop",
+      severity: "high" as const,
+      range: "<=2.0.2",
+    };
+    const findings = findingsFromNpmReport(
+      {
+        vulnerabilities: {
+          "image-size": { name: "image-size", severity: "high", via: [advisoryVia] },
+          // Ancestors point at the culprit by name, carrying no url of their own.
+          metro: { name: "metro", severity: "high", via: ["image-size"] },
+          "@expo/cli": { name: "@expo/cli", severity: "high", via: ["metro", "image-size"] },
+          expo: { name: "expo", severity: "high", via: ["@expo/cli"] },
+        },
+      },
+      "mobile",
+    );
+    expect(findings.map((f) => f.package)).toEqual(["image-size"]);
+  });
+
+  test("an npm via entry with no advisory url is skipped, not guessed at", () => {
+    // No GHSA id means no findingKey, so no exception could ever accept it.
+    const findings = findingsFromNpmReport(
+      { vulnerabilities: { mystery: { name: "mystery", severity: "high", via: [{ name: "mystery" }] } } },
+      "mobile",
+    );
+    expect(findings).toEqual([]);
+  });
+
+  test("each audit root maps to the lockfile its tool actually reads", () => {
+    expect(rootLockfile({ dir: ".", tool: "bun" })).toBe("bun.lock");
+    expect(rootLockfile({ dir: "mobile", tool: "npm" })).toBe("mobile/package-lock.json");
+    // The gate would silently cover nothing if a root named the wrong lockfile.
+    expect(AUDIT_ROOTS.map(rootLockfile)).toContain("mobile/package-lock.json");
   });
 
   test("ghsa ids come from the advisory url and a malformed url is loud", () => {
@@ -211,7 +288,7 @@ describe("audit root distinctness", () => {
       web: {},
     };
     const originalRoots = [...AUDIT_ROOTS];
-    AUDIT_ROOTS.push({ dir: "web", why: "test" });
+    AUDIT_ROOTS.push({ dir: "web", why: "test", tool: "bun" });
     try {
       expect(() => assertRootsAreDistinct((dir) => manifests[dir] ?? null)).toThrow(/workspace member/);
     } finally {
@@ -232,7 +309,7 @@ describe("audit coverage", () => {
       .filter((f) => /(^|\/)(bun\.lock|package-lock\.json|yarn\.lock|pnpm-lock\.yaml)$/.test(f));
     expect(tracked.length).toBeGreaterThan(0);
 
-    const audited = new Set(AUDIT_ROOTS.map((r) => (r.dir === "." ? "bun.lock" : `${r.dir}/bun.lock`)));
+    const audited = new Set(AUDIT_ROOTS.map(rootLockfile));
     const excluded = new Set(EXCLUDED_LOCKFILES.map((e) => e.file));
     expect(tracked.filter((f) => !audited.has(f) && !excluded.has(f))).toEqual([]);
 
