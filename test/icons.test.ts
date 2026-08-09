@@ -152,6 +152,33 @@ describe("OMG icon assets", () => {
     }
   });
 
+  // Adding an agent to the picker means adding its mark in three places: the
+  // file, the server's static allowlist, and the icon-src mapping. Miss the
+  // allowlist and the card renders a broken <img> — the file is right there in
+  // web/dist, but an unlisted path never reaches staticAssetResponse.
+  test("serves every agent mark referenced by the icon mapping", async () => {
+    const mapping = await readFile("web/src/lib/session-ui.tsx", "utf8");
+    const marks = [...mapping.matchAll(/\/(agent-[a-z0-9-]+\.svg)/g)].map(([, name]) => name);
+    expect(marks.length).toBeGreaterThan(1);
+
+    const server = await readFile("src/commands/serve.ts", "utf8");
+    for (const mark of new Set(marks)) {
+      const source = await readFile(`web/public/${mark}`, "utf8");
+      expect(source).toContain("<svg");
+      expect(server).toContain(`"/${mark}"`);
+    }
+  });
+
+  // Two copies of the icon mapping meant two copies of AGENT_ICON_VERSION, and
+  // versioned icon URLs are served immutable for a year: bumping one copy left
+  // the other pinned to the stale art in every warm browser cache. One source.
+  test("keeps a single agent icon mapping and cache-bust version", async () => {
+    const campfire = await readFile("web/src/components/UsageCampfire.tsx", "utf8");
+    expect(campfire).toContain('from "@/lib/session-ui"');
+    expect(campfire).not.toContain("function agentIconSrc");
+    expect(campfire).not.toMatch(/const AGENT_ICON_VERSION\s*=/);
+  });
+
   test("keeps the maskable icon fully opaque", async () => {
     const metadata = await sharp("web/public/icon-maskable-512.png").metadata();
     expect(metadata.hasAlpha).toBe(false);
