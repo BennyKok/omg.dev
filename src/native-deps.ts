@@ -31,8 +31,28 @@ export function loadSharp(): Promise<typeof import("sharp").default> {
 
 let chromiumPromise: Promise<typeof import("playwright").chromium> | null = null;
 
-/** Load playwright's `chromium` on demand. Cached like `loadSharp`. */
+/**
+ * Load playwright's `chromium` on demand.
+ *
+ * playwright is not installed by default. Its driver was 20MB of a 109MB
+ * install, shipped to everyone for a feature most sessions never touch — and
+ * the ~150MB browser it actually needs was never provisioned by setup anyway,
+ * so a default install could not drive a browser regardless.
+ *
+ * A missing package must therefore read as "not installed", not as a stack
+ * trace: the import throws ERR_MODULE_NOT_FOUND, which says nothing about how
+ * to fix it.
+ */
 export function loadChromium(): Promise<typeof import("playwright").chromium> {
-  chromiumPromise ??= import("playwright").then((m) => m.chromium);
+  chromiumPromise ??= import("playwright")
+    .then((m) => m.chromium)
+    .catch((cause) => {
+      chromiumPromise = null; // let a later call retry after an install
+      throw new Error(
+        "The browser tool needs playwright, which is not installed. "
+          + "Install it with `OMG_INSTALL_BROWSER=1 omg setup`.",
+        { cause },
+      );
+    });
   return chromiumPromise;
 }
