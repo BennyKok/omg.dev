@@ -196,15 +196,6 @@ import {
   AVATAR_MIME_BY_EXT,
   type OnboardingSteps,
 } from "../onboarding.ts";
-import { listProfiles, getProfile, deleteProfile } from "../browser/profiles.ts";
-import {
-  startLoginSession,
-  attachStream,
-  endSession,
-  type WSLike,
-  type Viewport,
-} from "../browser/session.ts";
-import { testProfile } from "../browser/tool.ts";
 import {
   listCustomRepos,
   addCustomRepo,
@@ -1828,39 +1819,7 @@ const termBridges = new WeakMap<object, PtyBridge>();
 type SttStreamSocketData = { sttStream: true };
 const sttBridges = new WeakMap<object, SttStreamBridge>();
 
-// ---- cloud-browser login stream sockets ----
-// Browser-login viewer sockets multiplex through the same Bun websocket handlers
-// as the terminal; we tag their data with browserSessionId and bridge them to the
-// WSLike transport that ../browser/session.ts expects.
-type BrowserSocketData = { browserSessionId: string };
-type AppSocketData = TermSocketData | SttStreamSocketData | BrowserSocketData | LiveWsSocketData;
-const browserSocketCbs = new WeakMap<
-  object,
-  { onMessage?: (d: string) => void; onClose?: () => void }
->();
-
-function makeBrowserWS(ws: ServerWebSocket<AppSocketData>): WSLike {
-  const cbs: { onMessage?: (d: string) => void; onClose?: () => void } = {};
-  browserSocketCbs.set(ws, cbs);
-  return {
-    send: (data) => {
-      try {
-        ws.send(data);
-      } catch {}
-    },
-    close: () => {
-      try {
-        ws.close();
-      } catch {}
-    },
-    onMessage: (cb) => {
-      cbs.onMessage = cb;
-    },
-    onClose: (cb) => {
-      cbs.onClose = cb;
-    },
-  };
-}
+type AppSocketData = TermSocketData | SttStreamSocketData | LiveWsSocketData;
 
 // Parse a terminal dimension from a query param, clamped to a sane range so a
 // bogus value can't allocate an absurd pty winsize.
@@ -1958,12 +1917,6 @@ export async function cmdServe() {
           sttBridges.set(ws, bridge);
           return;
         }
-        // Cloud-browser login viewer socket: bridge to the session streamer.
-        const bSid = (ws.data as unknown as BrowserSocketData)?.browserSessionId;
-        if (typeof bSid === "string") {
-          attachStream(bSid, makeBrowserWS(ws));
-          return;
-        }
         if (!("sessionName" in ws.data)) {
           try {
             ws.close();
@@ -2020,11 +1973,6 @@ export async function cmdServe() {
           }
           return;
         }
-        const bCbs = browserSocketCbs.get(ws);
-        if (bCbs) {
-          if (typeof message === "string") bCbs.onMessage?.(message);
-          return;
-        }
         const bridge = termBridges.get(ws);
         if (!bridge) return;
         if (typeof message === "string") {
@@ -2053,16 +2001,6 @@ export async function cmdServe() {
         if (sttBridge) {
           sttBridges.delete(ws);
           sttBridge.close();
-          return;
-        }
-        const bCbs = browserSocketCbs.get(ws);
-        if (bCbs) {
-          browserSocketCbs.delete(ws);
-          bCbs.onClose?.();
-          // Viewer closed: tear the headless browser down so it doesn't leak on
-          // this shared box (the saved profile already persists to disk).
-          const sid = (ws.data as unknown as BrowserSocketData)?.browserSessionId;
-          if (sid) void endSession(sid);
           return;
         }
         const bridge = termBridges.get(ws);
@@ -2126,17 +2064,6 @@ export async function cmdServe() {
         return err(400, "expected a websocket upgrade");
       }
 
-      // ---- cloud-browser login stream (websocket upgrade) ----
-      {
-        const m = path.match(/^\/api\/browser\/sessions\/([^/]+)\/stream$/);
-        if (m) {
-          const ok = server.upgrade(req, {
-            data: { browserSessionId: decodeURIComponent(m[1]) },
-          });
-          if (ok) return undefined;
-          return err(400, "expected a websocket upgrade");
-        }
-      }
 
       // Detect links in the terminal for the tappable-chip UI. A long URL is
       // wrapped across rows in the rendered terminal (and often hard-wrapped by
@@ -3442,57 +3369,6 @@ a{color:#60a5fa}
       }
 
       // ---- cloud-browser profiles ----
-      // Save a real login once (interactive stream), reuse it from an agent's
-      // headless browser forever after.
-      if (path === "/api/browser/profiles" && req.method === "GET") {
-        // Frontend (BrowserProfiles.tsx) expects a bare ProfileMeta[].
-        return json(await listProfiles());
-      }
-      if (path === "/api/browser/profiles" && req.method === "POST") {
-        const b = (await req.json().catch(() => null)) as
-          | { url?: unknown; viewport?: unknown }
-          | null;
-        const u = typeof b?.url === "string" ? b.url.trim() : "";
-        if (!u) return err(400, "url is required");
-        const { id } = await startLoginSession(u, {
-          viewport: b?.viewport as Partial<Viewport> | null | undefined,
-        });
-        return json({ sessionId: id });
-      }
-      {
-        const m = path.match(/^\/api\/browser\/profiles\/([^/]+)\/reauth$/);
-        if (m && req.method === "POST") {
-          const id = decodeURIComponent(m[1]);
-          const prof = await getProfile(id);
-          if (!prof) return err(404, "unknown profile");
-          const target = prof.origins[0] || "about:blank";
-          const b = (await req.json().catch(() => null)) as
-            | { viewport?: unknown }
-            | null;
-          const { id: sid } = await startLoginSession(target, {
-            existingProfileId: id,
-            viewport: b?.viewport as Partial<Viewport> | null | undefined,
-          });
-          return json({ sessionId: sid });
-        }
-      }
-      {
-        const m = path.match(/^\/api\/browser\/profiles\/([^/]+)\/test$/);
-        if (m && req.method === "POST") {
-          const id = decodeURIComponent(m[1]);
-          const prof = await getProfile(id);
-          if (!prof) return err(404, "unknown profile");
-          return json(await testProfile(id));
-        }
-      }
-      {
-        const m = path.match(/^\/api\/browser\/profiles\/([^/]+)$/);
-        if (m && req.method === "DELETE") {
-          await deleteProfile(decodeURIComponent(m[1]));
-          return json({ ok: true });
-        }
-      }
-
       // ---- running claude sessions ----
       if (path === "/api/filesystem/directories" && req.method === "GET") {
         const home = await realpath(homedir());

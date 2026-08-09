@@ -257,7 +257,6 @@ import { useAppDialog } from "@/components/ui/app-dialog";
 const TermView = lazyWithReload("TermView", () =>
   import("@/components/TermView").then((m) => ({ default: m.TermView })),
 );
-const BrowserProfiles = lazyWithReload("BrowserProfiles", () => import("./BrowserProfiles"));
 const ShippedPage = lazyWithReload("ShippedPage", () => import("./views/shipped-page"));
 const SessionTokenUsageDialog = lazyWithReload("SessionTokenUsageDialog", () =>
   import("./views/session-token-usage"),
@@ -5020,7 +5019,7 @@ export function App() {
   } | null>(null);
   const [composerFocusNonce, setComposerFocusNonce] = useState(0);
   // Auto agents
-  // Tabs are "live" | "settings" | "notifications" | "term" | "browser". Auto agents and runtime
+  // Tabs are "live" | "settings" | "notifications" | "term". Auto agents and runtime
   // extension nav-tabs now render inside the Settings page rather than as their
   // own top-level tabs.
   // Routing lives in the URL now (TanStack Router). The visible page IS the
@@ -7248,11 +7247,6 @@ export function App() {
             <TermView />
           </Suspense>
         ) : null}
-        {tab === "browser" ? (
-          <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading browser profiles...</div>}>
-            <BrowserProfiles />
-          </Suspense>
-        ) : null}
         {tab === "storage" ? <StoragePage /> : null}
         {tab === "more" ? (
           <MoreView
@@ -7260,7 +7254,6 @@ export function App() {
             toggleTheme={toggleTheme}
             user={userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : null}
             onOpenTerminal={() => setTab("term")}
-            onOpenBrowser={() => setTab("browser")}
             onOpenUsage={() => setTab("usage")}
             onOpenChangelog={() => setTab("changelog")}
             onRedoOnboarding={redoOnboarding}
@@ -7279,7 +7272,6 @@ export function App() {
         tab !== "artifacts" &&
         tab !== "changelog" &&
         tab !== "term" &&
-        tab !== "browser" &&
         tab !== "storage" &&
         tab !== "more" &&
         !extNavTabs.some((t) => t.id === tab) ? (
@@ -20921,7 +20913,6 @@ function MoreView({
   toggleTheme,
   user,
   onOpenTerminal,
-  onOpenBrowser,
   onOpenUsage,
   onOpenChangelog,
   onRedoOnboarding,
@@ -20932,7 +20923,6 @@ function MoreView({
   toggleTheme: () => void;
   user: string | null;
   onOpenTerminal: () => void;
-  onOpenBrowser: () => void;
   onOpenUsage: () => void;
   onOpenChangelog: () => void;
   onRedoOnboarding: () => Promise<void>;
@@ -20976,19 +20966,6 @@ function MoreView({
                 <TerminalSquare className="size-4" />
               </span>
               <span className="text-sm font-medium">Open terminal</span>
-            </div>
-            <ChevronRight className="size-4 text-muted-foreground/60" />
-          </button>
-          <button
-            type="button"
-            onClick={onOpenBrowser}
-            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
-          >
-            <div className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
-                <Globe className="size-4" />
-              </span>
-              <span className="text-sm font-medium">Browser profiles</span>
             </div>
             <ChevronRight className="size-4 text-muted-foreground/60" />
           </button>

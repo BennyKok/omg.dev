@@ -36,7 +36,7 @@ function probeAgents(present: string[]): { ready: string[]; missing: string[] } 
     'BUN_BIN=/bin/true',
     'LFG_INSTALL_CLAUDE=0 LFG_INSTALL_CODEX=0 LFG_INSTALL_OPENCODE=0',
     'LFG_INSTALL_GROK=0 LFG_INSTALL_CURSOR=0 LFG_INSTALL_COPILOT=0',
-    'LFG_INSTALL_PI=0 LFG_INSTALL_BROWSER=0',
+    'LFG_INSTALL_PI=0',
     'LFG_COPILOT_VERSION=latest',
     // pi is probed by file path rather than by PATH lookup, so the block needs
     // an install directory. Point it somewhere that cannot exist.
@@ -79,10 +79,10 @@ describe("agent detection", () => {
     expect(result).not.toBeNull();
     expect(result!.ready).toContain("claude");
     expect(result!.ready).toContain("codex");
-    // pi and the browser tool are probed by file, not PATH, and are absent
-    // here on purpose: neither is bundled any more, so a machine with every
-    // CLI installed still lacks them until someone opts in.
-    expect(result!.missing).toEqual(["pi", "browser"]);
+    // pi is probed by file, not PATH, and is absent here on purpose: it is no
+    // longer bundled, so a machine with every CLI installed still lacks it
+    // until someone opts in.
+    expect(result!.missing).toEqual(["pi"]);
   });
 
   // The realistic middle: some installed, some not. This is the shape that was

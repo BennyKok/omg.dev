@@ -107,11 +107,6 @@ LFG_INSTALL_COPILOT="${LFG_INSTALL_COPILOT:-0}"
 # agent. Opting in is recorded in .env so a later update reinstalls it instead
 # of silently dropping it when the release tree is replaced.
 LFG_INSTALL_PI="${LFG_INSTALL_PI:-0}"
-# The browser tool. playwright's driver is ~20MB and the Chromium it drives is
-# another ~150MB that nothing here used to install - so a default install
-# carried the cost of the feature without being able to run it. Opt in, and get
-# both halves.
-LFG_INSTALL_BROWSER="${LFG_INSTALL_BROWSER:-0}"
 # Pin the installed @github/copilot version so setup is reproducible. Override
 # with LFG_COPILOT_VERSION=x.y.z (or "latest" for opt-in floating installs).
 # 1.0.71 audits clean; <=1.0.42 is affected by GHSA-9ccr-r5hg-74gf
@@ -447,12 +442,6 @@ run_agent_installer() {
     opencode) "$BUN_BIN" add -g opencode-ai >/dev/null 2>&1 ;;
     grok)     curl -fsSL https://x.ai/cli/install.sh | bash ;;
     cursor)   curl -fsSL https://cursor.com/install | bash ;;
-    browser)
-      # Both halves, or the feature is present-but-broken exactly as before.
-      ( cd "$LFG_DIR" \
-        && "$BUN_BIN" add playwright >/dev/null 2>&1 \
-        && "$BUN_BIN" x playwright install chromium >/dev/null 2>&1 )
-      ;;
     pi)
       # Installed into the install directory, which is where the harness and
       # detection both look for it.
@@ -507,7 +496,6 @@ ensure_agent grok     "$LFG_INSTALL_GROK"     command -v grok
 ensure_agent cursor   "$LFG_INSTALL_CURSOR"   has_cursor_cli
 ensure_agent copilot  "$LFG_INSTALL_COPILOT"  command -v copilot
 ensure_agent pi       "$LFG_INSTALL_PI"       test -f "$LFG_DIR/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"
-ensure_agent browser  "$LFG_INSTALL_BROWSER"  test -d "$LFG_DIR/node_modules/playwright"
 
 # ---- 4. fetch lfg (bundled release tarball, or git clone for dev) ----
 # A git checkout always wins - `lfg setup` from inside a dev clone updates via
@@ -764,7 +752,6 @@ seed_env() {
 # node_modules, so without this the agent someone deliberately installed would
 # vanish on the next update with no explanation.
 [ "$LFG_INSTALL_PI" = "1" ] && seed_env INSTALL_PI 1
-[ "$LFG_INSTALL_BROWSER" = "1" ] && seed_env INSTALL_BROWSER 1
 seed_env HOST 127.0.0.1
 seed_env PORT "$LFG_PORT"
 seed_env REPOS_ROOT "$LFG_REPOS_ROOT"
