@@ -994,15 +994,13 @@ if command -v tailscale >/dev/null 2>&1; then
   TAILNET_URL="$(tailscale status --json 2>/dev/null | jq -r '.Self.DNSName // empty' | sed 's/\.$//' || true)"
 fi
 
-# The named URL is not setup's doing any more. On macOS `omg serve` advertises
-# omg.local over mDNS for as long as it runs, so by the time this prints, the
-# service is already answering there - no hosts file and no sudo. Saying
-# "optional, needs sudo" here was describing a mechanism we no longer use.
+# Only a name setup itself confirmed resolves to loopback gets printed. `omg
+# serve` may also advertise omg.local over mDNS, but setup cannot verify that
+# the name is answering from here, so it stays out of the summary rather than
+# handing out a URL that might not load.
 NAMED_URL=""
 if [ "$LOCAL_HOSTNAME_READY" = "1" ]; then
   NAMED_URL="http://$LFG_LOCAL_HOSTNAME:$LFG_PORT"
-elif [ "$OS_NAME" = "Darwin" ] && command -v dns-sd >/dev/null 2>&1; then
-  NAMED_URL="http://omg.local:$LFG_PORT"
 fi
 
 echo
