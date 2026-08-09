@@ -14,11 +14,15 @@ import { BareSurfaceProvider } from "./lib/bare-surface";
 import {
   EmbeddedHostOptionsProvider,
   type EmbeddedViewer,
+  type HostedTranscription,
 } from "./lib/embedded-host-options";
 import { claimSurfaceAttribute } from "./lib/surface-attribute";
 import { createOmgRouter } from "./router";
 
-export type { EmbeddedViewer } from "./lib/embedded-host-options";
+export type {
+  EmbeddedViewer,
+  HostedTranscription,
+} from "./lib/embedded-host-options";
 
 export { createGrantTransport } from "@omg-dev/client";
 export type {
@@ -45,6 +49,13 @@ export interface OmgAppSurfaceProps {
    * roster, session ownership, filtering, or authorization.
    */
   viewer?: EmbeddedViewer;
+  /**
+   * Route dictation audio to the platform's transcription broker instead of to
+   * the LFG server this UI was served from. A hosted surface should set this:
+   * transcription is funded and metered by the platform, so it must not depend
+   * on a provider key the connected box may or may not hold.
+   */
+  hostedTranscription?: HostedTranscription;
   /**
    * Central sink for client errors, in addition to the report that goes through
    * the transport into the user's own lfg instance. A hosted surface should set
@@ -204,6 +215,7 @@ export function OmgAppSurface({
   className,
   connectionOnboarding = true,
   viewer,
+  hostedTranscription,
   errorSink,
 }: OmgAppSurfaceProps) {
   // A full LFG app is the sole owner of its runtime transport. Install it
@@ -222,7 +234,9 @@ export function OmgAppSurface({
 
   return (
     <div className={className} data-lfg-app-surface="">
-      <EmbeddedHostOptionsProvider value={{ connectionOnboarding, viewer }}>
+      <EmbeddedHostOptionsProvider
+        value={{ connectionOnboarding, viewer, hostedTranscription }}
+      >
         <BareSurfaceProvider bare={false}>
           <RootErrorBoundary>
             <AppDialogProvider>

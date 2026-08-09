@@ -2543,6 +2543,14 @@ function useDictation(opts: {
     finalWaiters: Array<() => void>;
   } | null>(null);
 
+  // On a hosted surface, dictation belongs to the platform, not to the box the
+  // UI is served from: the platform funds it and meters it against the viewer's
+  // own allowance. Read through a ref so the async start() below always dials
+  // the currently-configured broker rather than one captured at mount.
+  const { hostedTranscription } = useEmbeddedHostOptions();
+  const hostedTranscriptionRef = useRef(hostedTranscription);
+  hostedTranscriptionRef.current = hostedTranscription;
+
   // start() is async — the mic/socket aren't live until getUserMedia resolves and
   // sessionRef is assigned. `startingRef` marks that window; if a release fires
   // stop() inside it, `pendingStopRef` records the requested stop so start() can
@@ -2918,18 +2926,26 @@ function useDictation(opts: {
       // Now that the mic is open, confirm the STT provider is actually usable.
       // Off the critical path, so it can't delay the prompt. Cache-hit → instant.
       // Guarded: this fetch is the unbounded one when a parked stream was reused.
-      const configured = await guard(ensureVoiceConfigured("input"));
-      if (configured === ACQUIRE_ABORTED || configured === ACQUIRE_EXPIRED) {
-        parkStream();
-        abandon(
-          configured === ACQUIRE_EXPIRED ? "Voice setup check timed out — try again" : undefined,
-        );
-        return;
-      }
-      if (!configured) {
-        parkStream();
-        abandon();
-        return;
+      //
+      // Skipped entirely on a hosted surface: this check asks the BOX which
+      // provider key it holds, and a hosted broker makes that irrelevant — the
+      // platform is the provider. Running it anyway would abort the take (and
+      // pop a "configure a key" dialog) on exactly the keyless self-hosted box
+      // that hosted transcription exists to serve.
+      if (!hostedTranscriptionRef.current) {
+        const configured = await guard(ensureVoiceConfigured("input"));
+        if (configured === ACQUIRE_ABORTED || configured === ACQUIRE_EXPIRED) {
+          parkStream();
+          abandon(
+            configured === ACQUIRE_EXPIRED ? "Voice setup check timed out — try again" : undefined,
+          );
+          return;
+        }
+        if (!configured) {
+          parkStream();
+          abandon();
+          return;
+        }
       }
       stream.getAudioTracks().forEach((t) => (t.enabled = true));
       const Ctor =
@@ -2953,8 +2969,22 @@ function useDictation(opts: {
       // somewhere to go (queued in `pending` until the socket opens).
       const proto = location.protocol === "https:" ? "wss:" : "ws:";
       let ws: WebSocket | null = null;
+      const hosted = hostedTranscriptionRef.current;
       try {
-        ws = new WebSocket(`${proto}//${location.host}/api/voice/stt-stream`);
+        if (hosted) {
+          // Hosted surface: stream straight to the platform broker. The JWT
+          // rides the subprotocol because that is the only header a browser
+          // lets a WS client set. A null token means the session can no longer
+          // be proven — fall through to the box rather than opening a socket
+          // that would only be refused after the upgrade.
+          const token = await hosted.getToken();
+          if (token) {
+            ws = new WebSocket(hosted.url, [`vibes-bearer.${token}`]);
+          }
+        }
+        if (!ws) {
+          ws = new WebSocket(`${proto}//${location.host}/api/voice/stt-stream`);
+        }
         ws.binaryType = "arraybuffer";
       } catch {
         ws = null;
