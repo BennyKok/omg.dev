@@ -2,6 +2,16 @@
 
 Recent product updates and deployment notes.
 
+## August 9, 2026 - copilot gets its real logo (v0.1.327)
+
+- **copilot sessions now show the actual GitHub Copilot logo.** The mark was
+  a hand-drawn stand-in — an outlined shape with two bars for eyes — that
+  looked like a broken or generic icon sitting next to the real brand marks
+  every other agent ships. It is now the official Copilot glyph, on the same
+  dark rounded tile as grok, pi, and opencode.
+- Agent icons are cached for a year, so the new art comes with a version bump
+  that pulls it into browsers still holding the old one.
+
 ## August 9, 2026 - Dictation works on a hosted UI, whatever machine is behind it (v0.1.325)
 
 - **Dictation on a hosted UI now uses the host's transcription, not your
