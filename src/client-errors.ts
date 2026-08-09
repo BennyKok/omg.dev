@@ -191,14 +191,24 @@ export async function reportClientError(
           : "No stack frame",
       e.url ? `URL: ${e.url}` : "",
     ].filter(Boolean);
-    await addFinding({
+    const finding = await addFinding({
       agentId: AGENT_ID,
       title,
       severity: "high",
       reasoning,
       suggest: "Auto-fix agent dispatched to locate and fix this in web/src.",
     });
-    void notifyAll().catch(() => {});
+    // Carry the text in the push. A contentless wake would make the worker
+    // fetch the finding back from this box, which a device running the app on
+    // a hosted origin cannot do.
+    void notifyAll({
+      notification: {
+        title,
+        body: reasoning[0] ?? "A frontend error was reported.",
+        url: "/",
+        tag: `finding-${finding.id}`,
+      },
+    }).catch(() => {});
     reported = true;
   }
 

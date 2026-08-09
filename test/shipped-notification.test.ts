@@ -33,7 +33,11 @@ describe("shipped notifications", () => {
     const worker = await readFile("web/public/sw.js", "utf8");
     expect(worker).toContain("const notification = asked?.notification || null");
     expect(worker).toContain("data: { url: notification.url || \"/\" }");
-    expect(worker).toContain('if ("navigate" in client) await client.navigate(target)');
+    // Navigation is attempted in place and falls back to openWindow when the
+    // target is cross-origin — see test/push-payload-delivery.test.ts, which
+    // runs the real worker for both branches.
+    expect(worker).toContain("await client.navigate(target)");
+    expect(worker).toContain("await self.clients.openWindow(target)");
   });
 
   test("keeps the installed PWA badge in sync with visible notifications", async () => {
