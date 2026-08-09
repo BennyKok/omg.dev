@@ -9,6 +9,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { PATHS } from "../config.ts";
+import { thinkingLevelsForAgent } from "../agent-catalog.ts";
 
 export type Severity = "high" | "med" | "low";
 export type AutoAgentBackend =
@@ -107,6 +108,21 @@ export async function getAutoAgent(id: string): Promise<AutoAgent | null> {
   return (await listAutoAgents()).find((a) => a.id === id) ?? null;
 }
 
+/**
+ * Keep a thinking level only if the backend that will run it actually accepts
+ * that level. Returns undefined for a backend with no reasoning knob at all
+ * (opencode), and for a level outside the backend's own vocabulary (a claude
+ * "max" surviving a switch to grok, whose CLI exits on it).
+ */
+export function sanitizeThinkingLevel(
+  level: string | undefined,
+  backend: AutoAgentBackend | undefined,
+): string | undefined {
+  if (!level) return undefined;
+  const allowed = thinkingLevelsForAgent(backend ?? "aisdk");
+  return allowed?.includes(level) ? level : undefined;
+}
+
 export async function saveAutoAgent(input: {
   id?: string;
   name: string;
@@ -128,6 +144,7 @@ export async function saveAutoAgent(input: {
     while (list.some((a) => a.id === id)) id = `${slug(input.name)}-${n++}`;
   }
   const existing = list.find((a) => a.id === id);
+  const backend = input.agent ?? existing?.agent;
   const agent: AutoAgent = {
     id,
     name: input.name,
@@ -135,9 +152,15 @@ export async function saveAutoAgent(input: {
     schedule: input.schedule,
     enabled: input.enabled,
     cwd: input.cwd ?? existing?.cwd,
-    agent: input.agent ?? existing?.agent,
+    agent: backend,
     model: input.model ?? existing?.model,
-    thinkingLevel: input.thinkingLevel ?? existing?.thinkingLevel,
+    // Carry the level forward on a plain edit, but never past a backend
+    // switch that can't take it. The editor already omits thinkingLevel for a
+    // backend with no reasoning knob (opencode), so a bare `??` merge resurrected
+    // the level the agent held as claude — writing a record that no longer
+    // validates. Nothing re-checks a stored row, so the break only surfaced
+    // later, at launch, as a 400 from POST /api/sessions/new.
+    thinkingLevel: sanitizeThinkingLevel(input.thinkingLevel ?? existing?.thinkingLevel, backend),
     tools: input.tools ?? existing?.tools,
     lastRunAt: existing?.lastRunAt,
   };
