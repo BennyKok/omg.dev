@@ -2,6 +2,24 @@
 
 Recent product updates and deployment notes.
 
+## August 9, 2026 - Dictation works on a hosted UI, whatever machine is behind it (v0.1.325)
+
+- **Dictation on a hosted UI now uses the host's transcription, not your
+  machine's.** The microphone used to stream to whichever machine you had
+  connected, and that machine picked a speech provider from its own
+  environment. Drive a self-hosted machine from a hosted OMG UI and it
+  transcribed on your own ElevenLabs key — or, if you had no key, the mic
+  button checked the machine, found nothing, and asked you to configure one.
+  A hosted surface can now hand the app its own transcription endpoint, and
+  the audio goes there instead. Your machine is no longer in the audio path,
+  which also removes a hop from the round trip.
+- **The setup check is skipped when the host supplies transcription.** That
+  check asks which key *the machine* holds, which is the wrong question once
+  the host provides the service; leaving it in place aborted the recording on
+  exactly the keyless machine this is meant to serve.
+- **Standalone installs are unchanged.** With no host endpoint the app still
+  streams to its own machine and uses the provider configured there.
+
 ## August 9, 2026 - Notifications survive a hosted UI (v0.1.324)
 
 - **Push notifications now carry their own text, encrypted end to end.** The
