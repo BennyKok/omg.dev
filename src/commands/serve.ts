@@ -236,6 +236,11 @@ import {
   startToolAuth,
   submitCodingAgentAuthCode,
 } from "../coding-agents.ts";
+import {
+  deletePiCredential,
+  isPiAuthProviderId,
+  setPiProviderApiKey,
+} from "../pi-auth.ts";
 import { listToolConnections } from "../tool-connections.ts";
 import {
   bindClaudeSessionAccount,
@@ -2672,12 +2677,46 @@ a{color:#60a5fa}
           try {
             const body = (await req.json().catch(() => null)) as {
               claudeAccountId?: unknown;
+              provider?: unknown;
             } | null;
             const claudeAccountId =
               typeof body?.claudeAccountId === "string" ? body.claudeAccountId : undefined;
-            return json(await startCodingAgentAuth(kind, { claudeAccountId }));
+            // pi is signed in per model provider rather than once per agent, so
+            // it is the one kind that needs to be told which one.
+            const piProvider = typeof body?.provider === "string" ? body.provider : undefined;
+            return json(await startCodingAgentAuth(kind, { claudeAccountId, piProvider }));
           } catch (e) {
             return err(502, e instanceof Error ? e.message : "failed to start login");
+          }
+        }
+      }
+      // pi's key-based providers (OpenCode Zen) have no browser flow to run —
+      // the user pastes a key and we hand it to pi's credential store.
+      if (path === "/api/coding-agents/pi/api-key" && req.method === "POST") {
+        const body = (await req.json().catch(() => null)) as {
+          provider?: unknown;
+          key?: unknown;
+        } | null;
+        if (typeof body?.provider !== "string" || !isPiAuthProviderId(body.provider)) {
+          return err(400, "unknown pi provider");
+        }
+        if (typeof body.key !== "string") return err(400, "expected { key: string }");
+        try {
+          await setPiProviderApiKey(body.provider, body.key);
+          return json({ ok: true, agents: await listCodingAgents() });
+        } catch (e) {
+          return err(400, e instanceof Error ? e.message : "could not save API key");
+        }
+      }
+      {
+        const m = path.match(/^\/api\/coding-agents\/pi\/providers\/([a-z0-9-]+)$/);
+        if (m && req.method === "DELETE") {
+          if (!isPiAuthProviderId(m[1])) return err(404, "unknown pi provider");
+          try {
+            await deletePiCredential(m[1]);
+            return json({ ok: true, agents: await listCodingAgents() });
+          } catch (e) {
+            return err(500, e instanceof Error ? e.message : "could not disconnect provider");
           }
         }
       }

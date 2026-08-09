@@ -40,6 +40,7 @@ import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { initialCmdOffset, readNewCmdLines, writeCursor } from "./cmd-tail.ts";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { PI_AUTH_PROVIDER_IDS } from "../../pi-auth.ts";
 // pi 0.83 narrowed the RpcClient listener from pi-agent-core's raw `AgentEvent`
 // to `AgentSessionEvent`, which the coding-agent package owns: it re-shapes
 // `agent_end` and adds session-level events (agent_settled, entry_appended,
@@ -66,6 +67,29 @@ function piThinkingFor(level?: string): string | undefined {
 function arg(argv: string[], name: string): string | undefined {
   const i = argv.indexOf(name);
   return i >= 0 ? argv[i + 1] : undefined;
+}
+
+/**
+ * Which pi provider serves a model id, and what pi should be asked for.
+ *
+ * pi is multi-provider — it can talk to Anthropic, to ChatGPT via the Codex
+ * OAuth credential, and to OpenCode Zen — but a session only ever named one
+ * provider, "anthropic", so the other two were unreachable no matter what was
+ * signed in. Models from a non-default provider carry a `<providerId>/` prefix
+ * (`openai-codex/gpt-5.6-sol`), which is unambiguous because it is matched
+ * against the known provider ids rather than just "has a slash": pi's Anthropic
+ * catalog already contains slashed custom ids like `deepseek/deepseek-v4-flash`
+ * that must keep routing to "anthropic".
+ */
+export function piModelTarget(model: string): { provider: string; model: string } {
+  const slash = model.indexOf("/");
+  if (slash > 0) {
+    const prefix = model.slice(0, slash);
+    if ((PI_AUTH_PROVIDER_IDS as readonly string[]).includes(prefix)) {
+      return { provider: prefix, model: model.slice(slash + 1) };
+    }
+  }
+  return { provider: "anthropic", model };
 }
 
 // Env var pointing at a custom agent profile directory — extra system-prompt
@@ -200,11 +224,12 @@ export async function cmdPiSession(argv: string[]): Promise<void> {
   if (piThinking) rpcArgs.push("--thinking", piThinking);
   if (resumeSessionId) rpcArgs.push("--session", resumeSessionId);
   rpcArgs.push(...agentProfileCliArgs(profile));
+  const target = piModelTarget(model);
   const client = new RpcClient({
     cliPath: resolvePiCliPath(),
     cwd,
-    provider: "anthropic",
-    model,
+    provider: target.provider,
+    model: target.model,
     args: rpcArgs,
   });
 
