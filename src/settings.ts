@@ -14,10 +14,6 @@ export type GlobalSettings = {
   // Global transcript rendering preference. The focused mode is experimental
   // and projects the loaded transcript down to user turns + lfg_output.
   transcriptView: TranscriptView;
-  // Advertise a .local name for this machine's loopback over mDNS. macOS only
-  // (see src/mdns-alias.ts); the setting is inert elsewhere rather than hidden,
-  // so a config synced between machines does not lose it.
-  localUrlEnabled: boolean;
 };
 
 export type TranscriptView = "full" | "user-lfg-output";
@@ -62,10 +58,7 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
   const transcriptView = validTranscriptView(input?.transcriptView)
     ? input.transcriptView
     : "full";
-  // Defaults on. Advertising the name costs nothing and needs no privilege, and
-  // a machine that cannot do it (anything but macOS) simply ignores the value.
-  const localUrlEnabled = input?.localUrlEnabled !== false;
-  return { timeZone, maxLiveAgents, agentsPaused, transcriptView, localUrlEnabled };
+  return { timeZone, maxLiveAgents, agentsPaused, transcriptView };
 }
 
 function settingsDb(): Database {
@@ -151,7 +144,6 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
     write.run("maxLiveAgents", JSON.stringify(next.maxLiveAgents), now);
     write.run("agentsPaused", JSON.stringify(next.agentsPaused), now);
     write.run("transcriptView", JSON.stringify(next.transcriptView), now);
-    write.run("localUrlEnabled", JSON.stringify(next.localUrlEnabled), now);
   })();
   return next;
 }

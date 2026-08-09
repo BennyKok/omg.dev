@@ -1,4 +1,3 @@
-import { mdnsStatus, setMdnsEnabled, startMdnsAlias, stopMdnsAlias } from "../mdns-alias.ts";
 import { mkdir, open, readdir, realpath, stat } from "node:fs/promises";
 import { appendFileSync, existsSync, statfsSync, statSync, mkdirSync, readFileSync, type Dirent } from "node:fs";
 import { tmpdir, homedir, loadavg, cpus, totalmem, freemem } from "node:os";
@@ -2490,10 +2489,6 @@ a{color:#60a5fa}
             settings: computer
               ? { ...settings, maxLiveAgents: computer.limit }
               : settings,
-            // Capability, not preference: Linux has no dns-sd, so the UI shows
-            // the toggle as unavailable rather than as a switch that silently
-            // does nothing.
-            localUrl: mdnsStatus(),
           });
         }
         if (req.method === "POST") {
@@ -2516,15 +2511,6 @@ a{color:#60a5fa}
             if (!Number.isInteger(max) || max < 0 || max > MAX_LIVE_AGENTS_LIMIT)
               return err(400, `maxLiveAgents must be an integer from 0 to ${MAX_LIVE_AGENTS_LIMIT} (0 = unlimited)`);
             patch.maxLiveAgents = max;
-          }
-          if (b?.localUrlEnabled !== undefined) {
-            if (typeof b.localUrlEnabled !== "boolean")
-              return err(400, "localUrlEnabled must be a boolean");
-            // Applied immediately, not on restart: registering or dropping an
-            // mDNS record is unprivileged and instant, so the toggle can mean
-            // what it says.
-            setMdnsEnabled(b.localUrlEnabled, Number(server.port));
-            patch.localUrlEnabled = b.localUrlEnabled;
           }
           if (b?.agentsPaused !== undefined) {
             if (typeof b.agentsPaused !== "boolean")
@@ -2561,10 +2547,6 @@ a{color:#60a5fa}
           autoAgents: listAutoAgents(),
           findings: listFindings("open"),
           onboarding: getOnboarding(),
-          // Capability, not preference: the UI needs to know whether this
-          // machine can advertise a .local name at all, so it can explain
-          // itself instead of showing a switch that does nothing.
-          localUrl: Promise.resolve(mdnsStatus()),
         };
         const taskEntries = Object.entries(tasks);
         const settled = await Promise.allSettled(taskEntries.map(([, task]) => task));
@@ -2584,7 +2566,6 @@ a{color:#60a5fa}
           autoAgents?: Awaited<ReturnType<typeof listAutoAgents>> | null;
           findings?: Awaited<ReturnType<typeof listFindings>> | null;
           onboarding?: Awaited<ReturnType<typeof getOnboarding>> | null;
-          localUrl?: ReturnType<typeof mdnsStatus> | null;
         };
         return json(
           {
@@ -2603,7 +2584,6 @@ a{color:#60a5fa}
               findings: boot.findings ?? null,
             },
             onboarding: boot.onboarding ?? null,
-            localUrl: boot.localUrl ?? null,
             version: appVersion(),
           },
           { headers: { "Content-Type": "application/json", "Cache-Control": "no-cache" } },
@@ -6415,18 +6395,4 @@ a{color:#60a5fa}
   console.log(`lfg web → http://${server.hostname}:${server.port}`);
   console.log(`  agents dir: ${AGENTS_DIR}`);
 
-  // Advertise omg.local for this machine's loopback over mDNS (macOS only).
-  // Owned by the server rather than by setup because the registration lives
-  // exactly as long as the process holding it — which also means stopping the
-  // server is a complete uninstall of the name, with nothing left on disk.
-  // Honour the stored preference on boot, so turning the name off in Settings
-  // survives a restart instead of coming back with the service.
-  if (getGlobalSettingsSync().localUrlEnabled) startMdnsAlias(Number(server.port));
-  for (const signal of ["SIGINT", "SIGTERM"] as const) {
-    process.on(signal, () => {
-      stopMdnsAlias();
-      process.exit(0);
-    });
-  }
-  process.on("exit", stopMdnsAlias);
 }
