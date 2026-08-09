@@ -2,6 +2,29 @@
 
 Recent product updates and deployment notes.
 
+## August 9, 2026 - Notifications survive a hosted UI (v0.1.324)
+
+- **Push notifications now carry their own text, encrypted end to end.** The
+  server used to send an empty "wake up" push, and the phone fetched the actual
+  notice back from the machine afterwards. That works when the app and the
+  machine share an address, which is the standalone setup — but if you drive a
+  self-hosted machine from a hosted OMG UI, the fetch goes to the host instead
+  of to your machine, and it knows nothing about your notifications. Enabling
+  the toggle appeared to work and then nothing ever arrived. The notice now
+  travels inside the push itself (encrypted with your device's own keys, so
+  nothing in between can read it), which removes that callback entirely.
+- **Notifications say what happened, wherever they arrive.** Questions from an
+  agent, new findings, repeat findings, and frontend errors previously relied on
+  that fetch-back for their wording. They now carry their own title and body,
+  the same way "Shipped:" and session-finished notices already did.
+- **Tapping a notification opens the right app.** Deep links are sent as full
+  addresses resolved against the surface you actually subscribed from, and a
+  notification that can't navigate an already-open window now opens a new one
+  instead of silently focusing a stale page.
+- **The notification toggle no longer hangs.** On a page whose host registers no
+  service worker, turning notifications on would spin forever after you granted
+  permission. It now reports the real reason instead.
+
 ## August 9, 2026 - The named local URL goes, and the mobile app joins the audit (v0.1.323)
 
 - **The named local URL (`omg.local`) is gone**, along with its Settings toggle.
