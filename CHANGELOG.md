@@ -2,6 +2,23 @@
 
 Recent product updates and deployment notes.
 
+## August 9, 2026 - Two features stop shipping to people who do not use them (v0.1.319)
+
+- **The WhatsApp bridge is gone.** It was 17MB of every install — baileys plus
+  protobufjs, libsignal and a rust bridge — for a sidecar nobody was running.
+  The docs already called it optional; it just was not optional in the bundle,
+  because the command imported baileys at the top level. Removed outright rather
+  than made opt-in: keeping a dependency, an install flag and a code path alive
+  for a feature with no users is a poor trade.
+- **The browser tool installs on request.** playwright's driver was 20MB, the
+  largest single item left — and the ~150MB Chromium it drives was never
+  installed by setup at all, so a default install paid for the feature without
+  being able to run it. `OMG_INSTALL_BROWSER=1 omg setup` now installs both
+  halves and remembers the choice. Calling the tool without it says so, with the
+  command to fix it.
+- Together with v0.1.318, `node_modules` is down from 244MB to 66MB, and no
+  single dependency is larger than 7MB.
+
 ## August 8, 2026 - Installs get smaller again: 61MB to 34MB (v0.1.318)
 
 - **Source maps are no longer shipped.** They were 27MB of a 61MB download —
