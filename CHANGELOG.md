@@ -20,6 +20,20 @@ Recent product updates and deployment notes.
 - **Standalone installs are unchanged.** With no host endpoint the app still
   streams to its own machine and uses the provider configured there.
 
+## August 9, 2026 - Notifications pick the right service worker (v0.1.326)
+
+- **A hosted surface no longer enrols your device into silence.** Notifications
+  are delivered to a service worker, and a hosted page can have several — the
+  dashboard has one that only clears old caches and never shows a notification.
+  OMG was picking whichever one happened to serve the page, so on a hosted UI
+  the toggle switched on, the machine sent successfully, and nothing ever
+  appeared. The host now names the worker it dedicates to OMG, and until it
+  does, the toggle says so rather than pretending to work.
+- **A stale notification subscription is now replaced instead of reused.** If
+  the machine's notification keys were ever regenerated, the browser kept an
+  old subscription that every send was rejected against — the toggle looked on
+  and nothing arrived, with nothing to explain it.
+
 ## August 9, 2026 - Notifications survive a hosted UI (v0.1.324)
 
 - **Push notifications now carry their own text, encrypted end to end.** The
