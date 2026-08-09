@@ -18,7 +18,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { extractFunctionSource } from "./setup-script-helpers.ts";
+import { SETUP_SH, extractFunctionSource } from "./setup-script-helpers.ts";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -26,10 +26,14 @@ afterEach(() => {
 });
 
 function runLinkCommand(home: string, name: string, target: string): string {
+  const source = readFileSync(SETUP_SH, "utf8");
+  const markerLine = source.split("\n").find(l => l.startsWith('LAUNCHER_MARKER="'))!;
   const script = [
     "set -euo pipefail",
     `HOME=${JSON.stringify(home)}`,
     'warn() { printf "WARN:%s\\n" "$*" >&2; }',
+    markerLine,
+    extractFunctionSource("is_our_command"),
     extractFunctionSource("link_command"),
     `link_command ${JSON.stringify(name)} ${JSON.stringify(target)}`,
   ].join("\n");
@@ -48,10 +52,15 @@ function fixture() {
 }
 
 describe("link_command", () => {
-  test("creates the link when nothing is in the way", () => {
+  test("writes a launcher when nothing is in the way", () => {
     const f = fixture();
     const stderr = runLinkCommand(f.home, "omg", f.target);
-    expect(readlinkSync(f.link)).toBe(f.target);
+    const body = readFileSync(f.link, "utf8");
+    // A launcher, not a symlink: the symlink relied on the CLI's bun shebang,
+    // which fails wherever bun is not on PATH.
+    expect(lstatSync(f.link).isSymbolicLink()).toBe(false);
+    expect(body).toContain("# omg.dev launcher");
+    expect(body).toContain(f.target);
     expect(stderr).not.toContain("WARN");
   });
 
@@ -82,7 +91,7 @@ describe("link_command", () => {
 
   // An upgrade has to keep working: a link from a previous install, including
   // one in the pre-rename ~/lfg directory, is ours to repoint.
-  test("repoints a link from an earlier omg.dev install", () => {
+  test("replaces a launcher or link from an earlier omg.dev install", () => {
     const f = fixture();
     const previous = join(f.home, "lfg", "src", "cli.ts");
     mkdirSync(join(f.home, "lfg", "src"), { recursive: true });
@@ -91,7 +100,7 @@ describe("link_command", () => {
 
     const stderr = runLinkCommand(f.home, "omg", f.target);
 
-    expect(readlinkSync(f.link)).toBe(f.target);
+    expect(readFileSync(f.link, "utf8")).toContain(f.target);
     expect(stderr).not.toContain("WARN");
   });
 
@@ -99,7 +108,7 @@ describe("link_command", () => {
     const f = fixture();
     runLinkCommand(f.home, "omg", f.target);
     const stderr = runLinkCommand(f.home, "omg", f.target);
-    expect(readlinkSync(f.link)).toBe(f.target);
+    expect(readFileSync(f.link, "utf8")).toContain(f.target);
     expect(stderr).not.toContain("WARN");
   });
 
@@ -111,6 +120,6 @@ describe("link_command", () => {
 
     runLinkCommand(f.home, "omg", f.target);
 
-    expect(readlinkSync(f.link)).toBe(f.target);
+    expect(readFileSync(f.link, "utf8")).toContain(f.target);
   });
 });

@@ -188,19 +188,25 @@ ensure_path_line() { # append a line to common interactive shell rc files once
 # src/commands/uninstall.ts, which uses it to decide what is safe to remove.
 LAUNCHER_MARKER="# omg.dev launcher"
 
+# Did this script install the command at $1?
+#
+# Two shapes exist: the launcher current installs write, and the plain symlink
+# older ones created. Every ownership question below routes through here -
+# asking only about the symlink meant a launcher failed to be recognised as
+# ours, so setup treated its own command as a rival program and handed the name
+# over to itself.
+is_our_command() {
+  local path="$1"
+  case "$(readlink "$path" 2>/dev/null || true)" in
+    */src/cli.ts) return 0 ;;
+  esac
+  grep -qF "$LAUNCHER_MARKER" "$path" 2>/dev/null
+}
+
 link_command() {
   local name="$1" target="$2" path="$HOME/.local/bin/$1"
   if [ -e "$path" ] || [ -L "$path" ]; then
-    local ours=0
-    # A launcher we wrote earlier.
-    grep -qF "$LAUNCHER_MARKER" "$path" 2>/dev/null && ours=1
-    # Or the plain symlink older installs created.
-    if [ -L "$path" ]; then
-      case "$(readlink "$path" 2>/dev/null || true)" in
-        */src/cli.ts) ours=1 ;;
-      esac
-    fi
-    if [ "$ours" != "1" ]; then
+    if ! is_our_command "$path"; then
       warn "Leaving existing ${path} alone (not installed by omg.dev). Run it as ${target} or remove that file and re-run setup."
       return 0
     fi
@@ -690,9 +696,7 @@ IFS=:
 for _dir in $PATH; do
   [ -n "$_dir" ] || continue
   [ -x "$_dir/omg" ] || continue
-  case "$(readlink "$_dir/omg" 2>/dev/null || true)" in
-    */src/cli.ts) continue ;;
-  esac
+  is_our_command "$_dir/omg" && continue
   other_omg="$_dir/omg"
   break
 done
@@ -709,8 +713,7 @@ if [ -n "$other_omg" ] \
     | grep -q "run and manage your AI coding agents"; then
   say "omg is provided by $other_omg and forwards here - this CLI is 'lfg'."
   # Only ever remove our own link, matching link_command's ownership rule.
-  _ours="$(readlink "$HOME/.local/bin/omg" 2>/dev/null || true)"
-  case "$_ours" in */src/cli.ts) rm -f "$HOME/.local/bin/omg" ;; esac
+  is_our_command "$HOME/.local/bin/omg" && rm -f "$HOME/.local/bin/omg"
 else
   [ -n "$other_omg" ] && say "omg at $other_omg cannot forward here yet - keeping ours."
   link_command omg "$LFG_DIR/src/cli.ts"
