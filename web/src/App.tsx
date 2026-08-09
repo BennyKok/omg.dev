@@ -6148,6 +6148,14 @@ export function App() {
     // selected repo only if the agent has no base; (3) launch on the originating
     // auto agent's backend/model unless the user changed it in the finding sheet.
     const sourceAgent = autoAgents.find((a) => a.id === f.agentId);
+    // Resolve the backend first: the level has to be judged against the agent
+    // that will actually run, not the one the finding came from. The sheet
+    // deliberately sends no thinkingLevel when the chosen backend has no
+    // reasoning knob, so falling back to the source agent's level put it right
+    // back and the launch 400'd ("thinkingLevel is not supported for opencode
+    // sessions") on a request the user never asked for.
+    const launchAgent = opts.agent ?? sourceAgent?.agent ?? "aisdk";
+    const inheritedThinkingLevel = opts.thinkingLevel ?? sourceAgent?.thinkingLevel;
     const agentCwd = sourceAgent?.cwd;
     const cwd = agentCwd || localStorage.getItem("lfg_v2_repo") || repos[0]?.cwd || "";
     const owner = resolveRosterUser(
@@ -6165,9 +6173,9 @@ export function App() {
           cwd: cwd || undefined,
           prompt: composed,
           user: owner || undefined,
-          agent: opts.agent ?? sourceAgent?.agent ?? "aisdk",
+          agent: launchAgent,
           model: opts.model ?? sourceAgent?.model,
-          thinkingLevel: opts.thinkingLevel ?? sourceAgent?.thinkingLevel,
+          thinkingLevel: agentSupportsThinking(launchAgent) ? inheritedThinkingLevel : undefined,
         }),
       });
       const sid = res?.sessionId;
