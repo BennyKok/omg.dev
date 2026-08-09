@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { loadChromium, loadSharp } from "./native-deps.ts";
+import { loadSharp } from "./native-deps.ts";
 
 const SRC = import.meta.dir;
 
@@ -39,10 +39,9 @@ describe("native dependencies stay lazily loaded", () => {
     expect(offenders).toEqual([]);
   });
 
-  test("native-deps reaches the packages through dynamic import only", () => {
+  test("native-deps reaches sharp through dynamic import only", () => {
     const source = readFileSync(join(SRC, "native-deps.ts"), "utf8");
     expect(source).toContain('import("sharp")');
-    expect(source).toContain('import("playwright")');
     expect(STATIC_IMPORT.test(source)).toBe(false);
   });
 
@@ -59,9 +58,4 @@ describe("native dependencies stay lazily loaded", () => {
     expect(await loadSharp()).toBe(sharp);
   });
 
-  test("loadChromium resolves a launchable browser type and caches it", async () => {
-    const chromium = await loadChromium();
-    expect(typeof chromium.launch).toBe("function");
-    expect(await loadChromium()).toBe(chromium);
-  });
 });

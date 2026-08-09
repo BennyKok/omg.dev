@@ -35,7 +35,6 @@
     "@earendil-works/pi-coding-agent": "0.83.0",
     "@types/bun": "latest",
     "happy-dom": "^20.11.1",
-    "playwright": "^1.61.0",
     "typescript": "^7.0.0"
   },
   "dependencies": {

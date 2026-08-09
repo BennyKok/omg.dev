@@ -362,7 +362,6 @@ the bundled copies are dropped, and you install the agents you actually want:
 # from the UI: Settings → Coding agents → Install
 OMG_INSTALL_CLAUDE=1 OMG_INSTALL_OPENCODE=1 omg setup   # or headless
 OMG_INSTALL_PI=1 omg setup          # pi, plus its provider SDKs
-OMG_INSTALL_BROWSER=1 omg setup     # the browser tool: playwright + Chromium
 ```
 
 That is also how a hosted image ships with agents preinstalled — the same lean
