@@ -14,6 +14,16 @@ export type AiSdkOptions = {
   allowedTools?: string[];
   /** Claude Code reasoning effort. */
   thinkingLevel?: string;
+  /**
+   * Complete environment for this run — the Agent SDK treats `env` as a
+   * REPLACEMENT, not a merge, so build it with claudeAccountEnv() rather than
+   * by hand. Omit to inherit this process's environment (the normal case).
+   *
+   * This exists so a run can be billed to a specific Claude account without
+   * mutating `process.env`, which is shared with every other in-process caller
+   * in the serve process.
+   */
+  env?: Record<string, string>;
 };
 
 type Effort = "low" | "medium" | "high" | "xhigh" | "max";
@@ -102,8 +112,12 @@ export async function pipeToClaudeAiSdk(
       ...omgMcpServers(),
       includePartialMessages: true,
       ...(effort ? { effort } : {}),
-      // env is intentionally omitted: Agent SDK then inherits process.env,
-      // including PATH/HOME/LFG_*/ANTHROPIC_*.
+      // With no opts.env, `env` stays omitted and the Agent SDK inherits
+      // process.env, including PATH/HOME/LFG_*/ANTHROPIC_*. A caller that needs
+      // to run as a particular Claude account passes a COMPLETE replacement
+      // env (see claudeAccountEnv) so the account choice is scoped to this
+      // query instead of leaking through the shared process environment.
+      ...(opts.env ? { env: opts.env } : {}),
       ...(claudePath ? { pathToClaudeCodeExecutable: claudePath } : {}),
     },
   });

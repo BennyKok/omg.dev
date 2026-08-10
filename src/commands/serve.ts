@@ -2873,7 +2873,7 @@ a{color:#60a5fa}
             enabled?: boolean;
             cwd?: string;
             agent?: string;
-            claudeAccountId?: string;
+            claudeAccountId?: string | null;
             model?: string;
             thinkingLevel?: string;
             tools?: string[];
@@ -2889,7 +2889,15 @@ a{color:#60a5fa}
           // Pinning the account a scheduled run bills to is Claude-only. Reject
           // an id for any other backend rather than storing a field its runner
           // will silently ignore.
-          const claudeAccountId = b.claudeAccountId?.trim() || undefined;
+          //
+          // The tri-state matters: an ABSENT field means "don't touch the pin"
+          // (the CLI and the refine endpoint save without one), while an empty
+          // field means the user picked Claude · Auto and the pin must go.
+          // Folding both into undefined made un-pinning impossible.
+          const claudeAccountId =
+            b.claudeAccountId === undefined
+              ? undefined
+              : (typeof b.claudeAccountId === "string" ? b.claudeAccountId.trim() : "") || null;
           if (claudeAccountId) {
             if (autoBackend !== "aisdk")
               return err(400, `claudeAccountId is not supported for ${autoBackend} auto agents`);
