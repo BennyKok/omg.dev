@@ -28,6 +28,9 @@ export type AutoAgent = {
   enabled: boolean;
   cwd?: string; // where the Claude session runs; defaults to repo root
   agent?: AutoAgentBackend; // omitted for old rows = "aisdk" (Claude AI SDK)
+  // Which Claude account a scheduled run bills to. Only the "aisdk" backend has
+  // accounts; unset = whichever account the box is currently signed in as.
+  claudeAccountId?: string;
   model?: string;
   thinkingLevel?: string;
   // Extra tools granted to this agent on top of the read-only default set
@@ -123,6 +126,22 @@ export function sanitizeThinkingLevel(
   return allowed?.includes(level) ? level : undefined;
 }
 
+/**
+ * Keep a pinned Claude account only while the agent still runs on Claude.
+ *
+ * Same trap as sanitizeThinkingLevel above: a bare `??` merge lets a field that
+ * only means something for one backend survive a switch to another, and then
+ * reappear as a stored value nothing re-validates. Only "aisdk" has accounts.
+ */
+export function claudeAccountForBackend(
+  accountId: string | undefined,
+  backend: AutoAgentBackend | undefined,
+): string | undefined {
+  if (!accountId) return undefined;
+  // undefined backend = an old row, which means "aisdk" (see the type above).
+  return backend === undefined || backend === "aisdk" ? accountId : undefined;
+}
+
 export async function saveAutoAgent(input: {
   id?: string;
   name: string;
@@ -131,6 +150,7 @@ export async function saveAutoAgent(input: {
   enabled: boolean;
   cwd?: string;
   agent?: AutoAgentBackend;
+  claudeAccountId?: string;
   model?: string;
   thinkingLevel?: string;
   tools?: string[];
@@ -153,6 +173,10 @@ export async function saveAutoAgent(input: {
     enabled: input.enabled,
     cwd: input.cwd ?? existing?.cwd,
     agent: backend,
+    claudeAccountId: claudeAccountForBackend(
+      input.claudeAccountId ?? existing?.claudeAccountId,
+      backend,
+    ),
     model: input.model ?? existing?.model,
     // Carry the level forward on a plain edit, but never past a backend
     // switch that can't take it. The editor already omits thinkingLevel for a

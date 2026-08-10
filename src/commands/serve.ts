@@ -248,6 +248,7 @@ import {
   listClaudeAccounts,
   pickClaudeAccountForNewSession,
   removeClaudeAccount,
+  resolveClaudeAccount,
 } from "../claude-accounts.ts";
 import {
   AUTO_AGENT_BACKENDS,
@@ -2872,6 +2873,7 @@ a{color:#60a5fa}
             enabled?: boolean;
             cwd?: string;
             agent?: string;
+            claudeAccountId?: string;
             model?: string;
             thinkingLevel?: string;
             tools?: string[];
@@ -2884,6 +2886,16 @@ a{color:#60a5fa}
             return err(400, `unknown auto agent provider "${autoAgent}"`);
           }
           const autoBackend = autoAgent || "aisdk";
+          // Pinning the account a scheduled run bills to is Claude-only. Reject
+          // an id for any other backend rather than storing a field its runner
+          // will silently ignore.
+          const claudeAccountId = b.claudeAccountId?.trim() || undefined;
+          if (claudeAccountId) {
+            if (autoBackend !== "aisdk")
+              return err(400, `claudeAccountId is not supported for ${autoBackend} auto agents`);
+            if (!resolveClaudeAccount(claudeAccountId))
+              return err(400, "Claude account is missing or not connected");
+          }
           const model = b.model?.trim() || undefined;
           if (autoBackend === "aisdk" && model) {
             const allowed = modelsForAgent("aisdk");
@@ -2917,6 +2929,7 @@ a{color:#60a5fa}
             enabled: b.enabled !== false,
             cwd: b.cwd,
             agent: autoAgent as any,
+            claudeAccountId,
             model,
             thinkingLevel,
             tools: Array.isArray(b.tools) ? b.tools : undefined,
