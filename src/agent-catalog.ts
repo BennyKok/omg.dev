@@ -495,12 +495,29 @@ function piProvidersFrom(codingAgents: CodingAgentInfo[]): PiProviderState[] {
   return codingAgents.find((agent) => agent.key === "pi")?.status.providers ?? [];
 }
 
+/**
+ * Whether OpenCode itself holds a credential on this box.
+ *
+ * Separate from `hasConnectedModelAccount` on purpose. That one answers "is
+ * this box's owner signed in anywhere", which is the hosted-visitor guard; it
+ * says nothing about whether `opencode` can reach a paid provider. Gating the
+ * OpenCode picker on it alone meant connecting a *Claude* account unlocked the
+ * whole OpenCode catalog — openai/* and opencode-go/* included — on a box whose
+ * OpenCode had never been signed into, so every one of those models was offered
+ * and then failed at launch, while the free Zen models it could actually run
+ * were pushed off the list.
+ */
+function openCodeConnectedFrom(codingAgents: CodingAgentInfo[]): boolean {
+  return codingAgents.find((agent) => agent.key === "opencode")?.status.accountConnected === true;
+}
+
 /** Models the current user can honestly launch from the picker. */
 export function accessibleModelsForAgent(
   key: CodingAgentKind,
   models: string[],
   accountConnected: boolean,
   piProviders: readonly PiProviderState[] = [],
+  openCodeConnected = false,
 ): string[] {
   if (key === "pi") {
     // Every pi model belongs to a provider: a `<providerId>/` prefix names it,
@@ -521,7 +538,12 @@ export function accessibleModelsForAgent(
     // picker for the surfaces that render it anyway.
     return reachable.length ? reachable : models.filter((model) => !model.includes("/"));
   }
-  if (key !== "opencode" || accountConnected) return models;
+  if (key !== "opencode") return models;
+  // Both gates have to pass. The account gate keeps a hosted box anonymous
+  // until its owner signs in; the OpenCode gate keeps us from advertising
+  // providers this box has no credential for. A cached catalog outlives the
+  // credential that produced it, so the second one is not implied by the first.
+  if (accountConnected && openCodeConnected) return models;
   const anonymous = models.filter((model) => /^opencode\/.+-free$/.test(model));
   return anonymous.length ? anonymous : [...OPENCODE_MODELS];
 }
@@ -529,9 +551,10 @@ export function accessibleModelsForAgent(
 function defaultModelForCatalogItem(
   key: CodingAgentKind,
   models: string[],
-  accountConnected: boolean,
+  /** True only when the full OpenCode catalog is on offer — see the gates above. */
+  fullOpenCodeCatalog: boolean,
 ): string {
-  if (key === "opencode" && !accountConnected) {
+  if (key === "opencode" && !fullOpenCodeCatalog) {
     const free = models.find((model) => /^opencode\/.+-free$/.test(model));
     if (free) return free;
   }
@@ -546,24 +569,38 @@ export function defaultModelForAgent(
   codingAgents: CodingAgentInfo[] = [],
 ): string {
   const accountConnected = hasConnectedModelAccount(codingAgents);
+  const openCodeConnected = openCodeConnectedFrom(codingAgents);
   return defaultModelForCatalogItem(
     key,
-    accessibleModelsForAgent(key, modelsForAgent(key), accountConnected, piProvidersFrom(codingAgents)),
-    accountConnected,
+    accessibleModelsForAgent(
+      key,
+      modelsForAgent(key),
+      accountConnected,
+      piProvidersFrom(codingAgents),
+      openCodeConnected,
+    ),
+    accountConnected && openCodeConnected,
   );
 }
 
 export function listModelCatalog(codingAgents: CodingAgentInfo[] = []): ModelCatalogItem[] {
   const configured = new Map(codingAgents.map((agent) => [agent.key, agent]));
   const accountConnected = hasConnectedModelAccount(codingAgents);
+  const openCodeConnected = openCodeConnectedFrom(codingAgents);
   const piProviders = piProvidersFrom(codingAgents);
   return MODEL_CATALOG_KEYS.map((key) => {
     const status = configured.get(key);
-    const models = accessibleModelsForAgent(key, modelsForAgent(key), accountConnected, piProviders);
+    const models = accessibleModelsForAgent(
+      key,
+      modelsForAgent(key),
+      accountConnected,
+      piProviders,
+      openCodeConnected,
+    );
     return {
       key,
       label: LABELS[key],
-      defaultModel: defaultModelForCatalogItem(key, models, accountConnected),
+      defaultModel: defaultModelForCatalogItem(key, models, accountConnected && openCodeConnected),
       models,
       thinkingLevels: [...(thinkingLevelsForAgent(key) ?? [])],
       session: key !== "claude" && key !== "codex",

@@ -332,6 +332,50 @@ describe("coding agent auth detection", () => {
     expect(status.accountConnected).toBe(false);
   });
 
+  const opencodeStatus = async (home: string) => {
+    const bin = join(home, "opencode");
+    writeFileSync(bin, "#!/bin/sh\nexit 0\n");
+    chmodSync(bin, 0o755);
+    setEnv("LFG_OPENCODE_PATH", bin);
+    setEnv("OPENCODE_API_KEY", undefined);
+    setEnv("XDG_DATA_HOME", undefined);
+    const agents = await listCodingAgents();
+    const agent = agents.find((a) => a.key === "opencode");
+    if (!agent) throw new Error("opencode agent not registered");
+    return agent.status;
+  };
+
+  const writeOpencodeAuth = (home: string, auth: unknown) => {
+    const dir = join(home, ".local", "share", "opencode");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "auth.json"), JSON.stringify(auth));
+  };
+
+  test("an unauthenticated OpenCode is still configured — the free tier needs no key", async () => {
+    const home = useTmpHome();
+    const status = await opencodeStatus(home);
+    expect(status.configured).toBe(true);
+    expect(status.accountConnected).toBe(false);
+  });
+
+  test("an OpenCode auth.json with no secret is not a login", async () => {
+    const home = useTmpHome();
+    writeOpencodeAuth(home, { "opencode-go": { type: "api" }, openai: { type: "oauth", access: "" } });
+    expect((await opencodeStatus(home)).accountConnected).toBe(false);
+  });
+
+  test("a stored OpenCode key counts as a connected account", async () => {
+    const home = useTmpHome();
+    writeOpencodeAuth(home, { "opencode-go": { type: "api", key: "sk-test" } });
+    expect((await opencodeStatus(home)).accountConnected).toBe(true);
+  });
+
+  test("an OpenCode OAuth credential counts as a connected account", async () => {
+    const home = useTmpHome();
+    writeOpencodeAuth(home, { openai: { type: "oauth", access: "at", refresh: "rt" } });
+    expect((await opencodeStatus(home)).accountConnected).toBe(true);
+  });
+
   test("a platform OpenAI key makes Codex runnable without claiming the account is connected", async () => {
     const home = useTmpHome();
     const codex = join(home, "codex");
