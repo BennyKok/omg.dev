@@ -2,6 +2,23 @@
 
 Recent product updates and deployment notes.
 
+## August 10, 2026 - Attached images keep their shape (v0.1.330)
+
+- **Fixed: sending several images at once distorted them.** Attach two
+  screenshots to one message and the wider one was stretched to match the
+  taller one's height, so a wide UI capture came out squashed and hard to
+  read. The row of attachments was laid out to make every tile the same
+  height, which quietly overrode each image's own proportions. Each
+  attachment now keeps its natural shape and the tiles line up along their
+  tops. A single attachment was never affected, which is why this only
+  showed up when a turn carried more than one.
+- **The finding sheet turns into a page when you type in it.** The composer
+  now sits behind a button instead of opening by default, and the sheet no
+  longer grabs focus on mount — so tapping a finding to read it stops
+  throwing the keyboard over the thing you tapped. When a field does take
+  focus, the sheet claims the band above the keyboard and its body scrolls,
+  keeping the finding visible while you write.
+
 ## August 10, 2026 - Codex sessions start again (v0.1.329)
 
 - **Fixed: every Codex turn failed with "invalid transport".** Codex sessions
