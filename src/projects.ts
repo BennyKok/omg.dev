@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { basename, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 
 /**
  * Where to look for projects.
@@ -87,6 +87,30 @@ function isSessionWorktreePath(absCwd: string): boolean {
   const wtRoot = resolve(process.env.LFG_WORKTREE_ROOT ?? `${homedir()}/lfg-worktrees`);
   const rel = relative(wtRoot, absCwd);
   return !!rel && !rel.startsWith("..") && rel !== ".." && !rel.startsWith("/");
+}
+
+// The checkout that OWNS this path, when the path is a linked git worktree
+// (either a plain `git worktree add` sibling or an LFG session worktree).
+//
+// Deliberately null for a standalone repo — `worktreeMainPath` answers with the
+// path itself when .git is a real directory, and a caller asking "who owns this
+// worktree?" must be able to tell "vibes owns it" from "it owns itself". Only
+// the former may be substituted for the path.
+// Walks up, because .git only exists at a checkout's root: asked about
+// `vibes-e2e/tests` we must still find `vibes-e2e`, and answering null there
+// would leave the caller's fallback working only for the exact root path.
+export function worktreeOwnerCheckout(cwd: string | null | undefined): string | null {
+  if (!cwd) return null;
+  let dir = resolve(cwd);
+  for (;;) {
+    const main = worktreeMainPath(dir) ?? sessionWorktreeOwner(dir);
+    // A checkout that owns itself is a standalone repo, not a worktree: stop
+    // and report null rather than climbing past it into an unrelated parent.
+    if (main) return main === dir ? null : main;
+    const up = dirname(dir);
+    if (up === dir) return null;
+    dir = up;
+  }
 }
 
 // Project identity is the top-level repository project, not the full cwd.

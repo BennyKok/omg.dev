@@ -2,6 +2,19 @@
 
 Recent product updates and deployment notes.
 
+## August 10, 2026 - Findings from worktree agents can start a session (v0.1.332)
+
+- **Fixed: "Execute" on a finding failed with "unknown repo".** If the auto
+  agent that reported the finding runs in a git worktree rather than the main
+  checkout, acting on its findings was impossible — the button always errored.
+  The repo picker deliberately lists one entry per project, so a worktree like
+  `repos/vibes-e2e` never appears in it, and the session launcher only
+  recognised paths that were literally inside a listed repo. It now maps a
+  worktree back to the checkout that owns it, exactly as the rest of the app
+  already does when it groups those agents under their project. Findings from
+  worktree-based agents have been unactionable since those agents were added.
+- **A repo you pinned and later deleted no longer lingers in your settings.**
+
 ## August 10, 2026 - Every agent picker shows the same agents (v0.1.331)
 
 - **Fixed: the finding sheet offered a shorter agent list than the composer.**
