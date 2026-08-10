@@ -2,6 +2,19 @@
 
 Recent product updates and deployment notes.
 
+## August 10, 2026 - Codex sessions start again (v0.1.329)
+
+- **Fixed: every Codex turn failed with "invalid transport".** Codex sessions
+  died before the model ran, reporting `Error loading config.toml: invalid
+  transport in mcp_servers.lfg`. Nothing was wrong with your config — the
+  launcher was adding a setting for an MCP server named `lfg`, a name that
+  stopped existing when the server was renamed to `omg`. Codex treats a server
+  with no way to reach it as a broken config file and refuses to start at all,
+  so a stale name took down the whole session rather than just its tools. The
+  launcher now reads the name out of your Codex config instead of assuming
+  one, and adds nothing when it finds no server of ours — so a renamed,
+  relocated, or absent entry can no longer stop a session from starting.
+
 ## August 10, 2026 - A calmer finding sheet, and feedback that retunes the agent (v0.1.328)
 
 - **Tell an auto agent what it got wrong, from the finding itself.** The new
