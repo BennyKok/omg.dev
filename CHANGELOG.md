@@ -2,6 +2,17 @@
 
 Recent product updates and deployment notes.
 
+## August 10, 2026 - Files moves into the ⋮ menu (v0.1.336)
+
+- **Files opens from the session ⋮ menu.** Making it its own header button just
+  moved the clutter: the header carried two icon buttons while every other
+  per-session action — Terminal, Token usage, Rename, Fork — already lived
+  behind one menu. Files now sits in that menu, next to Terminal, and the panel
+  stays open after the menu closes.
+- **The "3/7" session counter is gone from the chat header.** You switch
+  sessions by swiping the input bar or with the arrow keys, not by that number,
+  and dropping it gives long session titles the width it was taking.
+
 ## August 10, 2026 - The update button explains itself (v0.1.335)
 
 - **A greyed-out "Update & restart" now says why.** Boxes with nothing
