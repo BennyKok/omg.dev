@@ -2989,6 +2989,66 @@ a{color:#60a5fa}
           return json({ ok: true });
         }
       }
+      // Feedback → a tuned agent, in place. The user is looking at a finding,
+      // says what the agent should have done differently, and we rewrite that
+      // agent's own instruction so the correction survives into the next
+      // scheduled run. Everything else about the row (schedule, backend, cwd)
+      // is carried through untouched.
+      {
+        const m = path.match(/^\/api\/auto\/agents\/([a-z0-9_-]+)\/refine$/);
+        if (m && req.method === "POST") {
+          const b = (await req.json().catch(() => null)) as {
+            feedback?: string;
+            findingId?: string;
+          } | null;
+          if (!b?.feedback?.trim()) return err(400, "feedback is required");
+          const agent = await getAutoAgent(m[1]);
+          if (!agent) return err(404, "unknown auto agent");
+          // Only ever ground the rewrite in a finding this agent actually
+          // produced — an id from another agent would teach it about work it
+          // does not do.
+          const findingId = b.findingId?.trim();
+          const finding = findingId
+            ? (await listFindings()).find((f) => f.id === findingId && f.agentId === agent.id)
+            : undefined;
+          try {
+            const { refineAutoPrompt } = await import("../auto/enhance.ts");
+            const cwd = await resolveAutoCwd(agent.cwd);
+            const prompt = await refineAutoPrompt(
+              {
+                name: agent.name,
+                prompt: agent.prompt,
+                feedback: b.feedback,
+                finding: finding
+                  ? {
+                      title: finding.title,
+                      reasoning: finding.reasoning,
+                      suggest: finding.suggest,
+                      severity: finding.severity,
+                    }
+                  : undefined,
+              },
+              cwd,
+              (l) => console.log(l),
+            );
+            const saved = await saveAutoAgent({
+              id: agent.id,
+              name: agent.name,
+              prompt,
+              schedule: agent.schedule,
+              enabled: agent.enabled,
+              cwd: agent.cwd,
+              agent: agent.agent,
+              model: agent.model,
+              thinkingLevel: agent.thinkingLevel,
+              tools: agent.tools,
+            });
+            return json({ agent: withAutoAgentMeta(saved) });
+          } catch (e) {
+            return err(502, e instanceof Error ? e.message : String(e));
+          }
+        }
+      }
       if (path === "/api/auto/findings" && req.method === "GET") {
         const status = url.searchParams.get("status") || undefined;
         return json({ findings: await listFindings(status) });
@@ -3262,9 +3322,10 @@ a{color:#60a5fa}
             b?.path !== "reply" &&
             b?.path !== "execute" &&
             b?.path !== "copy" &&
-            b?.path !== "dismiss"
+            b?.path !== "dismiss" &&
+            b?.path !== "feedback"
           )
-            return err(400, "expected { path: reply|execute|copy|dismiss }");
+            return err(400, "expected { path: reply|execute|copy|dismiss|feedback }");
           await logFindingAction({
             findingId: m[1],
             path: b.path,

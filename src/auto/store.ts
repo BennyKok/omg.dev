@@ -285,7 +285,15 @@ export async function updateFinding(
 // without this we have no data on which one earns its place. Append-only JSONL,
 // fire-and-forget — never blocks the user action.
 
-export type FindingActionPath = "reply" | "execute" | "copy" | "dismiss";
+export type FindingActionPath =
+  | "reply"
+  | "execute"
+  | "copy"
+  | "dismiss"
+  // Tuned the agent that produced the finding instead of acting on the finding
+  // itself. Tracked with the rest so the CTA mix stays measurable — a path that
+  // isn't logged looks like nobody uses it.
+  | "feedback";
 
 export type FindingActionEvent = {
   findingId: string;
