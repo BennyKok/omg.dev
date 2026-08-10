@@ -2,6 +2,22 @@
 
 Recent product updates and deployment notes.
 
+## August 10, 2026 - One Claude ring for the whole fleet (v0.1.333)
+
+- **Your Claude accounts share a single usage ring.** Two logins used to sit
+  on the usage arc as two separate rings against two independent quotas, so
+  "how much Claude have I got left" was arithmetic you had to do yourself.
+  They now merge into one node showing the share of your combined capacity
+  that's spent — two accounts at 50% reads as 50%, not 100%. Hover or tap it
+  and the total splits back into the accounts behind it, for the same window
+  the ring is drawing, so the numbers visibly add up.
+- **Fewer, larger nodes on the arc.** Node size steps down once there are more
+  than six of them, and a second Claude account was usually what pushed a box
+  over that line.
+- An account that can't be read is left out of the total rather than counted
+  as free headroom, and says so ("1 of 2 accounts reporting") instead of
+  quietly reporting a rosier number than you have.
+
 ## August 10, 2026 - Findings from worktree agents can start a session (v0.1.332)
 
 - **Storage & performance can now show you which session is eating the
