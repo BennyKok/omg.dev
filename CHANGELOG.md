@@ -2,6 +2,20 @@
 
 Recent product updates and deployment notes.
 
+## August 10, 2026 - Files moves into the session header (v0.1.334)
+
+- **Files is a normal header button now.** It used to be a pill floating over
+  the bottom of every open transcript — covering the last message, and holding
+  a strip of empty space under the conversation even for sessions with nothing
+  to review. It now sits in the session header next to the ⋮ menu, on the
+  desktop card and in the phone sheet, where the rest of the per-session
+  controls live. The bottom of the chat is back to showing the "files changed /
+  Review" bar only when there is actually something to review.
+- **OpenCode's model picker follows OpenCode's own sign-in.** Signing in to
+  Claude used to unlock the whole OpenCode catalog, so a box whose OpenCode had
+  never been signed in offered models that failed the instant they launched and
+  hid the free OpenCode Zen models it could actually run.
+
 ## August 10, 2026 - One Claude ring for the whole fleet (v0.1.333)
 
 - **Your Claude accounts share a single usage ring.** Two logins used to sit
