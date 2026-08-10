@@ -213,7 +213,13 @@ import {
   repoForRequestedSessionCwd,
   resolveInputCwd,
 } from "../repo-resolve.ts";
-import { resolveSessionCwd, startWorktreeSweep } from "../worktree.ts";
+import { WORKTREE_ROOT, resolveSessionCwd, startWorktreeSweep } from "../worktree.ts";
+import {
+  FolderDeleteError,
+  deleteFolder,
+  isDirEmpty,
+  planFolderDelete,
+} from "../folder-delete.ts";
 import { ensureConversationVisibleFrom } from "../claude-conversation.ts";
 import {
   transcribeStt,
@@ -3583,7 +3589,10 @@ a{color:#60a5fa}
           entries.map(async (entry) => {
             const cwd = join(current, entry.name);
             const isGitRepo = await stat(join(cwd, ".git")).then(() => true).catch(() => false);
-            return { name: entry.name, path: cwd, isGitRepo };
+            // Reads a single dirent rather than the whole listing, so flagging
+            // the strays costs the same on a node_modules as on an empty dir.
+            const isEmpty = await isDirEmpty(cwd);
+            return { name: entry.name, path: cwd, isGitRepo, isEmpty };
           }),
         );
         const isGitRepo = await stat(join(current, ".git")).then(() => true).catch(() => false);
@@ -3618,6 +3627,50 @@ a{color:#60a5fa}
           const repo = await createProjectFolder(b.parent, b.name);
           return json({ repo, repos: await listRepos() });
         } catch (e) {
+          return err(400, e instanceof Error ? e.message : String(e));
+        }
+      }
+
+      // Deleting the folder itself, as opposed to DELETE /api/repos which only
+      // unpins it from the picker. Always plan-then-confirm: an unconfirmed
+      // call is a pure read that reports what is inside, so the client can put
+      // the contents in front of the user before anything is destroyed.
+      if (path === "/api/projects/delete-folder" && req.method === "POST") {
+        const b = (await req.json().catch(() => null)) as {
+          path?: unknown;
+          confirm?: unknown;
+        } | null;
+        if (typeof b?.path !== "string") return err(400, "path is required");
+        const guards = {
+          home: homedir(),
+          reposRoot: REPOS_ROOT,
+          worktreeRoot: WORKTREE_ROOT,
+          selfRepo: SELF_REPO,
+          dataDir: PATHS.data,
+        };
+        try {
+          const plan = await planFolderDelete(b.path, guards);
+          // A running agent holds the working tree open; pulling the floor out
+          // from under it corrupts the session rather than tidying anything.
+          // listSessionsCached() is already the live roster (it is built from
+          // pgrep), so presence in it is the liveness test.
+          const busy = (await listSessionsCached().catch(() => [])).filter(
+            (s) => !!s.cwd && cwdIsWithin(resolve(s.cwd), plan.path),
+          );
+          if (busy.length > 0) {
+            return err(
+              409,
+              `Close the ${busy.length} session${busy.length === 1 ? "" : "s"} running in ${plan.name} before deleting it`,
+            );
+          }
+          if (b.confirm !== true) return json({ ok: false, plan });
+          await deleteFolder(b.path, guards);
+          // The folder may also have been pinned as a custom repo; leaving that
+          // entry behind would keep a dead path in the picker.
+          await removeCustomRepo(plan.path);
+          return json({ ok: true, path: plan.path, name: plan.name, repos: await listRepos() });
+        } catch (e) {
+          if (e instanceof FolderDeleteError) return err(e.status, e.message);
           return err(400, e instanceof Error ? e.message : String(e));
         }
       }
