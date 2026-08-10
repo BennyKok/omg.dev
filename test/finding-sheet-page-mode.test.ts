@@ -43,7 +43,10 @@ describe("the sheet morphs into a page for the keyboard", () => {
     // The footer is what lands on the keyboard; if it scrolls with the body it
     // is not a footer.
     const src = bottomSheet();
-    expect(src).toContain('page && "lfg-sheet-page"');
+    // `paged`, not `page`: the class is driven by the caller's prop OR the
+    // sheet's own focus state now (see the expandOnFocus block below).
+    expect(src).toContain('paged && "lfg-sheet-page"');
+    expect(src).toContain("const paged = page || focusPaged;");
     expect(src).toContain("flex min-h-0 flex-auto flex-col overflow-y-auto overscroll-contain");
     // basis-0 (`flex-1`) contributes nothing to an auto-height sheet, so the
     // compact card can collapse. Class attributes only — the comment above the
@@ -83,6 +86,38 @@ describe("the composer is opt-in", () => {
     // The general rule the reveal buttons are only one instance of: focus a
     // field inside the drawer and the drawer becomes a page.
     expect(sheet()).toContain("if (isTypingTarget(e.target as Element))");
+  });
+});
+
+describe("any sheet can enter page mode on focus, not just the finding", () => {
+  // FindingSheet drove `page` from focus by hand from the start. The auto-agent
+  // forms — which are nothing BUT fields — were left as content-sized cards, so
+  // they were the ones still being shoved off the top by the keyboard. The
+  // behaviour is shared now; these guard that it stays shared.
+  test("BottomSheet takes expandOnFocus and enters page mode from a field", () => {
+    const src = bottomSheet();
+    expect(src).toContain("expandOnFocus = false");
+    expect(src).toContain("if (!isTypingTarget(e.target as Element)) return;");
+    expect(src).toContain("setFocusPaged(true)");
+  });
+
+  test("the auto-agent forms opt in", () => {
+    // Both the create and the edit sheet: an edit visit types just as much as
+    // a create one.
+    expect(APP).toContain('<BottomSheet onClose={onClose} title="New auto agent" expandOnFocus>');
+    const edit = APP.slice(APP.indexOf('title={isNew ? "New auto agent" : "Edit auto agent"}'));
+    expect(edit.slice(0, 200)).toContain("expandOnFocus");
+  });
+
+  test("BottomSheet's own fold-back keeps typed work and inter-field focus", () => {
+    // Same two rules FindingSheet applies to its reply box, generalised: any
+    // field in the sheet still holding a value pins it open, and focus moving
+    // between fields inside the sheet is not "left the sheet".
+    const src = bottomSheet();
+    expect(src).toContain("contains(deepActiveElement())");
+    expect(src).toContain("if (field.value.trim()) return;");
+    expect(src).toContain("onPointerDownCapture={cancelExit}");
+    expect(src).toContain("useEffect(() => cancelExit, []);");
   });
 });
 
