@@ -15,9 +15,12 @@ Recent product updates and deployment notes.
   agents a scheduled watch agent can run — it just looked that way. The full
   roster is available there now, account chips included.
 - **Scheduled auto agents can pin a Claude account.** Pick which account a
-  watch agent bills to instead of leaving it to whichever one is active. An
-  account that later gets disconnected doesn't silence the agent — the run
-  falls back to the default account and says so in its log.
+  watch agent bills to instead of leaving it to whichever one is active,
+  clear it back to Auto at any time, and it's dropped automatically if you
+  move the agent to a backend that has no accounts. An account that later
+  gets disconnected doesn't silence the agent — the run falls back to the
+  default account and says so in its log, and findings from that agent stay
+  launchable instead of failing.
 
 ## August 10, 2026 - Attached images keep their shape (v0.1.330)
 
