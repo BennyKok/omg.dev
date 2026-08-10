@@ -2,6 +2,29 @@
 
 Recent product updates and deployment notes.
 
+## August 10, 2026 - A calmer finding sheet, and feedback that retunes the agent (v0.1.328)
+
+- **Tell an auto agent what it got wrong, from the finding itself.** The new
+  Feedback button on a finding takes a sentence — "stop flagging cosmetic
+  nits", "only when it costs a tap on mobile" — and rewrites that agent's
+  standing instruction in place, grounded in the finding you were looking at
+  and in the agent's own repo. The correction is live before the next
+  scheduled run, instead of meaning a trip into the editor to hand-edit a
+  prompt you didn't write. It makes the smallest edit that satisfies the
+  feedback: "stop flagging this" tightens the bar, it never blacklists the one
+  finding or drops what the agent watches.
+- **The finding sheet is quieter.** The finding's title now carries the
+  headline weight and the agent name drops to a metadata line, so what you
+  opened the sheet to read is what you read first.
+- **Launch settings fold into one line.** The agent strip, model dropdown and
+  thinking pill were three always-open control rows above the composer; they
+  are now a single line of text — "grok-4.5 · medium thinking" — that expands
+  on tap.
+- **One CTA instead of four.** Copy, Feedback and Dismiss share one quiet row,
+  leaving "Make the change" as the only button that reads as a call to action.
+  A long reasoning list also clamps behind "N more details" so the suggestion
+  and the actions stay above the fold.
+
 ## August 9, 2026 - copilot gets its real logo (v0.1.327)
 
 - **copilot sessions now show the actual GitHub Copilot logo.** The mark was
