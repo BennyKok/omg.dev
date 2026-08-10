@@ -271,6 +271,7 @@ const ChangelogPage = lazyWithReload("ChangelogPage", () =>
 import { Badge } from "@/components/ui/badge";
 import { ImageAnnotator } from "@/components/ImageAnnotator";
 import { SessionDiffBar } from "@/components/SessionDiffView";
+import { SessionFilesButton } from "@/components/session-files/SessionFilesButton";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
@@ -13984,6 +13985,9 @@ function SessionTitleSheet({
               {idx + 1}/{order.length}
             </span>
           ) : null}
+          {/* Files sits in the header with the rest of the session controls —
+              it used to be a pill floating over the transcript. */}
+          <SessionFilesButton sid={sid} className="size-9" />
           <SessionActionsMenu
             session={session}
             busy={busy}
@@ -14749,6 +14753,7 @@ const onTouchStart = (e: ReactTouchEvent) => {
             className="lg:hidden"
           />
         )}
+        {!collapsedView && <SessionFilesButton sid={sid} />}
         {!collapsedView && (
           <SessionActionsMenu
             session={session}

@@ -88,8 +88,42 @@ describe("Files panel: touch targets", () => {
     expect(panel).toMatch(/min-h-11 w-full[^"]*md:min-h-0 md:w-auto/);
   });
 
-  test("the pill row wraps instead of clipping on a narrow screen", () => {
+  test("the review pill row stays off the screen edges", () => {
     expect(bar).toContain("flex flex-wrap justify-center gap-2 px-3");
+  });
+});
+
+describe("Files: the way in", () => {
+  // Files used to be a pill floating over the bottom of the transcript, pinned
+  // there for every focused session. It is a header button now, so the floating
+  // bar must be back to carrying only the review pill — and only when the
+  // session actually has changes to review.
+  test("the diff bar no longer opens the Files panel", () => {
+    expect(bar).not.toContain("SessionFilesPanel");
+    expect(bar).not.toContain("filesOpen");
+  });
+
+  test("the bar only reserves transcript padding when there are diffs", () => {
+    expect(bar).toContain("onVisibilityChange?.(hasDiffs)");
+    expect(bar).not.toContain("onVisibilityChange?.(!!sid)");
+  });
+
+  test("the button sits in both session headers next to the ⋮ menu", () => {
+    const app = readFileSync("web/src/App.tsx", "utf8");
+    expect(app).toContain(
+      'import { SessionFilesButton } from "@/components/session-files/SessionFilesButton"',
+    );
+    // Sheet header (thumb-sized) and desktop card header.
+    expect(app).toContain('<SessionFilesButton sid={sid} className="size-9" />');
+    expect(app).toContain("{!collapsedView && <SessionFilesButton sid={sid} />}");
+  });
+
+  test("switching sessions closes the panel instead of repointing it", () => {
+    const button = readFileSync(
+      "web/src/components/session-files/SessionFilesButton.tsx",
+      "utf8",
+    );
+    expect(button).toMatch(/useEffect\(\(\) => \{\s*setOpen\(false\);\s*\}, \[sid\]\)/);
   });
 });
 
