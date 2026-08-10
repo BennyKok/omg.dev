@@ -14029,7 +14029,12 @@ function ForkSessionDialog({
     if (agent !== "aisdk") return;
     if (availableAgentOptions.some((option) => (option.selectorId ?? option.key) === selectedLaunchId)) return;
     const firstClaude = availableAgentOptions.find((option) => option.key === "aisdk");
-    if (firstClaude?.accountId) setClaudeAccountId(firstClaude.accountId);
+    // Fall back to "" (Claude · Auto), not just to another account: the first
+    // Claude option is Auto, which HAS no accountId, so guarding on one meant a
+    // pin whose account got disconnected was never cleared. The strip then
+    // rendered with nothing selected and the fork POSTed the dead id, which the
+    // server rejects with "Claude account is missing or not connected".
+    setClaudeAccountId(firstClaude?.accountId ?? "");
   }, [agent, availableAgentOptions, selectedLaunchId]);
   useEffect(() => {
     if (thinkingLevels.length && !thinkingLevels.includes(thinkingLevel)) {
