@@ -18867,6 +18867,7 @@ function BottomSheet({
   onClose,
   title,
   page = false,
+  expandOnFocus = false,
   footer,
   children,
 }: {
@@ -18877,12 +18878,58 @@ function BottomSheet({
    *  the short version is that the sheet claims the band above the keyboard so
    *  the footer lands on it instead of being shoved off-screen. */
   page?: boolean;
+  /** Enter page mode by itself whenever a field inside the sheet takes focus,
+   *  instead of the caller deciding up front. A content-sized card cannot win
+   *  against the soft keyboard — it gets shoved off the top — and the caller
+   *  usually cannot know in advance whether this particular visit will involve
+   *  typing. FindingSheet has driven `page` from focus by hand since page mode
+   *  landed; this is that behaviour made available to every sheet, so the
+   *  auto-agent forms stop being the ones that still fight the keyboard. */
+  expandOnFocus?: boolean;
   /** Pinned to the bottom of the sheet: in page mode this is what ends up
    *  sitting directly on the keyboard, so it should hold the field the user is
    *  typing into and its actions — nothing that scrolls. */
   footer?: ReactNode;
   children: ReactNode;
 }) {
+  const [focusPaged, setFocusPaged] = useState(false);
+  const exitTimer = useRef<number | null>(null);
+
+  const cancelExit = () => {
+    if (exitTimer.current !== null) {
+      window.clearTimeout(exitTimer.current);
+      exitTimer.current = null;
+    }
+  };
+  useEffect(() => cancelExit, []);
+
+  // Leaving the last field folds the sheet back down, but never while there is
+  // typed work in it — the same rule FindingSheet applies to its reply box,
+  // generalised to "any field in this sheet still holds a value". The delay
+  // and the pointer-down cancel keep a tap heading for the footer's own
+  // buttons from being read as "left the field": the blur lands first and
+  // would otherwise re-lay-out the button out from under the click.
+  //
+  // `root` arrives as an argument rather than off a ref because DrawerContent
+  // is not a forwardRef; the caller reads it from the event synchronously,
+  // since currentTarget is already nulled by the time this timer runs.
+  function scheduleExit(root: HTMLElement | null) {
+    if (!expandOnFocus) return;
+    cancelExit();
+    exitTimer.current = window.setTimeout(() => {
+      exitTimer.current = null;
+      if (!root) return;
+      if (root.contains(deepActiveElement())) return;
+      const fields = root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+        "input, textarea",
+      );
+      for (const field of fields) if (field.value.trim()) return;
+      setFocusPaged(false);
+    }, 260);
+  }
+
+  const paged = page || focusPaged;
+
   return (
     <Drawer
       open
@@ -18899,7 +18946,15 @@ function BottomSheet({
         // Keep both the scrim and sheet above it without raising every Drawer in
         // the app, since page-level drawers intentionally sit below some screens.
         overlayClassName="z-[100]"
-        className={cn("z-[100]", page && "lfg-sheet-page")}
+        className={cn("z-[100]", paged && "lfg-sheet-page")}
+        onPointerDownCapture={cancelExit}
+        onFocusCapture={(e) => {
+          if (!expandOnFocus) return;
+          if (!isTypingTarget(e.target as Element)) return;
+          cancelExit();
+          setFocusPaged(true);
+        }}
+        onBlurCapture={(e) => scheduleExit(e.currentTarget as HTMLElement)}
       >
         <DrawerTitle className="sr-only">{title}</DrawerTitle>
         {/* min-h-0 twice on purpose: without it a flex child refuses to shrink
@@ -19474,7 +19529,7 @@ function NewAutoAgentComposer({
   }
 
   return (
-    <BottomSheet onClose={onClose} title="New auto agent">
+    <BottomSheet onClose={onClose} title="New auto agent" expandOnFocus>
       <div className="px-2 pb-4 pt-1">
         <div className="flex items-center gap-2">
           <Sparkles className="size-5 text-primary" />
@@ -19663,7 +19718,11 @@ function AgentEditorSheet({
   }
 
   return (
-    <BottomSheet onClose={onClose} title={isNew ? "New auto agent" : "Edit auto agent"}>
+    <BottomSheet
+      onClose={onClose}
+      title={isNew ? "New auto agent" : "Edit auto agent"}
+      expandOnFocus
+    >
       <div className="px-2 pb-4 pt-1">
         <div className="flex items-center gap-2">
           <Bot className="size-5 text-primary" />
