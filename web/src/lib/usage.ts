@@ -35,6 +35,82 @@ export type ProviderUsage = UsageProviderRef & {
   windows?: UsageWindow[];
 };
 
+/**
+ * Fold several accounts of one provider family into a single usage reading.
+ *
+ * Percentages are NOT additive: two accounts at 50% have used half of the pair's
+ * combined capacity, not all of it. So the fold is a MEAN — with every account
+ * on the same plan, `sum(pct) / n` is exactly "how much of everything you own is
+ * spent", which is the number a fleet view is actually asking for. (Anthropic's
+ * usage API reports a utilization percentage and no quota size, so accounts on
+ * different plan tiers get weighted equally; that is the one case where this
+ * reads slightly off, and there is no data available to correct it.)
+ *
+ * Three details that would each quietly corrupt the total:
+ *  - Windows are matched by LABEL, never by index — an account that failed
+ *    mid-flight has no windows at all, and pairing "5 hr" against "7 day" would
+ *    be silent nonsense.
+ *  - Only accounts that actually reported count toward the denominator.
+ *    Averaging in an expired token as 0% would read as free headroom, which is
+ *    the most dangerous possible direction to be wrong in.
+ *  - Reset times are not averaged — a mean of two clock times is meaningless.
+ *    The fleet resets when its SOONEST window resets.
+ */
+export function mergeProviderUsage(
+  members: (ProviderUsage | null)[],
+  base: UsageProviderRef,
+): ProviderUsage {
+  const live = members.filter(
+    (m): m is ProviderUsage => m != null && m.available && (m.windows?.length ?? 0) > 0,
+  );
+  if (!live.length) {
+    const note = members.find((m) => m?.note)?.note;
+    return { ...base, available: false, ...(note ? { note } : {}) };
+  }
+
+  const byLabel = new Map<string, { sum: number; n: number; resetsAt: number | null }>();
+  const order: string[] = [];
+  for (const member of live) {
+    for (const window of member.windows ?? []) {
+      let slot = byLabel.get(window.label);
+      if (!slot) {
+        slot = { sum: 0, n: 0, resetsAt: null };
+        byLabel.set(window.label, slot);
+        order.push(window.label);
+      }
+      if (typeof window.pct === "number" && Number.isFinite(window.pct)) {
+        // Clamp per account before folding, matching how the server ranks
+        // accounts — one over-100 reading must not drag the whole mean up.
+        slot.sum += Math.max(0, Math.min(100, window.pct));
+        slot.n += 1;
+      }
+      if (window.resetsAt != null && (slot.resetsAt == null || window.resetsAt < slot.resetsAt)) {
+        slot.resetsAt = window.resetsAt;
+      }
+    }
+  }
+
+  const windows: UsageWindow[] = order.map((label) => {
+    const slot = byLabel.get(label)!;
+    return {
+      label,
+      pct: slot.n ? slot.sum / slot.n : null,
+      resetsAt: slot.resetsAt,
+    };
+  });
+
+  // "2 of 3 accounts" beats silently averaging fewer than the user can see.
+  const missing = members.length - live.length;
+  return {
+    ...base,
+    available: true,
+    windows,
+    ...(missing > 0
+      ? { note: `${live.length} of ${members.length} accounts reporting` }
+      : {}),
+  };
+}
+
 function providerPath(id: string, force: boolean): string {
   return `/api/usage/${encodeURIComponent(id)}${force ? "?force=1" : ""}`;
 }
