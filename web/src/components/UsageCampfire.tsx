@@ -931,10 +931,23 @@ function CampfireOverlay({
             <div
               className="mt-1 flex items-center justify-center gap-2.5 text-[10px] tabular-nums sm:text-[11px]"
               style={{ color: TONE.soft }}
-              aria-label="Usage by account"
+              aria-label={`Usage by account${focusHeadline ? `, ${focusHeadline.label}` : ""}`}
             >
+              {/* Name the window: the eyebrow above is about the soonest RESET,
+                  which is often a different window from the busiest one the
+                  ring draws. Without this the row looks like it disagrees. */}
+              {focusHeadline ? (
+                <span style={{ color: TONE.label }}>{focusHeadline.label}</span>
+              ) : null}
               {focusedMembers.map((member) => {
-                const pct = member.usage ? maxUsagePct(member.usage) : null;
+                // Break down the SAME window the node is showing. Each account's
+                // own worst window is a different window, so those numbers would
+                // sit either side of a total they don't average to — 62 and 78
+                // under a headline of 61, with nothing saying why.
+                const window = focusHeadline
+                  ? (member.usage?.windows ?? []).find((w) => w.label === focusHeadline.label)
+                  : null;
+                const pct = window?.pct ?? null;
                 return (
                   <span key={member.id} className="inline-flex items-center gap-1">
                     <span style={{ color: TONE.label }}>{member.label}</span>
