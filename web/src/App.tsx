@@ -169,6 +169,7 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
+  FileCode,
   Folder,
   GitFork,
   KeyRound,
@@ -271,7 +272,7 @@ const ChangelogPage = lazyWithReload("ChangelogPage", () =>
 import { Badge } from "@/components/ui/badge";
 import { ImageAnnotator } from "@/components/ImageAnnotator";
 import { SessionDiffBar } from "@/components/SessionDiffView";
-import { SessionFilesButton } from "@/components/session-files/SessionFilesButton";
+import { LazySessionFilesPanel } from "@/components/session-files/lazy-panel";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
@@ -12966,6 +12967,7 @@ function SessionActionsMenu({
   onTogglePin?: (sid: string) => void;
 }) {
   const [tokenUsageOpen, setTokenUsageOpen] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(false);
   const {
     sid,
     assignee,
@@ -12979,8 +12981,19 @@ function SessionActionsMenu({
   const transcriptView = useContext(TranscriptViewContext);
   const openTerminal = useContext(SessionTerminalContext);
 
+  // The sheet swaps sessions in place (swipe / arrow keys). Close the panel
+  // rather than silently repointing it at another session's checkout.
+  useEffect(() => {
+    setFilesOpen(false);
+  }, [sid]);
+
   return (
     <>
+      {filesOpen && sid ? (
+        <Suspense fallback={null}>
+          <LazySessionFilesPanel sid={sid} onClose={() => setFilesOpen(false)} />
+        </Suspense>
+      ) : null}
       {tokenUsageOpen ? (
         <Suspense fallback={null}>
           <SessionTokenUsageDialog
@@ -13111,6 +13124,12 @@ function SessionActionsMenu({
               Rename
             </DropdownMenuItem>
           ) : null}
+          {/* Files lives in this menu with the rest of the per-session actions
+              — it was briefly a separate header button. */}
+          <DropdownMenuItem disabled={!sid} onClick={() => setFilesOpen(true)}>
+            <FileCode className="size-4" />
+            Files
+          </DropdownMenuItem>
           <DropdownMenuItem disabled={!sid} onClick={() => sid && openTerminal(sid)}>
             <TerminalSquare className="size-4" />
             <span className="flex-1">Terminal</span>
@@ -13980,16 +13999,6 @@ function SessionTitleSheet({
               Shipped
             </span>
           ) : null}
-          {order.length > 1 ? (
-            // Switching is gesture-driven (swipe the input bar) + arrow keys, so
-            // the header just shows position — no chevron buttons.
-            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-              {idx + 1}/{order.length}
-            </span>
-          ) : null}
-          {/* Files sits in the header with the rest of the session controls —
-              it used to be a pill floating over the transcript. */}
-          <SessionFilesButton sid={sid} className="size-9" />
           <SessionActionsMenu
             session={session}
             busy={busy}
@@ -14755,7 +14764,6 @@ const onTouchStart = (e: ReactTouchEvent) => {
             className="lg:hidden"
           />
         )}
-        {!collapsedView && <SessionFilesButton sid={sid} />}
         {!collapsedView && (
           <SessionActionsMenu
             session={session}
