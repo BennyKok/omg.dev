@@ -481,6 +481,8 @@ type InstallUpdateStatus = {
   latestTag?: string;
   message: string;
   restartSupported: boolean;
+  /** Why the update button is disabled, when it is. Server-side diagnosis. */
+  restartBlockedReason?: string;
 };
 
 type InstallUpdateInfo = {
@@ -21560,7 +21562,16 @@ function OmgUpdateSection() {
   const supported = info?.install.channel === "source" || info?.install.channel === "release";
   const available = status?.state === "available";
   const busy = checking || updating || restarting;
+  // A greyed-out button with a tooltip nobody can hover on a phone is a dead
+  // end, so when the update cannot run, the reason takes over the detail line
+  // rather than hiding behind `title`.
+  const blockedReason = available && !status.restartSupported
+    ? `${status.restartBlockedReason ?? "Automatic restart is unavailable on this install."}${
+      info ? ` Update from a terminal instead: ${info.install.updateCommand}` : ""
+    }`
+    : null;
   const detail = error
+    ?? blockedReason
     ?? (checking
       ? "Checking origin/main…"
       : restarting
@@ -21581,7 +21592,15 @@ function OmgUpdateSection() {
             </span>
             <div className="min-w-0">
               <div className="text-sm font-medium">LFG updates</div>
-              <div className={cn("truncate text-xs text-muted-foreground", error && "text-destructive")}>
+              <div
+                className={cn(
+                  "text-xs text-muted-foreground",
+                  // A truncated explanation is no explanation — let the reason
+                  // this box cannot update wrap instead of clipping it.
+                  error || blockedReason ? "text-pretty" : "truncate",
+                  error && "text-destructive",
+                )}
+              >
                 {detail}
               </div>
             </div>
@@ -21591,7 +21610,7 @@ function OmgUpdateSection() {
               size="sm"
               onClick={() => void update()}
               disabled={busy || !status.restartSupported}
-              title={status.restartSupported ? "Update to origin/main and restart OMG" : "Automatic restart is unavailable"}
+              title={status.restartSupported ? "Update to origin/main and restart OMG" : blockedReason ?? "Automatic restart is unavailable"}
             >
               {updating || restarting ? <Loader2 className="size-4 animate-spin" /> : <ArrowDown className="size-4" />}
               {restarting ? "Restarting…" : updating ? "Updating…" : "Update & restart"}

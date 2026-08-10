@@ -20,6 +20,8 @@ export type SourceUpdateStatus = {
   commitsBehind?: number;
   message: string;
   restartSupported: boolean;
+  /** Why `restartSupported` is false, in the user's terms. Absent when it's true. */
+  restartBlockedReason?: string;
 };
 
 export type ReleaseUpdateStatus = {
@@ -30,6 +32,8 @@ export type ReleaseUpdateStatus = {
   latestTag?: string;
   message: string;
   restartSupported: boolean;
+  /** Why `restartSupported` is false, in the user's terms. Absent when it's true. */
+  restartBlockedReason?: string;
 };
 
 export type ReleaseInstall = {
@@ -189,6 +193,26 @@ function installedVersion(root: string): string | null {
   }
 }
 
+/**
+ * The error a caller gets when it asks for a restart this box cannot do. The
+ * bare sentence on its own left the user with nowhere to go, so append whatever
+ * `restartCapability` knows about *this* box.
+ */
+function restartUnavailableError(source: { restartBlockedReason?: string; reason?: string }): string {
+  const reason = source.restartBlockedReason ?? source.reason;
+  return reason
+    ? `Automatic restart is unavailable on this install. ${reason}`
+    : "Automatic restart is unavailable on this install.";
+}
+
+/** The restart half of every update status, reason included when there is one. */
+function restartFields(): { restartSupported: boolean; restartBlockedReason?: string } {
+  const { command, reason } = restartCapability();
+  return command
+    ? { restartSupported: true }
+    : { restartSupported: false, ...(reason ? { restartBlockedReason: reason } : {}) };
+}
+
 type GithubRelease = { tag_name?: unknown };
 const releaseTagCache = new Map<string, { tag: string; expiresAt: number }>();
 
@@ -225,7 +249,7 @@ export async function releaseUpdateStatus(
       channel: "release",
       state: "blocked",
       message: "Could not determine the installed omg.dev version.",
-      restartSupported: restartCommand() !== null,
+      ...restartFields(),
     };
   }
   if (!repoSlug) {
@@ -234,7 +258,7 @@ export async function releaseUpdateStatus(
       state: "blocked",
       currentVersion,
       message: "This release install has no GitHub repository configured.",
-      restartSupported: restartCommand() !== null,
+      ...restartFields(),
     };
   }
   try {
@@ -245,7 +269,7 @@ export async function releaseUpdateStatus(
       currentVersion,
       latestVersion,
       latestTag,
-      restartSupported: restartCommand() !== null,
+      ...restartFields(),
     };
     if (cleanVersion(currentVersion) === latestVersion) {
       return { ...base, state: "up-to-date", message: `omg.dev ${currentVersion} is up to date.` };
@@ -261,7 +285,7 @@ export async function releaseUpdateStatus(
       state: "blocked",
       currentVersion,
       message: e instanceof Error ? e.message : String(e),
-      restartSupported: restartCommand() !== null,
+      ...restartFields(),
     };
   }
 }
@@ -271,7 +295,7 @@ function blocked(message: string): SourceUpdateStatus {
     channel: "source",
     state: "blocked",
     message,
-    restartSupported: restartCommand() !== null,
+    ...restartFields(),
   };
 }
 
@@ -308,11 +332,23 @@ function omgSupervisorRestartCommand(
   return null;
 }
 
-export function restartCommand(
+/**
+ * The restart command for this box, or why there isn't one.
+ *
+ * `restartSupported: false` used to be the entire story the UI could tell: the
+ * Update button greyed out under a tooltip that said "Automatic restart is
+ * unavailable" and nothing else, which is unactionable — the three ways a box
+ * can earn that answer need three different fixes, and none of them are
+ * guessable from the button. Every `null` return below now carries the reason
+ * that produced it so the UI can name it.
+ */
+export type RestartCapability = { command: string[] | null; reason?: string };
+
+export function restartCapability(
   platform = process.platform,
   home = homedir(),
   procRoot = "/proc",
-): string[] | null {
+): RestartCapability {
   if (platform === "linux") {
     // Whichever unit this box was installed under — see src/service-unit.ts.
     // Restarting a hardcoded name would no-op on the other one.
@@ -321,24 +357,50 @@ export function restartCommand(
       for (const systemctl of ["/usr/bin/systemctl", "/bin/systemctl"]) {
         try {
           accessSync(systemctl, constants.X_OK);
-          return [systemctl, "--user", "restart", `${unit}.service`];
+          return { command: [systemctl, "--user", "restart", `${unit}.service`] };
         } catch {}
       }
+      return {
+        command: null,
+        reason: `The ${unit}.service unit is installed but systemctl is not on this box.`,
+      };
     }
-    return omgSupervisorRestartCommand(home, procRoot, process.pid, platform);
+    const supervised = omgSupervisorRestartCommand(home, procRoot, process.pid, platform);
+    if (supervised) return { command: supervised };
+    // Distinguish "nothing supervises this process" from "a supervisor was
+    // configured but is not actually watching" — the first is how a hosted
+    // sandbox started straight from a control-plane command looks, and no
+    // amount of retrying fixes it.
+    const configured = OMG_SUPERVISORS.some((layout) => existsSync(join(home, layout.script)));
+    return {
+      command: null,
+      reason: configured
+        ? "This box has an OMG supervisor script but nothing is currently watching this process, so exiting to update would take OMG down."
+        : "Nothing supervises this process: no systemd user unit and no OMG supervisor loop, so OMG cannot bring itself back up after updating.",
+    };
   }
   if (platform === "darwin") {
     const launchctl = "/bin/launchctl";
     const label = installedLaunchAgent(home);
-    if (!label) return null;
+    if (!label) {
+      return { command: null, reason: "No launchd agent is installed for OMG on this Mac." };
+    }
     try {
       accessSync(launchctl, constants.X_OK);
-      return [launchctl, "kickstart", "-k", `gui/${process.getuid?.() ?? 0}/${label}`];
+      return { command: [launchctl, "kickstart", "-k", `gui/${process.getuid?.() ?? 0}/${label}`] };
     } catch {
-      return null;
+      return { command: null, reason: "launchctl is not available at /bin/launchctl." };
     }
   }
-  return null;
+  return { command: null, reason: `Automatic restart is not supported on ${platform}.` };
+}
+
+export function restartCommand(
+  platform = process.platform,
+  home = homedir(),
+  procRoot = "/proc",
+): string[] | null {
+  return restartCapability(platform, home, procRoot).command;
 }
 
 export async function sourceUpdateStatus(root: string, fetch = true): Promise<SourceUpdateStatus> {
@@ -368,7 +430,7 @@ export async function sourceUpdateStatus(root: string, fetch = true): Promise<So
     channel: "source" as const,
     currentSha: head.stdout,
     latestSha: latest.stdout,
-    restartSupported: restartCommand() !== null,
+    ...restartFields(),
   };
   if (head.stdout === latest.stdout) {
     return { ...base, state: "up-to-date", message: `omg.dev is up to date (${short(head.stdout)}).` };
@@ -400,7 +462,7 @@ export async function applySourceUpdate(
   const status = await sourceUpdateStatus(root, true);
   if (status.state === "blocked") return { status, updated: false };
   if (!status.restartSupported) {
-    throw new Error("Automatic restart is unavailable on this install.");
+    throw new Error(restartUnavailableError(status));
   }
 
   if (status.state === "available") {
@@ -433,7 +495,7 @@ export async function applyReleaseUpdate(
 ): Promise<{ status: ReleaseUpdateStatus; updated: boolean }> {
   const status = await releaseUpdateStatus(root, install);
   if (status.state === "blocked") return { status, updated: false };
-  if (!status.restartSupported) throw new Error("Automatic restart is unavailable on this install.");
+  if (!status.restartSupported) throw new Error(restartUnavailableError(status));
 
   const repoSlug = install.repoSlug!;
   const tag = status.latestTag!;
@@ -499,7 +561,7 @@ export async function applyReleaseUpdate(
 
 export function scheduleRestart(delayMs = 1_000): void {
   const cmd = restartCommand();
-  if (!cmd) throw new Error("Automatic restart is unavailable on this install.");
+  if (!cmd) throw new Error(restartUnavailableError(restartCapability()));
   setTimeout(() => {
     const proc = Bun.spawn(cmd, { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
     proc.unref();

@@ -6,6 +6,7 @@ import {
   extractReleaseArchive,
   installReleaseBundle,
   releaseUpdateStatus,
+  restartCapability,
   restartCommand,
   sourceUpdateStatus,
 } from "./self-update.ts";
@@ -287,5 +288,67 @@ describe("restart command", () => {
     writeFileSync(join(procRoot, "4242", "cmdline"), "unrelated-process\0");
 
     expect(restartCommand("linux", home, procRoot)).toBeNull();
+  });
+});
+
+// A hosted sandbox started straight from a control-plane command has neither a
+// systemd unit nor a supervisor loop, so its Update button greys out forever.
+// That was reported as "the update button is blocked" with nothing on screen to
+// explain it, because `restartSupported: false` was the whole diagnosis the
+// backend produced. Every null now says which of the three ways it got there.
+describe("restart capability diagnosis", () => {
+  test("names the missing supervisor on a box that has none", () => {
+    const root = mkdtempSync(join(tmpdir(), "lfg-omg-restart-"));
+    cleanup.push(root);
+    const home = join(root, "home");
+    mkdirSync(home, { recursive: true });
+
+    const capability = restartCapability("linux", home, join(root, "proc"));
+    expect(capability.command).toBeNull();
+    expect(capability.reason).toContain("Nothing supervises this process");
+  });
+
+  test("distinguishes a configured-but-dead supervisor from no supervisor at all", () => {
+    const root = mkdtempSync(join(tmpdir(), "lfg-omg-restart-"));
+    cleanup.push(root);
+    const home = join(root, "home");
+    const procRoot = join(root, "proc");
+    mkdirSync(join(home, ".omg", "template"), { recursive: true });
+    mkdirSync(join(procRoot, "556"), { recursive: true });
+    writeFileSync(join(home, ".omg", "template", "bootstrap.sh"), "#!/bin/sh\n");
+    writeFileSync(join(home, ".omg", "template", "start.pid"), "556\n");
+    writeFileSync(join(procRoot, "556", "cmdline"), "unrelated-process\0");
+
+    const capability = restartCapability("linux", home, procRoot);
+    expect(capability.command).toBeNull();
+    expect(capability.reason).toContain("nothing is currently watching this process");
+  });
+
+  test("carries no reason when a restart really is available", () => {
+    const root = mkdtempSync(join(tmpdir(), "lfg-omg-restart-"));
+    cleanup.push(root);
+    const home = join(root, "home");
+    const procRoot = join(root, "proc");
+    mkdirSync(join(home, ".omg", "template"), { recursive: true });
+    mkdirSync(join(procRoot, "556"), { recursive: true });
+    writeFileSync(join(home, ".omg", "template", "bootstrap.sh"), "#!/bin/sh\n");
+    writeFileSync(join(home, ".omg", "template", "start.pid"), "556\n");
+    writeFileSync(
+      join(procRoot, "556", "cmdline"),
+      "/bin/bash\0-lc\0while true; do lfg serve; sleep 2; done\0omg-template-supervisor\0",
+    );
+
+    const capability = restartCapability("linux", home, procRoot);
+    expect(capability.command).not.toBeNull();
+    expect(capability.reason).toBeUndefined();
+  });
+
+  test("names the missing launch agent on a Mac", () => {
+    const root = mkdtempSync(join(tmpdir(), "lfg-omg-restart-"));
+    cleanup.push(root);
+    const home = join(root, "home");
+    mkdirSync(home, { recursive: true });
+
+    expect(restartCapability("darwin", home).reason).toContain("launchd agent");
   });
 });
