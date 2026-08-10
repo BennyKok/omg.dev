@@ -1609,6 +1609,12 @@ html.lfg-keyboard-open {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
+    /* Not the default `stretch`: that pulls every tile on a row up to the
+       tallest one's height. Since the images cap height (not width) and leave
+       the cross size auto, a wide screenshot next to a tall one got inflated to
+       the tall one's height and rendered squashed — `height: auto` does not
+       save you here, because stretch applies to any auto cross size. */
+    align-items: flex-start;
     gap: 4px;
     max-width: 85%;
   }
