@@ -3,12 +3,29 @@ import { readFile } from "node:fs/promises";
 
 const app = () => readFile("web/src/App.tsx", "utf8");
 
+/**
+ * The source between two markers, or a hard failure if either is missing.
+ *
+ * These tests assert on App.tsx's text, so a rename used to turn a region into
+ * "" — and every `expect(region).not.toContain(...)` on an empty string passes.
+ * A region that silently stops covering anything is worse than a red test: it
+ * reads as "still checked". Missing or misordered markers now throw.
+ *
+ * Markers are prefixes, not exact signatures, so adding a generic parameter to
+ * a function does not break them.
+ */
+function region(source: string, from: string, to: string): string {
+  const start = source.indexOf(from);
+  if (start < 0) throw new Error(`region start marker not found: ${from}`);
+  const end = source.indexOf(to, start + from.length);
+  if (end < 0) throw new Error(`region end marker not found after "${from}": ${to}`);
+  return source.slice(start, end);
+}
+
 describe("thinking level menu", () => {
   test("uses a stable Thinking label while retaining the level choices", async () => {
     const source = await app();
-    const start = source.indexOf("function ThinkingLevelPill(");
-    const end = source.indexOf("function ModelPicker(", start);
-    const pill = source.slice(start, end);
+    const pill = region(source, "function ThinkingLevelPill(", "function ModelPicker(");
 
     expect(pill).toContain('>Thinking</span>');
     // Immersive path is slider-only; non-immersive still has a native select.
@@ -26,9 +43,11 @@ describe("thinking level menu", () => {
 
   test("uses Thinking for the live-session menu label", async () => {
     const source = await app();
-    const start = source.indexOf("function SessionThinkingLevelSubmenu(");
-    const end = source.indexOf("function SessionTitleSheet(", start);
-    const submenu = source.slice(start, end);
+    const submenu = region(
+      source,
+      "function SessionThinkingLevelSubmenu(",
+      "function SessionTitleSheet(",
+    );
 
     expect(submenu).toContain('<span className="flex-1">Thinking</span>');
     expect(submenu).toContain("<DropdownMenuLabel>Thinking level</DropdownMenuLabel>");
@@ -36,15 +55,14 @@ describe("thinking level menu", () => {
 
   test("shares the immersive hold-and-slide control across launch surfaces", async () => {
     const source = await app();
-    const start = source.indexOf("function ThinkingSignal(");
-    const end = source.indexOf("function ModelPicker(", start);
-    const control = source.slice(start, end);
-    const forkStart = source.indexOf("function ForkSessionDialog(");
-    const forkEnd = source.indexOf("function useOrganicActivityPresence(", forkStart);
-    const forkDialog = source.slice(forkStart, forkEnd);
-    const autoPickerStart = source.indexOf("function AutoAgentModelPicker(");
-    const autoPickerEnd = source.indexOf("function BottomSheet(", autoPickerStart);
-    const autoPicker = source.slice(autoPickerStart, autoPickerEnd);
+    const control = region(source, "function ThinkingSignal(", "function ModelPicker(");
+    const forkDialog = region(
+      source,
+      "function ForkSessionDialog(",
+      "function useOrganicActivityPresence(",
+    );
+    // No trailing "(" — AgentModelRow is generic, so its signature opens with "<".
+    const autoPicker = region(source, "function AgentModelRow", "function BottomSheet(");
 
     // New-session composer, fork dialog, and finding/auto-agent picker.
     expect(source.match(/\simmersive\s*\/>/g)?.length).toBe(3);
@@ -77,10 +95,19 @@ describe("thinking level menu", () => {
     expect(control).toContain('haptic("heavy")');
     expect(control).toContain('haptic("medium")');
     expect(control).toContain("feedback.success()");
-    expect(control).toContain("Hold and slide to adjust");
+    // The pill's affordance lives on the trigger itself. A tap-to-open path was
+    // added after the gesture, so assert the discoverability, not the old hint
+    // string that described a hold-only control.
+    expect(control).toContain(
+      'title="Click for the slider — or hold and slide, or use the arrow keys"',
+    );
+    expect(control).toContain("scrub.toggleSticky(event.currentTarget)");
     expect(control).toContain("createPortal(");
-    // The pill mirrors the level under the finger, so trigger and panel agree.
-    expect(control).toContain("const shown = scrub.scrubbing ? scrub.previewLevel : value");
+    // The pill mirrors the level under the finger, so trigger and panel agree —
+    // for a live drag AND for a panel left open by a tap.
+    expect(control).toContain(
+      "const shown = scrub.scrubbing || scrub.sticky ? scrub.previewLevel : value",
+    );
     expect(control).toContain("<ThinkingSignal value={shown} levels={levels} />");
     expect(control).toContain("{thinkingLevelLabel(shown)}");
     expect(control).toContain('WebkitTouchCallout: "none"');
@@ -99,18 +126,19 @@ describe("thinking level menu", () => {
 
   test("Start scrubs on an upright bar driven by vertical travel only", async () => {
     const source = await app();
-    const hookStart = source.indexOf("function useThinkingScrub(");
-    const hookEnd = source.indexOf("function ComposerThinkingControl(", hookStart);
-    const hook = source.slice(hookStart, hookEnd);
-    const buttonStart = source.indexOf("function ComposerStartButton(");
-    const button = source.slice(buttonStart, source.indexOf("function ModelPicker(", buttonStart));
+    const hook = region(source, "function useThinkingScrub(", "function ComposerThinkingControl(");
+    const button = region(source, "function ComposerStartButton(", "function ModelPicker(");
     const css = await readFile("web/src/index.css", "utf8");
 
     // Start is corner-pinned, so sideways is not a direction it can offer.
     expect(button).toContain('orientation: "vertical"');
     expect(button).toContain("Hold and slide up to set thinking effort");
     // The pill keeps the horizontal bar and its axis-lock.
-    const pill = source.slice(hookEnd, buttonStart);
+    const pill = region(
+      source,
+      "function ComposerThinkingControl(",
+      "function ComposerStartButton(",
+    );
     expect(pill).not.toContain('orientation: "vertical"');
 
     // Vertical mode ignores horizontal travel entirely rather than axis-locking
@@ -159,8 +187,7 @@ describe("thinking level menu", () => {
 
   test("the upright gesture tracks the finger absolutely on the bar", async () => {
     const source = await app();
-    const hookStart = source.indexOf("function useThinkingScrub(");
-    const hook = source.slice(hookStart, source.indexOf("function ComposerThinkingControl(", hookStart));
+    const hook = region(source, "function useThinkingScrub(", "function ComposerThinkingControl(");
 
     // Absolute: the pointer is mapped onto the bar's measured stop positions,
     // not accumulated from where the press landed.
@@ -192,22 +219,22 @@ describe("thinking level menu", () => {
     // they ever reach the DOM.
     expect(source).toContain("function thinkingLevelLabel(");
     expect(source).toContain("level.charAt(0).toUpperCase() + level.slice(1)");
-    const hookStart = source.indexOf("function useThinkingScrub(");
-    const end = source.indexOf("function ModelPicker(", hookStart);
-    const region = source.slice(hookStart, end);
-    // Panel caption, upright stops, horizontal endpoints, pill, Start button.
-    expect(region.match(/thinkingLevelLabel\(/g)?.length).toBe(5);
-    // No level name may be rendered raw inside the scrubber surfaces.
-    expect(region).not.toMatch(/>\s*\{level\}\s*</);
-    expect(region).not.toMatch(/>\s*\{previewLevel\}\s*</);
+    const scrubberSurfaces = region(source, "function useThinkingScrub(", "function ModelPicker(");
+    // Every surface that prints a level goes through the helper: the panel
+    // caption, both stop variants (interactive + static) in each orientation,
+    // and the pill. An exact tally used to live here and rotted the moment the
+    // Start button stopped echoing the level, so assert the property instead —
+    // no level name may reach the DOM raw.
+    expect(scrubberSurfaces.match(/thinkingLevelLabel\(/g)?.length).toBeGreaterThanOrEqual(5);
+    for (const raw of ["level", "previewLevel", "shown", "value"]) {
+      expect(scrubberSurfaces).not.toMatch(new RegExp(`>\\s*\\{${raw}\\}\\s*<`));
+    }
   });
 
   test("the scrub drag is consumed rather than smearing a text selection", async () => {
     const source = await app();
-    const hookStart = source.indexOf("function useThinkingScrub(");
-    const hookEnd = source.indexOf("function ComposerThinkingControl(", hookStart);
-    const hook = source.slice(hookStart, hookEnd);
-    const triggers = source.slice(hookEnd, source.indexOf("function ModelPicker(", hookEnd));
+    const hook = region(source, "function useThinkingScrub(", "function ComposerThinkingControl(");
+    const triggers = region(source, "function ComposerThinkingControl(", "function ModelPicker(");
     const css = await readFile("web/src/index.css", "utf8");
 
     // `user-select: none` on the trigger is not enough — the browser anchors a
@@ -243,9 +270,7 @@ describe("thinking level menu", () => {
 
   test("holding Start opens the scrubber and releasing sets the level and launches", async () => {
     const source = await app();
-    const start = source.indexOf("function ComposerStartButton(");
-    const end = source.indexOf("function ModelPicker(", start);
-    const button = source.slice(start, end);
+    const button = region(source, "function ComposerStartButton(", "function ModelPicker(");
 
     // Start still submits the form on a plain tap.
     expect(button).toContain('type="submit"');
@@ -259,8 +284,11 @@ describe("thinking level menu", () => {
     // ...and the browser's trailing click must not submit a second time.
     expect(button).toContain("if (scrub.consumeSuppressedClick())");
     expect(button).toContain("event.preventDefault()");
-    // Live level shown on the button itself while scrubbing.
-    expect(button).toContain('scrub.scrubbing ? thinkingLevelLabel(scrub.previewLevel) : "Start"');
+    // The button deliberately does NOT react to the scrub — no label, icon,
+    // ring or scale swap. The floating panel carries the live level, so the
+    // thing under the thumb holds still while the finger drags over it.
+    expect(button).toContain("<span>Start</span>");
+    expect(button).not.toContain("scrub.scrubbing ?");
     // Agents with no reasoning knob get a plain button (levels list is empty).
     expect(button).toContain("const holdable = !disabled && thinkingLevels.length > 1");
 
@@ -281,9 +309,7 @@ describe("thinking level menu", () => {
     const source = await app();
     // The panel is owned by the shared gesture engine, so the pill and Start
     // raise the exact same surface.
-    const start = source.indexOf("function useThinkingScrub(");
-    const end = source.indexOf("function ComposerThinkingControl(", start);
-    const control = source.slice(start, end);
+    const control = region(source, "function useThinkingScrub(", "function ComposerThinkingControl(");
     const css = await readFile("web/src/index.css", "utf8");
 
     expect(control).toContain('className="thinking-scrubber"');
