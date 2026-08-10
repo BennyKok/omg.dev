@@ -6,18 +6,9 @@
 
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronDown, Columns2, FileCode, FileDiff, GitBranch, Loader2, Minus, Plus, Rows3, X } from "lucide-react";
+import { Check, ChevronDown, Columns2, FileDiff, GitBranch, Loader2, Minus, Plus, Rows3, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { omgFetch } from "@/lib/omg-client";
-import { lazyWithReload } from "@/lib/lazy-with-reload";
-
-// The Files panel and everything under it (@pierre/trees, @pierre/diffs' editor,
-// jsdiff) stay out of the first-paint bundle — this only resolves once a user
-// actually opens Files.
-const SessionFilesPanel = lazyWithReload(
-  "session-files-panel",
-  () => import("./session-files/SessionFilesPanel"),
-);
 
 // Pierre's diff renderer (@pierre/diffs, ~380 KB) is only needed once a user
 // expands a file in the diff viewer — which most sessions never do. Load it
@@ -309,7 +300,6 @@ export const SessionDiffBar = memo(function SessionDiffBar({
 }) {
   const [stat, setStat] = useState<DiffStat | null>(null);
   const [open, setOpen] = useState(false);
-  const [filesOpen, setFilesOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const refresh = useCallback(() => {
@@ -322,7 +312,6 @@ export const SessionDiffBar = memo(function SessionDiffBar({
   useEffect(() => {
     setStat(null);
     setOpen(false);
-    setFilesOpen(false);
     if (!sid) return;
     refresh();
     timer.current = setInterval(() => {
@@ -336,20 +325,19 @@ export const SessionDiffBar = memo(function SessionDiffBar({
   const hasDiffs = !!sid && !!stat?.isWorktree && stat.files > 0;
   const label = useMemo(() => (stat ? `${stat.files} file${stat.files === 1 ? "" : "s"}` : ""), [stat]);
 
-  // The row now carries a permanent Files pill, so it reserves bottom scroll
-  // padding for any focused session rather than only for one with changes.
+  // Files moved to a header button, so this bar is back to being conditional:
+  // it only reserves bottom scroll padding for a session that has changes.
   useEffect(() => {
-    onVisibilityChange?.(!!sid);
-  }, [sid, onVisibilityChange]);
+    onVisibilityChange?.(hasDiffs);
+  }, [hasDiffs, onVisibilityChange]);
   useEffect(() => () => onVisibilityChange?.(false), [onVisibilityChange]);
 
   if (!sid) return null;
 
   return (
     <>
-      {/* Two pills on one row: on a narrow phone a busy review pill ("12 files
-          +2043 −817 Review") plus Files is wider than the viewport, so let the
-          row wrap and keep it off the screen edges rather than clipping. */}
+      {/* One pill, centred and held off the screen edges: a busy review pill
+          ("12 files +2043 −817 Review") is nearly viewport-wide on a phone. */}
       <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex flex-wrap justify-center gap-2 px-3">
         {hasDiffs ? (
           <button
@@ -383,23 +371,8 @@ export const SessionDiffBar = memo(function SessionDiffBar({
             </span>
           </button>
         ) : null}
-        {/* Always available: reading and editing a file must not depend on the
-            session having uncommitted changes to review. */}
-        <button
-          type="button"
-          onClick={() => setFilesOpen(true)}
-          className="lfg-scroll-pill pointer-events-auto flex items-center gap-1.5 rounded-full border border-border bg-card/95 px-3.5 py-1.5 text-xs font-medium text-foreground shadow-md backdrop-blur transition-colors hover:bg-card"
-        >
-          <FileCode className="size-3.5 text-[var(--primary)]" />
-          <span>Files</span>
-        </button>
       </div>
       {open ? <SessionDiffViewer sid={sid} onClose={() => setOpen(false)} /> : null}
-      {filesOpen ? (
-        <Suspense fallback={null}>
-          <SessionFilesPanel sid={sid} onClose={() => setFilesOpen(false)} />
-        </Suspense>
-      ) : null}
     </>
   );
 });
