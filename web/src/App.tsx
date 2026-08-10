@@ -163,6 +163,7 @@ import {
   Cpu,
   Gauge,
   HardDrive,
+  Layers,
   MemoryStick,
   Maximize2,
   ChevronRight,
@@ -702,9 +703,11 @@ type ModelCatalogItem = {
 
 type GlobalSettings = {
   timeZone: string;
-  // Cap on total LIVE agents (0 = unlimited) + a manual drain switch.
+  // Cap on total LIVE agents, idle included (0 = unlimited) + a manual drain
+  // switch, plus the idle window after which an agent is archived (0 = off).
   maxLiveAgents: number;
   agentsPaused: boolean;
+  idleAgentArchiveMinutes: number;
   transcriptView: TranscriptView;
 };
 
@@ -756,6 +759,59 @@ type MetricSample = {
   psiCpu: number | null;
   psiMem: number | null;
   psiIo: number | null;
+};
+
+// Per-session memory/disk attribution — see src/session-usage.ts for how a
+// process is charged to a session.
+type UsageComponent = "harness" | "backend" | "mcp" | "devserver" | "browser" | "other";
+
+type SessionUsageProc = {
+  pid: number;
+  component: UsageComponent;
+  label: string;
+  rssBytes: number;
+  pssBytes: number | null;
+  ageSec: number | null;
+};
+
+type SessionUsageRow = {
+  key: string;
+  sessionId: string | null;
+  managedName: string | null;
+  title: string | null;
+  agent: string | null;
+  live: boolean;
+  orphan: boolean;
+  procCount: number;
+  memBytes: number;
+  memBasis: "pss" | "rss";
+  rssBytes: number;
+  pssBytes: number | null;
+  byComponent: Record<UsageComponent, number>;
+  procs: SessionUsageProc[];
+  worktreePath: string | null;
+  diskBytes: number | null;
+};
+
+type SessionUsage = {
+  sampledAt: number;
+  scanMs: number;
+  host: {
+    memTotalBytes: number;
+    memAvailableBytes: number;
+    memUsedBytes: number;
+    swapTotalBytes: number;
+    swapFreeBytes: number;
+    cores: number;
+    load1: number;
+    load5: number;
+    load15: number;
+  };
+  sessions: SessionUsageRow[];
+  orphanBytes: number;
+  attributedBytes: number;
+  unattributedBytes: number;
+  diskPending: boolean;
 };
 
 type BootstrapPayload = {
@@ -5147,6 +5203,7 @@ export function App() {
     timeZone: DEFAULT_SCHED_TZ,
     maxLiveAgents: 16,
     agentsPaused: false,
+    idleAgentArchiveMinutes: 0,
     transcriptView: "full",
   });
   const [schedTz, setSchedTz] = useState<string>(DEFAULT_SCHED_TZ);
@@ -5411,6 +5468,7 @@ export function App() {
       timeZone: payload.auto?.tz ?? DEFAULT_SCHED_TZ,
       maxLiveAgents: 16,
       agentsPaused: false,
+      idleAgentArchiveMinutes: 0,
       transcriptView: "full",
     });
     // Guard sessions to [] — it feeds `allLiveSessions`/`liveSessions` which
@@ -20155,7 +20213,47 @@ function useServerStats(active: boolean, intervalMs = 3000): ServerStats | null 
   return stats;
 }
 
+// The per-session breakdown, polled only while it is actually on screen.
+//
+// This endpoint walks every process in /proc reading smaps_rollup, cmdline,
+// cgroup and environ, so it is an order of magnitude dearer than the aggregate
+// snapshot above. It is fetched on expand and refreshed slowly: the panel's job
+// is deciding which session to close, and that answer does not change in 3s.
+// Polling it hard would make the memory-pressure tool a memory-pressure source.
+function useSessionUsage(active: boolean, intervalMs = 15000): SessionUsage | null {
+  const [usage, setUsage] = useState<SessionUsage | null>(null);
+  useEffect(() => {
+    if (!active) return;
+    let stopped = false;
+    const tick = async () => {
+      try {
+        const payload = await api<{ usage?: SessionUsage }>("/api/server/session-usage");
+        if (!stopped) setUsage(payload.usage ?? null);
+      } catch {
+        /* transient — keep the last snapshot */
+      }
+    };
+    void tick();
+    const timer = window.setInterval(() => void tick(), intervalMs);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [active, intervalMs]);
+  return usage;
+}
+
 const LIVE_AGENT_LIMIT_OPTIONS = [0, 4, 8, 10, 12, 16, 24, 32];
+
+// Idle windows, in minutes. Nothing below 15 is offered: an agent pausing
+// between turns must never look abandoned.
+const IDLE_ARCHIVE_OPTIONS = [0, 30, 60, 120, 240, 480, 1440];
+
+function formatIdleWindow(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes % 1440 === 0) return `${minutes / 1440}d`;
+  return `${minutes / 60}h`;
+}
 
 function AgentConcurrencySettingsSection({
   settings,
@@ -20166,7 +20264,25 @@ function AgentConcurrencySettingsSection({
 }) {
   const [saving, setSaving] = useState(false);
   const [pausing, setPausing] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const stats = useServerStats(true);
+
+  async function saveIdleArchive(idleAgentArchiveMinutes: number) {
+    if (idleAgentArchiveMinutes === settings.idleAgentArchiveMinutes || archiving) return;
+    setArchiving(true);
+    try {
+      await onChange({ idleAgentArchiveMinutes });
+      toast.success(
+        idleAgentArchiveMinutes === 0
+          ? "Idle agents will stay open"
+          : `Idle agents archived after ${formatIdleWindow(idleAgentArchiveMinutes)}`,
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update idle archiving");
+    } finally {
+      setArchiving(false);
+    }
+  }
 
   async function saveLimit(maxLiveAgents: number) {
     if (maxLiveAgents === settings.maxLiveAgents || saving) return;
@@ -20200,8 +20316,10 @@ function AgentConcurrencySettingsSection({
 
   const working = stats?.agents.working ?? 0;
   const live = stats?.agents.live ?? 0;
-  const cap = settings.maxLiveAgents; // 0 = unlimited; counts WORKING agents
-  const atCap = cap > 0 && working >= cap;
+  // 0 = unlimited. The cap counts every LIVE agent, idle included — an idle
+  // agent has stopped using CPU but has not given back its memory.
+  const cap = settings.maxLiveAgents;
+  const atCap = cap > 0 && live >= cap;
 
   return (
     <section className="space-y-2">
@@ -20227,8 +20345,8 @@ function AgentConcurrencySettingsSection({
                 {cap === 0
                   ? "No limit"
                   : atCap
-                    ? `Limit reached · ${working}/${cap} working`
-                    : `${working}/${cap} working · limit`}
+                    ? `Limit reached · ${live}/${cap} live`
+                    : `${live}/${cap} live · limit`}
               </div>
             </div>
           </div>
@@ -20276,9 +20394,47 @@ function AgentConcurrencySettingsSection({
             aria-label="Pause new agents"
           />
         </div>
+        <div className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className={cn(
+              "flex size-7 shrink-0 items-center justify-center rounded-[7px] text-white transition-colors duration-200 ease-apple",
+              settings.idleAgentArchiveMinutes > 0 ? "bg-primary" : "bg-foreground/70",
+            )}>
+              <Archive className="size-4" />
+            </span>
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Archive idle agents</div>
+              <div className="text-xs text-muted-foreground">
+                {settings.idleAgentArchiveMinutes > 0
+                  ? `After ${formatIdleWindow(settings.idleAgentArchiveMinutes)} with no activity`
+                  : "Off — idle agents stay resident"}
+              </div>
+            </div>
+          </div>
+          <label className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-3 py-1.5">
+            <select
+              value={settings.idleAgentArchiveMinutes}
+              onChange={(event) => void saveIdleArchive(Number(event.target.value))}
+              disabled={archiving}
+              aria-label="Archive idle agents after"
+              className="appearance-none bg-transparent text-right text-xs font-medium outline-none"
+            >
+              {IDLE_ARCHIVE_OPTIONS.map((minutes) => (
+                <option key={minutes} value={minutes}>
+                  {minutes === 0 ? "Off" : formatIdleWindow(minutes)}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="size-3 text-muted-foreground/70" />
+          </label>
+        </div>
       </div>
       <p className="px-4 text-xs text-muted-foreground">
-        The limit counts agents actively working (a turn in flight) — the intensive ones — not idle open sessions. New agents past the limit (or while paused) are rejected; in-flight agents keep running. The systemd slice is the hard memory bound.
+        The limit counts every live agent, idle ones included — an idle agent has stopped
+        using CPU but still holds its memory. New agents past the limit (or while paused)
+        are rejected; in-flight agents keep running. The systemd slice is the hard memory
+        bound. Archiving stops an unattended agent and keeps its transcript, so it can be
+        resumed where it left off; agents mid-turn are never archived.
       </p>
     </section>
   );
@@ -20353,6 +20509,7 @@ function StoragePage() {
       </section>
 
       <ServerPerformancePanel stats={stats} />
+      <SessionUsagePanel />
     </div>
   );
 }
@@ -20622,6 +20779,268 @@ function ServerPerformancePanel({ stats }: { stats: ServerStats | null }) {
         </p>
       </section>
     </>
+  );
+}
+
+// One colour per footprint component. Colour is never the only carrier: every
+// segment is also named with its size in the legend under the bar.
+const USAGE_COMPONENT_META: Record<UsageComponent, { label: string; bar: string }> = {
+  harness: { label: "Harness", bar: "bg-primary" },
+  backend: { label: "Backend", bar: "bg-sky-500" },
+  mcp: { label: "MCP servers", bar: "bg-violet-500" },
+  devserver: { label: "Dev servers", bar: "bg-amber-500" },
+  browser: { label: "Browser", bar: "bg-emerald-500" },
+  other: { label: "Other", bar: "bg-muted-foreground/40" },
+};
+
+const USAGE_COMPONENT_ORDER: UsageComponent[] = [
+  "harness",
+  "backend",
+  "mcp",
+  "devserver",
+  "browser",
+  "other",
+];
+
+function formatAge(sec: number | null): string {
+  if (sec == null) return "";
+  if (sec < 60) return `${sec}s`;
+  if (sec < 3600) return `${Math.round(sec / 60)}m`;
+  if (sec < 86400) return `${(sec / 3600).toFixed(1)}h`;
+  return `${(sec / 86400).toFixed(1)}d`;
+}
+
+// A session's footprint as a single proportional bar. Widths are a share of the
+// session's own total, so every row fills its track and rows stay comparable by
+// their number rather than by bar length.
+function SessionUsageComponentBar({ row }: { row: SessionUsageRow }) {
+  const total = Math.max(1, row.memBytes);
+  return (
+    <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-foreground/[0.08]">
+      {USAGE_COMPONENT_ORDER.map((component) => {
+        const bytes = row.byComponent[component] ?? 0;
+        if (bytes <= 0) return null;
+        return (
+          <div
+            key={component}
+            className={cn("h-full", USAGE_COMPONENT_META[component].bar)}
+            style={{ width: `${(bytes / total) * 100}%` }}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function SessionUsageRowView({ row, hostTotal }: { row: SessionUsageRow; hostTotal: number }) {
+  const [open, setOpen] = useState(false);
+  const share = hostTotal > 0 ? Math.round((row.memBytes / hostTotal) * 100) : 0;
+  const parts = USAGE_COMPONENT_ORDER.filter((c) => (row.byComponent[c] ?? 0) > 0);
+  const name = row.managedName ?? row.sessionId?.slice(0, 8) ?? "unknown";
+
+  return (
+    <div className="px-4 py-3">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-start justify-between gap-3 text-left"
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="truncate text-sm font-medium tabular-nums">{name}</span>
+            {row.orphan ? (
+              <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-500">
+                orphaned
+              </span>
+            ) : null}
+          </div>
+          {row.title ? (
+            <div className="truncate text-xs text-muted-foreground">{row.title}</div>
+          ) : null}
+          <div className="text-xs text-muted-foreground tabular-nums">
+            {row.procCount} {row.procCount === 1 ? "process" : "processes"}
+            {share > 0 ? ` · ${share}% of RAM` : ""}
+            {row.diskBytes != null ? ` · ${formatBytes(row.diskBytes)} on disk` : ""}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <span className="text-sm font-semibold tabular-nums">{formatBytes(row.memBytes)}</span>
+          <ChevronDown
+            className={cn(
+              "size-4 text-muted-foreground transition-transform duration-200",
+              open && "rotate-180",
+            )}
+          />
+        </div>
+      </button>
+
+      <SessionUsageComponentBar row={row} />
+
+      <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+        {parts.map((component) => (
+          <span
+            key={component}
+            className="flex items-center gap-1 text-[11px] text-muted-foreground tabular-nums"
+          >
+            <span
+              className={cn("size-2 shrink-0 rounded-[2px]", USAGE_COMPONENT_META[component].bar)}
+            />
+            {USAGE_COMPONENT_META[component].label} {formatBytes(row.byComponent[component] ?? 0)}
+          </span>
+        ))}
+      </div>
+
+      {open ? (
+        <div className="mt-3 space-y-1 border-t border-border pt-2">
+          {row.procs.map((proc) => (
+            <div key={proc.pid} className="flex items-baseline justify-between gap-3 text-xs">
+              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
+                <span
+                  className={cn(
+                    "mr-1.5 inline-block size-2 rounded-[2px] align-middle",
+                    USAGE_COMPONENT_META[proc.component].bar,
+                  )}
+                />
+                {proc.pid} {proc.label}
+              </span>
+              <span className="shrink-0 tabular-nums text-muted-foreground">
+                {formatAge(proc.ageSec)}
+              </span>
+              <span className="w-16 shrink-0 text-right tabular-nums">
+                {formatBytes(proc.pssBytes ?? proc.rssBytes)}
+              </span>
+            </div>
+          ))}
+          {row.worktreePath ? (
+            <div className="truncate pt-1 font-mono text-[11px] text-muted-foreground">
+              {row.worktreePath}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// Which session is eating the box. The aggregate panel above says the host is
+// under pressure; this says what to close, which is the only actionable form of
+// that information short of SSHing in and reading `ps`.
+function SessionUsagePanel() {
+  const [open, setOpen] = useState(false);
+  const usage = useSessionUsage(open);
+  const host = usage?.host;
+  const rows = usage?.sessions ?? [];
+  const orphanRows = rows.filter((row) => row.orphan);
+  // PSS divides each shared page among the processes mapping it, so per-session
+  // totals add up instead of counting a shared library once per process.
+  const anyRss = rows.some((row) => row.memBasis === "rss");
+
+  return (
+    <section className="space-y-2">
+      <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        Per-session breakdown
+      </h2>
+      <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+        >
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-muted text-foreground/70">
+              <Layers className="size-4" />
+            </span>
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Details</div>
+              <div className="text-xs text-muted-foreground">
+                {open && usage
+                  ? `${rows.length} ${rows.length === 1 ? "session" : "sessions"} · scanned in ${usage.scanMs}ms`
+                  : "Memory and disk per session"}
+              </div>
+            </div>
+          </div>
+          <ChevronDown
+            className={cn(
+              "size-4 shrink-0 text-muted-foreground transition-transform duration-200",
+              open && "rotate-180",
+            )}
+          />
+        </button>
+
+        {open ? (
+          usage && host ? (
+            <>
+              <div className="border-t border-border bg-muted/30 px-4 py-2.5">
+                <div className="text-xs text-muted-foreground tabular-nums">
+                  <span className="font-medium text-foreground">
+                    {formatBytes(host.memAvailableBytes)} available
+                  </span>{" "}
+                  of {formatBytes(host.memTotalBytes)} ·{" "}
+                  {host.swapTotalBytes > 0
+                    ? `${formatBytes(host.swapTotalBytes - host.swapFreeBytes)} swap used`
+                    : "no swap"}{" "}
+                  · load {host.load1.toFixed(2)} on {host.cores} cores
+                </div>
+                {host.swapTotalBytes === 0 ? (
+                  <div className="mt-0.5 text-[11px] text-muted-foreground">
+                    With no swap, exhausting memory means the kernel kills processes rather
+                    than slowing down.
+                  </div>
+                ) : null}
+              </div>
+
+              {orphanRows.length ? (
+                <div className="border-t border-border bg-amber-500/[0.07] px-4 py-2.5">
+                  <div className="text-xs font-medium text-amber-600 dark:text-amber-500">
+                    {formatBytes(usage.orphanBytes)} held by {orphanRows.length} closed{" "}
+                    {orphanRows.length === 1 ? "session" : "sessions"}
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-muted-foreground">
+                    Closing a session stops its agent, tmux and browser, but not the dev
+                    servers it started — those keep running until something reclaims them.
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="divide-y divide-border border-t border-border">
+                {rows.length ? (
+                  rows.map((row) => (
+                    <SessionUsageRowView
+                      key={row.key}
+                      row={row}
+                      hostTotal={host.memTotalBytes}
+                    />
+                  ))
+                ) : (
+                  <div className="px-4 py-3 text-xs text-muted-foreground">
+                    No session processes found.
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-border px-4 py-2.5 text-[11px] text-muted-foreground tabular-nums">
+                {formatBytes(usage.unattributedBytes)} in processes owned by no session
+                (the LFG server, system daemons, your own shells).
+              </div>
+            </>
+          ) : (
+            <div className="border-t border-border px-4 py-3 text-xs text-muted-foreground">
+              Measuring…
+            </div>
+          )
+        ) : null}
+      </div>
+      {open ? (
+        <p className="px-4 text-xs text-muted-foreground">
+          Memory is {anyRss ? "resident set size" : "proportional set size"} — shared pages
+          are {anyRss ? "counted once per process" : "split between the processes sharing them"}
+          , so session totals {anyRss ? "may overstate" : "add up"}. Disk is the session&apos;s
+          worktree, measured at most every 10 minutes.
+        </p>
+      ) : null}
+    </section>
   );
 }
 

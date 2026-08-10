@@ -1,6 +1,10 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { PATHS } from "./config.ts";
+import {
+  DEFAULT_IDLE_ARCHIVE_MINUTES,
+  sanitizeIdleArchiveMinutes,
+} from "./idle-archive.ts";
 import { join } from "node:path";
 
 export type GlobalSettings = {
@@ -11,6 +15,10 @@ export type GlobalSettings = {
   // Drain switch: when true, refuse to activate any new agent (create / cold
   // resume / fork). In-flight agents keep running and can still be messaged.
   agentsPaused: boolean;
+  // Archive a managed agent after this many minutes with no activity, 0 = off.
+  // An idle agent still holds its full memory footprint, and archiving persists
+  // a resume record first, so the session reopens where it left off.
+  idleAgentArchiveMinutes: number;
   // Global transcript rendering preference. The focused mode is experimental
   // and projects the loaded transcript down to user turns + lfg_output.
   transcriptView: TranscriptView;
@@ -55,10 +63,13 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
     ? Math.min(requestedLive, MAX_LIVE_AGENTS_LIMIT)
     : DEFAULT_MAX_LIVE_AGENTS;
   const agentsPaused = input?.agentsPaused === true;
+  const idleAgentArchiveMinutes = sanitizeIdleArchiveMinutes(
+    input?.idleAgentArchiveMinutes ?? DEFAULT_IDLE_ARCHIVE_MINUTES,
+  );
   const transcriptView = validTranscriptView(input?.transcriptView)
     ? input.transcriptView
     : "full";
-  return { timeZone, maxLiveAgents, agentsPaused, transcriptView };
+  return { timeZone, maxLiveAgents, agentsPaused, idleAgentArchiveMinutes, transcriptView };
 }
 
 function settingsDb(): Database {
@@ -98,6 +109,11 @@ function settingsDb(): Database {
       write.run("timeZone", JSON.stringify(initial.timeZone), now);
       write.run("maxLiveAgents", JSON.stringify(initial.maxLiveAgents), now);
       write.run("agentsPaused", JSON.stringify(initial.agentsPaused), now);
+      write.run(
+        "idleAgentArchiveMinutes",
+        JSON.stringify(initial.idleAgentArchiveMinutes),
+        now,
+      );
       write.run("transcriptView", JSON.stringify(initial.transcriptView), now);
       opened
         .query("INSERT INTO settings_migrations (name, applied_at) VALUES (?, ?)")
@@ -143,6 +159,7 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
     write.run("timeZone", JSON.stringify(next.timeZone), now);
     write.run("maxLiveAgents", JSON.stringify(next.maxLiveAgents), now);
     write.run("agentsPaused", JSON.stringify(next.agentsPaused), now);
+    write.run("idleAgentArchiveMinutes", JSON.stringify(next.idleAgentArchiveMinutes), now);
     write.run("transcriptView", JSON.stringify(next.transcriptView), now);
   })();
   return next;

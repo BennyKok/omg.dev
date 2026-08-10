@@ -3,17 +3,28 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  activeAgentCount,
+  residentAgentCount,
   AgentAdmissionController,
   agentLaunchMemoryBudget,
   computerAgentAdmissionContext,
 } from "./agent-admission.ts";
 
 describe("Computer agent admission", () => {
-  test("tracks both launching and working agents", () => {
+  test("counts idle agents against the cap, not just working ones", () => {
+    // An idle agent still holds its harness, backend and MCP servers. Counting
+    // only `busy` here is what let a 22 GB box admit a dozen silent sessions
+    // and then OOM, so all three of these occupy a slot.
     expect(
-      activeAgentCount([{ busy: true }, { launching: true }, { busy: false }]),
-    ).toBe(2);
+      residentAgentCount([{ busy: true }, { launching: true }, { busy: false }]),
+    ).toBe(3);
+  });
+
+  test("an idle-only fleet can still fill the cap", () => {
+    const controller = new AgentAdmissionController();
+    const idle = [{ busy: false }, { busy: false }];
+    expect(controller.tryAcquire(2, idle).ok).toBe(false);
+    // ...and one free slot admits exactly one.
+    expect(controller.tryAcquire(3, idle).ok).toBe(true);
   });
 
   test("denies at the plan limit and exposes plan context", () => {
@@ -44,28 +55,32 @@ describe("Computer agent admission", () => {
     const admission = new AgentAdmissionController();
     expect(admission.tryAcquire(1, [{ busy: true }])).toMatchObject({
       ok: false,
-      active: 1,
+      resident: 1,
       reserved: 0,
     });
   });
 
-  test("a completed agent frees a plan slot", () => {
+  test("a slot is freed by the agent exiting, not by it going idle", () => {
     const admission = new AgentAdmissionController();
     const initial = admission.tryAcquire(1, []);
     expect(initial.ok).toBe(true);
     expect(admission.tryAcquire(1, [])).toMatchObject({
       ok: false,
-      active: 0,
+      resident: 0,
       reserved: 1,
     });
     if (initial.ok) initial.release();
     expect(admission.tryAcquire(1, [{ busy: true }])).toMatchObject({
       ok: false,
-      active: 1,
+      resident: 1,
     });
+    // Finishing a turn does NOT hand the slot back: the agent is still resident
+    // and still holding its memory. Only leaving the session list does.
     expect(admission.tryAcquire(1, [{ busy: false }])).toMatchObject({
-      ok: true,
+      ok: false,
+      resident: 1,
     });
+    expect(admission.tryAcquire(1, []).ok).toBe(true);
   });
 
   test("simultaneous launch attempts cannot oversubscribe a slot", () => {
