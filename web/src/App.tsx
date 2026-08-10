@@ -204,6 +204,7 @@ import {
   TerminalSquare,
   TextSelect,
   Trash2,
+  TriangleAlert,
   UserRound,
   X,
   Ellipsis,
@@ -8995,6 +8996,13 @@ function OnboardingFlow({
                   ]);
                   setCwd(project.cwd);
                 }}
+                onReposChanged={(deletedPath) => {
+                  // Onboarding holds the list locally (no bootstrap refetch on
+                  // this step), so drop the row here and un-select it if it was
+                  // the folder the Continue button was going to use.
+                  setRepoList((current) => current.filter((repo) => repo.cwd !== deletedPath));
+                  setCwd((current) => (current === deletedPath ? "" : current));
+                }}
               />
             </div>
           </>
@@ -11197,6 +11205,7 @@ function RailStage({
               onProjectChange?.(repoProject(repo));
               await onReposChanged?.();
             }}
+            onReposChanged={onReposChanged}
           />
         </>
       ) : null}
@@ -16029,8 +16038,167 @@ type FolderBrowserPayload = {
   current: string;
   parent: string | null;
   isGitRepo: boolean;
-  directories: { name: string; path: string; isGitRepo: boolean }[];
+  // isEmpty is optional so an older/proxied backend that doesn't send it just
+  // renders no badge instead of claiming every folder has contents.
+  directories: { name: string; path: string; isGitRepo: boolean; isEmpty?: boolean }[];
 };
+
+// What POST /api/projects/delete-folder reports back when called WITHOUT
+// confirm — a dry run describing everything the delete would destroy.
+type FolderDeletePlan = {
+  path: string;
+  name: string;
+  empty: boolean;
+  entryCount: number;
+  entries: string[];
+  isGitRepo: boolean;
+  gitDirty: boolean;
+  looksUnused: boolean;
+  warnings: string[];
+};
+
+/**
+ * Confirmation for deleting a project folder off disk.
+ *
+ * Opens straight into a dry run so the user is shown what is actually inside
+ * before the destructive button appears. Abandoned scaffolding — an empty
+ * folder, or a "New Project" shell that never got past its starter README —
+ * gets a plain one-tap confirm, because burying the common case behind a scary
+ * warning is what trains people to click through the scary warning. Anything
+ * with real content gets the contents listed and a destructive-styled button.
+ *
+ * Rendered inline inside the picker rather than as a nested modal: the picker
+ * is already a vaul Drawer, and stacking a second overlay on top of it fights
+ * the drawer's focus trap on mobile for no UX gain.
+ */
+function DeleteFolderPanel({
+  target,
+  onClose,
+  onDeleted,
+}: {
+  target: { path: string; name: string };
+  onClose: () => void;
+  onDeleted: (path: string) => void | Promise<void>;
+}) {
+  const [plan, setPlan] = useState<FolderDeletePlan | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const targetPath = target.path;
+
+  useEffect(() => {
+    setPlan(null);
+    setError(null);
+    setLoading(true);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await api<{ plan: FolderDeletePlan }>("/api/projects/delete-folder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: targetPath }),
+        });
+        if (!cancelled) setPlan(res.plan);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Couldn't inspect this folder");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [targetPath]);
+
+  async function confirmDelete() {
+    setDeleting(true);
+    setError(null);
+    try {
+      await api("/api/projects/delete-folder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: targetPath, confirm: true }),
+      });
+      toast.success(`Deleted ${target.name}`);
+      await onDeleted(targetPath);
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't delete this folder");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  const safe = plan?.looksUnused === true;
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
+        <div>
+          <h3 className="text-base font-semibold">Delete “{target.name}”?</h3>
+          <p className="break-all text-xs text-muted-foreground">{targetPath}</p>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" /> Checking what’s inside…
+          </div>
+        ) : null}
+
+        {plan && safe ? (
+          <p className="text-sm text-muted-foreground">
+            {plan.empty
+              ? "This folder is empty."
+              : "Nothing in here but an unused starter project."}{" "}
+            Deleting it can’t be undone.
+          </p>
+        ) : null}
+
+        {plan && !safe ? (
+          <div className="space-y-2.5 rounded-xl border border-destructive/30 bg-destructive/5 p-3">
+            <p className="flex items-center gap-2 text-sm font-semibold text-destructive">
+              <TriangleAlert className="size-4 shrink-0" /> This folder has files in it
+            </p>
+            <ul className="space-y-1 text-xs text-muted-foreground">
+              {plan.warnings.map((warning) => (
+                <li key={warning}>• {warning}</li>
+              ))}
+            </ul>
+            {plan.entries.length > 0 ? (
+              <p className="break-words text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">Contains:</span>{" "}
+                {plan.entries.join(", ")}
+                {plan.entryCount > plan.entries.length
+                  ? ` +${plan.entryCount - plan.entries.length} more`
+                  : ""}
+              </p>
+            ) : null}
+            <p className="text-xs text-muted-foreground">
+              Everything above is permanently deleted. This can’t be undone.
+            </p>
+          </div>
+        ) : null}
+
+        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <Button type="button" variant="outline" onClick={onClose} disabled={deleting}>
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          variant="destructive"
+          disabled={!plan || deleting}
+          onClick={() => void confirmDelete()}
+        >
+          {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+          {deleting ? "Deleting…" : safe ? "Delete" : "Delete anyway"}
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 function ProjectFolderBrowser({
   open,
@@ -16038,18 +16206,25 @@ function ProjectFolderBrowser({
   startCreating = false,
   onOpenChange,
   onSelected,
+  onReposChanged,
 }: {
   open: boolean;
   initialPath?: string;
   startCreating?: boolean;
   onOpenChange: (open: boolean) => void;
   onSelected: (project: Repo) => void | Promise<void>;
+  /** Deleting a folder can retire a pinned project, so the picker's repo list
+   *  has to be refetched — the browser itself doesn't own that state. Takes the
+   *  deleted path so callers holding a local list can drop the row without a
+   *  round trip; callers that refetch can ignore it. */
+  onReposChanged?: (deletedPath: string) => void | Promise<void>;
 }) {
   const [browser, setBrowser] = useState<FolderBrowserPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [folderName, setFolderName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ path: string; name: string } | null>(null);
 
   // `browser?.directories` only guards the null payload, not a payload that
   // came back without the list (an error envelope, an older/proxied backend, a
@@ -16090,6 +16265,7 @@ function ProjectFolderBrowser({
     if (!open) return;
     setCreating(startCreating);
     setFolderName("");
+    setDeleteTarget(null);
     void browse(initialPath, true);
   }, [browse, initialPath, open, startCreating]);
 
@@ -16114,7 +16290,15 @@ function ProjectFolderBrowser({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange} shouldScaleBackground={false}>
-      <DrawerContent className="mx-auto h-[min(82dvh,42rem)] max-w-lg overflow-hidden">
+      {/* The browser wants a tall, stable window so the list doesn't resize as
+          you navigate; the delete confirmation is short and looks stranded in
+          it, so let that one state hug its content. */}
+      <DrawerContent
+        className={cn(
+          "mx-auto max-w-lg overflow-hidden",
+          deleteTarget ? "h-auto" : "h-[min(82dvh,42rem)]",
+        )}
+      >
         <DrawerTitle className="sr-only">Choose a project folder</DrawerTitle>
         <div className="flex min-h-0 flex-1 flex-col px-4 pb-[max(var(--lfg-safe-bottom),1rem)]">
           <div className="mb-3 flex items-center justify-between">
@@ -16132,6 +16316,19 @@ function ProjectFolderBrowser({
             </button>
           </div>
 
+          {deleteTarget ? (
+            <DeleteFolderPanel
+              target={deleteTarget}
+              onClose={() => setDeleteTarget(null)}
+              onDeleted={async (deletedPath) => {
+                // Re-list the folder we're standing in so the deleted row goes
+                // away, and refresh the picker in case it was a pinned project.
+                await browse(browser?.current);
+                await onReposChanged?.(deletedPath);
+              }}
+            />
+          ) : (
+          <>
           <div className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-border bg-muted/25">
             {browser?.parent ? (
               <button
@@ -16145,22 +16342,41 @@ function ProjectFolderBrowser({
                 <span className="text-sm font-medium">Back</span>
               </button>
             ) : null}
+            {/* A row is a div, not a button, because the delete affordance is a
+                button of its own and nesting buttons is invalid HTML (React
+                renders it, but the inner click target behaves unpredictably). */}
             {directories.map((directory) => (
-              <button
+              <div
                 key={directory.path}
-                type="button"
-                onClick={() => void browse(directory.path)}
-                className="flex w-full items-center gap-3 border-b border-border px-3 py-3 text-left last:border-0 active:bg-muted"
+                className="flex w-full items-center border-b border-border pr-1.5 last:border-0"
               >
-                <span className="flex size-9 items-center justify-center rounded-xl bg-blue-500/10 text-blue-500">
-                  <Folder className="size-4" />
-                </span>
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">{directory.name}</span>
-                {directory.isGitRepo ? (
-                  <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-500">Git</span>
-                ) : null}
-                <ChevronRight className="size-4 text-muted-foreground" />
-              </button>
+                <button
+                  type="button"
+                  onClick={() => void browse(directory.path)}
+                  className="flex min-w-0 flex-1 items-center gap-3 px-3 py-3 text-left active:bg-muted"
+                >
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-blue-500">
+                    <Folder className="size-4" />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{directory.name}</span>
+                  {directory.isEmpty ? (
+                    <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">Empty</span>
+                  ) : null}
+                  {directory.isGitRepo ? (
+                    <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-500">Git</span>
+                  ) : null}
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeleteTarget({ path: directory.path, name: directory.name })}
+                  aria-label={`Delete ${directory.name}`}
+                  title={`Delete ${directory.name}`}
+                  className="flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive active:bg-destructive/15"
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              </div>
             ))}
             {!loading && browser && directories.length === 0 ? (
               <div className="px-4 py-10 text-center text-sm text-muted-foreground">This folder is empty</div>
@@ -16205,6 +16421,8 @@ function ProjectFolderBrowser({
           {!browser?.isGitRepo && browser ? (
             <p className="mt-2 text-center text-[11px] text-muted-foreground">Git will be initialized in this folder.</p>
           ) : null}
+          </>
+          )}
         </div>
       </DrawerContent>
     </Drawer>
@@ -17517,6 +17735,7 @@ function NewSessionDialog({
           chooseComposerRepo(project);
           await onReposChanged();
         }}
+        onReposChanged={onReposChanged}
       />
       <ComposerProjectSheet
         open={projectSheetOpen}
