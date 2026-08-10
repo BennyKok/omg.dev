@@ -115,6 +115,8 @@ import {
   listSessionsCached,
   noteListSessionsClientActivity,
 } from "../session-cache.ts";
+import { buildSessionUsageReport } from "../session-usage.ts";
+import { idleArchiveCandidates, idleMsFor } from "../idle-archive.ts";
 import { isCommandFileAgent } from "../coding-agent-adapters.ts";
 import {
   enqueueTranscriptIndex,
@@ -544,7 +546,7 @@ async function activationGate(): Promise<Response | { release: () => void; recla
   const context = computer
     ? `your ${computer.plan} Computer plan allows ${computer.limit} concurrent agents`
     : `max live agents (${limit}) reached`;
-  return err(429, `${context}; ${reservation.active} active — upgrade your Computer or wait for one to finish`);
+  return err(429, `${context}; ${reservation.resident} live — upgrade your Computer or close an agent`);
 }
 
 // Current memory of the aggregate agent slice (the cgroup every contained agent
@@ -630,6 +632,49 @@ async function serverStats() {
     pressure,
     history,
   };
+}
+
+// Per-session memory/disk breakdown, for the operator question the aggregate
+// panel cannot answer: "the box is at 92% — WHICH session do I close?"
+//
+// Deliberately its own route rather than a field on /api/server/stats: that one
+// is polled every 3s by every open settings pane, and this walks /proc reading
+// smaps_rollup, cmdline, cgroup and environ per process (~50-130ms). Folding it
+// in would multiply the cost of the cheap panel by the expensive one. Callers
+// fetch it only while the breakdown is expanded, and the short cache below
+// collapses concurrent viewers onto a single scan.
+const SESSION_USAGE_TTL_MS = 2_000;
+let sessionUsageCache: { at: number; value: Awaited<ReturnType<typeof buildSessionUsageReport>> } | null = null;
+let sessionUsageInflight: Promise<Awaited<ReturnType<typeof buildSessionUsageReport>>> | null = null;
+
+async function sessionUsage() {
+  if (sessionUsageCache && Date.now() - sessionUsageCache.at < SESSION_USAGE_TTL_MS) {
+    return sessionUsageCache.value;
+  }
+  // Share one in-flight scan: a settings pane open in three tabs must not walk
+  // /proc three times on a box that is already short on memory.
+  if (sessionUsageInflight) return sessionUsageInflight;
+  sessionUsageInflight = (async () => {
+    const sessions = await listSessionsCached().catch(() => []);
+    const report = await buildSessionUsageReport(
+      sessions.map((session) => ({
+        sessionId: session.sessionId,
+        tmuxName: session.tmuxName,
+        cwd: session.cwd,
+        pid: session.pid,
+        title: session.title,
+        agent: session.agent,
+        managed: session.managed,
+      })),
+    );
+    sessionUsageCache = { at: Date.now(), value: report };
+    return report;
+  })();
+  try {
+    return await sessionUsageInflight;
+  } finally {
+    sessionUsageInflight = null;
+  }
 }
 
 marked.setOptions({ gfm: true, breaks: false });
@@ -1441,6 +1486,72 @@ async function archiveIdleDurableAgentsForMemory(): Promise<number> {
     if (memory.availableBytes >= memory.reserveBytes + memory.launchBytes) break;
   }
   return archived;
+}
+
+// Archive agents that have simply been left open.
+//
+// archiveIdleDurableAgentsForMemory (above) only fires once the box is ALREADY
+// against its launch budget — it is a last resort, and by then the host has
+// usually been thrashing for a while. This is the steady-state counterpart: an
+// agent nobody has spoken to for hours is holding 300-500 MB for nothing, so
+// reclaim it before pressure builds rather than during.
+//
+// Off unless the operator sets a window; when set, it runs on a slow timer and
+// archives through the same close owner, so each session's resume record is
+// persisted before its process stops.
+const IDLE_ARCHIVE_SWEEP_MS = 5 * 60_000;
+const IDLE_ARCHIVE_MAX_PER_PASS = 3;
+let idleArchiveTimer: ReturnType<typeof setInterval> | null = null;
+let idleArchiveRunning = false;
+
+export async function archiveIdleAgentsOnce(now = Date.now()): Promise<number> {
+  const idleMinutes = getGlobalSettingsSync().idleAgentArchiveMinutes;
+  if (!(idleMinutes > 0)) return 0;
+  const sessions = await listSessions().catch(() => []);
+  const candidates = idleArchiveCandidates(sessions, {
+    now,
+    idleMs: idleMinutes * 60_000,
+    // Archive a few per pass rather than the whole backlog at once: each close
+    // is a real teardown, and a burst of them on an already-loaded box is the
+    // kind of thundering herd this feature exists to prevent.
+    limit: IDLE_ARCHIVE_MAX_PER_PASS,
+  });
+  let archived = 0;
+  for (const session of candidates) {
+    const sessionId = session.sessionId as string;
+    const idleMs = idleMsFor(session, now) ?? 0;
+    const outcome = await closeLiveSession(session, sessionId, {
+      sessionId,
+      source: "idle_archive",
+      idleMinutes: Math.round(idleMs / 60_000),
+    });
+    if (!outcome.ok) continue;
+    archived++;
+    evlog("session_idle_archived", {
+      sessionId,
+      tmuxName: session.tmuxName,
+      idleMinutes: Math.round(idleMs / 60_000),
+      thresholdMinutes: idleMinutes,
+    });
+  }
+  return archived;
+}
+
+export function startIdleAgentArchiveSweep(): void {
+  if (idleArchiveTimer) return;
+  idleArchiveTimer = setInterval(() => {
+    // The sweep reads settings each pass, so toggling the window takes effect
+    // without a restart; overlapping passes are skipped because a close awaits
+    // process teardown and can outlive the interval on a loaded box.
+    if (idleArchiveRunning) return;
+    idleArchiveRunning = true;
+    void archiveIdleAgentsOnce()
+      .catch(() => 0)
+      .finally(() => {
+        idleArchiveRunning = false;
+      });
+  }, IDLE_ARCHIVE_SWEEP_MS);
+  idleArchiveTimer.unref?.();
 }
 
 // When an agent explicitly chooses to close after publishing, the POST response
@@ -2440,6 +2551,9 @@ a{color:#60a5fa}
       }
       if (path === "/api/server/stats" && req.method === "GET") {
         return json({ stats: await serverStats() });
+      }
+      if (path === "/api/server/session-usage" && req.method === "GET") {
+        return json({ usage: await sessionUsage() });
       }
       if (path === "/api/settings") {
         if (req.method === "GET") {
@@ -6434,6 +6548,7 @@ a{color:#60a5fa}
   }
   startModelDiscoveryScheduler((l) => console.log(l));
   startWorktreeSweep((l) => console.log(l));
+  startIdleAgentArchiveSweep();
   // Watch the fleet for busy -> idle transitions and fan "completed" events out
   // to fleet subscribers (Web Push). Idempotent + best-effort.
   startFleetWatcher();

@@ -107,17 +107,31 @@ export function computerAgentAdmissionContext(
   return { plan: "free", limit: LIMITS.free };
 }
 
-export function activeAgentCount(sessions: readonly AgentActivity[]): number {
-  return sessions.filter((session) => session.busy || session.launching).length;
+/**
+ * Agents the box is currently paying for.
+ *
+ * This counts every resident session, not just the ones with a turn in flight.
+ * An idle agent is idle in the sense that it is not burning CPU — but its
+ * harness, its backend and its MCP servers are all still mapped, which measures
+ * at roughly 300-500 MB apiece. Counting only `busy` let a 22 GB box accumulate
+ * a dozen silent sessions, pass every admission check on the way, and then OOM:
+ * the gate was reading the one number that does not correlate with the resource
+ * it was protecting.
+ *
+ * `launching` still counts even though such a session has no memory yet — it is
+ * about to, and admitting against its future footprint is the entire point.
+ */
+export function residentAgentCount(sessions: readonly AgentActivity[]): number {
+  return sessions.length;
 }
 
 export type AgentAdmission =
   | { ok: true; release: () => void; reclaimed?: number }
-  | { ok: false; reason: "limit"; active: number; reserved: number }
+  | { ok: false; reason: "limit"; resident: number; reserved: number }
   | {
       ok: false;
       reason: "memory";
-      active: number;
+      resident: number;
       reserved: number;
       availableBytes: number;
       requiredBytes: number;
@@ -169,9 +183,9 @@ export class AgentAdmissionController {
     sessions: readonly AgentActivity[],
     memory?: AgentMemoryBudget,
   ): AgentAdmission {
-    const active = activeAgentCount(sessions);
-    if (active + this.pending.size >= limit) {
-      return { ok: false, reason: "limit", active, reserved: this.pending.size };
+    const resident = residentAgentCount(sessions);
+    if (resident + this.pending.size >= limit) {
+      return { ok: false, reason: "limit", resident, reserved: this.pending.size };
     }
 
     const reservedBytes = [...this.pending.values()].reduce((sum, bytes) => sum + bytes, 0);
@@ -182,7 +196,7 @@ export class AgentAdmissionController {
         return {
           ok: false,
           reason: "memory",
-          active,
+          resident,
           reserved: this.pending.size,
           availableBytes,
           requiredBytes,
