@@ -4,6 +4,29 @@ Recent product updates and deployment notes.
 
 ## August 10, 2026 - Findings from worktree agents can start a session (v0.1.332)
 
+- **Storage & performance can now show you which session is eating the
+  machine.** Expand "Details" for a per-session breakdown: total memory split
+  by what is actually holding it — the coding agent, its backend, its MCP
+  servers, any dev server it started, its browser — plus the size of the
+  session's worktree, sorted heaviest first. A session is not one process; on a
+  busy box a single one spans 300 MB to 2 GB, and until now the only way to see
+  that was to SSH in and read `ps`.
+- **Dev servers left behind by closed sessions are now called out.** Closing a
+  session stops its agent, its tmux session and its browser, but not the `expo`
+  or `vite` server the agent started — those keep running and holding memory.
+  Any that outlive their session are grouped under a "reclaimable" heading with
+  how long they have been running, so they can be found and stopped. On the
+  machine this was built for, that was 1.9 GB held for nearly three days.
+- **Changed: your agent limit now counts idle agents, not just working ones.**
+  An idle agent has stopped using CPU but has not given back its memory, so the
+  limit was measuring the one thing that does not correlate with running out of
+  RAM. You may reach your limit sooner than before; the capacity readout now
+  shows live agents against the cap to match.
+- **New: agents can be archived automatically after sitting idle.** Off by
+  default — pick a window under Agent capacity. Archiving keeps the transcript
+  and the resume record, so an archived session reopens where it left off, and
+  an agent in the middle of a turn is never touched.
+
 - **Fixed: "Execute" on a finding failed with "unknown repo".** If the auto
   agent that reported the finding runs in a git worktree rather than the main
   checkout, acting on its findings was impossible — the button always errored.
