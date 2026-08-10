@@ -127,16 +127,27 @@ export function sanitizeThinkingLevel(
 }
 
 /**
- * Keep a pinned Claude account only while the agent still runs on Claude.
+ * Resolve the stored Claude account pin on a save.
  *
- * Same trap as sanitizeThinkingLevel above: a bare `??` merge lets a field that
- * only means something for one backend survive a switch to another, and then
- * reappear as a stored value nothing re-validates. Only "aisdk" has accounts.
+ * Two separate rules, and the first one is why this takes a tri-state:
+ *
+ *  - `undefined` = the caller never mentioned the field (CLI edits, the refine
+ *    endpoint), so keep whatever is stored. `null`/`""` = the caller explicitly
+ *    chose "Claude · Auto", so CLEAR it. Collapsing those two into one value is
+ *    what made un-pinning impossible: the editor omits an empty field,
+ *    `JSON.stringify` drops `undefined`, and a `??` merge then handed the old
+ *    pin straight back — the agent kept billing the account the user had just
+ *    unpinned, and reopening the sheet showed the chip back where it started.
+ *  - Only "aisdk" has accounts, so a pin never survives a switch to another
+ *    backend. Same trap as sanitizeThinkingLevel above: a field that means
+ *    something for one backend must not sit in a row nothing re-validates.
  */
 export function claudeAccountForBackend(
-  accountId: string | undefined,
+  requested: string | null | undefined,
+  stored: string | undefined,
   backend: AutoAgentBackend | undefined,
 ): string | undefined {
+  const accountId = requested === undefined ? stored : requested || undefined;
   if (!accountId) return undefined;
   // undefined backend = an old row, which means "aisdk" (see the type above).
   return backend === undefined || backend === "aisdk" ? accountId : undefined;
@@ -150,7 +161,8 @@ export async function saveAutoAgent(input: {
   enabled: boolean;
   cwd?: string;
   agent?: AutoAgentBackend;
-  claudeAccountId?: string;
+  /** undefined = leave the stored pin alone; null/"" = clear it. */
+  claudeAccountId?: string | null;
   model?: string;
   thinkingLevel?: string;
   tools?: string[];
@@ -174,7 +186,8 @@ export async function saveAutoAgent(input: {
     cwd: input.cwd ?? existing?.cwd,
     agent: backend,
     claudeAccountId: claudeAccountForBackend(
-      input.claudeAccountId ?? existing?.claudeAccountId,
+      input.claudeAccountId,
+      existing?.claudeAccountId,
       backend,
     ),
     model: input.model ?? existing?.model,

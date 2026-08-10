@@ -5,7 +5,7 @@
 
 import { PATHS } from "../config.ts";
 import { notifyAll, type PushNotification } from "../push.ts";
-import { runInCwd, withProcessEnv } from "./cwd-lock.ts";
+import { runInCwd } from "./cwd-lock.ts";
 import { claudeAccountConfigDir, resolveClaudeAccount } from "../claude-accounts.ts";
 import { claudeAccountEnv } from "../claude-creds.ts";
 import {
@@ -108,7 +108,10 @@ function claudeAccountEnvFor(
     return undefined;
   }
   const configDir = claudeAccountConfigDir(account.id);
-  if (!configDir) return undefined;
+  if (!configDir) {
+    onLog(`[auto] no config dir for Claude account ${accountId} — using the default account`);
+    return undefined;
+  }
   onLog(`[auto] billing this run to ${account.label}`);
   return claudeAccountEnv(process.env, true, configDir);
 }
@@ -136,17 +139,18 @@ async function runClaude(
     // The provider drives claude in the current working directory; scope it to
     // the agent's cwd for the duration of the run. chdir is process-global, so
     // the whole chdir→run→restore is serialized under the shared cwd lock.
-    // The account env is derived INSIDE the lock: it is built from process.env,
-    // and outside the lock another run may be mid-swap, so a snapshot taken
-    // there would inherit that run's environment instead of the real one.
     return await runInCwd(cwd, () =>
-      withProcessEnv(claudeAccountEnvFor(opts.claudeAccountId, onLog), () =>
-        pipeToClaudeAiSdk(prompt, onLog, {
-          allowedTools,
-          model: opts.model,
-          thinkingLevel: opts.thinkingLevel,
-        }),
-      ),
+      pipeToClaudeAiSdk(prompt, onLog, {
+        allowedTools,
+        model: opts.model,
+        thinkingLevel: opts.thinkingLevel,
+        // Scoped to this query only. Billing a run to a pinned account by
+        // swapping process.env instead would have leaked across the whole
+        // serve process: the cwd lock serializes auto runs against each other,
+        // but not against interactive sessions, /api status polls or the voice
+        // provider registry, all of which read process.env in the same process.
+        env: claudeAccountEnvFor(opts.claudeAccountId, onLog),
+      }),
     );
   } catch (e) {
     // The report backend throws on an empty generation; the old `claude -p`

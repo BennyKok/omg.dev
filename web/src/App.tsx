@@ -6203,12 +6203,13 @@ export function App() {
           agent: launchAgent,
           model: opts.model ?? sourceAgent?.model,
           thinkingLevel: agentSupportsThinking(launchAgent) ? inheritedThinkingLevel : undefined,
-          // Only Claude has accounts to pin; every other backend must send
-          // nothing rather than a stale id from the originating auto agent.
-          claudeAccountId:
-            launchAgent === "aisdk"
-              ? opts.claudeAccountId ?? sourceAgent?.claudeAccountId
-              : undefined,
+          // Only Claude has accounts to pin. No `?? sourceAgent` fallback here:
+          // the sheet seeds its state FROM the source agent, so an absent value
+          // means the user actively chose "Claude · Auto" — restoring the
+          // agent's pin would override that and defeat the server's
+          // capacity-based account choice. Exactly the trap the thinkingLevel
+          // note above describes.
+          claudeAccountId: launchAgent === "aisdk" ? opts.claudeAccountId : undefined,
         }),
       });
       const sid = res?.sessionId;
@@ -6262,7 +6263,7 @@ export function App() {
     agent?: AutoAgentBackend;
     model?: string;
     thinkingLevel?: string;
-    claudeAccountId?: string;
+    claudeAccountId?: string | null;
   }) {
     try {
       await api("/api/auto/agents", {
@@ -6287,7 +6288,7 @@ export function App() {
       agent?: AutoAgentBackend;
       model?: string;
       thinkingLevel?: string;
-      claudeAccountId?: string;
+      claudeAccountId?: string | null;
     } = {},
   ) {
     toast.promise(
@@ -18700,7 +18701,7 @@ function AgentModelRow<K extends AgentKind>({
   codingAgents,
   claudeAccountId = "",
   setClaudeAccountId,
-  scheduledOnly = false,
+  scheduledOnly,
 }: {
   backend: K;
   setBackend: (v: K) => void;
@@ -18711,7 +18712,13 @@ function AgentModelRow<K extends AgentKind>({
   codingAgents?: CodingAgentInfo[];
   claudeAccountId?: string;
   setClaudeAccountId?: (v: string) => void;
-  scheduledOnly?: boolean;
+  /**
+   * Required, not optional-with-a-default: `K` and this flag have to agree, and
+   * a call site that narrows `K` to AutoAgentBackend but forgets the flag would
+   * hand pi/copilot to a setter that can't take them. Making it a conscious
+   * choice is what justifies the cast below.
+   */
+  scheduledOnly: boolean;
 }) {
   const catalog = useAgentModelCatalog();
   const accessMode = useContext(AgentAccessModeContext);
@@ -18741,8 +18748,9 @@ function AgentModelRow<K extends AgentKind>({
     setModel(defaultModelFor(next));
   }, [backend, setBackend, setModel, visibleOptions]);
 
-  // A pinned account that is no longer connected falls back to the first Claude
-  // chip, so the strip never renders with nothing selected.
+  // A pinned account that is no longer connected falls back to Claude · Auto —
+  // that is the first `aisdk` option and it carries no accountId — so the strip
+  // never renders with nothing selected.
   useEffect(() => {
     if (!setClaudeAccountId) return;
     if (backend !== "aisdk") return;
@@ -18919,6 +18927,25 @@ function FindingSheet({
     if (!backendModels.includes(model)) setModel(backendDefaultModel);
   }, [backendDefaultModel, backendModels, model]);
 
+  // The pin is seeded from the source agent, which may name an account that has
+  // since been removed or signed out. Launching with a dead id is a hard 400
+  // ("Claude account is missing or not connected"), which would make every
+  // finding from that agent ungraduatable — and the settings row's own reset
+  // can't help, because it only runs once you tap the row open. Degrade to
+  // Claude · Auto instead, matching what the scheduled runner does with a dead
+  // pin rather than failing the one-tap path.
+  const connectedClaudeAccountIds = useMemo(
+    () =>
+      new Set(
+        (codingAgents?.find((agent) => agent.key === "aisdk")?.status.accounts ?? [])
+          .filter((account) => account.connected)
+          .map((account) => account.id),
+      ),
+    [codingAgents],
+  );
+  const livePin =
+    claudeAccountId && connectedClaudeAccountIds.has(claudeAccountId) ? claudeAccountId : "";
+
   const launchOpts = (): {
     agent: AgentKind;
     model: string;
@@ -18928,7 +18955,7 @@ function FindingSheet({
     agent: backend,
     model,
     thinkingLevel: supportsThinking ? thinkingLevel : undefined,
-    claudeAccountId: backend === "aisdk" ? claudeAccountId || undefined : undefined,
+    claudeAccountId: backend === "aisdk" ? livePin || undefined : undefined,
   });
 
   // Page mode. The sheet stops being a card sized by its content and becomes a
@@ -19067,8 +19094,9 @@ function FindingSheet({
           thinkingLevel={thinkingLevel}
           setThinkingLevel={setThinkingLevel}
           codingAgents={codingAgents}
-          claudeAccountId={claudeAccountId}
+          claudeAccountId={livePin}
           setClaudeAccountId={setClaudeAccountId}
+          scheduledOnly={false}
         />
       ) : null}
     </div>
@@ -19345,7 +19373,7 @@ function NewAutoAgentComposer({
       agent?: AutoAgentBackend;
       model?: string;
       thinkingLevel?: string;
-      claudeAccountId?: string;
+      claudeAccountId?: string | null;
     },
   ) => void;
 }) {
@@ -19377,7 +19405,7 @@ function NewAutoAgentComposer({
       agent: backend,
       model,
       thinkingLevel: supportsThinking ? thinkingLevel : undefined,
-      claudeAccountId: backend === "aisdk" ? claudeAccountId || undefined : undefined,
+      claudeAccountId: backend === "aisdk" ? claudeAccountId || null : null,
     });
     onClose();
   }
@@ -19470,7 +19498,7 @@ function AgentEditorSheet({
     agent?: AutoAgentBackend;
     model?: string;
     thinkingLevel?: string;
-    claudeAccountId?: string;
+    claudeAccountId?: string | null;
   }) => Promise<void>;
   onDelete: (id: string) => void;
   onRunNow: (id: string) => void;
@@ -19561,7 +19589,10 @@ function AgentEditorSheet({
         agent: backend,
         model: model.trim() || undefined,
         thinkingLevel: supportsThinking ? thinkingLevel : undefined,
-        claudeAccountId: backend === "aisdk" ? claudeAccountId || undefined : undefined,
+        // null, not undefined: JSON.stringify drops undefined, and an absent
+        // field means "keep the stored pin" — so clearing one has to be said
+        // out loud or the save is a silent no-op.
+        claudeAccountId: backend === "aisdk" ? claudeAccountId || null : null,
       });
     } finally {
       setBusy(false);
