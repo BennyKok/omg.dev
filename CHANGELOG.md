@@ -2,6 +2,20 @@
 
 Recent product updates and deployment notes.
 
+## August 10, 2026 - The update button explains itself (v0.1.335)
+
+- **A greyed-out "Update & restart" now says why.** Boxes with nothing
+  supervising OMG — a hosted sandbox started straight from a control-plane
+  command, most often — can't restart themselves after updating, so the button
+  greyed out under a tooltip you can't even hover on a phone. The reason now
+  takes over the line under "LFG updates", wraps instead of being clipped, and
+  names the terminal command that updates the box anyway.
+- **Bottom sheets that are nothing but fields become full pages when you type.**
+  The auto-agent create and edit forms used to stay content-sized cards that the
+  keyboard shoved off the top; they now expand the way the finding sheet always
+  has, with the body scrolling under a pinned footer. A sheet holding text you
+  typed stays open rather than folding away when the keyboard is dismissed.
+
 ## August 10, 2026 - Files moves into the session header (v0.1.334)
 
 - **Files is a normal header button now.** It used to be a pill floating over
