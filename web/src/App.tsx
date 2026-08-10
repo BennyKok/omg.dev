@@ -18744,10 +18744,21 @@ function AutoAgentModelPicker({
 function BottomSheet({
   onClose,
   title,
+  page = false,
+  footer,
   children,
 }: {
   onClose: () => void;
   title: string;
+  /** Morph from a content-sized card into a full-height page. See the
+   *  `.lfg-sheet-page` rule in index.css for what that means geometrically —
+   *  the short version is that the sheet claims the band above the keyboard so
+   *  the footer lands on it instead of being shoved off-screen. */
+  page?: boolean;
+  /** Pinned to the bottom of the sheet: in page mode this is what ends up
+   *  sitting directly on the keyboard, so it should hold the field the user is
+   *  typing into and its actions — nothing that scrolls. */
+  footer?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -18766,10 +18777,28 @@ function BottomSheet({
         // Keep both the scrim and sheet above it without raising every Drawer in
         // the app, since page-level drawers intentionally sit below some screens.
         overlayClassName="z-[100]"
-        className="z-[100]"
+        className={cn("z-[100]", page && "lfg-sheet-page")}
       >
         <DrawerTitle className="sr-only">{title}</DrawerTitle>
-        <div className="overflow-y-auto overscroll-contain">{children}</div>
+        {/* min-h-0 twice on purpose: without it a flex child refuses to shrink
+            below its content, and the body would push the footer out of the
+            sheet instead of scrolling under it. */}
+        {/* flex-auto, not flex-1: with a `0%` basis these children contribute
+            nothing to an auto-height sheet, and how much a flex container then
+            resolves from their content is exactly where engines disagree. A
+            content basis sizes the compact card off its content everywhere, and
+            still fills (and shrinks, hence min-h-0) once page mode fixes the
+            height. */}
+        <div className="flex min-h-0 flex-auto flex-col">
+          {/* flex-col on the scroller so a caller can `mt-auto` its content to
+              sit against the footer. Deliberately margin-auto and not
+              justify-end: a flex-end scroll container clips its own overflow at
+              the top, and this one overflows the moment the keyboard is up. */}
+          <div className="flex min-h-0 flex-auto flex-col overflow-y-auto overscroll-contain">
+            {children}
+          </div>
+          {footer ? <div className="shrink-0">{footer}</div> : null}
+        </div>
       </DrawerContent>
     </Drawer>
   );
@@ -18808,8 +18837,12 @@ function FindingSheet({
   const [showAllReasoning, setShowAllReasoning] = useState(false);
   const [tuning, setTuning] = useState(false);
   const [feedbackText, setFeedbackText] = useState("");
+  // The composer is behind a button now. Opening the sheet with a focused field
+  // meant the keyboard covered the finding you came to read, on a surface whose
+  // most common answer is the one-tap "Make the change" — no typing at all.
+  const [instructing, setInstructing] = useState(false);
   const feedbackRef = useRef<HTMLTextAreaElement>(null);
-  const tunePanelRef = useRef<HTMLDivElement>(null);
+  const footerRef = useRef<HTMLDivElement>(null);
   const [backend, setBackend] = useState<AutoAgentBackend>(sourceAgent?.agent ?? "aisdk");
   const [model, setModel] = useState(
     sourceAgent?.model ?? defaultModel,
@@ -18832,15 +18865,53 @@ function FindingSheet({
     thinkingLevel: supportsThinking ? thinkingLevel : undefined,
   });
 
-  // Present the finding like a live session you can talk to right away: focus
-  // the composer as soon as the sheet settles so the user can start typing
-  // immediately (and mobile pops the keyboard) without a tap. The delay lets
-  // the Drawer's open animation + focus trap finish first, otherwise the trap
-  // steals focus back.
-  useEffect(() => {
-    const t = setTimeout(() => inputRef.current?.focus(), 250);
-    return () => clearTimeout(t);
-  }, []);
+  // Page mode. The sheet stops being a card sized by its content and becomes a
+  // full-height surface whose body scrolls under a pinned footer, so the
+  // keyboard has something sane to push against instead of shoving the finding
+  // off the top of the screen. Any field taking focus enters it — the reveal
+  // buttons below just do that by focusing what they open.
+  const [paged, setPaged] = useState(false);
+  const exitTimer = useRef<number | null>(null);
+  const cancelExit = () => {
+    if (exitTimer.current !== null) {
+      window.clearTimeout(exitTimer.current);
+      exitTimer.current = null;
+    }
+  };
+  useEffect(() => cancelExit, []);
+
+  // Leaving the last field folds the sheet back down — but only if nothing was
+  // typed, so work in progress can't vanish under someone dismissing the
+  // keyboard to read the finding again. The delay (and the pointer-down
+  // cancel below) is what keeps a tap on the footer's own buttons from
+  // unmounting them between blur and click.
+  function scheduleExit() {
+    cancelExit();
+    exitTimer.current = window.setTimeout(() => {
+      exitTimer.current = null;
+      const root = footerRef.current?.closest("[data-slot=drawer-content]");
+      if (root && root.contains(deepActiveElement())) return;
+      if (text.trim() || feedbackText.trim()) return;
+      setPaged(false);
+      setInstructing(false);
+      setTuning(false);
+    }, 260);
+  }
+
+  // Reveal a field and put the cursor in it. The rAF lets the footer swap and
+  // the sheet start its height morph first; focusing a node that is still being
+  // laid out is what makes iOS scroll the wrong thing under the keyboard.
+  function reveal(which: "instruct" | "tune") {
+    cancelExit();
+    setPaged(true);
+    if (which === "instruct") setInstructing(true);
+    else setTuning(true);
+    requestAnimationFrame(() => {
+      window.setTimeout(() => {
+        (which === "instruct" ? inputRef : feedbackRef).current?.focus();
+      }, 60);
+    });
+  }
 
   // `override` carries the freshly dictated text: the mic's auto-submit fires
   // in the same tick as setText, so the closed-over `text` is still stale.
@@ -18905,9 +18976,232 @@ function FindingSheet({
     .filter(Boolean)
     .join(" · ");
 
+  // Launch settings, folded to one line of text. Lives just above whatever the
+  // footer's primary control is, in both modes, because it describes what that
+  // control is about to run.
+  const settingsRow = (
+    <div className="px-1 pb-2">
+      <button
+        type="button"
+        onClick={() => setShowSettings((v) => !v)}
+        aria-expanded={showSettings}
+        className="flex max-w-full items-center gap-1 text-[11.5px] text-muted-foreground/80 hover:text-muted-foreground"
+      >
+        <span className="truncate">{settingsSummary}</span>
+        <ChevronDown
+          className={cn("size-3 shrink-0 transition-transform", showSettings && "rotate-180")}
+        />
+      </button>
+      {showSettings ? (
+        <AutoAgentModelPicker
+          backend={backend}
+          setBackend={setBackend}
+          model={model}
+          setModel={setModel}
+          thinkingLevel={thinkingLevel}
+          setThinkingLevel={setThinkingLevel}
+          codingAgents={codingAgents}
+        />
+      ) : null}
+    </div>
+  );
+
+  const footer = (
+    <div
+      ref={footerRef}
+      className="px-2 pb-1 pt-2"
+      // A tap heading for one of the footer's own buttons must not be read as
+      // "left the field" — the blur lands first and would unmount the button
+      // before its click.
+      onPointerDownCapture={cancelExit}
+      onFocusCapture={(e) => {
+        if (isTypingTarget(e.target as Element)) {
+          cancelExit();
+          setPaged(true);
+        }
+      }}
+      onBlurCapture={scheduleExit}
+    >
+      {tuning ? (
+        /* Feedback goes to the AGENT, not this finding: what the user types
+           here is folded into the agent's standing instruction, so the next
+           scheduled run behaves differently. */
+        <div className="rounded-2xl border border-border/70 bg-muted/30 p-3">
+          <div className="flex items-center gap-2 text-[13px] font-semibold">
+            <SlidersHorizontal className="size-4 text-primary" />
+            <span className="truncate">Tune {agentName}</span>
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            Say what it should do differently. This rewrites the agent's instruction for every
+            future run — it doesn't touch this finding.
+          </p>
+          <Textarea
+            ref={feedbackRef}
+            value={feedbackText}
+            onChange={(e) => setFeedbackText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                submitFeedback();
+              }
+            }}
+            rows={3}
+            placeholder="e.g. stop flagging cosmetic nits — only surface things that break the build"
+            className="mt-2.5 min-h-[4.5rem] bg-background/60 text-base"
+          />
+          <div className="mt-2.5 flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              onClick={() => {
+                setFeedbackText("");
+                setTuning(false);
+                setPaged(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="brand"
+              size="sm"
+              className="flex-1"
+              disabled={busy || !feedbackText.trim()}
+              onClick={submitFeedback}
+            >
+              <Check className="size-4" />
+              Update agent
+            </Button>
+          </div>
+        </div>
+      ) : instructing ? (
+        <>
+          {settingsRow}
+          {/* Same field treatment as the new-session composer: gradient-edge
+              gfield, mic dictation, ⌘↵ to send. In page mode this row is what
+              sits on top of the keyboard. */}
+          <div className="lfg-gfield flex items-center gap-1.5 rounded-2xl px-2.5 py-2">
+            <SkillTextarea
+              textareaRef={inputRef}
+              value={text}
+              onValueChange={setText}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  void send();
+                }
+              }}
+              rows={1}
+              placeholder="Type to start a session…"
+              // text-base (16px) on mobile keeps iOS from auto-zooming the
+              // viewport on focus.
+              className="max-h-28 min-h-9 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-1 py-1.5 text-base leading-relaxed shadow-none focus-visible:border-0 focus-visible:ring-0"
+            />
+            <MicButton
+              minimal
+              className="size-9 shrink-0"
+              silenceMs={2500}
+              baseText={text}
+              onText={(spoken, base) => setText(base.trim() ? `${base.trimEnd()} ${spoken}` : spoken)}
+              onInterim={(spoken, base) =>
+                setText(base.trim() ? `${base.trimEnd()} ${spoken}` : spoken)
+              }
+              onAutoSubmit={(spoken, base) => {
+                const combined = base.trim() ? `${base.trimEnd()} ${spoken}` : spoken;
+                setText(combined);
+                void send(combined);
+              }}
+              onCancel={(base) => setText(base)}
+            />
+            <Button
+              size="icon-sm"
+              variant="brand"
+              disabled={busy || !text.trim()}
+              onClick={() => void send()}
+            >
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
+            </Button>
+          </div>
+        </>
+      ) : (
+        <>
+          {settingsRow}
+          {/* One row, two intents: run the agent's own suggestion as-is, or say
+              something first. The composer used to be open at all times for the
+              second case, which is the rarer one. */}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="brand"
+              disabled={busy}
+              onClick={() => void execute()}
+              className="flex-1"
+            >
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+              Make the change
+            </Button>
+            <Button
+              variant="tint"
+              size="icon"
+              disabled={busy}
+              onClick={() => reveal("instruct")}
+              title="Say something first"
+              aria-label="Say something first"
+            >
+              <MessageSquare className="size-4" />
+            </Button>
+          </div>
+
+          {/* Everything secondary on one quiet row. Three stacked full-width
+              buttons read as three competing CTAs; these are exits, not the
+              point of the sheet. */}
+          <div className="mt-2 flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busy}
+              onClick={() => void copyReference()}
+              className="flex-1 text-[12.5px] font-medium text-muted-foreground"
+            >
+              <Copy className="size-3.5" />
+              Copy
+            </Button>
+            {onRefineAgent ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                onClick={() => reveal("tune")}
+                className="flex-1 text-[12.5px] font-medium text-muted-foreground"
+              >
+                <SlidersHorizontal className="size-3.5" />
+                Feedback
+              </Button>
+            ) : null}
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busy}
+              onClick={() => {
+                logFindingAction(finding.id, "dismiss", !!text.trim());
+                onDismiss(finding);
+              }}
+              className="flex-1 text-[12.5px] font-medium text-muted-foreground"
+            >
+              <X className="size-3.5" />
+              Dismiss
+            </Button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
   return (
-    <BottomSheet onClose={onClose} title={`${agentName} finding`}>
-      <div className="px-2 pb-4 pt-1">
+    <BottomSheet onClose={onClose} title={`${agentName} finding`} page={paged} footer={footer}>
+      {/* Bottom-anchored once this is a page: the finding stays next to the
+          field you're typing into, and the slack sits above it where the
+          keyboard is — not as a hole between the two. */}
+      <div className={cn("px-2 pb-2 pt-1", paged && "mt-auto")}>
         {/* One quiet identity line. The old header set the agent name at the
             same weight as the title, so two lines competed to be read first —
             the finding is the headline, the agent is metadata. */}
@@ -18956,202 +19250,6 @@ function FindingSheet({
           </div>
         ) : null}
 
-        {tuning ? (
-          /* Feedback goes to the AGENT, not this finding: what the user types
-             here is folded into the agent's standing instruction, so the next
-             scheduled run behaves differently. */
-          <div ref={tunePanelRef} className="mt-4 rounded-2xl border border-border/70 bg-muted/30 p-3">
-            <div className="flex items-center gap-2 text-[13px] font-semibold">
-              <SlidersHorizontal className="size-4 text-primary" />
-              <span className="truncate">Tune {agentName}</span>
-            </div>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              Say what it should do differently. This rewrites the agent's instruction for
-              every future run — it doesn't touch this finding.
-            </p>
-            <Textarea
-              ref={feedbackRef}
-              value={feedbackText}
-              onChange={(e) => setFeedbackText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault();
-                  submitFeedback();
-                }
-              }}
-              rows={3}
-              placeholder="e.g. stop flagging cosmetic nits — only surface things that break the build"
-              className="mt-2.5 min-h-[4.5rem] bg-background/60 text-base"
-            />
-            <div className="mt-2.5 flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-muted-foreground"
-                onClick={() => {
-                  setTuning(false);
-                  setFeedbackText("");
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="brand"
-                size="sm"
-                className="flex-1"
-                disabled={busy || !feedbackText.trim()}
-                onClick={submitFeedback}
-              >
-                <Check className="size-4" />
-                Update agent
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* Same field treatment as the new-session composer: gradient-edge
-                gfield, mic dictation, ⌘↵ to send. */}
-            <div className="lfg-gfield mt-4 flex items-center gap-1.5 rounded-2xl px-2.5 py-2">
-              <SkillTextarea
-                textareaRef={inputRef}
-                value={text}
-                onValueChange={setText}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                    e.preventDefault();
-                    void send();
-                  }
-                }}
-                rows={1}
-                placeholder="Type to start a session…"
-                // text-base (16px) on mobile keeps iOS from auto-zooming the
-                // viewport on focus.
-                className="max-h-28 min-h-9 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-1 py-1.5 text-base leading-relaxed shadow-none focus-visible:border-0 focus-visible:ring-0"
-              />
-              <MicButton
-                minimal
-                className="size-9 shrink-0"
-                silenceMs={2500}
-                baseText={text}
-                onText={(spoken, base) => setText(base.trim() ? `${base.trimEnd()} ${spoken}` : spoken)}
-                onInterim={(spoken, base) =>
-                  setText(base.trim() ? `${base.trimEnd()} ${spoken}` : spoken)
-                }
-                onAutoSubmit={(spoken, base) => {
-                  const combined = base.trim() ? `${base.trimEnd()} ${spoken}` : spoken;
-                  setText(combined);
-                  void send(combined);
-                }}
-                onCancel={(base) => setText(base)}
-              />
-              <Button
-                size="icon-sm"
-                variant="brand"
-                disabled={busy || !text.trim()}
-                onClick={() => void send()}
-              >
-                {busy ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
-              </Button>
-            </div>
-
-            {/* Launch settings fold into a single line of text. An always-open
-                icon strip + model dropdown + thinking pill was the loudest
-                block in the sheet and the least often changed. */}
-            <div className="mt-2 px-1">
-              <button
-                type="button"
-                onClick={() => setShowSettings((v) => !v)}
-                aria-expanded={showSettings}
-                className="flex max-w-full items-center gap-1 text-[11.5px] text-muted-foreground/80 hover:text-muted-foreground"
-              >
-                <span className="truncate">{settingsSummary}</span>
-                <ChevronDown
-                  className={cn(
-                    "size-3 shrink-0 transition-transform",
-                    showSettings && "rotate-180",
-                  )}
-                />
-              </button>
-              {showSettings ? (
-                <AutoAgentModelPicker
-                  backend={backend}
-                  setBackend={setBackend}
-                  model={model}
-                  setModel={setModel}
-                  thinkingLevel={thinkingLevel}
-                  setThinkingLevel={setThinkingLevel}
-                  codingAgents={codingAgents}
-                />
-              ) : null}
-            </div>
-
-            {/* The one-tap default only earns its space in the empty state. Once
-                the user types, the composer ArrowUp runs the exact same onReply, so
-                a second full-width brand button would just be a duplicate CTA. */}
-            {text.trim() ? null : (
-              <Button
-                variant="brand"
-                disabled={busy}
-                onClick={() => void execute()}
-                className="mt-3 w-full"
-              >
-                {busy ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
-                Make the change
-              </Button>
-            )}
-
-            {/* Everything secondary on one quiet row. Three stacked full-width
-                buttons read as three competing CTAs; these are exits, not the
-                point of the sheet. */}
-            <div className="mt-2 flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={busy}
-                onClick={() => void copyReference()}
-                className="flex-1 text-[12.5px] font-medium text-muted-foreground"
-              >
-                <Copy className="size-3.5" />
-                Copy
-              </Button>
-              {onRefineAgent ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => {
-                    setTuning(true);
-                    // A long finding pushes the panel's own Update/Cancel row
-                    // off the bottom of the sheet — the field gets focus and
-                    // the buttons that use it are invisible. Pull the whole
-                    // panel into view, then focus.
-                    setTimeout(() => {
-                      tunePanelRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-                      feedbackRef.current?.focus({ preventScroll: true });
-                    }, 60);
-                  }}
-                  className="flex-1 text-[12.5px] font-medium text-muted-foreground"
-                >
-                  <SlidersHorizontal className="size-3.5" />
-                  Feedback
-                </Button>
-              ) : null}
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={busy}
-                onClick={() => {
-                  logFindingAction(finding.id, "dismiss", !!text.trim());
-                  onDismiss(finding);
-                }}
-                className="flex-1 text-[12.5px] font-medium text-muted-foreground"
-              >
-                <X className="size-3.5" />
-                Dismiss
-              </Button>
-            </div>
-          </>
-        )}
       </div>
     </BottomSheet>
   );
