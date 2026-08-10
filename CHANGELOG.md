@@ -2,6 +2,23 @@
 
 Recent product updates and deployment notes.
 
+## August 10, 2026 - Every agent picker shows the same agents (v0.1.331)
+
+- **Fixed: the finding sheet offered a shorter agent list than the composer.**
+  Open a finding and the agent strip showed a handful of icons; the composer
+  right next to it showed the full roster plus a chip for each connected
+  Claude account. The auto-agent sheets were reading their own separate copy
+  of the agent list, so anything added to the real one never reached them.
+  There is now a single list behind every picker in the app.
+- **Graduating a finding can use any agent, and any Claude account.** "Make
+  the change" starts an ordinary session, so it was never limited to the
+  agents a scheduled watch agent can run — it just looked that way. The full
+  roster is available there now, account chips included.
+- **Scheduled auto agents can pin a Claude account.** Pick which account a
+  watch agent bills to instead of leaving it to whichever one is active. An
+  account that later gets disconnected doesn't silence the agent — the run
+  falls back to the default account and says so in its log.
+
 ## August 10, 2026 - Attached images keep their shape (v0.1.330)
 
 - **Fixed: sending several images at once distorted them.** Attach two
