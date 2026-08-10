@@ -197,6 +197,7 @@ import {
   ScrollText,
   Search,
   Send,
+  SlidersHorizontal,
   Settings,
   Sparkles,
   Volume2,
@@ -2031,12 +2032,13 @@ function useComposerAttachments({
 }
 
 // Fire-and-forget instrumentation: record which CTA a finding used (composer
-// send, one-tap "Make the change", copy for an existing session, or dismiss)
-// and whether the user had typed an instruction first. Never block or surface
+// send, one-tap "Make the change", copy for an existing session, feedback that
+// retunes the agent, or dismiss) and whether the user had typed an instruction
+// first. Never block or surface
 // errors — a dropped telemetry beat must not interfere with the user's action.
 function logFindingAction(
   findingId: string,
-  path: "reply" | "execute" | "copy" | "dismiss",
+  path: "reply" | "execute" | "copy" | "dismiss" | "feedback",
   hadText: boolean,
 ): void {
   void omgFetch(`/api/auto/findings/${findingId}/action`, {
@@ -6225,6 +6227,29 @@ export function App() {
     }
   }
 
+  // Feedback closes the loop on the agent, not the finding: the user says what
+  // this run should have done differently and we rewrite the originating auto
+  // agent's own instruction in place, so the correction is live before the next
+  // scheduled run. Fire-and-close under a toast — the rewrite is a real model
+  // call against the agent's repo and can take a while; nothing should block on
+  // it, and the sheet has already served its purpose.
+  function refineAgentFromFinding(f: AutoFinding, feedbackText: string) {
+    const name = agentName(f.agentId);
+    setOpenFinding(null);
+    toast.promise(
+      api(`/api/auto/agents/${f.agentId}/refine`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feedback: feedbackText, findingId: f.id }),
+      }).then(() => refreshAuto()),
+      {
+        loading: `Updating ${name}…`,
+        success: `${name} updated`,
+        error: (e) => (e instanceof Error ? e.message : "Couldn't update the agent"),
+      },
+    );
+  }
+
   async function saveAutoAgent(input: {
     id?: string;
     name: string;
@@ -7420,6 +7445,7 @@ export function App() {
           onClose={() => setOpenFinding(null)}
           onReply={replyToFinding}
           onDismiss={dismissFinding}
+          onRefineAgent={refineAgentFromFinding}
         />
       ) : null}
 
@@ -18757,6 +18783,7 @@ function FindingSheet({
   onClose,
   onReply,
   onDismiss,
+  onRefineAgent,
 }: {
   finding: AutoFinding;
   agentName: string;
@@ -18769,10 +18796,20 @@ function FindingSheet({
     opts?: { agent?: AutoAgentBackend; model?: string; thinkingLevel?: string },
   ) => Promise<void>;
   onDismiss: (f: AutoFinding) => void;
+  onRefineAgent?: (f: AutoFinding, feedback: string) => void;
 }) {
   const defaultModel = useAgentDefaultModel(sourceAgent?.agent ?? "aisdk");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  // Everything that isn't the finding itself starts folded away. The sheet's
+  // job is to be read in one glance: which agent, what it found, what it
+  // suggests. Launch settings and the long tail of reasoning are one tap deep.
+  const [showSettings, setShowSettings] = useState(false);
+  const [showAllReasoning, setShowAllReasoning] = useState(false);
+  const [tuning, setTuning] = useState(false);
+  const [feedbackText, setFeedbackText] = useState("");
+  const feedbackRef = useRef<HTMLTextAreaElement>(null);
+  const tunePanelRef = useRef<HTMLDivElement>(null);
   const [backend, setBackend] = useState<AutoAgentBackend>(sourceAgent?.agent ?? "aisdk");
   const [model, setModel] = useState(
     sourceAgent?.model ?? defaultModel,
@@ -18848,120 +18885,273 @@ function FindingSheet({
     }
   }
 
+  // Feedback is about the agent, not this row: hand it to the parent, which
+  // rewrites the agent's standing instruction and closes the sheet.
+  function submitFeedback() {
+    const t = feedbackText.trim();
+    if (!t || busy || !onRefineAgent) return;
+    logFindingAction(finding.id, "feedback", !!text.trim());
+    onRefineAgent(finding, t);
+  }
+
+  const REASONING_PREVIEW = 3;
+  const reasoning = finding.reasoning;
+  const shownReasoning =
+    showAllReasoning || reasoning.length <= REASONING_PREVIEW + 1
+      ? reasoning
+      : reasoning.slice(0, REASONING_PREVIEW);
+  const hiddenReasoning = reasoning.length - shownReasoning.length;
+  const settingsSummary = [model, supportsThinking ? `${thinkingLevel} thinking` : null]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
     <BottomSheet onClose={onClose} title={`${agentName} finding`}>
       <div className="px-2 pb-4 pt-1">
-        <div className="flex items-center gap-2">
-          <span className={cn("size-2.5 rounded-full", SEV_DOT[finding.severity])} />
-          <span className="text-[15px] font-semibold">{agentName}</span>
-          <span className="ml-auto text-xs text-muted-foreground">{relTime(finding.createdAt)}</span>
+        {/* One quiet identity line. The old header set the agent name at the
+            same weight as the title, so two lines competed to be read first —
+            the finding is the headline, the agent is metadata. */}
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className={cn("size-2 shrink-0 rounded-full", SEV_DOT[finding.severity])} />
+          <span className="truncate font-medium text-foreground/75">{agentName}</span>
+          <span aria-hidden>·</span>
+          <span className="shrink-0">{relTime(finding.createdAt)}</span>
         </div>
 
-        <p className="mt-3 text-[15px] font-medium leading-snug">{finding.title}</p>
+        <p className="mt-2 text-[17px] font-semibold leading-snug tracking-[-0.01em]">
+          {finding.title}
+        </p>
 
-        {finding.reasoning.length ? (
-          <>
-            <ul className="mt-3 flex flex-col gap-1.5">
-              {finding.reasoning.map((r) => (
-                <li key={r} className="flex gap-2 text-[13.5px] text-foreground/90">
-                  <span className="text-muted-foreground">•</span>
-                  <span>{r}</span>
-                </li>
-              ))}
-            </ul>
-          </>
+        {shownReasoning.length ? (
+          <ul className="mt-2.5 flex flex-col gap-1.5">
+            {shownReasoning.map((r) => (
+              <li
+                key={r}
+                className="flex gap-2 text-[13.5px] leading-relaxed text-muted-foreground"
+              >
+                <span className="mt-[0.6em] size-1 shrink-0 rounded-full bg-muted-foreground/45" />
+                <span className="min-w-0">{r}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {/* A long reasoning list buries the suggestion and the actions below the
+            fold. Show the top few and keep the rest one tap away. */}
+        {hiddenReasoning > 0 ? (
+          <button
+            type="button"
+            onClick={() => setShowAllReasoning(true)}
+            className="mt-2 text-xs font-medium text-muted-foreground/80 underline-offset-4 hover:underline"
+          >
+            {hiddenReasoning} more {hiddenReasoning === 1 ? "detail" : "details"}
+          </button>
         ) : null}
 
         {finding.suggest ? (
-          <div className="mt-4 rounded-xl bg-muted px-3 py-2.5 text-[13.5px]">
-            <span className="font-medium text-muted-foreground">Suggested → </span>
-            {finding.suggest}
+          <div className="mt-3.5 rounded-xl border border-border/60 bg-muted/40 px-3 py-2.5">
+            <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80">
+              Suggested
+            </div>
+            <div className="mt-1 text-[13.5px] leading-relaxed">{finding.suggest}</div>
           </div>
         ) : null}
 
-        <div className="mt-4">
-          <AutoAgentModelPicker
-            backend={backend}
-            setBackend={setBackend}
-            model={model}
-            setModel={setModel}
-            thinkingLevel={thinkingLevel}
-            setThinkingLevel={setThinkingLevel}
-            codingAgents={codingAgents}
-          />
-        </div>
+        {tuning ? (
+          /* Feedback goes to the AGENT, not this finding: what the user types
+             here is folded into the agent's standing instruction, so the next
+             scheduled run behaves differently. */
+          <div ref={tunePanelRef} className="mt-4 rounded-2xl border border-border/70 bg-muted/30 p-3">
+            <div className="flex items-center gap-2 text-[13px] font-semibold">
+              <SlidersHorizontal className="size-4 text-primary" />
+              <span className="truncate">Tune {agentName}</span>
+            </div>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              Say what it should do differently. This rewrites the agent's instruction for
+              every future run — it doesn't touch this finding.
+            </p>
+            <Textarea
+              ref={feedbackRef}
+              value={feedbackText}
+              onChange={(e) => setFeedbackText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  submitFeedback();
+                }
+              }}
+              rows={3}
+              placeholder="e.g. stop flagging cosmetic nits — only surface things that break the build"
+              className="mt-2.5 min-h-[4.5rem] bg-background/60 text-base"
+            />
+            <div className="mt-2.5 flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground"
+                onClick={() => {
+                  setTuning(false);
+                  setFeedbackText("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="brand"
+                size="sm"
+                className="flex-1"
+                disabled={busy || !feedbackText.trim()}
+                onClick={submitFeedback}
+              >
+                <Check className="size-4" />
+                Update agent
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Same field treatment as the new-session composer: gradient-edge
+                gfield, mic dictation, ⌘↵ to send. */}
+            <div className="lfg-gfield mt-4 flex items-center gap-1.5 rounded-2xl px-2.5 py-2">
+              <SkillTextarea
+                textareaRef={inputRef}
+                value={text}
+                onValueChange={setText}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    void send();
+                  }
+                }}
+                rows={1}
+                placeholder="Type to start a session…"
+                // text-base (16px) on mobile keeps iOS from auto-zooming the
+                // viewport on focus.
+                className="max-h-28 min-h-9 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-1 py-1.5 text-base leading-relaxed shadow-none focus-visible:border-0 focus-visible:ring-0"
+              />
+              <MicButton
+                minimal
+                className="size-9 shrink-0"
+                silenceMs={2500}
+                baseText={text}
+                onText={(spoken, base) => setText(base.trim() ? `${base.trimEnd()} ${spoken}` : spoken)}
+                onInterim={(spoken, base) =>
+                  setText(base.trim() ? `${base.trimEnd()} ${spoken}` : spoken)
+                }
+                onAutoSubmit={(spoken, base) => {
+                  const combined = base.trim() ? `${base.trimEnd()} ${spoken}` : spoken;
+                  setText(combined);
+                  void send(combined);
+                }}
+                onCancel={(base) => setText(base)}
+              />
+              <Button
+                size="icon-sm"
+                variant="brand"
+                disabled={busy || !text.trim()}
+                onClick={() => void send()}
+              >
+                {busy ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
+              </Button>
+            </div>
 
-        {/* Same field treatment as the new-session composer: gradient-edge
-            gfield, mic dictation, ⌘↵ to send. */}
-        <div className="lfg-gfield mt-5 flex items-center gap-1.5 rounded-2xl px-2.5 py-2">
-          <SkillTextarea
-            textareaRef={inputRef}
-            value={text}
-            onValueChange={setText}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                void send();
-              }
-            }}
-            rows={1}
-            placeholder="Type to start a session…"
-            // text-base (16px) on mobile keeps iOS from auto-zooming the
-            // viewport on focus.
-            className="max-h-28 min-h-9 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-1 py-1.5 text-base leading-relaxed shadow-none focus-visible:border-0 focus-visible:ring-0"
-          />
-          <MicButton
-            minimal
-            className="size-9 shrink-0"
-            silenceMs={2500}
-            baseText={text}
-            onText={(spoken, base) => setText(base.trim() ? `${base.trimEnd()} ${spoken}` : spoken)}
-            onInterim={(spoken, base) => setText(base.trim() ? `${base.trimEnd()} ${spoken}` : spoken)}
-            onAutoSubmit={(spoken, base) => {
-              const combined = base.trim() ? `${base.trimEnd()} ${spoken}` : spoken;
-              setText(combined);
-              void send(combined);
-            }}
-            onCancel={(base) => setText(base)}
-          />
-          <Button size="icon-sm" variant="brand" disabled={busy || !text.trim()} onClick={() => void send()}>
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
-          </Button>
-        </div>
-        {/* The one-tap default only earns its space in the empty state. Once
-            the user types, the composer ArrowUp runs the exact same onReply, so
-            a second full-width brand button would just be a duplicate CTA. */}
-        {text.trim() ? null : (
-          <Button
-            variant="brand"
-            disabled={busy}
-            onClick={() => void execute()}
-            className="mt-3 w-full"
-          >
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
-            Make the change
-          </Button>
+            {/* Launch settings fold into a single line of text. An always-open
+                icon strip + model dropdown + thinking pill was the loudest
+                block in the sheet and the least often changed. */}
+            <div className="mt-2 px-1">
+              <button
+                type="button"
+                onClick={() => setShowSettings((v) => !v)}
+                aria-expanded={showSettings}
+                className="flex max-w-full items-center gap-1 text-[11.5px] text-muted-foreground/80 hover:text-muted-foreground"
+              >
+                <span className="truncate">{settingsSummary}</span>
+                <ChevronDown
+                  className={cn(
+                    "size-3 shrink-0 transition-transform",
+                    showSettings && "rotate-180",
+                  )}
+                />
+              </button>
+              {showSettings ? (
+                <AutoAgentModelPicker
+                  backend={backend}
+                  setBackend={setBackend}
+                  model={model}
+                  setModel={setModel}
+                  thinkingLevel={thinkingLevel}
+                  setThinkingLevel={setThinkingLevel}
+                  codingAgents={codingAgents}
+                />
+              ) : null}
+            </div>
+
+            {/* The one-tap default only earns its space in the empty state. Once
+                the user types, the composer ArrowUp runs the exact same onReply, so
+                a second full-width brand button would just be a duplicate CTA. */}
+            {text.trim() ? null : (
+              <Button
+                variant="brand"
+                disabled={busy}
+                onClick={() => void execute()}
+                className="mt-3 w-full"
+              >
+                {busy ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+                Make the change
+              </Button>
+            )}
+
+            {/* Everything secondary on one quiet row. Three stacked full-width
+                buttons read as three competing CTAs; these are exits, not the
+                point of the sheet. */}
+            <div className="mt-2 flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                onClick={() => void copyReference()}
+                className="flex-1 text-[12.5px] font-medium text-muted-foreground"
+              >
+                <Copy className="size-3.5" />
+                Copy
+              </Button>
+              {onRefineAgent ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => {
+                    setTuning(true);
+                    // A long finding pushes the panel's own Update/Cancel row
+                    // off the bottom of the sheet — the field gets focus and
+                    // the buttons that use it are invisible. Pull the whole
+                    // panel into view, then focus.
+                    setTimeout(() => {
+                      tunePanelRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+                      feedbackRef.current?.focus({ preventScroll: true });
+                    }, 60);
+                  }}
+                  className="flex-1 text-[12.5px] font-medium text-muted-foreground"
+                >
+                  <SlidersHorizontal className="size-3.5" />
+                  Feedback
+                </Button>
+              ) : null}
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                onClick={() => {
+                  logFindingAction(finding.id, "dismiss", !!text.trim());
+                  onDismiss(finding);
+                }}
+                className="flex-1 text-[12.5px] font-medium text-muted-foreground"
+              >
+                <X className="size-3.5" />
+                Dismiss
+              </Button>
+            </div>
+          </>
         )}
-        <Button
-          variant="outline"
-          disabled={busy}
-          onClick={() => void copyReference()}
-          className="mt-3 w-full"
-        >
-          <Copy className="size-4" />
-          Copy reference
-        </Button>
-        <button
-          type="button"
-          onClick={() => {
-            logFindingAction(finding.id, "dismiss", !!text.trim());
-            onDismiss(finding);
-          }}
-          disabled={busy}
-          className="mt-3 w-full rounded-xl border border-border py-2.5 text-[13px] font-medium text-muted-foreground disabled:opacity-50"
-        >
-          Dismiss
-        </button>
       </div>
     </BottomSheet>
   );

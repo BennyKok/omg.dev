@@ -109,6 +109,79 @@ export async function composeAutoAgent(
   return { name, schedule, prompt: composedPrompt };
 }
 
+// One-shot "refine": the user read a finding, didn't like something about it,
+// and typed what the agent should do differently. We rewrite the agent's own
+// watch instruction to encode that correction so the next scheduled run behaves
+// — the closed loop for "this agent keeps flagging noise" that otherwise means
+// opening the editor and hand-editing a prompt you didn't write.
+
+export type RefineFindingContext = {
+  title: string;
+  reasoning?: string[];
+  suggest?: string;
+  severity?: string;
+};
+
+const REFINE_META = `You are tuning an existing autonomous "watch agent" from its owner's feedback.
+
+The agent runs on a schedule as a real Claude session with READ-ONLY tools, gathers its own context, and each run decides whether there is ONE finding worth surfacing. Silence is the default.
+
+You are given the agent's CURRENT instruction, optionally the specific finding the owner was looking at, and the owner's feedback about it.
+
+Rewrite the instruction so the feedback is durably encoded:
+- Make the SMALLEST edit that satisfies the feedback. Keep everything still correct — the agent's subject, the places it looks, and the standards it already holds — word for word where you can.
+- Feedback about one finding is about the RULE behind it, not that one row. "Stop flagging this" means tightening what counts as actionable; it does not mean naming that finding and blacklisting it.
+- Never narrow the agent into uselessness and never drop its core mandate. If the feedback would silence the agent entirely, tighten the bar instead.
+- Keep the existing voice, shape, and length. Do not pad, do not add preamble, do not add meta commentary about the change you made.
+
+Output ONLY the full revised instruction text. No markdown code fence, no "Here is", no surrounding quotes, no changelog.`;
+
+/** The exact user-turn text a refine pass runs on. Split out so it can be
+ *  asserted directly — the ordering here (instruction, then finding, then
+ *  feedback last) is what keeps the model editing the rule instead of
+ *  transcribing the finding into the prompt. */
+export function buildRefinePrompt(input: {
+  name?: string;
+  prompt: string;
+  feedback: string;
+  finding?: RefineFindingContext;
+  cwd?: string;
+}): string {
+  const parts = [`${REFINE_META}${input.cwd ? REPO_NOTE : ""}`];
+  parts.push(
+    `## The agent\n${input.name?.trim() ? `Name: ${input.name.trim()}\n` : ""}\nCurrent instruction:\n${input.prompt.trim()}`,
+  );
+  const f = input.finding;
+  if (f) {
+    const lines = [`Title: ${f.title}`];
+    if (f.severity) lines.push(`Severity: ${f.severity}`);
+    if (f.reasoning?.length) lines.push(`Reasoning:\n${f.reasoning.map((r) => `- ${r}`).join("\n")}`);
+    if (f.suggest) lines.push(`Suggested fix: ${f.suggest}`);
+    parts.push(`## The finding the owner was looking at\n${lines.join("\n")}`);
+  }
+  parts.push(`## The owner's feedback\n${input.feedback.trim()}`);
+  return parts.join("\n\n");
+}
+
+export async function refineAutoPrompt(
+  input: {
+    name?: string;
+    prompt: string;
+    feedback: string;
+    finding?: RefineFindingContext;
+  },
+  cwd: string | undefined,
+  onLog: (s: string) => void = () => {},
+): Promise<string> {
+  const feedback = input.feedback.trim();
+  if (!feedback) throw new Error("nothing to apply — write the feedback first");
+  if (!input.prompt.trim()) throw new Error("the agent has no instruction to refine");
+  const out = await generate(buildRefinePrompt({ ...input, feedback, cwd }), cwd, onLog);
+  const cleaned = stripFence(out).trim();
+  if (!cleaned) throw new Error("refiner produced no output");
+  return cleaned;
+}
+
 function parseJsonObject(text: string): Record<string, unknown> | null {
   const tryParse = (s: string): any => {
     try {
