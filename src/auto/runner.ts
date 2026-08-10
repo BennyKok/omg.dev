@@ -5,7 +5,9 @@
 
 import { PATHS } from "../config.ts";
 import { notifyAll, type PushNotification } from "../push.ts";
-import { runInCwd } from "./cwd-lock.ts";
+import { runInCwd, withProcessEnv } from "./cwd-lock.ts";
+import { claudeAccountConfigDir, resolveClaudeAccount } from "../claude-accounts.ts";
+import { claudeAccountEnv } from "../claude-creds.ts";
 import {
   type AutoAgent,
   type Finding,
@@ -87,12 +89,36 @@ function parseFinding(text: string): { finding: unknown } | null {
 
 const READONLY_TOOLS = ["Read", "Grep", "Glob", "WebSearch", "WebFetch"];
 
+/**
+ * Environment that bills this run to the agent's pinned Claude account, or
+ * undefined to run as whichever account the box is signed in as.
+ *
+ * A pin that no longer resolves (the account was removed or signed out) does
+ * NOT fail the run — a watch agent going silent is worse than one billing the
+ * default account — but it says so in the log rather than switching quietly.
+ */
+function claudeAccountEnvFor(
+  accountId: string | undefined,
+  onLog: (s: string) => void,
+): Record<string, string> | undefined {
+  if (!accountId) return undefined;
+  const account = resolveClaudeAccount(accountId);
+  if (!account) {
+    onLog(`[auto] pinned Claude account ${accountId} is not connected — using the default account`);
+    return undefined;
+  }
+  const configDir = claudeAccountConfigDir(account.id);
+  if (!configDir) return undefined;
+  onLog(`[auto] billing this run to ${account.label}`);
+  return claudeAccountEnv(process.env, true, configDir);
+}
+
 async function runClaude(
   prompt: string,
   cwd: string,
   onLog: (s: string) => void,
   extraTools: string[] = [],
-  opts: { model?: string; thinkingLevel?: string } = {},
+  opts: { model?: string; thinkingLevel?: string; claudeAccountId?: string } = {},
 ): Promise<string> {
   const allowedTools = [...READONLY_TOOLS, ...extraTools];
   onLog(`[auto] claude run (${prompt.length} chars) in ${cwd} [model: ${opts.model ?? "default"}; tools: ${allowedTools.join(",")}]`);
@@ -110,12 +136,17 @@ async function runClaude(
     // The provider drives claude in the current working directory; scope it to
     // the agent's cwd for the duration of the run. chdir is process-global, so
     // the whole chdir→run→restore is serialized under the shared cwd lock.
+    // The account env is derived INSIDE the lock: it is built from process.env,
+    // and outside the lock another run may be mid-swap, so a snapshot taken
+    // there would inherit that run's environment instead of the real one.
     return await runInCwd(cwd, () =>
-      pipeToClaudeAiSdk(prompt, onLog, {
-        allowedTools,
-        model: opts.model,
-        thinkingLevel: opts.thinkingLevel,
-      }),
+      withProcessEnv(claudeAccountEnvFor(opts.claudeAccountId, onLog), () =>
+        pipeToClaudeAiSdk(prompt, onLog, {
+          allowedTools,
+          model: opts.model,
+          thinkingLevel: opts.thinkingLevel,
+        }),
+      ),
     );
   } catch (e) {
     // The report backend throws on an empty generation; the old `claude -p`
@@ -189,6 +220,7 @@ async function runSelectedBackend(
   return await runClaude(prompt, cwd, onLog, agent.tools ?? [], {
     model: agent.model,
     thinkingLevel: agent.thinkingLevel,
+    claudeAccountId: agent.claudeAccountId,
   });
 }
 

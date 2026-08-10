@@ -150,8 +150,6 @@ import {
   ArrowDown,
   ArrowUp,
   Bot,
-  Boxes,
-  Braces,
   BrainCircuit,
   CalendarClock,
   ClipboardList,
@@ -185,12 +183,10 @@ import {
   Paperclip,
   Pause,
   Pencil,
-  Pi,
   Pin,
   Play,
   Plus,
   Power,
-  Github,
   Globe,
   Radio,
   RotateCcw,
@@ -345,9 +341,12 @@ import {
   type UsageWindow,
 } from "./lib/usage";
 import {
+  AGENT_CATALOG,
   configuredAgentOptions,
   displayedAgentOption,
+  scheduledAgentOptions,
   type AgentAccessMode,
+  type AgentKind,
 } from "./lib/coding-agent-options";
 import {
   Conversation,
@@ -565,6 +564,9 @@ type AutoAgent = {
   cwd?: string;
   project?: string; // server-computed, worktree-aware (cwd in a git worktree collapses to the owning repo)
   agent?: AutoAgentBackend;
+  // Which Claude account the scheduled run bills to. Only meaningful for the
+  // "aisdk" backend; unset means whichever account is active.
+  claudeAccountId?: string;
   model?: string;
   thinkingLevel?: string;
   lastRunAt?: number;
@@ -820,28 +822,12 @@ const COPILOT_MODELS = ["claude-sonnet-4.5", "claude-sonnet-4", "gpt-5"];
 const THINKING_LEVELS = ["low", "medium", "high", "xhigh"] as const;
 type ThinkingLevel = string;
 type AutoAgentBackend = "aisdk" | "codex-aisdk" | "grok" | "cursor" | "opencode";
-const AUTO_AGENT_OPTIONS: { key: AutoAgentBackend; label: string }[] = [
-  { key: "aisdk", label: "claude" },
-  { key: "codex-aisdk", label: "codex" },
-  { key: "grok", label: "grok" },
-  { key: "cursor", label: "cursor" },
-  { key: "opencode", label: "opencode" },
-];
 function savedThinkingLevel(): ThinkingLevel {
   const value = localStorage.getItem("lfg_thinking_level");
   return value && (THINKING_LEVELS as readonly string[]).includes(value) ? value : "medium";
 }
 
-export type AgentKind =
-  | "claude"
-  | "aisdk"
-  | "codex"
-  | "codex-aisdk"
-  | "opencode"
-  | "grok"
-  | "cursor"
-  | "pi"
-  | "copilot";
+export type { AgentKind } from "./lib/coding-agent-options";
 
 // Which agents honor a thinking/reasoning-effort level. Claude (CLI + ai-sdk)
 // takes an `effort`; Codex (CLI + ai-sdk) takes a `reasoning_effort` — both
@@ -946,30 +932,35 @@ function useAgentThinkingLevels(agent: AgentKind): string[] {
   return catalog.thinkingLevels[agent] ?? AGENT_THINKING_LEVELS[agent] ?? [];
 }
 
-// New-session picker options, in display order. The three AI-SDK agents are the
-// only choices ("aisdk" leads since it's the default). Each carries a short
-// label + a distinct lucide glyph.
-const AGENT_OPTIONS: { key: AgentKind; label: string; Icon: typeof Sparkles }[] = [
-  { key: "aisdk", label: "claude", Icon: Sparkles },
-  { key: "codex-aisdk", label: "codex", Icon: Braces },
-  { key: "grok", label: "grok", Icon: Bot },
-  { key: "cursor", label: "cursor", Icon: TerminalSquare },
-  { key: "opencode", label: "opencode", Icon: Boxes },
-  { key: "pi", label: "pi", Icon: Pi },
-  { key: "copilot", label: "copilot", Icon: Github },
-];
+// Kept in sync with AUTO_AGENT_BACKENDS in src/agent-catalog.ts by construction:
+// same order, same labels, just the schedulable subset. (Enforced by
+// web/src/lib/agent-catalog-parity.test.ts.)
+const AUTO_AGENT_OPTIONS = scheduledAgentOptions() as { key: AutoAgentBackend; label: string }[];
 
-type AgentLaunchOption = (typeof AGENT_OPTIONS)[number] & {
+type AgentLaunchOption = (typeof AGENT_CATALOG)[number] & {
   selectorId?: string;
   accountId?: string;
   badge?: number;
 };
 
+/**
+ * The options for EVERY agent picker: the shared catalog, narrowed to what this
+ * box has configured, with the Claude entry fanned out per connected account.
+ *
+ * `scheduledOnly` is the one legitimate narrowing — a cron'd auto agent can
+ * only use a backend the headless runner knows how to drive. Everything else
+ * (the composer, the fork dialog, the finding sheet) launches an ordinary
+ * session and therefore sees the whole roster.
+ */
 function configuredLaunchOptions(
   codingAgents?: CodingAgentInfo[],
   accessMode: AgentAccessMode = "configured",
+  opts: { scheduledOnly?: boolean } = {},
 ): AgentLaunchOption[] {
-  const base = configuredAgentOptions(AGENT_OPTIONS, codingAgents, accessMode);
+  const catalog = opts.scheduledOnly
+    ? AGENT_CATALOG.filter((option) => option.scheduled)
+    : AGENT_CATALOG;
+  const base = configuredAgentOptions(catalog, codingAgents, accessMode);
   const accounts = codingAgents
     ?.find((agent) => agent.key === "aisdk")
     ?.status.accounts?.filter((account) => account.connected);
@@ -6163,7 +6154,12 @@ export function App() {
   async function replyToFinding(
     f: AutoFinding,
     text: string,
-    opts: { agent?: AutoAgentBackend; model?: string; thinkingLevel?: string } = {},
+    opts: {
+      agent?: AgentKind;
+      model?: string;
+      thinkingLevel?: string;
+      claudeAccountId?: string;
+    } = {},
   ) {
     const composed =
       `An automated watch agent ("${agentName(f.agentId)}") flagged this:\n\n` +
@@ -6207,6 +6203,12 @@ export function App() {
           agent: launchAgent,
           model: opts.model ?? sourceAgent?.model,
           thinkingLevel: agentSupportsThinking(launchAgent) ? inheritedThinkingLevel : undefined,
+          // Only Claude has accounts to pin; every other backend must send
+          // nothing rather than a stale id from the originating auto agent.
+          claudeAccountId:
+            launchAgent === "aisdk"
+              ? opts.claudeAccountId ?? sourceAgent?.claudeAccountId
+              : undefined,
         }),
       });
       const sid = res?.sessionId;
@@ -6260,6 +6262,7 @@ export function App() {
     agent?: AutoAgentBackend;
     model?: string;
     thinkingLevel?: string;
+    claudeAccountId?: string;
   }) {
     try {
       await api("/api/auto/agents", {
@@ -6280,7 +6283,12 @@ export function App() {
   function createAutoAgent(
     idea: string,
     cwd: string | undefined,
-    opts: { agent?: AutoAgentBackend; model?: string; thinkingLevel?: string } = {},
+    opts: {
+      agent?: AutoAgentBackend;
+      model?: string;
+      thinkingLevel?: string;
+      claudeAccountId?: string;
+    } = {},
   ) {
     toast.promise(
       api<{ draft: { name: string; schedule: string; prompt: string } }>(
@@ -6304,6 +6312,7 @@ export function App() {
               agent: opts.agent,
               model: opts.model,
               thinkingLevel: opts.thinkingLevel,
+              claudeAccountId: opts.claudeAccountId,
             }),
           }),
         )
@@ -7520,7 +7529,7 @@ export function App() {
           };
           const available = new Set(
             configuredAgentOptions(
-              AGENT_OPTIONS,
+              AGENT_CATALOG,
               codingAgents,
               embedded ? "connected-or-opencode" : "configured",
             ).map((o) => o.key),
@@ -17051,11 +17060,11 @@ function NewSessionDialog({
     visibleAgentOptions.some((option) => option.key === agent) &&
     (!!prompt.trim() || attachments.length > 0);
   const selectedAgentOption = displayedAgentOption<AgentLaunchOption>(
-    AGENT_OPTIONS,
+    AGENT_CATALOG,
     visibleAgentOptions,
     agent,
     selectedLaunchId,
-  ) ?? (AGENT_OPTIONS[0] as AgentLaunchOption);
+  ) ?? (AGENT_CATALOG[0] as AgentLaunchOption);
   // Keep every agent in a fixed position so picking one never reshuffles the
   // icons. The selected agent is highlighted in place rather than hoisted out.
   const agentButtons = visibleAgentOptions;
@@ -18668,7 +18677,15 @@ function ModelPicker({
   );
 }
 
-function AutoAgentModelPicker({
+/**
+ * Agent + model + thinking row for the auto-agent sheets and the finding sheet.
+ *
+ * It renders the SAME strip as the new-session composer and the fork dialog,
+ * off the same catalog and with the same per-account Claude chips. Pass
+ * `scheduledOnly` when the choice is going onto a cron, which is the only place
+ * the roster legitimately narrows.
+ */
+function AgentModelRow<K extends AgentKind>({
   backend,
   setBackend,
   model,
@@ -18676,24 +18693,40 @@ function AutoAgentModelPicker({
   thinkingLevel,
   setThinkingLevel,
   codingAgents,
+  claudeAccountId = "",
+  setClaudeAccountId,
+  scheduledOnly = false,
 }: {
-  backend: AutoAgentBackend;
-  setBackend: (v: AutoAgentBackend) => void;
+  backend: K;
+  setBackend: (v: K) => void;
   model: string;
   setModel: (v: string) => void;
   thinkingLevel: ThinkingLevel;
   setThinkingLevel: (v: ThinkingLevel) => void;
   codingAgents?: CodingAgentInfo[];
+  claudeAccountId?: string;
+  setClaudeAccountId?: (v: string) => void;
+  scheduledOnly?: boolean;
 }) {
   const catalog = useAgentModelCatalog();
   const accessMode = useContext(AgentAccessModeContext);
   const models = useAgentModels(backend);
   const thinkingLevels = useAgentThinkingLevels(backend);
-  const defaultModelFor = (key: AutoAgentBackend) =>
+  const defaultModelFor = (key: AgentKind) =>
     catalog.defaults[key] ?? AGENT_DEFAULT_MODEL[key];
-  const visibleOptions = useMemo(() => {
-    return configuredAgentOptions(AUTO_AGENT_OPTIONS, codingAgents, accessMode);
-  }, [accessMode, codingAgents]);
+  // The catalog is keyed by the full AgentKind union; `scheduledOnly` narrows it
+  // to exactly the keys K allows, which the type system can't see through the
+  // filter. Every onSelect key therefore comes back as K by construction.
+  const visibleOptions = useMemo(
+    () =>
+      configuredLaunchOptions(codingAgents, accessMode, { scheduledOnly }) as unknown as (
+        AgentLaunchOption & { key: K }
+      )[],
+    [accessMode, codingAgents, scheduledOnly],
+  );
+
+  const selectedLaunchId =
+    backend === "aisdk" && claudeAccountId ? `aisdk:${claudeAccountId}` : backend;
 
   useEffect(() => {
     if (visibleOptions.some((option) => option.key === backend)) return;
@@ -18702,6 +18735,17 @@ function AutoAgentModelPicker({
     setBackend(next);
     setModel(defaultModelFor(next));
   }, [backend, setBackend, setModel, visibleOptions]);
+
+  // A pinned account that is no longer connected falls back to the first Claude
+  // chip, so the strip never renders with nothing selected.
+  useEffect(() => {
+    if (!setClaudeAccountId) return;
+    if (backend !== "aisdk") return;
+    if (visibleOptions.some((option) => (option.selectorId ?? option.key) === selectedLaunchId))
+      return;
+    const firstClaude = visibleOptions.find((option) => option.key === "aisdk");
+    setClaudeAccountId(firstClaude?.accountId ?? "");
+  }, [backend, selectedLaunchId, setClaudeAccountId, visibleOptions]);
 
   useEffect(() => {
     if (thinkingLevels.length && !thinkingLevels.includes(thinkingLevel)) {
@@ -18717,8 +18761,10 @@ function AutoAgentModelPicker({
       <AgentIconStrip
         options={visibleOptions}
         value={backend}
-        onSelect={(key) => {
+        selectedId={selectedLaunchId}
+        onSelect={(key, option) => {
           setBackend(key);
+          setClaudeAccountId?.(key === "aisdk" ? option?.accountId ?? "" : "");
           setModel(defaultModelFor(key));
         }}
       />
@@ -18822,7 +18868,12 @@ function FindingSheet({
   onReply: (
     f: AutoFinding,
     text: string,
-    opts?: { agent?: AutoAgentBackend; model?: string; thinkingLevel?: string },
+    opts?: {
+      agent?: AgentKind;
+      model?: string;
+      thinkingLevel?: string;
+      claudeAccountId?: string;
+    },
   ) => Promise<void>;
   onDismiss: (f: AutoFinding) => void;
   onRefineAgent?: (f: AutoFinding, feedback: string) => void;
@@ -18843,7 +18894,11 @@ function FindingSheet({
   const [instructing, setInstructing] = useState(false);
   const feedbackRef = useRef<HTMLTextAreaElement>(null);
   const footerRef = useRef<HTMLDivElement>(null);
-  const [backend, setBackend] = useState<AutoAgentBackend>(sourceAgent?.agent ?? "aisdk");
+  // Graduating a finding starts an ordinary session, so the picker below offers
+  // the whole roster — not just the backends a cron'd auto agent can run. It
+  // only *starts* on the originating agent's backend.
+  const [backend, setBackend] = useState<AgentKind>(sourceAgent?.agent ?? "aisdk");
+  const [claudeAccountId, setClaudeAccountId] = useState(sourceAgent?.claudeAccountId ?? "");
   const [model, setModel] = useState(
     sourceAgent?.model ?? defaultModel,
   );
@@ -18859,10 +18914,16 @@ function FindingSheet({
     if (!backendModels.includes(model)) setModel(backendDefaultModel);
   }, [backendDefaultModel, backendModels, model]);
 
-  const launchOpts = (): { agent: AutoAgentBackend; model: string; thinkingLevel?: string } => ({
+  const launchOpts = (): {
+    agent: AgentKind;
+    model: string;
+    thinkingLevel?: string;
+    claudeAccountId?: string;
+  } => ({
     agent: backend,
     model,
     thinkingLevel: supportsThinking ? thinkingLevel : undefined,
+    claudeAccountId: backend === "aisdk" ? claudeAccountId || undefined : undefined,
   });
 
   // Page mode. The sheet stops being a card sized by its content and becomes a
@@ -18993,7 +19054,7 @@ function FindingSheet({
         />
       </button>
       {showSettings ? (
-        <AutoAgentModelPicker
+        <AgentModelRow
           backend={backend}
           setBackend={setBackend}
           model={model}
@@ -19001,6 +19062,8 @@ function FindingSheet({
           thinkingLevel={thinkingLevel}
           setThinkingLevel={setThinkingLevel}
           codingAgents={codingAgents}
+          claudeAccountId={claudeAccountId}
+          setClaudeAccountId={setClaudeAccountId}
         />
       ) : null}
     </div>
@@ -19273,7 +19336,12 @@ function NewAutoAgentComposer({
   onCreate: (
     idea: string,
     cwd: string | undefined,
-    opts: { agent?: AutoAgentBackend; model?: string; thinkingLevel?: string },
+    opts: {
+      agent?: AutoAgentBackend;
+      model?: string;
+      thinkingLevel?: string;
+      claudeAccountId?: string;
+    },
   ) => void;
 }) {
   const [idea, setIdea] = useState("");
@@ -19283,6 +19351,7 @@ function NewAutoAgentComposer({
       : undefined;
   const [cwd, setCwd] = useState(scopedRepo?.cwd ?? repos[0]?.cwd ?? "");
   const [backend, setBackend] = useState<AutoAgentBackend>("aisdk");
+  const [claudeAccountId, setClaudeAccountId] = useState("");
   const defaultModel = useAgentDefaultModel("aisdk");
   const [model, setModel] = useState(defaultModel);
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(savedThinkingLevel());
@@ -19303,6 +19372,7 @@ function NewAutoAgentComposer({
       agent: backend,
       model,
       thinkingLevel: supportsThinking ? thinkingLevel : undefined,
+      claudeAccountId: backend === "aisdk" ? claudeAccountId || undefined : undefined,
     });
     onClose();
   }
@@ -19351,7 +19421,7 @@ function NewAutoAgentComposer({
           </select>
         </div>
 
-        <AutoAgentModelPicker
+        <AgentModelRow
           backend={backend}
           setBackend={setBackend}
           model={model}
@@ -19359,6 +19429,9 @@ function NewAutoAgentComposer({
           thinkingLevel={thinkingLevel}
           setThinkingLevel={setThinkingLevel}
           codingAgents={codingAgents}
+          claudeAccountId={claudeAccountId}
+          setClaudeAccountId={setClaudeAccountId}
+          scheduledOnly
         />
       </div>
     </BottomSheet>
@@ -19392,6 +19465,7 @@ function AgentEditorSheet({
     agent?: AutoAgentBackend;
     model?: string;
     thinkingLevel?: string;
+    claudeAccountId?: string;
   }) => Promise<void>;
   onDelete: (id: string) => void;
   onRunNow: (id: string) => void;
@@ -19423,6 +19497,7 @@ function AgentEditorSheet({
   // else the first repo.
   const [cwd, setCwd] = useState(existing?.cwd ?? repos[0]?.cwd ?? "");
   const [backend, setBackend] = useState<AutoAgentBackend>(existing?.agent ?? "aisdk");
+  const [claudeAccountId, setClaudeAccountId] = useState(existing?.claudeAccountId ?? "");
   const initialDefaultModel = useAgentDefaultModel(existing?.agent ?? "aisdk");
   const [model, setModel] = useState(
     existing?.model ?? initialDefaultModel,
@@ -19481,6 +19556,7 @@ function AgentEditorSheet({
         agent: backend,
         model: model.trim() || undefined,
         thinkingLevel: supportsThinking ? thinkingLevel : undefined,
+        claudeAccountId: backend === "aisdk" ? claudeAccountId || undefined : undefined,
       });
     } finally {
       setBusy(false);
@@ -19677,7 +19753,7 @@ function AgentEditorSheet({
           </select>
         </div>
 
-        <AutoAgentModelPicker
+        <AgentModelRow
           backend={backend}
           setBackend={setBackend}
           model={model}
@@ -19685,6 +19761,9 @@ function AgentEditorSheet({
           thinkingLevel={thinkingLevel}
           setThinkingLevel={setThinkingLevel}
           codingAgents={codingAgents}
+          claudeAccountId={claudeAccountId}
+          setClaudeAccountId={setClaudeAccountId}
+          scheduledOnly
         />
 
         <button

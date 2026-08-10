@@ -1,3 +1,51 @@
+export type AgentKind =
+  | "claude"
+  | "aisdk"
+  | "codex"
+  | "codex-aisdk"
+  | "opencode"
+  | "grok"
+  | "cursor"
+  | "pi"
+  | "copilot";
+
+export type AgentCatalogEntry = {
+  key: AgentKind;
+  label: string;
+  /** Can a *scheduled* auto agent run this backend? See the note below. */
+  scheduled?: boolean;
+};
+
+/**
+ * THE agent catalog — every picker in the app reads this one list, in this one
+ * order, so a new agent shows up everywhere at once.
+ *
+ * There used to be a second hardcoded list for the auto-agent sheets. It
+ * drifted, and the finding sheet ended up silently offering a smaller roster
+ * than the composer sitting right next to it — even though graduating a finding
+ * starts an ordinary session that can run any of these.
+ *
+ * `scheduled` marks the agents a cron'd auto agent can run: those are driven
+ * headless by src/auto/runner.ts, which needs a one-shot `pipeTo*` backend. pi
+ * and copilot are interactive-only, so they can be launched as sessions but not
+ * put on a schedule. That is a real capability difference, expressed as a flag
+ * on the shared catalog rather than as a duplicate list that can rot.
+ */
+export const AGENT_CATALOG: readonly AgentCatalogEntry[] = [
+  { key: "aisdk", label: "claude", scheduled: true },
+  { key: "codex-aisdk", label: "codex", scheduled: true },
+  { key: "grok", label: "grok", scheduled: true },
+  { key: "cursor", label: "cursor", scheduled: true },
+  { key: "opencode", label: "opencode", scheduled: true },
+  { key: "pi", label: "pi" },
+  { key: "copilot", label: "copilot" },
+];
+
+/** The catalog subset a scheduled auto agent can actually run. */
+export function scheduledAgentOptions(): AgentCatalogEntry[] {
+  return AGENT_CATALOG.filter((option) => option.scheduled);
+}
+
 export type CodingAgentAvailability = {
   key: string;
   visible: boolean;
