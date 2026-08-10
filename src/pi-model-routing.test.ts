@@ -100,8 +100,12 @@ test("pi gating does not disturb the opencode agent's own free-tier rule", () =>
   // accessibleModelsForAgent branches on the agent key first; the pi branch
   // must not swallow the opencode agent, which has an unrelated rule.
   const models = ["opencode/deepseek-v4-flash-free", "opencode/claude-opus-4-8"];
-  expect(accessibleModelsForAgent("opencode", models, false)).toEqual([
+  expect(accessibleModelsForAgent("opencode", models, false, [], false)).toEqual([
     "opencode/deepseek-v4-flash-free",
   ]);
-  expect(accessibleModelsForAgent("opencode", models, true)).toEqual(models);
+  // The full catalog needs both an owner account and OpenCode's own credential.
+  expect(accessibleModelsForAgent("opencode", models, true, [], false)).toEqual([
+    "opencode/deepseek-v4-flash-free",
+  ]);
+  expect(accessibleModelsForAgent("opencode", models, true, [], true)).toEqual(models);
 });

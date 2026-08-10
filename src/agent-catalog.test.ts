@@ -69,7 +69,7 @@ describe("curateOpenCodeModels", () => {
 });
 
 function codingAgent(
-  key: "claude" | "aisdk" | "codex" | "codex-aisdk" | "opencode",
+  key: "claude" | "aisdk" | "codex" | "codex-aisdk" | "opencode" | "pi",
   accountConnected: boolean,
 ) {
   return {
@@ -130,20 +130,41 @@ describe("OpenCode catalog default", () => {
   });
 
   test("shows only credential-free OpenCode models before account setup", () => {
-    expect(accessibleModelsForAgent("opencode", DISCOVERED, false)).toEqual([
+    expect(accessibleModelsForAgent("opencode", DISCOVERED, false, [], true)).toEqual([
       "opencode/deepseek-v4-flash-free",
       "opencode/future-coder-free",
     ]);
   });
 
   test("keeps discovered provider models after account setup", () => {
-    expect(accessibleModelsForAgent("opencode", DISCOVERED, true)).toEqual(DISCOVERED);
+    expect(accessibleModelsForAgent("opencode", DISCOVERED, true, [], true)).toEqual(DISCOVERED);
+  });
+
+  // The bug this pins: a connected Claude account is not an OpenCode
+  // credential. It used to unlock the whole OpenCode catalog anyway, so a box
+  // whose `opencode` had never been signed into offered openai/* and
+  // opencode-go/* — models that fail the moment they launch — and hid the free
+  // Zen models it could actually run.
+  test("does not let another agent's account unlock OpenCode's paid providers", () => {
+    expect(accessibleModelsForAgent("opencode", DISCOVERED, true, [], false)).toEqual([
+      "opencode/deepseek-v4-flash-free",
+      "opencode/future-coder-free",
+    ]);
+  });
+
+  test("keeps the free default when only a Claude account is connected", () => {
+    const opencode = listModelCatalog([
+      codingAgent("aisdk", true),
+      codingAgent("opencode", false),
+    ]).find((item) => item.key === "opencode");
+    expect(opencode?.defaultModel).toMatch(/^opencode\/.+-free$/);
+    for (const model of opencode?.models ?? []) expect(model).toMatch(/^opencode\/.+-free$/);
   });
 
   test.each(["claude", "aisdk", "codex", "codex-aisdk"] as const)(
     "keeps the authenticated default for a connected %s account",
     (key) => {
-      const opencode = listModelCatalog([codingAgent(key, true)]).find(
+      const opencode = listModelCatalog([codingAgent(key, true), codingAgent("opencode", true)]).find(
         (item) => item.key === "opencode",
       );
       expect(opencode?.defaultModel).toBe("opencode/deepseek-v4-flash-free");

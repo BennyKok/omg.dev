@@ -289,6 +289,47 @@ function opencodePath(): string | null {
   ]);
 }
 
+/** OpenCode's credential store, honouring the XDG override it reads itself. */
+function opencodeAuthPath(): string {
+  const xdg = process.env.XDG_DATA_HOME?.trim();
+  return join(xdg ? xdg : join(userHome(), ".local", "share"), "opencode", "auth.json");
+}
+
+/**
+ * Provider ids OpenCode holds a usable credential for.
+ *
+ * OpenCode keys a flat map by provider id (`opencode`, `opencode-go`, `openai`,
+ * `fugu`, …) whose entries are either `{type:"api", key}` or an OAuth record
+ * with `access`/`refresh`. An empty or missing file means the only models this
+ * box can reach are OpenCode Zen's credential-free tier — `opencode models`
+ * lists exactly those and nothing else, which is what makes this the right
+ * signal for gating the picker.
+ */
+function opencodeAuthProviderIds(): string[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(opencodeAuthPath(), "utf8"));
+  } catch {
+    return [];
+  }
+  if (!parsed || typeof parsed !== "object") return [];
+  const ids: string[] = [];
+  for (const [id, entry] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as { key?: unknown; access?: unknown; refresh?: unknown };
+    const secret = [record.key, record.access, record.refresh].some(
+      (value) => typeof value === "string" && value.trim().length > 0,
+    );
+    if (secret) ids.push(id);
+  }
+  return ids;
+}
+
+function hasOpenCodeAccountAuth(): boolean {
+  if (process.env.OPENCODE_API_KEY?.trim()) return true;
+  return opencodeAuthProviderIds().length > 0;
+}
+
 function grokPath(): string | null {
   const home = userHome();
   return which("grok", [
@@ -1020,8 +1061,17 @@ function statusFor(kind: CodingAgentKind): CodingAgentStatus {
     );
     instructions.push("Use Login to connect ChatGPT in your browser, or set OPENAI_API_KEY.");
   } else if (kind === "opencode") {
+    // Auth is deliberately not a `checks` row: OpenCode Zen's free tier needs no
+    // credential, so an unauthenticated install is still fully usable and must
+    // stay `configured` — it is what a hosted box offers before any sign-in.
+    // It does decide which models the picker may honestly offer, though.
+    accountConnected = hasOpenCodeAccountAuth();
     addBinary("OpenCode CLI", opencodePath());
-    instructions.push("Install/authenticate OpenCode, then verify `opencode` works from this user.");
+    instructions.push(
+      accountConnected
+        ? "OpenCode is signed in; run `opencode auth login` again to add another provider."
+        : "Run `opencode auth login` to reach paid providers — the free Zen models work without it.",
+    );
   } else if (kind === "cursor") {
     addBinary("Cursor CLI", cursorPath());
     addAuth("Cursor auth", hasCursorAuth(), "run `cursor-agent login` once or set CURSOR_API_KEY");
