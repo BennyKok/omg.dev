@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { haptic } from "@/lib/haptics";
 import { agentIconSrc } from "@/lib/session-ui";
 import {
+  mergeProviderUsage,
   useUsageFeed,
   type ProviderUsage,
   type UsageProviderRef,
@@ -34,8 +35,17 @@ import {
 
 export type { ProviderUsage, UsageProviderRef, UsageWindow };
 
-/** What one arc slot renders: the source, plus its usage once that source lands. */
-type ArcEntry = UsageProviderRef & { usage: ProviderUsage | null };
+/**
+ * What one arc slot renders: the source, plus its usage once that source lands.
+ *
+ * `members` is set only on a merged node (several accounts of one provider shown
+ * as one ring) and carries the accounts behind the total, so focusing the node
+ * can break the number back down.
+ */
+type ArcEntry = UsageProviderRef & {
+  usage: ProviderUsage | null;
+  members?: ArcEntry[];
+};
 
 // ── open bus (avoids wrapping the whole App tree) ───────────────────────────
 
@@ -238,6 +248,73 @@ function soonestReset(providers: ProviderUsage[], now: number): number | null {
     }
   }
   return best;
+}
+
+/**
+ * Collapse a provider family's per-account slots into one node.
+ *
+ * Two Claude logins used to sit on the arc as two rings, and the question people
+ * actually ask — "how much Claude do I have left?" — had to be done in your head
+ * from two numbers against two independent quotas. One node answers it directly:
+ * the ring is the share of the whole fleet that's spent, and focusing it lists
+ * the accounts behind that number.
+ *
+ * It also buys back arc space. Node size steps DOWN past six slots, and a second
+ * Claude account was exactly what pushed a four-agent box over that line.
+ *
+ * A family with one account is left alone — there is nothing to add up, and the
+ * single account's own id is what the launch path wants.
+ */
+function mergeAccountNodes(entries: ArcEntry[]): ArcEntry[] {
+  const counts = new Map<string, number>();
+  for (const entry of entries) {
+    if (entry.accountId == null) continue;
+    counts.set(entry.kind, (counts.get(entry.kind) ?? 0) + 1);
+  }
+  const merging = new Set([...counts].filter(([, n]) => n > 1).map(([kind]) => kind));
+  if (!merging.size) return entries;
+
+  const out: ArcEntry[] = [];
+  const done = new Set<string>();
+  for (const entry of entries) {
+    if (entry.accountId == null || !merging.has(entry.kind)) {
+      out.push(entry);
+      continue;
+    }
+    if (done.has(entry.kind)) continue;
+    done.add(entry.kind);
+    const members = entries.filter(
+      (candidate) => candidate.kind === entry.kind && candidate.accountId != null,
+    );
+    const base: UsageProviderRef = {
+      id: `${entry.kind}:all`,
+      kind: entry.kind,
+      // No accountId: clicking a merged node must NOT pin one of the accounts.
+      // Leaving it off is what lets the server pick the account with headroom.
+      label: familyLabel(entry),
+    };
+    out.push({
+      ...base,
+      usage: members.every((member) => member.usage == null)
+        ? null // still resolving — the slot spins rather than reading 0%
+        : mergeProviderUsage(
+            members.map((member) => member.usage),
+            base,
+          ),
+      members,
+    });
+  }
+  return out;
+}
+
+/**
+ * Family name for a merged node, taken from the KIND rather than from an
+ * account label. It's the same name the server uses when only one account is
+ * connected ("Claude"), so merging doesn't rename the node — and a renamed
+ * account ("Work") can't drag the whole family's label with it.
+ */
+function familyLabel(entry: ArcEntry): string {
+  return entry.kind.charAt(0).toUpperCase() + entry.kind.slice(1);
 }
 
 function maxUsagePct(p: ProviderUsage): number | null {
@@ -601,9 +678,10 @@ function CampfireOverlay({
           (a.accountNumber ?? 0) - (b.accountNumber ?? 0) ||
           a.label.localeCompare(b.label),
       );
-    return feedLoading
+    const kept = feedLoading
       ? entries.filter((entry) => !entry.usage || keep(entry as ArcEntry))
       : entries.filter(keep);
+    return mergeAccountNodes(kept);
   }, [refs, providers, feedLoading]);
 
   const [mobile, setMobile] = useState(
@@ -697,6 +775,10 @@ function CampfireOverlay({
         : [],
     [focused, heroReset, now],
   );
+
+  // The accounts behind a focused merged node, so the combined ring can be
+  // read back as its parts. Empty for every ordinary single-source node.
+  const focusedMembers = focusedEntry?.members ?? [];
 
   // Not every provider reports a reset time. Rather than answer a hover with
   // "No upcoming resets reported", fall back to what that agent DOES know —
@@ -839,6 +921,33 @@ function CampfireOverlay({
                   {formatResetShort(window.resetsAt, now)}
                 </span>
               ))}
+            </div>
+          ) : null}
+          {/* Merging answers "how much is left across everything", but the
+              follow-up is always "which login is the burnt one" — so focusing
+              the combined node splits its number back into the accounts it
+              came from. */}
+          {focusedMembers.length ? (
+            <div
+              className="mt-1 flex items-center justify-center gap-2.5 text-[10px] tabular-nums sm:text-[11px]"
+              style={{ color: TONE.soft }}
+              aria-label="Usage by account"
+            >
+              {focusedMembers.map((member) => {
+                const pct = member.usage ? maxUsagePct(member.usage) : null;
+                return (
+                  <span key={member.id} className="inline-flex items-center gap-1">
+                    <span style={{ color: TONE.label }}>{member.label}</span>
+                    <span style={{ color: pct == null ? TONE.faint : pctColor(pct) }}>
+                      {member.usage == null
+                        ? "…"
+                        : pct == null
+                          ? shortNote(member.usage.note)
+                          : `${Math.round(pct)}%`}
+                    </span>
+                  </span>
+                );
+              })}
             </div>
           ) : null}
           <p className="mt-0.5 text-[10px]" style={{ color: TONE.faint }}>
