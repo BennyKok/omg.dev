@@ -204,6 +204,13 @@ import {
   useProjectFolder,
 } from "../repos-store.ts";
 import { projectName, reposRoot } from "../projects.ts";
+import {
+  cwdIsWithin,
+  repoContainingCwd,
+  repoForParentSession,
+  repoForRequestedSessionCwd,
+  resolveInputCwd,
+} from "../repo-resolve.ts";
 import { resolveSessionCwd, startWorktreeSweep } from "../worktree.ts";
 import { ensureConversationVisibleFrom } from "../claude-conversation.ts";
 import {
@@ -675,54 +682,6 @@ async function listRepos() {
 }
 
 type RepoEntry = Awaited<ReturnType<typeof listRepos>>[number];
-
-function cwdIsWithin(absCwd: string, absRoot: string): boolean {
-  return absCwd === absRoot || absCwd.startsWith(`${absRoot}/`);
-}
-
-function resolveInputCwd(rawCwd: string, baseCwd?: string | null): string {
-  return !isAbsolute(rawCwd) && baseCwd ? resolve(baseCwd, rawCwd) : resolve(rawCwd);
-}
-
-function repoContainingCwd(
-  repos: RepoEntry[],
-  rawCwd: string | null | undefined,
-  baseCwd?: string | null,
-): RepoEntry | undefined {
-  const cwd = rawCwd?.trim();
-  if (!cwd) return undefined;
-  const wanted = resolveInputCwd(cwd, baseCwd);
-  return repos
-    .filter((repo) => cwdIsWithin(wanted, resolve(repo.cwd)))
-    .sort((a, b) => resolve(b.cwd).length - resolve(a.cwd).length)[0];
-}
-
-function repoForParentSession(repos: RepoEntry[], parent: Session | undefined): RepoEntry | undefined {
-  if (!parent) return undefined;
-  return (
-    repoContainingCwd(repos, parent.cwd) ??
-    (parent.project ? repos.find((repo) => repo.project === parent.project) : undefined) ??
-    (parent.cwd ? repos.find((repo) => repo.project === projectName(parent.cwd)) : undefined)
-  );
-}
-
-function repoForRequestedSessionCwd(
-  repos: RepoEntry[],
-  rawCwd: string,
-  parent: Session | undefined,
-): RepoEntry | undefined {
-  const explicit = repoContainingCwd(repos, rawCwd, parent?.cwd);
-  if (explicit) return explicit;
-
-  // Subagent callers sometimes pass their current directory, which may be an
-  // isolated /tmp/lfg-wt checkout that is deliberately absent from /api/repos.
-  // If that path is inside the parent session's cwd, map it back to the parent
-  // project instead of treating it as an arbitrary unknown repo.
-  if (parent?.cwd && cwdIsWithin(resolveInputCwd(rawCwd, parent.cwd), resolve(parent.cwd))) {
-    return repoForParentSession(repos, parent);
-  }
-  return undefined;
-}
 
 // Auto agents may run in a git worktree (or any nested checkout); the UI must
 // still group them under the owning repo's project. projectName() collapses
