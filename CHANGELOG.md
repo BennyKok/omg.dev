@@ -2,6 +2,22 @@
 
 Recent product updates and deployment notes.
 
+## August 10, 2026 - Delete a project folder from the picker (v0.1.337)
+
+- **You can delete a folder from the project browser.** Browse could create
+  projects but never remove one, so abandoned "New Project" shells piled up in
+  the repos root with no way out of the UI. Every row now has a delete button.
+- **Empty folders are badged "Empty".** They're not git repos, so they never
+  showed up in the projects list to be noticed in the first place — which is
+  how you end up with a pile of them and no idea where they came from.
+- **The warning is saved for folders that have something to lose.** An empty
+  folder, or a starter project that never got past its README, deletes with one
+  confirmation. Anything with real files lists exactly what's inside — plus
+  uncommitted changes and unpushed history — before it will delete anything.
+- **Safety rails.** Your home folder, the projects root, the worktree folder and
+  OMG's own install can't be deleted, nor can anything containing them, and a
+  folder with a session still running in it is refused until you close it.
+
 ## August 10, 2026 - Files moves into the ⋮ menu (v0.1.336)
 
 - **Files opens from the session ⋮ menu.** Making it its own header button just
