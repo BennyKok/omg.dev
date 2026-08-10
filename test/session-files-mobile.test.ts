@@ -95,9 +95,12 @@ describe("Files panel: touch targets", () => {
 
 describe("Files: the way in", () => {
   // Files used to be a pill floating over the bottom of the transcript, pinned
-  // there for every focused session. It is a header button now, so the floating
-  // bar must be back to carrying only the review pill — and only when the
-  // session actually has changes to review.
+  // there for every focused session, and then briefly a header button of its
+  // own. It is an item in the session ⋮ menu now, so the floating bar must be
+  // back to carrying only the review pill — and only when the session actually
+  // has changes to review.
+  const app = readFileSync("web/src/App.tsx", "utf8");
+
   test("the diff bar no longer opens the Files panel", () => {
     expect(bar).not.toContain("SessionFilesPanel");
     expect(bar).not.toContain("filesOpen");
@@ -108,22 +111,43 @@ describe("Files: the way in", () => {
     expect(bar).not.toContain("onVisibilityChange?.(!!sid)");
   });
 
-  test("the button sits in both session headers next to the ⋮ menu", () => {
-    const app = readFileSync("web/src/App.tsx", "utf8");
-    expect(app).toContain(
-      'import { SessionFilesButton } from "@/components/session-files/SessionFilesButton"',
+  test("Files opens from the ⋮ menu, not a header button of its own", () => {
+    expect(app).not.toContain("SessionFilesButton");
+    expect(app).toMatch(
+      /<DropdownMenuItem disabled=\{!sid\} onClick=\{\(\) => setFilesOpen\(true\)\}>\s*<FileCode className="size-4" \/>\s*Files/,
     );
-    // Sheet header (thumb-sized) and desktop card header.
-    expect(app).toContain('<SessionFilesButton sid={sid} className="size-9" />');
-    expect(app).toContain("{!collapsedView && <SessionFilesButton sid={sid} />}");
+  });
+
+  test("the panel is rendered by the menu's owner, not by the menu item", () => {
+    // A DropdownMenuItem unmounts as soon as the menu closes; a panel rendered
+    // inside one would vanish on the very click that opened it.
+    expect(app).toMatch(
+      /\{filesOpen && sid \? \(\s*<Suspense fallback=\{null\}>\s*<LazySessionFilesPanel/,
+    );
+    expect(app).toContain(
+      'import { LazySessionFilesPanel } from "@/components/session-files/lazy-panel"',
+    );
+  });
+
+  test("the panel stays out of the first-paint bundle", () => {
+    const lazyPanel = readFileSync(
+      "web/src/components/session-files/lazy-panel.ts",
+      "utf8",
+    );
+    expect(lazyPanel).toMatch(/lazyWithReload\(\s*"session-files-panel"/);
   });
 
   test("switching sessions closes the panel instead of repointing it", () => {
-    const button = readFileSync(
-      "web/src/components/session-files/SessionFilesButton.tsx",
-      "utf8",
-    );
-    expect(button).toMatch(/useEffect\(\(\) => \{\s*setOpen\(false\);\s*\}, \[sid\]\)/);
+    expect(app).toMatch(/useEffect\(\(\) => \{\s*setFilesOpen\(false\);\s*\}, \[sid\]\)/);
+  });
+});
+
+describe("Session sheet header", () => {
+  test("no position counter competes with the title", () => {
+    // Switching is gesture-driven (swipe the input bar) + arrow keys; the
+    // "3/7" readout was noise on top of a title that is already the answer.
+    const app = readFileSync("web/src/App.tsx", "utf8");
+    expect(app).not.toContain("{idx + 1}/{order.length}");
   });
 });
 
