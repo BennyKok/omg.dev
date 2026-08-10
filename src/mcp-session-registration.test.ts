@@ -48,12 +48,21 @@ describe("session identity reaches every agent launcher", () => {
     const codex = backendSources().filter((f) => f.text.includes("@openai/codex-sdk"));
     expect(codex.length).toBeGreaterThan(0);
 
-    // Codex spawns `lfg mcp` over stdio with a sanitized environment, so the id
+    // Codex spawns `omg mcp` over stdio with a sanitized environment, so the id
     // has to ride a per-launch --config override instead of the environment.
-    const unwired = codex
-      .filter((f) => !(f.text.includes("mcp_servers") && f.text.includes("LFG_SESSION_ID")))
-      .map((f) => f.name);
+    // Match the shared helper's CALL, not a hand-rolled mcp_servers literal:
+    // building the override inline is how the server name got hardcoded to a
+    // name config.toml no longer defined, which is a fatal launch error rather
+    // than a degraded connection (see codex-mcp-config.ts).
+    const unwired = codex.filter((f) => !/codexOmgMcpConfig\(/.test(f.text)).map((f) => f.name);
     expect(unwired).toEqual([]);
+  });
+
+  test("no codex launcher hand-rolls an mcp_servers override", () => {
+    const offenders = backendSources()
+      .filter((f) => /mcp_servers\s*:\s*\{/.test(f.text))
+      .map((f) => f.name);
+    expect(offenders).toEqual([]);
   });
 });
 

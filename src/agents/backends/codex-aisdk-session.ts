@@ -33,6 +33,7 @@ import type { SessionMsg } from "../../sessions.ts";
 import { sessionTitleFromPrompt } from "../../omg-capabilities.ts";
 import { indexSessionMessagesDirect, reindexFileHistoryUnderSessionKey } from "../../transcript-index.ts";
 import { makeDraftPublisher } from "./draft.ts";
+import { codexOmgMcpConfig, type CodexConfigValue } from "../../codex-mcp-config.ts";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { initialCmdOffset, readNewCmdLines, writeCursor } from "./cmd-tail.ts";
 
@@ -57,27 +58,21 @@ function resolveCodexPathOverride(): string | undefined {
 }
 
 /**
- * Codex CLI overrides that tell the LFG MCP server which session it serves.
+ * Codex CLI overrides that tell the OMG MCP server which session it serves.
  *
  * Codex sanitizes the environment of the MCP servers it spawns: this process
- * has LFG_SESSION_ID, the `lfg mcp` child it launches does not, so every
+ * has OMG_SESSION_ID, the `omg mcp` child it launches does not, so every
  * session-scoped tool fell back to "no caller" and failed. `~/.codex/config.toml`
  * can't carry the id — one config serves every session — so it rides the
  * per-launch `--config` overrides instead.
+ *
+ * The server NAME is discovered from config.toml rather than hardcoded: an
+ * `mcp_servers.<name>.env` override for a name that config.toml doesn't define
+ * makes codex reject the whole config ("invalid transport"), which fails the
+ * launch before the model runs. See ../../codex-mcp-config.ts.
  */
-// Mirrors the codex-sdk's own config value type; the SDK is imported
-// dynamically, so its types aren't in scope here.
-type CodexConfigValue =
-  | string
-  | number
-  | boolean
-  | CodexConfigValue[]
-  | { [key: string]: CodexConfigValue };
-
 function omgMcpConfig(): { config?: { [key: string]: CodexConfigValue } } {
-  const sessionId = process.env.LFG_SESSION_ID?.trim();
-  if (!sessionId) return {};
-  return { config: { mcp_servers: { lfg: { env: { LFG_SESSION_ID: sessionId } } } } };
+  return codexOmgMcpConfig();
 }
 
 // Shared thread options for both the interactive harness and the one-shot
