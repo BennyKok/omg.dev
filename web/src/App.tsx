@@ -702,6 +702,13 @@ type OnboardingState = {
   profiles: { email: string; name: string; createdAt: string; avatar?: string }[];
   steps: { profile: boolean; agents: boolean; repo: boolean; firstSession: boolean };
   completedAt: string | null;
+  /** Embedded/hosted first run. Kept apart from `steps` on purpose — see the
+   *  HostedFirstRun note in src/onboarding.ts. Optional here because a Computer
+   *  running an older build will not send it. */
+  hosted?: {
+    introDoneAt: string | null;
+    coach: { session: boolean; schedule: boolean };
+  };
 };
 
 type ModelCatalogItem = {
@@ -5183,6 +5190,11 @@ export function App() {
   // Embed-only first-run gate: which connection has an in-flight click, whether
   // the user finished/skipped it, and whether this load ever entered the flow.
   const [connectPendingKind, setConnectPendingKind] = useState<AgentKind | "github" | null>(null);
+  // Local echo of the SERVER's hosted.introDoneAt, so dismissing the gate takes
+  // effect before the write lands. It used to be the whole story, which is what
+  // made the gate unusable: "Skip for now" lived only in this state, so it came
+  // back on every reload until an agent was connected — a permanent wall for
+  // anyone happy on the seeded credential-free agent, not a first run.
   const [connectGateSkipped, setConnectGateSkipped] = useState(false);
   const connectGateStarted = useRef(false);
   const [toolConnections, setToolConnections] = useState<ToolConnectOption[] | undefined>();
@@ -6748,6 +6760,48 @@ export function App() {
     }
   }, []);
 
+  /**
+   * Record that the hosted intro has been seen, so it does not reappear on the
+   * next load. Silent on failure by design — the only cost of a lost write is
+   * seeing the intro once more, and a toast about onboarding bookkeeping at the
+   * exact moment someone is finally reaching their Computer is worse than that.
+   */
+  const markHostedIntroDone = useCallback(async () => {
+    try {
+      const response = await api<{ state: OnboardingState }>("/api/onboarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hostedIntroDone: true }),
+      });
+      setOnboarding(response.state);
+    } catch {
+      /* see above — a repeat of the intro is the whole downside */
+    }
+  }, []);
+
+  /**
+   * Put the hosted surface back through its own first run. Deliberately does
+   * NOT touch `steps`/`completedAt`: those belong to the open-source flow, and
+   * a hosted Computer must not be able to reset a walkthrough it never ran.
+   */
+  const restartHostedFirstRun = useCallback(async () => {
+    try {
+      const response = await api<{ state: OnboardingState }>("/api/onboarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          hostedIntroDone: false,
+          hostedCoach: { session: false, schedule: false },
+        }),
+      });
+      setOnboarding(response.state);
+      setConnectGateSkipped(false);
+      connectGateStarted.current = false;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't restart the tour");
+    }
+  }, []);
+
   const refreshCodingAgents = useCallback(async (opts: { refreshModels?: boolean } = {}) => {
     const agentsPath = opts.refreshModels ? "/api/coding-agents?refreshModels=1" : "/api/coding-agents";
     // Every caller invokes this fire-and-forget (`void refreshCodingAgents()`),
@@ -7046,7 +7100,14 @@ export function App() {
     bare,
     connectionOnboarding,
     agents: codingAgents,
-    dismissed: connectGateSkipped || !!sessionDeepLinkRef.current,
+    // Server-backed, so this is genuinely once-per-Computer rather than
+    // once-per-page-load. `onboarding` is null until bootstrap answers; that
+    // window is covered by connectGateStarted below, which only latches after
+    // a real "yes".
+    dismissed:
+      connectGateSkipped ||
+      !!onboarding?.hosted?.introDoneAt ||
+      !!sessionDeepLinkRef.current,
   });
   if (connectGateRequired) connectGateStarted.current = true;
   const connectGateOpen =
@@ -7054,6 +7115,7 @@ export function App() {
     !bare &&
     connectionOnboarding &&
     !connectGateSkipped &&
+    !onboarding?.hosted?.introDoneAt &&
     !sessionDeepLinkRef.current &&
     connectGateStarted.current;
   useEffect(() => {
@@ -7086,7 +7148,14 @@ export function App() {
             setConnectPendingKind(key);
             void loginTool(key).finally(() => setConnectPendingKind(null));
           }}
-          onDone={() => setConnectGateSkipped(true)}
+          onDone={() => {
+            // Echo locally first so the app appears immediately, then record it
+            // for good. Fire-and-forget: a failed write means they see the
+            // intro again next load, which is a far better failure than
+            // blocking the Computer behind a spinner on a bookkeeping call.
+            setConnectGateSkipped(true);
+            void markHostedIntroDone();
+          }}
         />
         <CodingAgentAuthDialog
           session={codingAgentAuth}
@@ -7578,7 +7647,12 @@ export function App() {
             onOpenTerminal={() => setTab("term")}
             onOpenUsage={() => setTab("usage")}
             onOpenChangelog={() => setTab("changelog")}
-            onRedoOnboarding={redoOnboarding}
+            // Same row, different flow per surface — which is the whole point
+            // of keeping the two first runs separate. A hosted Computer must
+            // not be able to reset the open-source walkthrough (it never ran
+            // it, and doing so would demand a profile and a repo it doesn't
+            // need), and a self-hosted box has no hosted tour to replay.
+            onRedoOnboarding={embedded ? restartHostedFirstRun : redoOnboarding}
             extTabs={extNavTabs}
             onOpenExt={(id) => setTab(id)}
           />
