@@ -33,10 +33,40 @@ export type OnboardingSteps = {
   firstSession: boolean;
 };
 
+/**
+ * First-run progress for an EMBEDDED (hosted) surface — a managed Computer
+ * inside omg — kept deliberately apart from `steps` above.
+ *
+ * The two flows answer different questions and must not share a field. The
+ * open-source flow walks an EMPTY box: make an identity, install agent CLIs,
+ * clone a repo. A hosted Computer arrives provisioned, with its identity owned
+ * by the host, its roster intentionally empty, and a credential-free agent
+ * already seeded — so its first run is about what the person can now DO, not
+ * about standing the box up. Folding one into the other would mean every screen
+ * branching on whether it was framed.
+ *
+ * Why this is server-side at all: the embedded connect gate used to track its
+ * dismissal in a React `useState`, so "Skip for now" lasted until the next
+ * reload and the gate returned on EVERY load until an agent was connected.
+ * That turns a first-run into a permanent wall for anyone happy on the free
+ * credential-free agent, and is very likely why the host switched the gate off
+ * rather than fixing it. Persisted here it is what it claims to be: once.
+ */
+export type HostedFirstRun = {
+  /** Finished (or skipped) the connect + intro screens. */
+  introDoneAt: string | null;
+  /** Coach steps the person has been walked through. */
+  coach: {
+    session: boolean;
+    schedule: boolean;
+  };
+};
+
 export type OnboardingState = {
   profiles: OnboardingProfile[];
   steps: OnboardingSteps;
   completedAt: string | null;
+  hosted: HostedFirstRun;
 };
 
 const DEFAULT_STEPS: OnboardingSteps = {
@@ -46,10 +76,16 @@ const DEFAULT_STEPS: OnboardingSteps = {
   firstSession: false,
 };
 
+const DEFAULT_HOSTED: HostedFirstRun = {
+  introDoneAt: null,
+  coach: { session: false, schedule: false },
+};
+
 const DEFAULTS: OnboardingState = {
   profiles: [],
   steps: { ...DEFAULT_STEPS },
   completedAt: null,
+  hosted: structuredClone(DEFAULT_HOSTED),
 };
 
 const filePath = () => join(PATHS.data, "onboarding.json");
@@ -83,10 +119,20 @@ function sanitize(raw: unknown): OnboardingState {
       if (typeof p.steps[key] === "boolean") steps[key] = p.steps[key];
     }
   }
+  const hosted = structuredClone(DEFAULT_HOSTED);
+  if (p.hosted && typeof p.hosted === "object") {
+    if (typeof p.hosted.introDoneAt === "string") hosted.introDoneAt = p.hosted.introDoneAt;
+    if (p.hosted.coach && typeof p.hosted.coach === "object") {
+      for (const key of Object.keys(DEFAULT_HOSTED.coach) as (keyof HostedFirstRun["coach"])[]) {
+        if (typeof p.hosted.coach[key] === "boolean") hosted.coach[key] = p.hosted.coach[key];
+      }
+    }
+  }
   return {
     profiles,
     steps,
     completedAt: typeof p.completedAt === "string" ? p.completedAt : null,
+    hosted,
   };
 }
 
@@ -118,9 +164,15 @@ async function write(state: OnboardingState): Promise<OnboardingState> {
 
 // Patch-merge steps/completion. `completed: true` stamps completedAt (idempotent),
 // `completed: false` clears it (lets a dev re-run the flow).
+//
+// `hosted` is the embedded surface's own progress and is merged independently:
+// `hostedIntroDone: false` and `hostedCoach: {…: false}` are what "restart the
+// tour" writes, so the reset has to be expressible, not just the completion.
 export async function patchOnboarding(patch: {
   steps?: Partial<OnboardingSteps>;
   completed?: boolean;
+  hostedIntroDone?: boolean;
+  hostedCoach?: Partial<HostedFirstRun["coach"]>;
 }): Promise<OnboardingState> {
   const cur = await getOnboarding();
   const steps = { ...cur.steps };
@@ -132,7 +184,24 @@ export async function patchOnboarding(patch: {
   let completedAt = cur.completedAt;
   if (patch.completed === true) completedAt = completedAt ?? new Date().toISOString();
   else if (patch.completed === false) completedAt = null;
-  return write({ ...cur, steps, completedAt });
+
+  const hosted: HostedFirstRun = {
+    introDoneAt: cur.hosted.introDoneAt,
+    coach: { ...cur.hosted.coach },
+  };
+  if (patch.hostedIntroDone === true) {
+    hosted.introDoneAt = hosted.introDoneAt ?? new Date().toISOString();
+  } else if (patch.hostedIntroDone === false) {
+    hosted.introDoneAt = null;
+  }
+  if (patch.hostedCoach && typeof patch.hostedCoach === "object") {
+    for (const key of Object.keys(DEFAULT_HOSTED.coach) as (keyof HostedFirstRun["coach"])[]) {
+      if (typeof patch.hostedCoach[key] === "boolean") {
+        hosted.coach[key] = patch.hostedCoach[key]!;
+      }
+    }
+  }
+  return write({ ...cur, steps, completedAt, hosted });
 }
 
 // Create (or update the name of) an onboarding profile. Marks the profile

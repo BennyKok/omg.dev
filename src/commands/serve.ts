@@ -196,6 +196,7 @@ import {
   setProfileAvatar,
   AVATARS_DIR,
   AVATAR_MIME_BY_EXT,
+  type HostedFirstRun,
   type OnboardingSteps,
 } from "../onboarding.ts";
 import {
@@ -2475,6 +2476,8 @@ a{color:#60a5fa}
         const b = (await req.json().catch(() => null)) as {
           steps?: Partial<OnboardingSteps>;
           completed?: boolean;
+          hostedIntroDone?: boolean;
+          hostedCoach?: Partial<HostedFirstRun["coach"]>;
         } | null;
         if (!b) return err(400, "expected body");
         return json({ state: await patchOnboarding(b) });

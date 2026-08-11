@@ -348,7 +348,27 @@ describe("App wiring", () => {
   });
 
   test("a session deep link is never held behind the gate", () => {
-    expect(app).toContain("dismissed: connectGateSkipped || !!sessionDeepLinkRef.current");
+    // Asserted on the dismissal EXPRESSION rather than one exact string: the
+    // terms have grown (server-backed dismissal now sits beside these) and
+    // pinning the literal made an additive change look like a regression.
+    const dismissed = app.slice(app.indexOf("dismissed:"), app.indexOf("dismissed:") + 200);
+    expect(dismissed).toContain("sessionDeepLinkRef.current");
+    expect(dismissed).toContain("connectGateSkipped");
+  });
+
+  test("dismissing the gate is remembered per Computer, not per page load", () => {
+    // The bug that made this gate unusable, and very likely why the host
+    // switched it off: "Skip for now" lived only in a React useState, so it
+    // came back on EVERY reload until an agent was connected — a permanent
+    // wall for anyone content on the seeded credential-free agent. It is now
+    // backed by onboarding.json so it means what it says.
+    expect(app).toContain("onboarding?.hosted?.introDoneAt");
+    expect(app).toContain("markHostedIntroDone");
+    const onboarding = require("node:fs").readFileSync("src/onboarding.ts", "utf8") as string;
+    expect(onboarding).toContain("introDoneAt");
+    // Separate from the open-source flow's own progress, so neither can
+    // silently complete or reset the other.
+    expect(onboarding).toContain("HostedFirstRun");
   });
 
   test("the host signal hangs off the single created-session funnel", () => {
