@@ -2,6 +2,26 @@
 
 Recent product updates and deployment notes.
 
+## August 11, 2026 - Findings get their own name, and the push toggle heals itself (v0.1.339)
+
+- **A session started from a watch-agent finding is named after the finding.**
+  Replying to a finding seeds the session with a prompt that opens "An
+  automated watch agent ("Fleet Health") flagged this:" — useful context for the
+  agent, but it was also the only thing the session header had to show. Titles
+  truncate to one line, so that identical preamble ate all of it and every
+  graduated finding looked like every other one, with the actual finding cut
+  off. The header now leads with the finding; the context stays in the prompt.
+- **Turning notifications on recovers instead of dead-ending.** "No service
+  worker is available on this page, so notifications can't be delivered here"
+  could stick until you reloaded the page — the toggle waited for a service
+  worker registration but never made one, so an offline cold start, an evicted
+  worker or a mid-deploy hiccup left it permanently stuck. It now registers the
+  worker itself and waits for it to activate.
+- **Turning notifications off actually unsubscribes on an embedded surface.**
+  Off reported success while the device stayed subscribed and kept receiving
+  pushes, because the toggle reached for the host page's service worker rather
+  than OMG's own. On a host page with no controlling worker it hung outright.
+
 ## August 11, 2026 - Terminal links are tappable again (v0.1.338)
 
 - **Tapping a detected link in the terminal opens the link.** The invisible
