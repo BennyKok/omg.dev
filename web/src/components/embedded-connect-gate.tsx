@@ -47,7 +47,7 @@ export function EmbeddedConnectGate({
         <div className="mb-4 flex items-center justify-between gap-2">
           <img
             src={omgAssetUrl(LFG_SMALL_ICON_PATH)}
-            alt="lfg"
+            alt="omg"
             className="size-7 shrink-0"
           />
           <div

@@ -552,7 +552,7 @@ export default function ShippedPage({
             <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
           ) : gallery.length === 0 ? (
             <div className="rounded-2xl border border-border bg-card/40 px-4 py-10 text-center text-sm text-muted-foreground">
-              No artifacts yet — agents create them with <code>lfg_publish_artifact</code>.
+              No artifacts yet — agents create them with <code>omg_publish_artifact</code>.
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">

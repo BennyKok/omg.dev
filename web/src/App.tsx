@@ -7715,7 +7715,7 @@ function ProductBrand({
     return (
       <img
         src={omgAssetUrl(LFG_SMALL_ICON_PATH)}
-        alt="lfg"
+        alt="omg"
         className="mx-1 size-6 shrink-0 rounded-md"
       />
     );
@@ -8733,7 +8733,7 @@ function OnboardingFlow({
           <div className="flex items-center gap-2">
             <img
               src={omgAssetUrl(LFG_SMALL_ICON_PATH)}
-              alt="lfg"
+              alt="omg"
               className="size-7 shrink-0"
             />
             <span className="text-xs font-medium text-muted-foreground">
@@ -9112,7 +9112,7 @@ function WhoAreYou({
         <div className="mb-4 flex items-center gap-2">
           <img
             src={omgAssetUrl(LFG_SMALL_ICON_PATH)}
-            alt="lfg"
+            alt="omg"
             className="size-7 shrink-0"
           />
         </div>
@@ -11747,7 +11747,7 @@ function StaleCapabilitiesBanner({ session }: { session: Session }) {
   if (!session.capabilitiesStale) return null;
   return (
     <div className="border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
-      This session started with an older LFG capability contract. Close and resume it to load the latest shipped tools and guidance.
+      This session started with an older OMG capability contract. Close and resume it to load the latest shipped tools and guidance.
     </div>
   );
 }
@@ -13120,7 +13120,7 @@ function SessionActionsMenu({
                   Full transcript
                 </DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="user-lfg-output">
-                  User + LFG output
+                  User + OMG output
                 </DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
             </DropdownMenuSubContent>
@@ -13350,7 +13350,7 @@ function RailSessionContextMenu({
                   Full transcript
                 </ContextMenuRadioItem>
                 <ContextMenuRadioItem value="user-lfg-output">
-                  User + LFG output
+                  User + OMG output
                 </ContextMenuRadioItem>
               </ContextMenuRadioGroup>
             </ContextMenuSubContent>
@@ -15465,7 +15465,7 @@ function OmgInstructionsBlock({
         aria-expanded={open}
       >
         <ScrollText className="size-3.5" aria-hidden="true" />
-        <span>LFG instructions</span>
+        <span>OMG instructions</span>
         {version ? <span className="font-mono opacity-60">{version}</span> : null}
         <ChevronRight
           className={cn("size-3 transition-transform", open && "rotate-90")}
@@ -20806,7 +20806,7 @@ function StoragePage() {
           </div>
         </div>
         <p className="px-4 text-xs text-muted-foreground">
-          Whole-filesystem usage for the volume holding LFG&apos;s data directory.
+          Whole-filesystem usage for the volume holding OMG&apos;s data directory.
         </p>
       </section>
 
@@ -21324,7 +21324,7 @@ function SessionUsagePanel() {
 
               <div className="border-t border-border px-4 py-2.5 text-[11px] text-muted-foreground tabular-nums">
                 {formatBytes(usage.unattributedBytes)} in processes owned by no session
-                (the LFG server, system daemons, your own shells).
+                (the OMG server, system daemons, your own shells).
               </div>
             </>
           ) : (
@@ -21516,7 +21516,7 @@ function CodingAgentAuthDialog({
         <DialogHeader>
           <DialogTitle>Connect {providerLabel}</DialogTitle>
           <DialogDescription>
-            Finish signing in in the browser. LFG will detect approval automatically.
+            Finish signing in in the browser. OMG will detect approval automatically.
           </DialogDescription>
         </DialogHeader>
         {session ? (
@@ -21827,7 +21827,7 @@ function OmgUpdateSection() {
               {busy ? <Loader2 className="size-4 animate-spin" /> : <ArrowDown className="size-4" />}
             </span>
             <div className="min-w-0">
-              <div className="text-sm font-medium">LFG updates</div>
+              <div className="text-sm font-medium">OMG updates</div>
               <div
                 className={cn(
                   "text-xs text-muted-foreground",
@@ -21929,7 +21929,7 @@ function SettingsView({
               <span className="min-w-0">
                 <span className="block text-sm font-medium">Ping</span>
                 <span className="block truncate text-xs text-muted-foreground">
-                  Browser to LFG server
+                  Browser to OMG server
                 </span>
               </span>
             </div>
