@@ -6230,6 +6230,14 @@ export function App() {
       (f.reasoning.length ? `Reasoning:\n${f.reasoning.map((r) => `- ${r}`).join("\n")}\n\n` : "") +
       (f.suggest ? `Suggested fix: ${f.suggest}\n\n` : "") +
       `Now do this: ${text}`;
+    // The boilerplate opener earns its place in the PROMPT — it tells the agent
+    // where the work came from. It has no business being the session's name,
+    // which is what it became: titleForSession falls back to the first user
+    // message, so every graduated finding was called `An automated watch agent
+    // ("<name>") flagged this: …` and truncated away the finding title, the one
+    // part that told two of them apart. Name the session after the finding and
+    // leave the context in the prompt.
+    const title = f.title.trim().slice(0, 200);
     // Seed the graduated session the same way the quick-start path does, so it
     // is actually visible afterwards: (1) assign it to the active owner —
     // otherwise a user-filtered live view drops the unassigned session; (2) land
@@ -6262,6 +6270,7 @@ export function App() {
         body: JSON.stringify({
           cwd: cwd || undefined,
           prompt: composed,
+          title: title || undefined,
           user: owner || undefined,
           agent: launchAgent,
           model: opts.model ?? sourceAgent?.model,
