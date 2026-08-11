@@ -127,7 +127,7 @@ export function AppCrash({
           </span>
           <h1 className="mt-5 text-lg font-semibold tracking-tight">New version available</h1>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-            lfg updated while this tab was open. Reload to pick up the latest build.
+            omg updated while this tab was open. Reload to pick up the latest build.
           </p>
           <Button
             size="lg"
@@ -194,7 +194,7 @@ export function AppCrash({
           {/* Claim the report only when one was actually dispatched — a
               reassuring lie here is worse than silence, because the user
               stops telling us about a bug nobody received. */}
-          {reported && <div>Reported to lfg.</div>}
+          {reported && <div>Reported to omg.</div>}
           {(stack || componentStack) && (
             <details>
               <summary className="cursor-pointer select-none hover:text-foreground">Details</summary>

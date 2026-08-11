@@ -37,11 +37,11 @@ function InstallInstructions({ mode, open, onOpenChange }: {
           <div className="mb-2 flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
             {ios ? <Share className="size-7" /> : <Download className="size-7" />}
           </div>
-          <DialogTitle>{ios ? "Install lfg on your Home Screen" : "Install lfg on your Mac"}</DialogTitle>
+          <DialogTitle>{ios ? "Install omg on your Home Screen" : "Install omg on your Mac"}</DialogTitle>
           <DialogDescription>
             {ios
-              ? "Open lfg like an app, without browser controls."
-              : "Add lfg to your Dock and open it in its own window."}
+              ? "Open omg like an app, without browser controls."
+              : "Add omg to your Dock and open it in its own window."}
           </DialogDescription>
         </DialogHeader>
         <ol className="space-y-3">
@@ -84,7 +84,7 @@ function useInstallAction(mode: PwaInstallMode, install: () => Promise<boolean>)
     setBusy(true);
     try {
       const installed = await install();
-      if (installed) toast.success("lfg installed");
+      if (installed) toast.success("omg installed");
     } catch {
       toast.error("Could not open the install prompt");
     } finally {
@@ -120,7 +120,7 @@ export function PwaInstallCallout() {
           className="size-10 shrink-0 rounded-xl"
         />
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold">Install lfg</div>
+          <div className="text-sm font-semibold">Install omg</div>
           <div className="truncate text-xs text-muted-foreground">
             Faster launch, its own window, and a home-screen icon.
           </div>
@@ -165,7 +165,7 @@ export function PwaInstallSettingsSection() {
                 <Download className="size-4" />
               </span>
               <span>
-                <span className="block text-sm font-medium">Install lfg</span>
+                <span className="block text-sm font-medium">Install omg</span>
                 <span className="block text-xs text-muted-foreground">Open it from your desktop or Home Screen</span>
               </span>
             </div>

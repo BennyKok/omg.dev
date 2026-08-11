@@ -34,10 +34,20 @@ export function toolGroupLabel(items: ChatRenderMessage[]): string {
 function artifactKindForTool(message: ChatRenderMessage): "image" | "video" | "html" | null {
   if (message.kind !== "tool_use") return null;
   const name = toolName(message.text);
-  if (name === "lfg_display_image" || name.endsWith("__lfg_display_image")) return "image";
-  if (name === "lfg_display_video" || name.endsWith("__lfg_display_video")) return "video";
-  if (name === "lfg_publish_artifact" || name.endsWith("__lfg_publish_artifact")) return "html";
+  // The tools are registered as omg_*; the lfg_* spellings are kept so
+  // transcripts recorded before the rename still pair with their artifact.
+  if (matchesTool(name, "display_image")) return "image";
+  if (matchesTool(name, "display_video")) return "video";
+  if (matchesTool(name, "publish_artifact")) return "html";
   return null;
+}
+
+function matchesTool(name: string, verb: string): boolean {
+  for (const prefix of ["omg_", "lfg_"]) {
+    const full = `${prefix}${verb}`;
+    if (name === full || name.endsWith(`__${full}`)) return true;
+  }
+  return false;
 }
 
 function messageKey(message: ChatRenderMessage, index: number): string {

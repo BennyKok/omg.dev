@@ -115,7 +115,7 @@ function activateUpdate(worker: ServiceWorker) {
 }
 
 function promptUpdate(worker: ServiceWorker) {
-  toast("A new version of lfg is available", {
+  toast("A new version of omg is available", {
     description: "Reload to get the latest.",
     duration: Infinity,
     action: {

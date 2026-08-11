@@ -41,4 +41,27 @@ describe("chat render items", () => {
     expect(paired[0]?.type).toBe("artifact_tool");
     expect(standalone.map((item) => item.type)).toEqual(["tools", "msg"]);
   });
+
+  // The tools were renamed lfg_* -> omg_*, but the matcher was not. Every new
+  // session publishes under omg_*, so the pairing silently stopped happening
+  // and artifacts rendered as a bare tool pill.
+  test("pairs artifacts under both the omg_ and the pre-rename lfg_ tool names", () => {
+    const cases = [
+      ["omg_publish_artifact", "html"],
+      ["mcp__omg__omg_publish_artifact", "html"],
+      ["mcp__lfg__lfg_publish_artifact", "html"],
+      ["omg_display_image", "image"],
+      ["mcp__omg__omg_display_image", "image"],
+      ["omg_display_video", "video"],
+      ["mcp__omg__omg_display_video", "video"],
+    ] as const;
+
+    for (const [tool, kind] of cases) {
+      const items = buildChatRenderItems([
+        { id: "tool-1", kind: "tool_use", text: `${tool}: {}`, ts: 10 },
+        { id: "artifact-1", kind, text: "Artifact", ts: 11 },
+      ]);
+      expect(items[0]?.type, tool).toBe("artifact_tool");
+    }
+  });
 });
