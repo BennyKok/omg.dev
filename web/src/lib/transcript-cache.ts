@@ -40,6 +40,15 @@ export function readTranscriptCache(sid: string): TranscriptCacheEntry | null {
   return entry;
 }
 
+// Optimistic turns (in flight, or queued behind a running turn) are client-side
+// state, not transcript: the agent may have read them minutes ago by the time
+// the cached page is painted again. Caching one would repaint it as still
+// waiting on re-open, so the cache keeps only rows the server has confirmed.
+function settledOnly(messages: OmgChatMessage[]): OmgChatMessage[] {
+  const settled = messages.filter((message) => !message.metadata?.omgMessage?.pending);
+  return settled.length === messages.length ? messages : settled;
+}
+
 export function writeTranscriptCache(
   sid: string,
   messages: OmgChatMessage[],
@@ -47,7 +56,7 @@ export function writeTranscriptCache(
 ) {
   if (!sid) return;
   cache.delete(sid);
-  cache.set(sid, { messages, nextBefore, at: Date.now() });
+  cache.set(sid, { messages: settledOnly(messages), nextBefore, at: Date.now() });
   trim();
 }
 
@@ -56,7 +65,7 @@ export function writeTranscriptCache(
 export function updateTranscriptCacheMessages(sid: string, messages: OmgChatMessage[]) {
   const entry = cache.get(sid);
   if (!entry) return;
-  entry.messages = messages;
+  entry.messages = settledOnly(messages);
   entry.at = Date.now();
 }
 

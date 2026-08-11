@@ -3,6 +3,8 @@ export type ChatRenderMessage = {
   kind?: string;
   text?: string;
   ts?: number | null;
+  pending?: boolean;
+  queued?: boolean;
 };
 
 export type ChatRenderItem<T extends ChatRenderMessage> =
@@ -94,4 +96,19 @@ export function buildChatRenderItems<T extends ChatRenderMessage>(messages: T[])
     items.push({ type: "msg", message, key: messageKey(message, index) });
   });
   return items;
+}
+
+// A queued turn is ordered by when it was *written*, but the agent has not read
+// it yet: the turn it waits behind keeps streaming thinking, tools and text
+// after it. Left in timestamp order it scrolls up into the middle of output it
+// never influenced and reads as already answered. Split it out so the view can
+// pin it below the live turn until the real transcript row replaces it.
+export function splitQueuedRenderItems<T extends ChatRenderMessage>(
+  items: ChatRenderItem<T>[],
+): { items: ChatRenderItem<T>[]; queued: ChatRenderItem<T>[] } {
+  const isQueued = (item: ChatRenderItem<T>) =>
+    item.type === "msg" && !!item.message.queued && !!item.message.pending;
+  const queued = items.filter(isQueued);
+  if (!queued.length) return { items, queued };
+  return { items: items.filter((item) => !isQueued(item)), queued };
 }

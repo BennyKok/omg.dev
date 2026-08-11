@@ -157,6 +157,7 @@ import {
   BrainCircuit,
   CalendarClock,
   ClipboardList,
+  Clock3,
   Copy,
   ExternalLink,
   Flag,
@@ -221,7 +222,7 @@ import { useProjectListPrefs, setProjectListPrefs } from "@/lib/project-list-pre
 import { useSendMorph } from "@/lib/use-send-morph";
 import { reportError } from "./lib/report-error";
 import { lazyWithReload } from "./lib/lazy-with-reload";
-import { buildChatRenderItems, toolGroupLabel } from "./lib/chat-render-items";
+import { buildChatRenderItems, splitQueuedRenderItems, toolGroupLabel } from "./lib/chat-render-items";
 import {
   parseMessageAttachments,
   type MessageAttachment,
@@ -614,6 +615,10 @@ type Message = {
   version?: number;
   title?: string;
   pending?: boolean;
+  // Queued behind a running turn: written, accepted by the send queue, but not
+  // yet read by the agent. See MessageBubble / ChatStream — it renders as a
+  // distinct "waiting" bubble pinned below the turn that is still streaming.
+  queued?: boolean;
   seed?: boolean;
   // A draft assistant turn we joined mid-stream: its text was already fully
   // accumulated when we connected, so it renders settled instead of replaying
@@ -12624,12 +12629,12 @@ function SessionChatBody({
     const text = (overrideText ?? messageText).trim();
     const files = attachments;
     if (!sid || (!text && !files.length)) return;
-    // Queueing is otherwise indistinguishable from steering: the bubble lands
-    // either way, and the only difference — whether the running turn survived —
-    // shows up seconds later, if at all. The old queue chips above the composer
-    // were removed for being noise; this says the one thing they were there to
-    // say, once, and only when the distinction is real (an idle session cannot
-    // be interrupted, so both modes behave identically).
+    // A queued send is a genuinely different state from a steered one: the agent
+    // is still on the previous turn and has not read this text yet. The bubble
+    // carries that state itself (waiting style, pinned under the running turn)
+    // instead of a toast that is gone before the distinction becomes visible.
+    // Only real queueing counts — an idle session cannot be interrupted, so both
+    // modes deliver immediately there and the bubble is an ordinary send.
     const queuedBehindTurn = mode === "queue" && chatBusy;
     messageInputRef.current?.blur();
     const stashed = stagePromptSend({
@@ -12685,6 +12690,7 @@ function SessionChatBody({
                   html: escapeHtml(outgoingText).replace(/\n/g, "<br>"),
                   ts: Date.now(),
                   pending: true,
+                  queued: queuedBehindTurn,
                 },
               },
             },
@@ -12703,7 +12709,6 @@ function SessionChatBody({
       setAttachments([]);
       forgetAllUploads();
       setSending(false);
-      if (queuedBehindTurn) toast.success("Queued — the current turn keeps running");
       void onRefresh().catch((err) => {
         onError(err instanceof Error ? err.message : String(err));
       });
@@ -14983,11 +14988,18 @@ const ChatStream = memo(function ChatStream({
     () => messagesForTranscriptView(transcriptMessages, transcriptView.value),
     [transcriptMessages, transcriptView.value],
   );
-  const items = useMemo(() => buildChatRenderItems(visibleMessages), [visibleMessages]);
+  // Queued turns are pinned below the live turn instead of sitting in timestamp
+  // order — see splitQueuedRenderItems.
+  const { items, queued: queuedItems } = useMemo(
+    () => splitQueuedRenderItems(buildChatRenderItems(visibleMessages)),
+    [visibleMessages],
+  );
   // Historical reasoning can remain in the transcript after its turn is done.
   // Only let reasoning at the active tail replace the typing dots; otherwise an
-  // old thinking block would make a newly-busy session look idle.
-  const tailMessage = visibleMessages[visibleMessages.length - 1];
+  // old thinking block would make a newly-busy session look idle. The tail here
+  // is the live turn's, not the pinned queue's.
+  const tailItem = items[items.length - 1];
+  const tailMessage = tailItem?.type === "msg" ? tailItem.message : undefined;
   const showTypingIndicator = busy && tailMessage?.kind !== "thinking";
 
   // One-shot entrance for freshly-arrived assistant turns so the draft→final
@@ -15112,6 +15124,13 @@ const ChatStream = memo(function ChatStream({
             ),
           )}
           <TypingIndicator visible={showTypingIndicator} />
+          {/* Pinned below the working indicator: what the agent is doing now,
+              then what it will read next. */}
+          {queuedItems.map((item) =>
+            item.type === "msg" ? (
+              <MessageBubble key={item.key} message={item.message} />
+            ) : null,
+          )}
         </ConversationContent>
       ) : loading ? (
         <ConversationEmptyState
@@ -15518,7 +15537,15 @@ function UserAttachments({
 // clamp (~10 lines) it's truncated with a small "Show more" / "Show less"
 // toggle at the end. Content is injected HTML (pre-escaped user text), so the
 // clamp lives on an inner wrapper and the toggle sits beside it in the bubble.
-function UserBubble({ html, pending }: { html: string; pending?: boolean }) {
+function UserBubble({
+  html,
+  pending,
+  queued,
+}: {
+  html: string;
+  pending?: boolean;
+  queued?: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -15550,10 +15577,13 @@ function UserBubble({ html, pending }: { html: string; pending?: boolean }) {
         // Width cap lives on MessageActions (definite parent); bubble just
         // hugs content up to that cap so multi-line turns stay right-aligned.
         "msg-text markdown user-bubble text-base w-fit max-w-full",
-        pending && "is-pending",
+        pending && !queued && "is-pending",
+        queued && "is-queued",
       )}
     >
-      <OrganicActivityEffect active={!!pending} className="user-bubble-organic" />
+      {/* The organic shimmer means "in flight". A queued turn is deliberately
+          still — nothing is happening to it until the current turn ends. */}
+      <OrganicActivityEffect active={!!pending && !queued} className="user-bubble-organic" />
       <div
         ref={bodyRef}
         className={cn(
@@ -15995,6 +16025,7 @@ function MessageBubble({
 
   const isUser = message.role === "user";
   if (isUser) {
+    const queued = !!message.queued && !!message.pending;
     return (
       <AiMessage
         ref={sendMorphRef}
@@ -16010,6 +16041,16 @@ function MessageBubble({
               version={omgEnvelope.version}
             />
           ) : null}
+          {/* A queued turn hasn't reached the agent, so it must not look like a
+              turn that has. The label states what the bubble's muted, dashed
+              styling implies, and disappears the moment the real transcript row
+              replaces this optimistic one. */}
+          {queued ? (
+            <span className="user-queued-label" role="status">
+              <Clock3 className="size-3" aria-hidden="true" />
+              Queued · sends when this turn ends
+            </span>
+          ) : null}
           {userContent.attachments.length > 0 ? (
             <UserAttachments attachments={userContent.attachments} pending={message.pending} />
           ) : null}
@@ -16017,7 +16058,7 @@ function MessageBubble({
               picture is the whole message, with no empty bubble under it. */}
           {userContent.html ? (
             <MessageActions text={omgEnvelope?.task ?? message.text ?? ""} isUser>
-              <UserBubble html={userContent.html} pending={message.pending} />
+              <UserBubble html={userContent.html} pending={message.pending} queued={queued} />
             </MessageActions>
           ) : null}
         </div>
