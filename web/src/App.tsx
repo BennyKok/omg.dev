@@ -11,7 +11,11 @@ import {
 import type { AppSearch } from "./lib/app-search";
 import { isEmbedded, readLocationEmbedFlag } from "./lib/embed";
 import { useBareSurface } from "./lib/bare-surface";
-import { useEmbeddedHostOptions } from "./lib/embedded-host-options";
+import {
+  useEmbeddedHostOptions,
+  type HostSettingsPage,
+  type PlanLimitDetail,
+} from "./lib/embedded-host-options";
 import {
   embeddedConnectOptions,
   shouldShowEmbeddedConnectGate,
@@ -19,7 +23,7 @@ import {
 } from "./lib/embedded-connect";
 import { emitSessionCreatedToHost } from "./lib/embed-host-signal";
 import { LFG_SMALL_ICON_PATH } from "./lib/icon-assets";
-import { api, omgAssetUrl, omgFetch, omgUpload } from "./lib/omg-client";
+import { api, isPlanLimitError, omgAssetUrl, omgFetch, omgUpload } from "./lib/omg-client";
 import { cacheProjectFilter, readCachedProjectFilter } from "./lib/project-filter";
 import { resolveRosterUser } from "./lib/roster-user";
 import { uploadFile as uploadFileThroughTransport } from "./lib/upload";
@@ -348,6 +352,7 @@ import {
   AGENT_CATALOG,
   configuredAgentOptions,
   displayedAgentOption,
+  lockedAgentOptions,
   scheduledAgentOptions,
   type AgentAccessMode,
   type AgentKind,
@@ -1006,6 +1011,13 @@ type AgentLaunchOption = (typeof AGENT_CATALOG)[number] & {
   selectorId?: string;
   accountId?: string;
   badge?: number;
+  /**
+   * Shown, but not a choice: this box has no account for it yet. Tapping it
+   * goes to the place where that gets fixed instead of selecting it. Only ever
+   * set by agentPickerOptions — the launch paths take configuredLaunchOptions,
+   * which never returns one.
+   */
+  locked?: boolean;
 };
 
 /**
@@ -1052,6 +1064,87 @@ function configuredLaunchOptions(
             : []),
         ]
       : [option],
+  );
+}
+
+/**
+ * What the agent STRIP renders: everything launchable, plus the discoverable
+ * agents this box has no account for, greyed out in their catalog position.
+ *
+ * Separate from configuredLaunchOptions on purpose. That function answers "what
+ * can this box run", and a locked entry must never leak into an answer to that
+ * question — it feeds submit's guard, the swipe-to-cycle ring and the
+ * auto-select-a-valid-agent effect, every one of which would happily pick an
+ * agent that cannot start. This one answers the narrower "what does the picker
+ * DRAW", and only the picker calls it.
+ *
+ * Walking the catalog rather than concatenating keeps the fixed positions the
+ * strip depends on — including Claude's per-account fan-out, which occupies
+ * Claude's one slot with several entries.
+ */
+function agentPickerOptions(
+  codingAgents?: CodingAgentInfo[],
+  accessMode: AgentAccessMode = "configured",
+): AgentLaunchOption[] {
+  const launchable = configuredLaunchOptions(codingAgents, accessMode);
+  const locked = new Set(
+    lockedAgentOptions(AGENT_CATALOG, codingAgents, accessMode).map((option) => option.key),
+  );
+  if (!locked.size) return launchable;
+  return AGENT_CATALOG.flatMap((entry) => {
+    const live = launchable.filter((option) => option.key === entry.key);
+    if (live.length) return live;
+    return locked.has(entry.key) ? [{ ...entry, locked: true }] : [];
+  });
+}
+
+/**
+ * Standalone LFG's own way to reach a settings page — supplied by App from its
+ * router-backed setTab. Embedded surfaces override this with the host's
+ * callback (see useOpenSettingsPage), because there the Settings tab is the
+ * host's, not ours.
+ */
+const OpenSettingsPageContext = createContext<(page: HostSettingsPage) => void>(() => {});
+
+/**
+ * Send the viewer to one of the machine's settings pages, wherever those pages
+ * happen to be mounted.
+ *
+ * An embedded surface has no Settings tab of its own — the host mounts those
+ * pages under its own account chrome — so a hardcoded internal navigation
+ * would land on a route the person can't see. Preferring the host callback
+ * keeps one call site working in both products.
+ */
+function useOpenSettingsPage(): (page: HostSettingsPage) => void {
+  const { onOpenSettingsPage } = useEmbeddedHostOptions();
+  const openTab = useContext(OpenSettingsPageContext);
+  return onOpenSettingsPage ?? openTab;
+}
+
+/**
+ * Offer a failure to the host as a PLAN refusal. Returns true when the host
+ * took it, meaning the caller must not also report the error itself.
+ *
+ * "Your plan allows 1 concurrent agent" is not really an error message — it is
+ * a sales conversation, and rendering it as red toast + red inline text over a
+ * composer is both easy to miss and the wrong tone for the one moment someone
+ * is hitting the ceiling of what they're paying for. Only a host that sells
+ * plans can have that conversation, so LFG hands the refusal over and stays
+ * out of it. With no host (standalone, self-hosted) nothing is registered and
+ * this returns false, leaving the existing error path exactly as it was.
+ */
+function usePlanLimitHandler(): (error: unknown, action: PlanLimitDetail["action"]) => boolean {
+  const { onPlanLimit } = useEmbeddedHostOptions();
+  return useCallback(
+    (error, action) => {
+      if (!onPlanLimit || !isPlanLimitError(error)) return false;
+      onPlanLimit({
+        message: error instanceof Error ? error.message : String(error),
+        action,
+      });
+      return true;
+    },
+    [onPlanLimit],
   );
 }
 
@@ -1567,10 +1660,16 @@ function useEagerUploads(options: {
 // the auto-agent/finding sheets. Generic over the agent key so callers with a
 // narrower union (e.g. AutoAgentBackend) keep their type through onSelect.
 // `flat` drops the pill background for the inline composer's popover card.
+//
+// `locked` options render as a greyed icon with a small plus: an agent the
+// product supports that this box has no account for. Tapping one calls
+// `onLocked` (which sends the viewer to the coding-agent settings) instead of
+// selecting it — see agentPickerOptions for why these are shown at all.
 function AgentIconStrip<K extends AgentKind>({
   options,
   value,
   onSelect,
+  onLocked,
   flat = false,
   className,
   selectedId,
@@ -1581,9 +1680,11 @@ function AgentIconStrip<K extends AgentKind>({
     selectorId?: string;
     accountId?: string;
     badge?: number;
+    locked?: boolean;
   }[];
   value: K;
   onSelect: (key: K, option?: { accountId?: string; selectorId?: string }) => void;
+  onLocked?: (key: K) => void;
   flat?: boolean;
   className?: string;
   selectedId?: string;
@@ -1598,15 +1699,20 @@ function AgentIconStrip<K extends AgentKind>({
       )}
     >
       {options.map((option) => {
-        const { key, label, selectorId, accountId, badge } = option;
-        const selected = selectedId ? selectedId === (selectorId ?? key) : value === key;
+        const { key, label, selectorId, accountId, badge, locked } = option;
+        const selected = !locked && (selectedId ? selectedId === (selectorId ?? key) : value === key);
         return (
           <button
             key={selectorId ?? key}
             type="button"
-            title={label}
-            aria-label={label}
-            onClick={() => onSelect(key, { accountId, selectorId })}
+            title={locked ? `Connect ${label}` : label}
+            // Says what the tap DOES, not just which agent it is. A control
+            // that reads "claude" but opens Settings is a lie to anyone who
+            // can't see that it's greyed.
+            aria-label={locked ? `Connect ${label}` : label}
+            onClick={() =>
+              locked ? onLocked?.(key) : onSelect(key, { accountId, selectorId })
+            }
             className={cn(
               "relative flex h-7 w-9 items-center justify-center rounded-full transition",
               selected
@@ -1622,7 +1728,26 @@ function AgentIconStrip<K extends AgentKind>({
                 : "text-muted-foreground",
             )}
           >
-            <img src={agentIconSrc(key)} alt="" className="size-5" />
+            <img
+              src={agentIconSrc(key)}
+              alt=""
+              className={cn(
+                "size-5",
+                // Greyscale AND dimmed. Most of these marks are strongly
+                // branded colour, so opacity alone still read as a live,
+                // slightly faded choice; draining the colour is what makes
+                // "not connected" legible at icon size on a phone.
+                locked && "opacity-40 grayscale",
+              )}
+            />
+            {locked ? (
+              <span
+                aria-hidden
+                className="absolute -bottom-0.5 right-0 flex size-3.5 items-center justify-center rounded-full bg-muted-foreground/70 text-background ring-1 ring-background"
+              >
+                <Plus className="size-2.5" strokeWidth={3} />
+              </span>
+            ) : null}
             {badge != null ? (
               <span className="absolute -bottom-0.5 right-0 flex size-3.5 items-center justify-center rounded-full bg-foreground text-[8px] font-bold leading-none text-background ring-1 ring-background">
                 {badge}
@@ -7053,6 +7178,7 @@ export function App() {
     <TranscriptViewContext.Provider value={transcriptViewPreference}>
     <ArtifactViewerContext.Provider value={openArtifactViewer}>
     <SessionTerminalContext.Provider value={setTerminalSid}>
+    <OpenSettingsPageContext.Provider value={setTab}>
     <div
       ref={rootRef}
       inert={loading}
@@ -7645,6 +7771,7 @@ export function App() {
         onClose={() => setTerminalSid(null)}
       />
     ) : null}
+    </OpenSettingsPageContext.Provider>
     </SessionTerminalContext.Provider>
     </ArtifactViewerContext.Provider>
     </TranscriptViewContext.Provider>
@@ -17207,6 +17334,14 @@ function NewSessionDialog({
   const visibleAgentOptions = useMemo(() => {
     return configuredLaunchOptions(codingAgents, accessMode);
   }, [accessMode, codingAgents]);
+  // What the strip DRAWS — launchable agents plus greyed, tap-to-connect
+  // placeholders. Kept apart from visibleAgentOptions, which is what the
+  // composer is allowed to LAUNCH; see agentPickerOptions.
+  const pickerAgentOptions = useMemo(() => {
+    return agentPickerOptions(codingAgents, accessMode);
+  }, [accessMode, codingAgents]);
+  const openSettingsPage = useOpenSettingsPage();
+  const handlePlanLimit = usePlanLimitHandler();
 
   const selectedLaunchId =
     agent === "aisdk" && claudeAccountId ? `aisdk:${claudeAccountId}` : agent;
@@ -17343,6 +17478,10 @@ function NewSessionDialog({
       } catch (err) {
         setPromptStashStatus(stashed?.id, "draft");
         setPromptState((current) => current || taskPrompt);
+        // A plan ceiling the host can sell past is not an error to show — it's
+        // an upgrade prompt to open. The prompt is already restored above, so
+        // whoever comes back from checkout finds their task still typed.
+        if (handlePlanLimit(err, "start-session")) return;
         const message = err instanceof Error ? err.message : String(err);
         setError(message);
         toast.error(message || "Couldn't create session");
@@ -17377,7 +17516,7 @@ function NewSessionDialog({
   ) ?? (AGENT_CATALOG[0] as AgentLaunchOption);
   // Keep every agent in a fixed position so picking one never reshuffles the
   // icons. The selected agent is highlighted in place rather than hoisted out.
-  const agentButtons = visibleAgentOptions;
+  const agentButtons = pickerAgentOptions;
 
   // Swipe/scroll the composer's agent icon to step through the visible agents.
   // dir +1 = next (swipe up), -1 = previous (swipe down); wraps around. Mirrors
@@ -17408,6 +17547,15 @@ function NewSessionDialog({
       value={agent}
       selectedId={selectedLaunchId}
       flat={variant === "inline"}
+      onLocked={() => {
+        // The whole point of drawing an agent we can't run: this is the one
+        // tap between "I have a Claude account" and using it. Collapse the
+        // composer's controls first so the row isn't left hanging open behind
+        // whatever settings surface takes over.
+        feedback.tap();
+        onExpandedChange?.(false);
+        openSettingsPage("coding-agents");
+      }}
       onSelect={(key, option) => {
         // Re-tapping the already-selected agent collapses the row.
         if (

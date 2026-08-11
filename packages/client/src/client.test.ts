@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  OmgApiError,
   OmgLiveConnection,
   createGrantTransport,
   createSameOriginTransport,
@@ -268,4 +269,50 @@ test("grant sockets keep terminal and live traffic inside the authenticated host
       protocols: ["lfg-bearer.socket-token"],
     },
   ]);
+});
+
+test("a failed request keeps its status and server code, not just the prose", async () => {
+  const transport = createSameOriginTransport({
+    fetch: (async () =>
+      new Response(
+        JSON.stringify({
+          error: "your free Computer plan allows 1 concurrent agents; 1 live",
+          code: "plan_limit",
+        }),
+        { status: 429 },
+      )) as typeof fetch,
+    WebSocket: class {} as typeof WebSocket,
+  });
+
+  const error = await transport
+    .request("/api/sessions", { method: "POST" })
+    .then(() => null)
+    .catch((e: unknown) => e);
+
+  // Still an ordinary Error carrying the server's own sentence, so every
+  // existing `err.message` path is untouched...
+  expect(error).toBeInstanceOf(Error);
+  expect((error as Error).message).toBe(
+    "your free Computer plan allows 1 concurrent agents; 1 live",
+  );
+  // ...but a caller can now BRANCH on it without regexing that sentence.
+  expect(error).toBeInstanceOf(OmgApiError);
+  expect((error as OmgApiError).status).toBe(429);
+  expect((error as OmgApiError).code).toBe("plan_limit");
+});
+
+test("an untagged failure carries no code, so nothing mistakes it for a plan wall", async () => {
+  const transport = createSameOriginTransport({
+    fetch: (async () =>
+      new Response(JSON.stringify({ error: "worktree is dirty" }), { status: 409 })) as typeof fetch,
+    WebSocket: class {} as typeof WebSocket,
+  });
+
+  const error = (await transport
+    .request("/api/sessions", { method: "POST" })
+    .then(() => null)
+    .catch((e: unknown) => e)) as OmgApiError;
+
+  expect(error.status).toBe(409);
+  expect(error.code).toBeUndefined();
 });

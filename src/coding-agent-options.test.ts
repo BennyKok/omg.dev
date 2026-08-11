@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { configuredAgentOptions } from "../web/src/lib/coding-agent-options.ts";
+import {
+  AGENT_CATALOG,
+  configuredAgentOptions,
+  discoverableAgentKeys,
+  lockedAgentOptions,
+} from "../web/src/lib/coding-agent-options.ts";
 
 const options = [
   { key: "aisdk", label: "claude" },
@@ -49,5 +54,117 @@ describe("configuredAgentOptions", () => {
     expect(configuredAgentOptions(options, undefined, "connected-or-opencode")).toEqual([
       { key: "opencode", label: "opencode" },
     ]);
+  });
+});
+
+describe("discoverableAgentKeys", () => {
+  test("is the head of the shared catalog, so the two orders cannot disagree", () => {
+    const keys = discoverableAgentKeys();
+    expect(keys).toEqual(AGENT_CATALOG.slice(0, keys.length).map((entry) => entry.key));
+  });
+
+  test("is five wide — the strip has to fit on a phone", () => {
+    expect(discoverableAgentKeys()).toHaveLength(5);
+  });
+
+  test("leads with the two agents most people already have accounts for", () => {
+    expect(discoverableAgentKeys().slice(0, 2)).toEqual(["aisdk", "codex-aisdk"]);
+  });
+});
+
+describe("lockedAgentOptions", () => {
+  test("advertises the unconnected popular agents on a fresh hosted Computer", () => {
+    // The exact case from the bug: a new Computer has anonymous OpenCode and
+    // nothing else, so the picker used to be a single icon and Claude/Codex
+    // were undiscoverable.
+    expect(
+      lockedAgentOptions(
+        options,
+        [
+          { key: "aisdk", visible: true, status: { configured: true, accountConnected: false } },
+          {
+            key: "codex-aisdk",
+            visible: true,
+            status: { configured: true, accountConnected: false },
+          },
+          { key: "opencode", visible: true, status: { configured: true, accountConnected: false } },
+        ],
+        "connected-or-opencode",
+      ),
+    ).toEqual([
+      { key: "aisdk", label: "claude" },
+      { key: "codex-aisdk", label: "codex" },
+    ]);
+  });
+
+  test("never locks an agent that is already launchable", () => {
+    expect(
+      lockedAgentOptions(
+        options,
+        [
+          { key: "aisdk", visible: true, status: { configured: true, accountConnected: true } },
+          {
+            key: "codex-aisdk",
+            visible: true,
+            status: { configured: true, accountConnected: false },
+          },
+          { key: "opencode", visible: true, status: { configured: true, accountConnected: true } },
+        ],
+        "connected-or-opencode",
+      ).map((option) => option.key),
+    ).toEqual(["codex-aisdk"]);
+  });
+
+  test("respects an agent the person switched off in Settings", () => {
+    expect(
+      lockedAgentOptions(
+        options,
+        [
+          { key: "aisdk", visible: false, status: { configured: true, accountConnected: false } },
+          {
+            key: "codex-aisdk",
+            visible: true,
+            status: { configured: true, accountConnected: false },
+          },
+          { key: "opencode", visible: true, status: { configured: true, accountConnected: false } },
+        ],
+        "connected-or-opencode",
+      ).map((option) => option.key),
+    ).toEqual(["codex-aisdk"]);
+  });
+
+  test("locks nothing on a self-hosted box, where every configured agent launches", () => {
+    expect(
+      lockedAgentOptions(options, [
+        { key: "aisdk", visible: true, status: { configured: true } },
+        { key: "codex-aisdk", visible: true, status: { configured: true } },
+        { key: "opencode", visible: true, status: { configured: true } },
+      ]),
+    ).toEqual([]);
+  });
+
+  test("settles at its final width during load instead of reshuffling", () => {
+    // Hosted + still loading resolves to OpenCode alone, so the other four are
+    // already known to be locks; drawing them now means the strip does not
+    // change width under a thumb when bootstrap lands.
+    expect(
+      lockedAgentOptions(options, undefined, "connected-or-opencode").map((option) => option.key),
+    ).toEqual(["aisdk", "codex-aisdk"]);
+  });
+
+  test("keeps agents outside the discoverable head hidden until connected", () => {
+    const catalogOptions = AGENT_CATALOG.map((entry) => ({ key: entry.key, label: entry.label }));
+    const locked = lockedAgentOptions(
+      catalogOptions,
+      AGENT_CATALOG.map((entry) => ({
+        key: entry.key,
+        visible: true,
+        status: { configured: true, accountConnected: false },
+      })),
+      "connected-or-opencode",
+    ).map((option) => option.key);
+    expect(locked).not.toContain("pi");
+    expect(locked).not.toContain("copilot");
+    expect(locked).not.toContain("jcode");
   });
 });

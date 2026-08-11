@@ -16,6 +16,8 @@ import {
   EmbeddedHostOptionsProvider,
   type EmbeddedViewer,
   type HostedTranscription,
+  type HostSettingsPage,
+  type PlanLimitDetail,
 } from "./lib/embedded-host-options";
 import { claimSurfaceAttribute } from "./lib/surface-attribute";
 import { createOmgRouter } from "./router";
@@ -23,6 +25,7 @@ import { createOmgRouter } from "./router";
 export type {
   EmbeddedViewer,
   HostedTranscription,
+  PlanLimitDetail,
 } from "./lib/embedded-host-options";
 export type { HostPushConfig } from "./lib/push";
 
@@ -90,6 +93,30 @@ export interface OmgAppSurfaceProps {
    */
   hostedPush?: HostPushConfig;
   /**
+   * Open one of the machine's settings pages (the ones OmgSettingsSurface
+   * mounts) in the HOST's own navigation.
+   *
+   * An embedded surface hides its Settings tab, so without this it cannot send
+   * someone to a setting it knows they need. Most visibly: the agent picker
+   * now shows the popular agents this box has no account for, greyed out, and
+   * tapping one has to land on the coding-agent page — the host's copy of it.
+   * Omit this and the picker keeps hiding unconnected agents entirely.
+   */
+  onOpenSettingsPage?: (page: OmgSettingsPage) => void;
+  /**
+   * The box refused an action because of the plan YOU sold, not because of
+   * anything the person did — e.g. starting one more agent than their tier
+   * allows.
+   *
+   * LFG knows nothing about plans or prices, so on its own the best it can do
+   * is print the server's sentence as an error, which is easy to miss and the
+   * wrong tone for the moment someone hits the ceiling of what they're paying
+   * for. Handle this to put your own upgrade surface up instead; the surface
+   * then shows nothing itself, so a host that takes the callback owns the
+   * whole response.
+   */
+  onPlanLimit?: (detail: PlanLimitDetail) => void;
+  /**
    * Central sink for client errors, in addition to the report that goes through
    * the transport into the user's own lfg instance. A hosted surface should set
    * this: when the workspace behind the transport is paused or unreachable — the
@@ -114,12 +141,7 @@ function initialPath(sessionId?: string | null): string {
  * is what keeps the two products from drifting into different answers for
  * the same setting.
  */
-export type OmgSettingsPage =
-  | "settings"
-  | "coding-agents"
-  | "auto"
-  | "storage"
-  | "more";
+export type OmgSettingsPage = HostSettingsPage;
 
 export interface OmgSettingsSurfaceProps {
   transport: OmgTransport;
@@ -250,6 +272,8 @@ export function OmgAppSurface({
   viewer,
   hostedTranscription,
   hostedPush,
+  onOpenSettingsPage,
+  onPlanLimit,
   errorSink,
 }: OmgAppSurfaceProps) {
   // A full LFG app is the sole owner of its runtime transport. Install it
@@ -271,7 +295,13 @@ export function OmgAppSurface({
   return (
     <div className={className} data-lfg-app-surface="">
       <EmbeddedHostOptionsProvider
-        value={{ connectionOnboarding, viewer, hostedTranscription }}
+        value={{
+          connectionOnboarding,
+          viewer,
+          hostedTranscription,
+          onOpenSettingsPage,
+          onPlanLimit,
+        }}
       >
         <BareSurfaceProvider bare={false}>
           <RootErrorBoundary>
