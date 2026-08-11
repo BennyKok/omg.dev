@@ -2,6 +2,20 @@
 
 Recent product updates and deployment notes.
 
+## August 11, 2026 - A queued message looks queued (v0.1.343)
+
+- **A message you queue behind a running turn now says so, and stays at the
+  bottom until the agent reads it.** Holding send to queue produced a bubble
+  identical to one the agent had already received, dropped in at the moment you
+  wrote it — and the turn it was waiting on kept streaming thinking, tools and
+  replies underneath it. Your message scrolled up into the middle of an answer
+  it had no part in, and the only hint it was queued was a toast that vanished
+  seconds later. Queued messages now render as a dashed, muted "waiting" bubble
+  labelled *Queued · sends when this turn ends*, pinned below the working
+  indicator: what the agent is doing now, then what it will read next. When the
+  agent finally picks it up, the bubble becomes an ordinary sent message in its
+  proper place.
+
 ## August 11, 2026 - Locked agents wait for the roster (v0.1.342)
 
 - **The greyed-out agent icons no longer flash on every load.** An empty
