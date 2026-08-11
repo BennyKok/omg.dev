@@ -2,6 +2,29 @@
 
 Recent product updates and deployment notes.
 
+## August 11, 2026 - Every popular agent is on the picker, and plan walls become offers (v0.1.341)
+
+- **Claude, Codex and the other popular agents now appear even before you
+  connect them.** The agent picker only ever showed what the machine could
+  actually launch, which on a fresh hosted Computer is a single icon. Anyone
+  holding a Claude Code or Codex subscription had no way to learn from that
+  screen that omg.dev takes it. The five agents at the head of the roster now
+  stay on the strip either way — greyed out, with a plus, when there is no
+  account behind them — and tapping one opens Coding agents so you can connect
+  it. Nothing else changed about launching: a greyed agent is never selected,
+  never cycled to, and never submitted.
+- **A hosted surface can turn "your plan allows N agents" into an upgrade
+  prompt instead of an error.** Being told the plan is full is not a fault, but
+  it arrived as red text beside the composer and was easy to miss at exactly the
+  moment someone was ready to pay. The machine now tags that refusal so an
+  embedding host can raise its own plan picker; a self-hosted box hitting its
+  own max-live-agents setting is deliberately not tagged, because that is a
+  preference you can edit, not a plan.
+- **For hosts:** two optional `OmgAppSurface` props, `onOpenSettingsPage` and
+  `onPlanLimit`. Failed requests from `@omg-dev/client` now carry their HTTP
+  status and any server-supplied `code` instead of flattening to a bare
+  message. Both additions are backwards compatible.
+
 ## August 11, 2026 - Jcode joins the roster and artifact cards return (v0.1.340)
 
 - **Jcode can now run as a managed omg.dev session.** Install or connect Jcode
