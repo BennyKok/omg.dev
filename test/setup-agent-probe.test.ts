@@ -35,6 +35,7 @@ function probeAgents(present: string[]): { ready: string[]; missing: string[] } 
     'ensure_path_line() { :; }',
     'BUN_BIN=/bin/true',
     'LFG_INSTALL_CLAUDE=0 LFG_INSTALL_CODEX=0 LFG_INSTALL_OPENCODE=0',
+    'LFG_INSTALL_JCODE=0',
     'LFG_INSTALL_GROK=0 LFG_INSTALL_CURSOR=0 LFG_INSTALL_COPILOT=0',
     'LFG_INSTALL_PI=0',
     'LFG_COPILOT_VERSION=latest',
@@ -75,7 +76,7 @@ describe("agent detection", () => {
   });
 
   test("a machine with every agent reports them all ready", () => {
-    const result = probeAgents(["claude", "codex", "opencode", "grok", "cursor-agent", "copilot"]);
+    const result = probeAgents(["claude", "codex", "opencode", "jcode", "grok", "cursor-agent", "copilot"]);
     expect(result).not.toBeNull();
     expect(result!.ready).toContain("claude");
     expect(result!.ready).toContain("codex");

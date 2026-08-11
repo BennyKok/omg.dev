@@ -19,7 +19,7 @@ Usage:
   lfg subagent create --prompt-file task.md --agent aisdk --model opus --cwd /path/to/repo
 
 Options:
-  --agent aisdk|codex-aisdk|opencode|grok|claude|codex
+  --agent aisdk|codex-aisdk|opencode|grok|claude|codex|jcode
   --model MODEL
   --thinking-level LEVEL
   --cwd PATH

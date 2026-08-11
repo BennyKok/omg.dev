@@ -2,6 +2,17 @@
 
 Recent product updates and deployment notes.
 
+## August 11, 2026 - Jcode joins the agent roster (v0.1.340)
+
+- **Jcode can now run as a managed omg.dev session.** Install or connect Jcode
+  from Coding agents, select its discovered models, and start a persistent
+  session from the same composer as Claude, Codex, OpenCode, and other agents.
+- **Jcode follow-ups stay in one conversation.** omg.dev drives Jcode's simple
+  REPL through its serialized tmux transport, preserves multi-line prompts as
+  one turn, and waits for the next prompt before showing the session as idle.
+- **The shared OMG tools are available inside Jcode.** Setup registers the local
+  MCP server in Jcode's configuration while preserving existing MCP entries.
+
 ## August 11, 2026 - Findings get their own name, and the push toggle heals itself (v0.1.339)
 
 - **A session started from a watch-agent finding is named after the finding.**

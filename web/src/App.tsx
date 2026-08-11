@@ -880,6 +880,7 @@ const PI_MODELS_FALLBACK = ["fable", "opus", "sonnet", "haiku", "deepseek/deepse
 // Kept in sync with COPILOT_MODELS in src/agent-catalog.ts (the server catalog
 // overrides this fallback at bootstrap).
 const COPILOT_MODELS = ["claude-sonnet-4.5", "claude-sonnet-4", "gpt-5"];
+const JCODE_MODELS = ["auto"];
 const THINKING_LEVELS = ["low", "medium", "high", "xhigh"] as const;
 type ThinkingLevel = string;
 type AutoAgentBackend = "aisdk" | "codex-aisdk" | "grok" | "cursor" | "opencode";
@@ -917,6 +918,7 @@ const AGENT_MODELS: Record<AgentKind, string[]> = {
   grok: GROK_MODELS,
   cursor: CURSOR_MODELS,
   opencode: OPENCODE_MODELS,
+  jcode: JCODE_MODELS,
   pi: PI_MODELS_FALLBACK,
   copilot: COPILOT_MODELS,
 };
@@ -928,6 +930,7 @@ const AGENT_DEFAULT_MODEL: Record<AgentKind, string> = {
   grok: "grok-4.5",
   cursor: "auto",
   opencode: "opencode/deepseek-v4-flash-free",
+  jcode: "auto",
   pi: "sonnet",
   copilot: "claude-sonnet-4.5",
 };
@@ -940,6 +943,7 @@ const AGENT_THINKING_LEVELS: Record<AgentKind, string[]> = {
   grok: ["low", "medium", "high"],
   cursor: ["low", "medium", "high", "xhigh", "max"],
   opencode: [],
+  jcode: [],
   // pi's own list, straight from its --thinking help. It has a real "off".
   pi: ["off", "minimal", "low", "medium", "high", "xhigh"],
   // copilot's CLI exposes no reasoning-effort knob (thinkingLevelsForAgent

@@ -358,6 +358,23 @@ export function copilotBin(): string {
   return (_copilotBin = "copilot");
 }
 
+let _jcodeBin: string | null = null;
+export function jcodeBin(): string {
+  if (_jcodeBin) return _jcodeBin;
+  const onPath = Bun.which("jcode");
+  if (onPath) return (_jcodeBin = onPath);
+  const home = process.env.HOME ?? homedir();
+  for (const p of [
+    process.env.LFG_JCODE_PATH ?? "",
+    `${home}/.local/bin/jcode`,
+    `${home}/.jcode/bin/jcode`,
+    "/usr/local/bin/jcode",
+  ]) {
+    if (p && existsSync(p)) return (_jcodeBin = p);
+  }
+  return (_jcodeBin = "jcode");
+}
+
 let _cursorBin: string | null = null;
 function isGrokAgentPath(path: string): boolean {
   try {
@@ -798,6 +815,58 @@ export function spawnManagedCopilotSession(opts: ManagedCopilotSessionOptions): 
   const create = Bun.spawnSync(argv);
   if (create.exitCode !== 0)
     return { ok: false, error: dec.decode(create.stderr) || "new-session failed" };
+  return { ok: true };
+}
+
+export type ManagedJcodeSessionOptions = {
+  name: string;
+  cwd: string;
+  prompt?: string;
+  model?: string;
+  omgSessionId?: string;
+  omgUser?: string | null;
+  containInAgentSlice?: boolean;
+};
+
+export function managedJcodeSessionArgv(opts: ManagedJcodeSessionOptions): string[] {
+  const argv = [
+    "tmux",
+    "new-session",
+    "-d",
+    "-s",
+    opts.name,
+    "-c",
+    opts.cwd,
+    jcodeBin(),
+    "--cwd",
+    opts.cwd,
+    "--no-update",
+    "--no-selfdev",
+  ];
+  if (opts.model && opts.model !== "auto") argv.push("--model", opts.model);
+  argv.push("repl");
+  addSessionEnv(argv, opts.omgSessionId, opts.omgUser, opts.name);
+  return argv;
+}
+
+export function jcodeReplPrompt(text: string | undefined): string {
+  return text?.replace(/\s+/g, " ").trim() ?? "";
+}
+
+export function spawnManagedJcodeSession(opts: ManagedJcodeSessionOptions): { ok: boolean; error?: string } {
+  const dec = new TextDecoder();
+  const argv = managedJcodeSessionArgv(opts);
+  containTmuxCommand(argv, jcodeBin(), opts.containInAgentSlice, opts);
+  const create = Bun.spawnSync(argv);
+  if (create.exitCode !== 0) {
+    return { ok: false, error: dec.decode(create.stderr) || "new-session failed" };
+  }
+  const prompt = jcodeReplPrompt(withOmgRuntimeContract(opts.prompt));
+  if (prompt?.trim()) {
+    if (!tmuxType(opts.name, prompt) || !tmuxEnter(opts.name)) {
+      return { ok: false, error: "failed to send the initial Jcode prompt" };
+    }
+  }
   return { ok: true };
 }
 
@@ -1365,7 +1434,10 @@ const CURSOR_STOP_HINT = /ctrl\+c to stop/i;
 // spinner-prefixed status line is clearly the cursor live meter (not a transcript).
 const CURSOR_TOKEN_METER = /\b(?:Reading|Editing|Thinking|Generating|Planning|Searching|Running|Working)\b\s+[\d.]+k?\s+tokens?\b/i;
 export function isBusy(pane: string): boolean {
+  const lastNonEmpty = pane.split("\n").findLast((line) => line.trim()) ?? "";
+  const jcodeBusy = pane.includes("J-Code - Coding Agent") && !/^\s*>\s*$/.test(lastNonEmpty);
   return (
+    jcodeBusy ||
     BUSY_METER.test(pane) ||
     /esc to interrupt/i.test(pane) ||
     GROK_QUEUED_WORK.test(pane) ||

@@ -99,6 +99,7 @@ fi
 LFG_INSTALL_CLAUDE="${LFG_INSTALL_CLAUDE:-0}"
 LFG_INSTALL_CODEX="${LFG_INSTALL_CODEX:-0}"
 LFG_INSTALL_OPENCODE="${LFG_INSTALL_OPENCODE:-0}"
+LFG_INSTALL_JCODE="${LFG_INSTALL_JCODE:-0}"
 LFG_INSTALL_GROK="${LFG_INSTALL_GROK:-0}"
 LFG_INSTALL_CURSOR="${LFG_INSTALL_CURSOR:-0}"
 LFG_INSTALL_COPILOT="${LFG_INSTALL_COPILOT:-0}"
@@ -452,7 +453,7 @@ BUN_BIN="$(command -v bun || true)"
 BUN_BIN="$(cd "$(dirname "$BUN_BIN")" && pwd)/$(basename "$BUN_BIN")"
 
 # ---- 3. agent CLIs ----
-# omg.dev drives whatever claude / codex / opencode / grok / cursor-agent /
+# omg.dev drives whatever claude / codex / opencode / jcode / grok / cursor-agent /
 # copilot it finds on PATH (override via OMG_<AGENT>_PATH). None are installed
 # or upgraded by default: they own the user's auth and config.
 #
@@ -492,6 +493,7 @@ run_agent_installer() {
     claude)   curl -fsSL https://claude.ai/install.sh | bash ;;
     codex)    "$BUN_BIN" add -g @openai/codex >/dev/null 2>&1 ;;
     opencode) "$BUN_BIN" add -g opencode-ai >/dev/null 2>&1 ;;
+    jcode)    curl -fsSL https://jcode.sh/install | bash ;;
     grok)     curl -fsSL https://x.ai/cli/install.sh | bash ;;
     cursor)   curl -fsSL https://cursor.com/install | bash ;;
     pi)
@@ -544,6 +546,7 @@ ensure_path_line 'export PATH="$HOME/.local/bin:$PATH"'
 
 ensure_agent codex    "$LFG_INSTALL_CODEX"    command -v codex
 ensure_agent opencode "$LFG_INSTALL_OPENCODE" command -v opencode
+ensure_agent jcode    "$LFG_INSTALL_JCODE"    command -v jcode
 ensure_agent grok     "$LFG_INSTALL_GROK"     command -v grok
 ensure_agent cursor   "$LFG_INSTALL_CURSOR"   has_cursor_cli
 ensure_agent copilot  "$LFG_INSTALL_COPILOT"  command -v copilot
@@ -801,6 +804,7 @@ seed_env() {
 # node_modules, so without this the agent someone deliberately installed would
 # vanish on the next update with no explanation.
 [ "$LFG_INSTALL_PI" = "1" ] && seed_env INSTALL_PI 1
+[ "$LFG_INSTALL_JCODE" = "1" ] && seed_env INSTALL_JCODE 1
 seed_env HOST 127.0.0.1
 seed_env PORT "$LFG_PORT"
 seed_env REPOS_ROOT "$LFG_REPOS_ROOT"

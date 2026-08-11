@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   providersDueForRetry,
+  parseJcodeModels,
   retryDelayMs,
   type ModelDiscoveryCache,
   type DiscoveredModelProvider,
@@ -39,6 +40,7 @@ function cache(
       grok: provider("grok"),
       cursor: provider("cursor"),
       opencode: provider("opencode"),
+      jcode: provider("jcode"),
       ...providers,
     },
   };
@@ -95,7 +97,7 @@ describe("model discovery retry policy", () => {
       timeZone: "UTC",
       providers: { codex: provider("codex") },
     };
-    expect(providersDueForRetry(older, 0)).toEqual(["grok", "cursor", "opencode"]);
+    expect(providersDueForRetry(older, 0)).toEqual(["grok", "cursor", "opencode", "jcode"]);
   });
 
   test("no cache means the initial full refresh owns it, not the retry path", () => {
@@ -110,5 +112,21 @@ describe("model discovery retry policy", () => {
     });
     expect(providersDueForRetry(c, 2 * MINUTE)).toEqual(["opencode"]);
     expect(providersDueForRetry(c, 30 * MINUTE)).toEqual(["cursor", "opencode"]);
+  });
+});
+
+describe("Jcode model discovery", () => {
+  test("reads the structured Jcode model list and skips unavailable models", () => {
+    expect(
+      parseJcodeModels(
+        JSON.stringify({
+          models: [
+            { provider: "OpenCode Zen", model: "glm-5", available: true },
+            { provider: "OpenAI", model: "gpt-5", available: false },
+            { provider: "omg-e2e", model: "e2e-model", available: true },
+          ],
+        }),
+      ),
+    ).toEqual({ models: ["auto", "glm-5", "e2e-model"], labels: {} });
   });
 });

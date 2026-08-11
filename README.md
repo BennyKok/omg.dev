@@ -28,7 +28,7 @@ when you close the laptop, you can't tell which one is stuck waiting on a
 permission prompt, and you have to be at your desk to answer it.
 
 omg.dev turns a Linux box or macOS workstation into a private control plane for
-Claude Code, Codex, OpenCode, Cursor, Grok, Pi, and GitHub Copilot. Each
+Claude Code, Codex, OpenCode, Jcode, Cursor, Grok, Pi, and GitHub Copilot. Each
 agent runs in a long-lived `tmux` session that survives disconnects. The
 transcript streams to a web UI you can install as a PWA — so you can check on
 work, answer prompts, and steer from your phone.
@@ -162,6 +162,7 @@ register omg.dev's MCP server with it.
 | Claude Code | `claude` | Installed by setup |
 | OpenAI Codex | `codex` | |
 | OpenCode | `opencode` | |
+| Jcode | `jcode` | |
 | Cursor | `cursor-agent` | |
 | Grok | `grok` | |
 | GitHub Copilot | `copilot` | Needs Node 22+ |
@@ -172,7 +173,7 @@ read env vars such as `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` from `.env`. Pi
 authenticates via `ANTHROPIC_API_KEY` or `~/.pi/agent/auth.json`.
 
 **Settings → Coding agents → Install MCP** registers omg.dev MCP with Claude, Codex,
-OpenCode, Grok, and Cursor when those CLIs are present. (Copilot and Pi have no
+OpenCode, Jcode, Grok, and Cursor when those CLIs are present. (Copilot and Pi have no
 MCP registration surface.) Setup does this automatically for Claude and
 Codex when they are already installed.
 
@@ -321,7 +322,7 @@ Variables use the `OMG_` prefix. These are the ones most people touch:
 | `OMG_INSTALL_TAILSCALE` | Install and join Tailscale. Off by default; implied by `OMG_TAILSCALE_SERVE`. |
 | `OMG_REPOS_ROOT` | Directory scanned for git repos. |
 | `ANTHROPIC_API_KEY` | Optional API key for Claude / Pi flows. |
-| `OMG_<AGENT>_PATH` | Override a CLI's binary path (`OMG_CLAUDE_PATH`, `OMG_CODEX_PATH`, `OMG_OPENCODE_PATH`, `OMG_CURSOR_PATH`, `OMG_PI_PATH`, `OMG_COPILOT_PATH`). |
+| `OMG_<AGENT>_PATH` | Override a CLI's binary path (`OMG_CLAUDE_PATH`, `OMG_CODEX_PATH`, `OMG_OPENCODE_PATH`, `OMG_JCODE_PATH`, `OMG_CURSOR_PATH`, `OMG_PI_PATH`, `OMG_COPILOT_PATH`). |
 | `OMG_RELAY_URL` | Relay WebSocket URL for `omg connect`. See [docs/remote-access.md](./docs/remote-access.md). |
 | `OMG_INSTALL_CHANNEL` | Install channel: `source`, `release`, or `container`. Usually set by setup/deploy. |
 
