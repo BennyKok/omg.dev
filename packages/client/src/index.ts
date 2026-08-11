@@ -96,6 +96,37 @@ async function readBody(response: Response): Promise<{ data: unknown; text: stri
   }
 }
 
+/**
+ * A failed request, with the parts a caller may need to BRANCH on kept intact.
+ *
+ * Every failure used to arrive as a bare `new Error(message)`, which meant the
+ * only thing a caller could do with it was print it. Anything that wanted to
+ * react — retry a 409, hand a plan refusal to a host's upgrade surface instead
+ * of a red toast — had no choice but to regex the prose, which silently breaks
+ * the next time that copy is edited.
+ *
+ * Still an ordinary Error with the same `message`, so every existing
+ * `instanceof Error` / `err.message` path is unaffected.
+ */
+export class OmgApiError extends Error {
+  readonly status: number;
+  /** Machine-readable tag the server chose to attach (e.g. "plan_limit"). */
+  readonly code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "OmgApiError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+function errorCode(data: unknown): string | undefined {
+  return data && typeof data === "object" && "code" in data && typeof data.code === "string"
+    ? data.code
+    : undefined;
+}
+
 function apiError(
   response: Response,
   method: string,
@@ -106,7 +137,7 @@ function apiError(
   // lfg's own routes answer with { error }, and that copy is written for the
   // person reading it — pass it through untouched.
   if (data && typeof data === "object" && "error" in data && typeof data.error === "string") {
-    return new Error(data.error);
+    return new OmgApiError(data.error, response.status, errorCode(data));
   }
   // Anything else failed somewhere between here and lfg — a proxy, an edge, a
   // tunnel. `${status} ${statusText}` used to be the whole message, and HTTP/2
@@ -116,8 +147,10 @@ function apiError(
   const detail = [response.statusText.trim(), text.trim().replace(/\s+/g, " ").slice(0, 200)]
     .filter(Boolean)
     .join(": ");
-  return new Error(
+  return new OmgApiError(
     `${method} ${path} failed (${response.status}${detail ? ` ${detail}` : ""})`,
+    response.status,
+    errorCode(data),
   );
 }
 

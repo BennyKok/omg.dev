@@ -1,9 +1,23 @@
 import {
   createSameOriginTransport,
+  OmgApiError,
   type OmgSocket,
   type OmgTransport,
   type OmgUploadProgress,
 } from "@omg-dev/client";
+
+/**
+ * Did this failure come from the box refusing on PLAN grounds?
+ *
+ * Deliberately a code check, not a string match on the copy. The server tags
+ * exactly the refusals a paying host can do something about (see ApiErrorCode
+ * in src/commands/serve.ts); everything else — including the same "too many
+ * agents" wall on a self-hosted install, which is a local setting — stays an
+ * ordinary error.
+ */
+export function isPlanLimitError(error: unknown): boolean {
+  return error instanceof OmgApiError && error.code === "plan_limit";
+}
 
 // Standalone lfg and every embeddable host use the same transport contract.
 // The standalone adapter is deliberately tiny because Vite/lfg serve keeps the

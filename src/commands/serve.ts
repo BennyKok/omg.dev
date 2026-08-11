@@ -544,16 +544,25 @@ async function activationGate(): Promise<Response | { release: () => void; recla
     computer ? archiveIdleDurableAgentsForMemory : undefined,
   );
   if (reservation.ok) return reservation;
+  // Tagged `plan_limit` ONLY on a hosted Computer. An ordinary LFG install that
+  // hits its own maxLiveAgents setting was stopped by a preference it can edit
+  // in Settings, not by a plan — telling that person to upgrade would be
+  // nonsense, and a host must not paint an upgrade sheet over it.
   if (reservation.reason === "memory") {
     return err(
       429,
       `this Computer has ${formatMemory(reservation.availableBytes)} memory available and needs ${formatMemory(reservation.requiredBytes)} to start another agent safely; finish an agent or upgrade your Computer`,
+      computer ? "plan_limit" : undefined,
     );
   }
   const context = computer
     ? `your ${computer.plan} Computer plan allows ${computer.limit} concurrent agents`
     : `max live agents (${limit}) reached`;
-  return err(429, `${context}; ${reservation.resident} live — upgrade your Computer or close an agent`);
+  return err(
+    429,
+    `${context}; ${reservation.resident} live — upgrade your Computer or close an agent`,
+    computer ? "plan_limit" : undefined,
+  );
 }
 
 // Current memory of the aggregate agent slice (the cgroup every contained agent
@@ -1316,8 +1325,20 @@ function json(obj: unknown, init?: ResponseInit) {
   });
 }
 
-function err(status: number, message: string) {
-  return json({ error: message }, { status });
+/**
+ * A machine-readable tag on an error a CLIENT has to react to structurally,
+ * rather than by matching prose. Only add one when some caller genuinely
+ * branches on it — the message stays the thing humans read.
+ *
+ * `plan_limit`: the request was refused by the hosted Computer's PLAN, not by
+ * anything the person did wrong. A host that sells plans turns this into its
+ * own upgrade surface instead of a red error toast, so the copy here must stay
+ * good enough to stand alone for hosts that don't.
+ */
+export type ApiErrorCode = "plan_limit";
+
+function err(status: number, message: string, code?: ApiErrorCode) {
+  return json(code ? { error: message, code } : { error: message }, { status });
 }
 
 /**

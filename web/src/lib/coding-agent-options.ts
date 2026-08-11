@@ -48,6 +48,28 @@ export function scheduledAgentOptions(): AgentCatalogEntry[] {
   return AGENT_CATALOG.filter((option) => option.scheduled);
 }
 
+/**
+ * The agents a picker keeps ON SCREEN even when this box can't launch them —
+ * greyed out, as an invitation to connect one rather than a working choice.
+ *
+ * The picker used to show only what was launchable, which on a fresh hosted
+ * Computer is a single icon: OpenCode. That is an honest list and a terrible
+ * one. Someone who has Claude Code and Codex accounts sitting right there had
+ * no way to learn from this screen that the product takes them — the feature
+ * was invisible precisely to the people most ready to use it.
+ *
+ * It is the FIRST FIVE of the catalog, by construction rather than by a second
+ * hand-kept list, so the strip stays a phone-friendly width and the order here
+ * can never disagree with the order everywhere else. Agents further down
+ * (jcode, pi, copilot) still appear the moment they are actually connected —
+ * this list only governs what is advertised BEFORE that.
+ */
+export const DISCOVERABLE_AGENT_COUNT = 5;
+
+export function discoverableAgentKeys(): AgentKind[] {
+  return AGENT_CATALOG.slice(0, DISCOVERABLE_AGENT_COUNT).map((entry) => entry.key);
+}
+
 export type CodingAgentAvailability = {
   key: string;
   visible: boolean;
@@ -108,4 +130,36 @@ export function configuredAgentOptions<
       .map((agent) => agent.key),
   );
   return options.filter((option) => available.has(option.key));
+}
+
+/**
+ * The complement of configuredAgentOptions over the discoverable five: the
+ * agents to show greyed out because this box cannot launch them yet.
+ *
+ * Two things it deliberately does NOT do:
+ *
+ * - It does not re-offer an agent the person turned OFF in Settings. Hiding an
+ *   agent is an explicit choice; answering it by putting the icon back as a
+ *   permanent advertisement would be ignoring them.
+ * - It does not wait for bootstrap. While `codingAgents` is undefined the
+ *   launchable set is already known (see configuredAgentOptions), so the locks
+ *   can be computed against it immediately and the strip settles at its final
+ *   width on first paint instead of reshuffling under a thumb mid-tap.
+ */
+export function lockedAgentOptions<T extends { key: string }>(
+  options: readonly T[],
+  codingAgents?: readonly CodingAgentAvailability[],
+  accessMode: AgentAccessMode = "configured",
+): T[] {
+  const discoverable = new Set<string>(discoverableAgentKeys());
+  const launchable = new Set(
+    configuredAgentOptions(options, codingAgents, accessMode).map((option) => option.key),
+  );
+  const hidden = new Set(
+    (codingAgents ?? []).filter((agent) => !agent.visible).map((agent) => agent.key),
+  );
+  return options.filter(
+    (option) =>
+      discoverable.has(option.key) && !launchable.has(option.key) && !hidden.has(option.key),
+  );
 }

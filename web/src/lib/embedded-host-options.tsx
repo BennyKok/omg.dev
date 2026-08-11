@@ -27,6 +27,51 @@ export interface EmbeddedHostOptions {
    * cannot pin an expired JWT.
    */
   hostedTranscription?: HostedTranscription;
+  /**
+   * Open one of the machine's settings pages, when the HOST is the thing that
+   * renders them.
+   *
+   * An embedded surface hides its own Settings tab, because a managed host
+   * mounts those pages itself (OmgSettingsSurface) under its own account
+   * chrome. That left the surface with no way to send someone to a setting it
+   * knows they need — most visibly the coding-agent picker, which can now
+   * offer agents this box has no account for. Without this callback the only
+   * honest thing that picker could do was hide them, which is exactly the
+   * discovery problem.
+   *
+   * Unset (standalone LFG) the surface navigates to the page itself.
+   */
+  onOpenSettingsPage?: (page: HostSettingsPage) => void;
+  /**
+   * The box refused an action because of the plan the HOST sold, not because
+   * of anything the person did.
+   *
+   * LFG has no concept of plans or prices, so the best it can do alone is show
+   * the server's sentence as an error. A host that sells the plan can do much
+   * better — put its own upgrade surface up — and this is how it finds out it
+   * should. When set, the surface hands the refusal over INSTEAD of showing an
+   * error; when unset, the message is shown as usual.
+   */
+  onPlanLimit?: (detail: PlanLimitDetail) => void;
+}
+
+/**
+ * The machine-owned settings pages a host can mount on its own. Mirrors
+ * OmgSettingsSurface's `page` prop — declared here rather than in embedded.tsx
+ * so app code can reference it without importing the package entrypoint.
+ */
+export type HostSettingsPage =
+  | "settings"
+  | "coding-agents"
+  | "auto"
+  | "storage"
+  | "more";
+
+export interface PlanLimitDetail {
+  /** The server's own sentence, already written for a human to read. */
+  message: string;
+  /** What the person was trying to do when the plan stopped them. */
+  action: "start-session";
 }
 
 export interface HostedTranscription {

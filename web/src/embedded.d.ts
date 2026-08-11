@@ -115,7 +115,35 @@ export interface OmgAppSurfaceProps {
    * surface, rather than enrolling the device into silence.
    */
   hostedPush?: HostPushConfig;
+  /**
+   * Open one of the machine's settings pages (the ones OmgSettingsSurface
+   * mounts) in the HOST's own navigation.
+   *
+   * An embedded surface hides its Settings tab, so without this it has no way
+   * to send someone to a setting it knows they need. The agent picker uses it:
+   * it shows the popular agents this machine has no account for, greyed out,
+   * and a tap has to land on the host's copy of the coding-agent page. Omit
+   * this and the picker keeps hiding unconnected agents entirely.
+   */
+  onOpenSettingsPage?: (page: OmgSettingsPage) => void;
+  /**
+   * The machine refused an action because of the plan YOU sold — e.g. starting
+   * one more agent than the tier allows.
+   *
+   * The surface knows nothing about plans or prices, so alone it can only print
+   * the server's sentence as an error. Handle this to raise your own upgrade
+   * surface instead; when you do, the surface shows nothing itself, so the host
+   * owns the entire response.
+   */
+  onPlanLimit?: (detail: PlanLimitDetail) => void;
   errorSink?: OmgErrorSink;
+}
+
+export interface PlanLimitDetail {
+  /** The machine's own sentence, already written for a human to read. */
+  message: string;
+  /** What the person was trying to do when the plan stopped them. */
+  action: "start-session";
 }
 
 export interface HostedTranscription {
