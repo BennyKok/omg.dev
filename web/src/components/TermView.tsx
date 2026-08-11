@@ -1319,30 +1319,52 @@ export function TermView({
           ) : null}
         </div>
       </div>
-      <div
-        ref={hostRef}
-        onClick={() => focusTerminalKeyboard(termRef.current)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") focusTerminalKeyboard(termRef.current);
-        }}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={cancelLongPress}
-        onTouchCancel={cancelLongPress}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          setPasteAt({ x: e.clientX, y: e.clientY });
-        }}
-        style={{
-          touchAction: "manipulation",
-          WebkitTouchCallout: "none",
-          userSelect: "none",
-        }}
-        role="button"
-        tabIndex={0}
-        aria-label="Focus terminal"
-        className="min-h-0 flex-1 overflow-hidden p-1.5"
-      />
+      {/* The terminal host and the grab handle share a positioning context, so
+          the handle overlays the terminal's bottom edge and never the link tray
+          below it — an absolute handle anchored to the card bottom would sit on
+          top of the link chips and swallow their taps. */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div
+          ref={hostRef}
+          onClick={() => focusTerminalKeyboard(termRef.current)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") focusTerminalKeyboard(termRef.current);
+          }}
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={cancelLongPress}
+          onTouchCancel={cancelLongPress}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setPasteAt({ x: e.clientX, y: e.clientY });
+          }}
+          style={{
+            touchAction: "manipulation",
+            WebkitTouchCallout: "none",
+            userSelect: "none",
+          }}
+          role="button"
+          tabIndex={0}
+          aria-label="Focus terminal"
+          className="min-h-0 flex-1 overflow-hidden p-1.5"
+        />
+
+        {/* Grab handle: the one always-visible hint that there are more keys, and
+            the target the bottom-edge swipe-up starts from. 10px of chrome
+            instead of the ~110px toolbar it replaces. */}
+        {!deckOpen ? (
+          <button
+            type="button"
+            onClick={openDeck}
+            style={{ touchAction: "manipulation" }}
+            aria-label="Show terminal keys"
+            title="Terminal keys (⌃⇧K, or swipe up)"
+            className="absolute inset-x-0 bottom-0 z-20 flex h-6 items-end justify-center pb-1"
+          >
+            <span className="h-1 w-10 rounded-full bg-white/20" />
+          </button>
+        ) : null}
+      </div>
       {/* Detected links — browser-native open/copy actions for verification
           URLs that a CLI tries to open inside the VM. */}
       {links.length > 0 ? (
@@ -1386,22 +1408,6 @@ export function TermView({
             <X className="size-3.5" />
           </button>
         </div>
-      ) : null}
-
-      {/* Grab handle: the one always-visible hint that there are more keys, and
-          the target the bottom-edge swipe-up starts from. 10px of chrome
-          instead of the ~110px toolbar it replaces. */}
-      {!deckOpen ? (
-        <button
-          type="button"
-          onClick={openDeck}
-          style={{ touchAction: "manipulation" }}
-          aria-label="Show terminal keys"
-          title="Terminal keys (⌃⇧K, or swipe up)"
-          className="absolute inset-x-0 bottom-0 z-20 flex h-6 items-end justify-center pb-1"
-        >
-          <span className="h-1 w-10 rounded-full bg-white/20" />
-        </button>
       ) : null}
 
       <KeyDeck
