@@ -4,6 +4,7 @@ import {
   ensurePushSubscription,
   resolvePushRegistration,
   subscriptionMatchesKey,
+  waitForActiveWorker,
 } from "./push";
 
 /**
@@ -45,6 +46,9 @@ function fakeSubscription(endpoint: string, key: Uint8Array | null): FakeSubscri
 function fakeRegistration(scope: string, existing: FakeSubscription | null = null) {
   const reg = {
     scope,
+    // A registration only accepts subscribe() once it has an ACTIVE worker, and
+    // the resolver now enforces that. Established registrations have one.
+    active: { state: "activated" },
     subscription: existing,
     subscribedWith: null as Uint8Array | null,
     pushManager: {
@@ -75,8 +79,9 @@ function fakeContainer() {
       registrations.set(opts.scope, reg);
       return reg;
     },
-    // Deliberately never settles: a registration that already exists must be
-    // used without waiting on `ready`.
+    // Deliberately never settles. Nothing may wait on `ready`: it answers for
+    // the scope serving the page (wrong registration when a host dedicates a
+    // sub-scope) and hangs forever when no worker controls the page at all.
     ready: new Promise(() => {}),
   } as unknown as ServiceWorkerContainer;
 }
@@ -96,6 +101,25 @@ describe("choosing the registration to subscribe on", () => {
 
     const reg = await resolvePushRegistration({ container: fakeContainer(), embedded: false });
     expect(reg?.scope).toBe("/");
+  });
+
+  test("standalone registers the app worker when the page has none", async () => {
+    // The failure this prevents: index.html's registration can fail (offline
+    // cold start, evicted worker, sw.js 404 mid-deploy) and nothing retries it
+    // until the next full load, so enrolling dead-ended on "no service worker
+    // is available on this page" with reloading as the undiscoverable fix.
+    const reg = await resolvePushRegistration({ container: fakeContainer(), embedded: false });
+
+    expect(reg?.scope).toBe("/");
+    expect(registerCalls).toEqual([{ url: "/sw.js", scope: "/" }]);
+  });
+
+  test("standalone reuses the existing registration rather than re-registering", async () => {
+    registrations.set("/", fakeRegistration("/"));
+
+    await resolvePushRegistration({ container: fakeContainer(), embedded: false });
+
+    expect(registerCalls).toEqual([]);
   });
 
   test("embedded with no declared scope refuses instead of enrolling into silence", async () => {
@@ -132,6 +156,68 @@ describe("choosing the registration to subscribe on", () => {
       await resolvePushRegistration({ container: fakeContainer(), embedded: true }),
     ).toBeNull();
     expect(registerCalls).toEqual([]);
+  });
+});
+
+/**
+ * `pushManager.subscribe()` rejects with InvalidStateError while a registration
+ * has no active worker. Registering one on demand is only a fix if we then wait
+ * for it, otherwise the dead end just moves to a more cryptic error.
+ */
+describe("waiting for a freshly registered worker", () => {
+  function fakeWorker() {
+    const listeners = new Set<() => void>();
+    const worker = {
+      state: "installing",
+      addEventListener: (_type: string, fn: () => void) => void listeners.add(fn),
+      removeEventListener: (_type: string, fn: () => void) => void listeners.delete(fn),
+      advance(state: string) {
+        worker.state = state;
+        for (const fn of [...listeners]) fn();
+      },
+      listenerCount: () => listeners.size,
+    };
+    return worker;
+  }
+
+  function pendingRegistration(worker: ReturnType<typeof fakeWorker>) {
+    return { active: null as unknown, installing: worker, waiting: null };
+  }
+
+  test("an already-active registration is usable without listening", async () => {
+    expect(
+      await waitForActiveWorker({ active: {} } as unknown as ServiceWorkerRegistration, 0),
+    ).toBe(true);
+  });
+
+  test("resolves once the installing worker activates, and unsubscribes itself", async () => {
+    const worker = fakeWorker();
+    const reg = pendingRegistration(worker);
+
+    const settled = waitForActiveWorker(reg as unknown as ServiceWorkerRegistration, 1_000);
+    reg.active = worker; // what the browser does as the worker activates
+    worker.advance("activated");
+
+    expect(await settled).toBe(true);
+    expect(worker.listenerCount()).toBe(0);
+  });
+
+  test("gives up immediately when the worker goes redundant", async () => {
+    // A worker that fails to install never reaches "activated"; waiting out the
+    // full timeout would only delay the error the caller shows either way.
+    const worker = fakeWorker();
+    const reg = pendingRegistration(worker);
+
+    const settled = waitForActiveWorker(reg as unknown as ServiceWorkerRegistration, 60_000);
+    worker.advance("redundant");
+
+    expect(await settled).toBe(false);
+  });
+
+  test("gives up when the worker never activates", async () => {
+    const reg = pendingRegistration(fakeWorker());
+
+    expect(await waitForActiveWorker(reg as unknown as ServiceWorkerRegistration, 5)).toBe(false);
   });
 });
 

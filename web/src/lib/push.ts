@@ -65,13 +65,63 @@ export function configureHostPush(config: HostPushConfig | null): void {
 }
 
 /**
- * NOT `navigator.serviceWorker.ready` on its own: that promise never settles
- * when no worker ever takes control of the page. Standalone LFG always
- * registers one, but an embedded surface runs inside a host page that may have
- * none — and there `ready` hangs forever, so the notification toggle would spin
- * silently after the permission prompt was granted.
+ * The standalone app's own worker, as index.html and main.tsx already register
+ * it. Registering the same script on the same scope is idempotent — it resolves
+ * to the registration those two produce rather than making a second one — which
+ * is what makes it safe to (re-)register from here on demand.
  */
-const SW_READY_TIMEOUT_MS = 5_000;
+const APP_WORKER_URL = "/sw.js";
+/** `/sw.js` already defaults to this scope; naming it keeps the call idempotent. */
+const APP_WORKER_OPTIONS: RegistrationOptions = { scope: "/", updateViaCache: "none" };
+
+/** How long to wait for a freshly registered worker to reach `activated`. */
+const SW_ACTIVATION_TIMEOUT_MS = 5_000;
+
+/**
+ * `pushManager.subscribe()` rejects with InvalidStateError while a registration
+ * has no ACTIVE worker, so a registration created moments ago cannot be
+ * subscribed on the same tick. Wait for activation instead of surfacing that
+ * race as a failure.
+ *
+ * Deliberately NOT `navigator.serviceWorker.ready`: that answers for the scope
+ * serving THIS page, which is the wrong registration whenever a host dedicates
+ * a sub-scope to us, and it never settles at all when no worker controls the
+ * page — the exact hang that used to leave the toggle spinning after the
+ * permission prompt was granted. A registration reports its own activation
+ * whatever its scope, so ask it directly.
+ */
+export async function waitForActiveWorker(
+  registration: ServiceWorkerRegistration,
+  timeoutMs: number = SW_ACTIVATION_TIMEOUT_MS,
+): Promise<boolean> {
+  if (registration.active) return true;
+
+  const pending = registration.installing ?? registration.waiting;
+  if (!pending?.addEventListener) return false;
+
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      pending.removeEventListener?.("statechange", onStateChange);
+      resolve();
+    };
+    // "redundant" as well as "activated": a worker that fails to install never
+    // reaches "activated", and waiting out the full timeout for it would just
+    // delay the error the caller is going to show either way.
+    const onStateChange = () => {
+      if (pending.state === "activated" || pending.state === "redundant") finish();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    pending.addEventListener("statechange", onStateChange);
+    // The state can have moved on between the checks above and this listener.
+    onStateChange();
+  });
+
+  return Boolean(registration.active);
+}
 
 /**
  * Dependencies are injectable so this can be tested without mutating global
@@ -94,11 +144,12 @@ export async function resolvePushRegistration(
 
   if (hostPush) {
     const declared = await container.getRegistration(hostPush.scope).catch(() => null);
-    if (declared) return declared;
+    if (declared) return usableRegistration(declared);
     if (!hostPush.workerUrl) return null;
-    return await container
+    const registered = await container
       .register(hostPush.workerUrl, { scope: hostPush.scope })
       .catch(() => null);
+    return registered ? usableRegistration(registered) : null;
   }
 
   // Embedded with nothing declared: the registration serving this page belongs
@@ -106,12 +157,26 @@ export async function resolvePushRegistration(
   // Refuse rather than enrol into silence.
   if (deps.embedded ?? isEmbedded()) return null;
 
+  // Standalone. index.html registers /sw.js on every load, so there is normally
+  // one here already — but "normally" is not "always": that registration can
+  // fail (an offline cold start, an evicted worker, sw.js 404ing mid-deploy)
+  // and nothing retries it until the next full page load. Waiting on `ready`
+  // was the old behaviour and it cannot recover from that state, so enrolling
+  // dead-ended on "no service worker is available on this page" until the user
+  // guessed that reloading was the fix. Register it ourselves instead: same URL
+  // and scope as index.html, so it is idempotent when one already exists or is
+  // still in flight, and self-healing when none does.
   const existing = await container.getRegistration().catch(() => null);
-  if (existing) return existing;
-  return await Promise.race([
-    container.ready.catch(() => null),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), SW_READY_TIMEOUT_MS)),
-  ]);
+  const registration =
+    existing ?? (await container.register(APP_WORKER_URL, APP_WORKER_OPTIONS).catch(() => null));
+  return registration ? usableRegistration(registration) : null;
+}
+
+/** A registration is only usable for `subscribe()` once it has an active worker. */
+async function usableRegistration(
+  registration: ServiceWorkerRegistration,
+): Promise<ServiceWorkerRegistration | null> {
+  return (await waitForActiveWorker(registration)) ? registration : null;
 }
 
 /** Whether this browser already holds a live push subscription. */
@@ -170,6 +235,17 @@ export async function ensurePushSubscription(
 export async function enablePush(user?: string | null): Promise<boolean> {
   if (!pushSupported()) throw new Error("Push notifications aren't supported here");
 
+  // Started before the permission prompt, awaited after it. Both halves matter.
+  // Ordering: `await`ing it first would spend this click's transient user
+  // activation, and Safari rejects requestPermission() without one. Latency:
+  // registering and activating a worker now overlaps the seconds the OS prompt
+  // is on screen instead of being added to them.
+  const registration = resolvePushRegistration();
+  // Marks it handled without swallowing it: the paths below that return early
+  // (permission refused) or throw (no VAPID key) never await it, and a promise
+  // nobody awaits is an unhandled rejection. `await registration` still rejects.
+  registration.catch(() => {});
+
   const permission = await Notification.requestPermission();
   if (permission !== "granted") return false;
 
@@ -177,12 +253,12 @@ export async function enablePush(user?: string | null): Promise<boolean> {
   if (!keyRes.ok) throw new Error("Could not load push key");
   const { key } = (await keyRes.json()) as { key: string };
 
-  const reg = await resolvePushRegistration();
+  const reg = await registration;
   if (!reg) {
     throw new Error(
       isEmbedded()
         ? "This host hasn't given OMG a service-worker scope for notifications yet"
-        : "No service worker is available on this page, so notifications can't be delivered here",
+        : "Couldn't start the notification service worker — reload the app and try again",
     );
   }
 
@@ -207,11 +283,20 @@ export async function enablePush(user?: string | null): Promise<boolean> {
   return true;
 }
 
-/** Unsubscribe locally and tell the backend to forget this endpoint. */
+/**
+ * Unsubscribe locally and tell the backend to forget this endpoint.
+ *
+ * Resolves the same registration `enablePush` subscribed on. It used to await
+ * `navigator.serviceWorker.ready`, which is a different registration on an
+ * embedded surface — the HOST's — whose pushManager holds no subscription of
+ * ours, so turning notifications off reported success and left the device
+ * subscribed and the endpoint live on the server. On a host page with no
+ * controlling worker `ready` never settles at all, hanging the toggle.
+ */
 export async function disablePush(): Promise<void> {
   if (!pushSupported()) return;
-  const reg = await navigator.serviceWorker.ready;
-  const sub = await reg.pushManager.getSubscription();
+  const reg = await resolvePushRegistration();
+  const sub = await reg?.pushManager.getSubscription();
   if (!sub) return;
   const endpoint = sub.endpoint;
   await sub.unsubscribe().catch(() => {});
@@ -232,7 +317,10 @@ export async function disablePush(): Promise<void> {
 export async function closePushNotification(tag: string): Promise<void> {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
   try {
-    const reg = await navigator.serviceWorker.getRegistration();
+    // Our registration, not the root one: on an embedded surface the root
+    // belongs to the host, and closing ITS notifications is both useless (ours
+    // are not there) and rude (the host's are).
+    const reg = await resolvePushRegistration();
     if (!reg) return;
     for (const notification of await reg.getNotifications({ tag })) notification.close();
     // The service worker derives the app badge from visible notifications, but
@@ -263,7 +351,9 @@ export async function acknowledgePushNotifications(): Promise<void> {
 
   if ("serviceWorker" in navigator) {
     try {
-      const reg = await navigator.serviceWorker.getRegistration();
+      // Same reason as closePushNotification: the registration that renders our
+      // notifications is the one that holds our subscription, not the root one.
+      const reg = await resolvePushRegistration();
       const notifications = (await reg?.getNotifications()) ?? [];
       for (const notification of notifications) notification.close();
     } catch {
