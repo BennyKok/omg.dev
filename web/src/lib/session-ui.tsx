@@ -13,7 +13,7 @@ import { cn } from "./utils";
 // Bump whenever an agent mark in web/public changes: versioned icon URLs are
 // served `immutable, max-age=1y`, so a redrawn SVG at the same `?v=` keeps
 // serving the old art out of the browser cache forever.
-export const AGENT_ICON_VERSION = "20260809";
+export const AGENT_ICON_VERSION = "20260811";
 
 /**
  * The session-card / picker icon for an agent kind. Codex variants share the
@@ -26,6 +26,7 @@ export function agentIconSrc(agent?: string): string {
   if (agent === "cursor") return omgAssetUrl(`/agent-cursor.svg${v}`);
   if (agent === "hermes") return omgAssetUrl(`/agent-hermes.svg${v}`);
   if (agent === "opencode") return omgAssetUrl(`/agent-opencode.svg${v}`);
+  if (agent === "jcode") return omgAssetUrl(`/agent-jcode.svg${v}`);
   if (agent === "pi") return omgAssetUrl(`/agent-pi.svg${v}`);
   if (agent === "copilot") return omgAssetUrl(`/agent-copilot.svg${v}`);
   return omgAssetUrl(`/agent-claude.svg${v}`);
@@ -37,6 +38,7 @@ export function agentIconAlt(agent?: string): string {
   if (agent === "cursor") return "Cursor";
   if (agent === "hermes") return "Hermes";
   if (agent === "opencode") return "OpenCode";
+  if (agent === "jcode") return "Jcode";
   if (agent === "pi") return "pi";
   if (agent === "copilot") return "Copilot";
   return "Claude";

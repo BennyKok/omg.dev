@@ -158,6 +158,7 @@ import {
   spawnManagedOpencodeAisdkSession,
   spawnManagedPiSession,
   spawnManagedCopilotSession,
+  spawnManagedJcodeSession,
   dismissCodexUpdatePrompt,
   dismissCursorTrustPrompt,
   dismissResumeSummaryGate,
@@ -1087,6 +1088,7 @@ const STATIC_FILES: Record<string, { path: string; type: string }> = {
   "/agent-codex.svg": { path: join(WEB_DIR, "agent-codex.svg"), type: "image/svg+xml" },
   "/agent-cursor.svg": { path: join(WEB_DIR, "agent-cursor.svg"), type: "image/svg+xml" },
   "/agent-opencode.svg": { path: join(WEB_DIR, "agent-opencode.svg"), type: "image/svg+xml" },
+  "/agent-jcode.svg": { path: join(WEB_DIR, "agent-jcode.svg"), type: "image/svg+xml" },
   "/agent-grok.svg": { path: join(WEB_DIR, "agent-grok.svg"), type: "image/svg+xml" },
   "/agent-hermes.svg": { path: join(WEB_DIR, "agent-hermes.svg"), type: "image/svg+xml" },
   "/agent-pi.svg": { path: join(WEB_DIR, "agent-pi.svg"), type: "image/svg+xml" },
@@ -1758,6 +1760,9 @@ function interruptLiveSession(session: Session): { ok: boolean; error?: string; 
     appendAisdkCmd(key, { type: "interrupt" });
     return { ok: true };
   }
+  // Jcode's line REPL buffers a complete follow-up until the active turn ends.
+  // It has no separate interrupt key, so steering safely degrades to queuing.
+  if (session.agent === "jcode") return { ok: true };
   if (!session.tmuxTarget)
     return { ok: false, error: "session is not in a tmux pane — cannot interrupt", status: 409 };
   if (!tmuxInterrupt(session.tmuxTarget)) return { ok: false, error: "interrupt failed", status: 502 };
@@ -1796,7 +1801,8 @@ function sendPromptToLiveSession(
     };
   }
   if (!session.tmuxTarget) return { ok: false, error: "session is not in a tmux pane — cannot send" };
-  return { ok: true, msg: enqueueMessage(sid, prompt) };
+  const transportPrompt = session.agent === "jcode" ? prompt.replace(/\s+/g, " ").trim() : prompt;
+  return { ok: true, msg: enqueueMessage(sid, transportPrompt) };
 }
 
 function liveSessionIds(sessions: Session[]): Set<string> {
@@ -4244,7 +4250,7 @@ a{color:#60a5fa}
             thinkingLevel?: string;
             archiveSource?: boolean;
             claudeAccountId?: string;
-            agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "grok" | "cursor" | "hermes" | "pi";
+            agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "grok" | "cursor" | "hermes" | "pi" | "jcode";
           } | null;
           // Cached: this read is pure metadata (cwd, project, title, owner) for
           // a session that already exists, so a few seconds of staleness cannot
@@ -4351,7 +4357,7 @@ a{color:#60a5fa}
           claudeAccountId?: string;
           parentSessionId?: string;
           spawnedBy?: string;
-          agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "grok" | "cursor" | "copilot" | "hermes" | "pi";
+          agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "jcode" | "grok" | "cursor" | "copilot" | "hermes" | "pi";
         } | null;
         if (body?.agent === "hermes") {
           return err(400, "agent \"hermes\" is temporarily unavailable");
@@ -4366,6 +4372,8 @@ a{color:#60a5fa}
               ? "codex-aisdk"
               : body?.agent === "opencode"
                 ? "opencode"
+                : body?.agent === "jcode"
+                  ? "jcode"
                 : body?.agent === "grok"
                   ? "grok"
                   : body?.agent === "cursor"
@@ -4438,6 +4446,8 @@ a{color:#60a5fa}
         // validate by shape rather than an allowlist.
         if (agent === "opencode" && model && !/^[A-Za-z0-9_.:\/-]{1,80}$/.test(model))
           return err(400, "invalid opencode model name");
+        if (agent === "jcode" && model && !/^[A-Za-z0-9_.:\/\-[\],=]{1,160}$/.test(model))
+          return err(400, "invalid jcode model name");
         const thinkingLevel = body?.thinkingLevel?.trim() || undefined;
         // Thinking mode is supported on every agent kind that exposes a
         // reasoning-effort knob: Codex (reasoning_effort) and Claude (the claude
@@ -4582,6 +4592,8 @@ a{color:#60a5fa}
               ? resolvedModel ?? "auto"
               : agent === "opencode"
                   ? resolvedModel ?? opencodeDefault
+                : agent === "jcode"
+                  ? resolvedModel ?? "auto"
                   : agent === "codex-aisdk"
                     ? resolvedModel ?? "gpt-5.5"
                     : agent === "aisdk"
@@ -4649,6 +4661,16 @@ a{color:#60a5fa}
                   cwd,
                   prompt,
                   model: resolvedModel,
+                  omgSessionId: launchId,
+                  omgUser: assignedUser,
+                  containInAgentSlice: isSubagent,
+                })
+            : agent === "jcode"
+              ? spawnManagedJcodeSession({
+                  name: tmuxName,
+                  cwd,
+                  prompt,
+                  model: resolvedModel ?? "auto",
                   omgSessionId: launchId,
                   omgUser: assignedUser,
                   containInAgentSlice: isSubagent,
@@ -4732,7 +4754,7 @@ a{color:#60a5fa}
             }
           })();
         }
-        if (agent === "aisdk" || agent === "opencode" || agent === "cursor")
+        if (agent === "aisdk" || agent === "opencode" || agent === "cursor" || agent === "jcode")
           patchManaged(tmuxName, { launchState: "running" });
         // The spawn (and the launchState patch above) changed what the session
         // list contains, so retire any snapshot taken during it.

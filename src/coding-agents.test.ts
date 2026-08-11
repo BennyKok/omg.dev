@@ -11,6 +11,7 @@ import {
   startCodingAgentAuth,
   startToolAuth,
   withCursorOmgMcp,
+  withJcodeOmgMcp,
   withOpencodeOmgMcp,
 } from "./coding-agents.ts";
 
@@ -32,6 +33,16 @@ describe("OMG MCP config merging", () => {
   test("preserves Cursor config while adding the OMG server", () => {
     expect(withCursorOmgMcp({ editor: {}, mcpServers: { other: { command: "other" } } }, command)).toEqual({
       editor: {},
+      mcpServers: {
+        other: { command: "other" },
+        omg: { command: "/usr/bin/bun", args: ["/opt/lfg/src/cli.ts", "mcp"] },
+      },
+    });
+  });
+
+  test("preserves Jcode config while adding the OMG server", () => {
+    expect(withJcodeOmgMcp({ providers: {}, mcpServers: { other: { command: "other" } } }, command)).toEqual({
+      providers: {},
       mcpServers: {
         other: { command: "other" },
         omg: { command: "/usr/bin/bun", args: ["/opt/lfg/src/cli.ts", "mcp"] },
@@ -374,6 +385,36 @@ describe("coding agent auth detection", () => {
     const home = useTmpHome();
     writeOpencodeAuth(home, { openai: { type: "oauth", access: "at", refresh: "rt" } });
     expect((await opencodeStatus(home)).accountConnected).toBe(true);
+  });
+
+  test("Jcode reports a configured provider without claiming a connected account", async () => {
+    const home = useTmpHome();
+    const jcode = join(home, "jcode");
+    writeFileSync(
+      jcode,
+      "#!/bin/sh\nprintf '%s\\n' '{\"any_available\":true,\"providers\":[{\"status\":\"available\",\"credential_source\":\"none\"}]}'\n",
+    );
+    chmodSync(jcode, 0o755);
+    setEnv("LFG_JCODE_PATH", jcode);
+
+    const agents = await listCodingAgents();
+    const status = agents.find((agent) => agent.key === "jcode")?.status;
+    expect(status?.configured).toBe(true);
+    expect(status?.accountConnected).toBe(false);
+  });
+
+  test("Jcode reports stored provider credentials as a connected account", async () => {
+    const home = useTmpHome();
+    const jcode = join(home, "jcode");
+    writeFileSync(
+      jcode,
+      "#!/bin/sh\nprintf '%s\\n' '{\"any_available\":true,\"providers\":[{\"status\":\"available\",\"credential_source\":\"stored\"}]}'\n",
+    );
+    chmodSync(jcode, 0o755);
+    setEnv("LFG_JCODE_PATH", jcode);
+
+    const agents = await listCodingAgents();
+    expect(agents.find((agent) => agent.key === "jcode")?.status.accountConnected).toBe(true);
   });
 
   test("a platform OpenAI key makes Codex runnable without claiming the account is connected", async () => {

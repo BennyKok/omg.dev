@@ -30,6 +30,7 @@ export type CodingAgentKind =
   | "codex"
   | "codex-aisdk"
   | "opencode"
+  | "jcode"
   | "grok"
   | "cursor"
   | "hermes"
@@ -154,6 +155,7 @@ export const CODING_AGENT_KINDS: Exclude<CodingAgentKind, "claude" | "hermes">[]
   "grok",
   "cursor",
   "opencode",
+  "jcode",
   "copilot",
   "pi",
 ];
@@ -164,6 +166,7 @@ export const CODING_AGENT_LABELS: Record<CodingAgentKind, string> = {
   codex: "codex",
   "codex-aisdk": "codex",
   opencode: "opencode",
+  jcode: "jcode",
   grok: "grok",
   cursor: "cursor",
   hermes: "hermes",
@@ -287,6 +290,42 @@ function opencodePath(): string | null {
     `${home}/.bun/bin/opencode`,
     "/usr/local/bin/opencode",
   ]);
+}
+
+function jcodePath(): string | null {
+  const home = userHome();
+  return which("jcode", [
+    process.env.LFG_JCODE_PATH ?? "",
+    `${home}/.local/bin/jcode`,
+    `${home}/.jcode/bin/jcode`,
+    "/usr/local/bin/jcode",
+  ]);
+}
+
+type JcodeAuthStatus = {
+  any_available?: unknown;
+  providers?: Array<{ status?: unknown; credential_source?: unknown }>;
+};
+
+function jcodeAuthStatus(): { available: boolean; accountConnected: boolean } {
+  const binary = jcodePath();
+  if (!binary) return { available: false, accountConnected: false };
+  const out = commandOutput([binary, "--no-update", "auth", "status", "--json"]);
+  if (!out.ok) return { available: false, accountConnected: false };
+  try {
+    const parsed = JSON.parse(out.text) as JcodeAuthStatus;
+    const providers = Array.isArray(parsed.providers) ? parsed.providers : [];
+    const available = parsed.any_available === true || providers.some((p) => p.status === "available");
+    const accountConnected = providers.some(
+      (p) =>
+        p.status === "available" &&
+        typeof p.credential_source === "string" &&
+        p.credential_source !== "none",
+    );
+    return { available, accountConnected };
+  } catch {
+    return { available: false, accountConnected: false };
+  }
 }
 
 /** OpenCode's credential store, honouring the XDG override it reads itself. */
@@ -557,6 +596,22 @@ function hasOpencodeOmgMcp(): Promise<boolean> {
   return commandHasOmgMcp(opencodePath());
 }
 
+function hasJcodeOmgMcp(): Promise<boolean> {
+  const current = readJson<Record<string, unknown>>(join(userHome(), ".jcode", "mcp.json"));
+  const servers = current?.mcpServers;
+  if (!servers || typeof servers !== "object") return Promise.resolve(false);
+  const entry = (servers as Record<string, unknown>)[MCP_SERVER_NAME];
+  const args = mcpCommandArgs();
+  if (!entry || typeof entry !== "object" || !args) return Promise.resolve(false);
+  const record = entry as { command?: unknown; args?: unknown };
+  return Promise.resolve(
+    record.command === args[0] &&
+      Array.isArray(record.args) &&
+      record.args.length === args.length - 1 &&
+      record.args.every((part, index) => part === args[index + 1]),
+  );
+}
+
 function hasGrokOmgMcp(): Promise<boolean> {
   return commandHasOmgMcp(grokPath());
 }
@@ -622,6 +677,7 @@ function installCommandFor(kind: CodingAgentKind): string | null {
   if (kind === "claude" || kind === "aisdk") return "curl -fsSL https://claude.ai/install.sh | bash";
   if (kind === "codex" || kind === "codex-aisdk") return "bun add -g @openai/codex";
   if (kind === "opencode") return "bun add -g opencode-ai";
+  if (kind === "jcode") return "curl -fsSL https://jcode.sh/install | bash";
   if (kind === "grok") return "curl -fsSL https://x.ai/cli/install.sh | bash";
   if (kind === "cursor") return "curl -fsSL https://cursor.com/install | bash";
   if (kind === "hermes") return "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash";
@@ -642,6 +698,7 @@ function loginCommandPartsFor(kind: CodingAgentKind): string[] | null {
     return [codexPath() ?? "codex", "login", "--device-auth"];
   }
   if (kind === "opencode") return [opencodePath() ?? "opencode"];
+  if (kind === "jcode") return [jcodePath() ?? "jcode", "login"];
   if (kind === "grok") return [grokPath() ?? "grok", "login", "--device-auth"];
   if (kind === "cursor") return [cursorPath() ?? "cursor-agent", "login"];
   if (kind === "hermes") return [hermesPath() ?? "hermes"];
@@ -1072,6 +1129,12 @@ function statusFor(kind: CodingAgentKind): CodingAgentStatus {
         ? "OpenCode is signed in; run `opencode auth login` again to add another provider."
         : "Run `opencode auth login` to reach paid providers — the free Zen models work without it.",
     );
+  } else if (kind === "jcode") {
+    const auth = jcodeAuthStatus();
+    accountConnected = auth.accountConnected;
+    addBinary("Jcode CLI", jcodePath());
+    addAuth("Jcode provider", auth.available, "run `jcode login` and connect at least one provider");
+    instructions.push("Install Jcode, then run `jcode login` and connect at least one provider.");
   } else if (kind === "cursor") {
     addBinary("Cursor CLI", cursorPath());
     addAuth("Cursor auth", hasCursorAuth(), "run `cursor-agent login` once or set CURSOR_API_KEY");
@@ -1139,15 +1202,17 @@ export async function listSetupChecks(): Promise<SetupCheck[]> {
   const claude = claudePath();
   const codex = codexPath();
   const opencode = opencodePath();
+  const jcode = jcodePath();
   const grok = grokPath();
   const cursor = cursorPath();
   // Launch the slow CLI probes together. More importantly, they yield the Bun
   // event loop while running, so live sockets and ordinary API responses stay
   // responsive even when this cache is cold.
-  const [claudeMcp, codexMcp, opencodeMcp, grokMcp, cursorMcp] = await Promise.all([
+  const [claudeMcp, codexMcp, opencodeMcp, jcodeMcp, grokMcp, cursorMcp] = await Promise.all([
     claude ? hasClaudeOmgMcp() : Promise.resolve(false),
     codex ? hasCodexOmgMcp() : Promise.resolve(false),
     opencode ? hasOpencodeOmgMcp() : Promise.resolve(false),
+    jcode ? hasJcodeOmgMcp() : Promise.resolve(false),
     grok ? hasGrokOmgMcp() : Promise.resolve(false),
     cursor ? hasCursorOmgMcp() : Promise.resolve(false),
   ]);
@@ -1181,6 +1246,7 @@ export async function listSetupChecks(): Promise<SetupCheck[]> {
   // there is no LFG MCP to install or check for it.
   const optionalMcpAgents: Array<[string, string | null, boolean]> = [
     ["OpenCode", opencode, opencodeMcp],
+    ["Jcode", jcode, jcodeMcp],
     ["Grok", grok, grokMcp],
     ["Cursor", cursor, cursorMcp],
   ];
@@ -1197,9 +1263,9 @@ export async function listSetupChecks(): Promise<SetupCheck[]> {
       running: systemSetupRuns.has("lfg-mcp"),
       checks,
       instructions: [
-        "Registers the local LFG MCP server with Claude, Codex, OpenCode, Grok, and Cursor when those CLIs are installed.",
+        "Registers the local LFG MCP server with Claude, Codex, OpenCode, Jcode, Grok, and Cursor when those CLIs are installed.",
       ],
-      canAutoSetup: !!args && !!(claude || codex || opencode || grok || cursor),
+      canAutoSetup: !!args && !!(claude || codex || opencode || jcode || grok || cursor),
       actionLabel: "Install MCP",
     },
   ];
@@ -1293,6 +1359,20 @@ export function withCursorOmgMcp(current: Record<string, unknown>, args: string[
   };
 }
 
+export function withJcodeOmgMcp(current: Record<string, unknown>, args: string[]): Record<string, unknown> {
+  const mcpServers = typeof current.mcpServers === "object" && current.mcpServers !== null
+    ? current.mcpServers as Record<string, unknown>
+    : {};
+  const { [MCP_SERVER_NAME_LEGACY]: _legacy, ...rest } = mcpServers;
+  return {
+    ...current,
+    mcpServers: {
+      ...rest,
+      [MCP_SERVER_NAME]: { command: args[0], args: args.slice(1) },
+    },
+  };
+}
+
 async function installOpencodeMcp(args: string[]): Promise<void> {
   const path = join(userHome(), ".config", "opencode", "opencode.json");
   await mkdir(dirname(path), { recursive: true });
@@ -1314,6 +1394,12 @@ async function installCursorMcp(args: string[]): Promise<void> {
   if (cursor) commandOutput([cursor, "mcp", "enable", MCP_SERVER_NAME]);
 }
 
+async function installJcodeMcp(args: string[]): Promise<void> {
+  const path = join(userHome(), ".jcode", "mcp.json");
+  await mkdir(dirname(path), { recursive: true });
+  mergeJsonConfig(path, (current) => withJcodeOmgMcp(current, args));
+}
+
 export async function runSetupAction(key: string): Promise<void> {
   if (key !== "lfg-mcp") throw new Error(`unknown setup action "${key}"`);
   if (systemSetupRuns.has(key)) throw new Error(`${key} setup is already running`);
@@ -1323,14 +1409,16 @@ export async function runSetupAction(key: string): Promise<void> {
     const claude = claudePath();
     const codex = codexPath();
     const opencode = opencodePath();
+    const jcode = jcodePath();
     const grok = grokPath();
     const cursor = cursorPath();
-    if (!claude && !codex && !opencode && !grok && !cursor) {
+    if (!claude && !codex && !opencode && !jcode && !grok && !cursor) {
       throw new Error("Install a supported coding agent first, then register the LFG MCP server");
     }
     if (claude) await installClaudeMcp(claude);
     if (codex) installCodexMcp(codex, args);
     if (opencode) await installOpencodeMcp(args);
+    if (jcode) await installJcodeMcp(args);
     if (grok) installGrokMcp(grok, args);
     if (cursor) await installCursorMcp(args);
   })();
@@ -1346,6 +1434,7 @@ function setupEnvFor(kind: CodingAgentKind): Record<string, string> | null {
   if (kind === "claude" || kind === "aisdk") return { LFG_INSTALL_CLAUDE: "1" };
   if (kind === "codex" || kind === "codex-aisdk") return { LFG_INSTALL_CODEX: "1" };
   if (kind === "opencode") return { LFG_INSTALL_OPENCODE: "1" };
+  if (kind === "jcode") return { LFG_INSTALL_JCODE: "1" };
   if (kind === "grok") return { LFG_INSTALL_GROK: "1" };
   if (kind === "cursor") return { LFG_INSTALL_CURSOR: "1" };
   if (kind === "hermes") return { LFG_INSTALL_HERMES: "1" };

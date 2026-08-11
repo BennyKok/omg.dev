@@ -55,6 +55,7 @@ describe("session recovery integration", () => {
       "pi",
     ]);
     expect(CODING_AGENT_ADAPTERS.copilot.recovery).toBe("process-bound");
+    expect(CODING_AGENT_ADAPTERS.jcode.recovery).toBe("process-bound");
   });
 
   test("every durable backend hands its recovery id across its process boundary", () => {

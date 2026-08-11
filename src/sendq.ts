@@ -341,6 +341,33 @@ async function deliver(sessionId: string, msg: QueuedMsg): Promise<void> {
     chars: msg.text.length,
   });
 
+  // Jcode's simple REPL uses stdin.read_line(). It has no editable TUI box,
+  // and submitted prompts remain visible in pane history. The normal visual
+  // confirmation would mistake that history for a stranded draft and submit
+  // it again. tmux serializes these writes, while the terminal line discipline
+  // buffers complete follow-up lines until Jcode finishes the active turn.
+  if (sess?.agent === "jcode") {
+    const typed = tmuxType(target, msg.text);
+    if (typed) await sleep(80);
+    const submitted = typed && tmuxEnter(target);
+    if (!submitted) {
+      msg.status = "failed";
+      msg.error = "failed to send the message to the Jcode REPL";
+      traceLog("sendq_failed", { sessionId, messageId: msg.id, error: msg.error });
+      return;
+    }
+    msg.status = "delivered";
+    msg.error = undefined;
+    traceLog("sendq_delivered", {
+      sessionId,
+      messageId: msg.id,
+      via: "jcode_repl",
+      attempts: 1,
+      durationMs: Math.round((performance.now() - started) * 1000) / 1000,
+    });
+    return;
+  }
+
   // Clear any session-rating overlay first — it swallows Enter and would
   // otherwise strand every send with "never left the input box".
   if (clearFeedbackPrompt(target)) await sleep(300);

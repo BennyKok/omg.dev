@@ -100,6 +100,7 @@ export const OPENCODE_MODELS: string[] = [
   "opencode/nemotron-3-ultra-free",
   "opencode/north-mini-code-free",
 ];
+export const JCODE_MODELS: string[] = ["auto"];
 export const COPILOT_MODELS: string[] = [
   "claude-sonnet-4.5",
   "claude-sonnet-4",
@@ -122,6 +123,7 @@ const MODEL_CATALOG_KEYS: CodingAgentKind[] = [
   "grok",
   "cursor",
   "opencode",
+  "jcode",
   "pi",
   "copilot",
 ];
@@ -163,6 +165,7 @@ const LABELS: Record<CodingAgentKind, string> = {
   codex: "codex",
   "codex-aisdk": "codex",
   opencode: "opencode",
+  jcode: "jcode",
   grok: "grok",
   cursor: "cursor",
   hermes: "hermes",
@@ -179,6 +182,7 @@ export const MODEL_OPTIONS: Record<CodingAgentKind, { defaultModel: string; mode
   cursor: { defaultModel: "auto", models: CURSOR_MODELS },
   hermes: { defaultModel: "nousresearch/hermes-4-405b", models: HERMES_MODELS },
   opencode: { defaultModel: "opencode/deepseek-v4-flash-free", models: OPENCODE_MODELS },
+  jcode: { defaultModel: "auto", models: JCODE_MODELS },
   pi: { defaultModel: "sonnet", models: PI_MODELS },
   copilot: { defaultModel: "claude-sonnet-4.5", models: COPILOT_MODELS },
 };

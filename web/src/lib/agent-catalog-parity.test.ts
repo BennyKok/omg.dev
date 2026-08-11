@@ -23,12 +23,12 @@ test("the schedulable catalog subset matches the server's auto-agent backends", 
 });
 
 test("agents the runner cannot drive headless are offered for sessions but not schedules", () => {
-  // pi and copilot have no pipeTo* one-shot backend in src/agents/backends.
+  // pi, copilot, and jcode have no pipeTo* one-shot backend in src/agents/backends.
   // They must stay in the catalog (sessions can run them) and stay out of the
   // scheduled subset.
   const keys = AGENT_CATALOG.map((option) => option.key);
   const scheduled = scheduledAgentOptions().map((option) => option.key);
-  for (const kind of ["pi", "copilot"] as const) {
+  for (const kind of ["pi", "copilot", "jcode"] as const) {
     expect(keys).toContain(kind);
     expect(scheduled).not.toContain(kind);
   }

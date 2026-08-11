@@ -18,8 +18,11 @@ import {
   spawnManagedGrokSession,
   spawnManagedOpencodeAisdkSession,
   spawnManagedPiSession,
+  spawnManagedJcodeSession,
   spawnManagedSession,
   managedCopilotSessionArgv,
+  managedJcodeSessionArgv,
+  jcodeReplPrompt,
   managedCursorSessionArgv,
   cursorRelaunchArgv,
   managedGrokSessionArgv,
@@ -27,6 +30,7 @@ import {
   containedAgentCommand,
   agentBrowserEnv,
   AGENT_BROWSER_IDLE_TIMEOUT_MS,
+  isBusy,
   parsePrompt,
 } from "./tmux.ts";
 
@@ -40,6 +44,7 @@ const launchers = {
   codex: spawnManagedCodexSession,
   "codex-aisdk": spawnManagedCodexAisdkSession,
   opencode: spawnManagedOpencodeAisdkSession,
+  jcode: spawnManagedJcodeSession,
   grok: spawnManagedGrokSession,
   cursor: spawnManagedCursorSession,
   pi: spawnManagedPiSession,
@@ -113,6 +118,35 @@ describe("coding agent adapter contract", () => {
     expect(argv).not.toContain("--model");
     expect(argv).toContain("LFG_SESSION_ID=session-id");
     expect(argv).toContain("LFG_USER=user@example.com");
+  });
+
+  test("jcode managed sessions use the persistent REPL and omit the auto model", () => {
+    const argv = managedJcodeSessionArgv({
+      name: "lfg-test",
+      cwd: "/tmp/lfg-test",
+      prompt: "hello",
+      model: "auto",
+      omgSessionId: "session-id",
+      omgUser: "user@example.com",
+    });
+
+    expect(argv).toContain("repl");
+    expect(argv).toContain("--no-update");
+    expect(argv).toContain("--no-selfdev");
+    expect(argv).not.toContain("--model");
+    expect(argv).toContain("LFG_SESSION_ID=session-id");
+    expect(argv).toContain("LFG_USER=user@example.com");
+  });
+
+  test("jcode REPL prompts stay on one input line", () => {
+    expect(jcodeReplPrompt("first line\n\nsecond\tline")).toBe("first line second line");
+  });
+
+  test("jcode is busy until its REPL prints the next prompt", () => {
+    const header = "J-Code - Coding Agent\nType your message, or 'quit' to exit.\n";
+    expect(isBusy(`${header}\n> `)).toBe(false);
+    expect(isBusy(`${header}\n> build it\nThinking...`)).toBe(true);
+    expect(isBusy(`${header}\n> build it\ndone\n\n> `)).toBe(false);
   });
 
   test("cursor managed sessions resume their preallocated native chat", () => {

@@ -32,7 +32,7 @@ export type ModelDiscoveryCache = {
 const CACHE_PATH = join(PATHS.data, "model-catalog.json");
 const DEFAULT_REFRESH_CRON = "0 8 * * *";
 /** Every provider a full refresh probes. `codex-aisdk` is mirrored from `codex`. */
-const REFRESH_KEYS: ProviderKey[] = ["claude", "aisdk", "codex", "grok", "cursor", "opencode"];
+const REFRESH_KEYS: ProviderKey[] = ["claude", "aisdk", "codex", "grok", "cursor", "opencode", "jcode"];
 /**
  * Providers whose failure is structural rather than transient: they expose no
  * model-list command at all, so every attempt returns the same error. Retrying
@@ -142,6 +142,12 @@ function opencodePath(): string | null {
   return which("opencode", [join(PATHS.root, "node_modules", ".bin", "opencode")]);
 }
 
+function jcodePath(): string | null {
+  if (process.env.LFG_JCODE_PATH) return process.env.LFG_JCODE_PATH;
+  const home = userHome();
+  return which("jcode", [`${home}/.local/bin/jcode`, `${home}/.jcode/bin/jcode`, "/usr/local/bin/jcode"]);
+}
+
 function hermesPath(): string | null {
   if (process.env.LFG_HERMES_PATH) return process.env.LFG_HERMES_PATH;
   const home = userHome();
@@ -164,6 +170,10 @@ function commandFor(key: ProviderKey): string[] | null {
   if (key === "opencode") {
     const bin = opencodePath();
     return bin ? [bin, "models"] : null;
+  }
+  if (key === "jcode") {
+    const bin = jcodePath();
+    return bin ? [bin, "--no-update", "model", "list", "--json"] : null;
   }
   if (key === "hermes") {
     const bin = hermesPath();
@@ -241,11 +251,29 @@ function parsePlainModelLines(text: string): { models: string[]; labels: Record<
   return { models: ids, labels };
 }
 
+export function parseJcodeModels(text: string): { models: string[]; labels: Record<string, string> } {
+  const parsed = JSON.parse(text) as {
+    models?: Array<string | { model?: unknown; available?: unknown }>;
+  };
+  const ids: string[] = ["auto"];
+  const labels: Record<string, string> = {};
+  for (const item of parsed.models ?? []) {
+    if (typeof item === "string") {
+      addModel(ids, labels, cleanId(item));
+      continue;
+    }
+    if (!item || item.available === false || typeof item.model !== "string") continue;
+    addModel(ids, labels, cleanId(item.model));
+  }
+  return { models: ids, labels };
+}
+
 function parseModels(key: ProviderKey, text: string): { models: string[]; labels: Record<string, string> } {
   if (key === "codex" || key === "codex-aisdk") return parseCodexModels(text);
   if (key === "grok") return parseBulletModels(text);
   if (key === "cursor") return parseDashListModels(text);
   if (key === "opencode") return parsePlainModelLines(text);
+  if (key === "jcode") return parseJcodeModels(text);
   if (key === "hermes") {
     const dash = parseDashListModels(text);
     return dash.models.length ? dash : parsePlainModelLines(text);

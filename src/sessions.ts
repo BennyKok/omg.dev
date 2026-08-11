@@ -491,6 +491,8 @@ export function managedLaunchRow(
         ? `grok --model ${m.model ?? ""}`.trim()
         : agent === "cursor"
           ? `agent --model ${m.model ?? ""}`.trim()
+          : agent === "jcode"
+            ? `jcode --model ${m.model ?? ""} repl`.trim()
           : agent === "hermes"
           ? `hermes --model ${m.model ?? ""}`.trim()
           : agent === "opencode"
@@ -533,7 +535,7 @@ export function managedLaunchRow(
     managed: true,
     assignedUser: assigns[m.tmuxName] ?? null,
     model:
-      agent === "codex" || agent === "codex-aisdk" || agent === "opencode" || agent === "grok" || agent === "cursor" || agent === "hermes"
+      agent === "codex" || agent === "codex-aisdk" || agent === "opencode" || agent === "jcode" || agent === "grok" || agent === "cursor" || agent === "hermes"
         ? model
         : modelAlias(model),
     thinkingLevel: m.thinkingLevel ?? null,
