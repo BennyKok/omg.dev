@@ -141,22 +141,28 @@ export function configuredAgentOptions<
  * - It does not re-offer an agent the person turned OFF in Settings. Hiding an
  *   agent is an explicit choice; answering it by putting the icon back as a
  *   permanent advertisement would be ignoring them.
- * - It does not wait for bootstrap. While `codingAgents` is undefined the
- *   launchable set is already known (see configuredAgentOptions), so the locks
- *   can be computed against it immediately and the strip settles at its final
- *   width on first paint instead of reshuffling under a thumb mid-tap.
+ * - It does not advertise anything until the roster has actually ARRIVED.
+ *   An empty list is this app's real "not loaded yet" — App seeds the state
+ *   with `[]` and never passes undefined, and a genuinely loaded response
+ *   always names every agent the box knows about. Treating `[]` as "nothing is
+ *   connected" would paint all five as locked for the moment before bootstrap
+ *   lands, on every single load, and would leave a signed-out demo surface
+ *   (whose transport answers passive reads with empty collections by design)
+ *   permanently showing five agents it cannot connect. The strip is empty in
+ *   that window today, so nothing is lost by staying empty.
  */
 export function lockedAgentOptions<T extends { key: string }>(
   options: readonly T[],
   codingAgents?: readonly CodingAgentAvailability[],
   accessMode: AgentAccessMode = "configured",
 ): T[] {
+  if (!codingAgents?.length) return [];
   const discoverable = new Set<string>(discoverableAgentKeys());
   const launchable = new Set(
     configuredAgentOptions(options, codingAgents, accessMode).map((option) => option.key),
   );
   const hidden = new Set(
-    (codingAgents ?? []).filter((agent) => !agent.visible).map((agent) => agent.key),
+    codingAgents.filter((agent) => !agent.visible).map((agent) => agent.key),
   );
   return options.filter(
     (option) =>
