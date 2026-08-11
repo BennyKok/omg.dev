@@ -907,6 +907,59 @@ html.lfg-keyboard-open {
     isolation: isolate;
   }
 
+  /* Queued behind a running turn: written but not yet read by the agent. Reads
+     as a draft held in place — no glass fill, no shimmer, a dashed edge that
+     says "not committed yet" — so it can never be mistaken for a turn the agent
+     has already taken. It swaps to the normal bubble on delivery. */
+  .user-bubble.is-queued.markdown {
+    --user-bubble-fill: color-mix(in oklab, var(--muted) 55%, transparent);
+    border: 1px dashed color-mix(in oklab, var(--foreground) 26%, transparent);
+    background: linear-gradient(var(--user-bubble-fill), var(--user-bubble-fill)) padding-box;
+    box-shadow: none;
+    color: color-mix(in oklab, var(--foreground) 76%, transparent);
+  }
+
+  .dark .user-bubble.is-queued.markdown {
+    --user-bubble-fill: color-mix(in oklab, var(--card) 45%, transparent);
+    border-color: color-mix(in oklab, var(--foreground) 30%, transparent);
+    background: linear-gradient(var(--user-bubble-fill), var(--user-bubble-fill)) padding-box;
+    box-shadow: none;
+  }
+
+  .user-queued-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding-right: 2px;
+    font-size: 11px;
+    line-height: 1.4;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    color: var(--muted-foreground);
+  }
+
+  /* The dot-less counterpart to the working indicator: a slow breathe marks the
+     queue as live without competing with the turn that is actually running. */
+  .user-queued-label > svg {
+    animation: lfg-queued-breathe 2.4s var(--ease-in-out) infinite;
+  }
+
+  @keyframes lfg-queued-breathe {
+    0%,
+    100% {
+      opacity: 0.45;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .user-queued-label > svg {
+      animation: none;
+    }
+  }
+
   .lfg-organic-activity {
     --send-organic-edge:
       radial-gradient(ellipse 38% 20% at 23% 0%, rgba(0, 122, 255, 0.78), transparent 78%),

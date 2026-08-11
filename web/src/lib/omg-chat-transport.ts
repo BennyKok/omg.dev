@@ -16,6 +16,11 @@ export type OmgMessage = {
   caption?: string;
   alt?: string;
   pending?: boolean;
+  // Sent with mode:"queue" while a turn was still running, so the agent has not
+  // read it yet — it waits behind the turn in the send queue. Renders as its own
+  // "waiting" state instead of an ordinary in-flight bubble, and clears when the
+  // real transcript row for the same text replaces the optimistic one.
+  queued?: boolean;
   seed?: boolean;
   catchUp?: boolean;
 };
@@ -177,6 +182,7 @@ export function omgUIMessagesToMessages(messages: OmgChatMessage[]): OmgMessage[
         text: part.text,
         html: message.role === "user" ? escapeHtml(part.text).replace(/\n/g, "<br>") : base?.html,
         pending: base?.pending,
+        queued: base?.queued,
         catchUp: base?.catchUp,
       });
     });
