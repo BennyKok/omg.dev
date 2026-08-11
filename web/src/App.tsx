@@ -17549,11 +17549,16 @@ function NewSessionDialog({
       flat={variant === "inline"}
       onLocked={() => {
         // The whole point of drawing an agent we can't run: this is the one
-        // tap between "I have a Claude account" and using it. Collapse the
-        // composer's controls first so the row isn't left hanging open behind
-        // whatever settings surface takes over.
+        // tap between "I have a Claude account" and using it.
+        //
+        // Get the composer out of the way FIRST, in whichever shape it has.
+        // The drawer is a modal sheet, so leaving it up parks it squarely over
+        // the settings page we just navigated to — the tap looked like it did
+        // nothing. The inline composer only needs its controls row collapsed;
+        // the bar itself is meant to stay.
         feedback.tap();
         onExpandedChange?.(false);
+        if (variant === "drawer") onClose();
         openSettingsPage("coding-agents");
       }}
       onSelect={(key, option) => {
