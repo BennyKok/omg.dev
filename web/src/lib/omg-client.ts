@@ -1,6 +1,5 @@
 import {
   createSameOriginTransport,
-  OmgApiError,
   type OmgSocket,
   type OmgTransport,
   type OmgUploadProgress,
@@ -9,14 +8,29 @@ import {
 /**
  * Did this failure come from the box refusing on PLAN grounds?
  *
- * Deliberately a code check, not a string match on the copy. The server tags
- * exactly the refusals a paying host can do something about (see ApiErrorCode
- * in src/commands/serve.ts); everything else — including the same "too many
- * agents" wall on a self-hosted install, which is a local setting — stays an
- * ordinary error.
+ * Two deliberate choices here.
+ *
+ * It reads a CODE, not the message. The server tags exactly the refusals a
+ * paying host can do something about (see ApiErrorCode in
+ * src/commands/serve.ts); everything else — including the identical "too many
+ * agents" wall on a self-hosted install, which is a local setting, not a plan —
+ * stays an ordinary error. Matching prose instead would break the next time
+ * that sentence is edited.
+ *
+ * And it is STRUCTURAL, not `instanceof OmgApiError`. An embedding host builds
+ * the transport itself, with its OWN copy of @omg-dev/client (see
+ * computer-transport-cache.ts on the omg side) — so the error that lands here
+ * is an instance of that copy's class, not of the one bundled into this
+ * surface. `instanceof` across those two realms is always false, which would
+ * make this quietly return false forever on the exact surface the feature
+ * exists for.
  */
 export function isPlanLimitError(error: unknown): boolean {
-  return error instanceof OmgApiError && error.code === "plan_limit";
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: unknown }).code === "plan_limit"
+  );
 }
 
 // Standalone lfg and every embeddable host use the same transport contract.
