@@ -2,6 +2,16 @@
 
 Recent product updates and deployment notes.
 
+## August 11, 2026 - Terminal links are tappable again (v0.1.338)
+
+- **Tapping a detected link in the terminal opens the link.** The invisible
+  swipe-up handle for the keys pad sat on top of the link tray and covered the
+  bottom half of every URL chip, so tapping a login URL a CLI printed — an
+  OAuth "open this to authorize" link, most often — popped open the keys pad
+  instead of the browser.
+- **The handle now only overlays the terminal itself**, so the link chips, their
+  copy buttons and the tray's dismiss button all keep their full tap targets.
+
 ## August 10, 2026 - Delete a project folder from the picker (v0.1.337)
 
 - **You can delete a folder from the project browser.** Browse could create
