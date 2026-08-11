@@ -143,13 +143,15 @@ describe("lockedAgentOptions", () => {
     ).toEqual([]);
   });
 
-  test("settles at its final width during load instead of reshuffling", () => {
-    // Hosted + still loading resolves to OpenCode alone, so the other four are
-    // already known to be locks; drawing them now means the strip does not
-    // change width under a thumb when bootstrap lands.
-    expect(
-      lockedAgentOptions(options, undefined, "connected-or-opencode").map((option) => option.key),
-    ).toEqual(["aisdk", "codex-aisdk"]);
+  test("advertises nothing until the roster has actually arrived", () => {
+    // `[]` is this app's real loading state — App seeds it and never passes
+    // undefined. Reading it as "nothing is connected" would flash all five as
+    // locked before every bootstrap, and would strand a signed-out demo
+    // surface (empty collections by design) on five agents it cannot connect.
+    for (const loading of [undefined, []]) {
+      expect(lockedAgentOptions(options, loading, "connected-or-opencode")).toEqual([]);
+      expect(lockedAgentOptions(options, loading)).toEqual([]);
+    }
   });
 
   test("keeps agents outside the discoverable head hidden until connected", () => {
