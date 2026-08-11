@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## August 11, 2026 - Locked agents wait for the roster (v0.1.342)
+
+- **The greyed-out agent icons no longer flash on every load.** An empty
+  coding-agent list is what the app shows before its roster arrives, and the
+  new picker was reading that as "nothing is connected" — so all five popular
+  agents appeared locked for a moment on every load, and a signed-out demo
+  surface showed five agents it had no way to connect at all. The picker now
+  waits for the roster before advertising anything.
+
 ## August 11, 2026 - Every popular agent is on the picker, and plan walls become offers (v0.1.341)
 
 - **Claude, Codex and the other popular agents now appear even before you
