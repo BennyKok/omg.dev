@@ -2,7 +2,7 @@
 
 Recent product updates and deployment notes.
 
-## August 11, 2026 - Jcode joins the agent roster (v0.1.340)
+## August 11, 2026 - Jcode joins the roster and artifact cards return (v0.1.340)
 
 - **Jcode can now run as a managed omg.dev session.** Install or connect Jcode
   from Coding agents, select its discovered models, and start a persistent
@@ -12,6 +12,9 @@ Recent product updates and deployment notes.
   one turn, and waits for the next prompt before showing the session as idle.
 - **The shared OMG tools are available inside Jcode.** Setup registers the local
   MCP server in Jcode's configuration while preserving existing MCP entries.
+- **New image, video, and HTML artifacts render as cards again.** The artifact
+  matcher now recognizes the renamed `omg_*` tools while keeping old `lfg_*`
+  transcripts compatible.
 
 ## August 11, 2026 - Findings get their own name, and the push toggle heals itself (v0.1.339)
 
