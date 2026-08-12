@@ -188,13 +188,25 @@ const SETTINGS_PAGES: readonly OmgSettingsPage[] = [
   "coding-agents",
   "auto",
   "storage",
-  "more",
 ];
 
 function pathToSettingsPage(pathname: string): OmgSettingsPage | null {
   const seg = pathname.split("/").filter(Boolean)[0];
   const page = (seg ? decodeURIComponent(seg) : "settings") as OmgSettingsPage;
   return SETTINGS_PAGES.includes(page) ? page : null;
+}
+
+/**
+ * The page to actually mount.
+ *
+ * Hosts pinned to an older build still pass `page: "more"`, and the internal
+ * route for it has not gone anywhere — so without this the type change alone
+ * would not stop it rendering. Fall back to the settings root: the host's own
+ * device settings are what that person should be looking at, and a page that
+ * silently shows the root beats one that shows two competing push toggles.
+ */
+function mountablePage(page: OmgSettingsPage): OmgSettingsPage {
+  return SETTINGS_PAGES.includes(page) ? page : "settings";
 }
 
 /**
@@ -213,18 +225,21 @@ export function OmgSettingsSurface({
   errorSink,
   hostedPush,
 }: OmgSettingsSurfaceProps) {
+  const mounted = mountablePage(page);
   // The host owns the header, the back affordance and the account, so this
   // surface renders sections only — declared to the tree below, not to a
   // module global that a coexisting full-app surface would also read.
   configureOmgTransport(transport, { assetBaseUrl, errorSink });
-  // The More page owns the push toggle, so this surface — not just the full app
-  // surface — has to declare the host boundary. Without it push falls back to
-  // registering the host's own root worker; see configureHostedSurface.
+  // Declare the host boundary before any child can read it. Push must never
+  // fall back to registering the host's own root worker; see
+  // configureHostedSurface. This stays even though the page that owned the
+  // toggle is no longer mountable — the guard is about what this bundle is
+  // allowed to touch, not about which screen happens to be on.
   configureHostedSurface(true);
   configureHostPush(hostedPush ?? null);
   const [router] = useState<AnyRouter>(() =>
     createOmgRouter(
-      createMemoryHistory({ initialEntries: [`/${page}?embed=true`] }),
+      createMemoryHistory({ initialEntries: [`/${mounted}?embed=true`] }),
     ),
   );
 
@@ -248,9 +263,9 @@ export function OmgSettingsSurface({
   // surface. Guarded on the current location because the common case is the
   // host echoing back the page we just reported.
   useEffect(() => {
-    if (pathToSettingsPage(router.state.location.pathname) === page) return;
-    void router.navigate({ to: `/${page}`, search: { embed: true }, replace: true });
-  }, [router, page]);
+    if (pathToSettingsPage(router.state.location.pathname) === mounted) return;
+    void router.navigate({ to: `/${mounted}`, search: { embed: true }, replace: true });
+  }, [router, mounted]);
 
   // Ref-counted: a host can have two surfaces alive at once, and the first one
   // to unmount must not strip the stylesheet's anchor off the other.

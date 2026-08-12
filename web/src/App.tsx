@@ -22528,7 +22528,15 @@ function SettingsView({
 
       <OmgUpdateSection />
 
-      {/* More — the long tail lives on its own page so this one stays scannable. */}
+      {/* More — the long tail lives on its own page so this one stays scannable.
+          Hidden on a host-mounted surface: everything behind it (push,
+          appearance, sound, haptics, install) describes the DEVICE, and the
+          host already owns those for its own app. Showing ours put a second
+          set of switches next to the host's, and ours were the ones that could
+          not work — the push toggle would have had to borrow a service worker
+          from an origin we do not own. `bare` is true only for
+          OmgSettingsSurface, which is exactly the host-mounted case. */}
+      {bare ? null : (
       <section className="space-y-2">
         <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
           <button
@@ -22551,6 +22559,7 @@ function SettingsView({
           </button>
         </div>
       </section>
+      )}
     </div>
   );
 }

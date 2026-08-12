@@ -59,13 +59,20 @@ export interface EmbeddedHostOptions {
  * The machine-owned settings pages a host can mount on its own. Mirrors
  * OmgSettingsSurface's `page` prop — declared here rather than in embedded.tsx
  * so app code can reference it without importing the package entrypoint.
+ *
+ * "more" is deliberately NOT here. Everything on that page — push
+ * notifications, appearance, sound, haptics, install — is a property of the
+ * DEVICE you are holding, not of the machine you are talking to. A host
+ * already owns all of those for its own app, so mounting the machine's copy
+ * gives the person two switches for one thing, and the machine's copy is the
+ * one that cannot work: its push toggle would have to borrow a service worker
+ * from an origin it does not own. The host owns this page.
  */
 export type HostSettingsPage =
   | "settings"
   | "coding-agents"
   | "auto"
-  | "storage"
-  | "more";
+  | "storage";
 
 export interface PlanLimitDetail {
   /** The server's own sentence, already written for a human to read. */
