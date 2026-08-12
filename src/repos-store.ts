@@ -3,6 +3,14 @@
 // lfg itself). This store lets a user pin an arbitrary path on the box so it
 // shows up alongside the scanned ones. Persisted as a flat JSON array so it
 // survives restarts; merged into listRepos() at request time.
+//
+// The second half of this module is the mirror image: HIDDEN paths. The picker
+// is built by scanning a directory, so membership is not a choice the user ever
+// made — every git checkout under the repos root is in the list whether they
+// want it or not, and "remove this project" had nothing to remove. Unpinning a
+// scanned repo was a silent no-op that still reported success. The hidden list
+// is what makes unlink mean something for a path we did not pin: the scan still
+// finds it, and listRepos() drops it on the way out.
 
 import { mkdir, stat, realpath, rm } from "node:fs/promises";
 import { join, resolve, basename } from "node:path";
@@ -12,6 +20,7 @@ import { PATHS } from "./config.ts";
 export type CustomRepo = { name: string; cwd: string };
 
 const filePath = () => join(PATHS.data, "custom-repos.json");
+const hiddenFilePath = () => join(PATHS.data, "hidden-repos.json");
 
 async function ensure() {
   await mkdir(PATHS.data, { recursive: true });
@@ -32,18 +41,36 @@ export async function listCustomRepos(): Promise<CustomRepo[]> {
   }
 }
 
-// Expand a leading ~ and resolve to an absolute, canonical path. Throws if the
-// path can't be resolved (doesn't exist) so the caller can surface a 400.
-async function canonical(rawPath: string): Promise<string> {
+// Expand a leading ~ and resolve to an absolute path, without touching disk.
+function expand(rawPath: string): string {
   let p = rawPath.trim();
   if (!p) throw new Error("path is required");
   if (p === "~") p = homedir();
   else if (p.startsWith("~/")) p = join(homedir(), p.slice(2));
-  const abs = resolve(p);
+  return resolve(p);
+}
+
+// Expand a leading ~ and resolve to an absolute, canonical path. Throws if the
+// path can't be resolved (doesn't exist) so the caller can surface a 400.
+async function canonical(rawPath: string): Promise<string> {
+  const abs = expand(rawPath);
   try {
     return await realpath(abs);
   } catch {
     throw new Error(`path does not exist: ${abs}`);
+  }
+}
+
+// Like canonical(), but a path that cannot be resolved falls back to its
+// absolute form instead of throwing. Hiding must keep working for a folder that
+// has since been renamed or deleted — refusing to record it would leave a row
+// the user cannot get rid of.
+async function canonicalLoose(rawPath: string): Promise<string> {
+  const abs = expand(rawPath);
+  try {
+    return await realpath(abs);
+  } catch {
+    return abs;
   }
 }
 
@@ -74,7 +101,63 @@ export async function addCustomRepo(
   const next = [...existing.filter((r) => r.cwd !== cwd), repo];
   next.sort((a, b) => a.name.localeCompare(b.name));
   await Bun.write(filePath(), JSON.stringify(next, null, 2));
+  // Adding is the explicit opposite of hiding. Without this, re-adding a folder
+  // you had unlinked writes the pin and changes nothing on screen, because the
+  // hidden entry still filters it back out — the bug report for that reads
+  // "Browse says it added my project but it never appears".
+  await unhideRepo(cwd);
   return repo;
+}
+
+/** Canonical cwds the user has explicitly removed from the picker. */
+export async function listHiddenRepos(): Promise<string[]> {
+  const f = Bun.file(hiddenFilePath());
+  if (!(await f.exists())) return [];
+  try {
+    const parsed = JSON.parse(await f.text());
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((p): p is string => typeof p === "string" && p.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+async function writeHidden(paths: string[]): Promise<void> {
+  await ensure();
+  await Bun.write(hiddenFilePath(), JSON.stringify([...new Set(paths)].sort(), null, 2));
+}
+
+export async function hideRepo(rawCwd: string): Promise<void> {
+  const cwd = await canonicalLoose(rawCwd);
+  const existing = await listHiddenRepos();
+  if (existing.includes(cwd)) return;
+  await writeHidden([...existing, cwd]);
+}
+
+export async function unhideRepo(rawCwd: string): Promise<void> {
+  const raw = rawCwd.trim();
+  if (!raw) return;
+  const cwd = await canonicalLoose(raw);
+  const existing = await listHiddenRepos();
+  // Match the raw form too: an entry written before a symlink changed shape
+  // should still be clearable by the path the caller is holding.
+  const next = existing.filter((p) => p !== cwd && p !== raw);
+  if (next.length === existing.length) return;
+  await writeHidden(next);
+}
+
+/**
+ * Remove a project from the picker, whatever kind it is.
+ *
+ * Unpins a custom path AND records a hide, because the caller ("remove this
+ * project") does not know or care which mechanism put the row there. Hiding a
+ * custom pin as well is deliberate: the pin and the scan can both point at one
+ * path, so unpinning alone would leave a repo under the repos root right where
+ * it was.
+ */
+export async function unlinkRepo(rawCwd: string): Promise<void> {
+  await removeCustomRepo(rawCwd);
+  await hideRepo(rawCwd);
 }
 
 async function runGit(cwd: string, args: string[], action: string): Promise<void> {

@@ -1,5 +1,5 @@
 import { mkdir, open, readdir, realpath, stat } from "node:fs/promises";
-import { appendFileSync, existsSync, statfsSync, statSync, mkdirSync, readFileSync, type Dirent } from "node:fs";
+import { appendFileSync, existsSync, statfsSync, statSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir, homedir, loadavg, cpus, totalmem, freemem } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -207,13 +207,17 @@ import {
 } from "../onboarding.ts";
 import {
   listCustomRepos,
+  listHiddenRepos,
   addCustomRepo,
   removeCustomRepo,
+  unhideRepo,
+  unlinkRepo,
   cloneRepo,
   createProjectFolder,
   useProjectFolder,
 } from "../repos-store.ts";
 import { projectName, reposRoot } from "../projects.ts";
+import { buildRepoList } from "../repo-list.ts";
 import {
   cwdIsWithin,
   repoContainingCwd,
@@ -318,7 +322,7 @@ import {
 } from "../origin-deliveries.ts";
 import { deleteImagePreview, getOrCreateImagePreview } from "../artifact-previews.ts";
 import { resolveUploadRequest, uploadsDir } from "../uploads.ts";
-import { addShipPost, listShipPosts } from "../shipped.ts";
+import { addShipPost, listShipPosts, resolveShipProject } from "../shipped.ts";
 import { shippedCloseDecision } from "../shipped-lifecycle.ts";
 import { verifySelfRepoLanding } from "../session-landing.ts";
 import {
@@ -774,32 +778,12 @@ async function listRepos() {
   } catch {
     root = REPOS_ROOT;
   }
-  const repos: Array<{ name: string; cwd: string; project: string; custom?: boolean }> = [];
-  const addRepo = async (name: string, cwd: string, custom = false) => {
-    if (repos.some((r) => r.cwd === cwd)) return;
-    try {
-      await stat(join(cwd, ".git"));
-      const project = projectName(cwd);
-      if (repos.some((r) => r.project === project)) return;
-      repos.push(custom ? { name, cwd, project, custom: true } : { name, cwd, project });
-    } catch {}
-  };
-  let entries: Dirent[] = [];
-  try {
-    entries = await readdir(root, { withFileTypes: true });
-  } catch {}
-  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
-    await addRepo(entry.name, join(root, entry.name));
-  }
-  // Always offer the lfg repo itself as a target — it is present and trusted.
-  await addRepo("lfg", SELF_REPO);
-  // Merge in user-pinned custom paths (repos outside LFG_REPOS_ROOT). Tagged
-  // `custom` so the UI can offer a remove affordance; deduped on cwd against
-  // anything already discovered above.
-  for (const r of await listCustomRepos()) await addRepo(r.name, r.cwd, true);
-  repos.sort((a, b) => a.name.localeCompare(b.name));
-  return repos;
+  return buildRepoList({
+    reposRoot: root,
+    selfRepo: SELF_REPO,
+    customRepos: await listCustomRepos(),
+    hidden: await listHiddenRepos(),
+  });
 }
 
 type RepoEntry = Awaited<ReturnType<typeof listRepos>>[number];
@@ -3781,6 +3765,11 @@ a{color:#60a5fa}
           // The folder may also have been pinned as a custom repo; leaving that
           // entry behind would keep a dead path in the picker.
           await removeCustomRepo(plan.path);
+          // And drop any hide for it. The path is gone, so the entry can never
+          // match again — it would just accumulate in hidden-repos.json, and
+          // worse, silently suppress a NEW project later created at the same
+          // path (deleting and recreating "scratch" is an ordinary thing to do).
+          await unhideRepo(plan.path);
           return json({ ok: true, path: plan.path, name: plan.name, repos: await listRepos() });
         } catch (e) {
           if (e instanceof FolderDeleteError) return err(e.status, e.message);
@@ -3808,7 +3797,19 @@ a{color:#60a5fa}
           const b = (await req.json().catch(() => null)) as { cwd?: unknown } | null;
           const cwd = typeof b?.cwd === "string" ? b.cwd : "";
           if (!cwd.trim()) return err(400, "cwd is required");
-          await removeCustomRepo(cwd);
+          // Unlink, not just unpin. This used to call removeCustomRepo alone,
+          // which meant removing a scanned repo filtered nothing, changed no
+          // file, and still answered 200 — the UI showed "Project removed" over
+          // a list the project was still in.
+          const before = await listRepos();
+          const target = before.find((r) => r.cwd === cwd);
+          // Emptying the picker leaves no valid target for a new session, and
+          // the way back (Browse) lives inside the same sheet the user just
+          // emptied. Refuse rather than strand them.
+          if (target && before.length === 1) {
+            return err(400, "that's your last project — add another before removing it");
+          }
+          await unlinkRepo(cwd);
           return json({ repos: await listRepos() });
         }
         return json({ repos: await listRepos() });
@@ -4595,7 +4596,10 @@ a{color:#60a5fa}
           ? repoForRequestedSessionCwd(repos, requestedCwd, parent)
           : parent
             ? repoForParentSession(repos, parent)
-            : repos.find((r) => r.cwd === SELF_REPO);
+            // Historical default is the self repo, but it is now unlinkable
+            // like any other project, so fall back to any listed repo rather
+            // than 400-ing every root session for a user who hid it.
+            : (repos.find((r) => r.cwd === SELF_REPO) ?? repos[0]);
         if (!repo) {
           return err(
             400,
@@ -5473,7 +5477,11 @@ a{color:#60a5fa}
             const post = await addShipPost({
               ...body,
               agent: body.agent ?? sourceAgent,
-              project: body.project ?? sourceManaged?.project,
+              project: resolveShipProject(
+                body.project,
+                sourceManaged?.project,
+                (await listRepos().catch(() => [])).map((r) => r.project),
+              ),
               title: shipTitle,
             });
             const sourceSession = body.sessionId
