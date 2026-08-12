@@ -2,6 +2,25 @@
 
 Recent product updates and deployment notes.
 
+## August 12, 2026 - The composer stops defaulting to a folder that is gone (v0.1.348)
+
+- **A new session no longer starts in a project that no longer exists.** The
+  composer remembered your last project and trusted it forever, without ever
+  checking it against the projects you actually have. Delete that project — or
+  open the Computer on a second device, since the memory is per-device — and
+  the composer stayed pinned to a folder the machine could not find. It now
+  keeps your last choice only while it is still a real project, and otherwise
+  falls back to the first one.
+- **The project button shows a project again, not a path.** With nothing to
+  match, the button had been printing the raw directory instead of a name, so
+  it read as a truncated "/home/dev/re…". That was always the symptom of the
+  bug above, and it disappears with it.
+- **Landing a change stops failing at random.** `scripts/land-session.sh` shut
+  down roughly half the time on a machine with many worktrees, and did it
+  before printing its first line: no error, no partial landing, and main
+  silently never moved. The main-worktree lookup was closing a pipe early and
+  taking the whole script down with it.
+
 ## August 12, 2026 - App sessions stop seeing LFG release plumbing (v0.1.347)
 
 - **Application sessions no longer receive instructions to run
