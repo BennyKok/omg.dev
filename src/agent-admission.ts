@@ -125,6 +125,17 @@ export function residentAgentCount(sessions: readonly AgentActivity[]): number {
   return sessions.length;
 }
 
+/**
+ * The count check, disabled — for a caller that has deliberately overruled its
+ * own cap (see activationGate's `overLimit`).
+ *
+ * Deliberately NOT 0, which already means "unlimited" as a SETTING and returns
+ * before admission runs at all. This value still goes through `tryAcquire`, so
+ * the memory budget, the pending-launch reservations and the serialized
+ * transition all keep working; only the number of residents stops mattering.
+ */
+export const NO_AGENT_LIMIT = Number.POSITIVE_INFINITY;
+
 export type AgentAdmission =
   | { ok: true; release: () => void; reclaimed?: number }
   | { ok: false; reason: "limit"; resident: number; reserved: number }

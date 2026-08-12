@@ -33,6 +33,23 @@ export function isPlanLimitError(error: unknown): boolean {
   );
 }
 
+/**
+ * Did the box refuse because of the LOCAL live-agent cap?
+ *
+ * The sibling of the check above, and deliberately a separate code rather than
+ * a flag on the same one. This refusal comes from a number its own owner chose
+ * in Settings on hardware they already paid for, so the only honest responses
+ * are "start it anyway" and "change the number" — never an upgrade. Reading the
+ * code, not the sentence, for the same two reasons documented above.
+ */
+export function isAgentLimitError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { code?: unknown }).code === "agent_limit"
+  );
+}
+
 // Standalone lfg and every embeddable host use the same transport contract.
 // The standalone adapter is deliberately tiny because Vite/lfg serve keeps the
 // UI and runtime on one origin; omg supplies the authenticated grant adapter.

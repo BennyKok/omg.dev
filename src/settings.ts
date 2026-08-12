@@ -9,8 +9,12 @@ import { join } from "node:path";
 
 export type GlobalSettings = {
   timeZone: string;
-  // Hard ceiling on total LIVE agents (main + subagent + fork + voice), 0 =
-  // unlimited.
+  // Ceiling on total LIVE agents (main + subagent + fork + voice), 0 =
+  // unlimited. SOFT on a self-hosted box, and deliberately so: it is the
+  // owner's own preference about their own hardware, so a launch may overrule
+  // it in the moment (activationGate's `overLimit`, which still has to clear
+  // the memory budget). On a hosted Computer the plan's limit replaces this
+  // value outright and cannot be overruled from here.
   maxLiveAgents: number;
   // Drain switch: when true, refuse to activate any new agent (create / cold
   // resume / fork). In-flight agents keep running and can still be messaged.

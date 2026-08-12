@@ -6,6 +6,7 @@ import { randomBytes } from "node:crypto";
 import { marked } from "marked";
 import {
   AgentAdmissionController,
+  NO_AGENT_LIMIT,
   agentLaunchMemoryBudget,
   computerAgentAdmissionContext,
 } from "../agent-admission.ts";
@@ -526,7 +527,16 @@ function formatMemory(bytes: number): string {
 // dashboard setting. Ordinary LFG installs retain their local setting cap.
 // The returned reservation is held until the managed launching row exists, so
 // concurrent requests cannot both pass an async list read and oversubscribe.
-async function activationGate(): Promise<Response | { release: () => void; reclaimed?: number }> {
+//
+// `overLimit` is the self-hosted escape hatch. On your own hardware the cap is
+// a preference, not a purchase: the honest answer to "24 of 24 live" is to let
+// the owner start the agent anyway, not to make them go and edit a number
+// first. It is refused on a Computer, where the cap IS the plan — and even
+// when granted, the memory budget below still has to clear, so an override
+// can oversubscribe the setting but never the machine.
+async function activationGate(
+  options?: { overLimit?: boolean },
+): Promise<Response | { release: () => void; reclaimed?: number }> {
   const settings = getGlobalSettingsSync();
   if (settings.agentsPaused) {
     return err(503, "agent activation is paused");
@@ -534,11 +544,15 @@ async function activationGate(): Promise<Response | { release: () => void; recla
   const computer = computerAgentAdmissionContext();
   const limit = computer?.limit ?? settings.maxLiveAgents;
   if (limit === 0) return { release: () => {} };
+  const overLimit = !computer && options?.overLimit === true;
   const reservation = await agentAdmission.acquire(
-    limit,
+    overLimit ? NO_AGENT_LIMIT : limit,
     async () => ({
       sessions: await listSessions().catch(() => []),
-      memory: computer
+      // A self-hosted box normally trusts its own count-based cap and skips
+      // this. An override has just discarded that cap, so it is the only thing
+      // left standing between "start one more" and an OOM.
+      memory: computer || overLimit
         ? agentLaunchMemoryBudget(totalmem(), hostAvailableMemoryBytes())
         : undefined,
     }),
@@ -552,17 +566,27 @@ async function activationGate(): Promise<Response | { release: () => void; recla
   if (reservation.reason === "memory") {
     return err(
       429,
-      `this Computer has ${formatMemory(reservation.availableBytes)} memory available and needs ${formatMemory(reservation.requiredBytes)} to start another agent safely; finish an agent or upgrade your Computer`,
+      computer
+        ? `this Computer has ${formatMemory(reservation.availableBytes)} memory available and needs ${formatMemory(reservation.requiredBytes)} to start another agent safely; finish an agent or upgrade your Computer`
+        : `this machine has ${formatMemory(reservation.availableBytes)} memory available and needs ${formatMemory(reservation.requiredBytes)} to start another agent safely; close an agent to free memory`,
       computer ? "plan_limit" : undefined,
     );
   }
-  const context = computer
-    ? `your ${computer.plan} Computer plan allows ${computer.limit} concurrent agents`
-    : `max live agents (${limit}) reached`;
+  // Two different refusals that happen to count the same thing. A plan cap is a
+  // sales conversation the host owns; a local cap is a preference its owner can
+  // overrule on the spot, so it says so, and carries the code the surface needs
+  // to offer that without matching on prose.
+  if (!computer) {
+    return err(
+      429,
+      `${reservation.resident} of ${limit} agents live — start anyway, close an agent, or raise the limit in Settings`,
+      "agent_limit",
+    );
+  }
   return err(
     429,
-    `${context}; ${reservation.resident} live — upgrade your Computer or close an agent`,
-    computer ? "plan_limit" : undefined,
+    `your ${computer.plan} Computer plan allows ${computer.limit} concurrent agents; ${reservation.resident} live — upgrade your Computer or close an agent`,
+    "plan_limit",
   );
 }
 
@@ -1335,8 +1359,14 @@ function json(obj: unknown, init?: ResponseInit) {
  * anything the person did wrong. A host that sells plans turns this into its
  * own upgrade surface instead of a red error toast, so the copy here must stay
  * good enough to stand alone for hosts that don't.
+ *
+ * `agent_limit`: the same wall on a SELF-HOSTED box, where the cap is the
+ * owner's own maxLiveAgents preference. Nothing is for sale here — the surface
+ * offers to start the agent anyway (`overLimit`) or to go and edit the number.
+ * Kept apart from `plan_limit` precisely so a host cannot mistake one for the
+ * other and try to sell an upgrade to someone who owns the hardware.
  */
-export type ApiErrorCode = "plan_limit";
+export type ApiErrorCode = "plan_limit" | "agent_limit";
 
 function err(status: number, message: string, code?: ApiErrorCode) {
   return json(code ? { error: message, code } : { error: message }, { status });
@@ -3939,6 +3969,8 @@ a{color:#60a5fa}
           model?: string;
           user?: string;
           prompt?: string;
+          /** Start even though the live-agent cap is full — self-hosted only. */
+          overLimit?: boolean;
         } | null;
         const sessionId = body?.sessionId?.trim();
         if (!sessionId) return err(400, "sessionId required");
@@ -3972,7 +4004,7 @@ a{color:#60a5fa}
         // Past this point a resume COLD-STARTS a fresh agent process, so it must
         // clear the same pause / cap gate as a create. (The already-live branch
         // above returned early and is never gated — it spawns nothing.)
-        const resumeGate = await activationGate();
+        const resumeGate = await activationGate({ overLimit: body?.overLimit === true });
         if (resumeGate instanceof Response) return resumeGate;
         try {
         const cachedResume = getCachedResumableSession(sessionId);
@@ -4381,6 +4413,8 @@ a{color:#60a5fa}
           claudeAccountId?: string;
           parentSessionId?: string;
           spawnedBy?: string;
+          /** Start even though the live-agent cap is full — self-hosted only. */
+          overLimit?: boolean;
           agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "jcode" | "grok" | "cursor" | "copilot" | "hermes" | "pi";
         } | null;
         if (body?.agent === "hermes") {
@@ -4558,7 +4592,7 @@ a{color:#60a5fa}
         // Global pause / live-agent cap. Applies to every activation — main and
         // subagent alike. Fork reaches here via its internal POST to
         // /api/sessions/new, so it inherits this gate for free.
-        const gate = await activationGate();
+        const gate = await activationGate({ overLimit: body?.overLimit === true });
         if (gate instanceof Response) return gate;
         try {
         const tmuxName = `lfg-${randomBytes(3).toString("hex")}`;
