@@ -24,7 +24,6 @@
   "submit": {
     "production": {
       "ios": {
-        "appleId": "itechbenny@icloud.com",
         "appleTeamId": "2T82F3J732"
       }
     }
