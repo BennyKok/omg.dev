@@ -2,6 +2,18 @@
 
 Recent product updates and deployment notes.
 
+## August 12, 2026 - Device settings belong to whoever you opened the app in (v0.1.350)
+
+- **The More page no longer appears when the Computer is opened inside
+  omg.** Everything on it describes the device in your hand — notifications,
+  appearance, sound, haptics, install — and omg already has its own settings
+  for all of those. Showing ours too put two switches next to each other for
+  one thing, and ours were the pair that could not work: notifications there
+  had no way to reach your device except by borrowing something that belongs
+  to omg, which is what was reloading the whole app. Turn notifications on in
+  omg's own settings instead. Nothing changes when you open your Computer at
+  its own address, where the page is still yours and still works.
+
 ## August 12, 2026 - Settings stops lying about what it saved (v0.1.349)
 
 - **"Archive idle agents after" now actually saves.** Picking a window told you
