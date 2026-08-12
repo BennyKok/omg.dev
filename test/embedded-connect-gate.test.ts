@@ -442,9 +442,11 @@ describe("host-mounted settings navigation", () => {
     expect(embedded).toContain("onNavigate?: (page: OmgSettingsPage) => void");
     expect(embedded).toContain('router.subscribe("onResolved"');
     // Controlled: the host echoing back the page we just reported must not
-    // navigate a second time.
+    // navigate a second time. Compared against the MOUNTED page, not the raw
+    // prop — a host still asking for a page we no longer mount would otherwise
+    // never match, and this effect would navigate on every render.
     expect(embedded).toContain(
-      "if (pathToSettingsPage(router.state.location.pathname) === page) return;",
+      "if (pathToSettingsPage(router.state.location.pathname) === mounted) return;",
     );
     // The published types are hand-written, so they drift silently unless
     // pinned alongside the implementation.
@@ -456,6 +458,26 @@ describe("host-mounted settings navigation", () => {
     // an unfiltered pathname→page cast would hand the host a page id it has no
     // route for.
     expect(embedded).toContain("SETTINGS_PAGES.includes(page) ? page : null");
+  });
+
+  test("the More page is not host-mountable", () => {
+    // "more" is device-level — push, appearance, sound, haptics, install — and
+    // a host already owns every one of those for its own app. Mounting ours put
+    // a second set of switches beside the host's, and ours were the ones that
+    // could not work: the push toggle would have had to borrow a service worker
+    // from an origin we do not own, and the only one going spare on app.omg.dev
+    // is a cache-drain worker that reloads every open tab when it activates.
+    // That is what made opening More reload the whole dashboard.
+    const pages = embedded.slice(
+      embedded.indexOf("const SETTINGS_PAGES"),
+      embedded.indexOf("]", embedded.indexOf("const SETTINGS_PAGES")),
+    );
+    expect(pages).not.toContain('"more"');
+    expect(dts).not.toContain('| "more"');
+    // A host pinned to an older build still passes it, and the internal route
+    // still exists, so the type change alone does not stop it rendering.
+    expect(embedded).toContain("function mountablePage(");
+    expect(embedded).toContain('SETTINGS_PAGES.includes(page) ? page : "settings"');
   });
 });
 
