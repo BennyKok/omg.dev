@@ -40,6 +40,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OmgMessage, OmgSession, OmgSessionPrompt } from "@omg-dev/protocol";
 
 import { useOmg } from "../../src/omg/provider";
+import { GlassSurface, LIQUID_GLASS } from "../../src/omg/glass";
 import { useTheme } from "../../src/omg/theme";
 
 /** Local id for the optimistic message, so it can be rolled back precisely. */
@@ -463,7 +464,9 @@ export default function SessionScreen() {
         </Text>
       ) : null}
 
-      <View
+      <GlassSurface
+        variant="clear"
+        fallbackColor="transparent"
         style={{
           flexDirection: "row",
           alignItems: "flex-end",
@@ -471,9 +474,12 @@ export default function SessionScreen() {
           paddingHorizontal: space.md,
           paddingTop: space.sm,
           paddingBottom: insets.bottom + space.sm,
-          borderTopWidth: StyleSheet.hairlineWidth,
+          // Under Liquid Glass the bar is a blurred surface, so a hairline rule
+          // and an opaque fill would both fight it. Everywhere else they are
+          // what separates the composer from the transcript behind it.
+          borderTopWidth: LIQUID_GLASS ? 0 : StyleSheet.hairlineWidth,
           borderTopColor: colors.border,
-          backgroundColor: colors.bg,
+          backgroundColor: LIQUID_GLASS ? "transparent" : colors.bg,
         }}
       >
         <Pressable
@@ -611,7 +617,7 @@ export default function SessionScreen() {
             </Text>
           )}
         </Pressable>
-      </View>
+      </GlassSurface>
     </KeyboardAvoidingView>
   );
 }

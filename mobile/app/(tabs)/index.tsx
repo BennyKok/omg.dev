@@ -41,6 +41,7 @@ import {
 } from "../../src/components";
 import { BrandMark } from "../../src/omg/brand-mark";
 import { useOmg } from "../../src/omg/provider";
+import { LIQUID_GLASS } from "../../src/omg/glass";
 import { useTheme } from "../../src/omg/theme";
 import { bindingLabel } from "../../src/omg/format";
 import { CLOUD_BINDING_ID } from "../../src/omg/config";
@@ -227,8 +228,10 @@ export default function SessionsScreen() {
               flexDirection: "row",
               alignItems: "center",
               gap: space.xs,
-              backgroundColor: colors.card,
+              // Glass reads as floating chrome, which is what this chip is.
+              backgroundColor: LIQUID_GLASS ? "transparent" : colors.card,
               borderRadius: radius.pill,
+              overflow: "hidden",
               height: 34,
               paddingHorizontal: space.md,
               opacity: pressed ? 0.6 : 1,

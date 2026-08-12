@@ -6,6 +6,7 @@
 
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   StyleSheet,
   View,
@@ -14,6 +15,8 @@ import {
 import { Text, TextInput } from "./omg/text";
 import { SymbolView, type AndroidSymbol, type SFSymbol } from "expo-symbols";
 
+import { agentIcon } from "./omg/agent-icons";
+import { GlassSurface, LIQUID_GLASS } from "./omg/glass";
 import { useTheme } from "./omg/theme";
 import { relativeTime } from "./omg/format";
 
@@ -209,59 +212,14 @@ export function PrimaryButton({
   );
 }
 
-/**
- * One session in the list. Deliberately two lines: a title people recognise and
- * a quiet metadata line, with the live dot and the time doing the scanning
- * work.
- */
-export function SessionRow({
-  title,
-  subtitle,
-  agent,
-  busy,
-  blocked,
-  lastActivityAt,
-  onPress,
-}: {
-  title: string;
-  subtitle?: string | null;
-  agent?: string | null;
-  busy?: boolean;
-  blocked?: boolean;
-  lastActivityAt?: number | null;
-  onPress: () => void;
-}) {
-  const { colors, type, space } = useTheme();
-  return (
-    <Row onPress={onPress}>
-      <StatusDot busy={busy} blocked={blocked} />
-      <View style={{ flex: 1, gap: 2 }}>
-        <Text numberOfLines={1} style={{ ...type.callout, color: colors.text, fontWeight: "600" }}>
-          {title}
-        </Text>
-        {subtitle ? (
-          <Text numberOfLines={1} style={{ ...type.footnote, color: colors.textMuted }}>
-            {subtitle}
-          </Text>
-        ) : null}
-      </View>
-      <View style={{ alignItems: "flex-end", gap: 2 }}>
-        <Text style={{ ...type.caption, color: colors.textMuted }}>
-          {relativeTime(lastActivityAt)}
-        </Text>
-        {agent ? (
-          <Text style={{ ...type.caption, color: colors.textMuted, opacity: 0.7 }}>{agent}</Text>
-        ) : null}
-      </View>
-    </Row>
-  );
-}
 
 /**
- * One glyph, two platforms: SF Symbols on iOS, the mapped Material Symbol
- * everywhere else — the same pairing NativeTabs already uses for the tab bar,
- * so the chrome and the content speak one icon language.
+ * A circular agent mark. The same agent name always lands on the same colour
+ * and glyph, so a fleet list is scannable without reading a word. Hues come
+ * from the theme tokens — the avatar palette is the status palette, never a
+ * hardcoded hex.
  */
+/** An SF Symbol on iOS with a Material fallback elsewhere. */
 export function Icon({
   ios,
   android,
@@ -283,64 +241,6 @@ export function Icon({
   );
 }
 
-/** Theme colour keys an avatar is allowed to wear. */
-type AvatarColor =
-  | "brand"
-  | "text"
-  | "textSecondary"
-  | "primary"
-  | "success"
-  | "warning"
-  | "danger"
-  | "info";
-
-/**
- * The well-known marks. claude gets the orange asterisk and codex the ink
- * disc because that is what the web surface shows; the rest take a token hue
- * and a letter.
- */
-const KNOWN_AGENT_MARKS: Record<
-  string,
-  { bg: AvatarColor; glyph?: string; sf?: SFSymbol; android?: AndroidSymbol }
-> = {
-  // SF Symbols, not characters. The first version used U+2733 (\u2733) for the
-  // asterisk agents, and iOS gives that codepoint EMOJI presentation by
-  // default — so a plain orange disc rendered as a green emoji tile inside an
-  // orange circle, a badge inside a badge. Any glyph left below is ASCII or a
-  // letter, which can never take an emoji form.
-  aisdk: { bg: "brand", sf: "sparkle", android: "auto_awesome" },
-  claude: { bg: "brand", sf: "sparkle", android: "auto_awesome" },
-  codex: { bg: "text", glyph: "C" },
-  "codex-aisdk": { bg: "text", glyph: "C" },
-  grok: { bg: "primary", glyph: "G" },
-  cursor: { bg: "warning", sf: "cursorarrow", android: "ads_click" },
-  opencode: { bg: "success", glyph: "O" },
-  jcode: { bg: "textSecondary", glyph: "J" },
-  pi: { bg: "danger", glyph: "P" },
-  copilot: { bg: "info", sf: "square.on.square", android: "content_copy" },
-};
-
-const FALLBACK_AVATAR_COLORS: AvatarColor[] = [
-  "primary",
-  "success",
-  "warning",
-  "danger",
-  "info",
-  "brand",
-];
-
-function stableHash(value: string): number {
-  let hash = 0;
-  for (let i = 0; i < value.length; i++) hash = (hash * 31 + value.charCodeAt(i)) | 0;
-  return Math.abs(hash);
-}
-
-/**
- * A circular agent mark. The same agent name always lands on the same colour
- * and glyph, so a fleet list is scannable without reading a word. Hues come
- * from the theme tokens — the avatar palette is the status palette, never a
- * hardcoded hex.
- */
 export function AgentAvatar({
   agent,
   size = 40,
@@ -349,37 +249,26 @@ export function AgentAvatar({
   size?: number;
 }) {
   const { colors } = useTheme();
-  const key = (agent ?? "").trim().toLowerCase();
-  const known = KNOWN_AGENT_MARKS[key];
-  const bgKey =
-    known?.bg ?? FALLBACK_AVATAR_COLORS[stableHash(key || "?") % FALLBACK_AVATAR_COLORS.length];
-  const glyph = known?.glyph ?? (key ? key[0].toUpperCase() : "•");
-  // A dark disc wants the page colour as its glyph; a saturated disc wants
-  // white. Anything else is a contrast accident waiting for dark mode.
-  const fg = bgKey === "text" || bgKey === "textSecondary" ? colors.bg : colors.primaryForeground;
+  // The marks carry their own brand colour, so the disc underneath stays
+  // neutral. Tinting it per agent fought the icon and turned a terracotta
+  // asterisk on white into a terracotta asterisk on orange.
   return (
     <View
       style={{
         width: size,
         height: size,
         borderRadius: size / 2,
-        backgroundColor: colors[bgKey],
+        backgroundColor: colors.secondary,
         alignItems: "center",
         justifyContent: "center",
+        overflow: "hidden",
       }}
     >
-      {known?.sf ? (
-        <SymbolView
-          name={{ ios: known.sf, android: known.android ?? "circle", web: "circle" }}
-          size={Math.round(size * 0.5)}
-          tintColor={fg}
-          style={{ width: Math.round(size * 0.5), height: Math.round(size * 0.5) }}
-        />
-      ) : (
-        <Text style={{ color: fg, fontSize: Math.round(size * 0.42), fontWeight: "700" }}>
-          {glyph}
-        </Text>
-      )}
+      <Image
+        source={agentIcon(agent)}
+        style={{ width: Math.round(size * 0.62), height: Math.round(size * 0.62) }}
+        resizeMode="contain"
+      />
     </View>
   );
 }
@@ -546,25 +435,33 @@ export function HomeComposer({
         paddingHorizontal: space.lg,
         paddingTop: space.sm,
         paddingBottom: Math.max(bottomInset, space.sm),
-        backgroundColor: colors.bg,
+        // Transparent under glass so the blur has content to sample; opaque
+        // otherwise so list rows do not show through the composer.
+        backgroundColor: LIQUID_GLASS ? "transparent" : colors.bg,
       }}
     >
-      <View
+      {/* Liquid Glass on iOS 26+, a solid card everywhere else. The composer
+          floats over scrolling content, which is exactly the case Apple's
+          glass is for — and GlassSurface keeps a real background underneath so
+          older systems get a card rather than a transparent hole. */}
+      <GlassSurface
+        variant="regular"
+        fallbackColor={colors.card}
         style={{
           flexDirection: "row",
           alignItems: "center",
           gap: space.sm,
-          backgroundColor: colors.card,
           borderRadius: radius.pill,
           minHeight: 52,
           paddingLeft: space.sm,
           paddingRight: space.xs,
+          overflow: "hidden",
           shadowColor: colors.text,
-          shadowOpacity: isDark ? 0 : 0.08,
+          shadowOpacity: isDark || LIQUID_GLASS ? 0 : 0.08,
           shadowRadius: 16,
           shadowOffset: { width: 0, height: 4 },
           elevation: 2,
-          ...hairline,
+          ...(LIQUID_GLASS ? {} : hairline),
         }}
       >
         <AgentAvatar agent={agent} size={32} />
@@ -590,7 +487,7 @@ export function HomeComposer({
         >
           <Icon ios="mic.fill" android="mic" size={20} color={colors.textMuted} />
         </Pressable>
-      </View>
+      </GlassSurface>
 
       <View
         style={{
