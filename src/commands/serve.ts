@@ -508,14 +508,28 @@ const HOST = process.env.LFG_HOST ?? "127.0.0.1";
 const MAX_LFG_SUBAGENT_DEPTH = 4;
 const agentAdmission = new AgentAdmissionController();
 
-function hostAvailableMemoryBytes(): number {
+/**
+ * What the box could hand a new agent, and whether that number can be believed.
+ *
+ * `trusted` separates Linux's MemAvailable — an estimate of what is reclaimable,
+ * cache included — from `freemem()`, which counts only wholly untouched pages.
+ * On macOS the two are nowhere near each other: a healthy 16 GB Mac reports a
+ * few hundred MB free while holding many GB as reclaimable cache. Refusing work
+ * on that number would be refusing on a measurement, not on a shortage, so
+ * callers that would BLOCK on it must check `trusted` first.
+ */
+function hostAvailableMemory(): { bytes: number; trusted: boolean } {
   try {
     const match = readFileSync("/proc/meminfo", "utf8").match(/^MemAvailable:\s+(\d+)\s+kB$/m);
-    if (match) return Number(match[1]) * 1024;
+    if (match) return { bytes: Number(match[1]) * 1024, trusted: true };
   } catch {
     // Non-Linux standalone installs fall back to Node's portable reading.
   }
-  return freemem();
+  return { bytes: freemem(), trusted: false };
+}
+
+function hostAvailableMemoryBytes(): number {
+  return hostAvailableMemory().bytes;
 }
 
 function formatMemory(bytes: number): string {
@@ -547,15 +561,24 @@ async function activationGate(
   const overLimit = !computer && options?.overLimit === true;
   const reservation = await agentAdmission.acquire(
     overLimit ? NO_AGENT_LIMIT : limit,
-    async () => ({
-      sessions: await listSessions().catch(() => []),
-      // A self-hosted box normally trusts its own count-based cap and skips
-      // this. An override has just discarded that cap, so it is the only thing
-      // left standing between "start one more" and an OOM.
-      memory: computer || overLimit
-        ? agentLaunchMemoryBudget(totalmem(), hostAvailableMemoryBytes())
-        : undefined,
-    }),
+    async () => {
+      const available = hostAvailableMemory();
+      return {
+        sessions: await listSessions().catch(() => []),
+        // Always measured, so every launch books its share of memory even on
+        // the count-capped path. Only whether a shortfall REFUSES is
+        // conditional.
+        memory: agentLaunchMemoryBudget(totalmem(), available.bytes),
+        // A self-hosted box trusts its own count-based cap. An override has
+        // just discarded that cap, so the budget becomes the last thing between
+        // "start one more" and an OOM — but only where the reading means what
+        // the budget assumes. Off Linux this is `freemem()`, which ignores
+        // reclaimable cache and would refuse every override on a perfectly
+        // healthy Mac. Better to honour the owner's explicit decision about
+        // their own machine than to block it on a number we know is wrong.
+        enforceMemory: computer !== null || (overLimit && available.trusted),
+      };
+    },
     computer ? archiveIdleDurableAgentsForMemory : undefined,
   );
   if (reservation.ok) return reservation;
@@ -574,12 +597,19 @@ async function activationGate(
   }
   // Two different refusals that happen to count the same thing. A plan cap is a
   // sales conversation the host owns; a local cap is a preference its owner can
-  // overrule on the spot, so it says so, and carries the code the surface needs
-  // to offer that without matching on prose.
+  // edit, so it says so, and carries the code a surface needs to offer the
+  // override without matching on prose.
+  //
+  // The sentence deliberately does NOT say "start anyway". Only three surfaces
+  // implement that (create, cold resume, finding reply); fork cannot be
+  // overridden at all. Naming it here would promise a button that is missing
+  // from half the places this text appears — so the affordance stays with the
+  // surfaces that actually have it, and the prose names only what is always
+  // true.
   if (!computer) {
     return err(
       429,
-      `${reservation.resident} of ${limit} agents live — start anyway, close an agent, or raise the limit in Settings`,
+      `${reservation.resident} of ${limit} agents live — close an agent, or raise the limit in Settings`,
       "agent_limit",
     );
   }

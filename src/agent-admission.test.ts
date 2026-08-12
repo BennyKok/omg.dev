@@ -197,6 +197,23 @@ describe("Computer agent admission", () => {
     expect(denied).toMatchObject({ ok: false, reason: "memory" });
   });
 
+  test("an unenforced admission still books its memory against the next one", () => {
+    // The count-capped path admits without gating on memory. It must still
+    // RESERVE, or a launch that does gate — a Computer, or a self-hosted
+    // override — reads memory three in-flight starts have already promised
+    // away, and admits on the strength of it.
+    const controller = new AgentAdmissionController();
+    const budget = agentLaunchMemoryBudget(8 * 1024 ** 3, 3 * 1024 ** 3);
+    // Two unenforced launches, each booking its 1 GiB.
+    expect(controller.tryAcquire(8, [], budget, { enforceMemory: false }).ok).toBe(true);
+    expect(controller.tryAcquire(8, [], budget, { enforceMemory: false }).ok).toBe(true);
+    // 3 GiB available - 2 GiB reserved = 1 GiB, short of 768 MiB + 1 GiB.
+    expect(controller.tryAcquire(NO_AGENT_LIMIT, [], budget)).toMatchObject({
+      ok: false,
+      reason: "memory",
+    });
+  });
+
   test("the managed plan file can change a live process admission limit", () => {
     const dir = mkdtempSync(join(tmpdir(), "lfg-computer-plan-"));
     const path = join(dir, "computer-plan");

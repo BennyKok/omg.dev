@@ -1186,10 +1186,16 @@ function usePlanLimitHandler(): (error: unknown, action: PlanLimitDetail["action
 }
 
 /**
- * One id, so hitting the wall twice replaces the notice instead of stacking a
- * second identical one behind the first.
+ * One id PER SURFACE, so hitting the wall twice in the same place replaces that
+ * notice instead of stacking a duplicate — while a wall raised from somewhere
+ * else keeps its own.
+ *
+ * Sharing a single id silently discarded a decision: hit the cap from the
+ * composer, then from a finding reply, and the second toast replaced the first,
+ * taking the composer's queued launch with it.
  */
-const AGENT_LIMIT_TOAST_ID = "agent-limit";
+const agentLimitToastId = (surface: "create" | "resume" | "finding") =>
+  `agent-limit:${surface}`;
 
 /**
  * Report the SELF-HOSTED live-agent wall. Returns true when it was this, so the
@@ -1204,11 +1210,23 @@ const AGENT_LIMIT_TOAST_ID = "agent-limit";
  * preference, so the toast offers to overrule it right there (`overLimit`, and
  * the box still checks it has the memory for one more) instead of sending you
  * to Settings to edit a number and then retype what you were doing.
+ *
+ * It waits rather than expires. sonner's default life is four seconds, which is
+ * long enough to read this sentence or to decide on it, but not both — and the
+ * work behind the offer is not always recoverable once it goes: a finding reply
+ * exists only inside this closure, so a missed toast loses what was typed. It
+ * stays until answered or dismissed.
  */
-function toastAgentLimit(error: unknown, startAnyway: () => void): boolean {
+function toastAgentLimit(
+  error: unknown,
+  surface: "create" | "resume" | "finding",
+  startAnyway: () => void,
+): boolean {
   if (!isAgentLimitError(error)) return false;
   toast.error(error instanceof Error ? error.message : String(error), {
-    id: AGENT_LIMIT_TOAST_ID,
+    id: agentLimitToastId(surface),
+    duration: Infinity,
+    closeButton: true,
     action: { label: "Start anyway", onClick: startAnyway },
   });
   return true;
@@ -6514,7 +6532,7 @@ export function App() {
       } catch (e) {
         // Offer the override once. A second refusal is a real one — the box is
         // out of memory, or something else failed — so it is reported plainly.
-        if (!overLimit && toastAgentLimit(e, () => void start(true))) return;
+        if (!overLimit && toastAgentLimit(e, "finding", () => void start(true))) return;
         toast.error(e instanceof Error ? e.message : String(e));
       }
     };
@@ -17047,6 +17065,12 @@ function NewSessionDialog({
   const [prompt, setPromptState] = useState(
     () => readPromptDraft("new-session")?.text ?? "",
   );
+  // A mirror of `prompt` for callbacks that outlive the render that made them.
+  // The agent-cap offer is the one that does: it now waits to be answered, so
+  // the box can be edited while it sits there, and answering it must send what
+  // the person can currently see rather than what they typed a minute ago.
+  const promptRef = useRef(prompt);
+  promptRef.current = prompt;
   const [dictationScrollNonce, setDictationScrollNonce] = useState(0);
   const [promptMultiline, setPromptMultiline] = useState(false);
   const [pendingUploads, setPendingUploads] = useState<ComposerAttachment[]>([]);
@@ -17464,6 +17488,10 @@ function NewSessionDialog({
             if (!overLimit && isAgentLimitError(err)) {
               return {
                 message,
+                // Same reasoning as toastAgentLimit: the offer waits to be
+                // answered instead of expiring under the reader.
+                duration: Infinity,
+                closeButton: true,
                 action: {
                   label: "Start anyway",
                   onClick: () => {
@@ -17662,6 +17690,11 @@ function NewSessionDialog({
     });
     const uploadIds = new Set(files.map((att) => att.id));
     setError(null);
+    // Retire any waiting "Start anyway" from a previous refusal. That offer
+    // holds the PREVIOUS prompt, and it now outlives its toast's old four
+    // seconds — so left standing it would answer a submit the person has
+    // already replaced, starting a second session from stale text.
+    toast.dismiss(agentLimitToastId("create"));
     setPromptState("");
     setAttachments([]);
     // Carry each attachment's real upload state across. Most will already be
@@ -17742,10 +17775,18 @@ function NewSessionDialog({
           // must leave you exactly where you were, with your prompt intact.
           setPromptStashStatus(stashed?.id, "draft");
           setPromptState((current) => current || taskPrompt);
-          toastAgentLimit(err, () => {
+          toastAgentLimit(err, "create", () => {
             void (async () => {
               try {
-                const retried = await postCreate(composedPrompt, true);
+                // Send what is in the box now. The offer waits, so the prompt
+                // it was raised for can have been rewritten since — sending the
+                // original would both ignore that edit and then clear it.
+                const edited = promptRef.current.trim();
+                const outgoing =
+                  edited && edited !== taskPrompt.trim()
+                    ? composeAttachmentMessage(promptRef.current, uploaded)
+                    : composedPrompt;
+                const retried = await postCreate(outgoing, true);
                 setPromptState("");
                 await settle(retried);
               } catch (retryError) {
