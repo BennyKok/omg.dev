@@ -387,10 +387,19 @@ const normTitle = (t: string) =>
  * is persistent — the single most useful thing an agent can tell you — was the
  * one signal thrown away. A thing reported four times is not noise, it is the
  * thing you should be doing.
+ *
+ * `exclude` holds row ids already consumed by earlier findings in the SAME run.
+ * Without it, digit-stripping turns a multi-finding run into data loss: an agent
+ * reporting "box-1 disk 91% full" and "box-3 disk 93% full" normalizes both to
+ * "box# disk #% full", and the second silently merges into the first — one of
+ * the two hosts just disappears. Across runs that collapse is wanted (a moved
+ * number is the same problem worsening); within one run it is a false merge,
+ * because the agent deliberately listed them separately.
  */
 export async function recordRecurrence(
   agentId: string,
   title: string,
+  exclude?: ReadonlySet<string>,
 ): Promise<Finding | null> {
   const rows = await listFindings();
   const now = Date.now();
@@ -399,6 +408,7 @@ export async function recordRecurrence(
     (r) =>
       r.agentId === agentId &&
       UNRESOLVED.includes(r.status) &&
+      !exclude?.has(r.id) &&
       normTitle(r.title) === key,
   );
   if (!match) return null;

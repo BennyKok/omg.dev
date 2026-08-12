@@ -120,7 +120,8 @@ export function startAutoScheduler(onLog: (s: string) => void = () => {}): void 
         await setLastRun(a.id, now.getTime()).catch(() => {});
         onLog(`[auto-sched] firing ${a.id} (due ${new Date(due).toISOString()})`);
         try {
-          await runAutoAgent(a, onLog); // sequential — chdir is process-global
+          const filed = await runAutoAgent(a, onLog); // sequential — chdir is process-global
+          if (filed.length > 1) onLog(`[auto-sched] ${a.id} filed ${filed.length} findings`);
         } catch (e) {
           onLog(`[auto-sched] ${a.id} failed: ${e}`);
         }

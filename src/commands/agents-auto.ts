@@ -626,18 +626,18 @@ async function autoRun(args: string[]): Promise<void> {
   }
 
   const { runAutoAgent } = await import("../auto/runner.ts");
-  const finding = await runAutoAgent(agent, (line) => {
+  const findings = await runAutoAgent(agent, (line) => {
     if (!json) console.error(line);
   });
   if (json) {
-    console.log(JSON.stringify({ dispatched: "local", finding }, null, 2));
+    console.log(JSON.stringify({ dispatched: "local", findings }, null, 2));
     return;
   }
-  if (!finding) {
+  if (!findings.length) {
     console.log("no finding — the agent surfaced nothing (that's the normal case)");
     return;
   }
-  printFinding(finding, agent.name);
+  for (const f of findings) printFinding(f, agent.name);
 }
 
 // ---------- findings ----------
