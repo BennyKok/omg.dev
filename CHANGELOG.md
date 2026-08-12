@@ -2,6 +2,32 @@
 
 Recent product updates and deployment notes.
 
+## August 12, 2026 - Your project list is yours (v0.1.352)
+
+- **You can remove a project.** The list was built by scanning your projects
+  folder, so every git checkout in it showed up whether you wanted it there or
+  not — and "remove" only ever worked on paths you had pinned by hand. On
+  anything else it quietly did nothing and still said it worked. Removing a
+  project now sticks.
+- **Manage mode in the Projects sheet.** Tap Manage and every row gets two
+  actions: remove it from the list, which leaves your files exactly where they
+  are, or delete the folder from disk, which shows you what is inside and asks
+  you to confirm first. Deleting a folder was previously buried in the folder
+  browser. Removal sits behind the toggle so a delete button is never under the
+  tap you use to pick a project all day.
+- **Adding a folder back works.** Re-adding a project you removed brings it
+  back instead of writing a setting and changing nothing on screen. Deleting a
+  folder also forgets it, so creating a new project at the same path later is
+  not silently suppressed.
+- **A folder you picked by hand no longer loses to one you forgot about.** Two
+  projects whose folders share a name kept only one row, and the scanned one
+  always won — so pinning `~/work/duet` while an old `~/repos/duet` existed
+  wrote the setting and never showed the project. The one you chose wins now.
+- **Shipped posts cannot invent a project.** The project label on a Shipped
+  post is checked against your real projects; an agent that passes something
+  else gets the label of the project it was actually working in, or no label at
+  all, instead of one that just looks like provenance.
+
 ## August 12, 2026 - The product calls itself omg.dev (v0.1.351)
 
 - **One name, everywhere you read it.** The app said "OMG" in some places and
