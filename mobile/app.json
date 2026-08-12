@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "LFG",
+    "name": "omg",
     "slug": "lfg-native",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -8,13 +8,13 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "dev.lfg.mobile",
+      "bundleIdentifier": "dev.omg.computer",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "dev.lfg.mobile",
+      "package": "dev.omg.computer",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -30,7 +30,7 @@
       "expo-status-bar",
       "expo-router"
     ],
-    "scheme": "lfg",
+    "scheme": "omg",
     "extra": {
       "router": {},
       "eas": {
