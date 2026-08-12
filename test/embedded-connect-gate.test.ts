@@ -356,6 +356,36 @@ describe("App wiring", () => {
     expect(dismissed).toContain("connectGateSkipped");
   });
 
+  test("the flow closes on a value screen that shows the real agent marks", () => {
+    const component = require("node:fs").readFileSync(
+      "web/src/components/embedded-connect-gate.tsx",
+      "utf8",
+    ) as string;
+    // Real product marks, not generic glyphs: the pitch is "we take the
+    // account you already pay for", and someone recognises the Claude
+    // sunburst faster than any sentence about it.
+    expect(component).toContain("agentIconSrc");
+    expect(component).toContain("SHOWCASE_AGENTS");
+    // The two beats worth remembering from a first run.
+    expect(component).toContain("Bring your own coding agent");
+    expect(component).toContain("Put work on a schedule");
+    // Only the last screen finishes the flow — the earlier pages advance.
+    expect(component).toContain("onClick={onDone}");
+  });
+
+  test("the tools page is stepped over when nothing on it can connect", () => {
+    // The GitHub row has no install path of its own (unlike the agent rows),
+    // so on a Computer without `gh` it renders permanently disabled with no
+    // way forward. A dead step in a first run is worse than no step.
+    const component = require("node:fs").readFileSync(
+      "web/src/components/embedded-connect-gate.tsx",
+      "utf8",
+    ) as string;
+    expect(component).toContain("toolsUsable");
+    // undefined = still loading, which must NOT be read as unavailable.
+    expect(component).toContain("toolConnections === undefined");
+  });
+
   test("dismissing the gate is remembered per Computer, not per page load", () => {
     // The bug that made this gate unusable, and very likely why the host
     // switched it off: "Skip for now" lived only in a React useState, so it
