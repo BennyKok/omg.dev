@@ -2,6 +2,27 @@
 
 Recent product updates and deployment notes.
 
+## August 12, 2026 - First-run onboarding returns to hosted Computers (v0.1.344)
+
+- **New hosted Computers walk through setup again.** The embedded connect gate
+  was switched off in August on the grounds that the host would own Computer
+  onboarding, and the replacement was never built — so for four months nobody
+  arriving on a hosted Computer was ever offered Claude Code or Codex. It is
+  back, as three optional screens: connect a coding agent, connect GitHub, and
+  a closing screen covering the two things worth knowing (bring your own agent,
+  and put work on a schedule).
+- **"Skip for now" finally means it.** The gate's dismissal lived only in
+  browser memory, so it reappeared on every reload until an agent was
+  connected — a permanent wall for anyone happy on the free credential-free
+  agent. It is now remembered per Computer, and Settings → Setup guide replays
+  it whenever you want.
+- **The GitHub step is skipped when it cannot work.** That row has no installer
+  of its own, so on a Computer without the GitHub CLI it used to render as a
+  permanently disabled dead end mid-flow.
+- **Self-hosted onboarding is untouched.** The open-source flow (profile,
+  agents, repo, first session) is deliberately separate, and neither flow can
+  complete or reset the other.
+
 ## August 11, 2026 - A queued message looks queued (v0.1.343)
 
 - **A message you queue behind a running turn now says so, and stays at the
