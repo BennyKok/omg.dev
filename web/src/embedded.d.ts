@@ -190,6 +190,15 @@ export interface OmgSettingsSurfaceProps {
   onNavigate?: (page: OmgSettingsPage) => void;
   className?: string;
   errorSink?: OmgErrorSink;
+  /**
+   * A service-worker scope the host dedicates to OMG push.
+   *
+   * The push toggle lives on this surface's "more" page, so a host that mounts
+   * settings without a full app surface has to grant the scope here or the
+   * toggle has nothing to subscribe against. Omitting it is safe — the toggle
+   * explains it is unavailable instead of enrolling into the host's own worker.
+   */
+  hostedPush?: HostPushConfig;
 }
 
 export declare function OmgSettingsSurface(

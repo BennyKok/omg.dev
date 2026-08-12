@@ -65,6 +65,56 @@ export function configureHostPush(config: HostPushConfig | null): void {
 }
 
 /**
+ * Whether this bundle is running inside somebody else's page.
+ *
+ * `isEmbedded()` cannot answer that on its own. It reads the DOCUMENT's URL and
+ * whether we are framed, which is right for an iframe surface and wrong for a
+ * host that mounts us as plain React components: there the document is the
+ * host's own top-level page, so it reports "standalone" and we take the branch
+ * that registers `/sw.js` at scope `/` — on the HOST's origin. That is not our
+ * worker. On app.omg.dev it is the cache-drain worker, whose activate handler
+ * navigates every open client to bust its caches, so merely opening the More
+ * page reloads the whole app; it then unregisters itself, so the next visit
+ * does it again. Hence an explicit flag the surface sets, rather than a guess
+ * re-derived from `window`.
+ */
+let hostedSurface = false;
+
+/** Declared by the embedded surfaces alongside `configureHostPush`. */
+export function configureHostedSurface(hosted: boolean): void {
+  hostedSurface = hosted;
+}
+
+/** True when we must not touch a registration the host did not give us. */
+export function isHostedSurface(): boolean {
+  return hostedSurface;
+}
+
+/** Whether a host has actually dedicated a scope to us. */
+export function hasHostPushScope(): boolean {
+  return hostPush != null;
+}
+
+/**
+ * Why push cannot be turned on here, or null when it can.
+ *
+ * Returned as a sentence for the UI to show. The toggle used to render nothing
+ * at all in the unsupported case and an enabled-looking switch in the hosted
+ * case, so both failure modes read to the user as "the feature is missing"
+ * rather than "the feature is unavailable, for this reason".
+ */
+export function pushUnavailableReason(): string | null {
+  if (!pushSupported()) {
+    // The usual cause by far: iOS only exposes PushManager to an installed PWA.
+    return "Add omg to your Home Screen to turn on notifications";
+  }
+  if (hostedSurface && !hostPush) {
+    return "Not available here yet — open your Computer's own address to turn on notifications";
+  }
+  return null;
+}
+
+/**
  * The standalone app's own worker, as index.html and main.tsx already register
  * it. Registering the same script on the same scope is idempotent — it resolves
  * to the registration those two produce rather than making a second one — which
@@ -155,7 +205,12 @@ export async function resolvePushRegistration(
   // Embedded with nothing declared: the registration serving this page belongs
   // to the host and there is no way to know whether its worker handles push.
   // Refuse rather than enrol into silence.
-  if (deps.embedded ?? isEmbedded()) return null;
+  //
+  // `hostedSurface` is checked first and separately because `isEmbedded()` is
+  // only reliable for the iframe topology — see configureHostedSurface. A host
+  // that mounts us directly looks standalone to it, and falling through to the
+  // branch below would register the HOST's `/sw.js` on the HOST's origin.
+  if (deps.embedded ?? (hostedSurface || isEmbedded())) return null;
 
   // Standalone. index.html registers /sw.js on every load, so there is normally
   // one here already — but "normally" is not "always": that registration can
@@ -256,7 +311,7 @@ export async function enablePush(user?: string | null): Promise<boolean> {
   const reg = await registration;
   if (!reg) {
     throw new Error(
-      isEmbedded()
+      hostedSurface || isEmbedded()
         ? "This host hasn't given OMG a service-worker scope for notifications yet"
         : "Couldn't start the notification service worker — reload the app and try again",
     );

@@ -324,8 +324,8 @@ import { deepActiveElement, isTypingTarget } from "@/lib/active-element";
 import { useExtensionNavTabs } from "./lib/extensions";
 import type { ExtensionNavTab } from "./lib/extensions";
 import {
-  pushSupported,
   pushPermission,
+  pushUnavailableReason,
   isSubscribed,
   enablePush,
   disablePush,
@@ -4921,14 +4921,30 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
 function PushBell({ user }: { user?: string | null }) {
   const [on, setOn] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [supported] = useState(() => pushSupported());
+  // Read once: this cannot change without a remount, and re-reading it per
+  // render would make the row flicker between states.
+  const [unavailable] = useState(() => pushUnavailableReason());
 
   useEffect(() => {
-    if (!supported) return;
+    if (unavailable) return;
     void isSubscribed().then(setOn);
-  }, [supported]);
+  }, [unavailable]);
 
-  if (!supported) return null;
+  // Deliberately NOT `return null`. Rendering nothing left the "Push
+  // notifications" row with an empty right edge — the label promised a control
+  // that was not there, which is indistinguishable from a broken layout and is
+  // exactly why this looked impossible to turn on. Show the switch, disabled,
+  // next to the reason.
+  if (unavailable) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="max-w-[10rem] text-right text-xs leading-tight text-muted-foreground">
+          {unavailable}
+        </span>
+        <Switch checked={false} disabled aria-label={`Notifications unavailable: ${unavailable}`} />
+      </div>
+    );
+  }
 
   const toggle = async () => {
     if (busy) return;
