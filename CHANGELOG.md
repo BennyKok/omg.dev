@@ -2,6 +2,18 @@
 
 Recent product updates and deployment notes.
 
+## August 12, 2026 - App sessions stop seeing LFG release plumbing (v0.1.347)
+
+- **Application sessions no longer receive instructions to run
+  `scripts/land-session.sh`.** That command belongs only to changes in LFG's
+  own source repository. The global wording became especially confusing after
+  "LFG source" was renamed to "OMG source," which made ordinary app work look
+  like it needed the local LFG release workflow.
+- **The LFG shipping gate remains the single owner of landing.** It detects an
+  LFG source worktree and returns the exact recovery command only when that
+  session tries to ship an uncommitted, unmerged, or undeployed change. Other
+  repositories never see the command or inherit LFG's deployment policy.
+
 ## August 12, 2026 - The agent limit is yours to overrule (v0.1.346)
 
 - **Hitting the live-agent limit no longer pins a red banner above every
