@@ -11,11 +11,24 @@
 // login cannot make the tool step disappear underneath the user.
 
 import { useState } from "react";
-import { Check, Github } from "lucide-react";
+import { CalendarClock, Check, Github, Repeat } from "lucide-react";
 import { Button } from "./ui/button";
 import type { ConnectOption, ToolConnectOption } from "../lib/embedded-connect";
 import { LFG_SMALL_ICON_PATH } from "../lib/icon-assets";
+import { agentIconAlt, agentIconSrc } from "../lib/session-ui";
 import { omgAssetUrl } from "../lib/omg-client";
+
+/**
+ * The agents shown on the closing screen. Real marks, not generic glyphs —
+ * the whole point of the screen is "we take the account you already have",
+ * and a person recognises the Claude sunburst faster than any sentence about
+ * it. Same five that lead the picker (see DISCOVERABLE_AGENT_COUNT); listing
+ * them here rather than deriving keeps this a fixed piece of art instead of
+ * something that reshuffles with whatever this box happens to have.
+ */
+const SHOWCASE_AGENTS = ["aisdk", "codex-aisdk", "grok", "cursor", "opencode"] as const;
+
+type Page = "agents" | "tools" | "value";
 
 export function EmbeddedConnectGate({
   options,
@@ -35,8 +48,23 @@ export function EmbeddedConnectGate({
   onConnectTool: (key: ToolConnectOption["key"]) => void;
   onDone: () => void;
 }) {
-  const [page, setPage] = useState<"agents" | "tools">("agents");
+  const [page, setPage] = useState<Page>("agents");
   const hasConnectedAgent = options.some((option) => option.configured);
+
+  // Skip the tools page when nothing on it can actually be connected.
+  //
+  // The GitHub row has no install path of its own — unlike the agent rows,
+  // which offer one when their CLI is missing — so on a Computer without the
+  // `gh` binary it renders permanently disabled, reading "GitHub CLI is not
+  // installed" with no way forward. A dead step in a first run is worse than
+  // no step, so the flow steps over it until the binary is there. `undefined`
+  // means still loading, which is NOT the same as unavailable — that case
+  // keeps the page and shows its skeleton.
+  const toolsUsable = toolConnections === undefined || toolConnections.some((t) => t.installed);
+  const pages: Page[] = toolsUsable ? ["agents", "tools", "value"] : ["agents", "value"];
+  const stepIndex = Math.max(0, pages.indexOf(page));
+  const goNext = () => setPage(pages[Math.min(stepIndex + 1, pages.length - 1)]!);
+  const goBack = () => setPage(pages[Math.max(stepIndex - 1, 0)]!);
 
   return (
     <div
@@ -52,14 +80,20 @@ export function EmbeddedConnectGate({
           />
           <div
             className="flex items-center gap-1.5"
-            aria-label={`Step ${page === "agents" ? 1 : 2} of 2`}
+            aria-label={`Step ${stepIndex + 1} of ${pages.length}`}
           >
-            <span
-              className={`h-1.5 rounded-full transition-all duration-300 ease-ios ${page === "agents" ? "w-5 bg-primary" : "w-1.5 bg-primary/40"}`}
-            />
-            <span
-              className={`h-1.5 rounded-full transition-all duration-300 ease-ios ${page === "tools" ? "w-5 bg-primary" : "w-1.5 bg-foreground/10"}`}
-            />
+            {pages.map((id, index) => (
+              <span
+                key={id}
+                className={`h-1.5 rounded-full transition-all duration-300 ease-ios ${
+                  index === stepIndex
+                    ? "w-5 bg-primary"
+                    : index < stepIndex
+                      ? "w-1.5 bg-primary/40"
+                      : "w-1.5 bg-foreground/10"
+                }`}
+              />
+            ))}
           </div>
         </div>
         {page === "agents" ? (
@@ -123,23 +157,19 @@ export function EmbeddedConnectGate({
               })}
             </div>
             {hasConnectedAgent ? (
-              <Button
-                variant="brand"
-                className="mt-4 w-full"
-                onClick={() => setPage("tools")}
-              >
+              <Button variant="brand" className="mt-4 w-full" onClick={goNext}>
                 Continue
               </Button>
             ) : null}
             <button
               type="button"
-              onClick={() => setPage("tools")}
+              onClick={goNext}
               className="mt-4 w-full text-center text-xs text-muted-foreground underline-offset-2 hover:underline"
             >
               {hasConnectedAgent ? "Connect another later" : "Skip for now"}
             </button>
           </>
-        ) : (
+        ) : page === "tools" ? (
           <>
             <h1 className="text-xl font-semibold">Connect your tools</h1>
             <p className="mb-5 mt-1 text-sm text-muted-foreground">
@@ -191,12 +221,84 @@ export function EmbeddedConnectGate({
                 );
               })}
             </div>
+            <Button variant="brand" className="mt-4 w-full" onClick={goNext}>
+              Continue
+            </Button>
+            <button
+              type="button"
+              onClick={goBack}
+              className="mt-4 w-full text-center text-xs text-muted-foreground underline-offset-2 hover:underline"
+            >
+              Back
+            </button>
+          </>
+        ) : (
+          <>
+            {/* The closing beat, and the only screen here that sells rather
+                than asks. Two things, because two is what someone remembers
+                from a first run: this Computer runs the agent account you
+                already pay for, and it can run work while you are not looking.
+                Everything else is discoverable later. */}
+            <h1 className="text-xl font-semibold">Two things worth knowing</h1>
+            <p className="mb-5 mt-1 text-sm text-muted-foreground">
+              Your Computer is ready. Here is what makes it different.
+            </p>
+
+            <div className="flex flex-col gap-3">
+              <div className="rounded-2xl border border-border bg-muted/40 p-4">
+                <div className="mb-3 flex items-center gap-1.5">
+                  {SHOWCASE_AGENTS.map((agent, index) => (
+                    <span
+                      key={agent}
+                      // Staggered so the row assembles itself rather than
+                      // appearing — it reads as "these all plug in here".
+                      className="flex size-9 items-center justify-center rounded-xl border border-border bg-background shadow-sm animate-in fade-in-0 zoom-in-75 duration-300 ease-out [animation-fill-mode:backwards]"
+                      style={{ animationDelay: `${index * 60}ms` }}
+                    >
+                      <img src={agentIconSrc(agent)} alt={agentIconAlt(agent)} className="size-5" />
+                    </span>
+                  ))}
+                </div>
+                <p className="flex items-center gap-1.5 text-sm font-medium">
+                  <Repeat className="size-4 shrink-0 text-primary" />
+                  Bring your own coding agent
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  Claude Code, Codex, Grok, Cursor and OpenCode all run here on
+                  your own account — switch between them per task, and add more
+                  than one account of the same agent.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-border bg-muted/40 p-4">
+                <div className="mb-3 flex items-center gap-1.5">
+                  {["9:00", "13:00", "18:00"].map((time, index) => (
+                    <span
+                      key={time}
+                      className="flex h-9 flex-1 items-center justify-center rounded-xl border border-border bg-background text-[11px] font-medium tabular-nums text-muted-foreground shadow-sm animate-in fade-in-0 slide-in-from-bottom-2 duration-300 ease-out [animation-fill-mode:backwards]"
+                      style={{ animationDelay: `${300 + index * 80}ms` }}
+                    >
+                      {time}
+                    </span>
+                  ))}
+                </div>
+                <p className="flex items-center gap-1.5 text-sm font-medium">
+                  <CalendarClock className="size-4 shrink-0 text-primary" />
+                  Put work on a schedule
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  Agents can run on their own — every morning, every hour — and
+                  bring you the result. No prompt needed once it is set up.
+                </p>
+              </div>
+            </div>
+
             <Button variant="brand" className="mt-4 w-full" onClick={onDone}>
               Open my Computer
             </Button>
             <button
               type="button"
-              onClick={() => setPage("agents")}
+              onClick={goBack}
               className="mt-4 w-full text-center text-xs text-muted-foreground underline-offset-2 hover:underline"
             >
               Back
