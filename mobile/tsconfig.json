@@ -2,5 +2,9 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true
-  }
+  },
+  // scripts/ are Bun harnesses that run on a workstation, not React Native
+  // code that ships in the bundle. They use Bun globals the Expo tsconfig has
+  // no types for, so typechecking them here would only ever produce noise.
+  "exclude": ["scripts", "node_modules", ".expo"]
 }
