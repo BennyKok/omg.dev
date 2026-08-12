@@ -2,6 +2,18 @@
 
 Recent product updates and deployment notes.
 
+## August 12, 2026 - Cursor stops asking you to connect it (v0.1.353)
+
+- **A signed-in Cursor is treated as signed in.** The agent picker kept showing
+  Cursor greyed out with a "connect" badge on boxes that had already run
+  `cursor-agent login`, and tapping it sent you to a settings page with nothing
+  left to do. Cursor now reads its saved sign-in and shows up as a launchable
+  agent.
+- **Same fix for Copilot.** An interactive `/login` now counts as your
+  connected account, so Copilot appears in the picker instead of being filtered
+  out of it. A platform-supplied `GH_TOKEN` still makes it runnable without
+  being claimed as your account.
+
 ## August 12, 2026 - Your project list is yours (v0.1.352)
 
 - **You can remove a project.** The list was built by scanning your projects
