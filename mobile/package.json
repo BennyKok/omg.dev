@@ -16,6 +16,7 @@
     "expo-linking": "~57.0.4",
     "expo-router": "~57.0.8",
     "expo-status-bar": "~57.0.1",
+    "expo-symbols": "~57.0.2",
     "expo-updates": "~57.0.13",
     "react": "19.2.3",
     "react-dom": "19.2.3",

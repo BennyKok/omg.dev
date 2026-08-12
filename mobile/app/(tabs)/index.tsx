@@ -1,5 +1,8 @@
 /**
- * The session list — the app's home.
+ * The session list — the app's home, matching the web Computer one-to-one:
+ * the mark and a machine chip up top, WORKING/IDLE sections as dot + label +
+ * count headers sitting on the page background, each session its own rounded
+ * card, and a composer pinned to the bottom that actually starts sessions.
  *
  * The important behaviour here is not the list, it is `readiness`. A Computer
  * that is merely cold answers 425 while it resumes, and the whole point of
@@ -13,33 +16,53 @@ import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
+  StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OmgSession } from "@omg-dev/protocol";
 
-import { Card, EmptyState, PrimaryButton, SectionLabel, Separator, SessionRow, StatusDot } from "../../src/components";
+import {
+  EmptyState,
+  HomeComposer,
+  Icon,
+  PrimaryButton,
+  SectionHeader,
+  SessionCard,
+  StatusDot,
+} from "../../src/components";
+import { BrandMark } from "../../src/omg/brand-mark";
 import { useOmg } from "../../src/omg/provider";
 import { useTheme } from "../../src/omg/theme";
 import { bindingLabel } from "../../src/omg/format";
 import { CLOUD_BINDING_ID } from "../../src/omg/config";
 
+/**
+ * The agent a composer session launches on. Omitting `agent` from
+ * POST /api/sessions/new makes the server pick "aisdk" (verified in
+ * src/commands/serve.ts), so the avatar simply shows that default.
+ */
+const COMPOSER_AGENT = "aisdk";
+
 export default function SessionsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, type, space, radius } = useTheme();
+  const { colors, isDark, type, space, radius } = useTheme();
   const { client, readiness, probe, bindingId, bindings, machinesLoading } = useOmg();
 
   const [sessions, setSessions] = useState<OmgSession[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
   const [connection, setConnection] = useState<string>("connected");
+  const [draft, setDraft] = useState("");
+  const [starting, setStarting] = useState(false);
 
   const ready = readiness?.status === "ready";
 
@@ -83,16 +106,8 @@ export default function SessionsScreen() {
       ? "Cloud computer"
       : "No computer";
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return sessions;
-    return sessions.filter((s) =>
-      [s.title, s.lastUserText, s.agent].some((v) => v?.toLowerCase().includes(q)),
-    );
-  }, [sessions, query]);
-
-  const working = filtered.filter((s) => s.busy);
-  const idle = filtered.filter((s) => !s.busy);
+  const working = sessions.filter((s) => s.busy);
+  const idle = sessions.filter((s) => !s.busy);
 
   const openSession = (id: string | null) => {
     if (!id) return;
@@ -100,180 +115,266 @@ export default function SessionsScreen() {
     router.push(`/session/${id}`);
   };
 
+  /**
+   * The composer Start button. Same request the web's composer sends
+   * (POST /api/sessions/new); `agent` is omitted so the box runs its default,
+   * and `cwd` rides along when the paired machine reports a folder.
+   */
+  const startSession = useCallback(async () => {
+    const prompt = draft.trim();
+    if (!prompt || !client || starting) return;
+    setStarting(true);
+    try {
+      const res = await client.transport.request<{ sessionId?: string }>("/api/sessions/new", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          cwd: currentBinding?.defaultFolder ?? undefined,
+        }),
+      });
+      setDraft("");
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await load();
+      if (res?.sessionId) router.push(`/session/${res.sessionId}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setStarting(false);
+    }
+  }, [client, currentBinding, draft, starting, load, router]);
+
+  /**
+   * The web's "Smart clear": archive every idle session in one request. Busy
+   * sessions are never in the list, so nothing running is touched.
+   */
+  const smartClear = useCallback(() => {
+    if (!client) return;
+    const ids = idle.map((s) => s.sessionId).filter((id): id is string => !!id);
+    if (!ids.length) return;
+    Alert.alert(
+      `Archive ${ids.length} idle session${ids.length === 1 ? "" : "s"}?`,
+      "They can be resumed later.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Archive",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              try {
+                await client.transport.request("/api/sessions/close-all", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ source: "live_clear_idle", scope: "idle", sessionIds: ids }),
+                });
+                await load();
+              } catch (e) {
+                setError(e instanceof Error ? e.message : String(e));
+              }
+            })();
+          },
+        },
+      ],
+    );
+  }, [client, idle, load]);
+
   return (
-    <ScrollView
+    <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={{ paddingTop: insets.top + space.sm, paddingBottom: space.xxl * 2 }}
-      keyboardShouldPersistTaps="handled"
-      refreshControl={
-        <RefreshControl
-          refreshing={loading}
-          onRefresh={() => {
-            void probe();
-            void load();
-          }}
-          tintColor={colors.textMuted}
-        />
-      }
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
-      {/* Which computer am I on — and a way to change it. */}
-      <Pressable
-        onPress={() => router.push("/computers")}
-        style={({ pressed }) => ({
-          flexDirection: "row",
-          alignItems: "center",
-          gap: space.sm,
-          paddingHorizontal: space.lg,
-          paddingVertical: space.sm,
-          opacity: pressed ? 0.6 : 1,
-        })}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: space.xl }}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={() => {
+              void probe();
+              void load();
+            }}
+            tintColor={colors.textMuted}
+          />
+        }
       >
-        <StatusDot busy={currentBinding?.online ?? false} />
-        <Text style={{ ...type.footnote, color: colors.textMuted }}>{machineName}</Text>
-        <Text style={{ ...type.footnote, color: colors.primary }}>Change</Text>
-        {machinesLoading ? <ActivityIndicator size="small" color={colors.textMuted} /> : null}
-      </Pressable>
-
-      <Text style={{ ...type.largeTitle, color: colors.text, paddingHorizontal: space.lg }}>
-        Sessions
-      </Text>
-
-      {connection !== "connected" && ready ? (
-        <Text
+        {/* Top bar: the mark on the left, the machine chip on the right. The
+            chip is also the machine picker link. */}
+        <View
           style={{
-            ...type.caption,
-            color: colors.warning,
+            flexDirection: "row",
+            alignItems: "center",
+            paddingTop: insets.top + space.sm,
             paddingHorizontal: space.lg,
-            paddingTop: space.xs,
+            paddingBottom: space.xs,
           }}
         >
-          Reconnecting…
-        </Text>
-      ) : null}
-
-      {/* Readiness owns the screen when the machine is not serving. */}
-      {!bindingId ? (
-        <EmptyState
-          title="No computer selected"
-          detail="Choose which computer this app should talk to."
-          action={<PrimaryButton label="Choose a computer" onPress={() => router.push("/computers")} />}
-        />
-      ) : readiness?.status === "waking" ? (
-        <View style={{ alignItems: "center", paddingVertical: space.xxl * 2, gap: space.md }}>
-          <ActivityIndicator color={colors.textMuted} />
-          <Text style={{ ...type.callout, color: colors.textSecondary }}>Waking your computer…</Text>
-          <Text style={{ ...type.footnote, color: colors.textMuted, textAlign: "center", paddingHorizontal: space.xl }}>
-            It hibernated to save resources. This usually takes a moment.
-          </Text>
-        </View>
-      ) : readiness?.status === "agent-limit" ? (
-        <EmptyState
-          title="Too many agents running"
-          detail={readiness.message}
-          action={<PrimaryButton label="Try again" onPress={() => void probe()} />}
-        />
-      ) : readiness && readiness.status !== "ready" ? (
-        <EmptyState
-          title={
-            readiness.status === "unavailable"
-              ? "Your computer isn't responding"
-              : "Couldn't open your computer"
-          }
-          detail={"message" in readiness ? readiness.message : undefined}
-          action={
-            <View style={{ gap: space.sm }}>
-              <PrimaryButton label="Try again" onPress={() => void probe()} />
-              <PrimaryButton
-                label="Choose another"
-                tone="quiet"
-                onPress={() => router.push("/computers")}
-              />
-            </View>
-          }
-        />
-      ) : !readiness ? (
-        <View style={{ paddingVertical: space.xxl }}>
-          <ActivityIndicator color={colors.textMuted} />
-        </View>
-      ) : (
-        <>
-          <View style={{ paddingHorizontal: space.lg, paddingTop: space.md }}>
-            <TextInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Search sessions"
-              placeholderTextColor={colors.textMuted}
-              autoCorrect={false}
-              autoCapitalize="none"
-              clearButtonMode="while-editing"
-              style={{
-                backgroundColor: colors.card,
-                borderRadius: radius.md,
-                paddingHorizontal: space.md,
-                height: 38,
-                color: colors.text,
-                ...type.callout,
-              }}
-            />
-          </View>
-
-          {error ? (
-            <Text style={{ ...type.footnote, color: colors.danger, paddingHorizontal: space.lg, paddingTop: space.sm }}>
-              {error}
+          <BrandMark size={30} />
+          <View style={{ flex: 1 }} />
+          <Pressable
+            onPress={() => router.push("/computers")}
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              gap: space.xs,
+              backgroundColor: colors.card,
+              borderRadius: radius.pill,
+              height: 34,
+              paddingHorizontal: space.md,
+              opacity: pressed ? 0.6 : 1,
+              borderWidth: isDark ? StyleSheet.hairlineWidth : 0,
+              borderColor: colors.borderSoft,
+            })}
+          >
+            <StatusDot busy={currentBinding?.online ?? false} size={7} />
+            <Text
+              numberOfLines={1}
+              style={{ ...type.footnote, color: colors.textSecondary, maxWidth: 160 }}
+            >
+              {machineName}
             </Text>
-          ) : null}
+            {machinesLoading ? (
+              <ActivityIndicator size="small" color={colors.textMuted} />
+            ) : (
+              <Icon ios="chevron.down" android="keyboard_arrow_down" size={11} color={colors.textMuted} />
+            )}
+          </Pressable>
+        </View>
 
-          {sessions.length === 0 && !loading ? (
-            <EmptyState
-              title="No sessions yet"
-              detail="Start one from omg on the web, and it shows up here."
-            />
-          ) : null}
+        {connection !== "connected" && ready ? (
+          <Text
+            style={{
+              ...type.caption,
+              color: colors.warning,
+              paddingHorizontal: space.lg,
+              paddingTop: space.xs,
+            }}
+          >
+            Reconnecting…
+          </Text>
+        ) : null}
 
-          {working.length > 0 ? (
-            <>
-              <SectionLabel>{`Working · ${working.length}`}</SectionLabel>
-              <Card>
-                {working.map((s, i) => (
-                  <View key={s.sessionId ?? i}>
-                    {i > 0 ? <Separator inset={space.lg} /> : null}
-                    <SessionRow
+        {/* Readiness owns the screen when the machine is not serving. */}
+        {!bindingId ? (
+          <EmptyState
+            title="No computer selected"
+            detail="Choose which computer this app should talk to."
+            action={<PrimaryButton label="Choose a computer" onPress={() => router.push("/computers")} />}
+          />
+        ) : readiness?.status === "waking" ? (
+          <View style={{ alignItems: "center", paddingVertical: space.xxl * 2, gap: space.md }}>
+            <ActivityIndicator color={colors.textMuted} />
+            <Text style={{ ...type.callout, color: colors.textSecondary }}>Waking your computer…</Text>
+            <Text style={{ ...type.footnote, color: colors.textMuted, textAlign: "center", paddingHorizontal: space.xl }}>
+              It hibernated to save resources. This usually takes a moment.
+            </Text>
+          </View>
+        ) : readiness?.status === "agent-limit" ? (
+          <EmptyState
+            title="Too many agents running"
+            detail={readiness.message}
+            action={<PrimaryButton label="Try again" onPress={() => void probe()} />}
+          />
+        ) : readiness && readiness.status !== "ready" ? (
+          <EmptyState
+            title={
+              readiness.status === "unavailable"
+                ? "Your computer isn't responding"
+                : "Couldn't open your computer"
+            }
+            detail={"message" in readiness ? readiness.message : undefined}
+            action={
+              <View style={{ gap: space.sm }}>
+                <PrimaryButton label="Try again" onPress={() => void probe()} />
+                <PrimaryButton
+                  label="Choose another"
+                  tone="quiet"
+                  onPress={() => router.push("/computers")}
+                />
+              </View>
+            }
+          />
+        ) : !readiness ? (
+          <View style={{ paddingVertical: space.xxl }}>
+            <ActivityIndicator color={colors.textMuted} />
+          </View>
+        ) : (
+          <>
+            {error ? (
+              <Text style={{ ...type.footnote, color: colors.danger, paddingHorizontal: space.lg, paddingTop: space.sm }}>
+                {error}
+              </Text>
+            ) : null}
+
+            {sessions.length === 0 && !loading ? (
+              <EmptyState
+                title="No sessions yet"
+                detail="Start one below and it shows up here."
+              />
+            ) : null}
+
+            {working.length > 0 ? (
+              <>
+                <SectionHeader label="Working" count={working.length} dotColor={colors.brand} />
+                <View style={{ gap: space.md }}>
+                  {working.map((s, i) => (
+                    <SessionCard
+                      key={s.sessionId ?? i}
                       title={s.title || s.lastUserText || "Untitled session"}
                       subtitle={s.title ? s.lastUserText : null}
-                      agent={s.agent}
+                      agent={s.agent ?? s.agentLabel}
                       busy
                       blocked={s.status === "blocked"}
-                      lastActivityAt={s.lastActivityAt}
                       onPress={() => openSession(s.sessionId)}
                     />
-                  </View>
-                ))}
-              </Card>
-            </>
-          ) : null}
+                  ))}
+                </View>
+              </>
+            ) : null}
 
-          {idle.length > 0 ? (
-            <>
-              <SectionLabel>{`Idle · ${idle.length}`}</SectionLabel>
-              <Card>
-                {idle.map((s, i) => (
-                  <View key={s.sessionId ?? i}>
-                    {i > 0 ? <Separator inset={space.lg} /> : null}
-                    <SessionRow
+            {idle.length > 0 ? (
+              <>
+                <SectionHeader
+                  label="Idle"
+                  count={idle.length}
+                  dotColor={colors.success}
+                  actionLabel="Smart clear"
+                  onAction={smartClear}
+                />
+                <View style={{ gap: space.md }}>
+                  {idle.map((s, i) => (
+                    <SessionCard
+                      key={s.sessionId ?? i}
                       title={s.title || s.lastUserText || "Untitled session"}
                       subtitle={s.title ? s.lastUserText : null}
-                      agent={s.agent}
+                      agent={s.agent ?? s.agentLabel}
                       blocked={s.status === "blocked"}
-                      lastActivityAt={s.lastActivityAt}
                       onPress={() => openSession(s.sessionId)}
                     />
-                  </View>
-                ))}
-              </Card>
-            </>
-          ) : null}
-        </>
-      )}
-    </ScrollView>
+                  ))}
+                </View>
+              </>
+            ) : null}
+          </>
+        )}
+      </ScrollView>
+
+      {/* The composer only makes sense against a serving machine; readiness
+          states own the whole screen until then. */}
+      {ready ? (
+        <HomeComposer
+          value={draft}
+          onChangeText={setDraft}
+          onStart={() => void startSession()}
+          starting={starting}
+          projectLabel={currentBinding ? bindingLabel(currentBinding) : null}
+          agent={COMPOSER_AGENT}
+          // TODO: dictate/stash/attach are visual parity with the web composer;
+          // none of the three has a native backend wired yet.
+          bottomInset={insets.bottom}
+        />
+      ) : null}
+    </KeyboardAvoidingView>
   );
 }
