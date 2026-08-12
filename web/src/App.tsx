@@ -23,7 +23,14 @@ import {
 } from "./lib/embedded-connect";
 import { emitSessionCreatedToHost } from "./lib/embed-host-signal";
 import { LFG_SMALL_ICON_PATH } from "./lib/icon-assets";
-import { api, isPlanLimitError, omgAssetUrl, omgFetch, omgUpload } from "./lib/omg-client";
+import {
+  api,
+  isAgentLimitError,
+  isPlanLimitError,
+  omgAssetUrl,
+  omgFetch,
+  omgUpload,
+} from "./lib/omg-client";
 import { cacheProjectFilter, readCachedProjectFilter } from "./lib/project-filter";
 import { resolveRosterUser } from "./lib/roster-user";
 import { uploadFile as uploadFileThroughTransport } from "./lib/upload";
@@ -1158,6 +1165,35 @@ function usePlanLimitHandler(): (error: unknown, action: PlanLimitDetail["action
     },
     [onPlanLimit],
   );
+}
+
+/**
+ * One id, so hitting the wall twice replaces the notice instead of stacking a
+ * second identical one behind the first.
+ */
+const AGENT_LIMIT_TOAST_ID = "agent-limit";
+
+/**
+ * Report the SELF-HOSTED live-agent wall. Returns true when it was this, so the
+ * caller does not also report the error its ordinary way.
+ *
+ * A toast rather than the persistent banner, because this is a decision, not a
+ * condition: it is true only until you close an agent, and the surface that
+ * carried it before had no dismiss and no expiry, so a wall you had already
+ * worked around stayed on screen for the life of the tab.
+ *
+ * The action matters more than the sentence. On your own hardware the cap is a
+ * preference, so the toast offers to overrule it right there (`overLimit`, and
+ * the box still checks it has the memory for one more) instead of sending you
+ * to Settings to edit a number and then retype what you were doing.
+ */
+function toastAgentLimit(error: unknown, startAnyway: () => void): boolean {
+  if (!isAgentLimitError(error)) return false;
+  toast.error(error instanceof Error ? error.message : String(error), {
+    id: AGENT_LIMIT_TOAST_ID,
+    action: { label: "Start anyway", onClick: startAnyway },
+  });
+  return true;
 }
 
 // Bump when any agent SVG's artwork changes. The version rides on every icon
@@ -5237,6 +5273,11 @@ export function App() {
   const [omgVersion, setOmgVersion] = useState("unknown");
   const [repos, setRepos] = useState<Repo[]>([]);
   const [loading, setLoading] = useState(true);
+  // STARTUP failures only — "the app could not load its own state". Every other
+  // failure toasts. This surface is persistent by design and has no business
+  // carrying anything transient: it once took the live-agent refusal from a
+  // single reply, and with no dismiss and no expiry that sentence then sat
+  // above every screen for the life of the tab, long after the wall was gone.
   const [error, setError] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   // Mobile inline create composer (anchored at the bottom of the home screen).
@@ -5634,6 +5675,10 @@ export function App() {
     setFindings(findingList);
     findingList.forEach((f) => seenFindings.current.add(f.id));
     seededAuto.current = true;
+    // The banner below reports THIS load failing. Reaching here means it has
+    // since succeeded, so retire it — a stale "could not load" over a screen
+    // full of freshly loaded state is just noise the reader has to disbelieve.
+    setError(null);
   }, [embedded]);
 
   // Sessions the user just deleted. The server's list can lag a beat (tmux pane
@@ -6353,7 +6398,7 @@ export function App() {
         body: JSON.stringify({ status: "dismissed" }),
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      toast.error(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -6409,43 +6454,53 @@ export function App() {
       users,
     );
     setOpenFinding(null);
-    try {
-      const res = await api<{ sessionId?: string }>("/api/sessions/new", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cwd: cwd || undefined,
-          prompt: composed,
-          title: title || undefined,
-          user: owner || undefined,
-          agent: launchAgent,
-          model: opts.model ?? sourceAgent?.model,
-          thinkingLevel: agentSupportsThinking(launchAgent) ? inheritedThinkingLevel : undefined,
-          // Only Claude has accounts to pin. No `?? sourceAgent` fallback here:
-          // the sheet seeds its state FROM the source agent, so an absent value
-          // means the user actively chose "Claude · Auto" — restoring the
-          // agent's pin would override that and defeat the server's
-          // capacity-based account choice. Exactly the trap the thinkingLevel
-          // note above describes.
-          claudeAccountId: launchAgent === "aisdk" ? opts.claudeAccountId : undefined,
-        }),
-      });
-      const sid = res?.sessionId;
-      if (sid) {
-        markCreatedSid(sid);
-        markCollapsedSid(sid);
+    // Named so the agent-cap toast can run the identical request again with the
+    // override, instead of making someone reopen the finding and retype a reply
+    // the app is still holding.
+    const start = async (overLimit: boolean) => {
+      try {
+        const res = await api<{ sessionId?: string }>("/api/sessions/new", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cwd: cwd || undefined,
+            prompt: composed,
+            title: title || undefined,
+            user: owner || undefined,
+            agent: launchAgent,
+            model: opts.model ?? sourceAgent?.model,
+            thinkingLevel: agentSupportsThinking(launchAgent) ? inheritedThinkingLevel : undefined,
+            overLimit: overLimit || undefined,
+            // Only Claude has accounts to pin. No `?? sourceAgent` fallback here:
+            // the sheet seeds its state FROM the source agent, so an absent value
+            // means the user actively chose "Claude · Auto" — restoring the
+            // agent's pin would override that and defeat the server's
+            // capacity-based account choice. Exactly the trap the thinkingLevel
+            // note above describes.
+            claudeAccountId: launchAgent === "aisdk" ? opts.claudeAccountId : undefined,
+          }),
+        });
+        const sid = res?.sessionId;
+        if (sid) {
+          markCreatedSid(sid);
+          markCollapsedSid(sid);
+        }
+        await api(`/api/auto/findings/${f.id}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "session" }),
+        });
+        setFindings((prev) => prev.filter((x) => x.id !== f.id));
+        setTab("live");
+        await Promise.all([refreshSessions(), refreshAuto()]);
+      } catch (e) {
+        // Offer the override once. A second refusal is a real one — the box is
+        // out of memory, or something else failed — so it is reported plainly.
+        if (!overLimit && toastAgentLimit(e, () => void start(true))) return;
+        toast.error(e instanceof Error ? e.message : String(e));
       }
-      await api(`/api/auto/findings/${f.id}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "session" }),
-      });
-      setFindings((prev) => prev.filter((x) => x.id !== f.id));
-      setTab("live");
-      await Promise.all([refreshSessions(), refreshAuto()]);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
+    };
+    await start(false);
   }
 
   // Feedback closes the loop on the agent, not the finding: the user says what
@@ -6492,7 +6547,7 @@ export function App() {
       setEditingAgent(null);
       await refreshAuto();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      toast.error(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -6550,7 +6605,7 @@ export function App() {
       setEditingAgent(null);
       await refreshAuto();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      toast.error(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -6567,7 +6622,7 @@ export function App() {
       setAutoAgents((prev) =>
         prev.map((a) => (a.id === id ? { ...a, running: false } : a)),
       );
-      setError(e instanceof Error ? e.message : String(e));
+      toast.error(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -6866,7 +6921,7 @@ export function App() {
       setModelCatalog(buildAgentModelCatalog(payload.models));
     } catch (e) {
       setCodingAgents(previous);
-      setError(e instanceof Error ? e.message : String(e));
+      toast.error(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -7455,8 +7510,20 @@ export function App() {
       {embedded ? null : <PwaInstallCallout />}
 
       {error ? (
-        <div className="mx-3 mt-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
+        <div className="mx-3 mt-3 flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <span className="min-w-0 flex-1">{error}</span>
+          {/* A startup failure can persist with nothing left to retry it, so it
+              needs a way out that is not "reload the tab". It also measures
+              into the mobile chrome height, so an undismissable one keeps
+              pushing the scroll surface down for as long as it is wrong. */}
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            aria-label="Dismiss"
+            className="-mr-1 shrink-0 rounded-md p-0.5 opacity-70 transition-opacity hover:opacity-100"
+          >
+            <X className="size-4" />
+          </button>
         </div>
       ) : null}
       </div>
@@ -17316,33 +17383,56 @@ function NewSessionDialog({
           : undefined;
     const resumeUser = resolveRosterUser(user, users);
     onClose();
-    toast.promise(
-      api("/api/sessions/resume", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: session.sessionId,
-          prompt: resumePrompt || undefined,
-          user: resumeUser || undefined,
-          model: resumeModel,
-        }),
-      })
-        .then(() => {
-          setPromptStashStatus(stashed?.id, "sent");
-          if (resumePrompt) setPromptState("");
-          return onCreated();
+    // A cold resume starts a process, so it clears the same cap a create does —
+    // and gets the same way through it.
+    const resume = (overLimit: boolean) =>
+      toast.promise(
+        api("/api/sessions/resume", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: session.sessionId,
+            prompt: resumePrompt || undefined,
+            user: resumeUser || undefined,
+            model: resumeModel,
+            overLimit: overLimit || undefined,
+          }),
         })
-        .catch((err) => {
-          setPromptStashStatus(stashed?.id, "draft");
-          setPromptState((current) => current || resumePrompt);
-          throw err;
-        }),
-      {
-        loading: "Resuming session…",
-        success: "Session resumed",
-        error: (err) => (err instanceof Error ? err.message : "Couldn't resume session"),
-      },
-    );
+          .then(() => {
+            setPromptStashStatus(stashed?.id, "sent");
+            if (resumePrompt) setPromptState("");
+            return onCreated();
+          })
+          .catch((err) => {
+            setPromptStashStatus(stashed?.id, "draft");
+            setPromptState((current) => current || resumePrompt);
+            throw err;
+          }),
+        {
+          loading: "Resuming session…",
+          success: "Session resumed",
+          // Always the object form: sonner spreads it over the toast it is
+          // already swapping the "Resuming…" one for, so the override rides on
+          // that single toast instead of arriving as a second, competing copy.
+          // (Its types accept one shape per callback, not a union of both.)
+          error: (err) => {
+            const message = err instanceof Error ? err.message : "Couldn't resume session";
+            if (!overLimit && isAgentLimitError(err)) {
+              return {
+                message,
+                action: {
+                  label: "Start anyway",
+                  onClick: () => {
+                    resume(true);
+                  },
+                },
+              };
+            }
+            return { message };
+          },
+        },
+      );
+    resume(false);
   }
 
   // Each time the dialog opens, default the owner to the currently selected
@@ -17554,17 +17644,18 @@ function NewSessionDialog({
       fieldRef.current?.querySelector("textarea")?.blur();
     }
     void (async () => {
-      try {
-        // Started at attach time; usually already resolved by now.
-        const uploaded = files.length ? await Promise.all(files.map(resolveUpload)) : [];
-        const composedPrompt = composeAttachmentMessage(taskPrompt, uploaded);
-        const res = await api<{
-          sessionId?: string;
-          // The created row, so the list can render it without waiting for the
-          // next /api/sessions scan to notice it.
-          session?: Session | null;
-          archivedSessionCount?: number;
-        }>("/api/sessions/new", {
+      type CreateResult = {
+        sessionId?: string;
+        // The created row, so the list can render it without waiting for the
+        // next /api/sessions scan to notice it.
+        session?: Session | null;
+        archivedSessionCount?: number;
+      };
+      // Split from the surrounding flow so the agent-cap override can repeat
+      // exactly this request. It takes the already-composed prompt, which means
+      // a retry never re-uploads the attachments — their ids are in that string.
+      const postCreate = (composedPrompt: string, overLimit: boolean) =>
+        api<CreateResult>("/api/sessions/new", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -17575,8 +17666,10 @@ function NewSessionDialog({
             model: launchModel,
             thinkingLevel: agentSupportsThinking(launchAgent) ? launchThinkingLevel : undefined,
             claudeAccountId: launchClaudeAccountId,
+            overLimit: overLimit || undefined,
           }),
         });
+      const settle = async (res: CreateResult) => {
         const sid = res?.sessionId;
         if (sid) {
           markCreatedSid(sid);
@@ -17590,6 +17683,37 @@ function NewSessionDialog({
         }
         setPromptStashStatus(stashed?.id, "sent");
         await onCreated({ launchId: sid, sessionId: sid, session: res?.session ?? null });
+      };
+      try {
+        // Started at attach time; usually already resolved by now.
+        const uploaded = files.length ? await Promise.all(files.map(resolveUpload)) : [];
+        const composedPrompt = composeAttachmentMessage(taskPrompt, uploaded);
+        let res: CreateResult;
+        try {
+          res = await postCreate(composedPrompt, false);
+        } catch (err) {
+          if (!isAgentLimitError(err)) throw err;
+          // The local cap, which its owner can overrule. Put the task back in
+          // the box first so the offer is genuinely optional — declining it
+          // must leave you exactly where you were, with your prompt intact.
+          setPromptStashStatus(stashed?.id, "draft");
+          setPromptState((current) => current || taskPrompt);
+          toastAgentLimit(err, () => {
+            void (async () => {
+              try {
+                const retried = await postCreate(composedPrompt, true);
+                setPromptState("");
+                await settle(retried);
+              } catch (retryError) {
+                const message =
+                  retryError instanceof Error ? retryError.message : String(retryError);
+                toast.error(message || "Couldn't create session");
+              }
+            })();
+          });
+          return;
+        }
+        await settle(res);
       } catch (err) {
         setPromptStashStatus(stashed?.id, "draft");
         setPromptState((current) => current || taskPrompt);

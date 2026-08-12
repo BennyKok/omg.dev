@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   residentAgentCount,
   AgentAdmissionController,
+  NO_AGENT_LIMIT,
   agentLaunchMemoryBudget,
   computerAgentAdmissionContext,
 } from "./agent-admission.ts";
@@ -178,6 +179,22 @@ describe("Computer agent admission", () => {
       limit: 1,
     });
     expect(computerAgentAdmissionContext("")).toBeNull();
+  });
+
+  test("NO_AGENT_LIMIT waives the count, and ONLY the count", () => {
+    // The self-hosted override. Discarding the cap must not also discard the
+    // memory budget — that budget is the whole reason overriding is safe to
+    // offer, and a box that says yes to every launch is the OOM this gate was
+    // built to prevent.
+    const controller = new AgentAdmissionController();
+    const crowded = [{ busy: true }, { busy: true }, { busy: false }];
+    expect(controller.tryAcquire(2, crowded).ok).toBe(false);
+    expect(controller.tryAcquire(NO_AGENT_LIMIT, crowded).ok).toBe(true);
+
+    const starved = new AgentAdmissionController();
+    const noRoom = agentLaunchMemoryBudget(8 * 1024 ** 3, 256 * 1024 ** 2);
+    const denied = starved.tryAcquire(NO_AGENT_LIMIT, crowded, noRoom);
+    expect(denied).toMatchObject({ ok: false, reason: "memory" });
   });
 
   test("the managed plan file can change a live process admission limit", () => {

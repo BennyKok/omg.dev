@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isPlanLimitError } from "../web/src/lib/omg-client.ts";
+import { isAgentLimitError, isPlanLimitError } from "../web/src/lib/omg-client.ts";
 
 /**
  * The refusal a host turns into an upgrade surface instead of a red error.
@@ -44,12 +44,12 @@ describe("isPlanLimitError", () => {
   });
 
   test("ignores an ordinary failure, however similar its wording", () => {
-    // The same sentence reaches a SELF-HOSTED box when it hits its own
+    // The near-identical wall reaches a SELF-HOSTED box when it hits its own
     // maxLiveAgents setting — a preference the person can edit, not a plan.
     // Only the code separates them, which is why the code exists.
     expect(
       isPlanLimitError(
-        new ApiErrorLike("max live agents (1) reached; 1 live — upgrade your Computer", 429),
+        new ApiErrorLike("1 of 1 agents live — start anyway, close an agent", 429, "agent_limit"),
       ),
     ).toBe(false);
     expect(isPlanLimitError(new Error("your Computer plan allows 1 concurrent agents"))).toBe(
@@ -60,6 +60,38 @@ describe("isPlanLimitError", () => {
   test("survives anything that is not an error at all", () => {
     for (const value of [null, undefined, "plan_limit", 429, {}]) {
       expect(isPlanLimitError(value)).toBe(false);
+    }
+  });
+});
+
+/**
+ * The self-hosted twin. It exists to keep the two walls apart: a host that sees
+ * `plan_limit` opens a checkout, which is the wrong answer entirely for someone
+ * who owns the machine and only has to raise a number they set themselves.
+ */
+describe("isAgentLimitError", () => {
+  test("recognises the local cap refusal", () => {
+    expect(isAgentLimitError(new ApiErrorLike("24 of 24 agents live", 429, "agent_limit"))).toBe(
+      true,
+    );
+  });
+
+  test("recognises one raised by a DIFFERENT copy of the client", () => {
+    class ForeignApiError extends Error {
+      status = 429;
+      code = "agent_limit";
+    }
+    expect(isAgentLimitError(new ForeignApiError("local wall"))).toBe(true);
+  });
+
+  test("does not answer for the PLAN wall, or for an untagged failure", () => {
+    expect(isAgentLimitError(new ApiErrorLike("plan wall", 429, "plan_limit"))).toBe(false);
+    expect(isAgentLimitError(new ApiErrorLike("24 of 24 agents live", 429))).toBe(false);
+  });
+
+  test("survives anything that is not an error at all", () => {
+    for (const value of [null, undefined, "agent_limit", 429, {}]) {
+      expect(isAgentLimitError(value)).toBe(false);
     }
   });
 });
