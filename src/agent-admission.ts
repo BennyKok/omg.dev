@@ -163,6 +163,7 @@ export class AgentAdmissionController {
     inspect: () => Promise<{
       sessions: readonly AgentActivity[];
       memory?: AgentMemoryBudget;
+      enforceMemory?: boolean;
     }>,
     reclaim?: () => Promise<number>,
   ): Promise<AgentAdmission> {
@@ -174,12 +175,15 @@ export class AgentAdmissionController {
     await previous;
     try {
       let snapshot = await inspect();
-      let admission = this.tryAcquire(limit, snapshot.sessions, snapshot.memory);
+      const enforce = { enforceMemory: snapshot.enforceMemory };
+      let admission = this.tryAcquire(limit, snapshot.sessions, snapshot.memory, enforce);
       if (!admission.ok && admission.reason === "memory" && reclaim) {
         const reclaimed = await reclaim();
         if (reclaimed > 0) {
           snapshot = await inspect();
-          admission = this.tryAcquire(limit, snapshot.sessions, snapshot.memory);
+          admission = this.tryAcquire(limit, snapshot.sessions, snapshot.memory, {
+            enforceMemory: snapshot.enforceMemory,
+          });
           if (admission.ok) return { ...admission, reclaimed };
         }
       }
@@ -189,10 +193,21 @@ export class AgentAdmissionController {
     }
   }
 
+  /**
+   * `enforceMemory: false` accounts without gating — the budget is measured and
+   * this launch's share of it is reserved, but a shortfall does not refuse.
+   *
+   * That split exists because a launch admitted WITHOUT a budget used to reserve
+   * zero bytes, so three creates in flight looked free to the fourth. Anything
+   * that does gate (a Computer, or a self-hosted override) was then reading
+   * memory that was already promised away. Every admission now books its share;
+   * only the decision to refuse is conditional.
+   */
   tryAcquire(
     limit: number,
     sessions: readonly AgentActivity[],
     memory?: AgentMemoryBudget,
+    options?: { enforceMemory?: boolean },
   ): AgentAdmission {
     const resident = residentAgentCount(sessions);
     if (resident + this.pending.size >= limit) {
@@ -200,7 +215,7 @@ export class AgentAdmissionController {
     }
 
     const reservedBytes = [...this.pending.values()].reduce((sum, bytes) => sum + bytes, 0);
-    if (memory) {
+    if (memory && options?.enforceMemory !== false) {
       const availableBytes = Math.max(0, memory.availableBytes - reservedBytes);
       const requiredBytes = memory.reserveBytes + memory.launchBytes;
       if (availableBytes < requiredBytes) {
