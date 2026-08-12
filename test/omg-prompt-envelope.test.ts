@@ -2,7 +2,29 @@ import { describe, expect, test } from "bun:test";
 import { parseOmgPromptEnvelope } from "../web/src/lib/omg-prompt-envelope";
 
 describe("parseOmgPromptEnvelope", () => {
-  test("separates OMG instructions from the user's task", () => {
+  test("separates omg.dev instructions from the user's task", () => {
+    expect(
+      parseOmgPromptEnvelope(
+        [
+          "=== omg.dev RUNTIME CONTRACT (capability version 2026-08-12.2) ===",
+          "- Narrate progress.",
+          "- Ship verified work.",
+          "=== END omg.dev RUNTIME CONTRACT ===",
+          "",
+          "=== USER TASK ===",
+          "Make the first message easy to read.",
+        ].join("\n"),
+      ),
+    ).toEqual({
+      instructions: "- Narrate progress.\n- Ship verified work.",
+      task: "Make the first message easy to read.",
+      version: "2026-08-12.2",
+    });
+  });
+
+  // Pre-rename transcripts are re-rendered every time an old session is opened,
+  // so every legacy header has to keep parsing indefinitely.
+  test("separates pre-rename OMG instructions from the user's task", () => {
     expect(
       parseOmgPromptEnvelope(
         [
@@ -22,8 +44,6 @@ describe("parseOmgPromptEnvelope", () => {
     });
   });
 
-  // Pre-rename transcripts are re-rendered every time an old session is opened,
-  // so the legacy header has to keep parsing indefinitely.
   test("separates pre-rename LFG instructions from the user's task", () => {
     expect(
       parseOmgPromptEnvelope(

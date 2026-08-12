@@ -8208,16 +8208,14 @@ function LiveHeaderContext({
         }}
         aria-label={
           intro
-            ? hosted
-              ? "omg.dev"
-              : "OMG"
+            ? "omg.dev"
             : questionCount
               ? `${headline}. Tap to open notifications`
               : actionInMotion
                 ? `${welcomeMessage}. ${ambientContext}`
                 : welcomeMessage
         }
-        title={intro ? (hosted ? "omg.dev" : "OMG") : "Open notifications"}
+        title={intro ? "omg.dev" : "Open notifications"}
         className={cn(
           "relative flex h-11 w-full items-center overflow-hidden rounded-full text-left transition-colors active:scale-[0.98]",
           showCard && "glass-island",
@@ -12103,7 +12101,7 @@ function StaleCapabilitiesBanner({ session }: { session: Session }) {
   if (!session.capabilitiesStale) return null;
   return (
     <div className="border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
-      This session started with an older OMG capability contract. Close and resume it to load the latest shipped tools and guidance.
+      This session started with an older omg.dev capability contract. Close and resume it to load the latest shipped tools and guidance.
     </div>
   );
 }
@@ -13476,7 +13474,7 @@ function SessionActionsMenu({
                   Full transcript
                 </DropdownMenuRadioItem>
                 <DropdownMenuRadioItem value="user-lfg-output">
-                  User + OMG output
+                  User + omg.dev output
                 </DropdownMenuRadioItem>
               </DropdownMenuRadioGroup>
             </DropdownMenuSubContent>
@@ -13706,7 +13704,7 @@ function RailSessionContextMenu({
                   Full transcript
                 </ContextMenuRadioItem>
                 <ContextMenuRadioItem value="user-lfg-output">
-                  User + OMG output
+                  User + omg.dev output
                 </ContextMenuRadioItem>
               </ContextMenuRadioGroup>
             </ContextMenuSubContent>
@@ -15364,7 +15362,7 @@ const ChatStream = memo(function ChatStream({
         <ConversationEmptyState
           title={
             transcriptView.value === "user-lfg-output"
-              ? "No user or OMG output messages yet"
+              ? "No user or omg.dev output messages yet"
               : "No transcript messages yet"
           }
         />
@@ -15846,7 +15844,7 @@ function OmgInstructionsBlock({
         aria-expanded={open}
       >
         <ScrollText className="size-3.5" aria-hidden="true" />
-        <span>OMG instructions</span>
+        <span>omg.dev instructions</span>
         {version ? <span className="font-mono opacity-60">{version}</span> : null}
         <ChevronRight
           className={cn("size-3 transition-transform", open && "rotate-90")}
@@ -21308,7 +21306,7 @@ function StoragePage() {
           </div>
         </div>
         <p className="px-4 text-xs text-muted-foreground">
-          Whole-filesystem usage for the volume holding OMG&apos;s data directory.
+          Whole-filesystem usage for the volume holding omg.dev&apos;s data directory.
         </p>
       </section>
 
@@ -21826,7 +21824,7 @@ function SessionUsagePanel() {
 
               <div className="border-t border-border px-4 py-2.5 text-[11px] text-muted-foreground tabular-nums">
                 {formatBytes(usage.unattributedBytes)} in processes owned by no session
-                (the OMG server, system daemons, your own shells).
+                (the omg.dev server, system daemons, your own shells).
               </div>
             </>
           ) : (
@@ -22018,7 +22016,7 @@ function CodingAgentAuthDialog({
         <DialogHeader>
           <DialogTitle>Connect {providerLabel}</DialogTitle>
           <DialogDescription>
-            Finish signing in in the browser. OMG will detect approval automatically.
+            Finish signing in in the browser. omg.dev will detect approval automatically.
           </DialogDescription>
         </DialogHeader>
         {session ? (
@@ -22270,7 +22268,7 @@ function OmgUpdateSection() {
       await new Promise((resolve) => setTimeout(resolve, 1_000));
     }
     setRestarting(false);
-    setError("OMG did not come back after restarting. Check the service logs.");
+    setError("omg.dev did not come back after restarting. Check the service logs.");
   }
 
   async function update() {
@@ -22282,13 +22280,13 @@ function OmgUpdateSection() {
       setInfo(next);
       if (next.restarting) {
         setRestarting(true);
-        toast.success("OMG updated. Restarting…");
+        toast.success("omg.dev updated. Restarting…");
         void waitForRestart(next.bootId);
       } else {
-        toast.success("OMG is already up to date");
+        toast.success("omg.dev is already up to date");
       }
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Could not update OMG";
+      const message = e instanceof Error ? e.message : "Could not update omg.dev";
       setError(message);
       toast.error(message);
     } finally {
@@ -22329,7 +22327,7 @@ function OmgUpdateSection() {
               {busy ? <Loader2 className="size-4 animate-spin" /> : <ArrowDown className="size-4" />}
             </span>
             <div className="min-w-0">
-              <div className="text-sm font-medium">OMG updates</div>
+              <div className="text-sm font-medium">omg.dev updates</div>
               <div
                 className={cn(
                   "text-xs text-muted-foreground",
@@ -22348,7 +22346,7 @@ function OmgUpdateSection() {
               size="sm"
               onClick={() => void update()}
               disabled={busy || !status.restartSupported}
-              title={status.restartSupported ? "Update to origin/main and restart OMG" : blockedReason ?? "Automatic restart is unavailable"}
+              title={status.restartSupported ? "Update to origin/main and restart omg.dev" : blockedReason ?? "Automatic restart is unavailable"}
             >
               {updating || restarting ? <Loader2 className="size-4 animate-spin" /> : <ArrowDown className="size-4" />}
               {restarting ? "Restarting…" : updating ? "Updating…" : "Update & restart"}
@@ -22431,7 +22429,7 @@ function SettingsView({
               <span className="min-w-0">
                 <span className="block text-sm font-medium">Ping</span>
                 <span className="block truncate text-xs text-muted-foreground">
-                  Browser to OMG server
+                  Browser to omg.dev server
                 </span>
               </span>
             </div>

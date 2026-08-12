@@ -73,7 +73,7 @@ describe("session usage report", () => {
       for (const proc of row.procs) {
         expect(proc.label.length).toBeLessThanOrEqual(81);
         // The backend's argv carries the entire task prompt after `--`.
-        expect(proc.label).not.toContain("=== OMG RUNTIME CONTRACT");
+        expect(proc.label).not.toContain("RUNTIME CONTRACT");
         expect(proc.label.toLowerCase()).not.toContain("token=");
         expect(proc.label.toLowerCase()).not.toContain("secret");
       }

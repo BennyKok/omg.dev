@@ -219,7 +219,7 @@ function sessionParent(session: SessionRow): string | undefined {
   return session.parentSessionId ?? session.parentNativeSessionId ?? undefined;
 }
 
-// Which OMG session is on the other end of this tool call.
+// Which omg.dev session is on the other end of this tool call.
 //
 // Under stdio, that is ambient: the agent CLI spawns `omg mcp` as its own child,
 // so OMG_SESSION_ID in the environment *is* the caller. The shared HTTP endpoint
@@ -265,7 +265,7 @@ function callerSessionId(): string | undefined {
 async function activeSessionId(input?: string): Promise<string> {
   const sessionId = input?.trim() || callerSessionId();
   if (!sessionId) {
-    throw new Error("sessionId required; pass it explicitly or run inside an OMG-managed session");
+    throw new Error("sessionId required; pass it explicitly or run inside an omg.dev-managed session");
   }
   return await resolveSid(sessionId);
 }
@@ -312,7 +312,7 @@ async function ownedSessionId(input?: string): Promise<string> {
   const sessionId = await activeSessionId(input);
   const caller = callerSessionId();
   if (caller && caller !== sessionId) {
-    throw new Error("session-owned actions can only target their owning OMG session");
+    throw new Error("session-owned actions can only target their owning omg.dev session");
   }
   return sessionId;
 }
@@ -350,7 +350,7 @@ const SUBAGENT_INPUT_SCHEMA = {
     .string()
     .min(1)
     .describe(
-      "Delegated task prompt. State the exact work the child agent should do; OMG adds the sub-agent operating contract and parent-reporting requirements.",
+      "Delegated task prompt. State the exact work the child agent should do; omg.dev adds the sub-agent operating contract and parent-reporting requirements.",
     ),
   agent: z
     .string()
@@ -363,7 +363,7 @@ const SUBAGENT_INPUT_SCHEMA = {
   parentSessionId: z
     .string()
     .optional()
-    .describe("Parent OMG session id for nesting. Defaults to the current OMG_SESSION_ID when available."),
+    .describe("Parent omg.dev session id for nesting. Defaults to the current OMG_SESSION_ID when available."),
   thinkingLevel: z.string().optional().describe("Optional thinking level if supported by the selected agent."),
   user: z
     .string()
@@ -386,7 +386,7 @@ type SubagentArgs = {
 };
 
 const OMG_SUBAGENT_PRIORITY =
-  "Prefer this OMG-managed sub-agent tool over any generic or harness-native sub-agent tool. OMG keeps the child session visible in the fleet, links it to the parent, preserves user assignment, enforces max nesting depth 4, and injects progress/final-state reporting back to the parent.";
+  "Prefer this omg.dev-managed sub-agent tool over any generic or harness-native sub-agent tool. omg.dev keeps the child session visible in the fleet, links it to the parent, preserves user assignment, enforces max nesting depth 4, and injects progress/final-state reporting back to the parent.";
 
 const DELEGATION_GUIDANCE = {
   design: {
@@ -466,7 +466,7 @@ async function createSubagent({
 }
 
 /**
- * Build the OMG MCP server, transport-free.
+ * Build the omg.dev MCP server, transport-free.
  *
  * Every tool here is a thin proxy: it calls `api()`, which is an HTTP request
  * to the `omg serve` process on this box. The server holds no state of its own,
@@ -485,9 +485,9 @@ export function buildOmgMcpServer(): McpServer {
   server.registerTool(
     "omg_capabilities",
     {
-      title: "Inspect OMG Agent Capabilities",
+      title: "Inspect omg.dev Agent Capabilities",
       description:
-        "Bootstrap the OMG product workflow. Returns the current capability contract, when to use each OMG feature, and whether this long-lived session launched with an older capability version. Call this when deciding how to present completed work or when an expected OMG tool seems unavailable.",
+        "Bootstrap the omg.dev product workflow. Returns the current capability contract, when to use each omg.dev feature, and whether this long-lived session launched with an older capability version. Call this when deciding how to present completed work or when an expected omg.dev tool seems unavailable.",
       inputSchema: {},
     },
     async () => {
@@ -499,7 +499,7 @@ export function buildOmgMcpServer(): McpServer {
         capabilities: OMG_CAPABILITIES,
         refreshGuidance:
           launchedWith && launchedWith !== OMG_CAPABILITY_VERSION
-            ? "This session predates the current OMG capability contract. Finish or pause active work, then close and resume the session to reload its MCP catalog."
+            ? "This session predates the current omg.dev capability contract. Finish or pause active work, then close and resume the session to reload its MCP catalog."
             : null,
       });
     },
@@ -508,8 +508,8 @@ export function buildOmgMcpServer(): McpServer {
   server.registerTool(
     "omg_list_sessions",
     {
-      title: "List OMG Sessions",
-      description: "List live OMG runtime sessions, optionally filtered to children of a parent session.",
+      title: "List omg.dev Sessions",
+      description: "List live omg.dev runtime sessions, optionally filtered to children of a parent session.",
       inputSchema: {
         parentSessionId: z.string().optional().describe("Only return children of this parent session id."),
         driveableOnly: z.boolean().optional().describe("When true, only return sessions with sessionId and tmuxTarget."),
@@ -534,9 +534,9 @@ export function buildOmgMcpServer(): McpServer {
   server.registerTool(
     "omg_find_sessions",
     {
-      title: "Find Historical OMG Sessions",
+      title: "Find Historical omg.dev Sessions",
       description:
-        "Find durable OMG sessions, including ended sessions no longer present in tmux or the process table. Filters compose, results are newest-first, and text searches titles plus normalized transcript content.",
+        "Find durable omg.dev sessions, including ended sessions no longer present in tmux or the process table. Filters compose, results are newest-first, and text searches titles plus normalized transcript content.",
       inputSchema: {
         sessionId: z
           .string()
@@ -598,7 +598,7 @@ export function buildOmgMcpServer(): McpServer {
   server.registerTool(
     "omg_get_session_tree",
     {
-      title: "Get OMG Session Tree",
+      title: "Get omg.dev Session Tree",
       description: "Return runtime sessions grouped by parent/child relationship.",
       inputSchema: {},
     },
@@ -627,10 +627,10 @@ export function buildOmgMcpServer(): McpServer {
   server.registerTool(
     "omg_get_session_messages",
     {
-      title: "Get OMG Session Messages",
+      title: "Get omg.dev Session Messages",
       description: "Read recent or full normalized transcript messages for a session.",
       inputSchema: {
-        sessionId: z.string().describe("OMG session id."),
+        sessionId: z.string().describe("omg.dev session id."),
         limit: z.number().int().min(1).max(200).optional().describe("Recent message count when full is false."),
         full: z.boolean().optional().describe("Read the full transcript instead of a recent tail."),
       },
@@ -651,10 +651,10 @@ export function buildOmgMcpServer(): McpServer {
   server.registerTool(
     "omg_send_session_message",
     {
-      title: "Send OMG Session Message",
-      description: "Steer or queue a message to an existing OMG session.",
+      title: "Send omg.dev Session Message",
+      description: "Steer or queue a message to an existing omg.dev session.",
       inputSchema: {
-        sessionId: z.string().describe("OMG session id."),
+        sessionId: z.string().describe("omg.dev session id."),
         text: z.string().min(1).describe("Instruction text to send."),
         mode: z.enum(["steer", "queue"]).optional().describe("steer may interrupt active work; queue waits."),
       },
@@ -677,11 +677,11 @@ export function buildOmgMcpServer(): McpServer {
   server.registerTool(
     "omg_close_session",
     {
-      title: "Close OMG Session",
+      title: "Close omg.dev Session",
       description:
-        "Close another OMG runtime session that is clearly finished. Resolve the exact target id with omg_list_sessions first. The calling session cannot close itself.",
+        "Close another omg.dev runtime session that is clearly finished. Resolve the exact target id with omg_list_sessions first. The calling session cannot close itself.",
       inputSchema: {
-        sessionId: z.string().min(1).describe("Exact OMG session id returned by omg_list_sessions."),
+        sessionId: z.string().min(1).describe("Exact omg.dev session id returned by omg_list_sessions."),
       },
     },
     async ({ sessionId }) => result(await closeOmgSession(sessionId)),
@@ -745,14 +745,14 @@ export function buildOmgMcpServer(): McpServer {
     {
       title: "Send A Message To The Originating Channel",
       description:
-        "Send text and/or session-owned image/video artifacts back to the channel that launched this OMG session. The channel adapter owns final delivery (for example iMessage via Blooio); OMG never receives phone numbers or transport credentials.",
+        "Send text and/or session-owned image/video artifacts back to the channel that launched this omg.dev session. The channel adapter owns final delivery (for example iMessage via Blooio); omg.dev never receives phone numbers or transport credentials.",
       inputSchema: {
         text: z.string().max(4_000).optional().describe("Optional message text delivered with the media."),
         mediaPaths: z
           .array(z.string().min(1))
           .max(3)
           .optional()
-          .describe("Up to three absolute local image/video paths. OMG stores them as session artifacts before delivery."),
+          .describe("Up to three absolute local image/video paths. omg.dev stores them as session artifacts before delivery."),
         artifactIds: z
           .array(z.string().min(1))
           .max(3)
@@ -761,7 +761,7 @@ export function buildOmgMcpServer(): McpServer {
         sessionId: z
           .string()
           .optional()
-          .describe("Owning OMG session id. Defaults to OMG_SESSION_ID and cannot target another session."),
+          .describe("Owning omg.dev session id. Defaults to OMG_SESSION_ID and cannot target another session."),
       },
     },
     async ({ text, mediaPaths, artifactIds, sessionId }) =>
@@ -771,14 +771,14 @@ export function buildOmgMcpServer(): McpServer {
   server.registerTool(
     "omg_display_image",
     {
-      title: "Display Image In OMG",
+      title: "Display Image In omg.dev",
       description:
-        "Display a local image file, such as a screenshot captured while testing, in the OMG session transcript.",
+        "Display a local image file, such as a screenshot captured while testing, in the omg.dev session transcript.",
       inputSchema: {
         path: z.string().min(1).describe("Absolute path to a png, jpg, jpeg, webp, or gif image on this machine."),
         caption: z.string().optional().describe("Short caption shown under the image."),
         alt: z.string().optional().describe("Short alt text for the image."),
-        sessionId: z.string().optional().describe("Target OMG session id. Defaults to OMG_SESSION_ID."),
+        sessionId: z.string().optional().describe("Target omg.dev session id. Defaults to OMG_SESSION_ID."),
       },
     },
     async ({ path, caption, alt, sessionId }) => {
@@ -802,14 +802,14 @@ export function buildOmgMcpServer(): McpServer {
   server.registerTool(
     "omg_display_video",
     {
-      title: "Display Video In OMG",
+      title: "Display Video In omg.dev",
       description:
-        "Display a local video file, such as a screen recording captured while testing, inline in the OMG session transcript.",
+        "Display a local video file, such as a screen recording captured while testing, inline in the omg.dev session transcript.",
       inputSchema: {
         path: z.string().min(1).describe("Absolute path to an mp4, m4v, webm, mov, or ogv video on this machine."),
         caption: z.string().optional().describe("Short caption shown under the video."),
         alt: z.string().optional().describe("Short accessible description of the video."),
-        sessionId: z.string().optional().describe("Target OMG session id. Defaults to OMG_SESSION_ID."),
+        sessionId: z.string().optional().describe("Target omg.dev session id. Defaults to OMG_SESSION_ID."),
       },
     },
     async ({ path, caption, alt, sessionId }) => {
@@ -833,15 +833,15 @@ export function buildOmgMcpServer(): McpServer {
   server.registerTool(
     "omg_publish_artifact",
     {
-      title: "Publish HTML Artifact In OMG",
+      title: "Publish HTML Artifact In omg.dev",
       description:
-        "Publish a self-contained HTML artifact (report, data view, live dashboard) into the OMG session transcript. Re-publishing with the same id updates one card in place. Optionally attach an executable server-side refresh script inside the owning session cwd; OMG invokes the path with explicit argv (never a shell), validates complete HTML output, and preserves the last good version on failure. Omit html only when updating an existing artifact's refresh configuration. Static HTML renders as sanitized native DOM; scripted HTML runs in an isolated iframe with no network or host-execution access.",
+        "Publish a self-contained HTML artifact (report, data view, live dashboard) into the omg.dev session transcript. Re-publishing with the same id updates one card in place. Optionally attach an executable server-side refresh script inside the owning session cwd; omg.dev invokes the path with explicit argv (never a shell), validates complete HTML output, and preserves the last good version on failure. Omit html only when updating an existing artifact's refresh configuration. Static HTML renders as sanitized native DOM; scripted HTML runs in an isolated iframe with no network or host-execution access.",
       inputSchema: {
-        html: z.string().min(1).optional().describe("Complete self-contained HTML document (inline CSS/JS/data only; no external resources). For native light/dark theming, use the --omg-artifact-background, --omg-artifact-surface, --omg-artifact-foreground, --omg-artifact-muted, --omg-artifact-muted-foreground, --omg-artifact-border, --omg-artifact-accent, --omg-artifact-accent-foreground, and --omg-artifact-code-background CSS variables. Text colors come from -foreground/-muted-foreground; --omg-artifact-muted is a surface, so text painted with it vanishes into its own background. Key dark mode off :root[data-theme='dark'], which the renderer stamps — a card is themed by OMG independently of the desktop, so prefers-color-scheme answers the wrong question. May be omitted only to update refresh settings for an existing id."),
+        html: z.string().min(1).optional().describe("Complete self-contained HTML document (inline CSS/JS/data only; no external resources). For native light/dark theming, use the --omg-artifact-background, --omg-artifact-surface, --omg-artifact-foreground, --omg-artifact-muted, --omg-artifact-muted-foreground, --omg-artifact-border, --omg-artifact-accent, --omg-artifact-accent-foreground, and --omg-artifact-code-background CSS variables. Text colors come from -foreground/-muted-foreground; --omg-artifact-muted is a surface, so text painted with it vanishes into its own background. Key dark mode off :root[data-theme='dark'], which the renderer stamps — a card is themed by omg.dev independently of the desktop, so prefers-color-scheme answers the wrong question. May be omitted only to update refresh settings for an existing id."),
         id: z.string().optional().describe("Stable artifact id (3-64 chars: lowercase letters, digits, dashes). Re-publish with the same id to update in place."),
         title: z.string().optional().describe("Short title shown on the artifact card."),
         caption: z.string().optional().describe("Short caption shown under the artifact."),
-        sessionId: z.string().optional().describe("Target OMG session id. Defaults to OMG_SESSION_ID."),
+        sessionId: z.string().optional().describe("Target omg.dev session id. Defaults to OMG_SESSION_ID."),
         refreshScriptPath: z.string().nullable().optional().describe("Absolute executable script path inside the owning session cwd. Set null to remove the refresh configuration."),
         refreshArgv: z.array(z.string()).max(32).optional().describe("Explicit arguments passed directly to the script; shell syntax is never evaluated."),
         refreshIntervalSeconds: z.number().int().min(10).max(604800).optional().describe("Automatic refresh interval in seconds (10 seconds to 7 days)."),
@@ -885,13 +885,13 @@ export function buildOmgMcpServer(): McpServer {
   server.registerTool(
     "omg_refresh_artifact",
     {
-      title: "Refresh Or Inspect An OMG HTML Artifact",
+      title: "Refresh Or Inspect An omg.dev HTML Artifact",
       description:
         "Run the owning HTML artifact's configured server-side script now, or inspect persisted refresh status. Manual runs also work when the automatic schedule is disabled. A successful data refresh updates the stable card and refresh timestamp without creating a new artifact revision.",
       inputSchema: {
         id: z.string().min(3).describe("Stable HTML artifact id."),
         action: z.enum(["now", "status"]).optional().describe("Run now (default) or only return persisted status."),
-        sessionId: z.string().optional().describe("Owning OMG session id. Defaults to OMG_SESSION_ID and cannot target another session."),
+        sessionId: z.string().optional().describe("Owning omg.dev session id. Defaults to OMG_SESSION_ID and cannot target another session."),
       },
     },
     async ({ id, action, sessionId }) => {
@@ -914,12 +914,12 @@ export function buildOmgMcpServer(): McpServer {
   server.registerTool(
     "omg_delete_artifact",
     {
-      title: "Delete An OMG Artifact",
+      title: "Delete An omg.dev Artifact",
       description:
-        "Permanently delete an artifact owned by this OMG session. HTML refresh schedules and active refresh processes are stopped before the artifact is removed.",
+        "Permanently delete an artifact owned by this omg.dev session. HTML refresh schedules and active refresh processes are stopped before the artifact is removed.",
       inputSchema: {
         id: z.string().min(3).describe("Artifact id to permanently delete."),
-        sessionId: z.string().optional().describe("Owning OMG session id. Defaults to OMG_SESSION_ID and cannot target another session."),
+        sessionId: z.string().optional().describe("Owning omg.dev session id. Defaults to OMG_SESSION_ID and cannot target another session."),
       },
     },
     async ({ id, sessionId }) => {
@@ -935,9 +935,9 @@ export function buildOmgMcpServer(): McpServer {
   server.registerTool(
     "omg_ship",
     {
-      title: "Post To The OMG Shipped Channel",
+      title: "Post To The omg.dev Shipped Channel",
       description:
-        "Post a verified result in the OMG Shipped feed, then explicitly decide whether its source session should close. A Shipped post does not itself prove production deployment. Set closeSession true only when the requested outcome (including deployment when requested) and conversation are genuinely finished; that call is terminal and leaves the session resumable. Set it false for quick chats or likely follow-up, and the session stays live. Never use this for planning, partial, blocked, or still-unverified work. Write it like a launch tweet: a punchy headline + at most 1-2 short sentences on the outcome and why it matters. To update an earlier post, pass its id.",
+        "Post a verified result in the omg.dev Shipped feed, then explicitly decide whether its source session should close. A Shipped post does not itself prove production deployment. Set closeSession true only when the requested outcome (including deployment when requested) and conversation are genuinely finished; that call is terminal and leaves the session resumable. Set it false for quick chats or likely follow-up, and the session stays live. Never use this for planning, partial, blocked, or still-unverified work. Write it like a launch tweet: a punchy headline + at most 1-2 short sentences on the outcome and why it matters. To update an earlier post, pass its id.",
       inputSchema: {
         title: z.string().min(1).describe("Short headline for what shipped (e.g. 'WhatsApp reconnect loop fixed')."),
         id: z.string().optional().describe("Existing ship post id to update in place (returned when the post was created)."),
@@ -953,7 +953,7 @@ export function buildOmgMcpServer(): McpServer {
           .describe("Local image/video files to attach (absolute paths) — screenshots or recordings of the result."),
         artifactIds: z.array(z.string()).optional().describe("Existing artifact ids to embed (e.g. a published html dashboard)."),
         project: z.string().optional().describe("Project label shown on the post."),
-        sessionId: z.string().optional().describe("Source OMG session id. Defaults to OMG_SESSION_ID."),
+        sessionId: z.string().optional().describe("Source omg.dev session id. Defaults to OMG_SESSION_ID."),
         closeSession: z
           .boolean()
           .describe("Explicit lifecycle decision: true closes this genuinely finished conversation after posting; false keeps it live for chat or follow-up."),
@@ -987,8 +987,8 @@ export function buildOmgMcpServer(): McpServer {
   server.registerTool(
     "omg_list_repos",
     {
-      title: "List OMG Repos",
-      description: "List repositories OMG can launch sessions in.",
+      title: "List omg.dev Repos",
+      description: "List repositories omg.dev can launch sessions in.",
       inputSchema: {},
     },
     async () => {
@@ -1000,8 +1000,8 @@ export function buildOmgMcpServer(): McpServer {
   server.registerTool(
     "omg_list_models",
     {
-      title: "List OMG Models",
-      description: "List provider/model options that MCP can use when delegating work to OMG sub-agents.",
+      title: "List omg.dev Models",
+      description: "List provider/model options that MCP can use when delegating work to omg.dev sub-agents.",
       inputSchema: {},
     },
     async () => {
@@ -1015,9 +1015,9 @@ export function buildOmgMcpServer(): McpServer {
   server.registerTool(
     "omg_create_subagent",
     {
-      title: "Create OMG Sub-Agent",
+      title: "Create omg.dev Sub-Agent",
       description:
-        `Create a managed runtime child session using OMG subagent. ${OMG_SUBAGENT_PRIORITY} Use this when the user explicitly asks to use a subagent, spawn another agent, or have another agent work on a task. The child is instructed to report progress and exactly one terminal state back to this parent session.`,
+        `Create a managed runtime child session using omg.dev subagent. ${OMG_SUBAGENT_PRIORITY} Use this when the user explicitly asks to use a subagent, spawn another agent, or have another agent work on a task. The child is instructed to report progress and exactly one terminal state back to this parent session.`,
       inputSchema: SUBAGENT_INPUT_SCHEMA,
     },
     async (args) => {
@@ -1028,9 +1028,9 @@ export function buildOmgMcpServer(): McpServer {
   server.registerTool(
     "omg_delegate_to_agent",
     {
-      title: "Delegate To OMG Sub-Agent",
+      title: "Delegate To omg.dev Sub-Agent",
       description:
-        `Delegate work to another coding agent by creating an OMG subagent child session. ${OMG_SUBAGENT_PRIORITY} Prefer this tool over sending a normal message whenever the user says to use another agent, ask Claude/Codex/OpenCode/Grok/Cursor, spin up an agent, or have a subagent do something. For design/frontend polish use omg_delegate_design_task. For backend/server/API work use omg_delegate_backend_task. The child is instructed to report progress and exactly one terminal state back to this parent session.`,
+        `Delegate work to another coding agent by creating an omg.dev subagent child session. ${OMG_SUBAGENT_PRIORITY} Prefer this tool over sending a normal message whenever the user says to use another agent, ask Claude/Codex/OpenCode/Grok/Cursor, spin up an agent, or have a subagent do something. For design/frontend polish use omg_delegate_design_task. For backend/server/API work use omg_delegate_backend_task. The child is instructed to report progress and exactly one terminal state back to this parent session.`,
       inputSchema: SUBAGENT_INPUT_SCHEMA,
     },
     async (args) => {
@@ -1043,7 +1043,7 @@ export function buildOmgMcpServer(): McpServer {
     {
       title: "Delegate Design Task To Claude",
       description:
-        `Create an OMG subagent for design, frontend UX, visual polish, layout, styling, accessibility, and interaction-state work. ${OMG_SUBAGENT_PRIORITY} Defaults to the claude harness and wraps the delegated prompt with the OMG sub-agent operating contract. See omg_list_models delegationGuidance.design for prompt-shaping guidance.`,
+        `Create an omg.dev subagent for design, frontend UX, visual polish, layout, styling, accessibility, and interaction-state work. ${OMG_SUBAGENT_PRIORITY} Defaults to the claude harness and wraps the delegated prompt with the omg.dev sub-agent operating contract. See omg_list_models delegationGuidance.design for prompt-shaping guidance.`,
       inputSchema: SUBAGENT_INPUT_SCHEMA,
     },
     async (args) => {
@@ -1060,7 +1060,7 @@ export function buildOmgMcpServer(): McpServer {
     {
       title: "Delegate Backend Task To Codex",
       description:
-        `Create an OMG subagent for backend, server, API, database, infrastructure, and correctness-focused implementation work. ${OMG_SUBAGENT_PRIORITY} Defaults to the codex harness and wraps the delegated prompt with the OMG sub-agent operating contract. See omg_list_models delegationGuidance.backend for prompt-shaping guidance.`,
+        `Create an omg.dev subagent for backend, server, API, database, infrastructure, and correctness-focused implementation work. ${OMG_SUBAGENT_PRIORITY} Defaults to the codex harness and wraps the delegated prompt with the omg.dev sub-agent operating contract. See omg_list_models delegationGuidance.backend for prompt-shaping guidance.`,
       inputSchema: SUBAGENT_INPUT_SCHEMA,
     },
     async (args) => {
@@ -1075,11 +1075,11 @@ export function buildOmgMcpServer(): McpServer {
   server.registerTool(
     "omg_reparent_session",
     {
-      title: "Reparent OMG Session",
+      title: "Reparent omg.dev Session",
       description:
         "Move an existing session under a different parent session, or detach it to a root. The child must be omg-managed; the move is rejected if it would create a cycle.",
       inputSchema: {
-        sessionId: z.string().describe("OMG session id (or native id) of the child to move."),
+        sessionId: z.string().describe("omg.dev session id (or native id) of the child to move."),
         parentSessionId: z
           .string()
           .nullable()
@@ -1103,10 +1103,10 @@ export function buildOmgMcpServer(): McpServer {
   server.registerTool(
     "omg_list_subagents",
     {
-      title: "List OMG Sub-Agents",
+      title: "List omg.dev Sub-Agents",
       description: "List child sessions, optionally for one parent session.",
       inputSchema: {
-        parentSessionId: z.string().optional().describe("Parent OMG session id."),
+        parentSessionId: z.string().optional().describe("Parent omg.dev session id."),
       },
     },
     async ({ parentSessionId }) => {
@@ -1352,7 +1352,7 @@ export function buildOmgMcpServer(): McpServer {
 }
 
 // ---- Pre-rename tool names -----------------------------------------------
-// Every tool was `lfg_*` before the OMG rename. An agent reads the tool catalog
+// Every tool was `lfg_*` before the omg.dev rename. An agent reads the tool catalog
 // once, when its session starts, so every session already running at the moment
 // this ships still holds the old names and will keep calling them for hours.
 //

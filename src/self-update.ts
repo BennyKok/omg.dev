@@ -44,14 +44,14 @@ export type ReleaseInstall = {
 type CommandResult = { ok: boolean; stdout: string; stderr: string };
 
 /**
- * OMG sandboxes have no user systemd, so they supervise `lfg serve` with a
+ * omg.dev sandboxes have no user systemd, so they supervise `lfg serve` with a
  * plain `while true; do <serve>; sleep 2; done` shell loop. Exiting is
  * therefore how LFG restarts itself there — but only if a supervisor really is
  * watching, so each layout pairs its marker files with a token that must appear
  * in the supervisor's /proc cmdline. Without that check a recycled PID could
  * make LFG exit into nothing.
  *
- * Two layouts exist because OMG changed the convention. Both are still in the
+ * Two layouts exist because omg.dev changed the convention. Both are still in the
  * field: guests baked from an older template run the legacy one, and a guest
  * only moves to the current one when its template is re-baked.
  */
@@ -322,7 +322,7 @@ function omgSupervisorRestartCommand(
       for (const kill of ["/usr/bin/kill", "/bin/kill"]) {
         try {
           accessSync(kill, constants.X_OK);
-          // The OMG-owned loop observes this process exit and starts the updated
+          // The omg.dev-owned loop observes this process exit and starts the updated
           // foreground command again after its normal two-second backoff.
           return [kill, "-TERM", String(currentPid)];
         } catch {}
@@ -375,15 +375,15 @@ export function restartCapability(
     return {
       command: null,
       reason: configured
-        ? "This box has an OMG supervisor script but nothing is currently watching this process, so exiting to update would take OMG down."
-        : "Nothing supervises this process: no systemd user unit and no OMG supervisor loop, so OMG cannot bring itself back up after updating.",
+        ? "This box has an omg.dev supervisor script but nothing is currently watching this process, so exiting to update would take omg.dev down."
+        : "Nothing supervises this process: no systemd user unit and no omg.dev supervisor loop, so omg.dev cannot bring itself back up after updating.",
     };
   }
   if (platform === "darwin") {
     const launchctl = "/bin/launchctl";
     const label = installedLaunchAgent(home);
     if (!label) {
-      return { command: null, reason: "No launchd agent is installed for OMG on this Mac." };
+      return { command: null, reason: "No launchd agent is installed for omg.dev on this Mac." };
     }
     try {
       accessSync(launchctl, constants.X_OK);

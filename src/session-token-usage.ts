@@ -230,15 +230,17 @@ function classifyPromptText(
     text,
     map,
     "Project instructions",
-    /# AGENTS\.md instructions[\s\S]*?(?=\n(?:<environment_context>|=== (?:OMG|LFG) RUNTIME CONTRACT|=== USER TASK ===)|$)/gi,
+    /# AGENTS\.md instructions[\s\S]*?(?=\n(?:<environment_context>|=== (?:omg\.dev|OMG|LFG) RUNTIME CONTRACT|=== USER TASK ===)|$)/gi,
   );
-  // Both spellings: sessions launched before the OMG rename still carry an
-  // "LFG RUNTIME CONTRACT" envelope, and they outlive the deploy that renamed it.
+  // All three spellings: sessions launched before the current omg.dev branding
+  // still carry an "OMG" or "LFG RUNTIME CONTRACT" envelope, and they outlive
+  // the deploy that renamed it. The backreference keeps each envelope paired to
+  // the marker that opened it.
   text = consumeTagged(
     text,
     map,
     "Runtime instructions",
-    /=== (OMG|LFG) RUNTIME CONTRACT[\s\S]*?=== END \1 RUNTIME CONTRACT ===/gi,
+    /=== (omg\.dev|OMG|LFG) RUNTIME CONTRACT[\s\S]*?=== END \1 RUNTIME CONTRACT ===/gi,
   );
   if (role === "user") {
     const marker = text.indexOf("=== USER TASK ===");
