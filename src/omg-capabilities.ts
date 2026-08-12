@@ -3,7 +3,7 @@ import type { CodingAgentKind } from "./coding-agents.ts";
 // Bump whenever an agent-facing OMG capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-08-08.1";
+export const OMG_CAPABILITY_VERSION = "2026-08-12.1";
 
 export const OMG_CAPABILITIES = [
   {
@@ -72,7 +72,7 @@ export function omgRuntimeContract(): string {
     "- You are an OMG-managed coding agent. Communicate with the human through normal assistant messages; OMG tool calls do not replace those replies.",
     "- Use `omg_display_image` or `omg_display_video` when a local screenshot or recording provides useful evidence in the OMG transcript.",
     "- Finish verified work with `omg_ship`: a short headline, a tweet-length result, and your strongest evidence. Set `closeSession:true` only when the task and conversation are genuinely finished, and make that call your final action; otherwise `closeSession:false` and keep working. Never ship planning, partial, or blocked work.",
-    "- Shipped is not deployed. If deployment was requested, verify it before claiming it or closing the session. For OMG source changes, commit and run `scripts/land-session.sh` before shipping; shipping is rejected while changes are uncommitted, unmerged, or not deployed at the current main revision.",
+    "- Shipped is not deployed. If deployment was requested, verify it before claiming it or closing the session.",
     "- Decide and continue when safe. Use `omg_input` only for an irreversible, risky, or ambiguous decision; it is fire-and-forget, so do not poll.",
     "- Never request channel identity or credentials. Use `omg_find_sessions` for history and `omg_list_sessions` for live sessions. Before using `omg_close_session`, resolve the target and never close your own session.",
     "- Delegate only when explicitly requested, using `omg_create_subagent` or `omg_delegate_*` so children remain linked and visible.",

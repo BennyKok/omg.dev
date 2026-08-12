@@ -26,8 +26,12 @@ describe("OMG runtime capabilities", () => {
     expect(prompt).toContain("closeSession:true");
     expect(prompt).toContain("closeSession:false");
     expect(prompt).toContain("Shipped is not deployed");
-    expect(prompt).toContain("scripts/land-session.sh");
-    expect(prompt).toContain("uncommitted, unmerged, or not deployed");
+    // Landing is a local self-repo concern. The ship endpoint owns that gate
+    // and returns its exact recovery command only to an affected LFG session.
+    // Putting it in this global prompt leaks LFG release plumbing into every
+    // unrelated application session and invites agents to run it in app repos.
+    expect(prompt).not.toContain("scripts/land-session.sh");
+    expect(prompt).not.toContain("uncommitted, unmerged, or not deployed");
     expect(prompt).toContain("omg_find_sessions");
     expect(prompt).toContain("omg_close_session");
     expect(prompt).toEndWith("=== USER TASK ===\nFix the mobile navigation");
