@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## August 12, 2026 - A cleaner new-session prompt (v0.1.354)
+
+- **The new-session prompt stays on one line on a phone.** Its shorter
+  "What should we work on?" wording keeps the empty composer compact and makes
+  the invitation easier to scan.
+
 ## August 12, 2026 - Cursor stops asking you to connect it (v0.1.353)
 
 - **A signed-in Cursor is treated as signed in.** The agent picker kept showing
