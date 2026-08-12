@@ -4,16 +4,25 @@ export type OmgPromptEnvelope = {
   version: string | null;
 };
 
-// The envelope was branded "LFG" before the rename. Both spellings must parse
-// forever: every transcript recorded before the rebrand still opens with the old
-// header, and those messages are re-rendered every time the session is opened.
-// Recognising only the new one would regress them to showing the raw contract.
-const CONTRACT_HEADERS = ["=== OMG RUNTIME CONTRACT", "=== LFG RUNTIME CONTRACT"] as const;
-const CONTRACT_ENDS = ["=== END OMG RUNTIME CONTRACT ===", "=== END LFG RUNTIME CONTRACT ==="] as const;
+// The envelope was branded "LFG", then "OMG", before settling on the company
+// name "omg.dev". All three spellings must parse forever: every transcript
+// recorded under an older brand still opens with that header, and those messages
+// are re-rendered every time the session is opened. Recognising only the current
+// one would regress them to showing the raw contract.
+const CONTRACT_HEADERS = [
+  "=== omg.dev RUNTIME CONTRACT",
+  "=== OMG RUNTIME CONTRACT",
+  "=== LFG RUNTIME CONTRACT",
+] as const;
+const CONTRACT_ENDS = [
+  "=== END omg.dev RUNTIME CONTRACT ===",
+  "=== END OMG RUNTIME CONTRACT ===",
+  "=== END LFG RUNTIME CONTRACT ===",
+] as const;
 const USER_TASK = "=== USER TASK ===";
 
 /**
- * Splits OMG's agent-facing launch envelope for presentation only.
+ * Splits omg.dev's agent-facing launch envelope for presentation only.
  *
  * The complete text remains in the transcript and is still sent to the agent;
  * callers use this projection to keep the user's actual first message readable.

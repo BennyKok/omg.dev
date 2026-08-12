@@ -3,12 +3,13 @@ import { readFileSync } from "node:fs";
 import {
   OMG_CAPABILITIES,
   OMG_CAPABILITY_VERSION,
+  OMG_MCP_INSTRUCTIONS,
   omgCapabilityAccess,
   omgRuntimeContract,
   withOmgRuntimeContract,
 } from "./omg-capabilities.ts";
 
-describe("OMG runtime capabilities", () => {
+describe("omg.dev runtime capabilities", () => {
   test("injects the product workflow into a normal root task", () => {
     const prompt = withOmgRuntimeContract("Fix the mobile navigation")!;
     expect(prompt).toContain(`capability version ${OMG_CAPABILITY_VERSION}`);
@@ -35,6 +36,21 @@ describe("OMG runtime capabilities", () => {
     expect(prompt).toContain("omg_find_sessions");
     expect(prompt).toContain("omg_close_session");
     expect(prompt).toEndWith("=== USER TASK ===\nFix the mobile navigation");
+  });
+
+  test("brands every agent-facing surface as omg.dev, never bare OMG", () => {
+    // The company is omg.dev. This envelope is the most-read piece of copy the
+    // product has — every managed session opens with it — so the brand has to
+    // be spelled the same way here as on the site, in the tool catalog, and in
+    // the transcript header the UI labels it with.
+    const contract = omgRuntimeContract();
+    expect(contract).toStartWith("=== omg.dev RUNTIME CONTRACT");
+    expect(contract).toContain("=== END omg.dev RUNTIME CONTRACT ===");
+    expect(contract).toContain("omg.dev-managed coding agent");
+    for (const copy of [contract, OMG_MCP_INSTRUCTIONS]) {
+      expect(copy).not.toMatch(/\bOMG\b/);
+      expect(copy).not.toMatch(/\bLFG\b/);
+    }
   });
 
   test("keeps the runtime contract compact", () => {

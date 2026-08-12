@@ -325,7 +325,7 @@ function omgRelayStream(handlers: SttStreamHandlers): SttStreamBridge | null {
 
 const sttOmg: SttProvider = {
   id: "omg",
-  label: "OMG (hosted)",
+  label: "omg.dev (hosted)",
   envVar: "OMG_MEDIA_URL",
   accountUrl: "https://omg.dev",
   available: () => !!process.env.OMG_MEDIA_URL,

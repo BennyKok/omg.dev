@@ -37,6 +37,23 @@ describe("stripOmgRuntimeContract", () => {
     expect(stripOmgRuntimeContract(text)).toBe("Carry on with the watch loop.");
   });
 
+  // Sessions launched under an older brand outlive the deploy that renamed it,
+  // and their argv/transcripts still carry the header they were wrapped with.
+  test("still strips envelopes from every pre-rename brand", () => {
+    for (const brand of ["OMG", "LFG"]) {
+      const text = [
+        `=== ${brand} RUNTIME CONTRACT (capability version 2026-08-08.1) ===`,
+        "- Ship verified work.",
+        `=== END ${brand} RUNTIME CONTRACT ===`,
+        "",
+        "=== USER TASK ===",
+        "Fix the resume sheet titles.",
+      ].join("\n");
+      expect(stripOmgRuntimeContract(text)).toBe("Fix the resume sheet titles.");
+      expect(withOmgRuntimeContract(text)).toBe(text);
+    }
+  });
+
   test("leaves ordinary prompts untouched", () => {
     expect(stripOmgRuntimeContract("Just a normal follow-up")).toBe("Just a normal follow-up");
     expect(stripOmgRuntimeContract("")).toBe("");

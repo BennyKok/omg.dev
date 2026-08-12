@@ -259,7 +259,7 @@ describe("coding agent adapter contract", () => {
       expect(argv).not.toContain("--prompt");
       const iAt = argv.indexOf("-i");
       expect(iAt).toBeGreaterThan(-1);
-      expect(argv[iAt + 1]).toContain("=== OMG RUNTIME CONTRACT");
+      expect(argv[iAt + 1]).toContain("=== omg.dev RUNTIME CONTRACT");
       expect(argv[iAt + 1]).toContain("=== USER TASK ===\nhello");
       // --allow-all-tools is a broad tool-approval bypass. GitHub recommends
       // it only for isolated environments, so it stays opt-in.

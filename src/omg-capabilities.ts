@@ -1,9 +1,9 @@
 import type { CodingAgentKind } from "./coding-agents.ts";
 
-// Bump whenever an agent-facing OMG capability or its operating guidance
+// Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-08-12.1";
+export const OMG_CAPABILITY_VERSION = "2026-08-12.2";
 
 export const OMG_CAPABILITIES = [
   {
@@ -14,7 +14,7 @@ export const OMG_CAPABILITIES = [
   },
   {
     tool: "omg_display_image / omg_display_video",
-    useWhen: "A local screenshot or recording would provide useful visual evidence in the OMG transcript.",
+    useWhen: "A local screenshot or recording would provide useful visual evidence in the omg.dev transcript.",
     guidance: "Use these only for image/video evidence. Communicate with the human through normal assistant messages.",
   },
   {
@@ -25,7 +25,7 @@ export const OMG_CAPABILITIES = [
   },
   {
     tool: "omg_find_sessions",
-    useWhen: "An ended or historical OMG session must be located after its tmux pane or process disappeared.",
+    useWhen: "An ended or historical omg.dev session must be located after its tmux pane or process disappeared.",
     guidance: "Filter by id/prefix, user, project/cwd, title/transcript text, or last-activity range; use omg_list_sessions for the current live fleet.",
   },
   {
@@ -36,7 +36,7 @@ export const OMG_CAPABILITIES = [
   {
     tool: "omg_create_subagent / omg_delegate_*",
     useWhen: "The user or governing agent instructions explicitly request delegation.",
-    guidance: "Prefer OMG-managed children so they stay visible, linked, and able to report progress to the parent.",
+    guidance: "Prefer omg.dev-managed children so they stay visible, linked, and able to report progress to the parent.",
   },
   {
     tool: "omg_list_auto_agents / omg_save_auto_agent / omg_run_auto_agent",
@@ -48,7 +48,7 @@ export const OMG_CAPABILITIES = [
 
 // Session ids are 36-char uuids minted by the underlying harness and are
 // load-bearing on disk, so they are never re-minted. Agent-facing surfaces show
-// this 8-char prefix instead; OMG's MCP layer resolves any unambiguous prefix
+// this 8-char prefix instead; omg.dev's MCP layer resolves any unambiguous prefix
 // back to the full id, git-short-sha style.
 const SESSION_UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 export const SHORT_SESSION_ID_LENGTH = 8;
@@ -58,36 +58,46 @@ export function shortSessionId(id: string): string {
 }
 
 export const OMG_MCP_INSTRUCTIONS = [
-  `This is OMG's agent capability server (capability version ${OMG_CAPABILITY_VERSION}).`,
+  `This is omg.dev's agent capability server (capability version ${OMG_CAPABILITY_VERSION}).`,
   "Communicate with the human through normal assistant messages. Use omg_display_image or omg_display_video when local visual evidence is useful.",
   "Publish every verified result with omg_ship, choosing closeSession explicitly; work that is never shipped never reaches the human.",
-  "Decide autonomously; use omg_input only for a genuinely irreversible, risky, or ambiguous decision. Use OMG-managed delegation only when delegation is explicitly requested.",
+  "Decide autonomously; use omg_input only for a genuinely irreversible, risky, or ambiguous decision. Use omg.dev-managed delegation only when delegation is explicitly requested.",
   "Recurring scheduled work belongs to the auto agent tools (omg_list_auto_agents, omg_compose_auto_agent, omg_save_auto_agent, omg_run_auto_agent, omg_list_findings).",
   `Session ids are returned in short form (${SHORT_SESSION_ID_LENGTH}-char prefix, like a git short sha). Pass them back exactly as given — any unambiguous prefix resolves to the full id.`,
 ].join(" ");
 
 export function omgRuntimeContract(): string {
   return [
-    `=== OMG RUNTIME CONTRACT (capability version ${OMG_CAPABILITY_VERSION}) ===`,
-    "- You are an OMG-managed coding agent. Communicate with the human through normal assistant messages; OMG tool calls do not replace those replies.",
-    "- Use `omg_display_image` or `omg_display_video` when a local screenshot or recording provides useful evidence in the OMG transcript.",
+    `=== omg.dev RUNTIME CONTRACT (capability version ${OMG_CAPABILITY_VERSION}) ===`,
+    "- You are an omg.dev-managed coding agent. Communicate with the human through normal assistant messages; omg.dev tool calls do not replace those replies.",
+    "- Use `omg_display_image` or `omg_display_video` when a local screenshot or recording provides useful evidence in the omg.dev transcript.",
     "- Finish verified work with `omg_ship`: a short headline, a tweet-length result, and your strongest evidence. Set `closeSession:true` only when the task and conversation are genuinely finished, and make that call your final action; otherwise `closeSession:false` and keep working. Never ship planning, partial, or blocked work.",
     "- Shipped is not deployed. If deployment was requested, verify it before claiming it or closing the session.",
     "- Decide and continue when safe. Use `omg_input` only for an irreversible, risky, or ambiguous decision; it is fire-and-forget, so do not poll.",
     "- Never request channel identity or credentials. Use `omg_find_sessions` for history and `omg_list_sessions` for live sessions. Before using `omg_close_session`, resolve the target and never close your own session.",
     "- Delegate only when explicitly requested, using `omg_create_subagent` or `omg_delegate_*` so children remain linked and visible.",
     "- Recurring/scheduled work is an auto agent, not a long-lived session: compose it with `omg_compose_auto_agent`, save it with `omg_save_auto_agent`, and read results with `omg_list_findings`.",
-    `- Session ids use an ${SHORT_SESSION_ID_LENGTH}-character prefix. Pass them back exactly as shown. If an OMG tool is missing, call \`omg_capabilities\`; report a refresh only when it returns \`stale: true\`, otherwise report the feature as unsupported.`,
-    "=== END OMG RUNTIME CONTRACT ===",
+    `- Session ids use an ${SHORT_SESSION_ID_LENGTH}-character prefix. Pass them back exactly as shown. If an omg.dev tool is missing, call \`omg_capabilities\`; report a refresh only when it returns \`stale: true\`, otherwise report the feature as unsupported.`,
+    "=== END omg.dev RUNTIME CONTRACT ===",
   ].join("\n");
 }
 
-// The envelope was branded "LFG" before the rename. Both spellings have to be
-// recognised forever: transcripts, resume caches and argv of every session
-// launched before the rebrand still carry the old header, and those sessions
-// outlive the deploy that renamed them.
-const CONTRACT_HEADERS = ["=== OMG RUNTIME CONTRACT", "=== LFG RUNTIME CONTRACT"] as const;
-const CONTRACT_ENDS = ["=== END OMG RUNTIME CONTRACT ===", "=== END LFG RUNTIME CONTRACT ==="] as const;
+// The envelope was branded "LFG", then "OMG", before settling on the company
+// name "omg.dev". All three spellings have to be recognised forever:
+// transcripts, resume caches and argv of every session launched under an older
+// brand still carry the old header, and those sessions outlive the deploy that
+// renamed them. Only the first entry is ever written; the rest are read-only
+// history.
+const CONTRACT_HEADERS = [
+  "=== omg.dev RUNTIME CONTRACT",
+  "=== OMG RUNTIME CONTRACT",
+  "=== LFG RUNTIME CONTRACT",
+] as const;
+const CONTRACT_ENDS = [
+  "=== END omg.dev RUNTIME CONTRACT ===",
+  "=== END OMG RUNTIME CONTRACT ===",
+  "=== END LFG RUNTIME CONTRACT ===",
+] as const;
 const USER_TASK = "=== USER TASK ===";
 
 /** Earliest occurrence of any known contract marker, or -1. */
@@ -108,8 +118,8 @@ export function hasOmgRuntimeContract(text: string): boolean {
 export function withOmgRuntimeContract(prompt: string | undefined): string | undefined {
   const text = prompt?.trim();
   if (!text) return prompt;
-  // Already wrapped — including by a pre-rename LFG envelope, which must not be
-  // double-wrapped just because the branding changed.
+  // Already wrapped — including by a pre-rename LFG or OMG envelope, which must
+  // not be double-wrapped just because the branding changed.
   if (hasOmgRuntimeContract(text)) return text;
   return `${omgRuntimeContract()}\n\n${USER_TASK}\n${text}`;
 }
@@ -119,7 +129,7 @@ export function withOmgRuntimeContract(prompt: string | undefined): string | und
  *
  * The envelope stays in the transcript and is still what the agent reads; this
  * recovers the human's actual prompt so cards, titles and previews aren't all
- * labelled with OMG's own boilerplate. Anything between the contract and the
+ * labelled with omg.dev's own boilerplate. Anything between the contract and the
  * task marker (MCP instructions, skill listings) is preamble too, so the task
  * marker wins when present. Returns the input unchanged when no envelope is
  * found, and never returns empty — a contract with no task behind it keeps the
@@ -141,7 +151,7 @@ export function stripOmgRuntimeContract(text: string): string {
  *
  * Harness backends recover their initial prompt from argv, where it still
  * carries the launch envelope, so they must strip it before titling — an
- * unstripped title reads "=== OMG RUNTIME CONTRACT (capability ve…" on every
+ * unstripped title reads "=== omg.dev RUNTIME CONTRACT (capability ve…" on every
  * managed session instead of the human's ask.
  */
 export function sessionTitleFromPrompt(prompt: string | null | undefined, max = 72): string | null {
@@ -152,6 +162,6 @@ export function sessionTitleFromPrompt(prompt: string | null | undefined, max = 
 
 export function omgCapabilityAccess(agent: CodingAgentKind): "mcp" | "contract-only" {
   // pi is an RPC backend with no MCP registration surface (its harness drives
-  // the bundled pi CLI directly), so it never gets the OMG MCP toolset.
+  // the bundled pi CLI directly), so it never gets the omg.dev MCP toolset.
   return agent === "hermes" || agent === "copilot" || agent === "pi" ? "contract-only" : "mcp";
 }

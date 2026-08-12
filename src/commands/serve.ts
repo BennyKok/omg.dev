@@ -5148,7 +5148,7 @@ a{color:#60a5fa}
         }
         if (m && req.method === "POST") {
           if (callerSessionHeader(req) !== m[1]) {
-            return err(403, "origin delivery requires the owning OMG session");
+            return err(403, "origin delivery requires the owning omg.dev session");
           }
           const body = (await req.json().catch(() => null)) as {
             text?: string;
@@ -5199,7 +5199,7 @@ a{color:#60a5fa}
         const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/artifacts\/([a-z0-9-]+)$/);
         if (m && req.method === "DELETE") {
           if (callerSessionHeader(req) !== m[1]) {
-            return err(403, "artifact deletion requires the owning OMG session");
+            return err(403, "artifact deletion requires the owning omg.dev session");
           }
           const artifact = getImageArtifact(m[2]);
           if (!artifact) return err(404, "artifact not found");
@@ -5318,7 +5318,7 @@ a{color:#60a5fa}
             "refreshEnabled",
           ].some((key) => Object.prototype.hasOwnProperty.call(body, key));
           if (hasRefreshChanges && callerSessionHeader(req) !== m[1]) {
-            return err(403, "refresh configuration requires the owning OMG session");
+            return err(403, "refresh configuration requires the owning omg.dev session");
           }
           if (!body.html?.trim() && (!body.id || !hasRefreshChanges)) {
             return err(400, "html required unless updating an existing refresh configuration");
@@ -5384,7 +5384,7 @@ a{color:#60a5fa}
         const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/artifacts\/html\/([a-z0-9-]+)\/refresh$/);
         if (m && (req.method === "GET" || req.method === "POST")) {
           if (callerSessionHeader(req) !== m[1]) {
-            return err(403, "artifact refresh requires the owning OMG session");
+            return err(403, "artifact refresh requires the owning omg.dev session");
           }
           const artifact = getImageArtifact(m[2]);
           if (!artifact || artifact.media !== "html") return err(404, "html artifact not found");
