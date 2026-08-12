@@ -79,11 +79,17 @@ case "$COMMON_DIR" in
   *) COMMON_DIR="$(cd "$SESSION_ROOT" && cd "$COMMON_DIR" && pwd)" ;;
 esac
 
+# Let awk read to EOF instead of `exit`ing on the match. The main worktree sorts
+# near the front, so an early exit closes the pipe while `git worktree list` is
+# still writing the remaining entries; git then dies of SIGPIPE and `pipefail`
+# aborts the whole landing. That needs enough worktrees to overflow the pipe
+# buffer, so it read as a random failure — and because it happens before the
+# first log line, the script exited 141 having printed absolutely nothing.
 MAIN_ROOT="$(
   git -C "$SESSION_ROOT" worktree list --porcelain |
     awk '
       $1 == "worktree" { path = substr($0, 10) }
-      $0 == "branch refs/heads/main" { print path; exit }
+      $0 == "branch refs/heads/main" && !found { print path; found = 1 }
     '
 )"
 [ -n "$MAIN_ROOT" ] || die "could not find the main worktree"
