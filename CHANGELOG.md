@@ -2,6 +2,31 @@
 
 Recent product updates and deployment notes.
 
+## August 12, 2026 - Settings stops lying about what it saved (v0.1.349)
+
+- **"Archive idle agents after" now actually saves.** Picking a window told you
+  it worked, then quietly snapped back to "Off", and nothing was ever archived.
+  The save endpoint accepted settings from a fixed list and this one was not on
+  it, so the value was dropped on the way in — and the reply still came back
+  200, carrying the old value, which is what reset the dropdown. The sweep
+  itself was never broken. It just never had a window to work with. An
+  out-of-range value is now refused outright instead of being quietly rounded
+  to a different number than the one you picked.
+- **Opening Settings → More no longer reloads the whole app.** Only in the
+  hosted UI, and only on that page, because it is the one page with the push
+  notification toggle. Working out whether it was running inside another
+  product, the toggle looked at the page's address — which belongs to the host,
+  not to us — decided it was running standalone, and installed the host's own
+  background worker. That worker's job is to clear caches by reloading every
+  open tab, and it removes itself afterwards, so the next visit to More did it
+  all over again.
+- **The notification toggle explains itself instead of vanishing.** Where push
+  is unavailable — an iPhone that has not added omg to the Home Screen, or a
+  hosted UI that has not been given somewhere to put notifications — the row
+  used to render its label with nothing beside it, which reads as a broken
+  screen rather than an unavailable feature. It now shows the switch, greyed
+  out, with the reason next to it.
+
 ## August 12, 2026 - The composer stops defaulting to a folder that is gone (v0.1.348)
 
 - **A new session no longer starts in a project that no longer exists.** The
