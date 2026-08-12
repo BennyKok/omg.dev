@@ -11,6 +11,9 @@
       "bundleIdentifier": "dev.omg.computer",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
+      },
+      "runtimeVersion": {
+        "policy": "appVersion"
       }
     },
     "android": {
@@ -37,6 +40,9 @@
         "projectId": "da13049f-0ab5-411e-8c0b-e27fac475f9a"
       }
     },
-    "owner": "bennykok"
+    "owner": "bennykok",
+    "updates": {
+      "url": "https://u.expo.dev/da13049f-0ab5-411e-8c0b-e27fac475f9a"
+    }
   }
 }
