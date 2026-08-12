@@ -2,6 +2,26 @@
 
 Recent product updates and deployment notes.
 
+## August 12, 2026 - The product calls itself omg.dev (v0.1.351)
+
+- **One name, everywhere you read it.** The app said "OMG" in some places and
+  "omg.dev" in others, sometimes on the same screen — the header showed one
+  spelling on a hosted Computer and another on your own box. It is omg.dev now:
+  update toasts, storage and diagnostics copy, the transcript menus, and the
+  banner about an older capability contract.
+- **The instructions block in a transcript is labelled "omg.dev
+  instructions".** Every managed agent opens with that contract, so it is the
+  most-read copy the product has. It now introduces itself by the company name,
+  and so does the tool catalog every agent loads: "List omg.dev Sessions",
+  "Create omg.dev Sub-Agent", and the rest.
+- **Older sessions keep their real titles.** The envelope header changed with
+  the name, and everything that reads it still accepts both earlier spellings.
+  A session started before this release keeps showing what you asked for
+  instead of falling back to raw contract boilerplate.
+- **Long-lived sessions will offer to reload.** The capability version moved, so
+  a session that has been open since before the rename shows the usual "close
+  and resume" banner and picks up the renamed catalog.
+
 ## August 12, 2026 - Device settings belong to whoever you opened the app in (v0.1.350)
 
 - **The More page no longer appears when the Computer is opened inside
