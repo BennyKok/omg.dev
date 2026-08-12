@@ -1123,6 +1123,24 @@ function agentPickerOptions(
  * callback (see useOpenSettingsPage), because there the Settings tab is the
  * host's, not ours.
  */
+/**
+ * Device-local echo of the server's hosted.introDoneAt.
+ *
+ * Only consulted when the Computer is too old to have the server-side field —
+ * see markHostedIntroDone. A Computer updates on the user's command rather than
+ * automatically, so this covers the window between shipping the surface and the
+ * box catching up, and stops being consulted the moment the server can answer.
+ */
+const HOSTED_INTRO_DONE_KEY = "omg:hosted-intro-done:v1";
+
+function hostedIntroDoneOnThisDevice(): boolean {
+  try {
+    return localStorage.getItem(HOSTED_INTRO_DONE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 const OpenSettingsPageContext = createContext<(page: HostSettingsPage) => void>(() => {});
 
 /**
@@ -6820,8 +6838,22 @@ export function App() {
    * next load. Silent on failure by design — the only cost of a lost write is
    * seeing the intro once more, and a toast about onboarding bookkeeping at the
    * exact moment someone is finally reaching their Computer is worse than that.
+   *
+   * The device fallback is NOT belt-and-braces, it is the load-bearing path on
+   * an older Computer. A box that predates `hosted` accepts this POST, ignores
+   * the field it doesn't know, and answers with a state that has no `hosted`
+   * block — so the server can never report the intro as done, and the gate
+   * would return on EVERY load, which is the exact wall this feature was meant
+   * to remove. Computers self-update on the user's command, not automatically
+   * (see the template pin), so "older box" is the normal case for a while, not
+   * an edge. Per-device is worse than per-account and better than a nag loop.
    */
   const markHostedIntroDone = useCallback(async () => {
+    try {
+      localStorage.setItem(HOSTED_INTRO_DONE_KEY, "1");
+    } catch {
+      /* private mode, quota — the server write below is still attempted */
+    }
     try {
       const response = await api<{ state: OnboardingState }>("/api/onboarding", {
         method: "POST",
@@ -6850,6 +6882,11 @@ export function App() {
         }),
       });
       setOnboarding(response.state);
+      try {
+        localStorage.removeItem(HOSTED_INTRO_DONE_KEY);
+      } catch {
+        /* nothing to clear */
+      }
       setConnectGateSkipped(false);
       connectGateStarted.current = false;
     } catch (e) {
@@ -7150,6 +7187,13 @@ export function App() {
   // gate. The gate is back on the next plain load while nothing is connected.
   // `bare` closes it: a host that mounted one settings page asked for that
   // page, not for onboarding. See shouldShowEmbeddedConnectGate.
+  // Server first; device fallback ONLY where the server cannot answer, so an
+  // up-to-date Computer stays per-account and an older one still can't nag.
+  const hostedIntroSeen = onboarding
+    ? onboarding.hosted
+      ? !!onboarding.hosted.introDoneAt
+      : hostedIntroDoneOnThisDevice()
+    : false;
   const connectGateRequired = shouldShowEmbeddedConnectGate({
     embedded,
     bare,
@@ -7161,7 +7205,7 @@ export function App() {
     // a real "yes".
     dismissed:
       connectGateSkipped ||
-      !!onboarding?.hosted?.introDoneAt ||
+      hostedIntroSeen ||
       !!sessionDeepLinkRef.current,
   });
   if (connectGateRequired) connectGateStarted.current = true;
@@ -7170,7 +7214,7 @@ export function App() {
     !bare &&
     connectionOnboarding &&
     !connectGateSkipped &&
-    !onboarding?.hosted?.introDoneAt &&
+    !hostedIntroSeen &&
     !sessionDeepLinkRef.current &&
     connectGateStarted.current;
   useEffect(() => {
