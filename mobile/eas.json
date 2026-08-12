@@ -28,6 +28,16 @@
     "production": {
       "ios": {
         "appleTeamId": "2T82F3J732",
+        // The App Store Connect app, created by the first submission. Without
+        // it eas submit can only resolve the app by asking, so a
+        // --non-interactive run dies with "Set ascAppId in the submit profile"
+        // AFTER the build has already been queued — which is a confusing way
+        // to lose a submission.
+        "ascAppId": "6800792515",
+        // Used only if the record ever has to be recreated. App Store Connect
+        // names are unique across the whole store, so "omg" was never free.
+        // This is listing metadata; the home-screen label is app.json's `name`
+        // and is baked into the binary.
         "appName": "omg.dev",
         "language": "en-US"
       }
