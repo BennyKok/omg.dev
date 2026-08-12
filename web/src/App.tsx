@@ -11558,6 +11558,7 @@ function RailStage({
               onProjectChange?.("__all");
               setProjectSheetOpen(false);
             }}
+            onReposChanged={onReposChanged}
           />
           <ProjectFolderBrowser
             open={folderBrowserOpen}
@@ -16838,6 +16839,7 @@ function ComposerProjectSheet({
   onCreate,
   allSelected = false,
   onSelectAll,
+  onReposChanged,
 }: {
   open: boolean;
   repos: Repo[];
@@ -16848,12 +16850,22 @@ function ComposerProjectSheet({
   onCreate: () => void;
   allSelected?: boolean;
   onSelectAll?: () => void;
+  /** Called after a project leaves the list, with the cwd that went away. */
+  onReposChanged?: (removedCwd?: string) => void | Promise<void>;
 }) {
   // Paths are off by default: the folder name is almost always enough to pick
   // from, and dropping the second line halves each row so twice as many
   // projects fit before you have to scroll.
   const { showPaths } = useProjectListPrefs();
   const [query, setQuery] = useState("");
+  // Managing is a MODE, not a per-row affordance. The common action here is
+  // "pick a project", and hanging a delete button off every row puts a
+  // destructive target under the thumb of the one gesture people repeat all
+  // day. Behind a toggle, tapping a row still cannot destroy anything.
+  const [managing, setManaging] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<{ path: string; name: string } | null>(null);
+  const [busyCwd, setBusyCwd] = useState<string | null>(null);
+  const canManage = !!onReposChanged;
 
   // A search box only earns its space once the list is long enough that
   // scanning it is the slow part.
@@ -16861,9 +16873,32 @@ function ComposerProjectSheet({
   const needle = searchable ? query.trim().toLowerCase() : "";
 
   // Reset the filter between openings so the sheet never reopens pre-filtered.
+  // Managing resets too: reopening the picker straight into a list of delete
+  // buttons is a mode you did not ask for and might not notice.
   useEffect(() => {
-    if (!open) setQuery("");
+    if (!open) {
+      setQuery("");
+      setManaging(false);
+      setDeleteTarget(null);
+    }
   }, [open]);
+
+  async function unlinkRepo(repo: Repo) {
+    setBusyCwd(repo.cwd);
+    try {
+      await api("/api/repos", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: repo.cwd }),
+      });
+      toast.success(`Removed ${repo.name}`, { description: "The folder is still on disk." });
+      await onReposChanged?.(repo.cwd);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't remove that project");
+    } finally {
+      setBusyCwd(null);
+    }
+  }
 
   const visibleRepos = useMemo(() => {
     if (!needle) return repos;
@@ -16898,9 +16933,28 @@ function ComposerProjectSheet({
           <div className="mb-2.5 flex items-start justify-between gap-2">
             <div className="min-w-0">
               <h2 className="text-lg font-semibold">Projects</h2>
-              <p className="text-xs text-muted-foreground">Choose where your agent will work</p>
+              <p className="text-xs text-muted-foreground">
+                {managing
+                  ? "Remove from the list, or delete the folder"
+                  : "Choose where your agent will work"}
+              </p>
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
+              {canManage ? (
+                <button
+                  type="button"
+                  onClick={() => setManaging((on) => !on)}
+                  aria-pressed={managing}
+                  title={managing ? "Done managing" : "Manage projects"}
+                  className={cn(
+                    "flex h-8 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium transition-colors",
+                    managing ? "bg-blue-500/15 text-blue-500" : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {managing ? <Check className="size-3.5" /> : <Pencil className="size-3.5" />}
+                  {managing ? "Done" : "Manage"}
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => setProjectListPrefs({ showPaths: !showPaths })}
@@ -16919,6 +16973,16 @@ function ComposerProjectSheet({
               </button>
             </div>
           </div>
+          {deleteTarget ? (
+            <DeleteFolderPanel
+              target={deleteTarget}
+              onClose={() => setDeleteTarget(null)}
+              onDeleted={async (deletedPath) => {
+                await onReposChanged?.(deletedPath);
+              }}
+            />
+          ) : (
+          <>
           {searchable ? (
             <div className="relative mb-2">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -16941,7 +17005,7 @@ function ComposerProjectSheet({
             data-vaul-no-drag
             className="max-h-[min(52dvh,26rem)] min-h-0 overflow-y-auto overscroll-contain rounded-2xl border border-border bg-muted/25"
           >
-            {onSelectAll && !needle ? (
+            {onSelectAll && !needle && !managing ? (
               <button
                 type="button"
                 onClick={onSelectAll}
@@ -16965,33 +17029,79 @@ function ComposerProjectSheet({
                 )}
               </button>
             ) : null}
-            {visibleRepos.map((repo) => (
-              <button
-                key={repo.cwd}
-                type="button"
-                onClick={() => onSelect(repo)}
-                className={rowClass}
-              >
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-blue-500"><Folder className="size-4" /></span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium">{repo.name}</span>
-                  {showPaths ? (
+            {visibleRepos.map((repo) =>
+              managing ? (
+                // A div, not a button: the row carries two buttons of its own,
+                // and nested buttons are invalid HTML.
+                <div key={repo.cwd} className={rowClass}>
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-blue-500">
+                    <Folder className="size-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{repo.name}</span>
                     <span className="block truncate text-xs text-muted-foreground">{repo.cwd}</span>
-                  ) : null}
-                </span>
-                {repo.cwd === selected ? <Check className="size-4 shrink-0 text-emerald-500" /> : <ChevronRight className="size-4 shrink-0 text-muted-foreground" />}
-              </button>
-            ))}
+                  </span>
+                  {busyCwd === repo.cwd ? (
+                    <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void unlinkRepo(repo)}
+                        aria-label={`Remove ${repo.name} from the list`}
+                        title="Remove from list (keeps the folder)"
+                        className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground active:bg-muted/70"
+                      >
+                        <EyeOff className="size-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteTarget({ path: repo.cwd, name: repo.name })}
+                        aria-label={`Delete the ${repo.name} folder`}
+                        title="Delete the folder from disk"
+                        className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground active:bg-destructive/15 active:text-destructive"
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <button
+                  key={repo.cwd}
+                  type="button"
+                  onClick={() => onSelect(repo)}
+                  className={rowClass}
+                >
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-blue-500"><Folder className="size-4" /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{repo.name}</span>
+                    {showPaths ? (
+                      <span className="block truncate text-xs text-muted-foreground">{repo.cwd}</span>
+                    ) : null}
+                  </span>
+                  {repo.cwd === selected ? <Check className="size-4 shrink-0 text-emerald-500" /> : <ChevronRight className="size-4 shrink-0 text-muted-foreground" />}
+                </button>
+              ),
+            )}
             {visibleRepos.length === 0 ? (
               <p className="px-3 py-6 text-center text-xs text-muted-foreground">
                 {needle ? `No projects match "${query.trim()}"` : "No projects yet"}
               </p>
             ) : null}
           </div>
+          {managing ? (
+            <p className="mt-2 px-1 text-[11px] leading-snug text-muted-foreground">
+              Removing takes a project off this list without touching your files. Deleting erases
+              the folder from disk and asks you to confirm first.
+            </p>
+          ) : null}
           <div className="mt-3 grid grid-cols-2 gap-2">
             <Button type="button" variant="outline" onClick={onBrowse}><Folder className="size-4" /> Browse</Button>
             <Button type="button" onClick={onCreate}><Plus className="size-4" /> New Project</Button>
           </div>
+          </>
+          )}
         </div>
       </DrawerContent>
     </Drawer>
@@ -17549,7 +17659,6 @@ function NewSessionDialog({
   const selectedRepoName =
     repos.find((candidate) => candidate.cwd === selectedRepo)?.name ||
     (selectedRepo ? shortProject(selectedRepo) : "Project");
-  const selectedIsCustom = repos.some((r) => r.cwd === selectedRepo && r.custom);
   const launching = pendingCreates > 0;
   // The project the resume picker should open scoped to: the composer's currently
   // selected repo (which already folds in the live-view filter via `scopedRepo`),
@@ -17587,24 +17696,6 @@ function NewSessionDialog({
     localStorage.setItem("lfg_v2_repo", next.cwd);
     if (onProjectChange) onProjectChange(repoProject(next));
     setProjectSheetOpen(false);
-  }
-
-  function removeCustomPath(cwd: string) {
-    toast.promise(
-      api("/api/repos", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cwd }),
-      }).then(async () => {
-        if (selectedRepo === cwd) setRepo("");
-        await onReposChanged();
-      }),
-      {
-        loading: "Removing project…",
-        success: "Project removed",
-        error: (e) => (e instanceof Error ? e.message : "Couldn't remove project"),
-      },
-    );
   }
 
   // One ring, one request: the composer asks only for the source behind the
@@ -17952,17 +18043,6 @@ function NewSessionDialog({
           >
             {repos.find((item) => item.cwd === selectedRepo)?.name || "Choose project"}
           </button>
-          {selectedIsCustom && (
-            <button
-              type="button"
-              aria-label="Remove custom path"
-              title="Remove this custom path"
-              onClick={() => removeCustomPath(selectedRepo)}
-              className="ml-0.5 text-muted-foreground hover:text-destructive"
-            >
-              <X className="size-3.5" />
-            </button>
-          )}
         </FieldPill>
       )}
     </>
@@ -18268,6 +18348,13 @@ function NewSessionDialog({
               }
             : undefined
         }
+        onReposChanged={async (removedCwd?: string) => {
+          // A composer pointed at a project that no longer exists would launch
+          // into a 400 "unknown repo", so drop the selection when the thing it
+          // named is what just went away.
+          if (removedCwd && selectedRepo === removedCwd) setRepo("");
+          await onReposChanged();
+        }}
       />
     </form>
     {files.annotator}

@@ -952,7 +952,7 @@ export function buildOmgMcpServer(): McpServer {
           .optional()
           .describe("Local image/video files to attach (absolute paths) — screenshots or recordings of the result."),
         artifactIds: z.array(z.string()).optional().describe("Existing artifact ids to embed (e.g. a published html dashboard)."),
-        project: z.string().optional().describe("Project label shown on the post."),
+        project: z.string().optional().describe("Project label shown on the post. Must name an existing project (see omg_list_repos); anything else is ignored in favour of the posting session's own project."),
         sessionId: z.string().optional().describe("Source omg.dev session id. Defaults to OMG_SESSION_ID."),
         closeSession: z
           .boolean()

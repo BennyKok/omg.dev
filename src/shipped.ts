@@ -187,6 +187,32 @@ function readMergedPosts(): ShipPostMerged[] {
   return posts;
 }
 
+/**
+ * Decide the project label a ship post is filed under.
+ *
+ * `omg_ship` takes a free-text `project`, so an agent could file a post under
+ * any string it liked — including a project that does not exist on this box.
+ * The label is what a reader scans the feed by, so an invented one is worse
+ * than none: it looks like provenance and isn't.
+ *
+ * A caller-supplied label is honoured only when it names a real project, and is
+ * snapped to that project's exact casing. Anything else defers to the project
+ * the posting session is actually running in, and a post with neither carries
+ * no label rather than a guess.
+ */
+export function resolveShipProject(
+  requested: string | undefined,
+  sessionProject: string | undefined,
+  knownProjects: string[],
+): string | undefined {
+  const want = requested?.trim();
+  if (want) {
+    const match = knownProjects.find((p) => p.toLowerCase() === want.toLowerCase());
+    if (match) return match;
+  }
+  return sessionProject?.trim() || undefined;
+}
+
 export async function addShipPost(input: {
   title: string;
   summary?: string;
