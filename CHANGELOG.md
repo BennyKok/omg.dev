@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## August 12, 2026 - The first-run intro stops reappearing on older Computers (v0.1.345)
+
+- **Dismissing the new first-run intro now sticks on a Computer that hasn't
+  updated yet.** Computers update on your command rather than automatically, so
+  a box running an older release could not record that the intro was seen — and
+  it came back on every load until a coding agent was connected. It is now also
+  remembered on the device, which is only consulted when the Computer itself
+  cannot answer.
+
 ## August 12, 2026 - First-run onboarding returns to hosted Computers (v0.1.344)
 
 - **New hosted Computers walk through setup again.** The embedded connect gate
