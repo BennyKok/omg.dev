@@ -2,6 +2,32 @@
 
 Recent product updates and deployment notes.
 
+## August 12, 2026 - The agent limit is yours to overrule (v0.1.346)
+
+- **Hitting the live-agent limit no longer pins a red banner above every
+  screen.** That banner had no dismiss and no expiry, and it was only ever
+  cleared for one specific unrelated message — so a wall you had already worked
+  around stayed there until you reloaded the tab, pushing the whole mobile
+  layout down with it. It is now a toast, and the banner is reserved for what
+  its name always implied: the app failing to load at all.
+- **A self-hosted machine stops being told to upgrade its Computer.** The limit
+  on your own box is a number you chose in Settings, not a plan you bought, so
+  the refusal now says so: "22 of 22 agents live — close an agent, or raise the
+  limit in Settings". Hosted Computers, where the limit really is the plan, are
+  unchanged.
+- **"Start anyway" starts it anyway.** The cap on your own hardware is soft
+  now. The toast offers to overrule it and repeats the request for you — no
+  retyping the prompt, no trip to Settings first — from a new session, a resume,
+  or a reply to a finding. Edit the prompt while the offer waits and it sends
+  what you can see, not what you had typed when the wall appeared.
+- **The override cannot take the machine down with it.** It waives the agent
+  count and only the count: a self-hosted box normally skips the memory check,
+  so overruling the cap switches it on, and every launch now books its share of
+  memory so several starting at once cannot each be told the same memory is
+  free. Where that reading cannot be trusted — macOS reports free memory in a
+  way that ignores reclaimable cache — your decision wins rather than being
+  refused on a number that means something else.
+
 ## August 12, 2026 - The first-run intro stops reappearing on older Computers (v0.1.345)
 
 - **Dismissing the new first-run intro now sticks on a Computer that hasn't
