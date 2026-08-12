@@ -12,7 +12,12 @@
 
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import { Linking, ScrollView, Text, View } from "react-native";
+import {
+  Linking,
+  ScrollView,
+  View,
+} from "react-native";
+import { Text } from "../src/omg/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Card, Row, SectionLabel, Separator, StatusDot } from "../src/components";

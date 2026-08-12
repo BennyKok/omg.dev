@@ -8,11 +8,10 @@ import {
   ActivityIndicator,
   Pressable,
   StyleSheet,
-  Text,
-  TextInput,
   View,
   type ViewStyle,
 } from "react-native";
+import { Text, TextInput } from "./omg/text";
 import { SymbolView, type AndroidSymbol, type SFSymbol } from "expo-symbols";
 
 import { useTheme } from "./omg/theme";
@@ -300,17 +299,25 @@ type AvatarColor =
  * disc because that is what the web surface shows; the rest take a token hue
  * and a letter.
  */
-const KNOWN_AGENT_MARKS: Record<string, { bg: AvatarColor; glyph: string }> = {
-  aisdk: { bg: "brand", glyph: "✳" },
-  claude: { bg: "brand", glyph: "✳" },
+const KNOWN_AGENT_MARKS: Record<
+  string,
+  { bg: AvatarColor; glyph?: string; sf?: SFSymbol; android?: AndroidSymbol }
+> = {
+  // SF Symbols, not characters. The first version used U+2733 (\u2733) for the
+  // asterisk agents, and iOS gives that codepoint EMOJI presentation by
+  // default — so a plain orange disc rendered as a green emoji tile inside an
+  // orange circle, a badge inside a badge. Any glyph left below is ASCII or a
+  // letter, which can never take an emoji form.
+  aisdk: { bg: "brand", sf: "sparkle", android: "auto_awesome" },
+  claude: { bg: "brand", sf: "sparkle", android: "auto_awesome" },
   codex: { bg: "text", glyph: "C" },
   "codex-aisdk": { bg: "text", glyph: "C" },
   grok: { bg: "primary", glyph: "G" },
-  cursor: { bg: "warning", glyph: "⌘" },
+  cursor: { bg: "warning", sf: "cursorarrow", android: "ads_click" },
   opencode: { bg: "success", glyph: "O" },
   jcode: { bg: "textSecondary", glyph: "J" },
-  pi: { bg: "danger", glyph: "π" },
-  copilot: { bg: "info", glyph: "⧉" },
+  pi: { bg: "danger", glyph: "P" },
+  copilot: { bg: "info", sf: "square.on.square", android: "content_copy" },
 };
 
 const FALLBACK_AVATAR_COLORS: AvatarColor[] = [
@@ -361,9 +368,18 @@ export function AgentAvatar({
         justifyContent: "center",
       }}
     >
-      <Text style={{ color: fg, fontSize: Math.round(size * 0.42), fontWeight: "700" }}>
-        {glyph}
-      </Text>
+      {known?.sf ? (
+        <SymbolView
+          name={{ ios: known.sf, android: known.android ?? "circle", web: "circle" }}
+          size={Math.round(size * 0.5)}
+          tintColor={fg}
+          style={{ width: Math.round(size * 0.5), height: Math.round(size * 0.5) }}
+        />
+      ) : (
+        <Text style={{ color: fg, fontSize: Math.round(size * 0.42), fontWeight: "700" }}>
+          {glyph}
+        </Text>
+      )}
     </View>
   );
 }

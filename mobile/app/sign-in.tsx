@@ -10,10 +10,9 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from "react-native";
+import { Text, TextInput, type TextInputHandle } from "../src/omg/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { sendSignInCode, verifySignInCode } from "../src/omg/auth";
@@ -253,7 +252,7 @@ export default function SignInScreen() {
   const [verifying, setVerifying] = useState(false);
   const [resendSeconds, setResendSeconds] = useState(0);
   const [imessageBusy, setImessageBusy] = useState(false);
-  const codeInput = useRef<TextInput>(null);
+  const codeInput = useRef<TextInputHandle>(null);
 
   const normalizedEmail = email.trim().toLowerCase();
   const emailIsValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail);

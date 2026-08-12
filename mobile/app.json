@@ -43,6 +43,9 @@
     "owner": "bennykok",
     "updates": {
       "url": "https://u.expo.dev/da13049f-0ab5-411e-8c0b-e27fac475f9a"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
     }
   }
 }

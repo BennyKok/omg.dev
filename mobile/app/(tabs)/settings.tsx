@@ -12,7 +12,13 @@
 
 import { useRouter } from "expo-router";
 import Constants from "expo-constants";
-import { Alert, Linking, ScrollView, Text, View } from "react-native";
+import {
+  Alert,
+  Linking,
+  ScrollView,
+  View,
+} from "react-native";
+import { Text } from "../../src/omg/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Card, Row, SectionLabel, Separator, StatusDot } from "../../src/components";

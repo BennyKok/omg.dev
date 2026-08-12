@@ -30,12 +30,11 @@ import {
   Platform,
   Pressable,
   StyleSheet,
-  Text,
-  TextInput,
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
+import { Text, TextInput } from "../../src/omg/text";
 import * as Clipboard from "expo-clipboard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OmgMessage, OmgSession, OmgSessionPrompt } from "@omg-dev/protocol";

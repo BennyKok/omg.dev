@@ -23,11 +23,12 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
+import { Text } from "../../src/omg/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OmgSession } from "@omg-dev/protocol";
+import type { OmgConnectionStatus } from "@omg-dev/client";
 
 import {
   EmptyState,
@@ -60,7 +61,15 @@ export default function SessionsScreen() {
   const [sessions, setSessions] = useState<OmgSession[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [connection, setConnection] = useState<string>("connected");
+  /**
+   * Live-socket health. The SDK's statuses are connecting | live | reconnecting
+   * | offline — there is no "connected", and comparing against that string made
+   * the banner permanently true. Worse, subscribeConnection does NOT open the
+   * socket (only subscribeTranscript does), so this screen sat at "connecting"
+   * forever and told everyone their computer was reconnecting when nothing was
+   * wrong. Only a genuine drop is worth saying out loud.
+   */
+  const [connection, setConnection] = useState<OmgConnectionStatus>("connecting");
   const [draft, setDraft] = useState("");
   const [starting, setStarting] = useState(false);
 
@@ -242,7 +251,7 @@ export default function SessionsScreen() {
           </Pressable>
         </View>
 
-        {connection !== "connected" && ready ? (
+        {(connection === "reconnecting" || connection === "offline") && ready ? (
           <Text
             style={{
               ...type.caption,
