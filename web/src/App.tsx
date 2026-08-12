@@ -18193,7 +18193,7 @@ function NewSessionDialog({
               e.currentTarget.form?.requestSubmit();
             }
           }}
-          placeholder={attachments.length ? "Add a note for the files…" : "Describe the task for a new session…"}
+          placeholder={attachments.length ? "Add a note for the files…" : "What should we work on?"}
           className={cn(
             "border-0 bg-transparent text-base leading-relaxed shadow-none focus-visible:border-0 focus-visible:ring-0",
             variant === "inline"
