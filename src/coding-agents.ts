@@ -641,6 +641,25 @@ function hasCursorAuth(): boolean {
   return !!process.env.CURSOR_API_KEY || existsSync(`${home}/.cursor`);
 }
 
+// `cursor-agent login` records the signed-in identity in
+// ~/.cursor/cli-config.json as `authInfo` (email, userId, authId). The
+// directory itself — which hasCursorAuth() accepts, because a box that has ever
+// run the CLI is usually a box that signed in — proves nothing about an
+// account, and reading it as one is how a genuinely connected Cursor kept
+// showing up as "connect me" in the hosted picker: that strip requires
+// accountConnected, not configured, so a kind that never sets it is locked
+// forever.
+function hasCursorAccountAuth(): boolean {
+  const info = readJson<{ authInfo?: { userId?: unknown; email?: unknown } }>(
+    join(userHome(), ".cursor", "cli-config.json"),
+  )?.authInfo;
+  if (!info || typeof info !== "object") return false;
+  const { userId, email } = info;
+  if (typeof userId === "number" && Number.isFinite(userId) && userId > 0) return true;
+  if (typeof userId === "string" && userId.length > 0) return true;
+  return typeof email === "string" && email.length > 0;
+}
+
 // pi's auth is file-based (~/.pi/agent/auth.json) or the ANTHROPIC_API_KEY env
 // var. Connecting a provider is now a real sign-in (see pi-auth.ts), and the
 // check lives there: the old test here treated the mere existence of auth.json
@@ -662,10 +681,17 @@ function hasCopilotAuth(): boolean {
   if (process.env.COPILOT_GITHUB_TOKEN) return true;
   if (process.env.GH_TOKEN) return true;
   if (process.env.GITHUB_TOKEN) return true;
-  // Interactive /login writes to ~/.copilot/ (session-state and a token/host
-  // file). An empty ~/.copilot/ directory - which any stray tool can create -
-  // is NOT proof of auth, so require an artifact that the login flow itself
-  // produces before reporting the agent as authenticated.
+  return hasCopilotAccountAuth();
+}
+
+// Interactive /login writes to ~/.copilot/ (session-state and a token/host
+// file). An empty ~/.copilot/ directory - which any stray tool can create - is
+// NOT proof of auth, so require an artifact that the login flow itself
+// produces. Separate from hasCopilotAuth() because a platform-supplied
+// GH_TOKEN makes Copilot runnable without being the user's own connected
+// account — the same split every other kind draws.
+function hasCopilotAccountAuth(): boolean {
+  const home = userHome();
   return (
     existsSync(`${home}/.copilot/hosts.yml`) ||
     existsSync(`${home}/.copilot/config.json`) ||
@@ -1136,6 +1162,7 @@ function statusFor(kind: CodingAgentKind): CodingAgentStatus {
     addAuth("Jcode provider", auth.available, "run `jcode login` and connect at least one provider");
     instructions.push("Install Jcode, then run `jcode login` and connect at least one provider.");
   } else if (kind === "cursor") {
+    accountConnected = hasCursorAccountAuth();
     addBinary("Cursor CLI", cursorPath());
     addAuth("Cursor auth", hasCursorAuth(), "run `cursor-agent login` once or set CURSOR_API_KEY");
     instructions.push("Install Cursor CLI, then run `cursor-agent login` and sign in, or set CURSOR_API_KEY.");
@@ -1154,6 +1181,7 @@ function statusFor(kind: CodingAgentKind): CodingAgentStatus {
     canAutoSetup = false;
     canLoginInTerminal = false;
   } else if (kind === "copilot") {
+    accountConnected = hasCopilotAccountAuth();
     addBinary("GitHub Copilot CLI", copilotPath());
     addAuth("Copilot auth", hasCopilotAuth(), "run 'copilot' and /login, or set COPILOT_GITHUB_TOKEN / GH_TOKEN with the Copilot Requests scope");
     instructions.push("Install Copilot CLI (npm install -g @github/copilot; requires Node 22+), then run 'copilot' once and /login, or set COPILOT_GITHUB_TOKEN (or GH_TOKEN) with the Copilot Requests scope.");

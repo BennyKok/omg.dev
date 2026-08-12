@@ -430,6 +430,80 @@ describe("coding agent auth detection", () => {
     expect(codexAgent?.status.configured).toBe(true);
     expect(codexAgent?.status.accountConnected).toBe(false);
   });
+
+  const cursorStatus = async (home: string) => {
+    const bin = join(home, "cursor-agent");
+    writeFileSync(bin, "#!/bin/sh\nexit 0\n");
+    chmodSync(bin, 0o755);
+    setEnv("LFG_CURSOR_PATH", bin);
+    setEnv("CURSOR_API_KEY", undefined);
+    const agents = await listCodingAgents();
+    const agent = agents.find((a) => a.key === "cursor");
+    if (!agent) throw new Error("cursor agent not registered");
+    return agent.status;
+  };
+
+  const writeCursorCliConfig = (home: string, config: unknown) => {
+    mkdirSync(join(home, ".cursor"), { recursive: true });
+    writeFileSync(join(home, ".cursor", "cli-config.json"), JSON.stringify(config));
+  };
+
+  // The hosted agent picker greys out anything without accountConnected, so a
+  // kind that only ever reported `configured` advertised "connect Cursor" to
+  // people who were already signed in.
+  test("a signed-in Cursor CLI reports a connected account", async () => {
+    const home = useTmpHome();
+    writeCursorCliConfig(home, {
+      authInfo: { email: "someone@example.com", userId: 3532701, authId: "auth|abc" },
+    });
+    const status = await cursorStatus(home);
+    expect(status.configured).toBe(true);
+    expect(status.accountConnected).toBe(true);
+  });
+
+  test("a ~/.cursor directory with no authInfo is not a connected Cursor account", async () => {
+    const home = useTmpHome();
+    // Any cursor-agent run creates ~/.cursor and writes settings into
+    // cli-config.json; only authInfo is a sign-in.
+    writeCursorCliConfig(home, { editor: { vimMode: false } });
+    const status = await cursorStatus(home);
+    expect(status.configured).toBe(true);
+    expect(status.accountConnected).toBe(false);
+  });
+
+  test("an empty Cursor authInfo is not a connected account", async () => {
+    const home = useTmpHome();
+    writeCursorCliConfig(home, { authInfo: { email: "", userId: 0 } });
+    expect((await cursorStatus(home)).accountConnected).toBe(false);
+  });
+
+  const copilotStatus = async (home: string) => {
+    const bin = join(home, "copilot");
+    writeFileSync(bin, "#!/bin/sh\nexit 0\n");
+    chmodSync(bin, 0o755);
+    setEnv("LFG_COPILOT_PATH", bin);
+    const agents = await listCodingAgents();
+    const agent = agents.find((a) => a.key === "copilot");
+    if (!agent) throw new Error("copilot agent not registered");
+    return agent.status;
+  };
+
+  test("an interactive Copilot login counts as a connected account", async () => {
+    const home = useTmpHome();
+    mkdirSync(join(home, ".copilot"), { recursive: true });
+    writeFileSync(join(home, ".copilot", "config.json"), "{}");
+    const status = await copilotStatus(home);
+    expect(status.configured).toBe(true);
+    expect(status.accountConnected).toBe(true);
+  });
+
+  test("a platform GH_TOKEN makes Copilot runnable without claiming the account is connected", async () => {
+    const home = useTmpHome();
+    setEnv("GH_TOKEN", "gho_platform_test");
+    const status = await copilotStatus(home);
+    expect(status.configured).toBe(true);
+    expect(status.accountConnected).toBe(false);
+  });
 });
 
 describe("pi provider sign-in", () => {
