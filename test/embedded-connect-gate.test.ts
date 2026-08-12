@@ -386,13 +386,31 @@ describe("App wiring", () => {
     expect(component).toContain("toolConnections === undefined");
   });
 
+  test("an older Computer still cannot nag — the device fallback covers it", () => {
+    // Computers self-update on the user's command, not automatically, so a box
+    // that predates the server-side `hosted` block is the NORMAL case for a
+    // while. Such a box accepts the intro-done POST, ignores the field it does
+    // not know, and answers with no `hosted` — so the server can never report
+    // the intro as done and the gate would return on every single load, which
+    // is the exact wall this feature removes. Per-device is worse than
+    // per-account and far better than a nag loop.
+    expect(app).toContain("HOSTED_INTRO_DONE_KEY");
+    expect(app).toContain("hostedIntroDoneOnThisDevice");
+    // Server first, device only where the server cannot answer — an up-to-date
+    // box must stay per-account rather than silently degrading to per-device.
+    expect(app).toMatch(/onboarding\.hosted\s*\?\s*\n?\s*!!onboarding\.hosted\.introDoneAt/);
+    // Restarting the tour has to clear the echo too, or the replay is a no-op
+    // on the device that first completed it.
+    expect(app).toContain("localStorage.removeItem(HOSTED_INTRO_DONE_KEY)");
+  });
+
   test("dismissing the gate is remembered per Computer, not per page load", () => {
     // The bug that made this gate unusable, and very likely why the host
     // switched it off: "Skip for now" lived only in a React useState, so it
     // came back on EVERY reload until an agent was connected — a permanent
     // wall for anyone content on the seeded credential-free agent. It is now
     // backed by onboarding.json so it means what it says.
-    expect(app).toContain("onboarding?.hosted?.introDoneAt");
+    expect(app).toContain("hostedIntroSeen");
     expect(app).toContain("markHostedIntroDone");
     const onboarding = require("node:fs").readFileSync("src/onboarding.ts", "utf8") as string;
     expect(onboarding).toContain("introDoneAt");
