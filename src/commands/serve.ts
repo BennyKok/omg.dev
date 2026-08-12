@@ -117,7 +117,12 @@ import {
   noteListSessionsClientActivity,
 } from "../session-cache.ts";
 import { buildSessionUsageReport } from "../session-usage.ts";
-import { idleArchiveCandidates, idleMsFor } from "../idle-archive.ts";
+import {
+  idleArchiveCandidates,
+  idleMsFor,
+  MAX_IDLE_ARCHIVE_MINUTES,
+  MIN_IDLE_ARCHIVE_MINUTES,
+} from "../idle-archive.ts";
 import { isCommandFileAgent } from "../coding-agent-adapters.ts";
 import {
   enqueueTranscriptIndex,
@@ -2691,6 +2696,24 @@ a{color:#60a5fa}
             if (!validTranscriptView(b.transcriptView))
               return err(400, "transcriptView must be full or user-lfg-output");
             patch.transcriptView = b.transcriptView;
+          }
+          if (b?.idleAgentArchiveMinutes !== undefined) {
+            // Reject rather than lean on sanitizeIdleArchiveMinutes' clamp. The
+            // clamp is right for reading back whatever is already on disk, but
+            // as request validation it would answer 200 with a number the user
+            // did not ask for — which is how this setting silently did nothing
+            // for so long. An out-of-range value is a bug in the caller, so say
+            // so instead of quietly picking a different window.
+            const minutes = Number(b.idleAgentArchiveMinutes);
+            const inRange =
+              minutes === 0 ||
+              (minutes >= MIN_IDLE_ARCHIVE_MINUTES && minutes <= MAX_IDLE_ARCHIVE_MINUTES);
+            if (!Number.isInteger(minutes) || !inRange)
+              return err(
+                400,
+                `idleAgentArchiveMinutes must be 0 (off) or an integer from ${MIN_IDLE_ARCHIVE_MINUTES} to ${MAX_IDLE_ARCHIVE_MINUTES}`,
+              );
+            patch.idleAgentArchiveMinutes = minutes;
           }
           const settings = await setGlobalSettings(patch);
           return json({ settings });

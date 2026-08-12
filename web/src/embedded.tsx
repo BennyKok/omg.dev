@@ -10,7 +10,11 @@ import "./index.css";
 import { RootErrorBoundary } from "./App";
 import { AppDialogProvider } from "./components/ui/app-dialog";
 import { configureOmgTransport, type OmgErrorSink } from "./lib/omg-client";
-import { configureHostPush, type HostPushConfig } from "./lib/push";
+import {
+  configureHostPush,
+  configureHostedSurface,
+  type HostPushConfig,
+} from "./lib/push";
 import { BareSurfaceProvider } from "./lib/bare-surface";
 import {
   EmbeddedHostOptionsProvider,
@@ -168,6 +172,15 @@ export interface OmgSettingsSurfaceProps {
   onNavigate?: (page: OmgSettingsPage) => void;
   className?: string;
   errorSink?: OmgErrorSink;
+  /**
+   * A service-worker scope the host dedicates to OMG push.
+   *
+   * The push toggle lives on this surface's "more" page, so a host that mounts
+   * settings without a full app surface has to grant the scope here or the
+   * toggle has nothing to subscribe against. Omitting it is safe — the toggle
+   * explains it is unavailable instead of enrolling into the host's own worker.
+   */
+  hostedPush?: HostPushConfig;
 }
 
 const SETTINGS_PAGES: readonly OmgSettingsPage[] = [
@@ -198,11 +211,17 @@ export function OmgSettingsSurface({
   onNavigate,
   className,
   errorSink,
+  hostedPush,
 }: OmgSettingsSurfaceProps) {
   // The host owns the header, the back affordance and the account, so this
   // surface renders sections only — declared to the tree below, not to a
   // module global that a coexisting full-app surface would also read.
   configureOmgTransport(transport, { assetBaseUrl, errorSink });
+  // The More page owns the push toggle, so this surface — not just the full app
+  // surface — has to declare the host boundary. Without it push falls back to
+  // registering the host's own root worker; see configureHostedSurface.
+  configureHostedSurface(true);
+  configureHostPush(hostedPush ?? null);
   const [router] = useState<AnyRouter>(() =>
     createOmgRouter(
       createMemoryHistory({ initialEntries: [`/${page}?embed=true`] }),
@@ -281,6 +300,7 @@ export function OmgAppSurface({
   // cleanup that can revert another Strict Mode mount back to same-origin.
   configureOmgTransport(transport, { assetBaseUrl, errorSink });
   // Same reasoning as the transport: declare it before any child can read it.
+  configureHostedSurface(true);
   configureHostPush(hostedPush ?? null);
   const [router] = useState<AnyRouter>(() =>
     createOmgRouter(

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   configureHostPush,
+  configureHostedSurface,
   ensurePushSubscription,
   resolvePushRegistration,
   subscriptionMatchesKey,
@@ -93,6 +94,9 @@ beforeEach(() => {
 
 afterEach(() => {
   configureHostPush(null);
+  // Module-global, so a hosted test would otherwise leak into every test that
+  // runs after it and silently turn the standalone cases into no-ops.
+  configureHostedSurface(false);
 });
 
 describe("choosing the registration to subscribe on", () => {
@@ -130,6 +134,39 @@ describe("choosing the registration to subscribe on", () => {
     expect(
       await resolvePushRegistration({ container: fakeContainer(), embedded: true }),
     ).toBeNull();
+  });
+
+  test("a hosted surface refuses even when nobody passes `embedded`", async () => {
+    // The regression this locks down. Every other test in this block states
+    // `embedded` explicitly, so they all passed while the real caller —
+    // isSubscribed(), which passes no deps at all — fell through to the
+    // standalone branch and registered the HOST's /sw.js at scope "/".
+    //
+    // On app.omg.dev that script is the cache-drain worker: activating it
+    // navigates every open client to bust caches, so opening the More page
+    // reloaded the whole dashboard, and it then unregisters itself so the next
+    // visit did it again. isEmbedded() cannot catch this — the host mounts us
+    // as plain React components, so the document is its own top-level page.
+    configureHostedSurface(true);
+    registrations.set("/", fakeRegistration("/"));
+
+    expect(await resolvePushRegistration({ container: fakeContainer() })).toBeNull();
+    expect(registerCalls).toEqual([]);
+  });
+
+  test("a hosted surface still uses a scope the host dedicates", async () => {
+    configureHostedSurface(true);
+    configureHostPush({ scope: "/__omg_push/", workerUrl: "/__omg_push/sw.js" });
+
+    const reg = await resolvePushRegistration({ container: fakeContainer() });
+    expect(reg?.scope).toBe("/__omg_push/");
+  });
+
+  test("standalone is unaffected when no host has claimed the surface", async () => {
+    registrations.set("/", fakeRegistration("/"));
+
+    const reg = await resolvePushRegistration({ container: fakeContainer(), embedded: false });
+    expect(reg?.scope).toBe("/");
   });
 
   test("embedded uses the scope the host dedicates, not the page's own worker", async () => {
