@@ -18,10 +18,7 @@
       }
     },
     "production": {
-      "autoIncrement": true,
-      "ios": {
-        "appleTeamId": "2T82F3J732"
-      }
+      "autoIncrement": true
     }
   },
   "submit": {
