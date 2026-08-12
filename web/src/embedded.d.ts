@@ -161,12 +161,20 @@ export declare function OmgAppSurface(
  * Machine-owned settings pages a host can mount on their own, underneath its
  * own account and plan UI, instead of reimplementing them.
  */
+/**
+ * The machine's settings pages a host can mount.
+ *
+ * "more" is not one of them. That page is device-level (push, appearance,
+ * sound, haptics, install) rather than machine-level, so the host owns it —
+ * mounting the machine's copy would show a second, non-working switch beside
+ * the host's own. A host that still passes `page: "more"` gets the settings
+ * root instead of an error.
+ */
 export type OmgSettingsPage =
   | "settings"
   | "coding-agents"
   | "auto"
-  | "storage"
-  | "more";
+  | "storage";
 
 export interface OmgSettingsSurfaceProps {
   transport: OmgTransport;
