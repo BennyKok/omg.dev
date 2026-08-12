@@ -1,186 +1,257 @@
-import * as Haptics from "expo-haptics";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import type { Session } from "./lfg";
-import { colors, radius, space } from "./theme";
+/**
+ * Presentational pieces shared by the list screens. No data fetching here —
+ * these take what they render, so a screen stays the only place that knows
+ * where state comes from.
+ */
 
-export function Header({
-  title,
-  subtitle,
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type ViewStyle,
+} from "react-native";
+
+import { useTheme } from "./omg/theme";
+import { relativeTime } from "./omg/format";
+
+/** Green when the agent is working, grey when idle, amber when blocked. */
+export function StatusDot({
+  busy,
+  blocked,
+  size = 8,
 }: {
-  title: string;
-  subtitle?: string;
+  busy?: boolean;
+  blocked?: boolean;
+  size?: number;
 }) {
+  const { colors } = useTheme();
+  const color = blocked ? colors.warning : busy ? colors.busy : colors.textMuted;
   return (
-    <View style={s.header}>
-      <View style={s.brandIsland}>
-        <Text style={s.brand}>lfg</Text>
-      </View>
-      <View style={s.headerCopy}>
-        <Text style={s.heading}>{title}</Text>
-        {subtitle ? <Text style={s.sub}>{subtitle}</Text> : null}
-      </View>
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: color,
+        // An idle dot competing with the title for attention is noise; only a
+        // live one earns full strength.
+        opacity: busy || blocked ? 1 : 0.45,
+      }}
+    />
+  );
+}
+
+export function SectionLabel({ children }: { children: React.ReactNode }) {
+  const { colors, type, space } = useTheme();
+  return (
+    <Text
+      style={{
+        ...type.overline,
+        color: colors.textMuted,
+        textTransform: "uppercase",
+        paddingHorizontal: space.lg,
+        paddingTop: space.lg,
+        paddingBottom: space.sm,
+      }}
+    >
+      {children}
+    </Text>
+  );
+}
+
+/** Grouped-list card, the iOS inset style the web surface also uses. */
+export function Card({
+  children,
+  style,
+}: {
+  children: React.ReactNode;
+  style?: ViewStyle;
+}) {
+  const { colors, radius, space } = useTheme();
+  return (
+    <View
+      style={[
+        {
+          backgroundColor: colors.card,
+          borderRadius: radius.lg,
+          marginHorizontal: space.lg,
+          overflow: "hidden",
+        },
+        style,
+      ]}
+    >
+      {children}
     </View>
   );
 }
-export function SessionCard({
-  session,
+
+export function Separator({ inset = 0 }: { inset?: number }) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={{
+        height: StyleSheet.hairlineWidth,
+        backgroundColor: colors.border,
+        marginLeft: inset,
+      }}
+    />
+  );
+}
+
+export function Row({
+  children,
   onPress,
+  disabled,
 }: {
-  session: Session;
-  onPress: () => void;
+  children: React.ReactNode;
+  onPress?: () => void;
+  disabled?: boolean;
 }) {
+  const { colors, space } = useTheme();
   return (
     <Pressable
-      onPress={() => {
-        void Haptics.selectionAsync();
-        onPress();
-      }}
-      style={({ pressed }) => [s.card, pressed && s.pressed]}
+      onPress={onPress}
+      disabled={disabled || !onPress}
+      style={({ pressed }) => ({
+        // 44pt is the Apple minimum touch target; rows that carry two lines of
+        // text clear it on their own, but a single-line row would not.
+        minHeight: 44,
+        paddingHorizontal: space.lg,
+        paddingVertical: space.md,
+        backgroundColor: pressed && onPress ? colors.cardPressed : "transparent",
+        opacity: disabled ? 0.5 : 1,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.md,
+      })}
     >
-      <View style={s.meta}>
-        <View
-          style={[
-            s.dot,
-            session.busy && s.busy,
-            session.status === "blocked" && s.blocked,
-          ]}
-        />
-        <Text style={s.title} numberOfLines={1}>
-          {session.title || session.lastUserText || "Untitled session"}
-        </Text>
-        <Text style={s.chevron}>›</Text>
-      </View>
-      {session.last?.text ? (
-        <Text style={s.preview} numberOfLines={2}>
-          {session.last.text}
-        </Text>
-      ) : null}
-      <View style={s.footer}>
-        <Text style={s.agent}>{session.agent || "agent"}</Text>
-        <Text style={s.project}>{session.project || "lfg"}</Text>
-        <Text style={s.model}>
-          {session.model || "default"}
-          {session.assignedUser
-            ? ` · ${session.assignedUser.split("@")[0]}`
-            : ""}
-        </Text>
-      </View>
+      {children}
     </Pressable>
   );
 }
-export const shared = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.bg },
-  content: { paddingHorizontal: space.md, paddingBottom: 140, gap: space.md },
-  label: {
-    color: colors.textMuted,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1.2,
-  },
-  input: {
-    color: colors.text,
-    backgroundColor: colors.card,
-    borderColor: colors.borderSoft,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.lg,
-    padding: space.md,
-  },
-  button: {
-    minHeight: 46,
-    borderRadius: radius.md,
-    backgroundColor: colors.accent,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: space.lg,
-  },
-  buttonText: { color: "white", fontWeight: "800" },
-  error: { color: colors.danger, fontSize: 12 },
-  chip: {
-    borderRadius: radius.pill,
-    backgroundColor: colors.secondary,
-    borderColor: colors.borderSoft,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: space.md,
-    paddingVertical: 8,
-  },
-  chipOn: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
-  chipText: { color: colors.textMuted, fontWeight: "700" },
-  chipTextOn: { color: colors.accent },
-});
-const s = StyleSheet.create({
-  header: {
-    paddingHorizontal: space.md,
-    paddingTop: space.sm,
-    paddingBottom: space.md,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.md,
-  },
-  brandIsland: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.card,
-    borderColor: colors.borderSoft,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  brand: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: "900",
-    letterSpacing: -1,
-  },
-  headerCopy: { flex: 1 },
-  heading: {
-    color: colors.text,
-    fontSize: 28,
-    lineHeight: 32,
-    fontWeight: "800",
-    letterSpacing: -0.7,
-  },
-  sub: { color: colors.textMuted, fontSize: 12, marginTop: 1 },
-  card: {
-    backgroundColor: colors.card,
-    borderColor: colors.borderSoft,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.lg,
-    paddingHorizontal: space.md,
-    paddingVertical: 10,
-    marginHorizontal: space.md,
-    marginBottom: space.sm,
-  },
-  pressed: {
-    backgroundColor: colors.cardPressed,
-    transform: [{ scale: 0.99 }],
-  },
-  meta: { flexDirection: "row", gap: 8, alignItems: "center" },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.textMuted,
-  },
-  busy: { backgroundColor: colors.done },
-  blocked: { backgroundColor: colors.warning },
-  title: { color: colors.text, fontSize: 14, fontWeight: "700", flex: 1 },
-  chevron: { color: colors.textMuted, fontSize: 22, lineHeight: 22 },
-  preview: {
-    color: colors.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
-    marginLeft: 16,
-    marginTop: 4,
-  },
-  footer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginLeft: 16,
-    marginTop: 8,
-  },
-  agent: { color: colors.textMuted, fontSize: 10, fontWeight: "700" },
-  project: { color: colors.accent, fontSize: 10, fontWeight: "700" },
-  model: { color: colors.textMuted, fontSize: 10, marginLeft: "auto" },
-});
+
+export function EmptyState({
+  title,
+  detail,
+  action,
+}: {
+  title: string;
+  detail?: string;
+  action?: React.ReactNode;
+}) {
+  const { colors, type, space } = useTheme();
+  return (
+    <View style={{ alignItems: "center", paddingHorizontal: space.xl, paddingVertical: space.xxl * 2 }}>
+      <Text style={{ ...type.headline, color: colors.text, textAlign: "center" }}>{title}</Text>
+      {detail ? (
+        <Text
+          style={{
+            ...type.footnote,
+            color: colors.textMuted,
+            textAlign: "center",
+            marginTop: space.sm,
+            lineHeight: 19,
+          }}
+        >
+          {detail}
+        </Text>
+      ) : null}
+      {action ? <View style={{ marginTop: space.lg }}>{action}</View> : null}
+    </View>
+  );
+}
+
+export function PrimaryButton({
+  label,
+  onPress,
+  loading,
+  disabled,
+  tone = "primary",
+}: {
+  label: string;
+  onPress?: () => void;
+  loading?: boolean;
+  disabled?: boolean;
+  tone?: "primary" | "quiet";
+}) {
+  const { colors, radius, type, space } = useTheme();
+  const isQuiet = tone === "quiet";
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled || loading}
+      style={({ pressed }) => ({
+        height: 50,
+        borderRadius: radius.lg,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingHorizontal: space.xl,
+        backgroundColor: isQuiet ? colors.secondary : colors.primary,
+        opacity: disabled ? 0.4 : pressed ? 0.85 : 1,
+      })}
+    >
+      {loading ? (
+        <ActivityIndicator color={isQuiet ? colors.text : colors.primaryForeground} />
+      ) : (
+        <Text
+          style={{
+            ...type.headline,
+            color: isQuiet ? colors.text : colors.primaryForeground,
+          }}
+        >
+          {label}
+        </Text>
+      )}
+    </Pressable>
+  );
+}
+
+/**
+ * One session in the list. Deliberately two lines: a title people recognise and
+ * a quiet metadata line, with the live dot and the time doing the scanning
+ * work.
+ */
+export function SessionRow({
+  title,
+  subtitle,
+  agent,
+  busy,
+  blocked,
+  lastActivityAt,
+  onPress,
+}: {
+  title: string;
+  subtitle?: string | null;
+  agent?: string | null;
+  busy?: boolean;
+  blocked?: boolean;
+  lastActivityAt?: number | null;
+  onPress: () => void;
+}) {
+  const { colors, type, space } = useTheme();
+  return (
+    <Row onPress={onPress}>
+      <StatusDot busy={busy} blocked={blocked} />
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text numberOfLines={1} style={{ ...type.callout, color: colors.text, fontWeight: "600" }}>
+          {title}
+        </Text>
+        {subtitle ? (
+          <Text numberOfLines={1} style={{ ...type.footnote, color: colors.textMuted }}>
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+      <View style={{ alignItems: "flex-end", gap: 2 }}>
+        <Text style={{ ...type.caption, color: colors.textMuted }}>
+          {relativeTime(lastActivityAt)}
+        </Text>
+        {agent ? (
+          <Text style={{ ...type.caption, color: colors.textMuted, opacity: 0.7 }}>{agent}</Text>
+        ) : null}
+      </View>
+    </Row>
+  );
+}

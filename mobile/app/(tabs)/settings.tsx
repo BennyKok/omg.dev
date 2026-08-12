@@ -1,124 +1,129 @@
+/**
+ * Settings, deliberately thin for v1.
+ *
+ * Everything that is genuinely account- or machine-level — coding agents,
+ * schedules, storage, billing — already has a good screen on the web, and
+ * those screens change often. Reimplementing them natively now would mean
+ * maintaining two of each while the product is still moving. So this screen
+ * owns identity and machine choice, and hands the rest to the web with an
+ * obvious external-link affordance rather than pretending to be the whole
+ * settings surface.
+ */
+
+import { useRouter } from "expo-router";
 import Constants from "expo-constants";
-import { isLiquidGlassAvailable } from "expo-glass-effect";
-import { useState } from "react";
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Alert, Linking, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Header, shared } from "../../src/components";
-import { useLfg } from "../../src/lfg";
-import { colors, radius, space } from "../../src/theme";
-export default function Settings() {
+
+import { Card, Row, SectionLabel, Separator, StatusDot } from "../../src/components";
+import { useOmg } from "../../src/omg/provider";
+import { useTheme } from "../../src/omg/theme";
+import { bindingLabel } from "../../src/omg/format";
+import { CLOUD_BINDING_ID } from "../../src/omg/config";
+
+const WEB_PAGES: { label: string; path: string }[] = [
+  { label: "Coding agents", path: "/settings/computer/coding-agents" },
+  { label: "Schedules", path: "/settings/computer/auto" },
+  { label: "Storage", path: "/settings/computer/storage" },
+  { label: "Plan & billing", path: "/settings/billing" },
+];
+
+export default function SettingsScreen() {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
-  const {
-    baseUrl,
-    setBaseUrl,
-    refresh,
-    boot,
-    error,
-    loading,
-    userEmail,
-    setUserEmail,
-  } = useLfg();
-  const [draft, setDraft] = useState(baseUrl);
-  async function connect() {
-    await setBaseUrl(draft);
-    await refresh();
-  }
+  const { colors, type, space } = useTheme();
+  const { user, signOut, bindings, bindingId } = useOmg();
+
+  const current = bindings.find((b) => b.id === bindingId);
+  const machineName = current
+    ? bindingLabel(current)
+    : bindingId === CLOUD_BINDING_ID
+      ? "Cloud computer"
+      : "None selected";
+
+  const confirmSignOut = () => {
+    Alert.alert("Sign out?", "You'll need a new sign-in code to get back in.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Sign out", style: "destructive", onPress: () => void signOut() },
+    ]);
+  };
+
+  const open = (path: string) => void Linking.openURL(`https://app.omg.dev${path}`);
+
   return (
-    <KeyboardAvoidingView
-      style={[shared.screen, { paddingTop: insets.top }]}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    <ScrollView
+      style={{ flex: 1, backgroundColor: colors.bg }}
+      contentContainerStyle={{
+        paddingTop: insets.top + space.lg,
+        paddingBottom: insets.bottom + space.xxl,
+      }}
     >
-      <Header title="Settings" subtitle="Connect this phone to your LFG host" />
-      <ScrollView contentContainerStyle={shared.content}>
-        <View style={s.card}>
-          <Text style={shared.label}>LFG SERVER URL</Text>
-          <TextInput
-            value={draft}
-            onChangeText={setDraft}
-            autoCapitalize="none"
-            keyboardType="url"
-            style={[shared.input, s.input]}
-          />
-          <Pressable onPress={connect} style={shared.button}>
-            <Text style={shared.buttonText}>
-              {loading ? "Connecting…" : "Connect"}
+      <Text style={{ ...type.largeTitle, color: colors.text, paddingHorizontal: space.lg }}>
+        Settings
+      </Text>
+
+      <SectionLabel>Account</SectionLabel>
+      <Card>
+        <Row>
+          <View style={{ flex: 1 }}>
+            <Text style={{ ...type.callout, color: colors.text }}>
+              {user?.email ?? "Signed in"}
             </Text>
-          </Pressable>
-          <Text
-            style={[s.status, { color: boot ? colors.done : colors.danger }]}
-          >
-            {boot
-              ? `● Connected · LFG ${boot.version}`
-              : `● ${error || "Not connected"}`}
-          </Text>
-        </View>
-        <View style={s.card}>
-          <Text style={shared.label}>WHO ARE YOU?</Text>
-          <View style={s.users}>
-            {(boot?.users || []).map((user) => (
-              <Pressable
-                key={user.email}
-                onPress={() => setUserEmail(user.email)}
-                style={[shared.chip, userEmail === user.email && shared.chipOn]}
-              >
-                <Text
-                  style={[
-                    shared.chipText,
-                    userEmail === user.email && shared.chipTextOn,
-                  ]}
-                >
-                  {user.name || user.email}
-                </Text>
-              </Pressable>
-            ))}
           </View>
-        </View>
-        <View style={s.card}>
-          <Text style={shared.label}>NATIVE RUNTIME</Text>
-          <Text style={s.row}>
-            Expo SDK {Constants.expoConfig?.sdkVersion || "57"}
-          </Text>
-          <Text style={s.row}>iOS {String(Platform.Version)}</Text>
-          <Text style={s.row}>
-            Liquid Glass {isLiquidGlassAvailable() ? "available" : "fallback"}
-          </Text>
-          <Text style={s.row}>Native UIKit tab bar</Text>
-        </View>
-        <Text style={s.note}>
-          Use your host’s Tailscale IP away from local Wi‑Fi. The local LFG API
-          has no application-layer login, so never expose port 8766 directly to
-          the public internet.
-        </Text>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        </Row>
+      </Card>
+
+      <SectionLabel>Computer</SectionLabel>
+      <Card>
+        <Row onPress={() => router.push("/computers")}>
+          <StatusDot busy={current?.online ?? false} />
+          <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>{machineName}</Text>
+          <Text style={{ ...type.callout, color: colors.primary }}>Change</Text>
+        </Row>
+      </Card>
+
+      <SectionLabel>On the web</SectionLabel>
+      <Card>
+        {WEB_PAGES.map((page, i) => (
+          <View key={page.path}>
+            {i > 0 ? <Separator inset={space.lg} /> : null}
+            <Row onPress={() => open(page.path)}>
+              <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>{page.label}</Text>
+              <Text style={{ ...type.callout, color: colors.textMuted }}>↗</Text>
+            </Row>
+          </View>
+        ))}
+      </Card>
+      <Text
+        style={{
+          ...type.footnote,
+          color: colors.textMuted,
+          paddingHorizontal: space.lg,
+          paddingTop: space.sm,
+          lineHeight: 18,
+        }}
+      >
+        These open omg.dev in your browser.
+      </Text>
+
+      <View style={{ marginTop: space.xl }}>
+        <Card>
+          <Row onPress={confirmSignOut}>
+            <Text style={{ ...type.callout, color: colors.danger, flex: 1 }}>Sign out</Text>
+          </Row>
+        </Card>
+      </View>
+
+      <Text
+        style={{
+          ...type.caption,
+          color: colors.textMuted,
+          textAlign: "center",
+          paddingTop: space.xl,
+        }}
+      >
+        omg {Constants.expoConfig?.version ?? "1.0.0"}
+      </Text>
+    </ScrollView>
   );
 }
-const s = StyleSheet.create({
-  card: {
-    backgroundColor: colors.card,
-    borderColor: colors.border,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.lg,
-    padding: space.lg,
-    gap: space.md,
-  },
-  input: { marginVertical: space.sm },
-  status: { fontSize: 12 },
-  users: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
-  row: {
-    color: colors.text,
-    paddingVertical: space.sm,
-    borderBottomColor: colors.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  note: { color: colors.textMuted, fontSize: 12, lineHeight: 18 },
-});

@@ -1,21 +1,24 @@
+/**
+ * Two tabs for v1: the sessions you care about, and settings.
+ *
+ * NativeTabs is the SDK 57 API that renders a real UIKit UITabBar rather than a
+ * JS imitation, which is what makes the bar blur, shrink on scroll and match
+ * every other iOS app for free. `minimizeBehavior` is the iOS 26 shrink-on-
+ * scroll behaviour.
+ */
+
 import { NativeTabs } from "expo-router/unstable-native-tabs";
-export default function Tabs() {
+
+import { useTheme } from "../../src/omg/theme";
+
+export default function TabsLayout() {
+  const { colors } = useTheme();
+
   return (
-    <NativeTabs minimizeBehavior="onScrollDown">
+    <NativeTabs minimizeBehavior="onScrollDown" tintColor={colors.primary}>
       <NativeTabs.Trigger name="index">
-        <NativeTabs.Trigger.Icon
-          sf="bolt.horizontal.circle.fill"
-          md="dynamic_feed"
-        />
-        <NativeTabs.Trigger.Label>Live</NativeTabs.Trigger.Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="new">
-        <NativeTabs.Trigger.Icon sf="plus.circle.fill" md="add_circle" />
-        <NativeTabs.Trigger.Label>New</NativeTabs.Trigger.Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="activity">
-        <NativeTabs.Trigger.Icon sf="sparkles" md="auto_awesome" />
-        <NativeTabs.Trigger.Label>Activity</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="bolt.horizontal.circle.fill" md="dynamic_feed" />
+        <NativeTabs.Trigger.Label>Sessions</NativeTabs.Trigger.Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="settings">
         <NativeTabs.Trigger.Icon sf="gearshape.fill" md="settings" />

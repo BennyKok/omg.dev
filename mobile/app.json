@@ -8,7 +8,10 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "dev.lfg.mobile"
+      "bundleIdentifier": "dev.lfg.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "dev.lfg.mobile",
@@ -27,6 +30,13 @@
       "expo-status-bar",
       "expo-router"
     ],
-    "scheme": "lfg"
+    "scheme": "lfg",
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "da13049f-0ab5-411e-8c0b-e27fac475f9a"
+      }
+    },
+    "owner": "bennykok"
   }
 }

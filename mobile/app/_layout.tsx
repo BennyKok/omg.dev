@@ -1,11 +1,46 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { LfgProvider } from "../src/lfg";
-import { colors } from "../src/theme";
-export default function Layout() {
+import { ActivityIndicator, StyleSheet, View } from "react-native";
+
+import { BrandMark } from "../src/omg/brand-mark";
+
+import { OmgProvider, useOmg } from "../src/omg/provider";
+import { useTheme } from "../src/omg/theme";
+
+function RootNavigator() {
+  const { authStatus } = useOmg();
+  const { colors, isDark } = useTheme();
+
+  if (authStatus === "loading") {
+    return (
+      <View style={[styles.splash, { backgroundColor: colors.bg }]}>
+        <BrandMark />
+        <ActivityIndicator color={colors.textMuted} style={styles.splashSpinner} />
+        <StatusBar style={isDark ? "light" : "dark"} />
+      </View>
+    );
+  }
+
+  if (authStatus === "signed-out") {
+    return (
+      <>
+        <StatusBar style={isDark ? "light" : "dark"} />
+        <Stack screenOptions={{ contentStyle: { backgroundColor: colors.bg } }}>
+          <Stack.Protected guard>
+            <Stack.Screen name="sign-in" options={{ headerShown: false }} />
+          </Stack.Protected>
+          <Stack.Protected guard={false}>
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen name="session/[id]" options={{ title: "Session" }} />
+          </Stack.Protected>
+        </Stack>
+      </>
+    );
+  }
+
   return (
-    <LfgProvider>
-      <StatusBar style="light" />
+    <>
+      <StatusBar style={isDark ? "light" : "dark"} />
       <Stack
         screenOptions={{
           headerStyle: { backgroundColor: colors.bg },
@@ -14,9 +49,33 @@ export default function Layout() {
           contentStyle: { backgroundColor: colors.bg },
         }}
       >
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="session/[id]" options={{ title: "Session" }} />
+        <Stack.Protected guard={false}>
+          <Stack.Screen name="sign-in" options={{ headerShown: false }} />
+        </Stack.Protected>
+        <Stack.Protected guard>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="session/[id]" options={{ title: "Session" }} />
+        </Stack.Protected>
       </Stack>
-    </LfgProvider>
+    </>
   );
 }
+
+export default function Layout() {
+  return (
+    <OmgProvider>
+      <RootNavigator />
+    </OmgProvider>
+  );
+}
+
+const styles = StyleSheet.create({
+  splash: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "center",
+  },
+  splashSpinner: {
+    marginTop: 24,
+  },
+});

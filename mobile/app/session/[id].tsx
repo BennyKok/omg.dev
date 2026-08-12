@@ -1,400 +1,381 @@
-import * as Haptics from "expo-haptics";
+/**
+ * A session: the transcript, and the composer.
+ *
+ * All the hard live-stream work belongs to @omg-dev/client, not to this file.
+ * `live.subscribeTranscript` owns the socket, the reconnect backoff, the resume
+ * cursor and the multiplexing, and hands back a small event union. The
+ * prototype hand-rolled its own WebSocket with a fixed 1500ms retry and no
+ * resume; using the SDK instead means this screen gets the same semantics the
+ * web surface has, and keeps getting them when the protocol moves.
+ *
+ * Streaming detail worth knowing: an in-flight assistant turn arrives as
+ * `ai_part` deltas, NOT as messages. They accumulate into a synthetic trailing
+ * bubble which is replaced the moment the real `message` lands — otherwise the
+ * finished turn renders twice.
+ */
+
 import { useLocalSearchParams, useNavigation } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import * as Haptics from "expo-haptics";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  AppState,
+  ActivityIndicator,
   FlatList,
-  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { shared } from "../../src/components";
-import { useLfg, type Message } from "../../src/lfg";
-import { colors, radius, space } from "../../src/theme";
+import type { OmgMessage, OmgSessionPrompt } from "@omg-dev/protocol";
 
-const key = (m: Message, i: number) =>
-  m.id || `${m.role}-${m.kind}-${m.ts || i}`;
-const merge = (old: Message[], next: Message[]) => {
-  const map = new Map(old.map((m, i) => [key(m, i), m]));
-  next.forEach((m, i) => map.set(key(m, i), m));
-  return [...map.values()].sort((a, b) => (a.ts || 0) - (b.ts || 0));
-};
+import { useOmg } from "../../src/omg/provider";
+import { useTheme } from "../../src/omg/theme";
+
+/** Local id for the optimistic bubble, so it can be rolled back precisely. */
+let localSeq = 0;
+
+type Bubble = OmgMessage & { pending?: boolean; streaming?: boolean };
 
 export default function SessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const nav = useNavigation();
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const { boot, api, absolute, baseUrl, refresh } = useLfg();
-  const session = useMemo(
-    () =>
-      boot?.sessions?.find(
-        (x) => x.sessionId === id || x.nativeSessionId === id,
-      ),
-    [boot?.sessions, id],
-  );
-  const [messages, setMessages] = useState<Message[]>([]);
+  const { colors, type, space, radius } = useTheme();
+  const { client } = useOmg();
+
+  const [messages, setMessages] = useState<Bubble[]>([]);
+  const [streamText, setStreamText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [prompt, setPrompt] = useState<OmgSessionPrompt | null>(null);
   const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState(!!session?.busy);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState<{
-    question?: string;
-    options: { index: number; label: string }[];
-  } | null>(null);
-  const list = useRef<FlatList<Message>>(null);
+  const [loading, setLoading] = useState(true);
+
+  const listRef = useRef<FlatList<Bubble>>(null);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({ title: "Session" });
+  }, [navigation]);
+
+  // Seed from REST, then let the socket take over. The socket also sends a
+  // snapshot, but the REST read paints something immediately instead of waiting
+  // on a connection that may still be waking.
   useEffect(() => {
-    nav.setOptions({ title: session?.title || "Session" });
-  }, [nav, session?.title]);
-  const load = useCallback(async () => {
-    try {
-      const data = await api<{ messages?: Message[] }>(
-        `/api/sessions/${id}/messages?limit=100`,
-      );
-      setMessages(data.messages || []);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }, [api, id]);
+    let cancelled = false;
+    if (!client || !id) return;
+    setLoading(true);
+    client
+      .getMessages(id, 80)
+      .then((res) => {
+        if (cancelled) return;
+        setMessages(res.messages ?? []);
+        setError(null);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, id]);
+
   useEffect(() => {
-    void load();
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") {
-        void load();
-        void refresh();
+    if (!client || !id) return;
+    return client.live.subscribeTranscript(id, (event) => {
+      switch (event.type) {
+        case "snapshot":
+          setMessages(event.messages ?? []);
+          break;
+        case "message":
+          setMessages((prev) => {
+            // Drop the optimistic copy this message confirms, and de-dupe on id.
+            const withoutPending = prev.filter(
+              (m) => !(m.pending && m.text === event.message.text),
+            );
+            if (event.message.id && withoutPending.some((m) => m.id === event.message.id)) {
+              return withoutPending.map((m) => (m.id === event.message.id ? event.message : m));
+            }
+            return [...withoutPending, event.message];
+          });
+          // A completed message supersedes whatever was streaming.
+          setStreamText("");
+          break;
+        case "ai_part":
+          if (event.part.type === "text-start" || event.part.reset) {
+            setStreamText(event.part.text ?? "");
+          } else if (event.part.type === "text-delta") {
+            setStreamText((prev) => prev + (event.part.delta ?? ""));
+          } else if (event.part.type === "text-end") {
+            // Leave the text on screen; the real message replaces it.
+          }
+          break;
+        case "busy":
+          setBusy(event.busy);
+          break;
+        case "prompt":
+          setPrompt(event.prompt);
+          break;
+        case "error":
+          setError(event.error);
+          break;
       }
     });
-    return () => subscription.remove();
-  }, [load, refresh]);
+  }, [client, id]);
+
+  const data = useMemo<Bubble[]>(() => {
+    if (!streamText) return messages;
+    return [
+      ...messages,
+      { id: "__streaming__", role: "assistant", text: streamText, streaming: true },
+    ];
+  }, [messages, streamText]);
+
   useEffect(() => {
-    let closed = false;
-    let ws: WebSocket | null = null;
-    let retry: ReturnType<typeof setTimeout> | null = null;
-    const connect = () => {
-      ws = new WebSocket(`${baseUrl.replace(/^http/, "ws")}/api/live/ws`);
-      ws.onopen = () => {
-        setError(null);
-        ws?.send(
-          JSON.stringify({
-            t: "subscribe",
-            channels: [
-              { kind: "transcript", key: id },
-              { kind: "status", key: "*" },
-            ],
-          }),
-        );
-      };
-      ws.onmessage = (event) => {
-        try {
-          const f = JSON.parse(String(event.data));
-          if (f.t === "ping") {
-            ws?.send(JSON.stringify({ t: "pong", id: f.id }));
-            return;
-          }
-          const p = f.t === "delta" ? f.delta : f;
-          if (
-            (p.t === "batch" || p.t === "page" || p.t === "snapshot") &&
-            p.sid === id
-          )
-            setMessages((v) => merge(v, p.messages || []));
-          if (p.t === "msg" && p.sid === id) {
-            const m = p.message || p.m;
-            if (m) setMessages((v) => merge(v, [m]));
-          }
-          if (p.t === "busy" && p.sid === id) setBusy(!!p.busy);
-          if (p.t === "prompt" && p.sid === id) setPrompt(p.prompt || null);
-          if (p.t === "status") {
-            const row = p.rows?.find((x: any) => x.sessionId === id);
-            if (row) setBusy(!!row.busy);
-          }
-        } catch {}
-      };
-      ws.onclose = () => {
-        if (!closed) {
-          setError("Live connection lost — reconnecting…");
-          retry = setTimeout(connect, 1500);
-        }
-      };
-    };
-    connect();
-    return () => {
-      closed = true;
-      if (retry) clearTimeout(retry);
-      ws?.close();
-    };
-  }, [baseUrl, id]);
-  async function send() {
+    if (data.length) {
+      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+    }
+  }, [data.length, streamText]);
+
+  const send = useCallback(async () => {
     const text = draft.trim();
-    if (!text) return;
-    setDraft("");
-    setSending(true);
-    const optimistic = {
-      id: `pending-${Date.now()}`,
+    if (!text || !client || !id || sending) return;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const optimistic: Bubble = {
+      id: `local-${++localSeq}`,
       role: "user",
-      kind: "text",
       text,
       ts: Date.now(),
       pending: true,
     };
-    setMessages((v) => [...v, optimistic]);
+    setMessages((prev) => [...prev, optimistic]);
+    setDraft("");
+    setSending(true);
     try {
-      await api(`/api/sessions/${id}/send`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, mode: busy ? "queue" : "steer" }),
-      });
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      setTimeout(() => void load(), 500);
+      await client.sendMessage(id, text);
+      setError(null);
     } catch (e) {
-      setMessages((v) => v.filter((m) => m.id !== optimistic.id));
+      // Roll the bubble back AND give the person their words back — losing
+      // typed text to a failed request is the rudest thing a composer can do.
+      setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
       setDraft(text);
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSending(false);
     }
-  }
-  async function stop() {
-    await api(`/api/sessions/${id}/interrupt`, { method: "POST" });
-    setBusy(false);
+  }, [draft, client, id, sending]);
+
+  const stop = useCallback(async () => {
+    if (!client || !id) return;
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    await refresh();
-  }
-  async function resolvePrompt(index?: number) {
-    await api(
-      `/api/sessions/${id}/${index === undefined ? "dismiss" : "answer"}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: index === undefined ? undefined : JSON.stringify({ index }),
-      },
+    try {
+      await client.interrupt(id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [client, id]);
+
+  if (!client) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: "center", justifyContent: "center" }}>
+        <Text style={{ ...type.callout, color: colors.textMuted }}>No computer selected.</Text>
+      </View>
     );
-    setPrompt(null);
   }
-  async function closeSession() {
-    await api(`/api/sessions/${id}/close`, { method: "POST" });
-    await refresh();
-    nav.goBack();
-  }
+
   return (
     <KeyboardAvoidingView
-      style={shared.screen}
+      style={{ flex: 1, backgroundColor: colors.bg }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={88}
+      keyboardVerticalOffset={insets.top + 44}
     >
-      <View style={s.bar}>
-        <View style={[s.dot, busy && s.busy]} />
-        <Text style={s.meta}>
-          {session?.agent || "agent"} · {session?.model || "default"} ·{" "}
-          {session?.project || "lfg"}
-        </Text>
-        {busy ? (
-          <Pressable onPress={stop}>
-            <Text style={s.stop}>Stop</Text>
-          </Pressable>
-        ) : (
-          <Pressable onPress={closeSession}>
-            <Text style={s.stop}>Close</Text>
-          </Pressable>
-        )}
-      </View>
+      {loading ? (
+        <View style={{ paddingVertical: space.xl }}>
+          <ActivityIndicator color={colors.textMuted} />
+        </View>
+      ) : null}
+
       <FlatList
-        ref={list}
-        data={messages}
-        keyExtractor={key}
-        renderItem={({ item }) => <Bubble message={item} absolute={absolute} />}
-        contentContainerStyle={s.messages}
-        onContentSizeChange={() =>
-          list.current?.scrollToEnd({ animated: false })
-        }
+        ref={listRef}
+        data={data}
+        keyExtractor={(m, i) => m.id ?? String(i)}
+        contentContainerStyle={{ padding: space.lg, gap: space.md }}
+        keyboardDismissMode="interactive"
+        renderItem={({ item }) => <MessageBubble message={item} />}
         ListEmptyComponent={
-          <Text style={s.empty}>No transcript messages yet.</Text>
+          loading ? null : (
+            <Text style={{ ...type.footnote, color: colors.textMuted, textAlign: "center" }}>
+              No messages yet.
+            </Text>
+          )
         }
       />
+
+      {/* The agent asked something — answering has to be one tap. */}
       {prompt ? (
-        <View style={s.prompt}>
-          <Text style={s.promptTitle}>
-            {prompt.question || "Agent needs your input"}
-          </Text>
-          <View style={s.promptOptions}>
-            {prompt.options.map((option) => (
+        <View
+          style={{
+            marginHorizontal: space.lg,
+            marginBottom: space.sm,
+            padding: space.md,
+            backgroundColor: colors.card,
+            borderRadius: radius.lg,
+            gap: space.sm,
+          }}
+        >
+          {prompt.question ? (
+            <Text style={{ ...type.callout, color: colors.text }}>{prompt.question}</Text>
+          ) : null}
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
+            {prompt.options?.map((opt) => (
               <Pressable
-                key={option.index}
-                onPress={() => resolvePrompt(option.index)}
-                style={shared.chip}
+                key={opt.index}
+                onPress={() => {
+                  void Haptics.selectionAsync();
+                  setDraft(opt.label);
+                }}
+                style={({ pressed }) => ({
+                  paddingHorizontal: space.md,
+                  paddingVertical: space.sm,
+                  borderRadius: radius.pill,
+                  backgroundColor: pressed ? colors.cardPressed : colors.secondary,
+                })}
               >
-                <Text style={shared.chipText}>{option.label}</Text>
+                <Text style={{ ...type.footnote, color: colors.text }}>{opt.label}</Text>
               </Pressable>
             ))}
-            <Pressable onPress={() => resolvePrompt()} style={shared.chip}>
-              <Text style={s.stop}>Dismiss</Text>
-            </Pressable>
           </View>
         </View>
       ) : null}
-      {error ? <Text style={s.error}>{error}</Text> : null}
+
+      {error ? (
+        <Text
+          style={{
+            ...type.caption,
+            color: colors.danger,
+            paddingHorizontal: space.lg,
+            paddingBottom: space.xs,
+          }}
+        >
+          {error}
+        </Text>
+      ) : null}
+
       <View
-        style={[
-          s.composer,
-          { paddingBottom: Math.max(insets.bottom, space.sm) },
-        ]}
+        style={{
+          flexDirection: "row",
+          alignItems: "flex-end",
+          gap: space.sm,
+          paddingHorizontal: space.lg,
+          paddingTop: space.sm,
+          paddingBottom: insets.bottom + space.sm,
+          borderTopWidth: 1,
+          borderTopColor: colors.border,
+          backgroundColor: colors.bg,
+        }}
       >
         <TextInput
           value={draft}
           onChangeText={setDraft}
-          multiline
+          // Steering a running agent and queueing a follow-up are different
+          // intents; say which one this will be.
           placeholder={busy ? "Queue a follow-up…" : "Message the agent…"}
           placeholderTextColor={colors.textMuted}
-          style={s.input}
+          multiline
+          style={{
+            flex: 1,
+            maxHeight: 120,
+            minHeight: 38,
+            backgroundColor: colors.card,
+            borderRadius: radius.lg,
+            paddingHorizontal: space.md,
+            paddingTop: 9,
+            paddingBottom: 9,
+            color: colors.text,
+            ...type.callout,
+          }}
         />
+        {busy ? (
+          <Pressable
+            onPress={() => void stop()}
+            style={({ pressed }) => ({
+              height: 38,
+              paddingHorizontal: space.md,
+              borderRadius: radius.lg,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: pressed ? colors.cardPressed : colors.secondary,
+            })}
+          >
+            <Text style={{ ...type.footnote, color: colors.danger, fontWeight: "600" }}>Stop</Text>
+          </Pressable>
+        ) : null}
         <Pressable
+          onPress={() => void send()}
           disabled={!draft.trim() || sending}
-          onPress={send}
-          style={[
-            shared.button,
-            s.send,
-            (!draft.trim() || sending) && s.disabled,
-          ]}
+          style={({ pressed }) => ({
+            width: 38,
+            height: 38,
+            borderRadius: 19,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: colors.primary,
+            opacity: !draft.trim() || sending ? 0.35 : pressed ? 0.8 : 1,
+          })}
         >
-          <Text style={s.sendGlyph}>{busy ? "＋" : "↑"}</Text>
+          {sending ? (
+            <ActivityIndicator size="small" color={colors.primaryForeground} />
+          ) : (
+            <Text style={{ color: colors.primaryForeground, fontSize: 18, fontWeight: "700" }}>
+              {busy ? "+" : "↑"}
+            </Text>
+          )}
         </Pressable>
       </View>
     </KeyboardAvoidingView>
   );
 }
-function Bubble({
-  message,
-  absolute,
-}: {
-  message: Message;
-  absolute: (p: string) => string;
-}) {
-  const user = message.role === "user";
-  const uri = message.url
-    ? message.url.startsWith("http")
-      ? message.url
-      : absolute(message.url)
-    : message.artifactId
-      ? absolute(`/api/artifacts/${message.artifactId}`)
-      : null;
-  if (message.kind === "image" && uri)
-    return (
-      <View style={[s.bubble, s.agentBubble]}>
-        <Image source={{ uri }} style={s.image} />
-        {message.caption ? (
-          <Text style={s.caption}>{message.caption}</Text>
-        ) : null}
-      </View>
-    );
+
+function MessageBubble({ message }: { message: Bubble }) {
+  const { colors, type, space, radius } = useTheme();
+  const isUser = message.role === "user";
+  const isSystem = message.role !== "user" && message.role !== "assistant";
+
+  if (isSystem && !message.text) return null;
+
   return (
-    <View style={[s.bubble, user ? s.userBubble : s.agentBubble]}>
-      <Text style={s.role}>
-        {user ? "YOU" : message.role === "assistant" ? "AGENT" : "SYSTEM"}
+    <View
+      style={{
+        alignSelf: isUser ? "flex-end" : "flex-start",
+        maxWidth: "88%",
+        backgroundColor: isUser ? colors.primary : colors.card,
+        borderRadius: radius.xl,
+        paddingHorizontal: space.md,
+        paddingVertical: space.sm,
+        opacity: message.pending ? 0.6 : 1,
+      }}
+    >
+      {isSystem ? (
+        <Text style={{ ...type.caption, color: colors.textMuted, marginBottom: 2 }}>
+          {message.kind ?? "system"}
+        </Text>
+      ) : null}
+      <Text
+        selectable
+        style={{
+          ...type.callout,
+          color: isUser ? colors.primaryForeground : colors.text,
+          lineHeight: 21,
+        }}
+      >
+        {message.text ?? (message.kind ? `[${message.kind}]` : "")}
+        {message.streaming ? "▍" : ""}
       </Text>
-      <Text selectable style={s.text}>
-        {message.text || `[${message.kind || "event"}]`}
-      </Text>
-      {message.pending ? <Text style={s.pending}>Sending…</Text> : null}
     </View>
   );
 }
-const s = StyleSheet.create({
-  bar: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.sm,
-    paddingHorizontal: space.md,
-    paddingVertical: 10,
-    borderBottomColor: colors.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  dot: {
-    width: 9,
-    height: 9,
-    borderRadius: 5,
-    backgroundColor: colors.textMuted,
-  },
-  busy: { backgroundColor: colors.done },
-  meta: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    fontWeight: "600",
-    flex: 1,
-  },
-  stop: { color: colors.danger, fontWeight: "800" },
-  prompt: {
-    backgroundColor: colors.card,
-    padding: space.md,
-    borderTopColor: colors.border,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  promptTitle: {
-    color: colors.text,
-    fontWeight: "800",
-    marginBottom: space.sm,
-  },
-  promptOptions: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
-  messages: {
-    paddingHorizontal: space.md,
-    paddingVertical: space.lg,
-    gap: space.md,
-  },
-  bubble: {
-    maxWidth: "92%",
-    borderRadius: radius.xl,
-    paddingHorizontal: space.md,
-    paddingVertical: 10,
-  },
-  userBubble: { backgroundColor: colors.secondary, alignSelf: "flex-end" },
-  agentBubble: {
-    backgroundColor: "transparent",
-    alignSelf: "flex-start",
-    paddingLeft: 0,
-  },
-  role: {
-    color: colors.textMuted,
-    fontSize: 9,
-    fontWeight: "900",
-    letterSpacing: 1.2,
-  },
-  text: { color: colors.text, fontSize: 15, lineHeight: 21, marginTop: 4 },
-  pending: { color: colors.textMuted, fontSize: 10 },
-  image: { width: 280, height: 220, borderRadius: radius.md },
-  caption: { color: colors.textMuted, marginTop: space.sm },
-  empty: { color: colors.textMuted, textAlign: "center", marginTop: 80 },
-  error: { color: colors.danger, fontSize: 12, paddingHorizontal: space.lg },
-  composer: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: space.sm,
-    padding: space.sm,
-    borderTopColor: colors.borderSoft,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    backgroundColor: colors.bg,
-  },
-  input: {
-    flex: 1,
-    minHeight: 46,
-    maxHeight: 120,
-    color: colors.text,
-    backgroundColor: colors.secondary,
-    borderRadius: 22,
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-  },
-  send: {
-    minWidth: 44,
-    width: 44,
-    height: 44,
-    minHeight: 44,
-    borderRadius: 22,
-    paddingHorizontal: 0,
-  },
-  sendGlyph: { color: "#fff", fontSize: 22, lineHeight: 24, fontWeight: "800" },
-  disabled: { opacity: 0.45 },
-});

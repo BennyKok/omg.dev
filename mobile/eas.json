@@ -18,13 +18,17 @@
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "ios": {
+        "appleTeamId": "2T82F3J732"
+      }
     }
   },
   "submit": {
     "production": {
       "ios": {
-        "ascAppId": "REPLACE_WITH_APP_STORE_CONNECT_APP_ID"
+        "appleId": "itechbenny@icloud.com",
+        "appleTeamId": "2T82F3J732"
       }
     }
   }
