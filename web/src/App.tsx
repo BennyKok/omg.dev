@@ -132,6 +132,7 @@ import {
 } from "./lib/shipped-feed";
 import { findingReference } from "./lib/finding-reference";
 import { buildAutoTriagePrompt, resolveAutoTriageCwd } from "./lib/auto-triage";
+import { resolveComposerRepo } from "./lib/composer-repo";
 import { setThemePreference, THEME_CHANGE_EVENT } from "./lib/theme";
 import { startsInBottomSystemGestureZone } from "./lib/touch-gestures";
 import {
@@ -17526,7 +17527,11 @@ function NewSessionDialog({
       ? repos.find((r) => repoProject(r) === scopedProject)
       : undefined;
   const projectScoped = !!scopedRepo;
-  const selectedRepo = scopedRepo?.cwd || repo || repos[0]?.cwd || "";
+  const selectedRepo = resolveComposerRepo({
+    scopedCwd: scopedRepo?.cwd,
+    lastCwd: repo,
+    repos,
+  });
   const selectedRepoName =
     repos.find((candidate) => candidate.cwd === selectedRepo)?.name ||
     (selectedRepo ? shortProject(selectedRepo) : "Project");
