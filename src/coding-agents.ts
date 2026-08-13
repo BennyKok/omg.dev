@@ -307,10 +307,10 @@ type JcodeAuthStatus = {
   providers?: Array<{ status?: unknown; credential_source?: unknown }>;
 };
 
-function jcodeAuthStatus(): { available: boolean; accountConnected: boolean } {
+async function jcodeAuthStatus(): Promise<{ available: boolean; accountConnected: boolean }> {
   const binary = jcodePath();
   if (!binary) return { available: false, accountConnected: false };
-  const out = commandOutput([binary, "--no-update", "auth", "status", "--json"]);
+  const out = await commandOutputAsync([binary, "--no-update", "auth", "status", "--json"]);
   if (!out.ok) return { available: false, accountConnected: false };
   try {
     const parsed = JSON.parse(out.text) as JcodeAuthStatus;
@@ -442,7 +442,7 @@ function copilotPath(): string | null {
   ]);
 }
 
-function hasCodexAccountAuth(): boolean {
+async function hasCodexAccountAuth(): Promise<boolean> {
   const home = userHome();
   if (existsSync(`${home}/.codex/auth.json`)) return true;
   const codex = codexPath();
@@ -453,7 +453,7 @@ function hasCodexAccountAuth(): boolean {
   // did the user connect their ChatGPT account?
   const env = { ...process.env };
   delete env.OPENAI_API_KEY;
-  return commandOutput([codex, "login", "status"], env).ok;
+  return (await commandOutputAsync([codex, "login", "status"], env)).ok;
 }
 
 function commandOutput(
@@ -1111,7 +1111,7 @@ export function loginCommandFor(kind: CodingAgentKind): string | null {
   return parts ? parts.map(shellQuote).join(" ") : null;
 }
 
-function statusFor(kind: CodingAgentKind): CodingAgentStatus {
+async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
   const checks: CodingAgentCheck[] = [];
   const instructions: string[] = [];
   let canAutoSetup = true;
@@ -1135,7 +1135,7 @@ function statusFor(kind: CodingAgentKind): CodingAgentStatus {
     );
     instructions.push("Add Claude accounts below, or set ANTHROPIC_API_KEY.");
   } else if (kind === "codex" || kind === "codex-aisdk") {
-    accountConnected = hasCodexAccountAuth();
+    accountConnected = await hasCodexAccountAuth();
     addBinary("Codex CLI", codexPath());
     addAuth(
       "Codex auth",
@@ -1156,7 +1156,7 @@ function statusFor(kind: CodingAgentKind): CodingAgentStatus {
         : "Run `opencode auth login` to reach paid providers — the free Zen models work without it.",
     );
   } else if (kind === "jcode") {
-    const auth = jcodeAuthStatus();
+    const auth = await jcodeAuthStatus();
     accountConnected = auth.accountConnected;
     addBinary("Jcode CLI", jcodePath());
     addAuth("Jcode provider", auth.available, "run `jcode login` and connect at least one provider");
@@ -1217,12 +1217,17 @@ function statusFor(kind: CodingAgentKind): CodingAgentStatus {
 
 export async function listCodingAgents(): Promise<CodingAgentInfo[]> {
   const cfg = await getCodingAgentConfig();
-  return CODING_AGENT_KINDS.map((key) => ({
-    key,
-    label: CODING_AGENT_LABELS[key],
-    visible: cfg.agents[key]?.visible !== false,
-    status: statusFor(key),
-  }));
+  // Probe every kind together. The CLI auth checks (jcode, Codex) can take
+  // more than a second apiece; serialising them would stall the read even
+  // after the spawn itself is async.
+  return Promise.all(
+    CODING_AGENT_KINDS.map(async (key) => ({
+      key,
+      label: CODING_AGENT_LABELS[key],
+      visible: cfg.agents[key]?.visible !== false,
+      status: await statusFor(key),
+    })),
+  );
 }
 
 export async function listSetupChecks(): Promise<SetupCheck[]> {
