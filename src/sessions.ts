@@ -53,6 +53,19 @@ const GROK_ACTIVE_SESSIONS = join(HOME, ".grok", "active_sessions.json");
 // active_sessions.json mapping id→pid, so we discover cursor's native chat id
 // from the transcript dir under the session's cwd.
 const CURSOR_PROJECTS_DIR = join(HOME, ".cursor", "projects");
+// jcode persists a per-session journal at
+// ~/.jcode/sessions/session_<name>_<ms>_<hash>.journal.jsonl plus a sibling
+// .json metadata file (id, working_dir, last_pid, created_at). Unlike grok
+// there is no active_sessions.json mapping, so we discover the journal by
+// remembered native id, then by pane pid / cwd + createdAt.
+const JCODE_SESSIONS_DIR = join(HOME, ".jcode", "sessions");
+let jcodeSessionsDirForTests: string | null = null;
+export function setJcodeSessionsDirForTests(dir: string | null): void {
+  jcodeSessionsDirForTests = dir;
+}
+function jcodeSessionsDir(): string {
+  return jcodeSessionsDirForTests ?? JCODE_SESSIONS_DIR;
+}
 const TITLE_MAX = 72;
 const TOOL_USE_TEXT_MAX = 4_000;
 const TOOL_RESULT_TEXT_MAX = 8_000;
@@ -1078,6 +1091,68 @@ async function findCursorTranscriptByCwd(
   return best ? { path: best.path, id: best.id } : null;
 }
 
+const JCODE_SESSION_ID = /^session_[a-z0-9]+_\d+_[0-9a-f]+$/i;
+
+async function findJcodeTranscriptById(id: string): Promise<string | null> {
+  if (!id || id.includes("/") || id.includes("\\") || id.includes("..")) return null;
+  if (!JCODE_SESSION_ID.test(id)) return null;
+  const p = join(jcodeSessionsDir(), `${id}.journal.jsonl`);
+  return (await Bun.file(p).exists()) ? p : null;
+}
+
+type JcodeSessionMeta = {
+  id?: string;
+  working_dir?: string;
+  created_at?: string;
+  last_pid?: number;
+};
+
+// Locate the live jcode journal for a managed session. Prefer the remembered
+// native id, then last_pid vs the pane pid, then working_dir + createdAt so a
+// just-spawned session is not bound to an older journal in the same repo.
+async function findJcodeTranscriptForManaged(managed: {
+  cwd?: string;
+  createdAt?: number;
+  tmuxName?: string;
+  nativeSessionId?: string;
+}): Promise<{ path: string; id: string } | null> {
+  if (managed.nativeSessionId) {
+    const byId = await findJcodeTranscriptById(managed.nativeSessionId);
+    if (byId) return { path: byId, id: managed.nativeSessionId };
+  }
+  let files: string[];
+  try {
+    files = await readdir(jcodeSessionsDir());
+  } catch {
+    return null;
+  }
+  const pid = managed.tmuxName ? panePidForSession(managed.tmuxName) : null;
+  let best: { path: string; id: string; score: number; createdAt: number } | null = null;
+  for (const f of files) {
+    if (!f.endsWith(".json") || f.endsWith(".journal.json")) continue;
+    const id = f.slice(0, -".json".length);
+    if (!JCODE_SESSION_ID.test(id)) continue;
+    let meta: JcodeSessionMeta;
+    try {
+      meta = (await Bun.file(join(jcodeSessionsDir(), f)).json()) as JcodeSessionMeta;
+    } catch {
+      continue;
+    }
+    const journal = join(jcodeSessionsDir(), `${id}.journal.jsonl`);
+    if (!(await Bun.file(journal).exists())) continue;
+    const createdAt = meta.created_at ? Date.parse(meta.created_at) : 0;
+    const cwdMatch = !!managed.cwd && meta.working_dir === managed.cwd;
+    const pidMatch = !!pid && meta.last_pid === pid;
+    if (!cwdMatch && !pidMatch) continue;
+    if (managed.createdAt && createdAt && createdAt < managed.createdAt - 2_000) continue;
+    const score = (pidMatch ? 2 : 0) + (cwdMatch ? 1 : 0);
+    if (!best || score > best.score || (score === best.score && createdAt > best.createdAt)) {
+      best = { path: journal, id: meta.id && JCODE_SESSION_ID.test(meta.id) ? meta.id : id, score, createdAt };
+    }
+  }
+  return best ? { path: best.path, id: best.id } : null;
+}
+
 type CodexThread = {
   id: string;
   path: string;
@@ -1591,6 +1666,85 @@ export function isCursorTurnEndedLine(line: string): boolean {
   }
 }
 
+// jcode journal lines are `{meta, append_messages:[{id,role,content,timestamp}]}`.
+// Content blocks are Claude-ish (text / tool_use / tool_result) plus
+// `reasoning_trace`, which we surface as thinking.
+function normalizeJcodeLineMessages(line: string): SessionMsg[] {
+  let x: {
+    meta?: { updated_at?: string };
+    append_messages?: Array<{
+      id?: string;
+      role?: string;
+      timestamp?: string;
+      content?: unknown;
+    }>;
+  };
+  try {
+    x = JSON.parse(line);
+  } catch {
+    return [];
+  }
+  if (!x.meta || typeof x.meta !== "object" || !Array.isArray(x.append_messages)) return [];
+  const msgs: SessionMsg[] = [];
+  for (const m of x.append_messages) {
+    const role = m.role || "assistant";
+    const ts = m.timestamp
+      ? Date.parse(m.timestamp)
+      : x.meta.updated_at
+        ? Date.parse(x.meta.updated_at)
+        : null;
+    const id = typeof m.id === "string" ? m.id : null;
+    if (typeof m.content === "string") {
+      if (!m.content.trim()) continue;
+      const text = role === "user" ? stripHumanPrefix(m.content) : m.content;
+      msgs.push({ id, role, kind: "text", text, ts });
+      continue;
+    }
+    if (!Array.isArray(m.content)) continue;
+    const arr = m.content as Array<{
+      type?: string;
+      text?: string;
+      thinking?: string;
+      name?: string;
+      input?: unknown;
+      content?: unknown;
+    }>;
+    arr.forEach((c, idx) => {
+      if ((c.type === "text" || c.type === "output_text") && c.text) {
+        const text = role === "user" ? stripHumanPrefix(c.text) : c.text;
+        if (text.trim()) msgs.push({ id: blockId(id, idx), role, kind: "text", text, ts });
+        return;
+      }
+      if (c.type === "reasoning_trace" || c.type === "thinking") {
+        const text = (c.thinking ?? c.text ?? "").trim();
+        if (text) msgs.push({ id: blockId(id, idx), role: "assistant", kind: "thinking", text, ts });
+        return;
+      }
+      if (c.type === "tool_use") {
+        const input = compactToolText(describeInput(c.input), TOOL_USE_TEXT_MAX);
+        msgs.push({
+          id: blockId(id, idx),
+          role: "assistant",
+          kind: "tool_use",
+          text: input ? `${c.name ?? "tool"}: ${input}` : `${c.name ?? "tool"}`,
+          ts,
+        });
+        return;
+      }
+      if (c.type === "tool_result") {
+        msgs.push({
+          id: blockId(id, idx),
+          role,
+          kind: "tool_result",
+          text: compactToolText(extractText(c.content) || "(result)"),
+          ts,
+        });
+      }
+    });
+  }
+  return msgs;
+}
+
 function normalizeCursorLineMessages(line: string): SessionMsg[] {
   let x: {
     type?: string;
@@ -1669,6 +1823,8 @@ function normalizeLineUnsafe(line: string): SessionMsg[] {
   if (grok.length) return grok;
   const cursor = normalizeCursorLineMessages(line);
   if (cursor.length) return cursor;
+  const jcode = normalizeJcodeLineMessages(line);
+  if (jcode.length) return jcode;
 
   let x: {
     type?: string;
@@ -2437,6 +2593,65 @@ export async function listSessions(): Promise<Session[]> {
     });
   }
 
+  // "jcode" sessions: jcode runs in a tmux pane (like cursor/grok) and writes
+  // an append-only journal under ~/.jcode/sessions. Resolving it here lets the
+  // live view backfill + tail the chat and gives the card its last message.
+  for (const m of managedSessions.filter((row) => row.agent === "jcode" && row.sessionId)) {
+    if (!tmux.hasSession(m.tmuxName)) continue;
+    const pid = tmux.panePid(m.tmuxName);
+    if (!pid || isClosing(pid)) continue;
+    const tmuxTarget = tmux.targetForPid(pid) ?? `${m.tmuxName}:0.0`;
+    const cmd = readProcCmd(pid, `jcode --model ${m.model ?? ""} repl`.trim());
+    const project = m.project || projectName(m.cwd, { repoRoot: m.repoRoot });
+    const found = await profileAsync(profile, "findJcodeTranscript_ms", () =>
+      findJcodeTranscriptForManaged(m),
+    );
+    const transcriptPath = found?.path ?? null;
+    const nativeSessionId = found?.id ?? m.nativeSessionId ?? null;
+    if (found?.id) rememberNativeSession(m, found.id);
+    let last: SessionMsg | null = null;
+    let lastActivityAt: number | null = m.createdAt;
+    let lastUser: string | null = null;
+    if (transcriptPath) {
+      try {
+        lastActivityAt = statSync(transcriptPath).mtimeMs;
+      } catch {}
+      const meta = await profileAsync(profile, "transcriptTailMeta_ms", () =>
+        transcriptTailMeta(transcriptPath, lastActivityAt ?? 0),
+      );
+      last = meta.last;
+      lastUser = meta.lastUser;
+    }
+    let title = managedTitle(m, m.sessionId!, nativeSessionId, overrides);
+    if (!title && transcriptPath)
+      title = await profileAsync(profile, "cachedFirstTitle_ms", () => cachedFirstTitle(transcriptPath));
+    if (!title) title = m.title || (m.cwd ? basename(m.cwd) : project);
+    out.push({
+      agent: "jcode",
+      pid,
+      cmd,
+      cwd: m.cwd,
+      project,
+      title,
+      lastUserText: lastUser ?? m.title ?? null,
+      sessionId: m.sessionId!,
+      nativeSessionId,
+      ...managedLineage(m),
+      launching: m.launchState === "launching" && !transcriptPath,
+      startedAt: m.createdAt,
+      transcriptPath,
+      lastActivityAt,
+      last,
+      tmuxTarget,
+      tmuxName: m.tmuxName,
+      managed: true,
+      assignedUser: assigns[m.tmuxName] ?? null,
+      model: m.model ?? cmd.match(/--model\s+(\S+)/)?.[1] ?? null,
+      thinkingLevel: m.thinkingLevel ?? null,
+      ...computeStatus(last, null),
+    });
+  }
+
   // "aisdk" sessions: headless SDK harnesses. Discovery is registry-driven
   // (not pgrep) and transcripts are direct-indexed into SQLite under lfg:// keys.
   // tmuxName is set (supervisor → kill + managed badge) but tmuxTarget is null
@@ -2681,6 +2896,18 @@ export async function resolveTranscript(sessionId: string): Promise<string | nul
     if (managed.launchState === "launching") return null;
     return managed.cwd ? (await findCursorTranscriptByCwd(managed.cwd, managed.createdAt))?.path ?? null : null;
   }
+  // jcode: journal lives under ~/.jcode/sessions named by jcode's own session
+  // id (session_<name>_<ms>_<hash>), not lfg's UUID. Resolve by remembered
+  // native id first, else by pane pid / cwd + createdAt. Handle it here so
+  // the claude-oriented fallback below never fires for jcode.
+  if (managed?.agent === "jcode") {
+    const found = await findJcodeTranscriptForManaged(managed);
+    if (found) {
+      rememberNativeSession(managed, found.id);
+      return found.path;
+    }
+    return null;
+  }
   if (managed?.agent === "codex") {
     return await findManagedCodexTranscript(managed);
   }
@@ -2740,6 +2967,15 @@ export async function cwdForTranscript(path: string): Promise<string | null> {
     if (entry?.cwd) return entry.cwd;
     const managed = listManaged().find((m) => m.sessionId === sessionId || m.nativeSessionId === sessionId);
     return managed?.cwd ?? null;
+  }
+  if (path.endsWith(".journal.jsonl")) {
+    try {
+      const first = (await Bun.file(path).slice(0, 64 * 1024).text()).split("\n")[0];
+      if (first) {
+        const row = JSON.parse(first) as { meta?: { working_dir?: string } };
+        if (typeof row.meta?.working_dir === "string" && row.meta.working_dir) return row.meta.working_dir;
+      }
+    } catch {}
   }
   try {
     const text = await Bun.file(path).slice(0, 64 * 1024).text();
