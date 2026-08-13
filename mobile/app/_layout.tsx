@@ -31,7 +31,7 @@ function RootNavigator() {
             <Stack.Screen name="sign-in" options={{ headerShown: false }} />
           </Stack.Protected>
           <Stack.Protected guard={false}>
-            <Stack.Screen name="index" options={{ headerShown: false }} />
+            <Stack.Screen name="index" options={{ title: "Sessions" }} />
             <Stack.Screen name="session/[id]" options={{ title: "Session" }} />
           </Stack.Protected>
         </Stack>
@@ -83,7 +83,7 @@ function RootNavigator() {
               inside a KeyboardAvoidingView and KAV measures against its PARENT
               — a native header would need its height fed back as
               keyboardVerticalOffset. */}
-          <Stack.Screen name="index" options={{ headerShown: false }} />
+          <Stack.Screen name="index" options={{ title: "Sessions" }} />
           <Stack.Screen name="session/[id]" options={{ title: "Session" }} />
           {/* Without an explicit title the native bar falls back to the ROUTE
               name and reads "computers", lowercase, in a system font that

@@ -11,9 +11,9 @@
  * feels asleep and one that feels dead.
  */
 
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useNavigation, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -44,7 +44,6 @@ import { useOmg } from "../src/omg/provider";
 import { useToast } from "../src/omg/toast";
 import { LIQUID_GLASS } from "../src/omg/glass";
 import { SessionListSkeleton } from "../src/omg/skeleton";
-import { useListItemMotion } from "../src/omg/motion";
 import { useTheme } from "../src/omg/theme";
 import { bindingLabel } from "../src/omg/format";
 import { CLOUD_BINDING_ID } from "../src/omg/config";
@@ -58,6 +57,7 @@ const COMPOSER_AGENT = "aisdk";
 
 export default function SessionsScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { colors, isDark, type, space, radius } = useTheme();
   const { client, readiness, probe, bindingId, bindings, machinesLoading } = useOmg();
@@ -196,10 +196,62 @@ export default function SessionsScreen() {
     );
   }, [client, idle, load]);
 
+  /**
+   * The bar is the system's, not ours.
+   *
+   * This screen used to draw its own row — mark, machine chip, gear — because
+   * KeyboardAvoidingView measures against its PARENT, so a native header would
+   * have needed its height fed back as `keyboardVerticalOffset`. Moving the
+   * keyboard to `useAnimatedKeyboard` removed that constraint entirely: the
+   * lift is driven by the real keyboard frame and does not care what sits
+   * above it. So the header is now a real UINavigationBar with the system
+   * large title, which collapses on scroll, carries the system material, and
+   * matches every other iOS app for free.
+   *
+   * Set here rather than in _layout.tsx because the right-hand items need this
+   * screen's machine state, and the deps below are what keep them current.
+   */
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerShown: true,
+      headerLargeTitle: true,
+      title: "Sessions",
+      headerRight: () => (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
+          <Pressable
+            onPress={() => router.push("/computers")}
+            accessibilityRole="button"
+            accessibilityLabel={`Computer: ${machineName}. Change`}
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              gap: space.xs,
+              opacity: pressed ? 0.5 : 1,
+            })}
+          >
+            <StatusDot busy={currentBinding?.online ?? false} size={7} />
+            <Text
+              numberOfLines={1}
+              style={{ ...type.footnote, color: colors.textSecondary, maxWidth: 130 }}
+            >
+              {machineName}
+            </Text>
+          </Pressable>
+          <IconButton
+            ios="gearshape"
+            android="settings"
+            accessibilityLabel="Settings"
+            onPress={() => router.push("/settings")}
+            size={18}
+            color={colors.textSecondary}
+          />
+        </View>
+      ),
+    });
+  }, [navigation, router, machineName, currentBinding?.online, colors, type, space]);
+
   // Same UI-thread keyboard tracking as the session screen; see the note there
   // for why KeyboardAvoidingView cannot be made to feel right.
-  // Sections reflow when a session moves between Working and Idle.
-  const { layout } = useListItemMotion();
   const keyboard = useAnimatedKeyboard();
   const keyboardLift = useAnimatedStyle(() => ({
     paddingBottom: Math.max(0, keyboard.height.value - insets.bottom),
@@ -211,6 +263,9 @@ export default function SessionsScreen() {
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingBottom: space.xl }}
         keyboardShouldPersistTaps="handled"
+        // Lets the system large title collapse into the bar on scroll, and
+        // insets content below it instead of starting underneath.
+        contentInsetAdjustmentBehavior="automatic"
         refreshControl={
           <RefreshControl
             refreshing={loading}
@@ -222,65 +277,6 @@ export default function SessionsScreen() {
           />
         }
       >
-        {/* Top bar: the mark on the left, the machine chip on the right. The
-            chip is also the machine picker link. */}
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            paddingTop: insets.top + space.sm,
-            paddingHorizontal: space.lg,
-            paddingBottom: space.xs,
-          }}
-        >
-          <BrandMark size={30} />
-          <View style={{ flex: 1 }} />
-          <Pressable
-            onPress={() => router.push("/computers")}
-            style={({ pressed }) => ({
-              flexDirection: "row",
-              alignItems: "center",
-              gap: space.xs,
-              // Glass reads as floating chrome, which is what this chip is.
-              backgroundColor: LIQUID_GLASS ? "transparent" : colors.card,
-              borderRadius: radius.pill,
-              overflow: "hidden",
-              height: 34,
-              paddingHorizontal: space.md,
-              opacity: pressed ? 0.6 : 1,
-              borderWidth: isDark ? StyleSheet.hairlineWidth : 0,
-              borderColor: colors.borderSoft,
-            })}
-          >
-            <StatusDot busy={currentBinding?.online ?? false} size={7} />
-            <Text
-              numberOfLines={1}
-              style={{ ...type.footnote, color: colors.textSecondary, maxWidth: 160 }}
-            >
-              {machineName}
-            </Text>
-            {/* Same trap as readiness: refreshMachines runs on every
-                foreground, so keying the spinner on machinesLoading alone
-                flickered the chip every time the app came back. */}
-            {machinesLoading && !currentBinding ? (
-              <ActivityIndicator size="small" color={colors.textMuted} />
-            ) : (
-              <Icon ios="chevron.down" android="keyboard_arrow_down" size={11} color={colors.textMuted} />
-            )}
-          </Pressable>
-          {/* Settings used to be the second tab. With the tab bar gone it lives
-              here, which is where iOS puts a secondary destination on a screen
-              that owns its own bar. */}
-          <IconButton
-            ios="gearshape"
-            android="settings"
-            accessibilityLabel="Settings"
-            onPress={() => router.push("/settings")}
-            size={19}
-            color={colors.textSecondary}
-          />
-        </View>
-
         {(connection === "reconnecting" || connection === "offline") && ready ? (
           <Text
             style={{
@@ -364,7 +360,7 @@ export default function SessionsScreen() {
             {working.length > 0 ? (
               <>
                 <SectionHeader label="Working" count={working.length} dotColor={colors.brand} />
-                <Reanimated.View layout={layout} style={{ gap: space.md }}>
+                <View style={{ gap: space.md }}>
                   {working.map((s, i) => (
                     <SessionCard
                       key={s.sessionId ?? i}
@@ -376,7 +372,7 @@ export default function SessionsScreen() {
                       onPress={() => openSession(s.sessionId)}
                     />
                   ))}
-                </Reanimated.View>
+                </View>
               </>
             ) : null}
 
@@ -389,7 +385,7 @@ export default function SessionsScreen() {
                   actionLabel="Smart clear"
                   onAction={smartClear}
                 />
-                <Reanimated.View layout={layout} style={{ gap: space.md }}>
+                <View style={{ gap: space.md }}>
                   {idle.map((s, i) => (
                     <SessionCard
                       key={s.sessionId ?? i}
@@ -400,7 +396,7 @@ export default function SessionsScreen() {
                       onPress={() => openSession(s.sessionId)}
                     />
                   ))}
-                </Reanimated.View>
+                </View>
               </>
             ) : null}
           </>
