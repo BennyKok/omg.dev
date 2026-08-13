@@ -2,6 +2,23 @@
 
 Recent product updates and deployment notes.
 
+## August 13, 2026 - Auto agents stop slowing the app down (v0.1.357)
+
+- **The agent list carries a fraction of what it used to.** Every refresh sent
+  every auto agent's entire prompt, even though the list only ever shows the
+  first line of one. On a box with 29 agents that was 99 KB, every five seconds.
+  It is now under 4 KB. The saving is biggest on a hosted Computer, where that
+  traffic crosses the network twice on its way to you.
+- **Editing an agent still gives you the whole prompt.** The editor loads the
+  full text when it opens and Save waits until it has arrived, so a long prompt
+  can never be overwritten by its own opening line.
+- **Nothing refreshes while you are looking at something else.** A background
+  tab or a locked phone used to keep polling for sessions and agents every five
+  seconds. It now stops, and catches up the moment you come back.
+- **Less data between your machine and a hosted Computer.** Responses were being
+  uncompressed before they were sent, then travelled that way. The connection
+  compresses them itself now.
+
 ## August 13, 2026 - Grok 4.6, and Cursor's Grok models come back (v0.1.356)
 
 - **Grok 4.6 is selectable on both the Grok and Cursor agents.** It is the
