@@ -331,6 +331,7 @@ import {
   enablePush,
   disablePush,
   acknowledgePushNotifications,
+  isHostedSurface,
 } from "./lib/push";
 import {
   markAllNotificationsRead,
@@ -5454,19 +5455,25 @@ export function App() {
   const seededAuto = useRef(false);
   const seenFindings = useRef<Set<string>>(new Set());
   const [userFilter, setUserFilter] = useState(() => {
-    // Embedded hosts (omg Computer) always start on every session — the host
-    // manages account identity later; a per-user filter would hide work.
-    if (readLocationEmbedFlag()) return "__all";
+    // Hosted Computer (iframe embed OR native OmgAppSurface) is already
+    // account-scoped. A leftover lfg_user / lfg_v2_user_filter from a prior
+    // standalone install would hide every session that has no assignedUser —
+    // which is all of them on a roster-less hosted box — while Settings still
+    // shows live>0. Force the open view. isHostedSurface() is set by
+    // OmgAppSurface before this tree mounts.
+    if (readLocationEmbedFlag() || isHostedSurface()) return "__all";
     // Session deep-links also start open so a linked session isn't filtered out
     // before the resolver runs.
     try {
       const sid = new URLSearchParams(window.location.search).get("session");
       if (sid) return "__all";
     } catch { /* ignore */ }
+    // Honor ANY explicit saved filter, including "__all". Treating "__all" as
+    // "unset" and falling through to lfg_user made "Everyone" non-sticky: the
+    // next load re-applied the profile and hid every unassigned session. That
+    // looked like a project-filter failure when Settings still showed live>0.
     const saved = localStorage.getItem("lfg_v2_user_filter");
-    // Honor an explicitly chosen user / unassigned view, but otherwise default
-    // to the active profile rather than "everyone".
-    if (saved && saved !== "__all") return saved;
+    if (saved) return saved;
     return localStorage.getItem("lfg_user") || "__all";
   });
   const [projectFilter, setProjectFilter] = useState(readCachedProjectFilter);
@@ -6047,6 +6054,12 @@ export function App() {
   // Once users load, pick a default profile to filter by (your saved profile,
   // else the first user) — runs once, so an explicit "All" later still sticks.
   useEffect(() => {
+    // Hosted Computer is already account-scoped — never pin a profile filter
+    // that would hide unassigned sessions (see userFilter initializer).
+    if (isHostedSurface()) {
+      if (userFilter !== "__all") setUserFilter("__all");
+      return;
+    }
     if (didDefaultFilter.current || !users.length) return;
     didDefaultFilter.current = true;
     // Embed + pending session links stay on "__all" so no owner is hidden.
@@ -6058,9 +6071,16 @@ export function App() {
     if (next) setUserFilter(next);
   }, [users, userFilter, embedded, prioritizeSession]);
 
-  // Drop a filter that points at a user who no longer exists.
+  // Drop a filter that points at a user who no longer exists — or a concrete
+  // email on a roster-less box, which hides every unassigned session forever
+  // because the "valid roster email" branch never runs when users is empty.
   useEffect(() => {
-    if (!users.length) return;
+    if (!users.length) {
+      if (userFilter !== "__all" && userFilter !== "__unassigned") {
+        setUserFilter("__all");
+      }
+      return;
+    }
     const valid =
       userFilter === "__all" ||
       userFilter === "__unassigned" ||
@@ -6069,8 +6089,9 @@ export function App() {
   }, [userFilter, users]);
 
   useEffect(() => {
-    // Don't clobber the standalone profile filter while framed inside omg.
-    if (embedded) return;
+    // Don't clobber the standalone profile filter while framed inside omg or
+    // mounted as a native hosted surface (same origin as the host dashboard).
+    if (embedded || isHostedSurface()) return;
     localStorage.setItem("lfg_v2_user_filter", userFilter);
   }, [userFilter, embedded]);
 
