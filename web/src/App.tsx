@@ -12330,16 +12330,56 @@ function SkillSlashSuggest({
 
   useEffect(() => setSelected(0), [active?.query]);
 
+  // Body text no longer ships with the catalog (it was 87% of its bytes), so
+  // matching against a skill's prose happens on the box. Names still match
+  // locally and instantly below — this only ADDS the deeper hits, debounced,
+  // so the common case (type the skill's name) never waits on the network and
+  // a slow or failed request can only mean "fewer results", never an empty
+  // picker.
+  const query = active?.query ?? "";
+  const [deepHits, setDeepHits] = useState<{ q: string; items: SkillCatalogItem[] }>({
+    q: "",
+    items: [],
+  });
+
+  useEffect(() => {
+    if (!active || !query) {
+      setDeepHits({ q: "", items: [] });
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      api<{ skills: SkillCatalogItem[] }>(`/api/skills?q=${encodeURIComponent(query)}`)
+        .then((r) => {
+          if (!cancelled) setDeepHits({ q: query, items: Array.isArray(r.skills) ? r.skills : [] });
+        })
+        .catch(() => {
+          if (!cancelled) setDeepHits({ q: query, items: [] });
+        });
+    }, 140);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [active, query]);
+
   const matches = useMemo(() => {
     if (!active) return [];
     const q = active.query;
-    return skills
-      .filter((skill) => {
-        const haystack =
-          `${skill.trigger} ${skill.name} ${skill.description} ${skill.keywords || ""}`.toLowerCase();
-        return !q || haystack.includes(q);
-      });
-  }, [active, skills]);
+    const local = skills.filter((skill) => {
+      const haystack = `${skill.trigger} ${skill.name} ${skill.description}`.toLowerCase();
+      return !q || haystack.includes(q);
+    });
+    if (!q) return local;
+    // Name matches first, then body-only matches, so ranking stays stable as
+    // the deeper results land underneath what is already on screen.
+    const seen = new Set(local.map((skill) => `${skill.source}:${skill.trigger}`));
+    const deeper =
+      deepHits.q === q
+        ? deepHits.items.filter((skill) => !seen.has(`${skill.source}:${skill.trigger}`))
+        : [];
+    return [...local, ...deeper];
+  }, [active, skills, deepHits]);
 
   if (!active || !matches.length) return null;
 

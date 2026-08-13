@@ -302,7 +302,7 @@ import {
   validTranscriptView,
   type GlobalSettings,
 } from "../settings.ts";
-import { listSkillCatalog } from "../skills-catalog.ts";
+import { listSkillCatalog, searchSkillCatalog, withoutSkillKeywords } from "../skills-catalog.ts";
 import {
   collapseArtifactRetryMessages,
   createImageArtifact,
@@ -2904,9 +2904,15 @@ a{color:#60a5fa}
           return json({ ok: true, checks: await listSetupChecksCached({ refresh: true }) });
         }
       }
+      // Both shapes strip `keywords`: up to 4000 chars of body text per skill,
+      // which was 354 KB of this response's 414 KB (102 KB of the 117 KB that
+      // crossed the wire even deflated) and existed only to let the browser
+      // run one substring match. `?q=` runs that same match here instead.
       if (path === "/api/skills" && req.method === "GET") {
         const repoRoots = (await listRepos().catch(() => [])).map((repo) => repo.cwd);
-        return json({ skills: await listSkillCatalog(repoRoots) });
+        const q = url.searchParams.get("q");
+        if (q !== null) return json({ skills: await searchSkillCatalog(repoRoots, q) });
+        return json({ skills: withoutSkillKeywords(await listSkillCatalog(repoRoots)) });
       }
       if (path === "/api/coding-agents/setup/log" && req.method === "GET") {
         return json(getCodingAgentSetupLog());

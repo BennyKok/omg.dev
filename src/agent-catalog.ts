@@ -9,7 +9,15 @@ export type SkillCatalogItem = {
   name: string;
   trigger: string;
   description: string;
-  keywords: string;
+  /**
+   * Up to 4000 characters of the skill's body, used to match a query against
+   * the prose and not just the name. OPTIONAL because it stays server-side:
+   * the index holds it, /api/skills strips it, and full-text matching happens
+   * in searchSkillCatalog(). Shipping it was 354 KB of the catalog's 414 KB —
+   * 102 KB of the 117 KB that crossed the wire even after compression — so
+   * that one `.includes()` could run in the browser.
+   */
+  keywords?: string;
   source: "codex" | "claude" | "agent";
   path: string;
 };
