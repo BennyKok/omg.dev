@@ -44,6 +44,7 @@ import { useOmg } from "../src/omg/provider";
 import { useToast } from "../src/omg/toast";
 import { LIQUID_GLASS } from "../src/omg/glass";
 import { SessionListSkeleton } from "../src/omg/skeleton";
+import { useListItemMotion } from "../src/omg/motion";
 import { useTheme } from "../src/omg/theme";
 import { bindingLabel } from "../src/omg/format";
 import { CLOUD_BINDING_ID } from "../src/omg/config";
@@ -197,6 +198,8 @@ export default function SessionsScreen() {
 
   // Same UI-thread keyboard tracking as the session screen; see the note there
   // for why KeyboardAvoidingView cannot be made to feel right.
+  // Sections reflow when a session moves between Working and Idle.
+  const { layout } = useListItemMotion();
   const keyboard = useAnimatedKeyboard();
   const keyboardLift = useAnimatedStyle(() => ({
     paddingBottom: Math.max(0, keyboard.height.value - insets.bottom),
@@ -361,7 +364,7 @@ export default function SessionsScreen() {
             {working.length > 0 ? (
               <>
                 <SectionHeader label="Working" count={working.length} dotColor={colors.brand} />
-                <View style={{ gap: space.md }}>
+                <Reanimated.View layout={layout} style={{ gap: space.md }}>
                   {working.map((s, i) => (
                     <SessionCard
                       key={s.sessionId ?? i}
@@ -373,7 +376,7 @@ export default function SessionsScreen() {
                       onPress={() => openSession(s.sessionId)}
                     />
                   ))}
-                </View>
+                </Reanimated.View>
               </>
             ) : null}
 
@@ -386,7 +389,7 @@ export default function SessionsScreen() {
                   actionLabel="Smart clear"
                   onAction={smartClear}
                 />
-                <View style={{ gap: space.md }}>
+                <Reanimated.View layout={layout} style={{ gap: space.md }}>
                   {idle.map((s, i) => (
                     <SessionCard
                       key={s.sessionId ?? i}
@@ -397,7 +400,7 @@ export default function SessionsScreen() {
                       onPress={() => openSession(s.sessionId)}
                     />
                   ))}
-                </View>
+                </Reanimated.View>
               </>
             ) : null}
           </>

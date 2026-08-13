@@ -12,6 +12,7 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
+import Reanimated from "react-native-reanimated";
 import { Text, TextInput } from "./omg/text";
 import {
   SymbolView,
@@ -22,6 +23,7 @@ import {
 
 import { agentIcon } from "./omg/agent-icons";
 import { GlassSurface, LIQUID_GLASS } from "./omg/glass";
+import { PressableScale, useListItemMotion } from "./omg/motion";
 import { useTheme } from "./omg/theme";
 
 /** Green when the agent is working, grey when idle, amber when blocked. */
@@ -128,9 +130,13 @@ export function Row({
 }) {
   const { colors, space } = useTheme();
   return (
-    <Pressable
+    <PressableScale
       onPress={onPress}
       disabled={disabled || !onPress}
+      // Small on purpose: the row already has the background swap as its
+      // primary pressed cue, and a full-bleed row visibly shrinking against
+      // its neighbours in a Card list reads as a glitch, not a press.
+      scale={0.98}
       style={({ pressed }) => ({
         // 44pt is the Apple minimum touch target; rows that carry two lines of
         // text clear it on their own, but a single-line row would not.
@@ -145,7 +151,7 @@ export function Row({
       })}
     >
       {children}
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -196,18 +202,20 @@ export function PrimaryButton({
   const { colors, radius, type, space } = useTheme();
   const isQuiet = tone === "quiet";
   return (
-    <Pressable
+    <PressableScale
       onPress={onPress}
       disabled={disabled || loading}
-      style={({ pressed }) => ({
+      scale={0.97}
+      dim={0.85}
+      style={{
         height: 50,
         borderRadius: radius.lg,
         alignItems: "center",
         justifyContent: "center",
         paddingHorizontal: space.xl,
         backgroundColor: isQuiet ? colors.secondary : colors.primary,
-        opacity: disabled ? 0.4 : pressed ? 0.85 : 1,
-      })}
+        opacity: disabled ? 0.4 : 1,
+      }}
     >
       {loading ? (
         <ActivityIndicator color={isQuiet ? colors.text : colors.primaryForeground} />
@@ -221,7 +229,7 @@ export function PrimaryButton({
           {label}
         </Text>
       )}
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -284,29 +292,34 @@ export function IconButton({
 }) {
   const { colors } = useTheme();
   return (
-    <Pressable
+    <PressableScale
       onPress={onPress}
       disabled={disabled || busy}
       hitSlop={8}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       accessibilityState={{ disabled: !!disabled }}
-      style={({ pressed }) => ({
+      // A small glyph-only button can afford a more visible compress than a
+      // full card — there's no background/border underneath competing for
+      // the eye, so the motion carries the whole "this registered" cue.
+      scale={0.88}
+      dim={0.55}
+      style={{
         width: 36,
         height: 36,
         borderRadius: 18,
         alignItems: "center",
         justifyContent: "center",
         backgroundColor: background ?? "transparent",
-        opacity: disabled ? 0.35 : pressed ? 0.55 : 1,
-      })}
+        opacity: disabled ? 0.35 : 1,
+      }}
     >
       {busy ? (
         <ActivityIndicator size="small" color={color ?? colors.textSecondary} />
       ) : (
         <Icon ios={ios} android={android} size={size} color={color ?? colors.textSecondary} />
       )}
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -415,52 +428,65 @@ export function SessionCard({
   onPress: () => void;
 }) {
   const { colors, isDark, radius, type, space } = useTheme();
+  // Entering/exiting/layout live on this outer, style-less view rather than
+  // folded into PressableScale below: list membership (a card arriving,
+  // leaving, or resettling because a sibling did) and press feedback are
+  // different concerns with different lifetimes, and PressableScale is
+  // reused by four other pressables that have no list to belong to.
+  const listMotion = useListItemMotion();
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => ({
-        flexDirection: "row",
-        alignItems: "center",
-        gap: space.md,
-        backgroundColor: pressed ? colors.cardPressed : colors.card,
-        borderRadius: radius.xl,
-        marginHorizontal: space.lg,
-        padding: space.lg,
-        // Shadows are invisible on a black page; dark mode gets a hairline
-        // instead so the card still reads as a surface.
-        shadowColor: colors.text,
-        shadowOpacity: isDark ? 0 : 0.06,
-        shadowRadius: 12,
-        shadowOffset: { width: 0, height: 2 },
-        elevation: 1,
-        borderWidth: isDark ? StyleSheet.hairlineWidth : 0,
-        borderColor: colors.borderSoft,
-      })}
+    <Reanimated.View
+      entering={listMotion.entering}
+      exiting={listMotion.exiting}
+      layout={listMotion.layout}
     >
-      <AgentAvatar agent={agent} />
-      <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
-        <Text numberOfLines={1} style={{ ...type.headline, color: colors.text }}>
-          {title}
-        </Text>
-        {subtitle ? (
-          <Text numberOfLines={1} style={{ ...type.footnote, color: colors.textMuted }}>
-            {subtitle}
+      <PressableScale
+        onPress={onPress}
+        scale={0.97}
+        style={({ pressed }) => ({
+          flexDirection: "row",
+          alignItems: "center",
+          gap: space.md,
+          backgroundColor: pressed ? colors.cardPressed : colors.card,
+          borderRadius: radius.xl,
+          marginHorizontal: space.lg,
+          padding: space.lg,
+          // Shadows are invisible on a black page; dark mode gets a hairline
+          // instead so the card still reads as a surface.
+          shadowColor: colors.text,
+          shadowOpacity: isDark ? 0 : 0.06,
+          shadowRadius: 12,
+          shadowOffset: { width: 0, height: 2 },
+          elevation: 1,
+          borderWidth: isDark ? StyleSheet.hairlineWidth : 0,
+          borderColor: colors.borderSoft,
+        })}
+      >
+        <AgentAvatar agent={agent} />
+        <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
+          <Text numberOfLines={1} style={{ ...type.headline, color: colors.text }}>
+            {title}
           </Text>
-        ) : null}
-      </View>
-      {blocked ? (
-        <Icon ios="pause.fill" android="pause" size={12} color={colors.warning} />
-      ) : (
-        <View
-          style={{
-            width: 10,
-            height: 10,
-            borderRadius: 5,
-            backgroundColor: busy ? colors.brand : colors.success,
-          }}
-        />
-      )}
-    </Pressable>
+          {subtitle ? (
+            <Text numberOfLines={1} style={{ ...type.footnote, color: colors.textMuted }}>
+              {subtitle}
+            </Text>
+          ) : null}
+        </View>
+        {blocked ? (
+          <Icon ios="pause.fill" android="pause" size={12} color={colors.warning} />
+        ) : (
+          <View
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: 5,
+              backgroundColor: busy ? colors.brand : colors.success,
+            }}
+          />
+        )}
+      </PressableScale>
+    </Reanimated.View>
   );
 }
 
@@ -585,11 +611,13 @@ export function HomeComposer({
           </Text>
         </View>
         <View style={{ flex: 1 }} />
-        <Pressable
+        <PressableScale
           onPress={onStart}
           disabled={!canStart}
           accessibilityLabel="Start session"
-          style={({ pressed }) => ({
+          scale={0.94}
+          dim={0.8}
+          style={{
             flexDirection: "row",
             alignItems: "center",
             gap: space.xs,
@@ -597,8 +625,8 @@ export function HomeComposer({
             borderRadius: radius.pill,
             height: 40,
             paddingHorizontal: space.lg,
-            opacity: !canStart ? 0.35 : pressed ? 0.8 : 1,
-          })}
+            opacity: !canStart ? 0.35 : 1,
+          }}
         >
           {starting ? (
             <ActivityIndicator size="small" color={colors.bg} />
@@ -608,7 +636,7 @@ export function HomeComposer({
               <Icon ios="arrow.up" android="arrow_upward" size={14} color={colors.bg} />
             </>
           )}
-        </Pressable>
+        </PressableScale>
       </View>
     </View>
   );
