@@ -2,6 +2,16 @@
 
 Recent product updates and deployment notes.
 
+## August 13, 2026 - Jcode chats show up in the transcript (v0.1.364)
+
+- **Opening a jcode session showed an empty chat.** The agent was working in
+  tmux and writing a journal under `~/.jcode/sessions`, but LFG never looked
+  there, so `/messages` returned 404 and the live view stayed blank.
+- **LFG now finds that journal and reads it.** User text, assistant replies,
+  thinking, and tool calls come through the same transcript path as Cursor and
+  Grok. Existing jcode sessions pick this up after the restart — you do not
+  have to start a new one.
+
 ## August 13, 2026 - Opening the skill picker stops downloading a small library (v0.1.363)
 
 - **Typing `/` in the composer was pulling 419 KB.** Almost all of it — 354 KB
