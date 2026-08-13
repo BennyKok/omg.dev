@@ -15,6 +15,7 @@ import {
 import { Text, TextInput, type TextInputHandle } from "../src/omg/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { BrandMark } from "../src/omg/brand-mark";
 import { sendSignInCode, verifySignInCode } from "../src/omg/auth";
 import {
   buildImessageSmsUrl,
@@ -348,9 +349,10 @@ export default function SignInScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.top}>
-          <View style={[styles.mark, { backgroundColor: colors.brand }]}>
-            <View style={[styles.markBite, { backgroundColor: colors.bg }]} />
-          </View>
+          {/* The shared mark, not a local copy. The copy that used to live here
+              put the bite at right/top -4, hanging it off the rim — the exact
+              "chipped coin" BrandMark's geometry notes warn about. */}
+          <BrandMark size={54} />
 
           <Text style={[type.largeTitle, styles.title, { color: colors.text }]}>Welcome to omg</Text>
           <Text style={[type.footnote, styles.helper, { color: colors.textMuted }]}>
@@ -498,20 +500,6 @@ const styles = StyleSheet.create({
   },
   top: {
     width: "100%",
-  },
-  mark: {
-    borderRadius: 999,
-    height: 54,
-    overflow: "hidden",
-    width: 54,
-  },
-  markBite: {
-    borderRadius: 999,
-    height: 21,
-    position: "absolute",
-    right: -4,
-    top: -4,
-    width: 21,
   },
   title: {
     marginTop: 32,
