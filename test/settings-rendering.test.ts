@@ -20,6 +20,13 @@ describe("settings rendering", () => {
     expect(section).not.toContain("togglePause(!settings.agentsPaused)");
   });
 
+  test("the updates row never reads install.channel without chaining through install", () => {
+    const section = componentBody("OmgUpdateSection");
+    expect(section).toContain("info?.install?.channel");
+    expect(section).not.toMatch(/info\?\.install\.channel/);
+    expect(section).not.toMatch(/info\.install\.channel/);
+  });
+
   test("mobile secondary chrome leaves clearance above page content", () => {
     expect(app).toContain(
       'className="z-40 flex shrink-0 items-center pb-3 pl-3 pr-[calc(0.75rem+var(--lfg-host-top-inset))]',

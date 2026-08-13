@@ -35,6 +35,10 @@ import { cacheProjectFilter, readCachedProjectFilter } from "./lib/project-filte
 import { resolveRosterUser } from "./lib/roster-user";
 import { uploadFile as uploadFileThroughTransport } from "./lib/upload";
 import { compressImageFile, isCompressibleImage } from "./lib/image-compress";
+import {
+  isInstallUpdateInfo,
+  type InstallUpdateInfo,
+} from "./lib/install-update";
 import { AppCrash } from "./components/app-crash";
 import { EmbeddedConnectGate } from "./components/embedded-connect-gate";
 import {
@@ -484,28 +488,6 @@ export type SetupCheckGroup = {
   instructions: string[];
   canAutoSetup: boolean;
   actionLabel: string;
-};
-
-type InstallUpdateStatus = {
-  channel: "source" | "release";
-  state: "up-to-date" | "available" | "blocked";
-  currentSha?: string;
-  latestSha?: string;
-  commitsBehind?: number;
-  currentVersion?: string;
-  latestVersion?: string;
-  latestTag?: string;
-  message: string;
-  restartSupported: boolean;
-  /** Why the update button is disabled, when it is. Server-side diagnosis. */
-  restartBlockedReason?: string;
-};
-
-type InstallUpdateInfo = {
-  install: { channel: "source" | "release" | "container" | "unknown"; updateCommand: string };
-  update: InstallUpdateStatus | null;
-  restarting?: boolean;
-  bootId: string;
 };
 
 type ReportRef = {
@@ -22379,16 +22361,6 @@ export type ShipPost = {
   mediaTotal?: number;
 };
 
-// A 200 that isn't the install payload (an SPA shell from a stale service
-// worker, an intermediary's empty body) parses to {}, so `install` is missing.
-// Landing that in state made the render read `info.install.channel` off
-// undefined. Same guard as the server-stats pollers: check it arrived first.
-function isInstallUpdateInfo(value: unknown): value is InstallUpdateInfo {
-  return !!value
-    && typeof value === "object"
-    && !!(value as { install?: unknown }).install;
-}
-
 // An artifacts-gallery tile. Previously a live sandboxed document per tile —
 // dozens of independent browsing contexts, each with its own scripts, timers and
 // layout, for tiles that are mostly off screen. Now real DOM in a shadow root
@@ -22468,7 +22440,12 @@ function OmgUpdateSection() {
   }
 
   const status = info?.update;
-  const supported = info?.install.channel === "source" || info?.install.channel === "release";
+  // Chain through `install` too. Guarding only `info` still throws when a
+  // 200 parsed to `{}` and `install` is missing — that is the
+  // `e?.install.channel` crash that took the router down.
+  const channel = info?.install?.channel;
+  const updateCommand = info?.install?.updateCommand;
+  const supported = channel === "source" || channel === "release";
   const available = status?.state === "available";
   const busy = checking || updating || restarting;
   // A greyed-out button with a tooltip nobody can hover on a phone is a dead
@@ -22476,7 +22453,7 @@ function OmgUpdateSection() {
   // rather than hiding behind `title`.
   const blockedReason = available && !status.restartSupported
     ? `${status.restartBlockedReason ?? "Automatic restart is unavailable on this install."}${
-      info ? ` Update from a terminal instead: ${info.install.updateCommand}` : ""
+      updateCommand ? ` Update from a terminal instead: ${updateCommand}` : ""
     }`
     : null;
   const detail = error
@@ -22486,7 +22463,9 @@ function OmgUpdateSection() {
       : restarting
         ? "Restarting the service and reconnecting…"
         : status?.message
-          ?? (info ? `Updates for ${info.install.channel} installs use: ${info.install.updateCommand}` : ""));
+          ?? (channel && updateCommand
+            ? `Updates for ${channel} installs use: ${updateCommand}`
+            : ""));
 
   return (
     <section className="space-y-2">
@@ -22533,7 +22512,7 @@ function OmgUpdateSection() {
         </div>
       </div>
       <p className="px-4 text-xs text-muted-foreground">
-        {info?.install.channel === "release" ? (
+        {channel === "release" ? (
           <>Release installs download the latest verified bundle and restart automatically.</>
         ) : (
           <>Git installs update safely to <code>origin/main</code>, rebuild the UI, and restart automatically.</>
@@ -22697,7 +22676,9 @@ function SettingsView({
         onChange={onSettingsChange}
       />
 
-      <OmgUpdateSection />
+      <ErrorBoundary variant="card" boundary="omg-update">
+        <OmgUpdateSection />
+      </ErrorBoundary>
 
       {/* More — the long tail lives on its own page so this one stays scannable.
           Hidden on a host-mounted surface: everything behind it (push,
