@@ -842,6 +842,8 @@ type BootstrapPayload = {
   repos?: Repo[] | null;
   auto?: { agents?: AutoAgent[] | null; tz?: string; findings?: AutoFinding[] | null };
   onboarding?: OnboardingState | null;
+  /** Set only on a managed Computer. Self-hosted lfg serve leaves this null. */
+  computer?: { plan: string; limit: number; scheduleLimit: number } | null;
 };
 
 type SlashSkillState = {
@@ -5431,6 +5433,7 @@ export function App() {
     return () => window.clearTimeout(t);
   }, [loading]);
   const [autoAgents, setAutoAgents] = useState<AutoAgent[]>([]);
+  const [managedComputer, setManagedComputer] = useState(false);
   const [settings, setSettings] = useState<GlobalSettings>({
     timeZone: DEFAULT_SCHED_TZ,
     maxLiveAgents: 16,
@@ -5694,6 +5697,7 @@ export function App() {
     ) {
       setShowOnboarding(true);
     }
+    setManagedComputer(!!payload.computer);
     setCodingAgents(payload.codingAgents ?? []);
     setModelCatalog(buildAgentModelCatalog(payload.models));
     setSettings(payload.settings ?? {
@@ -6087,6 +6091,7 @@ export function App() {
         .filter(
           (session) =>
             session.sessionId &&
+            !(managedComputer && session.spawnedBy === "schedule") &&
             // A pane target means a driveable TUI session. Harness-backed
             // sessions have no pane, so admit those explicitly; otherwise Codex
             // AI-SDK sessions are fetched from /api/sessions and then hidden here.
@@ -6101,7 +6106,7 @@ export function App() {
             (a.startedAt ?? 0) - (b.startedAt ?? 0) ||
             (a.sessionId ?? "").localeCompare(b.sessionId ?? ""),
         ),
-    [sessions, removedSids],
+    [sessions, removedSids, managedComputer],
   );
 
   // Unique projects present across the (user-filtered) live sessions plus every
