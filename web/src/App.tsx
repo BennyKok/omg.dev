@@ -325,6 +325,7 @@ import {
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 import { deepActiveElement, isTypingTarget } from "@/lib/active-element";
+import { useExpandOnFocus } from "@/lib/expand-on-focus";
 import { useExtensionNavTabs } from "./lib/extensions";
 import type { ExtensionNavTab } from "./lib/extensions";
 import {
@@ -16688,6 +16689,8 @@ function ProjectFolderBrowser({
     void browse(initialPath, true);
   }, [browse, initialPath, open, startCreating]);
 
+  const pickerMorph = useExpandOnFocus();
+
   async function finish(endpoint: string, body: object) {
     setLoading(true);
     setError(null);
@@ -16716,7 +16719,14 @@ function ProjectFolderBrowser({
         className={cn(
           "mx-auto max-w-lg overflow-hidden",
           deleteTarget ? "h-auto" : "h-[min(82dvh,42rem)]",
+          pickerMorph.paged && "lfg-sheet-page",
         )}
+        // "New folder" and the delete confirmation both put a text field at
+        // the bottom of a sheet that is already tall; the keyboard would
+        // otherwise push the field, and the button next to it, off the top.
+        onPointerDownCapture={pickerMorph.onPointerDownCapture}
+        onFocusCapture={pickerMorph.onFocusCapture}
+        onBlurCapture={pickerMorph.onBlurCapture}
       >
         <DrawerTitle className="sr-only">Choose a project folder</DrawerTitle>
         <div className="flex min-h-0 flex-1 flex-col px-4 pb-[max(var(--lfg-safe-bottom),1rem)]">
@@ -19736,43 +19746,11 @@ function BottomSheet({
   footer?: ReactNode;
   children: ReactNode;
 }) {
-  const [focusPaged, setFocusPaged] = useState(false);
-  const exitTimer = useRef<number | null>(null);
-
-  const cancelExit = () => {
-    if (exitTimer.current !== null) {
-      window.clearTimeout(exitTimer.current);
-      exitTimer.current = null;
-    }
-  };
-  useEffect(() => cancelExit, []);
-
-  // Leaving the last field folds the sheet back down, but never while there is
-  // typed work in it — the same rule FindingSheet applies to its reply box,
-  // generalised to "any field in this sheet still holds a value". The delay
-  // and the pointer-down cancel keep a tap heading for the footer's own
-  // buttons from being read as "left the field": the blur lands first and
-  // would otherwise re-lay-out the button out from under the click.
-  //
-  // `root` arrives as an argument rather than off a ref because DrawerContent
-  // is not a forwardRef; the caller reads it from the event synchronously,
-  // since currentTarget is already nulled by the time this timer runs.
-  function scheduleExit(root: HTMLElement | null) {
-    if (!expandOnFocus) return;
-    cancelExit();
-    exitTimer.current = window.setTimeout(() => {
-      exitTimer.current = null;
-      if (!root) return;
-      if (root.contains(deepActiveElement())) return;
-      const fields = root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
-        "input, textarea",
-      );
-      for (const field of fields) if (field.value.trim()) return;
-      setFocusPaged(false);
-    }, 260);
-  }
-
-  const paged = page || focusPaged;
+  // The morph itself lives in useExpandOnFocus so the raw <Drawer> surfaces
+  // that never go through BottomSheet can have it too. See expand-on-focus.ts
+  // for why focus-driven page mode is the only layout iOS handles natively.
+  const morph = useExpandOnFocus(expandOnFocus);
+  const paged = page || morph.paged;
 
   return (
     <Drawer
@@ -19791,14 +19769,9 @@ function BottomSheet({
         // the app, since page-level drawers intentionally sit below some screens.
         overlayClassName="z-[100]"
         className={cn("z-[100]", paged && "lfg-sheet-page")}
-        onPointerDownCapture={cancelExit}
-        onFocusCapture={(e) => {
-          if (!expandOnFocus) return;
-          if (!isTypingTarget(e.target as Element)) return;
-          cancelExit();
-          setFocusPaged(true);
-        }}
-        onBlurCapture={(e) => scheduleExit(e.currentTarget as HTMLElement)}
+        onPointerDownCapture={morph.onPointerDownCapture}
+        onFocusCapture={morph.onFocusCapture}
+        onBlurCapture={morph.onBlurCapture}
       >
         <DrawerTitle className="sr-only">{title}</DrawerTitle>
         {/* min-h-0 twice on purpose: without it a flex child refuses to shrink

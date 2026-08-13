@@ -14,6 +14,13 @@ const slice = (from: string, to: string) => {
 
 const sheet = () => slice("function FindingSheet(", "// Single-box create:");
 const bottomSheet = () => slice("function BottomSheet(", "function FindingSheet(");
+// The morph itself now lives in a hook, so the guards that used to read
+// BottomSheet's body read the hook's source instead.
+const HOOK = readFileSync(new URL("../web/src/lib/expand-on-focus.ts", import.meta.url), "utf8");
+const RESUME = readFileSync(
+  new URL("../web/src/views/resume-session-sheet.tsx", import.meta.url),
+  "utf8",
+);
 
 describe("the sheet morphs into a page for the keyboard", () => {
   test("page mode is sized from the live viewport vars, not a fixed vh", () => {
@@ -46,7 +53,7 @@ describe("the sheet morphs into a page for the keyboard", () => {
     // `paged`, not `page`: the class is driven by the caller's prop OR the
     // sheet's own focus state now (see the expandOnFocus block below).
     expect(src).toContain('paged && "lfg-sheet-page"');
-    expect(src).toContain("const paged = page || focusPaged;");
+    expect(src).toContain("const paged = page || morph.paged;");
     expect(src).toContain("flex min-h-0 flex-auto flex-col overflow-y-auto overscroll-contain");
     // basis-0 (`flex-1`) contributes nothing to an auto-height sheet, so the
     // compact card can collapse. Class attributes only — the comment above the
@@ -97,8 +104,12 @@ describe("any sheet can enter page mode on focus, not just the finding", () => {
   test("BottomSheet takes expandOnFocus and enters page mode from a field", () => {
     const src = bottomSheet();
     expect(src).toContain("expandOnFocus = false");
-    expect(src).toContain("if (!isTypingTarget(e.target as Element)) return;");
-    expect(src).toContain("setFocusPaged(true)");
+    // The behaviour is the hook's; BottomSheet's job is to pass the flag down
+    // and wire all three handlers, since any missing one breaks fold-back.
+    expect(src).toContain("useExpandOnFocus(expandOnFocus)");
+    expect(src).toContain("onFocusCapture={morph.onFocusCapture}");
+    expect(src).toContain("onBlurCapture={morph.onBlurCapture}");
+    expect(HOOK).toContain("if (!isTypingTarget(e.target as Element)) return;");
   });
 
   test("the auto-agent forms opt in", () => {
@@ -113,11 +124,30 @@ describe("any sheet can enter page mode on focus, not just the finding", () => {
     // Same two rules FindingSheet applies to its reply box, generalised: any
     // field in the sheet still holding a value pins it open, and focus moving
     // between fields inside the sheet is not "left the sheet".
-    const src = bottomSheet();
-    expect(src).toContain("contains(deepActiveElement())");
-    expect(src).toContain("if (field.value.trim()) return;");
-    expect(src).toContain("onPointerDownCapture={cancelExit}");
-    expect(src).toContain("useEffect(() => cancelExit, []);");
+    expect(HOOK).toContain("contains(deepActiveElement())");
+    expect(HOOK).toContain("if (field.value.trim()) return;");
+    expect(HOOK).toContain("useEffect(() => cancelExit, []);");
+    expect(bottomSheet()).toContain("onPointerDownCapture={morph.onPointerDownCapture}");
+  });
+
+  test("the raw drawers that were still fighting the keyboard opt in too", () => {
+    // The project folder picker ("new folder" name field) and the resume
+    // sheet's search box never went through BottomSheet, so they never got the
+    // morph. Each needs the class AND all three handlers.
+    for (const [name, src] of [
+      ["folder picker", slice("function ProjectFolderBrowser(", "function ComposerProjectSheet(")],
+      ["resume sheet", RESUME],
+    ] as const) {
+      const morph = name === "folder picker" ? "pickerMorph" : "morph";
+      expect(src).toContain("useExpandOnFocus()");
+      expect(src).toContain(`${morph}.paged && "lfg-sheet-page"`);
+      expect(src).toContain(`onPointerDownCapture={${morph}.onPointerDownCapture}`);
+      expect(src).toContain(`onFocusCapture={${morph}.onFocusCapture}`);
+      expect(src).toContain(`onBlurCapture={${morph}.onBlurCapture}`);
+    }
+    // The resume sheet's own 72dvh cap has to yield, or page mode is a no-op
+    // on the surface that needs it.
+    expect(RESUME).toContain('morph.paged ? "flex-1" : "max-h-[72dvh]"');
   });
 });
 
