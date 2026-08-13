@@ -12,6 +12,19 @@
       },
       "channel": "development"
     },
+    // A dev client for the iOS Simulator, so UI work can be seen and
+    // screenshotted without a device or a TestFlight round trip. Needs no
+    // signing (simulator builds are unsigned), and `developmentClient` is what
+    // lets it load JS from a Metro tunnel — so once installed, every JS change
+    // is a reload rather than a rebuild.
+    "simulator": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      },
+      "channel": "development"
+    },
     "preview": {
       "distribution": "internal",
       "ios": {
