@@ -13,14 +13,16 @@
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import {
+  ActivityIndicator,
   Linking,
+  RefreshControl,
   ScrollView,
   View,
 } from "react-native";
 import { Text } from "../src/omg/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Card, Row, SectionLabel, Separator, StatusDot } from "../src/components";
+import { Card, Icon, Row, SectionLabel, Separator, StatusDot } from "../src/components";
 import { useOmg } from "../src/omg/provider";
 import { useTheme } from "../src/omg/theme";
 import { bindingLabel, cloudStatusLabel, machineSpec, relativeTime } from "../src/omg/format";
@@ -32,7 +34,15 @@ export default function ComputersScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors, type, space } = useTheme();
-  const { bindings, cloud, bindingId, selectBinding, machinesError, refreshMachines } = useOmg();
+  const {
+    bindings,
+    cloud,
+    bindingId,
+    selectBinding,
+    machinesError,
+    machinesLoading,
+    refreshMachines,
+  } = useOmg();
 
   const choose = async (id: string) => {
     void Haptics.selectionAsync();
@@ -47,18 +57,19 @@ export default function ComputersScreen() {
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.bg }}
       contentContainerStyle={{ paddingBottom: insets.bottom + space.xxl }}
+      // Lets the native large title collapse into the bar on scroll instead of
+      // sitting on top of the first card.
+      contentInsetAdjustmentBehavior="automatic"
+      // Pull-to-refresh is what someone reaches for on this screen; the Refresh
+      // link below is the discoverable version of the same call.
+      refreshControl={
+        <RefreshControl
+          refreshing={machinesLoading}
+          onRefresh={() => void refreshMachines()}
+          tintColor={colors.textMuted}
+        />
+      }
     >
-      <Text
-        style={{
-          ...type.title,
-          color: colors.text,
-          paddingHorizontal: space.lg,
-          paddingTop: space.lg,
-        }}
-      >
-        Choose a computer
-      </Text>
-
       {machinesError ? (
         <Text style={{ ...type.footnote, color: colors.danger, paddingHorizontal: space.lg, paddingTop: space.sm }}>
           {machinesError}
@@ -87,7 +98,13 @@ export default function ComputersScreen() {
                       </Text>
                     </View>
                     {selected ? (
-                      <Text style={{ ...type.headline, color: colors.primary }}>✓</Text>
+                      <Icon
+                        ios="checkmark"
+                        android="check"
+                        size={16}
+                        weight="semibold"
+                        color={colors.primary}
+                      />
                     ) : null}
                   </Row>
                 </View>
@@ -116,7 +133,13 @@ export default function ComputersScreen() {
             ) : null}
           </View>
           {bindingId === CLOUD_BINDING_ID && !cloudBlocked ? (
-            <Text style={{ ...type.headline, color: colors.primary }}>✓</Text>
+            <Icon
+              ios="checkmark"
+              android="check"
+              size={16}
+              weight="semibold"
+              color={colors.primary}
+            />
           ) : null}
         </Row>
 
@@ -127,7 +150,12 @@ export default function ComputersScreen() {
               <Text style={{ ...type.callout, color: colors.primary, flex: 1 }}>
                 Fix this on omg.dev
               </Text>
-              <Text style={{ ...type.callout, color: colors.textMuted }}>↗</Text>
+              <Icon
+                ios="arrow.up.forward.app"
+                android="open_in_new"
+                size={15}
+                color={colors.textMuted}
+              />
             </Row>
           </>
         ) : null}
@@ -147,11 +175,12 @@ export default function ComputersScreen() {
         the web.
       </Text>
 
-      <View style={{ paddingHorizontal: space.lg, paddingTop: space.lg }}>
-        <Row onPress={() => void refreshMachines()}>
-          <Text style={{ ...type.callout, color: colors.primary }}>Refresh</Text>
-        </Row>
-      </View>
+      {/* Row already carries the screen's horizontal padding; wrapping it in a
+          padded View indented this one twice as far as every other row. */}
+      <Row onPress={() => void refreshMachines()} disabled={machinesLoading}>
+        <Text style={{ ...type.callout, color: colors.primary }}>Refresh</Text>
+        {machinesLoading ? <ActivityIndicator size="small" color={colors.textMuted} /> : null}
+      </Row>
     </ScrollView>
   );
 }

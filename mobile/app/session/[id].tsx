@@ -15,15 +15,28 @@
  *
  * Layout mirrors the web Computer session view: only the USER's message is a
  * card (with a copy affordance underneath); the assistant's reply is plain
- * text on the page background. There is no icon font in this app's dependency
- * set, so every glyph below is drawn from plain Views.
+ * text on the page background.
+ *
+ * Every glyph on this screen is an SF Symbol via `Icon`/`IconButton`. It used
+ * to draw its own chevrons, paperclip, mic and pause out of rotated Views —
+ * ~190 lines of geometry that could never match the system's optical weights,
+ * and looked hand-made next to any real iOS app. The overflow menu is a real
+ * UIAlertController (`ActionSheetIOS`) rather than an in-app popover.
+ *
+ * The header is drawn in-screen rather than by the native stack on purpose:
+ * KeyboardAvoidingView measures its frame relative to its PARENT, so a native
+ * header would need its height fed back in as `keyboardVerticalOffset`, and
+ * `useHeaderHeight` lives in @react-navigation/elements which this app does not
+ * depend on directly. Offset 0 is only correct while this screen owns its bar.
  */
 
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
+  ActionSheetIOS,
   ActivityIndicator,
+  Alert,
   Animated,
   FlatList,
   KeyboardAvoidingView,
@@ -39,16 +52,55 @@ import * as Clipboard from "expo-clipboard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OmgMessage, OmgSession, OmgSessionPrompt } from "@omg-dev/protocol";
 
+import { AgentAvatar, Icon, IconButton } from "../../src/components";
+import { agentLabel as agentDisplayName } from "../../src/omg/agent-icons";
 import { useOmg } from "../../src/omg/provider";
 import { GlassSurface, LIQUID_GLASS } from "../../src/omg/glass";
 import { useTheme } from "../../src/omg/theme";
+import { relativeTime } from "../../src/omg/format";
 
 /** Local id for the optimistic message, so it can be rolled back precisely. */
 let localSeq = 0;
 
-type Entry = OmgMessage & { pending?: boolean; streaming?: boolean };
+type Entry = OmgMessage & { streaming?: boolean };
 
 const MONO = Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" });
+
+/**
+ * A native action sheet. iOS gets the real UIAlertController; Android gets an
+ * Alert, which is that platform's equivalent list-of-choices dialog.
+ */
+type MenuAction = { label: string; destructive?: boolean; onPress: () => void };
+
+function showActionMenu(title: string, actions: MenuAction[]) {
+  if (!actions.length) return;
+  if (Platform.OS === "ios") {
+    const labels = actions.map((a) => a.label);
+    const destructive = actions.findIndex((a) => a.destructive);
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        title,
+        options: [...labels, "Cancel"],
+        cancelButtonIndex: labels.length,
+        // -1 is "no destructive button" to some callers and an out-of-range
+        // index to others; omitting the key is unambiguous.
+        ...(destructive >= 0 ? { destructiveButtonIndex: destructive } : {}),
+      },
+      (index) => {
+        if (index < actions.length) actions[index].onPress();
+      },
+    );
+    return;
+  }
+  Alert.alert(title, undefined, [
+    ...actions.map((a) => ({
+      text: a.label,
+      style: a.destructive ? ("destructive" as const) : ("default" as const),
+      onPress: a.onPress,
+    })),
+    { text: "Cancel", style: "cancel" as const },
+  ]);
+}
 
 export default function SessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -65,33 +117,18 @@ export default function SessionScreen() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [note, setNote] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [sessionInfo, setSessionInfo] = useState<{ title: string; agent: string } | null>(null);
 
   const listRef = useRef<FlatList<Entry>>(null);
   /** Pinned-to-bottom is the default; reading history unpins it. */
   const atBottomRef = useRef(true);
-  const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // This screen draws its own header (chevron-down, avatar, title, overflow),
-  // so the stack header would be a duplicate.
+  // This screen draws its own header (see the file comment), so the stack
+  // header would be a duplicate.
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });
   }, [navigation]);
-
-  const flashNote = useCallback((text: string) => {
-    setNote(text);
-    if (noteTimer.current) clearTimeout(noteTimer.current);
-    noteTimer.current = setTimeout(() => setNote(null), 3000);
-  }, []);
-
-  useEffect(
-    () => () => {
-      if (noteTimer.current) clearTimeout(noteTimer.current);
-    },
-    [],
-  );
 
   // Header facts (title, agent) come from the session list, not the
   // transcript. peekSessions paints a cached answer instantly; listSessions
@@ -105,7 +142,7 @@ export default function SessionScreen() {
       if (!found) return;
       setSessionInfo({
         title: found.title?.trim() || found.lastUserText?.trim() || "Session",
-        agent: found.agentLabel?.trim() || found.agent?.trim() || "omg",
+        agent: found.agent?.trim() || found.agentLabel?.trim() || "omg",
       });
     };
     apply(client.peekSessions());
@@ -203,33 +240,61 @@ export default function SessionScreen() {
     if (atBottomRef.current) listRef.current?.scrollToEnd({ animated: false });
   }, []);
 
-  const send = useCallback(async () => {
+  /**
+   * One path for everything that puts words into the session, so the optimistic
+   * echo and the rollback behave identically whether the text came from the
+   * composer or from tapping an answer to the agent's question.
+   */
+  const submit = useCallback(
+    async (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed || !client || !id) return;
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      const optimistic: Entry = {
+        id: `local-${++localSeq}`,
+        role: "user",
+        text: trimmed,
+        ts: Date.now(),
+        pending: true,
+      };
+      setMessages((prev) => [...prev, optimistic]);
+      setSending(true);
+      try {
+        await client.sendMessage(id, trimmed);
+        setError(null);
+      } catch (e) {
+        // Roll the message back AND give the person their words back — losing
+        // typed text to a failed request is the rudest thing a composer can do.
+        setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
+        setDraft((current) => (current ? current : trimmed));
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setSending(false);
+      }
+    },
+    [client, id],
+  );
+
+  const send = useCallback(() => {
     const text = draft.trim();
-    if (!text || !client || !id || sending) return;
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const optimistic: Entry = {
-      id: `local-${++localSeq}`,
-      role: "user",
-      text,
-      ts: Date.now(),
-      pending: true,
-    };
-    setMessages((prev) => [...prev, optimistic]);
+    if (!text || sending) return;
     setDraft("");
-    setSending(true);
-    try {
-      await client.sendMessage(id, text);
-      setError(null);
-    } catch (e) {
-      // Roll the message back AND give the person their words back — losing
-      // typed text to a failed request is the rudest thing a composer can do.
-      setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
-      setDraft(text);
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSending(false);
-    }
-  }, [draft, client, id, sending]);
+    void submit(text);
+  }, [draft, sending, submit]);
+
+  /**
+   * Answering the agent's question SENDS the answer. It used to drop the label
+   * into the composer and wait for a second tap on Send, which meant a one-tap
+   * affordance quietly did nothing but type for you.
+   */
+  const answerPrompt = useCallback(
+    (label: string) => {
+      void Haptics.selectionAsync();
+      setPrompt(null);
+      void submit(label);
+    },
+    [submit],
+  );
 
   const stop = useCallback(async () => {
     if (!client || !id) return;
@@ -241,47 +306,98 @@ export default function SessionScreen() {
     }
   }, [client, id]);
 
-  // The composer's up/down stepper walks this session's own sent messages,
-  // like the web composer's prompt history.
+  /** This session's own sent messages, newest last — the composer's history. */
   const history = useMemo(
     () => messages.filter((m) => m.role === "user" && m.text).map((m) => m.text as string),
     [messages],
   );
-  const [historyIndex, setHistoryIndex] = useState<number | null>(null);
-  const savedDraft = useRef("");
 
-  const stepHistory = useCallback(
-    (dir: -1 | 1) => {
-      if (!history.length) return;
-      void Haptics.selectionAsync();
-      if (historyIndex === null) {
-        if (dir === 1) return; // Already at the newest end.
-        savedDraft.current = draft;
-        const next = history.length - 1;
-        setHistoryIndex(next);
-        setDraft(history[next]);
-        return;
-      }
-      const next = historyIndex + dir;
-      if (next >= history.length) {
-        setHistoryIndex(null);
-        setDraft(savedDraft.current);
-      } else if (next >= 0) {
-        setHistoryIndex(next);
-        setDraft(history[next]);
-      }
-    },
-    [history, historyIndex, draft],
-  );
+  /**
+   * Reuse an earlier prompt. This replaces a pair of 9pt stepper chevrons wedged
+   * into the composer: they worked, but they were a terminal idiom rendered at a
+   * size iOS would never ship, and you had to tap blindly to discover what was
+   * behind them. A sheet shows the actual prompts and picks in one tap.
+   */
+  const openHistory = useCallback(() => {
+    const recent = [...new Set(history)].reverse().slice(0, 6);
+    if (!recent.length) return;
+    showActionMenu(
+      "Reuse a prompt",
+      recent.map((text) => ({
+        label: text.length > 64 ? `${text.slice(0, 63)}…` : text,
+        onPress: () => {
+          void Haptics.selectionAsync();
+          setDraft(text);
+        },
+      })),
+    );
+  }, [history]);
 
-  useEffect(() => {
-    // A fresh send leaves history mode.
-    if (sending) setHistoryIndex(null);
-  }, [sending]);
+  /** Everything the transcript can be copied into, oldest first. */
+  const copyTranscript = useCallback(() => {
+    const text = messages
+      .filter((m) => m.text)
+      .map((m) => `${m.role === "user" ? "You" : "Agent"}: ${m.text}`)
+      .join("\n\n");
+    if (!text) return;
+    void Clipboard.setStringAsync(text);
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }, [messages]);
+
+  /**
+   * Archive: the same request the session list's "Smart clear" sends, scoped to
+   * this one session. Only offered while the agent is idle, because that is the
+   * only shape of this call the server is known to accept.
+   */
+  const archive = useCallback(() => {
+    if (!client || !id) return;
+    Alert.alert("Archive this session?", "It can be resumed later.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Archive",
+        style: "destructive",
+        onPress: () => {
+          void (async () => {
+            try {
+              await client.transport.request("/api/sessions/close-all", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  source: "session_menu",
+                  scope: "idle",
+                  sessionIds: [id],
+                }),
+              });
+              router.back();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : String(e));
+            }
+          })();
+        },
+      },
+    ]);
+  }, [client, id, router]);
+
+  const openMenu = useCallback(() => {
+    const actions: MenuAction[] = [];
+    if (busy) actions.push({ label: "Stop the agent", onPress: () => void stop() });
+    if (messages.some((m) => m.text)) {
+      actions.push({ label: "Copy transcript", onPress: copyTranscript });
+    }
+    if (!busy) actions.push({ label: "Archive session", destructive: true, onPress: archive });
+    showActionMenu(sessionInfo?.title ?? "Session", actions);
+  }, [busy, messages, stop, copyTranscript, archive, sessionInfo?.title]);
 
   if (!client) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: "center", justifyContent: "center" }}>
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: colors.bg,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
         <Text style={{ ...type.callout, color: colors.textMuted }}>No computer selected.</Text>
       </View>
     );
@@ -291,6 +407,7 @@ export default function SessionScreen() {
   const title = sessionInfo?.title ?? firstUserText ?? "Session";
   const agentLabel = sessionInfo?.agent ?? "omg";
   const thinking = busy && !streamText;
+  const canSend = draft.trim().length > 0 && !sending;
 
   return (
     <KeyboardAvoidingView
@@ -300,70 +417,46 @@ export default function SessionScreen() {
     >
       <View
         style={{
-          paddingTop: insets.top + space.sm,
-          paddingBottom: space.md,
+          paddingTop: insets.top + space.xs,
+          paddingBottom: space.sm,
           paddingHorizontal: space.sm,
           flexDirection: "row",
           alignItems: "center",
-          gap: space.sm,
+          gap: space.xs,
           borderBottomWidth: StyleSheet.hairlineWidth,
           borderBottomColor: colors.border,
           backgroundColor: colors.bg,
         }}
       >
-        <Pressable
-          onPress={() => router.back()}
-          hitSlop={8}
-          accessibilityRole="button"
+        <IconButton
+          ios="chevron.down"
+          android="keyboard_arrow_down"
           accessibilityLabel="Close session"
-          style={({ pressed }) => ({
-            width: 36,
-            height: 36,
-            borderRadius: 18,
-            alignItems: "center",
-            justifyContent: "center",
-            opacity: pressed ? 0.5 : 1,
-          })}
-        >
-          <ChevronDownIcon size={18} color={colors.text} />
-        </Pressable>
-        <View
-          style={{
-            width: 30,
-            height: 30,
-            borderRadius: 15,
-            backgroundColor: colors.foreground,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Text style={{ fontSize: 14, fontWeight: "700", color: colors.bg }}>
-            {agentLabel.charAt(0).toUpperCase()}
+          onPress={() => router.back()}
+          size={17}
+          color={colors.text}
+        />
+        <AgentAvatar agent={agentLabel} size={28} />
+        <View style={{ flex: 1, minWidth: 0, marginLeft: space.xs }}>
+          <Text
+            numberOfLines={1}
+            ellipsizeMode="tail"
+            style={{ ...type.headline, color: colors.text }}
+          >
+            {title}
+          </Text>
+          <Text numberOfLines={1} style={{ ...type.caption, color: colors.textMuted }}>
+            {busy ? "Working…" : agentDisplayName(agentLabel)}
           </Text>
         </View>
-        <Text
-          numberOfLines={1}
-          ellipsizeMode="tail"
-          style={{ flex: 1, ...type.headline, color: colors.text }}
-        >
-          {title}
-        </Text>
-        <Pressable
-          onPress={() => flashNote("Session actions are not available in the app yet.")}
-          hitSlop={8}
-          accessibilityRole="button"
+        <IconButton
+          ios="ellipsis.circle"
+          android="more_horiz"
           accessibilityLabel="Session actions"
-          style={({ pressed }) => ({
-            width: 36,
-            height: 36,
-            borderRadius: 18,
-            alignItems: "center",
-            justifyContent: "center",
-            opacity: pressed ? 0.5 : 1,
-          })}
-        >
-          <EllipsisIcon size={16} color={colors.text} />
-        </Pressable>
+          onPress={openMenu}
+          size={20}
+          color={colors.text}
+        />
       </View>
 
       {loading ? (
@@ -380,7 +473,7 @@ export default function SessionScreen() {
           paddingHorizontal: space.lg,
           paddingTop: space.lg,
           paddingBottom: space.md,
-          gap: space.lg,
+          gap: space.xl,
         }}
         keyboardDismissMode="interactive"
         onScroll={onScroll}
@@ -397,7 +490,8 @@ export default function SessionScreen() {
         }
       />
 
-      {/* The agent asked something — answering has to be one tap. */}
+      {/* The agent asked something — answering has to be one tap, and that tap
+          has to actually answer. */}
       {prompt ? (
         <View
           style={{
@@ -406,7 +500,7 @@ export default function SessionScreen() {
             padding: space.md,
             backgroundColor: colors.card,
             borderRadius: radius.lg,
-            borderWidth: 1,
+            borderWidth: StyleSheet.hairlineWidth,
             borderColor: colors.border,
             gap: space.sm,
           }}
@@ -418,16 +512,16 @@ export default function SessionScreen() {
             {prompt.options?.map((opt) => (
               <Pressable
                 key={opt.index}
-                onPress={() => {
-                  void Haptics.selectionAsync();
-                  setDraft(opt.label);
-                }}
+                onPress={() => answerPrompt(opt.label)}
+                accessibilityRole="button"
                 style={({ pressed }) => ({
+                  minHeight: 36,
+                  justifyContent: "center",
                   paddingHorizontal: space.md,
                   paddingVertical: space.sm,
                   borderRadius: radius.pill,
                   backgroundColor: pressed ? colors.cardPressed : colors.secondary,
-                  borderWidth: 1,
+                  borderWidth: StyleSheet.hairlineWidth,
                   borderColor: colors.border,
                 })}
               >
@@ -451,19 +545,6 @@ export default function SessionScreen() {
         </Text>
       ) : null}
 
-      {note ? (
-        <Text
-          style={{
-            ...type.caption,
-            color: colors.textMuted,
-            paddingHorizontal: space.lg,
-            paddingBottom: space.xs,
-          }}
-        >
-          {note}
-        </Text>
-      ) : null}
-
       <GlassSurface
         variant="clear"
         fallbackColor="transparent"
@@ -482,51 +563,46 @@ export default function SessionScreen() {
           backgroundColor: LIQUID_GLASS ? "transparent" : colors.bg,
         }}
       >
-        <Pressable
-          onPress={() => flashNote("Attachments are not available in the app yet.")}
-          accessibilityRole="button"
-          accessibilityLabel="Attach a file"
-          style={({ pressed }) => ({
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: pressed ? colors.cardPressed : colors.card,
-            borderWidth: 1,
-            borderColor: colors.border,
-          })}
-        >
-          <PaperclipIcon size={18} color={colors.textSecondary} />
-        </Pressable>
+        {/* Stop only exists while there is something to stop. A permanently
+            visible, permanently dimmed button reads as a broken control. */}
+        {busy ? (
+          <IconButton
+            ios="stop.fill"
+            android="stop"
+            accessibilityLabel="Stop the agent"
+            onPress={() => void stop()}
+            size={15}
+            color={colors.danger}
+            background={colors.card}
+          />
+        ) : null}
 
         <View
           style={{
             flex: 1,
             flexDirection: "row",
-            alignItems: "center",
-            gap: space.sm,
+            alignItems: "flex-end",
+            gap: space.xs,
             minHeight: 44,
             backgroundColor: colors.card,
             borderRadius: radius.pill,
-            borderWidth: 1,
+            borderWidth: StyleSheet.hairlineWidth,
             borderColor: colors.border,
-            paddingLeft: space.sm,
-            paddingRight: 6,
+            paddingLeft: history.length ? space.xs : space.md,
+            paddingRight: 5,
+            paddingVertical: 4,
           }}
         >
-          <View
-            style={{
-              paddingHorizontal: 7,
-              paddingVertical: 2,
-              borderRadius: radius.sm,
-              backgroundColor: colors.secondary,
-              borderWidth: 1,
-              borderColor: colors.border,
-            }}
-          >
-            <Text style={{ ...type.caption, color: colors.textMuted }}>/</Text>
-          </View>
+          {history.length ? (
+            <IconButton
+              ios="clock.arrow.circlepath"
+              android="history"
+              accessibilityLabel="Reuse an earlier prompt"
+              onPress={openHistory}
+              size={17}
+              color={colors.textMuted}
+            />
+          ) : null}
           <TextInput
             value={draft}
             onChangeText={setDraft}
@@ -538,85 +614,43 @@ export default function SessionScreen() {
             style={{
               flex: 1,
               maxHeight: 120,
-              paddingVertical: 0,
+              minHeight: 28,
+              paddingTop: Platform.OS === "ios" ? 6 : 2,
+              paddingBottom: 6,
               color: colors.text,
               ...type.callout,
+              fontSize: 16,
             }}
           />
           <Pressable
-            onPress={() => flashNote("Dictation is not available in the app yet.")}
-            hitSlop={6}
+            onPress={send}
+            disabled={!canSend}
             accessibilityRole="button"
-            accessibilityLabel="Dictate"
-            style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1, padding: 4 })}
+            accessibilityLabel={busy ? "Queue the message" : "Send the message"}
+            accessibilityState={{ disabled: !canSend }}
+            style={({ pressed }) => ({
+              width: 30,
+              height: 30,
+              borderRadius: 15,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: colors.foreground,
+              opacity: !canSend ? 0.3 : pressed ? 0.75 : 1,
+            })}
           >
-            <MicIcon size={17} color={colors.textMuted} />
+            {sending ? (
+              <ActivityIndicator size="small" color={colors.bg} />
+            ) : (
+              <Icon
+                ios={busy ? "plus" : "arrow.up"}
+                android={busy ? "add" : "arrow_upward"}
+                size={15}
+                weight="semibold"
+                color={colors.bg}
+              />
+            )}
           </Pressable>
-          <View style={{ alignItems: "center", justifyContent: "center" }}>
-            <Pressable
-              onPress={() => stepHistory(-1)}
-              hitSlop={4}
-              accessibilityRole="button"
-              accessibilityLabel="Earlier message"
-              style={({ pressed }) => ({ opacity: pressed ? 0.4 : 1, padding: 2 })}
-            >
-              <ChevronUpIcon size={9} color={colors.textMuted} />
-            </Pressable>
-            <Pressable
-              onPress={() => stepHistory(1)}
-              hitSlop={4}
-              accessibilityRole="button"
-              accessibilityLabel="Later message"
-              style={({ pressed }) => ({ opacity: pressed ? 0.4 : 1, padding: 2 })}
-            >
-              <ChevronDownIcon size={9} color={colors.textMuted} />
-            </Pressable>
-          </View>
         </View>
-
-        <Pressable
-          onPress={() => void stop()}
-          disabled={!busy}
-          accessibilityRole="button"
-          accessibilityLabel="Stop the agent"
-          style={({ pressed }) => ({
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: pressed ? colors.cardPressed : colors.card,
-            borderWidth: 1,
-            borderColor: colors.border,
-            opacity: busy ? 1 : 0.4,
-          })}
-        >
-          <PauseIcon size={14} color={colors.textSecondary} />
-        </Pressable>
-
-        <Pressable
-          onPress={() => void send()}
-          disabled={!draft.trim() || sending}
-          accessibilityRole="button"
-          accessibilityLabel={busy ? "Queue the message" : "Send the message"}
-          style={({ pressed }) => ({
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: colors.foreground,
-            opacity: !draft.trim() || sending ? 0.35 : pressed ? 0.8 : 1,
-          })}
-        >
-          {sending ? (
-            <ActivityIndicator size="small" color={colors.bg} />
-          ) : (
-            <Text style={{ color: colors.bg, fontSize: 19, fontWeight: "700", marginTop: -1 }}>
-              {busy ? "+" : "↑"}
-            </Text>
-          )}
-        </Pressable>
       </GlassSurface>
     </KeyboardAvoidingView>
   );
@@ -627,17 +661,23 @@ function TranscriptEntry({ message }: { message: Entry }) {
   const isUser = message.role === "user";
   const isSystem = message.role !== "user" && message.role !== "assistant";
 
+  // A message carrying only a file or an image has no text to fall back on, and
+  // used to render as an empty box — an invisible turn in the transcript. One
+  // that ALSO has text still renders as text, so nothing a person wrote or read
+  // can be swallowed by this branch.
+  const isAttachment =
+    !!message.url || !!message.artifactId || message.kind === "image" || message.kind === "file";
+  if (isAttachment && !message.text) return <AttachmentEntry message={message} />;
+
   if (isSystem && !message.text) return null;
 
-  if (isUser) {
-    return <UserMessage message={message} />;
-  }
+  if (isUser) return <UserMessage message={message} />;
 
   if (isSystem) {
     return (
-      <View style={{ alignSelf: "center" }}>
-        <Text style={{ ...type.caption, color: colors.textMuted }}>
-          {message.text ?? (message.kind ? `[${message.kind}]` : "")}
+      <View style={{ alignSelf: "center", paddingHorizontal: space.lg }}>
+        <Text style={{ ...type.caption, color: colors.textMuted, textAlign: "center" }}>
+          {message.text}
         </Text>
       </View>
     );
@@ -648,6 +688,57 @@ function TranscriptEntry({ message }: { message: Entry }) {
   return (
     <View style={{ alignSelf: "stretch", paddingHorizontal: space.xs }}>
       <AssistantText text={message.text ?? ""} streaming={message.streaming} />
+    </View>
+  );
+}
+
+/**
+ * An image or file in the transcript, as a tappable row.
+ *
+ * It does NOT try to inline the bitmap: every artifact URL on a Computer is
+ * behind the grant the transport holds, and `<Image>` has no way to ask for it.
+ * Naming the file and saying what it is beats a broken-image box, and beats the
+ * empty View this used to render.
+ */
+function AttachmentEntry({ message }: { message: Entry }) {
+  const { colors, type, space, radius } = useTheme();
+  const isImage = message.kind === "image" || !!message.mimeType?.startsWith("image/");
+  const label = message.name ?? message.caption ?? message.alt ?? (isImage ? "Image" : "File");
+  const size =
+    typeof message.size === "number" && message.size > 0
+      ? `${Math.max(1, Math.round(message.size / 1024))} KB`
+      : null;
+
+  return (
+    <View
+      style={{
+        alignSelf: message.role === "user" ? "flex-end" : "flex-start",
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.sm,
+        maxWidth: "90%",
+        paddingHorizontal: space.md,
+        paddingVertical: space.sm,
+        backgroundColor: colors.card,
+        borderRadius: radius.lg,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.border,
+      }}
+    >
+      <Icon
+        ios={isImage ? "photo" : "doc"}
+        android={isImage ? "image" : "description"}
+        size={18}
+        color={colors.textSecondary}
+      />
+      <View style={{ minWidth: 0, flexShrink: 1 }}>
+        <Text numberOfLines={1} style={{ ...type.footnote, color: colors.text }}>
+          {label}
+        </Text>
+        <Text style={{ ...type.caption, color: colors.textMuted }}>
+          {size ? `${size} · view on the web` : "View on the web"}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -676,13 +767,15 @@ function UserMessage({ message }: { message: Entry }) {
     copyTimer.current = setTimeout(() => setCopied(false), 1500);
   };
 
+  const stamp = relativeTime(message.ts);
+
   return (
     <View style={{ alignSelf: "stretch" }}>
       <View
         style={{
           backgroundColor: colors.card,
           borderRadius: radius.xl,
-          borderWidth: 1,
+          borderWidth: StyleSheet.hairlineWidth,
           borderColor: colors.border,
           paddingHorizontal: space.lg,
           paddingVertical: space.md,
@@ -696,27 +789,44 @@ function UserMessage({ message }: { message: Entry }) {
           {message.text}
         </Text>
       </View>
-      <Pressable
-        onPress={copy}
-        hitSlop={8}
-        accessibilityRole="button"
-        accessibilityLabel="Copy message"
-        style={({ pressed }) => ({
+      <View
+        style={{
           flexDirection: "row",
           alignItems: "center",
-          gap: 5,
-          marginTop: 6,
-          marginLeft: 6,
-          alignSelf: "flex-start",
-          opacity: pressed ? 0.5 : 1,
-        })}
+          gap: space.sm,
+          marginTop: 2,
+          marginLeft: space.sm,
+        }}
       >
-        {copied ? (
-          <Text style={{ ...type.caption, color: colors.textMuted }}>Copied</Text>
-        ) : (
-          <CopyIcon size={14} color={colors.textMuted} fill={colors.bg} />
-        )}
-      </Pressable>
+        <Pressable
+          onPress={copy}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel="Copy message"
+          style={({ pressed }) => ({
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 4,
+            paddingVertical: 4,
+            opacity: pressed ? 0.5 : 1,
+          })}
+        >
+          <Icon
+            ios={copied ? "checkmark" : "doc.on.doc"}
+            android={copied ? "check" : "content_copy"}
+            size={12}
+            color={colors.textMuted}
+          />
+          {copied ? (
+            <Text style={{ ...type.caption, color: colors.textMuted }}>Copied</Text>
+          ) : null}
+        </Pressable>
+        {message.pending ? (
+          <Text style={{ ...type.caption, color: colors.textMuted }}>Sending…</Text>
+        ) : stamp ? (
+          <Text style={{ ...type.caption, color: colors.textMuted }}>{stamp}</Text>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -774,28 +884,83 @@ function ThinkingPill() {
 }
 
 /* ------------------------------------------------------------------------ */
-/* Markdown-ish assistant text: fenced code blocks, inline code, bold.       */
-/* Deliberately dependency-free — the web uses streamdown, which is far too  */
-/* heavy to drag into the native bundle for a transcript.                    */
+/* Markdown-ish assistant text: headings, lists, fenced code, inline code,   */
+/* bold. Deliberately dependency-free — the web uses streamdown, which is far */
+/* too heavy to drag into the native bundle for a transcript.                */
 /* ------------------------------------------------------------------------ */
 
-type MdBlock = { kind: "code"; text: string } | { kind: "para"; text: string };
+type MdBlock =
+  | { kind: "code"; text: string; lang?: string }
+  | { kind: "heading"; text: string; level: number }
+  | { kind: "list"; items: { marker: string; text: string }[] }
+  | { kind: "para"; text: string };
 
-function splitMdBlocks(src: string): MdBlock[] {
+/**
+ * Group the prose between fences into headings, list runs and paragraphs.
+ *
+ * Agents answer in bullets constantly, and rendering "- install the thing" as a
+ * literal hyphen inside a wall of text was most of why this transcript read as
+ * unstyled.
+ */
+function pushProse(out: MdBlock[], chunk: string) {
+  const trimmed = chunk.trim();
+  if (!trimmed) return;
+  let para: string[] = [];
+  let items: { marker: string; text: string }[] = [];
+  const flushPara = () => {
+    if (para.length) out.push({ kind: "para", text: para.join("\n") });
+    para = [];
+  };
+  const flushList = () => {
+    if (items.length) out.push({ kind: "list", items });
+    items = [];
+  };
+
+  for (const line of trimmed.split("\n")) {
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    if (heading) {
+      flushPara();
+      flushList();
+      out.push({ kind: "heading", level: heading[1].length, text: heading[2] });
+      continue;
+    }
+    const bullet = /^\s*[-*+]\s+(.+)$/.exec(line);
+    if (bullet) {
+      flushPara();
+      items.push({ marker: "•", text: bullet[1] });
+      continue;
+    }
+    const ordered = /^\s*(\d+)[.)]\s+(.+)$/.exec(line);
+    if (ordered) {
+      flushPara();
+      items.push({ marker: `${ordered[1]}.`, text: ordered[2] });
+      continue;
+    }
+    if (!line.trim()) {
+      flushPara();
+      flushList();
+      continue;
+    }
+    flushList();
+    para.push(line);
+  }
+  flushPara();
+  flushList();
+}
+
+function parseMarkdown(src: string): MdBlock[] {
   const out: MdBlock[] = [];
   // The `(?:```|$)` alternative keeps an unclosed fence (mid-stream) readable.
-  const fence = /```[^\n`]*\n?([\s\S]*?)(?:```|$)/g;
+  const fence = /```([^\n`]*)\n?([\s\S]*?)(?:```|$)/g;
   let last = 0;
   let match: RegExpExecArray | null;
   while ((match = fence.exec(src))) {
-    const before = src.slice(last, match.index).trim();
-    if (before) out.push({ kind: "para", text: before });
-    const code = match[1].replace(/\n$/, "");
-    if (code) out.push({ kind: "code", text: code });
+    pushProse(out, src.slice(last, match.index));
+    const code = match[2].replace(/\n$/, "");
+    if (code) out.push({ kind: "code", text: code, lang: match[1].trim() || undefined });
     last = match.index + match[0].length;
   }
-  const rest = src.slice(last).trim();
-  if (rest) out.push({ kind: "para", text: rest });
+  pushProse(out, src.slice(last));
   return out;
 }
 
@@ -806,10 +971,7 @@ function InlineMd({ text, codeColor }: { text: string; codeColor: string }) {
       {parts.map((part, i) => {
         if (part.length > 2 && part.startsWith("`") && part.endsWith("`")) {
           return (
-            <Text
-              key={i}
-              style={{ fontFamily: MONO, fontSize: 14, backgroundColor: codeColor }}
-            >
+            <Text key={i} style={{ fontFamily: MONO, fontSize: 14, backgroundColor: codeColor }}>
               {part.slice(1, -1)}
             </Text>
           );
@@ -827,253 +989,142 @@ function InlineMd({ text, codeColor }: { text: string; codeColor: string }) {
   );
 }
 
-function AssistantText({ text, streaming }: { text: string; streaming?: boolean }) {
+/** A fenced block, with its language and a copy button — same as the web. */
+function CodeBlock({ text, lang }: { text: string; lang?: string }) {
   const { colors, type, space, radius } = useTheme();
-  const blocks = useMemo(() => splitMdBlocks(text), [text]);
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  if (!blocks.length) {
-    return (
-      <Text style={{ ...type.callout, fontSize: 16, lineHeight: 23, color: colors.text }}>
-        {streaming ? "▍" : ""}
-      </Text>
-    );
-  }
-
-  return (
-    <View style={{ gap: space.md }}>
-      {blocks.map((block, i) => {
-        if (block.kind === "code") {
-          return (
-            <View
-              key={i}
-              style={{
-                backgroundColor: colors.codeBg,
-                borderRadius: radius.md,
-                paddingHorizontal: space.md,
-                paddingVertical: space.sm,
-              }}
-            >
-              <Text
-                selectable
-                style={{ fontFamily: MONO, fontSize: 13, lineHeight: 19, color: colors.text }}
-              >
-                {block.text}
-              </Text>
-            </View>
-          );
-        }
-        // ATX headings degrade to bold lines rather than a second type scale.
-        const paras = block.text
-          .replace(/^(#{1,6})\s+(.+)$/gm, "**$2**")
-          .split(/\n{2,}/);
-        return (
-          <View key={i} style={{ gap: space.md }}>
-            {paras.map((para, j) => (
-              <Text
-                key={j}
-                selectable
-                style={{ ...type.callout, fontSize: 16, lineHeight: 23, color: colors.text }}
-              >
-                <InlineMd text={para} codeColor={colors.codeBg} />
-                {streaming && i === blocks.length - 1 && j === paras.length - 1 ? "▍" : ""}
-              </Text>
-            ))}
-          </View>
-        );
-      })}
-    </View>
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
   );
-}
 
-/* ------------------------------------------------------------------------ */
-/* Glyphs drawn from plain Views — this app has no icon font in its          */
-/* dependency set, and one screen does not justify adding one.               */
-/* ------------------------------------------------------------------------ */
+  const copy = () => {
+    void Haptics.selectionAsync();
+    void Clipboard.setStringAsync(text);
+    setCopied(true);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCopied(false), 1500);
+  };
 
-function ChevronDownIcon({ size, color }: { size: number; color: string }) {
-  const bar = size * 0.58;
-  const thick = Math.max(1.6, size * 0.11);
-  return (
-    <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
-      <View
-        style={{
-          position: "absolute",
-          width: bar,
-          height: thick,
-          borderRadius: thick / 2,
-          backgroundColor: color,
-          transform: [{ translateX: -bar * 0.26 }, { translateY: -size * 0.08 }, { rotate: "45deg" }],
-        }}
-      />
-      <View
-        style={{
-          position: "absolute",
-          width: bar,
-          height: thick,
-          borderRadius: thick / 2,
-          backgroundColor: color,
-          transform: [{ translateX: bar * 0.26 }, { translateY: -size * 0.08 }, { rotate: "-45deg" }],
-        }}
-      />
-    </View>
-  );
-}
-
-function ChevronUpIcon({ size, color }: { size: number; color: string }) {
-  return (
-    <View style={{ transform: [{ rotate: "180deg" }] }}>
-      <ChevronDownIcon size={size} color={color} />
-    </View>
-  );
-}
-
-function EllipsisIcon({ size, color }: { size: number; color: string }) {
-  const dot = size * 0.2;
   return (
     <View
       style={{
-        width: size,
-        height: size,
-        alignItems: "center",
-        justifyContent: "space-evenly",
-      }}
-    >
-      {[0, 1, 2].map((i) => (
-        <View
-          key={i}
-          style={{ width: dot, height: dot, borderRadius: dot / 2, backgroundColor: color }}
-        />
-      ))}
-    </View>
-  );
-}
-
-function PaperclipIcon({ size, color }: { size: number; color: string }) {
-  const width = size * 0.52;
-  const height = size * 0.8;
-  const stroke = Math.max(1.4, size * 0.09);
-  return (
-    <View
-      style={{
-        width: size,
-        height: size,
-        alignItems: "center",
-        justifyContent: "center",
-        transform: [{ rotate: "45deg" }],
+        backgroundColor: colors.codeBg,
+        borderRadius: radius.md,
+        overflow: "hidden",
       }}
     >
       <View
         style={{
-          width,
-          height,
-          borderLeftWidth: stroke,
-          borderRightWidth: stroke,
-          borderBottomWidth: stroke,
-          borderColor: color,
-          borderBottomLeftRadius: width / 2,
-          borderBottomRightRadius: width / 2,
+          flexDirection: "row",
           alignItems: "center",
+          paddingLeft: space.md,
+          paddingRight: space.xs,
+          paddingTop: space.xs,
         }}
       >
-        <View
-          style={{
-            width: width * 0.42,
-            height: height * 0.48,
-            marginTop: height * 0.16,
-            borderLeftWidth: stroke,
-            borderRightWidth: stroke,
-            borderBottomWidth: stroke,
-            borderColor: color,
-            borderBottomLeftRadius: width * 0.21,
-            borderBottomRightRadius: width * 0.21,
-          }}
+        <Text style={{ ...type.caption, color: colors.textMuted, flex: 1 }}>
+          {lang ?? "code"}
+        </Text>
+        <IconButton
+          ios={copied ? "checkmark" : "doc.on.doc"}
+          android={copied ? "check" : "content_copy"}
+          accessibilityLabel="Copy code"
+          onPress={copy}
+          size={13}
+          color={colors.textMuted}
         />
+      </View>
+      <View style={{ paddingHorizontal: space.md, paddingBottom: space.sm }}>
+        <Text
+          selectable
+          style={{ fontFamily: MONO, fontSize: 13, lineHeight: 19, color: colors.text }}
+        >
+          {text}
+        </Text>
       </View>
     </View>
   );
 }
 
-function MicIcon({ size, color }: { size: number; color: string }) {
-  const capsuleW = size * 0.4;
-  const capsuleH = size * 0.52;
-  const stroke = Math.max(1.3, size * 0.08);
-  return (
-    <View style={{ width: size, height: size, alignItems: "center" }}>
-      <View
-        style={{
-          width: capsuleW,
-          height: capsuleH,
-          borderRadius: capsuleW / 2,
-          backgroundColor: color,
-        }}
-      />
-      <View
-        style={{
-          width: size * 0.68,
-          height: size * 0.36,
-          marginTop: -size * 0.18,
-          borderLeftWidth: stroke,
-          borderRightWidth: stroke,
-          borderBottomWidth: stroke,
-          borderColor: color,
-          borderBottomLeftRadius: size * 0.34,
-          borderBottomRightRadius: size * 0.34,
-        }}
-      />
-      <View style={{ width: stroke, height: size * 0.14, backgroundColor: color }} />
-    </View>
-  );
-}
+function AssistantText({ text, streaming }: { text: string; streaming?: boolean }) {
+  const { colors, type, space } = useTheme();
+  const blocks = useMemo(() => parseMarkdown(text), [text]);
 
-function PauseIcon({ size, color }: { size: number; color: string }) {
-  const barW = size * 0.22;
-  return (
-    <View
-      style={{
-        width: size,
-        height: size,
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: size * 0.18,
-      }}
-    >
-      <View style={{ width: barW, height: size, borderRadius: barW / 2, backgroundColor: color }} />
-      <View style={{ width: barW, height: size, borderRadius: barW / 2, backgroundColor: color }} />
-    </View>
-  );
-}
+  const body = { ...type.callout, fontSize: 16, lineHeight: 23, color: colors.text };
 
-function CopyIcon({ size, color, fill }: { size: number; color: string; fill: string }) {
-  const stroke = Math.max(1.2, size * 0.1);
-  const box = size * 0.64;
+  if (!blocks.length) {
+    return <Text style={body}>{streaming ? "▍" : ""}</Text>;
+  }
+
+  const lastIndex = blocks.length - 1;
+
   return (
-    <View style={{ width: size, height: size }}>
-      <View
-        style={{
-          position: "absolute",
-          top: 0,
-          right: 0,
-          width: box,
-          height: box,
-          borderWidth: stroke,
-          borderColor: color,
-          borderRadius: size * 0.16,
-        }}
-      />
-      <View
-        style={{
-          position: "absolute",
-          left: 0,
-          bottom: 0,
-          width: box,
-          height: box,
-          borderWidth: stroke,
-          borderColor: color,
-          borderRadius: size * 0.16,
-          backgroundColor: fill,
-        }}
-      />
+    <View style={{ gap: space.md }}>
+      {blocks.map((block, i) => {
+        const caret = streaming && i === lastIndex ? "▍" : "";
+
+        if (block.kind === "code") {
+          return <CodeBlock key={i} text={block.text} lang={block.lang} />;
+        }
+
+        if (block.kind === "heading") {
+          return (
+            <Text
+              key={i}
+              selectable
+              style={{
+                ...type.headline,
+                // h1/h2 get real presence; deeper levels settle back to body
+                // size and lean on weight alone.
+                fontSize: block.level <= 2 ? 19 : 16,
+                lineHeight: block.level <= 2 ? 25 : 22,
+                color: colors.text,
+                marginTop: i === 0 ? 0 : space.xs,
+              }}
+            >
+              <InlineMd text={block.text} codeColor={colors.codeBg} />
+              {caret}
+            </Text>
+          );
+        }
+
+        if (block.kind === "list") {
+          return (
+            <View key={i} style={{ gap: 6 }}>
+              {block.items.map((item, j) => (
+                <View key={j} style={{ flexDirection: "row", gap: space.sm }}>
+                  <Text
+                    style={{
+                      ...body,
+                      color: colors.textMuted,
+                      minWidth: 16,
+                      textAlign: "right",
+                    }}
+                  >
+                    {item.marker}
+                  </Text>
+                  <Text selectable style={{ ...body, flex: 1 }}>
+                    <InlineMd text={item.text} codeColor={colors.codeBg} />
+                    {j === block.items.length - 1 ? caret : ""}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          );
+        }
+
+        return (
+          <Text key={i} selectable style={body}>
+            <InlineMd text={block.text} codeColor={colors.codeBg} />
+            {caret}
+          </Text>
+        );
+      })}
     </View>
   );
 }

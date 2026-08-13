@@ -13,12 +13,16 @@ import {
   type ViewStyle,
 } from "react-native";
 import { Text, TextInput } from "./omg/text";
-import { SymbolView, type AndroidSymbol, type SFSymbol } from "expo-symbols";
+import {
+  SymbolView,
+  type AndroidSymbol,
+  type SFSymbol,
+  type SymbolWeight,
+} from "expo-symbols";
 
 import { agentIcon } from "./omg/agent-icons";
 import { GlassSurface, LIQUID_GLASS } from "./omg/glass";
 import { useTheme } from "./omg/theme";
-import { relativeTime } from "./omg/format";
 
 /** Green when the agent is working, grey when idle, amber when blocked. */
 export function StatusDot({
@@ -213,34 +217,94 @@ export function PrimaryButton({
 }
 
 
-/**
- * A circular agent mark. The same agent name always lands on the same colour
- * and glyph, so a fleet list is scannable without reading a word. Hues come
- * from the theme tokens — the avatar palette is the status palette, never a
- * hardcoded hex.
- */
 /** An SF Symbol on iOS with a Material fallback elsewhere. */
 export function Icon({
   ios,
   android,
   size = 20,
   color,
+  weight = "regular",
 }: {
   ios: SFSymbol;
   android: AndroidSymbol;
   size?: number;
   color?: string;
+  /**
+   * SF Symbols carry their own optical weight, and a symbol next to 17pt
+   * semibold text needs to be semibold too or it reads as a different family.
+   */
+  weight?: SymbolWeight;
 }) {
   return (
     <SymbolView
       name={{ ios, android, web: android }}
       size={size}
+      weight={weight}
       tintColor={color}
       style={{ width: size, height: size }}
     />
   );
 }
 
+/**
+ * A tappable SF Symbol on a circular fill — the toolbar button iOS uses in
+ * Messages and Mail. 44pt of touch target regardless of how small the glyph is,
+ * because the glyph size is a visual choice and the target is an Apple minimum.
+ */
+export function IconButton({
+  ios,
+  android,
+  onPress,
+  disabled,
+  size = 18,
+  color,
+  background,
+  accessibilityLabel,
+  busy,
+}: {
+  ios: SFSymbol;
+  android: AndroidSymbol;
+  onPress?: () => void;
+  disabled?: boolean;
+  size?: number;
+  color?: string;
+  /** Omit for a bare glyph with no disc behind it. */
+  background?: string;
+  accessibilityLabel: string;
+  busy?: boolean;
+}) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled || busy}
+      hitSlop={8}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled: !!disabled }}
+      style={({ pressed }) => ({
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: background ?? "transparent",
+        opacity: disabled ? 0.35 : pressed ? 0.55 : 1,
+      })}
+    >
+      {busy ? (
+        <ActivityIndicator size="small" color={color ?? colors.textSecondary} />
+      ) : (
+        <Icon ios={ios} android={android} size={size} color={color ?? colors.textSecondary} />
+      )}
+    </Pressable>
+  );
+}
+
+/**
+ * A circular agent mark. The marks carry their own brand colour, so the disc
+ * underneath stays neutral and a fleet list is scannable without reading a word.
+ */
 export function AgentAvatar({
   agent,
   size = 40,
@@ -392,13 +456,17 @@ export function SessionCard({
 }
 
 /**
- * The home composer, pinned to the bottom of the screen: a pill input with
- * the agent's avatar and a dictate button, above a toolbar row (stash, the
- * project chip, attach, and the Start button). Start is ink, not orange —
- * brand orange belongs to the mark and the working dot only.
+ * The home composer, pinned to the bottom of the screen: a pill input with the
+ * agent's avatar, above a toolbar row carrying the project chip and Start.
+ * Start is ink, not orange — brand orange belongs to the mark and the working
+ * dot only.
  *
- * Purely presentational: the screen owns the draft, the submit, and whatever
- * stash/attach/dictate eventually do.
+ * It used to also carry stash, attach and dictate buttons. None of the three
+ * was ever wired to anything: the screen rendered them without handlers, so all
+ * three were tap-and-nothing-happens. A dictate button is the least defensible
+ * of the three — the iOS keyboard already has one, and ours did less.
+ *
+ * Purely presentational: the screen owns the draft and the submit.
  */
 export function HomeComposer({
   value,
@@ -407,9 +475,6 @@ export function HomeComposer({
   starting,
   projectLabel,
   agent,
-  onStash,
-  onAttach,
-  onDictate,
   bottomInset = 0,
 }: {
   value: string;
@@ -418,9 +483,6 @@ export function HomeComposer({
   starting?: boolean;
   projectLabel?: string | null;
   agent?: string | null;
-  onStash?: () => void;
-  onAttach?: () => void;
-  onDictate?: () => void;
   bottomInset?: number;
 }) {
   const { colors, isDark, radius, type, space } = useTheme();
@@ -474,19 +536,15 @@ export function HomeComposer({
           onSubmitEditing={() => {
             if (canStart) onStart();
           }}
-          style={{ flex: 1, minWidth: 0, color: colors.text, ...type.body, paddingVertical: space.sm }}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            color: colors.text,
+            ...type.body,
+            paddingVertical: space.sm,
+            paddingRight: space.sm,
+          }}
         />
-        <Pressable
-          onPress={onDictate}
-          hitSlop={8}
-          accessibilityLabel="Dictate"
-          style={({ pressed }) => ({
-            padding: space.sm,
-            opacity: pressed ? 0.5 : 1,
-          })}
-        >
-          <Icon ios="mic.fill" android="mic" size={20} color={colors.textMuted} />
-        </Pressable>
       </GlassSurface>
 
       <View
@@ -497,9 +555,6 @@ export function HomeComposer({
           marginTop: space.md,
         }}
       >
-        <Pressable onPress={onStash} hitSlop={8} accessibilityLabel="Stash" style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}>
-          <Icon ios="archivebox" android="archive" size={22} color={colors.textSecondary} />
-        </Pressable>
         <View
           style={{
             flexDirection: "row",
@@ -520,9 +575,6 @@ export function HomeComposer({
             {projectLabel ?? "Project"}
           </Text>
         </View>
-        <Pressable onPress={onAttach} hitSlop={8} accessibilityLabel="Attach" style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}>
-          <Icon ios="paperclip" android="attach_file" size={22} color={colors.textSecondary} />
-        </Pressable>
         <View style={{ flex: 1 }} />
         <Pressable
           onPress={onStart}

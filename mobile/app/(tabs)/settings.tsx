@@ -21,7 +21,7 @@ import {
 import { Text } from "../../src/omg/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Card, Row, SectionLabel, Separator, StatusDot } from "../../src/components";
+import { Card, Icon, Row, SectionLabel, Separator, StatusDot } from "../../src/components";
 import { useOmg } from "../../src/omg/provider";
 import { useTheme } from "../../src/omg/theme";
 import { bindingLabel } from "../../src/omg/format";
@@ -84,7 +84,16 @@ export default function SettingsScreen() {
         <Row onPress={() => router.push("/computers")}>
           <StatusDot busy={current?.online ?? false} />
           <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>{machineName}</Text>
-          <Text style={{ ...type.callout, color: colors.primary }}>Change</Text>
+          <Text style={{ ...type.callout, color: colors.textMuted }}>Change</Text>
+          {/* The system disclosure chevron, at the weight and grey iOS uses for
+              it — a row that pushes a screen should look like every other one. */}
+          <Icon
+            ios="chevron.right"
+            android="chevron_right"
+            size={13}
+            weight="semibold"
+            color={colors.textMuted}
+          />
         </Row>
       </Card>
 
@@ -95,7 +104,12 @@ export default function SettingsScreen() {
             {i > 0 ? <Separator inset={space.lg} /> : null}
             <Row onPress={() => open(page.path)}>
               <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>{page.label}</Text>
-              <Text style={{ ...type.callout, color: colors.textMuted }}>↗</Text>
+              <Icon
+                ios="arrow.up.forward.app"
+                android="open_in_new"
+                size={15}
+                color={colors.textMuted}
+              />
             </Row>
           </View>
         ))}

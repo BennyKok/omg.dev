@@ -55,6 +55,14 @@ function RootNavigator() {
         <Stack.Protected guard>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="session/[id]" options={{ title: "Session" }} />
+          {/* Without an explicit title the native bar falls back to the ROUTE
+              name and reads "computers", lowercase, in a system font that
+              nothing else in iOS lowercases. The large title is the system one
+              rather than a heading drawn in the scroll view. */}
+          <Stack.Screen
+            name="computers"
+            options={{ title: "Computers", headerLargeTitle: true }}
+          />
         </Stack.Protected>
       </Stack>
     </>

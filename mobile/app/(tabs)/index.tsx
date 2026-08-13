@@ -382,8 +382,6 @@ export default function SessionsScreen() {
           starting={starting}
           projectLabel={currentBinding ? bindingLabel(currentBinding) : null}
           agent={COMPOSER_AGENT}
-          // TODO: dictate/stash/attach are visual parity with the web composer;
-          // none of the three has a native backend wired yet.
           bottomInset={insets.bottom}
         />
       ) : null}
