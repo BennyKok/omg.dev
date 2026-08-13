@@ -28,14 +28,20 @@
  * and looked hand-made next to any real iOS app. The overflow menu is a real
  * UIAlertController (`ActionSheetIOS`) rather than an in-app popover.
  *
- * The header is drawn in-screen rather than by the native stack. That used to
- * be forced: KeyboardAvoidingView measures against its PARENT, so a native
- * header would have needed its height fed back as `keyboardVerticalOffset`,
- * and `useHeaderHeight` lives in @react-navigation/elements, which this app
- * does not depend on. Moving the keyboard to `useAnimatedKeyboard` removed
- * that constraint — the lift is now driven by the real keyboard frame and does
- * not care what sits above it — so switching this screen to the native bar is
- * a free change whenever the avatar-in-the-title question is settled.
+ * The bar is the system's, not ours. It used to be drawn in-screen because
+ * KeyboardAvoidingView measures against its PARENT, so a native header would
+ * have needed its height fed back as `keyboardVerticalOffset`, and
+ * `useHeaderHeight` lives in @react-navigation/elements, which this app does
+ * not depend on. Moving the keyboard to `useAnimatedKeyboard` removed that
+ * constraint — the lift is driven by the real keyboard frame and does not
+ * care what sits above it — so this screen now gets a real UINavigationBar:
+ * the system back chevron and edge-swipe come free, the title truncates the
+ * way UIKit truncates, and the bar grows its own hairline once the transcript
+ * scrolls under it. The avatar stays in the title (small, beside the text)
+ * because it is the only place the agent's identity appears on this screen,
+ * and Messages puts the participant's face in exactly that spot. No large
+ * title: a session title is a long prompt, not a section name, and the
+ * transcript is what should dominate the screen.
  */
 
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
@@ -138,11 +144,9 @@ export default function SessionScreen() {
   /** Pinned-to-bottom is the default; reading history unpins it. */
   const atBottomRef = useRef(true);
 
-  // This screen draws its own header (see the file comment), so the stack
-  // header would be a duplicate.
-  useLayoutEffect(() => {
-    navigation.setOptions({ headerShown: false });
-  }, [navigation]);
+  const firstUserText = messages.find((m) => m.role === "user" && m.text)?.text?.trim();
+  const title = sessionInfo?.title ?? firstUserText ?? "Session";
+  const agentLabel = sessionInfo?.agent ?? "omg";
 
   // Header facts (title, agent) come from the session list, not the
   // transcript. peekSessions paints a cached answer instantly; listSessions
@@ -406,6 +410,54 @@ export default function SessionScreen() {
     showActionMenu(sessionInfo?.title ?? "Session", actions);
   }, [busy, messages, stop, copyTranscript, archive, sessionInfo?.title]);
 
+  /**
+   * The native bar: system back on the left (this is a pushed screen, so the
+   * chevron and the edge-swipe cost nothing), the session title with the
+   * agent's avatar and live status in the middle, the overflow on the right.
+   *
+   * Set here rather than in _layout.tsx for the same reason index.tsx sets
+   * its own: the title and the menu need this screen's live state, and the
+   * deps below are what keep them current as the session loads and the agent
+   * starts and stops.
+   *
+   * `headerTitle` is content-sized, not flex-sized, so an uncapped long prompt
+   * would push the overflow button off the bar. The maxWidth is what makes
+   * UIKit truncate the title instead of the chrome.
+   */
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerShown: true,
+      title,
+      headerTitle: () => (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+          <AgentAvatar agent={agentLabel} size={26} />
+          <View style={{ maxWidth: 200 }}>
+            <Text
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              style={{ ...type.subhead, fontWeight: "600", color: colors.text }}
+            >
+              {title}
+            </Text>
+            <Text numberOfLines={1} style={{ ...type.caption, color: colors.textMuted }}>
+              {busy ? "Working…" : agentDisplayName(agentLabel)}
+            </Text>
+          </View>
+        </View>
+      ),
+      headerRight: () => (
+        <IconButton
+          ios="ellipsis.circle"
+          android="more_horiz"
+          accessibilityLabel="Session actions"
+          onPress={openMenu}
+          size={20}
+          color={colors.text}
+        />
+      ),
+    });
+  }, [navigation, title, agentLabel, busy, openMenu, colors, type, space]);
+
   if (!client) {
     return (
       <View
@@ -421,9 +473,6 @@ export default function SessionScreen() {
     );
   }
 
-  const firstUserText = messages.find((m) => m.role === "user" && m.text)?.text?.trim();
-  const title = sessionInfo?.title ?? firstUserText ?? "Session";
-  const agentLabel = sessionInfo?.agent ?? "omg";
   const thinking = busy && !streamText;
   const canSend = draft.trim().length > 0 && !sending;
 
@@ -449,6 +498,10 @@ export default function SessionScreen() {
    * by the full keyboard height would leave a home-indicator-sized gap above
    * the keys. Subtracting it here means the total lift is exactly the keyboard
    * height, and clamping at 0 keeps the resting state untouched.
+   *
+   * The native header above changes none of this: the lift is paddingBottom on
+   * the screen's root, derived from the keyboard frame alone. Nothing measures
+   * against a parent, so there is no `keyboardVerticalOffset` to get wrong.
    */
   const keyboard = useAnimatedKeyboard();
   const keyboardLift = useAnimatedStyle(() => ({
@@ -457,56 +510,6 @@ export default function SessionScreen() {
 
   return (
     <Reanimated.View style={[{ flex: 1 }, keyboardLift]}>
-      <View
-        style={{
-          paddingTop: insets.top + space.xs,
-          paddingBottom: space.sm,
-          paddingHorizontal: space.sm,
-          flexDirection: "row",
-          alignItems: "center",
-          gap: space.xs,
-          borderBottomWidth: StyleSheet.hairlineWidth,
-          borderBottomColor: colors.border,
-          backgroundColor: colors.bg,
-        }}
-      >
-        <IconButton
-          ios="chevron.down"
-          android="keyboard_arrow_down"
-          accessibilityLabel="Close session"
-          onPress={() => router.back()}
-          size={17}
-          color={colors.text}
-        />
-        <AgentAvatar agent={agentLabel} size={28} />
-        <View style={{ flex: 1, minWidth: 0, marginLeft: space.xs }}>
-          <Text
-            numberOfLines={1}
-            ellipsizeMode="tail"
-            style={{ ...type.headline, color: colors.text }}
-          >
-            {title}
-          </Text>
-          <Text numberOfLines={1} style={{ ...type.caption, color: colors.textMuted }}>
-            {busy ? "Working…" : agentDisplayName(agentLabel)}
-          </Text>
-        </View>
-        <IconButton
-          ios="ellipsis.circle"
-          android="more_horiz"
-          accessibilityLabel="Session actions"
-          onPress={openMenu}
-          size={20}
-          color={colors.text}
-        />
-      </View>
-
-      {loading ? (
-        <View style={{ paddingVertical: space.xl }}>
-          <ActivityIndicator color={colors.textMuted} />
-        </View>
-      ) : null}
-
       <FlatList
         ref={listRef}
         data={data}
@@ -517,6 +520,9 @@ export default function SessionScreen() {
           paddingBottom: space.md,
           gap: space.xl,
         }}
+        // The bar is transparent (set in _layout.tsx), so the list insets its
+        // content below it instead of starting underneath it.
+        contentInsetAdjustmentBehavior="automatic"
         keyboardDismissMode="interactive"
         onScroll={onScroll}
         scrollEventThrottle={16}
@@ -524,7 +530,12 @@ export default function SessionScreen() {
         renderItem={({ item }) => <TranscriptRow item={item} />}
         ListFooterComponent={thinking ? <ThinkingPill /> : null}
         ListEmptyComponent={
-          loading ? null : (
+          // The spinner lives INSIDE the list so it inherits the content
+          // inset; a plain View above the list would start under the
+          // transparent bar and paint its first row behind the title.
+          loading ? (
+            <ActivityIndicator color={colors.textMuted} style={{ paddingVertical: space.xl }} />
+          ) : (
             <Text style={{ ...type.footnote, color: colors.textMuted, textAlign: "center" }}>
               No messages yet.
             </Text>
@@ -592,6 +603,13 @@ export default function SessionScreen() {
           backgroundColor: LIQUID_GLASS ? "transparent" : colors.bg,
         }}
       >
+        {/* One field, everything else flat. The bar used to stack three
+            surfaces — the glass bar, a card-painted pill inside it, and
+            card-painted discs on the buttons — which on a device reads as a
+            box inside a box inside a box. iOS Messages is the reference: the
+            rounded field is the ONLY surface, the send control lives inside
+            it, and every other button is a bare glyph on the bar. */}
+
         {/* Stop only exists while there is something to stop. A permanently
             visible, permanently dimmed button reads as a broken control. */}
         {busy ? (
@@ -602,7 +620,17 @@ export default function SessionScreen() {
             onPress={() => void stop()}
             size={15}
             color={colors.danger}
-            background={colors.card}
+          />
+        ) : null}
+
+        {history.length ? (
+          <IconButton
+            ios="clock.arrow.circlepath"
+            android="history"
+            accessibilityLabel="Reuse an earlier prompt"
+            onPress={openHistory}
+            size={17}
+            color={colors.textMuted}
           />
         ) : null}
 
@@ -617,21 +645,11 @@ export default function SessionScreen() {
             borderRadius: radius.pill,
             borderWidth: StyleSheet.hairlineWidth,
             borderColor: colors.border,
-            paddingLeft: history.length ? space.xs : space.md,
+            paddingLeft: space.md,
             paddingRight: 5,
             paddingVertical: 4,
           }}
         >
-          {history.length ? (
-            <IconButton
-              ios="clock.arrow.circlepath"
-              android="history"
-              accessibilityLabel="Reuse an earlier prompt"
-              onPress={openHistory}
-              size={17}
-              color={colors.textMuted}
-            />
-          ) : null}
           <TextInput
             value={draft}
             onChangeText={setDraft}

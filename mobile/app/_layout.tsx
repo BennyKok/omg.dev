@@ -79,10 +79,9 @@ function RootNavigator() {
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />
         </Stack.Protected>
         <Stack.Protected guard>
-          {/* The sessions list draws its own top bar, because its composer is
-              inside a KeyboardAvoidingView and KAV measures against its PARENT
-              — a native header would need its height fed back as
-              keyboardVerticalOffset. */}
+          {/* Both this and session/[id] set the rest of their header options
+              from inside the screen, because the items on the right need screen
+              state (the machine chip here, the session overflow there). */}
           <Stack.Screen name="index" options={{ title: "Sessions" }} />
           <Stack.Screen name="session/[id]" options={{ title: "Session" }} />
           {/* Without an explicit title the native bar falls back to the ROUTE
