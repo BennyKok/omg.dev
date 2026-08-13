@@ -18,14 +18,14 @@ import {
   ScrollView,
   View,
 } from "react-native";
-import { Text } from "../../src/omg/text";
+import { Text } from "../src/omg/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Card, Icon, Row, SectionLabel, Separator, StatusDot } from "../../src/components";
-import { useOmg } from "../../src/omg/provider";
-import { useTheme } from "../../src/omg/theme";
-import { bindingLabel } from "../../src/omg/format";
-import { CLOUD_BINDING_ID } from "../../src/omg/config";
+import { Card, Icon, Row, SectionLabel, Separator, StatusDot } from "../src/components";
+import { useOmg } from "../src/omg/provider";
+import { useTheme } from "../src/omg/theme";
+import { bindingLabel } from "../src/omg/format";
+import { CLOUD_BINDING_ID } from "../src/omg/config";
 
 const WEB_PAGES: { label: string; path: string }[] = [
   { label: "Coding agents", path: "/settings/computer/coding-agents" },
@@ -59,15 +59,11 @@ export default function SettingsScreen() {
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.bg }}
-      contentContainerStyle={{
-        paddingTop: insets.top + space.lg,
-        paddingBottom: insets.bottom + space.xxl,
-      }}
+      contentContainerStyle={{ paddingBottom: insets.bottom + space.xxl }}
+      // The title is the system large title now, not a Text drawn at the top of
+      // the scroll view, so this is what lets it collapse into the bar.
+      contentInsetAdjustmentBehavior="automatic"
     >
-      <Text style={{ ...type.largeTitle, color: colors.text, paddingHorizontal: space.lg }}>
-        Settings
-      </Text>
-
       <SectionLabel>Account</SectionLabel>
       <Card>
         <Row>

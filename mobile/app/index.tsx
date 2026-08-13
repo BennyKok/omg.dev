@@ -25,7 +25,7 @@ import {
   StyleSheet,
   View,
 } from "react-native";
-import { Text } from "../../src/omg/text";
+import { Text } from "../src/omg/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OmgSession } from "@omg-dev/protocol";
 import type { OmgConnectionStatus } from "@omg-dev/client";
@@ -34,17 +34,18 @@ import {
   EmptyState,
   HomeComposer,
   Icon,
+  IconButton,
   PrimaryButton,
   SectionHeader,
   SessionCard,
   StatusDot,
-} from "../../src/components";
-import { BrandMark } from "../../src/omg/brand-mark";
-import { useOmg } from "../../src/omg/provider";
-import { LIQUID_GLASS } from "../../src/omg/glass";
-import { useTheme } from "../../src/omg/theme";
-import { bindingLabel } from "../../src/omg/format";
-import { CLOUD_BINDING_ID } from "../../src/omg/config";
+} from "../src/components";
+import { BrandMark } from "../src/omg/brand-mark";
+import { useOmg } from "../src/omg/provider";
+import { LIQUID_GLASS } from "../src/omg/glass";
+import { useTheme } from "../src/omg/theme";
+import { bindingLabel } from "../src/omg/format";
+import { CLOUD_BINDING_ID } from "../src/omg/config";
 
 /**
  * The agent a composer session launches on. Omitting `agent` from
@@ -246,12 +247,26 @@ export default function SessionsScreen() {
             >
               {machineName}
             </Text>
-            {machinesLoading ? (
+            {/* Same trap as readiness: refreshMachines runs on every
+                foreground, so keying the spinner on machinesLoading alone
+                flickered the chip every time the app came back. */}
+            {machinesLoading && !currentBinding ? (
               <ActivityIndicator size="small" color={colors.textMuted} />
             ) : (
               <Icon ios="chevron.down" android="keyboard_arrow_down" size={11} color={colors.textMuted} />
             )}
           </Pressable>
+          {/* Settings used to be the second tab. With the tab bar gone it lives
+              here, which is where iOS puts a secondary destination on a screen
+              that owns its own bar. */}
+          <IconButton
+            ios="gearshape"
+            android="settings"
+            accessibilityLabel="Settings"
+            onPress={() => router.push("/settings")}
+            size={19}
+            color={colors.textSecondary}
+          />
         </View>
 
         {(connection === "reconnecting" || connection === "offline") && ready ? (

@@ -195,7 +195,23 @@ export function OmgProvider({ children }: PropsWithChildren) {
   const probe = useCallback(async () => {
     if (!bindingId) return;
     const ticket = ++probeToken.current;
-    setReadiness({ status: "waking" });
+    /**
+     * Announce "waking" only when there is nothing good on screen to lose.
+     *
+     * This used to be an unconditional `setReadiness({status:"waking"})`, and
+     * the provider re-probes on every AppState → active. The sessions screen
+     * gives the whole viewport to a "Waking your computer…" spinner whenever
+     * readiness is `waking`, and hides the composer with it. So every single
+     * return to the foreground — app switch, notification, the back
+     * gesture — tore the list down and rebuilt it a moment later, for a
+     * machine that had never stopped being ready. It read as the app
+     * re-rendering itself at random, which is exactly what it was.
+     *
+     * A machine that IS ready keeps its list while the re-probe runs behind
+     * it. If the probe comes back unhappy, the screen changes then, on real
+     * news rather than on the mere act of asking.
+     */
+    setReadiness((current) => (current?.status === "ready" ? current : { status: "waking" }));
     const result = await waitForReady(getHostedTransport(bindingId));
     // A machine switch mid-probe must not overwrite the new machine's state.
     if (ticket === probeToken.current) setReadiness(result);
