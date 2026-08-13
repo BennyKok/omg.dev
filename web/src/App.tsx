@@ -22379,6 +22379,16 @@ export type ShipPost = {
   mediaTotal?: number;
 };
 
+// A 200 that isn't the install payload (an SPA shell from a stale service
+// worker, an intermediary's empty body) parses to {}, so `install` is missing.
+// Landing that in state made the render read `info.install.channel` off
+// undefined. Same guard as the server-stats pollers: check it arrived first.
+function isInstallUpdateInfo(value: unknown): value is InstallUpdateInfo {
+  return !!value
+    && typeof value === "object"
+    && !!(value as { install?: unknown }).install;
+}
+
 // An artifacts-gallery tile. Previously a live sandboxed document per tile —
 // dozens of independent browsing contexts, each with its own scripts, timers and
 // layout, for tiles that are mostly off screen. Now real DOM in a shadow root
@@ -22400,7 +22410,8 @@ function OmgUpdateSection() {
       // A manual click forces a fresh lookup that bypasses the server-side
       // release-tag cache; the passive on-mount check reuses it.
       const path = force ? "/api/install?refresh=1" : "/api/install";
-      const next = await api<InstallUpdateInfo>(path, { cache: "no-store" });
+      const next = await api<unknown>(path, { cache: "no-store" });
+      if (!isInstallUpdateInfo(next)) throw new Error("Could not check for updates");
       setInfo(next);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not check for updates");
@@ -22437,7 +22448,8 @@ function OmgUpdateSection() {
     setUpdating(true);
     setError(null);
     try {
-      const next = await api<InstallUpdateInfo>("/api/install", { method: "POST" });
+      const next = await api<unknown>("/api/install", { method: "POST" });
+      if (!isInstallUpdateInfo(next)) throw new Error("Could not update LFG");
       setInfo(next);
       if (next.restarting) {
         setRestarting(true);
