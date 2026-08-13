@@ -6,6 +6,7 @@ import { BrandMark } from "../src/omg/brand-mark";
 
 import { OmgProvider, useOmg } from "../src/omg/provider";
 import { useTheme } from "../src/omg/theme";
+import { ToastProvider } from "../src/omg/toast";
 
 function RootNavigator() {
   const { authStatus } = useOmg();
@@ -105,7 +106,12 @@ function RootNavigator() {
 export default function Layout() {
   return (
     <OmgProvider>
-      <RootNavigator />
+      {/* Above RootNavigator so the banner overlays every screen's header and
+          content instead of being clipped by whichever Stack.Screen owns the
+          view underneath it. */}
+      <ToastProvider>
+        <RootNavigator />
+      </ToastProvider>
     </OmgProvider>
   );
 }

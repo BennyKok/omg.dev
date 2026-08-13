@@ -41,7 +41,9 @@ import {
 } from "../src/components";
 import { BrandMark } from "../src/omg/brand-mark";
 import { useOmg } from "../src/omg/provider";
+import { useToast } from "../src/omg/toast";
 import { LIQUID_GLASS } from "../src/omg/glass";
+import { SessionListSkeleton } from "../src/omg/skeleton";
 import { useTheme } from "../src/omg/theme";
 import { bindingLabel } from "../src/omg/format";
 import { CLOUD_BINDING_ID } from "../src/omg/config";
@@ -62,6 +64,10 @@ export default function SessionsScreen() {
   const [sessions, setSessions] = useState<OmgSession[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
+  useEffect(() => {
+    if (error) toast.show(error, { intent: "error" });
+  }, [error, toast]);
   /**
    * Live-socket health. The SDK's statuses are connecting | live | reconnecting
    * | offline — there is no "connected", and comparing against that string made
@@ -293,12 +299,19 @@ export default function SessionsScreen() {
             action={<PrimaryButton label="Choose a computer" onPress={() => router.push("/computers")} />}
           />
         ) : readiness?.status === "waking" ? (
-          <View style={{ alignItems: "center", paddingVertical: space.xxl * 2, gap: space.md }}>
-            <ActivityIndicator color={colors.textMuted} />
-            <Text style={{ ...type.callout, color: colors.textSecondary }}>Waking your computer…</Text>
-            <Text style={{ ...type.footnote, color: colors.textMuted, textAlign: "center", paddingHorizontal: space.xl }}>
-              It hibernated to save resources. This usually takes a moment.
-            </Text>
+          // Skeleton cards, not a spinner: the sessions that were here before
+          // hibernation are coming back, not being discovered fresh, and the
+          // shape of the list underneath the copy says so without a word
+          // changing. See probe() in ../src/omg/provider.tsx for why this
+          // state exists at all.
+          <View style={{ gap: space.lg, paddingTop: space.xl }}>
+            <View style={{ alignItems: "center", gap: space.xs, paddingHorizontal: space.xl }}>
+              <Text style={{ ...type.callout, color: colors.textSecondary }}>Waking your computer…</Text>
+              <Text style={{ ...type.footnote, color: colors.textMuted, textAlign: "center" }}>
+                It hibernated to save resources. This usually takes a moment.
+              </Text>
+            </View>
+            <SessionListSkeleton count={2} />
           </View>
         ) : readiness?.status === "agent-limit" ? (
           <EmptyState
@@ -326,18 +339,19 @@ export default function SessionsScreen() {
             }
           />
         ) : !readiness ? (
-          <View style={{ paddingVertical: space.xxl }}>
-            <ActivityIndicator color={colors.textMuted} />
-          </View>
+          // Nothing is known yet — not even whether the machine is awake.
+          // This is the state on every cold open, so it gets the full list
+          // skeleton rather than a spinner on an otherwise-blank screen.
+          <SessionListSkeleton style={{ paddingTop: space.xl }} />
         ) : (
           <>
-            {error ? (
-              <Text style={{ ...type.footnote, color: colors.danger, paddingHorizontal: space.lg, paddingTop: space.sm }}>
-                {error}
-              </Text>
-            ) : null}
-
-            {sessions.length === 0 && !loading ? (
+            {sessions.length === 0 && loading ? (
+              // First fetch on this machine, nothing on screen to disturb.
+              // Once `sessions` is non-empty, RefreshControl (pull-to-refresh)
+              // is the loading affordance instead — real rows must never be
+              // swapped out for skeletons under someone's thumb.
+              <SessionListSkeleton style={{ paddingTop: space.xl }} />
+            ) : sessions.length === 0 && !loading ? (
               <EmptyState
                 title="No sessions yet"
                 detail="Start one below and it shows up here."

@@ -80,9 +80,9 @@ export default function SettingsScreen() {
         <Row onPress={() => router.push("/computers")}>
           <StatusDot busy={current?.online ?? false} />
           <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>{machineName}</Text>
-          <Text style={{ ...type.callout, color: colors.textMuted }}>Change</Text>
-          {/* The system disclosure chevron, at the weight and grey iOS uses for
-              it — a row that pushes a screen should look like every other one. */}
+          {/* The chevron alone says "this pushes a screen" — iOS never doubles
+              that up with a "Change" label too; the two together read as a web
+              button next to its own disclosure indicator. */}
           <Icon
             ios="chevron.right"
             android="chevron_right"
@@ -97,6 +97,9 @@ export default function SettingsScreen() {
       <Card>
         {WEB_PAGES.map((page, i) => (
           <View key={page.path}>
+            {/* No leading StatusDot/icon on this row — its text already sits
+                flush with the card's own padding, so this is that padding,
+                not "text" mode (which accounts for a leading dot). */}
             {i > 0 ? <Separator inset={space.lg} /> : null}
             <Row onPress={() => open(page.path)}>
               <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>{page.label}</Text>

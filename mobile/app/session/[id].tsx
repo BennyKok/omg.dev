@@ -17,6 +17,11 @@
  * card (with a copy affordance underneath); the assistant's reply is plain
  * text on the page background.
  *
+ * How a message becomes a row is NOT this file's problem — src/omg/transcript
+ * owns that, one renderer per message kind, and `buildTranscriptItems` is what
+ * turns the flat message array into what the list draws. This screen is the
+ * live stream and the composer.
+ *
  * Every glyph on this screen is an SF Symbol via `Icon`/`IconButton`. It used
  * to draw its own chevrons, paperclip, mic and pause out of rotated Views —
  * ~190 lines of geometry that could never match the system's optical weights,
@@ -53,20 +58,23 @@ import Reanimated, { useAnimatedKeyboard, useAnimatedStyle } from "react-native-
 import { Text, TextInput } from "../../src/omg/text";
 import * as Clipboard from "expo-clipboard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { OmgMessage, OmgSession, OmgSessionPrompt } from "@omg-dev/protocol";
+import type { OmgSession, OmgSessionPrompt } from "@omg-dev/protocol";
 
 import { AgentAvatar, Icon, IconButton } from "../../src/components";
-import { Markdown } from "../../src/omg/markdown";
 import { agentLabel as agentDisplayName } from "../../src/omg/agent-icons";
 import { useOmg } from "../../src/omg/provider";
 import { GlassSurface, LIQUID_GLASS } from "../../src/omg/glass";
 import { useTheme } from "../../src/omg/theme";
-import { relativeTime } from "../../src/omg/format";
+import { useToast } from "../../src/omg/toast";
+import {
+  buildTranscriptItems,
+  TranscriptRow,
+  type Entry,
+  type TranscriptItem,
+} from "../../src/omg/transcript";
 
 /** Local id for the optimistic message, so it can be rolled back precisely. */
 let localSeq = 0;
-
-type Entry = OmgMessage & { streaming?: boolean };
 
 /**
  * A native action sheet. iOS gets the real UIAlertController; Android gets an
@@ -119,10 +127,14 @@ export default function SessionScreen() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
+  useEffect(() => {
+    if (error) toast.show(error, { intent: "error" });
+  }, [error, toast]);
   const [loading, setLoading] = useState(true);
   const [sessionInfo, setSessionInfo] = useState<{ title: string; agent: string } | null>(null);
 
-  const listRef = useRef<FlatList<Entry>>(null);
+  const listRef = useRef<FlatList<TranscriptItem>>(null);
   /** Pinned-to-bottom is the default; reading history unpins it. */
   const atBottomRef = useRef(true);
 
@@ -222,12 +234,16 @@ export default function SessionScreen() {
     });
   }, [client, id]);
 
-  const data = useMemo<Entry[]>(() => {
-    if (!streamText) return messages;
-    return [
-      ...messages,
-      { id: "__streaming__", role: "assistant", text: streamText, streaming: true },
-    ];
+  // Tool traffic is grouped into single rows here rather than in renderItem, so
+  // a call and the result it produced stay one cell of the list.
+  const data = useMemo<TranscriptItem[]>(() => {
+    const entries: Entry[] = streamText
+      ? [
+          ...messages,
+          { id: "__streaming__", role: "assistant", text: streamText, streaming: true },
+        ]
+      : messages;
+    return buildTranscriptItems(entries);
   }, [messages, streamText]);
 
   const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -494,7 +510,7 @@ export default function SessionScreen() {
       <FlatList
         ref={listRef}
         data={data}
-        keyExtractor={(m, i) => m.id ?? String(i)}
+        keyExtractor={(item) => item.key}
         contentContainerStyle={{
           paddingHorizontal: space.lg,
           paddingTop: space.lg,
@@ -505,7 +521,7 @@ export default function SessionScreen() {
         onScroll={onScroll}
         scrollEventThrottle={16}
         onContentSizeChange={handleContentSizeChange}
-        renderItem={({ item }) => <TranscriptEntry message={item} />}
+        renderItem={({ item }) => <TranscriptRow item={item} />}
         ListFooterComponent={thinking ? <ThinkingPill /> : null}
         ListEmptyComponent={
           loading ? null : (
@@ -556,19 +572,6 @@ export default function SessionScreen() {
             ))}
           </View>
         </View>
-      ) : null}
-
-      {error ? (
-        <Text
-          style={{
-            ...type.caption,
-            color: colors.danger,
-            paddingHorizontal: space.lg,
-            paddingBottom: space.xs,
-          }}
-        >
-          {error}
-        </Text>
       ) : null}
 
       <GlassSurface
@@ -679,181 +682,6 @@ export default function SessionScreen() {
         </View>
       </GlassSurface>
     </Reanimated.View>
-  );
-}
-
-function TranscriptEntry({ message }: { message: Entry }) {
-  const { colors, type, space } = useTheme();
-  const isUser = message.role === "user";
-  const isSystem = message.role !== "user" && message.role !== "assistant";
-
-  // A message carrying only a file or an image has no text to fall back on, and
-  // used to render as an empty box — an invisible turn in the transcript. One
-  // that ALSO has text still renders as text, so nothing a person wrote or read
-  // can be swallowed by this branch.
-  const isAttachment =
-    !!message.url || !!message.artifactId || message.kind === "image" || message.kind === "file";
-  if (isAttachment && !message.text) return <AttachmentEntry message={message} />;
-
-  if (isSystem && !message.text) return null;
-
-  if (isUser) return <UserMessage message={message} />;
-
-  if (isSystem) {
-    return (
-      <View style={{ alignSelf: "center", paddingHorizontal: space.lg }}>
-        <Text style={{ ...type.caption, color: colors.textMuted, textAlign: "center" }}>
-          {message.text}
-        </Text>
-      </View>
-    );
-  }
-
-  // The assistant's reply is plain text on the page background — no card, no
-  // tint — exactly like the web transcript.
-  return (
-    <View style={{ alignSelf: "stretch", paddingHorizontal: space.xs }}>
-      <Markdown text={message.text ?? ""} streaming={message.streaming} />
-    </View>
-  );
-}
-
-/**
- * An image or file in the transcript, as a tappable row.
- *
- * It does NOT try to inline the bitmap: every artifact URL on a Computer is
- * behind the grant the transport holds, and `<Image>` has no way to ask for it.
- * Naming the file and saying what it is beats a broken-image box, and beats the
- * empty View this used to render.
- */
-function AttachmentEntry({ message }: { message: Entry }) {
-  const { colors, type, space, radius } = useTheme();
-  const isImage = message.kind === "image" || !!message.mimeType?.startsWith("image/");
-  const label = message.name ?? message.caption ?? message.alt ?? (isImage ? "Image" : "File");
-  const size =
-    typeof message.size === "number" && message.size > 0
-      ? `${Math.max(1, Math.round(message.size / 1024))} KB`
-      : null;
-
-  return (
-    <View
-      style={{
-        alignSelf: message.role === "user" ? "flex-end" : "flex-start",
-        flexDirection: "row",
-        alignItems: "center",
-        gap: space.sm,
-        maxWidth: "90%",
-        paddingHorizontal: space.md,
-        paddingVertical: space.sm,
-        backgroundColor: colors.card,
-        borderRadius: radius.lg,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: colors.border,
-      }}
-    >
-      <Icon
-        ios={isImage ? "photo" : "doc"}
-        android={isImage ? "image" : "description"}
-        size={18}
-        color={colors.textSecondary}
-      />
-      <View style={{ minWidth: 0, flexShrink: 1 }}>
-        <Text numberOfLines={1} style={{ ...type.footnote, color: colors.text }}>
-          {label}
-        </Text>
-        <Text style={{ ...type.caption, color: colors.textMuted }}>
-          {size ? `${size} · view on the web` : "View on the web"}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-function UserMessage({ message }: { message: Entry }) {
-  const { colors, type, space, radius } = useTheme();
-  const [copied, setCopied] = useState(false);
-  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(
-    () => () => {
-      if (copyTimer.current) clearTimeout(copyTimer.current);
-    },
-    [],
-  );
-
-  const copy = () => {
-    if (!message.text) return;
-    void Haptics.selectionAsync();
-    // expo-clipboard, not RN's core Clipboard — the core one is deprecated and
-    // slated for removal, and expo-clipboard is already a dependency (the
-    // iMessage sign-in flow uses it to copy the code).
-    void Clipboard.setStringAsync(message.text);
-    setCopied(true);
-    if (copyTimer.current) clearTimeout(copyTimer.current);
-    copyTimer.current = setTimeout(() => setCopied(false), 1500);
-  };
-
-  const stamp = relativeTime(message.ts);
-
-  return (
-    <View style={{ alignSelf: "stretch" }}>
-      <View
-        style={{
-          backgroundColor: colors.card,
-          borderRadius: radius.xl,
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: colors.border,
-          paddingHorizontal: space.lg,
-          paddingVertical: space.md,
-          opacity: message.pending ? 0.6 : 1,
-        }}
-      >
-        <Text
-          selectable
-          style={{ ...type.callout, fontSize: 16, lineHeight: 22, color: colors.text }}
-        >
-          {message.text}
-        </Text>
-      </View>
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: space.sm,
-          marginTop: 2,
-          marginLeft: space.sm,
-        }}
-      >
-        <Pressable
-          onPress={copy}
-          hitSlop={10}
-          accessibilityRole="button"
-          accessibilityLabel="Copy message"
-          style={({ pressed }) => ({
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 4,
-            paddingVertical: 4,
-            opacity: pressed ? 0.5 : 1,
-          })}
-        >
-          <Icon
-            ios={copied ? "checkmark" : "doc.on.doc"}
-            android={copied ? "check" : "content_copy"}
-            size={12}
-            color={colors.textMuted}
-          />
-          {copied ? (
-            <Text style={{ ...type.caption, color: colors.textMuted }}>Copied</Text>
-          ) : null}
-        </Pressable>
-        {message.pending ? (
-          <Text style={{ ...type.caption, color: colors.textMuted }}>Sending…</Text>
-        ) : stamp ? (
-          <Text style={{ ...type.caption, color: colors.textMuted }}>{stamp}</Text>
-        ) : null}
-      </View>
-    </View>
   );
 }
 

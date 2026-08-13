@@ -26,6 +26,7 @@ import {
 } from "../src/omg/imessage-auth";
 import { useOmg } from "../src/omg/provider";
 import { useTheme } from "../src/omg/theme";
+import { useToast } from "../src/omg/toast";
 
 const RESEND_DELAY_SECONDS = 60;
 const IMESSAGE_POLL_MS = 2_500;
@@ -249,6 +250,10 @@ export default function SignInScreen() {
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
+  useEffect(() => {
+    if (error) toast.show(error, { intent: "error" });
+  }, [error, toast]);
   const [sending, setSending] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [resendSeconds, setResendSeconds] = useState(0);
@@ -440,12 +445,6 @@ export default function SignInScreen() {
               </View>
             </>
           )}
-
-          {error ? (
-            <Text accessibilityLiveRegion="polite" style={[type.footnote, styles.error, { color: colors.danger }]}>
-              {error}
-            </Text>
-          ) : null}
         </View>
 
         <Pressable

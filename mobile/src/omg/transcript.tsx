@@ -1,0 +1,826 @@
+/**
+ * The transcript, rendered per message KIND rather than as one stream of prose.
+ *
+ * The server emits five kinds into a session — `text`, `tool_use`,
+ * `tool_result`, `image`, `thinking` — and the screen only ever knew about two
+ * of them. Everything else fell through to the assistant branch and was printed
+ * as body copy, which is how a phone ended up showing `(thinking)` as a
+ * sentence and `mcp__omg__omg_run_auto_agent: { "id": "…" }` as a paragraph.
+ * Every kind gets a renderer here, and anything unrecognised still lands on a
+ * readable row instead of the empty box attachments used to draw.
+ *
+ * WHERE THE TOOL PAYLOAD LIVES. `OmgMessage` has no args/input/name-of-tool
+ * field, because the server flattens the provider's structured block into the
+ * one string it does have. src/sessions.ts (`describeInput`) writes a tool call
+ * as `"<toolName>: " + JSON.stringify(input, null, 2)` and a tool result as the
+ * result text alone. So the payload is `message.text`, and parsing it back is
+ * this module's job — `parseToolCall` is the inverse of that server function.
+ *
+ * WHY THE ARGUMENTS ARE PARSED AND NOT PRINTED. `JSON.stringify` escapes the
+ * newlines *inside* a string value, so a prompt-shaped argument arrives as one
+ * enormous line containing literal `\n\n`. Printing `text` verbatim is the bug
+ * this module exists to kill: JSON.parse restores the real newlines, and each
+ * top-level argument is then handed to `CodeBlock` under its own name.
+ *
+ * WHY RESULTS ARE PAIRED BY ADJACENCY. The provider's `tool_use_id` does not
+ * survive normalization, and neither does `is_error`. Message ids are
+ * `<uuid>` / `<uuid>#<blockIndex>` scoped to the turn that carried the block,
+ * and a result arrives under a *different* uuid than its call, so there is no
+ * id relation to join on — inventing one would be a guess. What is reliable is
+ * order: a lone call is immediately followed by its result. So a result is
+ * attached only when exactly one call precedes it with no sibling call on
+ * either side. A parallel batch (several calls, then several results, in an
+ * order nothing here can recover) deliberately leaves them unpaired and shows
+ * the results as their own rows rather than labelling one with another's name.
+ */
+
+import * as Clipboard from "expo-clipboard";
+import * as Haptics from "expo-haptics";
+import type { AndroidSymbol, SFSymbol } from "expo-symbols";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
+import Reanimated, {
+  FadeIn,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
+import type { OmgMessage } from "@omg-dev/protocol";
+
+import { Icon } from "../components";
+import { relativeTime } from "./format";
+import { CodeBlock, Markdown } from "./markdown";
+import { Text } from "./text";
+import { useTheme } from "./theme";
+
+/** A transcript message, plus the flag the live stream sets on its synthetic tail. */
+export type Entry = OmgMessage & { streaming?: boolean };
+
+/**
+ * A call and the result it produced. Either side can be missing: a call whose
+ * result has not landed yet is still worth showing, and a result the pairing
+ * rule refused to attach is still worth reading.
+ */
+type ToolPair = { key: string; call: Entry | null; result: Entry | null };
+
+/**
+ * What the list actually renders. Consecutive tool traffic collapses into one
+ * `tools` item so a run of calls reads as a tight block of events, not as a
+ * column of cards separated by the list's paragraph-sized gap.
+ */
+export type TranscriptItem =
+  | { type: "message"; key: string; message: Entry }
+  | { type: "tools"; key: string; pairs: ToolPair[] };
+
+const isCall = (message?: Entry) => message?.kind === "tool_use";
+const isResult = (message?: Entry) => message?.kind === "tool_result";
+
+/** Code voice, matching markdown.tsx. Kept local because that module owns its own. */
+const MONO = Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" });
+
+/** How much of an expanded body is worth rendering into a single list cell. */
+const BODY_CHAR_LIMIT = 2_000;
+
+export function buildTranscriptItems(messages: Entry[]): TranscriptItem[] {
+  const items: TranscriptItem[] = [];
+  let index = 0;
+
+  while (index < messages.length) {
+    const message = messages[index];
+    if (!isCall(message) && !isResult(message)) {
+      items.push({ type: "message", key: entryKey(message, index), message });
+      index += 1;
+      continue;
+    }
+    let end = index;
+    while (end < messages.length && (isCall(messages[end]) || isResult(messages[end]))) end += 1;
+    const run = messages.slice(index, end);
+    items.push({
+      type: "tools",
+      key: `tools-${entryKey(message, index)}`,
+      pairs: buildToolPairs(run, index),
+    });
+    index = end;
+  }
+
+  return items;
+}
+
+/** See the file header: adjacency only, and only when the call stands alone. */
+function buildToolPairs(run: Entry[], offset: number): ToolPair[] {
+  const pairs: ToolPair[] = [];
+  for (let i = 0; i < run.length; i += 1) {
+    const message = run[i];
+    const key = entryKey(message, offset + i);
+    if (!isCall(message)) {
+      pairs.push({ key, call: null, result: message });
+      continue;
+    }
+    const solitary = !isCall(run[i - 1]) && !isCall(run[i + 1]);
+    if (solitary && isResult(run[i + 1])) {
+      pairs.push({ key, call: message, result: run[i + 1] });
+      i += 1;
+      continue;
+    }
+    pairs.push({ key, call: message, result: null });
+  }
+  return pairs;
+}
+
+/** Ids are nullable on the wire, so position is the fallback that keeps keys unique. */
+function entryKey(message: Entry, index: number): string {
+  return message.id ?? `${message.kind ?? message.role ?? "msg"}-${index}`;
+}
+
+export function TranscriptRow({ item }: { item: TranscriptItem }) {
+  const { space } = useTheme();
+  if (item.type === "message") return <TranscriptEntry message={item.message} />;
+  return (
+    <View style={{ alignSelf: "stretch", gap: space.xs }}>
+      {item.pairs.map((pair) => (
+        <ToolEntry key={pair.key} call={pair.call} result={pair.result} />
+      ))}
+    </View>
+  );
+}
+
+export function TranscriptEntry({ message }: { message: Entry }) {
+  const { colors, type, space } = useTheme();
+  const isUser = message.role === "user";
+  const isSystem = message.role !== "user" && message.role !== "assistant";
+
+  // A message carrying only a file or an image has no text to fall back on, and
+  // used to render as an empty box — an invisible turn in the transcript. One
+  // that ALSO has text still renders as text, so nothing a person wrote or read
+  // can be swallowed by this branch.
+  const isAttachment =
+    !!message.url || !!message.artifactId || message.kind === "image" || message.kind === "file";
+  if (isAttachment && !message.text) return <AttachmentEntry message={message} />;
+
+  if (message.kind === "thinking") return <ThinkingEntry message={message} />;
+
+  // A result that reached here escaped the pairing pass (see the file header).
+  if (message.kind === "tool_result") return <ToolEntry call={null} result={message} />;
+  if (message.kind === "tool_use") return <ToolEntry call={message} result={null} />;
+
+  if (isUser) return <UserMessage message={message} />;
+
+  if (!message.text?.trim()) {
+    // Never an empty cell: say what arrived, even when this build cannot draw it.
+    if (isSystem) return null;
+    return <FallbackEntry message={message} />;
+  }
+
+  if (isSystem) {
+    return (
+      <View style={{ alignSelf: "center", paddingHorizontal: space.lg }}>
+        <Text style={{ ...type.caption, color: colors.textMuted, textAlign: "center" }}>
+          {message.text}
+        </Text>
+      </View>
+    );
+  }
+
+  // The assistant's reply is plain text on the page background — no card, no
+  // tint — exactly like the web transcript.
+  return (
+    <View style={{ alignSelf: "stretch", paddingHorizontal: space.xs }}>
+      <Markdown text={message.text ?? ""} streaming={message.streaming} />
+    </View>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Tool calls                                                                  */
+/* -------------------------------------------------------------------------- */
+
+type ToolField = { key: string; value: string };
+
+type ParsedCall = {
+  /** Display name, with the MCP server segment dropped. */
+  name: string;
+  /** One line of "what is it doing", or null when the call carried no input. */
+  summary: string | null;
+  /** Top-level arguments, in payload order, with real newlines restored. */
+  fields: ToolField[];
+  /** Set when the payload was not a JSON object and has to be shown as-is. */
+  raw: string | null;
+  /** What `raw` actually is. Codex writes a call's OUTPUT where a name:JSON call keeps its input. */
+  rawLabel: "input" | "output";
+};
+
+/**
+ * A tool call, as one row: symbol, name, and what it is doing. Tapping opens
+ * the arguments and the result. Collapsed is the default because ten of these
+ * between two paragraphs of answer is the common case, and an agent's tool
+ * traffic is context, not content.
+ */
+function ToolEntry({ call, result }: { call: Entry | null; result: Entry | null }) {
+  const { colors, type, space, radius, motion } = useTheme();
+  const [open, setOpen] = useState(false);
+  const turn = useSharedValue(0);
+
+  const parsed = useMemo(() => (call ? parseToolCall(call.text) : null), [call]);
+  const resultText = useMemo(() => (result?.text ?? "").trim(), [result]);
+  const failed = useMemo(() => looksFailed(resultText), [resultText]);
+
+  const chevron = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${turn.value * 90}deg` }],
+  }));
+
+  const expandable = !!parsed?.fields.length || !!parsed?.raw || !!resultText;
+
+  const toggle = () => {
+    if (!expandable) return;
+    void Haptics.selectionAsync();
+    turn.value = withTiming(open ? 0 : 1, { duration: motion.quick });
+    setOpen((value) => !value);
+  };
+
+  // A result the pairing pass could not attach has no tool to name a symbol
+  // after, so it wears its own outcome instead of a generic wrench.
+  const symbol: Symbols = parsed
+    ? toolSymbol(parsed.name)
+    : failed
+      ? { ios: "exclamationmark.triangle", android: "error" }
+      : { ios: "checkmark.circle", android: "check_circle" };
+  const title = parsed?.name ?? "Result";
+  // A result with no call of its own still needs a one-line preview, or the row
+  // says nothing at all until it is opened.
+  const summary = parsed?.summary ?? (parsed ? null : oneLine(resultText || "(result)"));
+
+  return (
+    <View
+      style={{
+        alignSelf: "stretch",
+        backgroundColor: colors.card,
+        borderRadius: radius.md,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.border,
+        overflow: "hidden",
+      }}
+    >
+      <Pressable
+        onPress={toggle}
+        disabled={!expandable}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={`${title}${summary ? `, ${summary}` : ""}`}
+        accessibilityHint={expandable ? "Shows the arguments and the result" : undefined}
+        style={({ pressed }) => ({
+          flexDirection: "row",
+          alignItems: "center",
+          gap: space.sm,
+          minHeight: 36,
+          paddingHorizontal: space.sm,
+          paddingVertical: space.xs,
+          backgroundColor: pressed ? colors.cardPressed : "transparent",
+        })}
+      >
+        <Reanimated.View style={chevron}>
+          <Icon
+            ios="chevron.right"
+            android="chevron_right"
+            size={10}
+            color={expandable ? colors.textMuted : "transparent"}
+          />
+        </Reanimated.View>
+        <Icon ios={symbol.ios} android={symbol.android} size={13} color={colors.textSecondary} />
+        <Text
+          numberOfLines={1}
+          style={{
+            ...type.caption,
+            fontFamily: MONO,
+            letterSpacing: 0,
+            color: colors.text,
+            flexShrink: 0,
+            maxWidth: "45%",
+          }}
+        >
+          {title}
+        </Text>
+        {summary ? (
+          <Text
+            numberOfLines={1}
+            ellipsizeMode="middle"
+            style={{ ...type.caption, color: colors.textMuted, flex: 1, minWidth: 0 }}
+          >
+            {summary}
+          </Text>
+        ) : (
+          <View style={{ flex: 1 }} />
+        )}
+        {/* Outcome is colour, not a word: the row is 36pt tall and the reader is
+            scanning for the one call that went wrong. */}
+        {result ? (
+          <View
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: 3,
+              backgroundColor: failed ? colors.danger : colors.success,
+            }}
+          />
+        ) : null}
+      </Pressable>
+
+      {open ? (
+        <Reanimated.View
+          entering={FadeIn.duration(motion.quick)}
+          style={{
+            paddingHorizontal: space.sm,
+            paddingBottom: space.sm,
+            gap: space.sm,
+            borderTopWidth: StyleSheet.hairlineWidth,
+            borderTopColor: colors.border,
+            paddingTop: space.sm,
+          }}
+        >
+          {parsed?.fields.map((field) => (
+            <CodeBlock key={field.key} text={clip(field.value)} lang={field.key} />
+          ))}
+          {parsed?.raw ? <CodeBlock text={clip(parsed.raw)} lang={parsed.rawLabel} /> : null}
+          {resultText ? (
+            <View style={{ gap: space.xs }}>
+              <CodeBlock text={clip(resultText)} lang={failed ? "error" : "result"} />
+            </View>
+          ) : null}
+        </Reanimated.View>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * `"<name>: <input>"` back into its parts.
+ *
+ * Only the FIRST line is searched for the name separator: the Claude path
+ * pretty-prints its JSON across many lines, so everything after that first
+ * newline belongs to the payload. Codex writes a shell call as `$ <command>`
+ * followed by its output and never uses the `name:` shape at all, so a
+ * candidate that is not identifier-shaped is treated as the summary itself
+ * rather than being forced into a name.
+ */
+export function parseToolCall(text?: string): ParsedCall {
+  const raw = (text ?? "").trim();
+  if (!raw) return { name: "tool", summary: null, fields: [], raw: null, rawLabel: "input" };
+
+  const newline = raw.indexOf("\n");
+  const head = newline >= 0 ? raw.slice(0, newline) : raw;
+  const rest = newline >= 0 ? raw.slice(newline + 1) : "";
+  const separator = head.indexOf(":");
+  const candidate = (separator >= 0 ? head.slice(0, separator) : head).trim();
+
+  if (/^[A-Za-z_][\w.$-]*$/.test(candidate)) {
+    const headPayload = separator >= 0 ? head.slice(separator + 1).trim() : "";
+    const payload = [headPayload, rest].filter(Boolean).join("\n");
+    const { fields, raw: leftover } = parsePayload(payload);
+    // Codex writes `web_search: <query>` and then pastes the RESULTS underneath,
+    // so flattening the whole payload into the summary describes the answer
+    // instead of the question. When the payload never parsed as JSON, the first
+    // line is the call; the rest is what came back.
+    const headSummary = leftover && headPayload && !/^[{[]/.test(headPayload) ? headPayload : null;
+    return {
+      name: displayName(candidate),
+      summary: headSummary ? oneLine(headSummary) : summarize(fields, leftover),
+      fields,
+      raw: leftover,
+      rawLabel: headSummary ? "output" : "input",
+    };
+  }
+
+  // `$ git status` + output, and anything else that never had a name.
+  const shell = head.startsWith("$ ");
+  const { fields, raw: leftover } = parsePayload(rest);
+  return {
+    name: shell ? "shell" : "tool",
+    summary: oneLine(shell ? head.slice(2) : head),
+    fields,
+    raw: leftover,
+    rawLabel: "output",
+  };
+}
+
+/**
+ * The escaped-newline fix. `JSON.parse` is what turns `"a\\n\\nb"` back into
+ * two paragraphs; splitting the object into one block per argument is what
+ * keeps a long `content` string from burying the `file_path` next to it.
+ */
+function parsePayload(payload: string): { fields: ToolField[]; raw: string | null } {
+  const trimmed = payload.trim();
+  if (!trimmed) return { fields: [], raw: null };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    // Not JSON — a bare string argument, or a payload the server truncated
+    // mid-object. Unescape by hand so the literal `\n` still stops being one.
+    return { fields: [], raw: unescape(trimmed) };
+  }
+
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    const fields = Object.entries(parsed as Record<string, unknown>)
+      .map(([key, value]) => ({ key, value: renderValue(value) }))
+      .filter((field) => field.value.length > 0);
+    return fields.length ? { fields, raw: null } : { fields: [], raw: null };
+  }
+
+  return { fields: [], raw: renderValue(parsed) };
+}
+
+function renderValue(value: unknown): string {
+  // A string value is returned as itself: JSON.parse has already restored its
+  // newlines, and re-stringifying would escape them right back.
+  if (typeof value === "string") return value;
+  if (value == null) return "";
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function unescape(text: string): string {
+  if (!text.includes("\\n") && !text.includes("\\t")) return text;
+  return text
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, "\t")
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, "\\");
+}
+
+/**
+ * The keys agents actually put the subject of the call in, most specific
+ * first. `Bash` says `command`, `Read` says `file_path`, `Grep` says `pattern`
+ * — reading one of them beats reading `{"id":"…"}`.
+ */
+const SUMMARY_KEYS = [
+  "command",
+  "file_path",
+  "filePath",
+  "path",
+  "pattern",
+  "query",
+  "url",
+  "prompt",
+  "description",
+  "title",
+  "name",
+  "id",
+  "text",
+  "message",
+  "content",
+];
+
+function summarize(fields: ToolField[], raw: string | null): string | null {
+  for (const key of SUMMARY_KEYS) {
+    const match = fields.find((field) => field.key.toLowerCase() === key.toLowerCase());
+    if (match) return oneLine(match.value);
+  }
+  if (fields.length) return oneLine(fields[0].value);
+  return raw ? oneLine(raw) : null;
+}
+
+function oneLine(text: string, max = 72): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+}
+
+/** The expanded body lives in one list cell; the server already caps it at 8k. */
+function clip(text: string): string {
+  if (text.length <= BODY_CHAR_LIMIT) return text;
+  const omitted = text.length - BODY_CHAR_LIMIT;
+  return `${text.slice(0, BODY_CHAR_LIMIT)}\n\n…${omitted.toLocaleString()} more characters`;
+}
+
+/**
+ * `mcp__omg__omg_run_auto_agent` is the wire name. The server segment is the
+ * least useful third of it on a 390pt screen, and the verb is what identifies
+ * the call, so only the last segment is shown.
+ */
+function displayName(name: string): string {
+  const parts = name.split("__").filter(Boolean);
+  return parts[parts.length - 1] || name;
+}
+
+/**
+ * Outcome without a flag to read.
+ *
+ * The provider's `is_error` does not survive normalization, so the text is the
+ * only signal left. The test is deliberately anchored to the START of the
+ * output: agents quote the word "error" in successful greps and file reads all
+ * day, and painting those rows red would make the colour worthless.
+ */
+function looksFailed(text: string): boolean {
+  if (!text) return false;
+  const head = text.slice(0, 120).trimStart().toLowerCase();
+  return (
+    head.startsWith("<tool_use_error>") ||
+    head.startsWith("error") ||
+    head.startsWith("exception") ||
+    head.startsWith("traceback") ||
+    head.startsWith("failed") ||
+    head.startsWith("fatal:") ||
+    head.startsWith("command failed")
+  );
+}
+
+type Symbols = { ios: SFSymbol; android: AndroidSymbol };
+
+/**
+ * A symbol per family of tool. Matched on substrings because the same verbs
+ * arrive under many names — `Bash`, `shell`, `command_execution`, and an MCP
+ * server's `omg__run_command` all mean the same thing to a reader.
+ */
+function toolSymbol(name: string): Symbols {
+  const key = name.toLowerCase();
+  const has = (...needles: string[]) => needles.some((needle) => key.includes(needle));
+
+  if (has("bash", "shell", "command", "terminal", "exec", "run")) {
+    return { ios: "terminal", android: "terminal" };
+  }
+  if (has("grep", "search", "glob", "find")) {
+    return { ios: "magnifyingglass", android: "search" };
+  }
+  if (has("write", "create")) return { ios: "square.and.pencil", android: "edit_square" };
+  if (has("edit", "patch", "apply", "replace")) return { ios: "pencil", android: "edit" };
+  if (has("read", "cat", "view", "notebook")) return { ios: "doc.text", android: "description" };
+  if (has("ls", "list", "tree", "dir", "folder")) return { ios: "folder", android: "folder" };
+  if (has("web", "fetch", "http", "url", "browser")) return { ios: "globe", android: "public" };
+  if (has("todo", "task", "plan")) return { ios: "checklist", android: "checklist" };
+  if (has("agent", "subagent", "delegate", "session")) {
+    return { ios: "person.2", android: "group" };
+  }
+  if (has("image", "photo", "video", "display", "artifact")) {
+    return { ios: "photo", android: "image" };
+  }
+  return { ios: "wrench.and.screwdriver", android: "build" };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Thinking                                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Reasoning, marked as subordinate to the answer.
+ *
+ * It is dimmed, it is one line until it is asked for, and it sits behind a rule
+ * down its left edge so the eye can skip the whole column. It used to render at
+ * full body weight in the same voice as the reply, which made the agent look
+ * like it was answering twice.
+ */
+function ThinkingEntry({ message }: { message: Entry }) {
+  const { colors, type, space, motion } = useTheme();
+  const [open, setOpen] = useState(false);
+  const turn = useSharedValue(0);
+
+  const text = (message.text ?? "").trim();
+  // The normalizer substitutes the literal "(thinking)" when the provider
+  // redacted the block. There is a turn to acknowledge and nothing to open.
+  const body = text === "(thinking)" ? "" : text;
+
+  const chevron = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${turn.value * 90}deg` }],
+  }));
+
+  const toggle = () => {
+    if (!body) return;
+    void Haptics.selectionAsync();
+    turn.value = withTiming(open ? 0 : 1, { duration: motion.quick });
+    setOpen((value) => !value);
+  };
+
+  return (
+    <View
+      style={{
+        alignSelf: "stretch",
+        paddingLeft: space.sm,
+        borderLeftWidth: 2,
+        borderLeftColor: colors.border,
+        gap: space.xs,
+      }}
+    >
+      <Pressable
+        onPress={toggle}
+        disabled={!body}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel="Thinking"
+        style={({ pressed }) => ({
+          flexDirection: "row",
+          alignItems: "center",
+          gap: space.xs,
+          minHeight: 28,
+          opacity: pressed ? 0.5 : 1,
+        })}
+      >
+        <Reanimated.View style={chevron}>
+          <Icon
+            ios="chevron.right"
+            android="chevron_right"
+            size={10}
+            color={body ? colors.textMuted : "transparent"}
+          />
+        </Reanimated.View>
+        <Icon ios="brain" android="psychology" size={12} color={colors.textMuted} />
+        <Text style={{ ...type.caption, color: colors.textMuted }}>Thinking</Text>
+        {body && !open ? (
+          <Text
+            numberOfLines={1}
+            style={{ ...type.caption, color: colors.textMuted, flex: 1, minWidth: 0 }}
+          >
+            {oneLine(body, 60)}
+          </Text>
+        ) : null}
+      </Pressable>
+
+      {open && body ? (
+        <Reanimated.View entering={FadeIn.duration(motion.quick)} style={{ paddingBottom: space.xs }}>
+          <Text selectable style={{ ...type.footnote, lineHeight: 19, color: colors.textMuted }}>
+            {body}
+          </Text>
+        </Reanimated.View>
+      ) : null}
+    </View>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Attachments, prose, and the catch-all                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * An image or file in the transcript, as a tappable row.
+ *
+ * It does NOT try to inline the bitmap: every artifact URL on a Computer is
+ * behind the grant the transport holds, and `<Image>` has no way to ask for it.
+ * Naming the file and saying what it is beats a broken-image box, and beats the
+ * empty View this used to render.
+ */
+export function AttachmentEntry({ message }: { message: Entry }) {
+  const { colors, type, space, radius } = useTheme();
+  const isImage = message.kind === "image" || !!message.mimeType?.startsWith("image/");
+  const label = message.name ?? message.caption ?? message.alt ?? (isImage ? "Image" : "File");
+  const size =
+    typeof message.size === "number" && message.size > 0
+      ? `${Math.max(1, Math.round(message.size / 1024))} KB`
+      : null;
+
+  return (
+    <View
+      style={{
+        alignSelf: message.role === "user" ? "flex-end" : "flex-start",
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.sm,
+        maxWidth: "90%",
+        paddingHorizontal: space.md,
+        paddingVertical: space.sm,
+        backgroundColor: colors.card,
+        borderRadius: radius.lg,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.border,
+      }}
+    >
+      <Icon
+        ios={isImage ? "photo" : "doc"}
+        android={isImage ? "image" : "description"}
+        size={18}
+        color={colors.textSecondary}
+      />
+      <View style={{ minWidth: 0, flexShrink: 1 }}>
+        <Text numberOfLines={1} style={{ ...type.footnote, color: colors.text }}>
+          {label}
+        </Text>
+        <Text style={{ ...type.caption, color: colors.textMuted }}>
+          {size ? `${size} · view on the web` : "View on the web"}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * A kind this build has no renderer for, and no text to fall back on — `video`
+ * and `html` are already on the wire and more will follow. It names what
+ * arrived. The alternative, which this app shipped once for attachments, is a
+ * turn that occupies space and says nothing.
+ */
+function FallbackEntry({ message }: { message: Entry }) {
+  const { colors, type, space, radius } = useTheme();
+  const label = message.title ?? message.name ?? message.caption ?? message.alt ?? null;
+  const kind = message.kind ?? "message";
+
+  return (
+    <View
+      style={{
+        alignSelf: "flex-start",
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.sm,
+        maxWidth: "90%",
+        paddingHorizontal: space.md,
+        paddingVertical: space.sm,
+        backgroundColor: colors.card,
+        borderRadius: radius.md,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.border,
+      }}
+    >
+      <Icon ios="questionmark.circle" android="help" size={14} color={colors.textMuted} />
+      <Text numberOfLines={2} style={{ ...type.caption, color: colors.textMuted, flexShrink: 1 }}>
+        {label ?? `A ${kind} this app can't show yet · view on the web`}
+      </Text>
+    </View>
+  );
+}
+
+export function UserMessage({ message }: { message: Entry }) {
+  const { colors, type, space, radius } = useTheme();
+  const [copied, setCopied] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+    },
+    [],
+  );
+
+  const copy = () => {
+    if (!message.text) return;
+    void Haptics.selectionAsync();
+    // expo-clipboard, not RN's core Clipboard — the core one is deprecated and
+    // slated for removal, and expo-clipboard is already a dependency (the
+    // iMessage sign-in flow uses it to copy the code).
+    void Clipboard.setStringAsync(message.text);
+    setCopied(true);
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => setCopied(false), 1500);
+  };
+
+  const stamp = relativeTime(message.ts);
+
+  return (
+    <View style={{ alignSelf: "stretch" }}>
+      <View
+        style={{
+          backgroundColor: colors.card,
+          borderRadius: radius.xl,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+          paddingHorizontal: space.lg,
+          paddingVertical: space.md,
+          opacity: message.pending ? 0.6 : 1,
+        }}
+      >
+        <Text
+          selectable
+          style={{ ...type.callout, fontSize: 16, lineHeight: 22, color: colors.text }}
+        >
+          {message.text}
+        </Text>
+      </View>
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: space.sm,
+          marginTop: 2,
+          marginLeft: space.sm,
+        }}
+      >
+        <Pressable
+          onPress={copy}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel="Copy message"
+          style={({ pressed }) => ({
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 4,
+            paddingVertical: 4,
+            opacity: pressed ? 0.5 : 1,
+          })}
+        >
+          <Icon
+            ios={copied ? "checkmark" : "doc.on.doc"}
+            android={copied ? "check" : "content_copy"}
+            size={12}
+            color={colors.textMuted}
+          />
+          {copied ? (
+            <Text style={{ ...type.caption, color: colors.textMuted }}>Copied</Text>
+          ) : null}
+        </Pressable>
+        {message.pending ? (
+          <Text style={{ ...type.caption, color: colors.textMuted }}>Sending…</Text>
+        ) : stamp ? (
+          <Text style={{ ...type.caption, color: colors.textMuted }}>{stamp}</Text>
+        ) : null}
+      </View>
+    </View>
+  );
+}

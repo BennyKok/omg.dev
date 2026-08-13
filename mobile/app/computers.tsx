@@ -12,19 +12,15 @@
 
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import {
-  ActivityIndicator,
-  Linking,
-  RefreshControl,
-  ScrollView,
-  View,
-} from "react-native";
+import { useEffect } from "react";
+import { Linking, RefreshControl, ScrollView, View } from "react-native";
 import { Text } from "../src/omg/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Card, Icon, Row, SectionLabel, Separator, StatusDot } from "../src/components";
 import { useOmg } from "../src/omg/provider";
 import { useTheme } from "../src/omg/theme";
+import { useToast } from "../src/omg/toast";
 import { bindingLabel, cloudStatusLabel, machineSpec, relativeTime } from "../src/omg/format";
 import { CLOUD_BINDING_ID } from "../src/omg/config";
 
@@ -43,6 +39,10 @@ export default function ComputersScreen() {
     machinesLoading,
     refreshMachines,
   } = useOmg();
+  const toast = useToast();
+  useEffect(() => {
+    if (machinesError) toast.show(machinesError, { intent: "error" });
+  }, [machinesError, toast]);
 
   const choose = async (id: string) => {
     void Haptics.selectionAsync();
@@ -60,8 +60,9 @@ export default function ComputersScreen() {
       // Lets the native large title collapse into the bar on scroll instead of
       // sitting on top of the first card.
       contentInsetAdjustmentBehavior="automatic"
-      // Pull-to-refresh is what someone reaches for on this screen; the Refresh
-      // link below is the discoverable version of the same call.
+      // The system gesture is the whole affordance — no separate "Refresh" row.
+      // A blue tap-to-reload link is a web pattern; iOS relies on the pull
+      // itself, and this already surfaces machinesLoading via `refreshing`.
       refreshControl={
         <RefreshControl
           refreshing={machinesLoading}
@@ -70,12 +71,6 @@ export default function ComputersScreen() {
         />
       }
     >
-      {machinesError ? (
-        <Text style={{ ...type.footnote, color: colors.danger, paddingHorizontal: space.lg, paddingTop: space.sm }}>
-          {machinesError}
-        </Text>
-      ) : null}
-
       {bindings.length > 0 ? (
         <>
           <SectionLabel>Your machines</SectionLabel>
@@ -84,7 +79,7 @@ export default function ComputersScreen() {
               const selected = b.id === bindingId;
               return (
                 <View key={b.id}>
-                  {i > 0 ? <Separator inset={space.lg} /> : null}
+                  {i > 0 ? <Separator inset="text" /> : null}
                   <Row onPress={() => void choose(b.id)}>
                     <StatusDot busy={b.online} />
                     <View style={{ flex: 1, gap: 2 }}>
@@ -145,7 +140,7 @@ export default function ComputersScreen() {
 
         {cloudBlocked ? (
           <>
-            <Separator inset={space.lg} />
+            <Separator inset="text" />
             <Row onPress={() => void Linking.openURL("https://app.omg.dev/")}>
               <Text style={{ ...type.callout, color: colors.primary, flex: 1 }}>
                 Fix this on omg.dev
@@ -174,13 +169,6 @@ export default function ComputersScreen() {
         <Text style={{ color: colors.text }}>omg connect</Text> on it. Billing and plans live on
         the web.
       </Text>
-
-      {/* Row already carries the screen's horizontal padding; wrapping it in a
-          padded View indented this one twice as far as every other row. */}
-      <Row onPress={() => void refreshMachines()} disabled={machinesLoading}>
-        <Text style={{ ...type.callout, color: colors.primary }}>Refresh</Text>
-        {machinesLoading ? <ActivityIndicator size="small" color={colors.textMuted} /> : null}
-      </Row>
     </ScrollView>
   );
 }

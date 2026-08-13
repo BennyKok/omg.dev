@@ -95,14 +95,23 @@ export function Card({
   );
 }
 
-export function Separator({ inset = 0 }: { inset?: number }) {
-  const { colors } = useTheme();
+export function Separator({ inset = 0 }: { inset?: number | "text" }) {
+  const { colors, space } = useTheme();
+  /**
+   * A real iOS grouped-list separator stops under the row's TEXT, not the
+   * card edge. "text" models the StatusDot-led row (Row's own padding, the
+   * 8pt dot, then its gap) — the shape every current icon-led call site uses
+   * — rather than a pixel guess that drifts if Row's spacing ever changes. A
+   * row with no leading dot/icon has its text flush with the card padding
+   * already, so it passes that padding as a plain number instead.
+   */
+  const resolvedInset = inset === "text" ? space.lg + 8 + space.md : inset;
   return (
     <View
       style={{
         height: StyleSheet.hairlineWidth,
         backgroundColor: colors.border,
-        marginLeft: inset,
+        marginLeft: resolvedInset,
       }}
     />
   );
