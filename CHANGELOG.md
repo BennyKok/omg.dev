@@ -2,6 +2,20 @@
 
 Recent product updates and deployment notes.
 
+## August 13, 2026 - Opening the skill picker stops downloading a small library (v0.1.363)
+
+- **Typing `/` in the composer was pulling 419 KB.** Almost all of it — 354 KB
+  — was the first 4000 characters of every skill's documentation, for all 116
+  skills, sent so the browser could search inside them. You were downloading
+  the manuals to search the manuals.
+- **The box searches its own skills now.** It already keeps that text in
+  memory, so the picker asks it a question instead of asking for the library.
+  The response is 59 KB, and a search comes back in about 8ms.
+- **Nothing about what you can find has changed.** Searching still matches
+  inside a skill's body, not just its name — looking up "agent-browser" still
+  surfaces the skills that merely mention it. Names still filter instantly as
+  you type, with the deeper matches filling in underneath.
+
 ## August 13, 2026 - The slow first open is gone too (v0.1.362)
 
 - **Finishes what v0.1.361 started.** That release cached the coding-agent
