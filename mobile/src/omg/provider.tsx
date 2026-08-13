@@ -212,6 +212,38 @@ export function OmgProvider({ children }: PropsWithChildren) {
      * news rather than on the mere act of asking.
      */
     setReadiness((current) => (current?.status === "ready" ? current : { status: "waking" }));
+
+    /**
+     * Ask a sleeping cloud Computer to actually wake up.
+     *
+     * Nothing else this app does will. The control plane is emphatic that
+     * lifecycle demand has exactly one set of callers — authorizeCloudComputerSession
+     * is documented "mint/refresh traffic never provisions, wakes, or extends a
+     * Computer", and there is a test called "session refreshes cannot wake or
+     * extend a paused Computer" asserting the sandbox stays hibernated. So
+     * minting a grant does not wake it, reading getCloudComputer does not wake
+     * it, and polling /api/bootstrap does not wake it.
+     *
+     * Which is exactly what this screen used to do: read the state, see
+     * "Paused", then poll bootstrap for sixty seconds against a machine nobody
+     * had told to start, and report that the Computer was not responding.
+     *
+     * getOrProvisionCloudComputer is the client-callable lifecycle path —
+     * ensureInner sets requestedState:"auto" and reconciles with
+     * wakeRequested:true. Paired machines need none of this: they are a laptop
+     * running `omg connect`, and are either up or not.
+     */
+    if (bindingId === CLOUD_BINDING_ID) {
+      try {
+        const woken = await controlPlane<CloudComputer>("getOrProvisionCloudComputer");
+        if (ticket !== probeToken.current) return;
+        if (woken) setCloud(woken);
+      } catch {
+        // Deliberately swallowed: waitForReady below is the authority on
+        // whether the Computer can serve, and it produces the better message.
+      }
+    }
+
     const result = await waitForReady(getHostedTransport(bindingId));
     // A machine switch mid-probe must not overwrite the new machine's state.
     if (ticket === probeToken.current) setReadiness(result);

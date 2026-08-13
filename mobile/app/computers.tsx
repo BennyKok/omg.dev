@@ -55,7 +55,7 @@ export default function ComputersScreen() {
 
   return (
     <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg }}
+      style={{ flex: 1 }}
       contentContainerStyle={{ paddingBottom: insets.bottom + space.xxl }}
       // Lets the native large title collapse into the bar on scroll instead of
       // sitting on top of the first card.

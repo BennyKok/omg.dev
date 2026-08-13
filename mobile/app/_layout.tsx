@@ -43,9 +43,30 @@ function RootNavigator() {
       <StatusBar style={isDark ? "light" : "dark"} />
       <Stack
         screenOptions={{
-          headerStyle: { backgroundColor: colors.bg },
+          /**
+           * The nav bar is left to the system material.
+           *
+           * `headerStyle: { backgroundColor: colors.bg }` forced it opaque,
+           * which flattens the one piece of chrome iOS is most opinionated
+           * about: a real UINavigationBar is translucent, samples what scrolls
+           * under it, and grows a hairline only once content is behind it.
+           * Painting it a flat hex threw all of that away and left a bar that
+           * merely sat above the page instead of belonging to it.
+           *
+           * `headerTransparent` + `headerBlurEffect` hands it back to UIKit,
+           * and the blur follows the system appearance on its own — which is
+           * also why it does not need a colour from us. The screens under it
+           * set `contentInsetAdjustmentBehavior="automatic"` so their content
+           * insets below the bar rather than starting under it.
+           */
+          headerTransparent: true,
+          headerBlurEffect: isDark ? "systemChromeMaterialDark" : "systemChromeMaterial",
           headerTintColor: colors.text,
           headerBackButtonDisplayMode: "minimal",
+          // The single place a screen background is painted. Every screen used
+          // to re-paint colors.bg on its own root on top of this, which is the
+          // double layering: two identical fills, and any disagreement between
+          // them showing up as a seam mid-transition.
           contentStyle: { backgroundColor: colors.bg },
         }}
       >

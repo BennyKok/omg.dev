@@ -15,7 +15,23 @@ import { GlassView, isLiquidGlassAvailable } from "expo-glass-effect";
 import type { ReactNode } from "react";
 import { View, type ViewStyle } from "react-native";
 
-export const LIQUID_GLASS = isLiquidGlassAvailable();
+/**
+ * Checked once at module scope rather than per render: it is a static property
+ * of the OS, and calling it in a hot list row is wasted work.
+ *
+ * Guarded because this runs at IMPORT time. Any host without the native side
+ * compiled in — Expo Go on an SDK whose client predates the module, a dev
+ * client built before it was added — throws here, and a throw at module scope
+ * takes the whole bundle down as a white screen with no usable error. Falling
+ * back to "no glass" degrades to the solid surface everything already has.
+ */
+export const LIQUID_GLASS = (() => {
+  try {
+    return isLiquidGlassAvailable();
+  } catch {
+    return false;
+  }
+})();
 
 export function GlassSurface({
   children,

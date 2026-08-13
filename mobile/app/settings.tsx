@@ -58,7 +58,7 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView
-      style={{ flex: 1, backgroundColor: colors.bg }}
+      style={{ flex: 1 }}
       contentContainerStyle={{ paddingBottom: insets.bottom + space.xxl }}
       // The title is the system large title now, not a Text drawn at the top of
       // the scroll view, so this is what lets it collapse into the bar.
