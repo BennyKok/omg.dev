@@ -23,6 +23,7 @@ describe("command-file session boot recovery", () => {
 
   afterEach(() => {
     delete process.env.LFG_TEST_HARNESS_CAPTURE;
+    delete process.env.LFG_COMPUTER_PLAN;
     resetManagedRegistryForTests();
     PATHS.data = originalData;
     rmSync(root, { recursive: true, force: true });
@@ -173,7 +174,8 @@ describe("command-file session boot recovery", () => {
     expect(managedLaunchRow(managed, {}, {})).toBeNull();
   });
 
-  test("does not relaunch a scheduled run after boot", async () => {
+  test("does not relaunch a scheduled run after boot on a Computer", async () => {
+    process.env.LFG_COMPUTER_PLAN = "computer_5";
     const key = "88888888-8888-4888-8888-888888888888";
     addManaged({
       tmuxName: "lfg-schedule-fire",
@@ -199,11 +201,48 @@ describe("command-file session boot recovery", () => {
       createdAt: 1,
     });
 
+    try {
+      const result = await reconcileCommandFileSessions(() => {});
+      expect(result.skippedSchedule).toBe(1);
+      expect(result.recovered).toBe(0);
+      expect(listManaged()).toEqual([]);
+      expect(readEntry(key)?.recoveryClaimBootId).toBe(currentBootId());
+      expect(() => readFileSync(capture, "utf8")).toThrow();
+    } finally {
+      delete process.env.LFG_COMPUTER_PLAN;
+    }
+  });
+
+  test("self-hosted LFG still recovers a spawnedBy=schedule session", async () => {
+    delete process.env.LFG_COMPUTER_PLAN;
+    const key = "99999999-9999-4999-8999-999999999999";
+    addManaged({
+      tmuxName: "lfg-self-hosted-schedule",
+      cwd: root,
+      createdAt: 1,
+      agent: "aisdk",
+      sessionId: key,
+      nativeSessionId: key,
+      model: "opus",
+      launchState: "running",
+      spawnedBy: "schedule",
+    });
+    writeEntry({
+      sessionId: key,
+      agent: "claude",
+      harnessPid: 2147483647,
+      tmuxName: "lfg-self-hosted-schedule",
+      supervisor: "process",
+      bootId: "prior-boot",
+      cwd: root,
+      model: "opus",
+      busy: false,
+      createdAt: 1,
+    });
+
     const result = await reconcileCommandFileSessions(() => {});
-    expect(result.skippedSchedule).toBe(1);
-    expect(result.recovered).toBe(0);
-    expect(listManaged()).toEqual([]);
-    expect(readEntry(key)?.recoveryClaimBootId).toBe(currentBootId());
-    expect(() => readFileSync(capture, "utf8")).toThrow();
+    expect(result.skippedSchedule).toBe(0);
+    expect(result.recovered).toBe(1);
+    expect(listManaged()[0]?.tmuxName).toBe("lfg-self-hosted-schedule");
   });
 });

@@ -71,6 +71,8 @@ const LIMITS: Readonly<Record<AgentAdmissionPlan, number>> = {
 
 // Scheduled fires are not interactive sessions. They get a smaller, separate
 // pool so a leftover cron cannot fill the Computer and block "New session".
+// These numbers exist only when computerAgentAdmissionContext() is non-null
+// (a managed Computer). Self-hosted lfg serve never reads this table.
 const SCHEDULE_LIMITS: Readonly<Record<AgentAdmissionPlan, number>> = {
   free: 1,
   computer_trial: 1,

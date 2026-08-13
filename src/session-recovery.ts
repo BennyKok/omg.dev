@@ -6,7 +6,7 @@ import {
   type AisdkEntry,
 } from "./aisdk-registry.ts";
 import { addManaged, listManaged, patchManaged, removeManaged, type ManagedSession } from "./managed.ts";
-import { isScheduleSpawned } from "./agent-admission.ts";
+import { computerAgentAdmissionContext, isScheduleSpawned } from "./agent-admission.ts";
 import {
   spawnManagedAisdkSession,
   spawnManagedCodexAisdkSession,
@@ -107,7 +107,8 @@ export async function reconcileCommandFileSessions(
     if (!owner) continue;
     // A scheduled run already did its job. Relaunching it on every wake is
     // how five leftover crons filled a computer_5 box and blocked New session.
-    if (isScheduleSpawned(owner.spawnedBy)) {
+    // Self-hosted LFG has no Computer plan — leave those rows alone.
+    if (computerAgentAdmissionContext() && isScheduleSpawned(owner.spawnedBy)) {
       patchEntry(entry.sessionId, { recoveryClaimBootId: bootId });
       removeManaged(owner.tmuxName);
       result.skippedSchedule++;

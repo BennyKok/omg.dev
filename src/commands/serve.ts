@@ -571,10 +571,12 @@ async function activationGate(
     return err(503, "agent activation is paused");
   }
   const computer = computerAgentAdmissionContext();
-  const kind = options?.kind ?? "interactive";
+  // Schedule admission is a Computer-plan rule. A self-hosted box has no plan
+  // file, so spawnedBy=schedule is just another session under maxLiveAgents.
+  const kind = computer && options?.kind === "schedule" ? "schedule" : "interactive";
   const limit =
     kind === "schedule"
-      ? (computer?.scheduleLimit ?? 1)
+      ? computer.scheduleLimit
       : (computer?.limit ?? settings.maxLiveAgents);
   if (limit === 0) return { release: () => {} };
   const overLimit = !computer && options?.overLimit === true;
@@ -583,8 +585,9 @@ async function activationGate(
     async () => {
       const available = hostAvailableMemory();
       const sessions = await listSessions().catch(() => []);
-      const pool =
-        kind === "schedule"
+      const pool = !computer
+        ? sessions
+        : kind === "schedule"
           ? sessions.filter((session) => session.spawnedBy === "schedule")
           : sessions.filter((session) => session.spawnedBy !== "schedule");
       return {
@@ -2908,6 +2911,9 @@ a{color:#60a5fa}
             },
             onboarding: boot.onboarding ?? null,
             version: appVersion(),
+            // Null on self-hosted. The live rail and admission use this to
+            // keep Computer schedule rules off a normal lfg serve.
+            computer: computerAgentAdmissionContext(),
           },
           { headers: { "Content-Type": "application/json", "Cache-Control": "no-cache" } },
         );
