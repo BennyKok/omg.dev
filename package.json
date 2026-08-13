@@ -1,6 +1,6 @@
 {
   "name": "lfg",
-  "version": "0.1.356",
+  "version": "0.1.357",
   "type": "module",
   "workspaces": [
     "packages/*",
