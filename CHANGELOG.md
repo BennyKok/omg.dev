@@ -2,6 +2,19 @@
 
 Recent product updates and deployment notes.
 
+## August 13, 2026 - The slow first open is gone too (v0.1.362)
+
+- **Finishes what v0.1.361 started.** That release cached the coding-agent
+  check, which fixed opening the dashboard twice in a row but not the case
+  that actually annoys you: come back after a quiet minute and the cache had
+  expired, so you paid the full second and a half again. Measured after
+  v0.1.361: 33ms when warm, still 1582ms when not.
+- **The dashboard now answers from the last known state and re-checks in the
+  background**, and it does the first check when the server starts rather than
+  when you first open a page. So the wait is not shortened, it is off your
+  path entirely. Logging in or out of an agent still clears it immediately, so
+  what you see stays true.
+
 ## August 13, 2026 - The dashboard stops asking your CLIs if they are logged in on every load (v0.1.361)
 
 - **Opening the dashboard was costing a second and a half of pure waiting.**
