@@ -40,6 +40,7 @@ import {
   StatusDot,
 } from "../src/components";
 import { BrandMark } from "../src/omg/brand-mark";
+import { useComputerPicker } from "../src/omg/computer-picker";
 import { useOmg } from "../src/omg/provider";
 import { useToast } from "../src/omg/toast";
 import { LIQUID_GLASS } from "../src/omg/glass";
@@ -60,7 +61,8 @@ export default function SessionsScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { colors, isDark, type, space, radius } = useTheme();
-  const { client, readiness, probe, bindingId, bindings, machinesLoading } = useOmg();
+  const { client, readiness, probe, bindingId, bindings } = useOmg();
+  const computerPicker = useComputerPicker();
 
   const [sessions, setSessions] = useState<OmgSession[]>([]);
   const [loading, setLoading] = useState(false);
@@ -219,7 +221,7 @@ export default function SessionsScreen() {
       headerRight: () => (
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
           <Pressable
-            onPress={() => router.push("/computers")}
+            onPress={computerPicker.open}
             accessibilityRole="button"
             accessibilityLabel={`Computer: ${machineName}. Change`}
             style={({ pressed }) => ({
@@ -248,7 +250,7 @@ export default function SessionsScreen() {
         </View>
       ),
     });
-  }, [navigation, router, machineName, currentBinding?.online, colors, type, space]);
+  }, [navigation, router, computerPicker.open, machineName, currentBinding?.online, colors, type, space]);
 
   // Same UI-thread keyboard tracking as the session screen; see the note there
   // for why KeyboardAvoidingView cannot be made to feel right.
@@ -295,7 +297,7 @@ export default function SessionsScreen() {
           <EmptyState
             title="No computer selected"
             detail="Choose which computer this app should talk to."
-            action={<PrimaryButton label="Choose a computer" onPress={() => router.push("/computers")} />}
+            action={<PrimaryButton label="Choose a computer" onPress={computerPicker.open} />}
           />
         ) : readiness?.status === "waking" ? (
           // Skeleton cards, not a spinner: the sessions that were here before
@@ -332,7 +334,7 @@ export default function SessionsScreen() {
                 <PrimaryButton
                   label="Choose another"
                   tone="quiet"
-                  onPress={() => router.push("/computers")}
+                  onPress={computerPicker.open}
                 />
               </View>
             }

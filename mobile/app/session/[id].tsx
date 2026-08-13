@@ -48,7 +48,6 @@ import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  ActionSheetIOS,
   ActivityIndicator,
   Alert,
   Animated,
@@ -68,6 +67,7 @@ import type { OmgSession, OmgSessionPrompt } from "@omg-dev/protocol";
 
 import { AgentAvatar, Icon, IconButton } from "../../src/components";
 import { agentLabel as agentDisplayName } from "../../src/omg/agent-icons";
+import { showActionMenu, type MenuAction } from "../../src/omg/native-menu";
 import { useOmg } from "../../src/omg/provider";
 import { GlassSurface, LIQUID_GLASS } from "../../src/omg/glass";
 import { useTheme } from "../../src/omg/theme";
@@ -81,42 +81,6 @@ import {
 
 /** Local id for the optimistic message, so it can be rolled back precisely. */
 let localSeq = 0;
-
-/**
- * A native action sheet. iOS gets the real UIAlertController; Android gets an
- * Alert, which is that platform's equivalent list-of-choices dialog.
- */
-type MenuAction = { label: string; destructive?: boolean; onPress: () => void };
-
-function showActionMenu(title: string, actions: MenuAction[]) {
-  if (!actions.length) return;
-  if (Platform.OS === "ios") {
-    const labels = actions.map((a) => a.label);
-    const destructive = actions.findIndex((a) => a.destructive);
-    ActionSheetIOS.showActionSheetWithOptions(
-      {
-        title,
-        options: [...labels, "Cancel"],
-        cancelButtonIndex: labels.length,
-        // -1 is "no destructive button" to some callers and an out-of-range
-        // index to others; omitting the key is unambiguous.
-        ...(destructive >= 0 ? { destructiveButtonIndex: destructive } : {}),
-      },
-      (index) => {
-        if (index < actions.length) actions[index].onPress();
-      },
-    );
-    return;
-  }
-  Alert.alert(title, undefined, [
-    ...actions.map((a) => ({
-      text: a.label,
-      style: a.destructive ? ("destructive" as const) : ("default" as const),
-      onPress: a.onPress,
-    })),
-    { text: "Cancel", style: "cancel" as const },
-  ]);
-}
 
 export default function SessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();

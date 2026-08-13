@@ -35,10 +35,10 @@ const WEB_PAGES: { label: string; path: string }[] = [
 ];
 
 export default function SettingsScreen() {
-  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors, type, space } = useTheme();
   const { user, signOut, bindings, bindingId } = useOmg();
+  const router = useRouter();
 
   const current = bindings.find((b) => b.id === bindingId);
   const machineName = current
@@ -77,12 +77,15 @@ export default function SettingsScreen() {
 
       <SectionLabel>Computer</SectionLabel>
       <Card>
+        {/* This one pushes rather than opening the switcher sheet. The header
+            chip on Sessions is where you switch machines mid-task; Settings is
+            where you manage them, and the screen is the only place pairing,
+            per-machine detail and the blocked-plan reason have room. The
+            chevron is honest here for the same reason it would have been a lie
+            on a row that only opened a sheet. */}
         <Row onPress={() => router.push("/computers")}>
           <StatusDot busy={current?.online ?? false} />
           <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>{machineName}</Text>
-          {/* The chevron alone says "this pushes a screen" — iOS never doubles
-              that up with a "Change" label too; the two together read as a web
-              button next to its own disclosure indicator. */}
           <Icon
             ios="chevron.right"
             android="chevron_right"

@@ -84,10 +84,9 @@ function RootNavigator() {
               state (the machine chip here, the session overflow there). */}
           <Stack.Screen name="index" options={{ title: "Sessions" }} />
           <Stack.Screen name="session/[id]" options={{ title: "Session" }} />
-          {/* Without an explicit title the native bar falls back to the ROUTE
-              name and reads "computers", lowercase, in a system font that
-              nothing else in iOS lowercases. The large title is the system one
-              rather than a heading drawn in the scroll view. */}
+          {/* Switching machines is the frequent action and belongs in the
+              action sheet; pairing and per-machine detail still need a screen.
+              See computer-picker.ts for why both exist. */}
           <Stack.Screen
             name="computers"
             options={{ title: "Computers", headerLargeTitle: true }}
