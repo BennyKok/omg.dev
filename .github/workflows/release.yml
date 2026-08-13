@@ -20,6 +20,7 @@ on:
 permissions:
   contents: write # create releases + upload assets
   id-token: write # npm provenance attestation for the published packages
+  issues: write # file an issue when a release run fails
 
 jobs:
   build:
@@ -147,6 +148,7 @@ jobs:
           rm -f "$NPMRC"
 
       - name: Publish release
+        id: publish
         uses: softprops/action-gh-release@v2
         with:
           # Stable asset name: /releases/latest/download/omg-bundle.tar.gz.
@@ -180,3 +182,60 @@ jobs:
             dist/omg-dev-app-*.tgz
           fail_on_unmatched_files: true
           generate_release_notes: true
+
+      # A release is not published when the upload step exits — it is
+      # published when every staged asset is on the release. v0.1.360 died
+      # mid-upload during a GitHub 500s window: 3 of 16 assets never arrived,
+      # the log just stopped, and the red run was the only signal.
+      # fail_on_unmatched_files only proves each glob matched a local file;
+      # this step proves the uploads landed. It re-uploads whatever is
+      # missing (transient flakiness is the common case) and then fails the
+      # job if the release is still incomplete — a retried-and-still-partial
+      # release must go red, not ship quietly.
+      #
+      # Runs even when the publish step failed: that is exactly the case
+      # where assets may be missing, and repairing them here turns a red
+      # build into a red build whose release is at least whole.
+      - name: Verify release assets
+        if: ${{ !cancelled() && steps.publish.outcome != 'skipped' && startsWith(inputs.tag || github.ref_name, 'v') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: bash scripts/verify-release-assets.sh "$RELEASE_TAG"
+
+      # A failed tag build emails only the pusher, and v0.1.360 showed that
+      # is not enough — it sat broken until someone read `gh run list` for
+      # an unrelated reason. File one issue per tag so the failure is
+      # durable and visible to everyone watching the repo. Re-runs of the
+      # same tag comment on the existing issue instead of opening new ones.
+      - name: File an issue on failure
+        if: ${{ failure() && startsWith(inputs.tag || github.ref_name, 'v') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          title="Release ${RELEASE_TAG} failed"
+          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "\"${title}\" in:title" --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" \
+              --body "Failed again: ${run_url}"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$(cat <<EOF
+          The release workflow run for \`${RELEASE_TAG}\` failed: ${run_url}
+
+          If the publish step died mid-upload, the GitHub Release may exist
+          with assets missing — check it before tagging the next release:
+
+          \`\`\`
+          gh release view ${RELEASE_TAG} --json assets --jq '.assets[].name'
+          bash scripts/verify-release-assets.sh ${RELEASE_TAG} dist
+          \`\`\`
+
+          A \`latest\` release with missing assets silently breaks
+          \`omg update\` for every user on the affected platform.
+          EOF
+          )"
+          fi
