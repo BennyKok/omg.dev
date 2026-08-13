@@ -2,6 +2,19 @@
 
 Recent product updates and deployment notes.
 
+## August 13, 2026 - Scheduled runs stop filling your session slots (v0.1.365)
+
+- **A leftover scheduled run no longer takes a New session slot.** On a
+  Computer, those fires sit in their own pool. Wake recovery does not relaunch
+  them, and they stay off the live rail. Self-hosted LFG is unchanged.
+- **The session list is smaller on every poll.** The spawn command line — which
+  carried the full prompt — is no longer sent unless something asks for it.
+- **Signing-in checks no longer freeze the box.** Auth probes for jcode and
+  Codex now run off the event loop, so other requests keep answering while
+  those CLIs start.
+- **Updates have a What's new drawer.** It shows the notes since your installed
+  version, and you can update, skip, or retry from there.
+
 ## August 13, 2026 - Jcode chats show up in the transcript (v0.1.364)
 
 - **Opening a jcode session showed an empty chat.** The agent was working in
