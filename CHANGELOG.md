@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## August 13, 2026 - Settings stops crashing when an update check comes back empty (v0.1.358)
+
+- **Opening Settings no longer takes the app down.** The update check assumed the
+  server always answers with the install details. When something else came back
+  with a 200 instead — a stale service worker serving the app shell, or a proxy
+  returning an empty body — the page crashed while drawing the LFG updates row.
+  It was showing up on iPhones. The check now treats an unrecognisable answer the
+  same as a failed one and shows the existing error line instead.
+
 ## August 13, 2026 - Auto agents stop slowing the app down (v0.1.357)
 
 - **The agent list carries a fraction of what it used to.** Every refresh sent
