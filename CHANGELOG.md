@@ -2,6 +2,18 @@
 
 Recent product updates and deployment notes.
 
+## August 13, 2026 - The keyboard stops pushing sheets off the screen (v0.1.360)
+
+- **The project picker and the Resume sheet now grow into a page when you tap a
+  field.** Naming a new project folder, or searching your prompts and sessions,
+  used to leave the field pinned under the phone keyboard: the sheet is sized to
+  its contents, and iOS simply shoves that off the top of the screen. Both
+  sheets now do what the auto agent forms already did and become a full-height
+  page, so the field stays visible and the list keeps the space above it.
+- **Nothing you have typed disappears when the keyboard goes away.** Folding
+  back down waits, ignores a tap heading for the sheet's own buttons, and stays
+  open while any field still holds text.
+
 ## August 13, 2026 - Settings cannot take the app down on a bad update check (v0.1.359)
 
 - **Opening Settings no longer crashes if the update payload is empty.** The
