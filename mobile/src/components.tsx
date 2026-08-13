@@ -491,10 +491,14 @@ export function SessionCard({
 }
 
 /**
- * The home composer, pinned to the bottom of the screen: a pill input with the
- * agent's avatar, above a toolbar row carrying the project chip and Start.
- * Start is ink, not orange — brand orange belongs to the mark and the working
- * dot only.
+ * The home composer, pinned to the bottom of the screen. ONE surface: a
+ * floating field that holds the agent avatar, the input, and the Start button
+ * inside it — the iOS Messages/Mail shape, where the send control lives at
+ * the end of the field rather than in a toolbar of its own. The project label
+ * is a flat caption below, not a second pill: it is metadata about the field,
+ * and wrapping metadata in its own filled, bordered container is how the old
+ * layout ended up reading as boxes inside boxes. Start is ink, not orange —
+ * brand orange belongs to the mark and the working dot only.
  *
  * It used to also carry stash, attach and dictate buttons. None of the three
  * was ever wired to anything: the screen rendered them without handlers, so all
@@ -540,7 +544,10 @@ export function HomeComposer({
       {/* Liquid Glass on iOS 26+, a solid card everywhere else. The composer
           floats over scrolling content, which is exactly the case Apple's
           glass is for — and GlassSurface keeps a real background underneath so
-          older systems get a card rather than a transparent hole. */}
+          older systems get a card rather than a transparent hole. It earns its
+          place here as the ONE surface: now that the chip's own pill is gone,
+          this is the only fill in the composer, so it is a field with a
+          background rather than one container stacked on another. */}
       <GlassSurface
         variant="regular"
         fallbackColor={colors.card}
@@ -551,7 +558,9 @@ export function HomeComposer({
           borderRadius: radius.pill,
           minHeight: 52,
           paddingLeft: space.sm,
-          paddingRight: space.xs,
+          // Symmetric with the avatar side: the send button is the right-hand
+          // control now, and 4pt of air made it read as squeezed into a corner.
+          paddingRight: space.sm,
           overflow: "hidden",
           shadowColor: colors.text,
           shadowOpacity: isDark || LIQUID_GLASS ? 0 : 0.08,
@@ -577,40 +586,11 @@ export function HomeComposer({
             color: colors.text,
             ...type.body,
             paddingVertical: space.sm,
-            paddingRight: space.sm,
           }}
         />
-      </GlassSurface>
-
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: space.md,
-          marginTop: space.md,
-        }}
-      >
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: space.xs,
-            backgroundColor: colors.card,
-            borderRadius: radius.pill,
-            height: 34,
-            paddingHorizontal: space.md,
-            ...hairline,
-          }}
-        >
-          <Icon ios="folder.fill" android="folder" size={14} color={colors.textSecondary} />
-          <Text
-            numberOfLines={1}
-            style={{ ...type.footnote, color: colors.textSecondary, maxWidth: 140 }}
-          >
-            {projectLabel ?? "Project"}
-          </Text>
-        </View>
-        <View style={{ flex: 1 }} />
+        {/* Send lives INSIDE the field, the Messages shape — a control of the
+            input, not a neighbour of it. Kept compact (34pt) so the field's
+            52pt height still reads as one pill, not a pill wearing a pill. */}
         <PressableScale
           onPress={onStart}
           disabled={!canStart}
@@ -623,8 +603,8 @@ export function HomeComposer({
             gap: space.xs,
             backgroundColor: colors.text,
             borderRadius: radius.pill,
-            height: 40,
-            paddingHorizontal: space.lg,
+            height: 34,
+            paddingHorizontal: space.md,
             opacity: !canStart ? 0.35 : 1,
           }}
         >
@@ -637,6 +617,28 @@ export function HomeComposer({
             </>
           )}
         </PressableScale>
+      </GlassSurface>
+
+      {/* The project label is a caption, not a chip: no fill, no hairline, no
+          fixed height. It answers "where will this session run" — metadata
+          about the field above — and a filled container would promote it to a
+          second surface competing with the one that matters. */}
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: space.xs,
+          marginTop: space.sm,
+          marginLeft: space.xs,
+        }}
+      >
+        <Icon ios="folder.fill" android="folder" size={13} color={colors.textMuted} />
+        <Text
+          numberOfLines={1}
+          style={{ ...type.footnote, color: colors.textMuted, maxWidth: 140 }}
+        >
+          {projectLabel ?? "Project"}
+        </Text>
       </View>
     </View>
   );
