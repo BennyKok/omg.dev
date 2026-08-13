@@ -2,6 +2,19 @@
 
 Recent product updates and deployment notes.
 
+## August 13, 2026 - Grok 4.6, and Cursor's Grok models come back (v0.1.356)
+
+- **Grok 4.6 is selectable on both the Grok and Cursor agents.** It is the
+  default for new Grok sessions on boxes whose CLI has it. Boxes on an older
+  grok now fall back to a model they actually have, instead of a pinned id that
+  may not exist there.
+- **Cursor's Grok models are in the picker again.** Cursor renamed them to
+  `cursor-grok-*`, and the model list silently discarded every one of them. The
+  picker offered no Grok at all even while Cursor was reporting fourteen builds.
+- **Asking for "max" thinking no longer gives you the weakest setting.** On a
+  model family that stops at xhigh, an explicit max request quietly resolved to
+  the lowest effort available.
+
 ## August 13, 2026 - Schedules fire on time on cloud Computers (v0.1.355)
 
 - **A schedule on a managed cloud Computer now wakes it.** Schedules only tick
