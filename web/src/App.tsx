@@ -35,10 +35,6 @@ import { cacheProjectFilter, readCachedProjectFilter } from "./lib/project-filte
 import { resolveRosterUser } from "./lib/roster-user";
 import { uploadFile as uploadFileThroughTransport } from "./lib/upload";
 import { compressImageFile, isCompressibleImage } from "./lib/image-compress";
-import {
-  isInstallUpdateInfo,
-  type InstallUpdateInfo,
-} from "./lib/install-update";
 import { AppCrash } from "./components/app-crash";
 import { EmbeddedConnectGate } from "./components/embedded-connect-gate";
 import {
@@ -354,6 +350,11 @@ import {
   useAsk,
 } from "./components/ask-center";
 import { PwaInstallCallout, PwaInstallSettingsSection } from "./components/pwa-install";
+import {
+  UpdateNavButton,
+  UpdateProvider,
+  UpdateSettingsRow,
+} from "./components/update-drawer";
 import { UsageCampfireHost, useUsageRingLongPress } from "./components/UsageCampfire";
 import {
   invalidateUsageProviders,
@@ -726,6 +727,9 @@ type GlobalSettings = {
   agentsPaused: boolean;
   idleAgentArchiveMinutes: number;
   transcriptView: TranscriptView;
+  // The update the "What's new" drawer's Skip button last dismissed. See
+  // UpdateProvider in components/update-drawer.tsx.
+  skippedUpdateVersion: string;
 };
 
 type TranscriptViewPreference = {
@@ -5437,6 +5441,7 @@ export function App() {
     agentsPaused: false,
     idleAgentArchiveMinutes: 0,
     transcriptView: "full",
+    skippedUpdateVersion: "",
   });
   const [schedTz, setSchedTz] = useState<string>(DEFAULT_SCHED_TZ);
   const [findings, setFindings] = useState<AutoFinding[]>([]);
@@ -5702,6 +5707,7 @@ export function App() {
       agentsPaused: false,
       idleAgentArchiveMinutes: 0,
       transcriptView: "full",
+      skippedUpdateVersion: "",
     });
     // Guard sessions to [] — it feeds `allLiveSessions`/`liveSessions` which
     // call `.filter()` unconditionally on render, so a malformed/empty payload
@@ -7403,6 +7409,7 @@ export function App() {
     <CodingAgentAuthContext.Provider value={codingAgentAuthFlow}>
     <AgentModelCatalogContext.Provider value={modelCatalog}>
     <AskProvider>
+    <UpdateProvider settings={settings} onSettingsChange={updateSettings}>
     <TranscriptViewContext.Provider value={transcriptViewPreference}>
     <ArtifactViewerContext.Provider value={openArtifactViewer}>
     <SessionTerminalContext.Provider value={setTerminalSid}>
@@ -7588,10 +7595,13 @@ export function App() {
               </>
             ) : null}
             {embedded ? null : isMobile ? null : (
-              <AskNavButton
-                active={tab === "notifications"}
-                onOpen={() => setTab("notifications")}
-              />
+              <>
+                <UpdateNavButton />
+                <AskNavButton
+                  active={tab === "notifications"}
+                  onOpen={() => setTab("notifications")}
+                />
+              </>
             )}
             {/* Same menu as the rail's, so the page axis has one shape wherever
                 the chrome happens to live in a given layout. */}
@@ -8020,6 +8030,7 @@ export function App() {
     </SessionTerminalContext.Provider>
     </ArtifactViewerContext.Provider>
     </TranscriptViewContext.Provider>
+    </UpdateProvider>
     </AskProvider>
     </AgentModelCatalogContext.Provider>
     </CodingAgentAuthContext.Provider>
@@ -11371,7 +11382,10 @@ function RailStage({
               ) : null}
               <div className="ml-auto flex items-center gap-1">
                 {onOpenAsk ? (
-                  <AskNavButton active={false} onOpen={onOpenAsk} />
+                  <>
+                    <UpdateNavButton />
+                    <AskNavButton active={false} onOpen={onOpenAsk} />
+                  </>
                 ) : null}
                 {onUserChange ? (
                   <UserFilterMenu
@@ -22334,167 +22348,6 @@ export type ShipPost = {
   mediaTotal?: number;
 };
 
-// An artifacts-gallery tile. Previously a live sandboxed document per tile —
-// dozens of independent browsing contexts, each with its own scripts, timers and
-// layout, for tiles that are mostly off screen. Now real DOM in a shadow root
-// (see lib/native-artifact.ts), which is what makes a full page of them cheap.
-//
-// Still visibility-gated and still sticky once shown: a page of tiles is a page
-// of fetches, and re-mounting on scroll-back would throw away parsed documents.
-function OmgUpdateSection() {
-  const [info, setInfo] = useState<InstallUpdateInfo | null>(null);
-  const [checking, setChecking] = useState(true);
-  const [updating, setUpdating] = useState(false);
-  const [restarting, setRestarting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const check = useCallback(async (force = false) => {
-    setChecking(true);
-    setError(null);
-    try {
-      // A manual click forces a fresh lookup that bypasses the server-side
-      // release-tag cache; the passive on-mount check reuses it.
-      const path = force ? "/api/install?refresh=1" : "/api/install";
-      const next = await api<unknown>(path, { cache: "no-store" });
-      if (!isInstallUpdateInfo(next)) throw new Error("Could not check for updates");
-      setInfo(next);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not check for updates");
-    } finally {
-      setChecking(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void check();
-  }, [check]);
-
-  async function waitForRestart(previousBootId: string) {
-    // Give the successful response time to reach the browser before systemd or
-    // launchd replaces the serving process, then reload onto the new asset set.
-    await new Promise((resolve) => setTimeout(resolve, 2_500));
-    const deadline = Date.now() + 60_000;
-    while (Date.now() < deadline) {
-      try {
-        const ready = await api<{ bootId: string }>("/api/install?ready=1", { cache: "no-store" });
-        if (ready.bootId !== previousBootId) {
-          window.location.reload();
-          return;
-        }
-      } catch {}
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
-    }
-    setRestarting(false);
-    setError("omg.dev did not come back after restarting. Check the service logs.");
-  }
-
-  async function update() {
-    if (updating || restarting) return;
-    setUpdating(true);
-    setError(null);
-    try {
-      const next = await api<unknown>("/api/install", { method: "POST" });
-      if (!isInstallUpdateInfo(next)) throw new Error("Could not update LFG");
-      setInfo(next);
-      if (next.restarting) {
-        setRestarting(true);
-        toast.success("omg.dev updated. Restarting…");
-        void waitForRestart(next.bootId);
-      } else {
-        toast.success("omg.dev is already up to date");
-      }
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Could not update omg.dev";
-      setError(message);
-      toast.error(message);
-    } finally {
-      setUpdating(false);
-    }
-  }
-
-  const status = info?.update;
-  // Chain through `install` too. Guarding only `info` still throws when a
-  // 200 parsed to `{}` and `install` is missing — that is the
-  // `e?.install.channel` crash that took the router down.
-  const channel = info?.install?.channel;
-  const updateCommand = info?.install?.updateCommand;
-  const supported = channel === "source" || channel === "release";
-  const available = status?.state === "available";
-  const busy = checking || updating || restarting;
-  // A greyed-out button with a tooltip nobody can hover on a phone is a dead
-  // end, so when the update cannot run, the reason takes over the detail line
-  // rather than hiding behind `title`.
-  const blockedReason = available && !status.restartSupported
-    ? `${status.restartBlockedReason ?? "Automatic restart is unavailable on this install."}${
-      updateCommand ? ` Update from a terminal instead: ${updateCommand}` : ""
-    }`
-    : null;
-  const detail = error
-    ?? blockedReason
-    ?? (checking
-      ? "Checking origin/main…"
-      : restarting
-        ? "Restarting the service and reconnecting…"
-        : status?.message
-          ?? (channel && updateCommand
-            ? `Updates for ${channel} installs use: ${updateCommand}`
-            : ""));
-
-  return (
-    <section className="space-y-2">
-      <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        System
-      </h2>
-      <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
-        <div className="flex items-center justify-between gap-4 px-4 py-2.5">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-primary text-white">
-              {busy ? <Loader2 className="size-4 animate-spin" /> : <ArrowDown className="size-4" />}
-            </span>
-            <div className="min-w-0">
-              <div className="text-sm font-medium">omg.dev updates</div>
-              <div
-                className={cn(
-                  "text-xs text-muted-foreground",
-                  // A truncated explanation is no explanation — let the reason
-                  // this box cannot update wrap instead of clipping it.
-                  error || blockedReason ? "text-pretty" : "truncate",
-                  error && "text-destructive",
-                )}
-              >
-                {detail}
-              </div>
-            </div>
-          </div>
-          {available ? (
-            <Button
-              size="sm"
-              onClick={() => void update()}
-              disabled={busy || !status.restartSupported}
-              title={status.restartSupported ? "Update to origin/main and restart omg.dev" : blockedReason ?? "Automatic restart is unavailable"}
-            >
-              {updating || restarting ? <Loader2 className="size-4 animate-spin" /> : <ArrowDown className="size-4" />}
-              {restarting ? "Restarting…" : updating ? "Updating…" : "Update & restart"}
-            </Button>
-          ) : (
-            <Button size="sm" variant="outline" onClick={() => void check(true)} disabled={busy || !supported}>
-              <RotateCcw className={cn("size-4", checking && "animate-spin")} />
-              Check
-            </Button>
-          )}
-        </div>
-      </div>
-      <p className="px-4 text-xs text-muted-foreground">
-        {channel === "release" ? (
-          <>Release installs download the latest verified bundle and restart automatically.</>
-        ) : (
-          <>Git installs update safely to <code>origin/main</code>, rebuild the UI, and restart automatically.</>
-        )}
-      </p>
-    </section>
-  );
-}
-
 function SettingsView({
   user,
   settings,
@@ -22650,7 +22503,7 @@ function SettingsView({
       />
 
       <ErrorBoundary variant="card" boundary="omg-update">
-        <OmgUpdateSection />
+        <UpdateSettingsRow />
       </ErrorBoundary>
 
       {/* More — the long tail lives on its own page so this one stays scannable.

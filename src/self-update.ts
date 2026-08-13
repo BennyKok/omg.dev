@@ -216,6 +216,116 @@ function restartFields(): { restartSupported: boolean; restartBlockedReason?: st
 type GithubRelease = { tag_name?: unknown };
 const releaseTagCache = new Map<string, { tag: string; expiresAt: number }>();
 
+export type ChangelogEntry = {
+  version: string;
+  date: string;
+  headline: string;
+  bodyMarkdown: string;
+};
+
+// `## <Month D, YYYY> - <headline> (vX.Y.Z)`, CHANGELOG.md's own format (see
+// the repo root file). Anything else on a `## ` line is not one of our
+// entries — dropped rather than folded into a neighbour's body, so a stray
+// heading can't silently graft its text onto the wrong release.
+const CHANGELOG_HEADING_RE = /^##\s+(.+?)\s+-\s+(.+?)\s+\(v?([0-9][^)]*)\)\s*$/;
+
+/**
+ * Parse CHANGELOG.md's `## <date> - <headline> (vX.Y.Z)` sections into
+ * entries, preserving each entry's body markdown verbatim (bold leads and
+ * all) so the drawer can render it as-is. Exported standalone from
+ * `changelogDelta` so parsing itself is testable without a network fetch.
+ */
+export function parseChangelog(markdown: string): ChangelogEntry[] {
+  const entries: ChangelogEntry[] = [];
+  let current: { version: string; date: string; headline: string; body: string[] } | null = null;
+
+  const flush = () => {
+    if (current) {
+      entries.push({
+        version: current.version,
+        date: current.date,
+        headline: current.headline,
+        bodyMarkdown: current.body.join("\n").trim(),
+      });
+    }
+    current = null;
+  };
+
+  for (const line of markdown.split("\n")) {
+    if (line.startsWith("## ")) {
+      flush();
+      const match = line.match(CHANGELOG_HEADING_RE);
+      if (match) {
+        current = { date: match[1].trim(), headline: match[2].trim(), version: cleanVersion(match[3]), body: [] };
+      }
+      continue;
+    }
+    if (current) current.body.push(line);
+  }
+  flush();
+
+  return entries;
+}
+
+function compareVersions(a: string, b: string): number {
+  const pa = cleanVersion(a).split(".").map((n) => Number.parseInt(n, 10) || 0);
+  const pb = cleanVersion(b).split(".").map((n) => Number.parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+const CHANGELOG_ENTRY_CAP = 8;
+const changelogCache = new Map<string, { entries: ChangelogEntry[]; expiresAt: number }>();
+
+/** Same repoSlug-driven derivation `latestReleaseTag` uses — no hardcoded repo or host. */
+async function fetchChangelogMarkdown(repoSlug: string, tag: string): Promise<string> {
+  const headers = { "User-Agent": "lfg-self-update" };
+  let response = await fetch(`https://raw.githubusercontent.com/${repoSlug}/${tag}/CHANGELOG.md`, { headers });
+  if (!response.ok) {
+    response = await fetch(`https://raw.githubusercontent.com/${repoSlug}/main/CHANGELOG.md`, { headers });
+  }
+  if (!response.ok) throw new Error(`Changelog fetch failed (${response.status}).`);
+  return response.text();
+}
+
+async function changelogEntries(repoSlug: string, tag: string, force: boolean): Promise<ChangelogEntry[]> {
+  const cacheKey = `${repoSlug}@${tag}`;
+  if (!force) {
+    const cached = changelogCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.entries;
+  }
+  const entries = parseChangelog(await fetchChangelogMarkdown(repoSlug, tag));
+  changelogCache.set(cacheKey, { entries, expiresAt: Date.now() + 5 * 60_000 });
+  return entries;
+}
+
+/**
+ * CHANGELOG.md entries strictly newer than the installed release, newest
+ * first, capped at `CHANGELOG_ENTRY_CAP`. Best-effort: any failure (network,
+ * missing repoSlug, an install this box can't version) degrades to an empty
+ * list rather than blocking the update the caller already knows is available.
+ */
+export async function changelogDelta(
+  root: string,
+  install: ReleaseInstall,
+  force = false,
+): Promise<ChangelogEntry[]> {
+  const currentVersion = installedVersion(root);
+  if (!currentVersion || !install.repoSlug) return [];
+  try {
+    const tag = await latestReleaseTag(install.repoSlug, force);
+    const entries = await changelogEntries(install.repoSlug, tag, force);
+    return entries
+      .filter((entry) => compareVersions(entry.version, currentVersion) > 0)
+      .slice(0, CHANGELOG_ENTRY_CAP);
+  } catch {
+    return [];
+  }
+}
+
 async function latestReleaseTag(repoSlug: string, force = false): Promise<string> {
   if (!/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(repoSlug)) {
     throw new Error("The configured GitHub repository is invalid.");

@@ -2,12 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
 const app = readFileSync("web/src/App.tsx", "utf8");
+const updateDrawer = readFileSync("web/src/components/update-drawer.tsx", "utf8");
 
-function componentBody(name: string): string {
-  const start = app.indexOf(`function ${name}(`);
+function componentBody(name: string, source = app): string {
+  const start = source.indexOf(`function ${name}(`);
   expect(start, `${name} was not found`).toBeGreaterThanOrEqual(0);
-  const next = app.indexOf("\nfunction ", start + 1);
-  return app.slice(start, next < 0 ? undefined : next);
+  const next = source.indexOf("\nfunction ", start + 1);
+  return source.slice(start, next < 0 ? undefined : next);
 }
 
 describe("settings rendering", () => {
@@ -21,7 +22,7 @@ describe("settings rendering", () => {
   });
 
   test("the updates row never reads install.channel without chaining through install", () => {
-    const section = componentBody("OmgUpdateSection");
+    const section = componentBody("UpdateProvider", updateDrawer);
     expect(section).toContain("info?.install?.channel");
     expect(section).not.toMatch(/info\?\.install\.channel/);
     expect(section).not.toMatch(/info\.install\.channel/);
