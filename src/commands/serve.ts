@@ -1068,12 +1068,8 @@ let codingAgentsCache:
   | null = null;
 let codingAgentsInFlight: Promise<Awaited<ReturnType<typeof listCodingAgents>>> | null = null;
 
-async function listCodingAgentsCached(opts: { refresh?: boolean } = {}) {
-  const now = Date.now();
-  if (!opts.refresh && codingAgentsCache && codingAgentsCache.expiresAt > now) {
-    return codingAgentsCache.agents;
-  }
-  if (!opts.refresh && codingAgentsInFlight) return codingAgentsInFlight;
+function refreshCodingAgentsCache() {
+  if (codingAgentsInFlight) return codingAgentsInFlight;
   codingAgentsInFlight = listCodingAgents()
     .then((agents) => {
       codingAgentsCache = { agents, expiresAt: Date.now() + CODING_AGENTS_CACHE_TTL_MS };
@@ -1083,6 +1079,38 @@ async function listCodingAgentsCached(opts: { refresh?: boolean } = {}) {
       codingAgentsInFlight = null;
     });
   return codingAgentsInFlight;
+}
+
+/**
+ * Stale-while-revalidate, because a plain TTL does not actually fix this for a
+ * real user. A dashboard opened after a quiet minute would find the entry
+ * expired and pay the whole 1.5 s probe in the foreground — which is the exact
+ * cold-open stall we are removing. Serving the stale answer and refreshing
+ * behind it means only the very first read after boot can ever block, and
+ * `warmCodingAgentsCache()` takes even that off the request path.
+ *
+ * Staleness is safe here specifically because it is bounded by correctness
+ * elsewhere: every route that can change the answer drops the entry outright
+ * (see the mutation hook in fetch()), so a stale read can only ever describe a
+ * state no user action has invalidated.
+ */
+async function listCodingAgentsCached(opts: { refresh?: boolean } = {}) {
+  if (opts.refresh) return refreshCodingAgentsCache();
+  if (codingAgentsCache) {
+    if (codingAgentsCache.expiresAt <= Date.now()) {
+      // Stale: hand back what we have and re-probe out of band. Errors are
+      // swallowed so a failing probe can never reject a caller that already
+      // has a usable answer.
+      void refreshCodingAgentsCache().catch(() => {});
+    }
+    return codingAgentsCache.agents;
+  }
+  return refreshCodingAgentsCache();
+}
+
+/** Prime the cache off the request path so the first dashboard open is fast. */
+function warmCodingAgentsCache() {
+  void refreshCodingAgentsCache().catch(() => {});
 }
 
 /** Drop the cached agent/auth probe so the next read re-runs it. */
@@ -6851,6 +6879,9 @@ a{color:#60a5fa}
     console.log(`[session-recovery] adopted=${recovered.adopted} recovered=${recovered.recovered} failed=${recovered.failed} skippedLegacy=${recovered.skippedLegacy}`);
     invalidateListSessionsCache();
   }
+  // Probe the coding agents once at boot so the first dashboard open reads a
+  // warm cache instead of paying ~1.5 s of CLI spawns in the foreground.
+  warmCodingAgentsCache();
   startAutoScheduler((l) => console.log(l));
   setWakeHooksBootId(SERVER_INSTANCE_ID);
   void pushWakeHooksNow();
