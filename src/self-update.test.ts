@@ -3,8 +3,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  changelogDelta,
   extractReleaseArchive,
   installReleaseBundle,
+  parseChangelog,
   releaseUpdateStatus,
   restartCapability,
   restartCommand,
@@ -350,5 +352,120 @@ describe("restart capability diagnosis", () => {
     mkdirSync(home, { recursive: true });
 
     expect(restartCapability("darwin", home).reason).toContain("launchd agent");
+  });
+});
+
+describe("changelog parsing", () => {
+  test("parses entries newest-first, keeping bold leads in the body", () => {
+    const markdown = [
+      "# Changelog",
+      "",
+      "Recent product updates.",
+      "",
+      "## August 13, 2026 - The slow first open is gone too (v0.1.362)",
+      "",
+      "- **Finishes what v0.1.361 started.** More detail here.",
+      "- Second bullet.",
+      "",
+      "## August 12, 2026 - Settings cannot take the app down (v0.1.359)",
+      "",
+      "- **Opening Settings no longer crashes.** Detail.",
+      "",
+    ].join("\n");
+
+    const entries = parseChangelog(markdown);
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toEqual({
+      version: "0.1.362",
+      date: "August 13, 2026",
+      headline: "The slow first open is gone too",
+      bodyMarkdown: "- **Finishes what v0.1.361 started.** More detail here.\n- Second bullet.",
+    });
+    expect(entries[1].version).toBe("0.1.359");
+    expect(entries[1].bodyMarkdown).toContain("**Opening Settings no longer crashes.**");
+  });
+
+  test("skips a malformed heading instead of folding it into a neighbour's body", () => {
+    const markdown = [
+      "## Not a real entry heading",
+      "",
+      "This text belongs to nothing and must not surface anywhere.",
+      "",
+      "## August 13, 2026 - A real entry (v0.2.0)",
+      "",
+      "- Real body.",
+      "",
+      "## August 1, 2026 - Another real entry (v0.1.0)",
+      "",
+      "- Also real.",
+    ].join("\n");
+
+    const entries = parseChangelog(markdown);
+    expect(entries).toHaveLength(2);
+    expect(entries.map((e) => e.version)).toEqual(["0.2.0", "0.1.0"]);
+    expect(entries.every((e) => !e.bodyMarkdown.includes("belongs to nothing"))).toBe(true);
+  });
+
+  test("returns nothing for a changelog with no valid entries", () => {
+    expect(parseChangelog("# Changelog\n\nNothing here yet.\n")).toEqual([]);
+  });
+});
+
+describe("changelog delta", () => {
+  function fakeChangelog(versions: string[]): string {
+    return versions
+      .map((v) => `## August 1, 2026 - Release ${v} (v${v})\n\n- **Body for ${v}.**\n`)
+      .join("\n");
+  }
+
+  function mockFetch(latestTag: string, changelogMarkdown: string) {
+    globalThis.fetch = (async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("api.github.com")) return Response.json({ tag_name: latestTag });
+      if (url.includes("raw.githubusercontent.com")) {
+        return new Response(changelogMarkdown, { status: 200 });
+      }
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+  }
+
+  test("selects entries strictly newer than the installed version, newest first", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lfg-changelog-delta-"));
+    cleanup.push(root);
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "lfg", version: "0.1.1" }));
+    mockFetch("v0.1.3", fakeChangelog(["0.1.3", "0.1.2", "0.1.1", "0.1.0"]));
+
+    const delta = await changelogDelta(root, { repoSlug: "example/lfg-changelog-test" });
+    expect(delta.map((e) => e.version)).toEqual(["0.1.3", "0.1.2"]);
+  });
+
+  test("caps at 8 entries even when more qualify", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lfg-changelog-delta-"));
+    cleanup.push(root);
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "lfg", version: "0.0.0" }));
+    const versions = Array.from({ length: 12 }, (_, i) => `0.${12 - i}.0`);
+    mockFetch(`v${versions[0]}`, fakeChangelog(versions));
+
+    const delta = await changelogDelta(root, { repoSlug: "example/lfg-changelog-cap-test" });
+    expect(delta).toHaveLength(8);
+    expect(delta[0].version).toBe(versions[0]);
+  });
+
+  test("degrades to an empty list when the changelog fetch fails", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lfg-changelog-delta-"));
+    cleanup.push(root);
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "lfg", version: "0.1.0" }));
+    globalThis.fetch = (async () => new Response("boom", { status: 500 })) as unknown as typeof fetch;
+
+    const delta = await changelogDelta(root, { repoSlug: "example/lfg-changelog-fail-test" });
+    expect(delta).toEqual([]);
+  });
+
+  test("degrades to an empty list with no repoSlug configured", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lfg-changelog-delta-"));
+    cleanup.push(root);
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "lfg", version: "0.1.0" }));
+
+    expect(await changelogDelta(root, {})).toEqual([]);
   });
 });

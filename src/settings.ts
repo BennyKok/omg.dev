@@ -26,6 +26,12 @@ export type GlobalSettings = {
   // Global transcript rendering preference. The focused mode is experimental
   // and projects the loaded transcript down to user turns + lfg_output.
   transcriptView: TranscriptView;
+  // The update the "What's new" drawer's Skip button last dismissed (a
+  // version, tag, or sha — whatever /api/install reported as latestVersion /
+  // latestTag / latestSha at the time). "" means nothing has been skipped.
+  // Durable per-instance rather than localStorage so the dismissal survives
+  // across browsers/devices for this box.
+  skippedUpdateVersion: string;
 };
 
 export type TranscriptView = "full" | "user-lfg-output";
@@ -73,7 +79,17 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
   const transcriptView = validTranscriptView(input?.transcriptView)
     ? input.transcriptView
     : "full";
-  return { timeZone, maxLiveAgents, agentsPaused, idleAgentArchiveMinutes, transcriptView };
+  const skippedUpdateVersion = typeof input?.skippedUpdateVersion === "string"
+    ? input.skippedUpdateVersion
+    : "";
+  return {
+    timeZone,
+    maxLiveAgents,
+    agentsPaused,
+    idleAgentArchiveMinutes,
+    transcriptView,
+    skippedUpdateVersion,
+  };
 }
 
 function settingsDb(): Database {
@@ -119,6 +135,7 @@ function settingsDb(): Database {
         now,
       );
       write.run("transcriptView", JSON.stringify(initial.transcriptView), now);
+      write.run("skippedUpdateVersion", JSON.stringify(initial.skippedUpdateVersion), now);
       opened
         .query("INSERT INTO settings_migrations (name, applied_at) VALUES (?, ?)")
         .run("legacy-settings-json-v1", now);
@@ -165,6 +182,7 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
     write.run("agentsPaused", JSON.stringify(next.agentsPaused), now);
     write.run("idleAgentArchiveMinutes", JSON.stringify(next.idleAgentArchiveMinutes), now);
     write.run("transcriptView", JSON.stringify(next.transcriptView), now);
+    write.run("skippedUpdateVersion", JSON.stringify(next.skippedUpdateVersion), now);
   })();
   return next;
 }
