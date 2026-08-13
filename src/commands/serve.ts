@@ -479,7 +479,11 @@ function uploadChunkParams(url: URL): { uploadId: string; offset: number; total:
   };
 }
 
-const GROK_DEFAULT_MODEL = "grok-4.5";
+// Resolved per call, not pinned to a literal. Model discovery refreshes on a
+// cron, so a boot-time constant freezes the default at whatever the catalog knew
+// at startup and keeps serving it long after a newer Grok appears — and a pinned
+// id also strands boxes whose grok CLI does not have that exact model.
+const GROK_DEFAULT_MODEL = () => defaultModelForAgent("grok");
 const PI_DEFAULT_MODEL = "sonnet";
 // Models whose provider currently rejects our requests (Sakana's fugu returns a
 // hard 403 Forbidden, and the local Novita credential currently 403s too — see
@@ -4197,7 +4201,7 @@ a{color:#60a5fa}
           if (!tag.ok) return err(400, `unknown user "${tag.unknown}"`);
           const assignedUser = tag.user;
           const resumeModel = model || cachedResume.model || (
-            agent === "grok" ? GROK_DEFAULT_MODEL : "auto"
+            agent === "grok" ? GROK_DEFAULT_MODEL() : "auto"
           );
           await indexTranscript(transcript, sessionId);
           addManaged({
@@ -4707,7 +4711,7 @@ a{color:#60a5fa}
         const createdAt = Date.now();
         const launchModel =
           agent === "grok"
-            ? resolvedModel ?? GROK_DEFAULT_MODEL
+            ? resolvedModel ?? GROK_DEFAULT_MODEL()
             : agent === "cursor"
               ? resolvedModel ?? "auto"
               : agent === "opencode"
@@ -4759,7 +4763,7 @@ a{color:#60a5fa}
                   name: tmuxName,
                   cwd,
                   prompt,
-                  model: resolvedModel ?? GROK_DEFAULT_MODEL,
+                  model: resolvedModel ?? GROK_DEFAULT_MODEL(),
                   thinkingLevel,
                   omgSessionId: launchId,
                   omgUser: assignedUser,

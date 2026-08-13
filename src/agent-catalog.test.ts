@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   accessibleModelsForAgent,
+  curateCursorModels,
   curateOpenCodeModels,
   defaultModelForAgent,
   discoveredModelsOrFallback,
@@ -176,5 +177,44 @@ describe("OpenCode catalog default", () => {
       (item) => item.key === "opencode",
     );
     expect(opencode?.defaultModel).toMatch(/^opencode\/.+-free$/);
+  });
+});
+
+// Cursor ships Grok under its own `cursor-` prefix. Curation used to match only
+// /^grok-\d/, so when Cursor renamed these ids every Grok build was discovered
+// and then silently dropped: `cursor-agent models` returned 14 variants and the
+// picker offered none of them. Nothing failed — the family just disappeared,
+// which is the failure mode worth pinning.
+const CURSOR_DISCOVERED = [
+  "auto",
+  "composer-2.5",
+  "gpt-5.6-sol-high",
+  "cursor-grok-4.5-low",
+  "cursor-grok-4.5-high",
+  "cursor-grok-4.5-high-fast",
+  "cursor-grok-4.6-low",
+  "cursor-grok-4.6-medium",
+  "cursor-grok-4.6-high",
+  "cursor-grok-4.6-high-fast",
+  "cursor-grok-4.6-xhigh",
+];
+
+describe("curateCursorModels", () => {
+  test("surfaces Cursor's prefixed Grok builds", () => {
+    expect(curateCursorModels(CURSOR_DISCOVERED)).toContain("cursor-grok-4.6");
+  });
+
+  test("offers exactly one Grok entry, the newest", () => {
+    const grok = curateCursorModels(CURSOR_DISCOVERED).filter((model) => /grok/.test(model));
+    expect(grok).toEqual(["cursor-grok-4.6"]);
+  });
+
+  test("still matches an unprefixed grok id", () => {
+    expect(curateCursorModels(["auto", "grok-4.6-high"])).toContain("grok-4.6");
+  });
+
+  test("collapses thinking/fast variants into one base per family", () => {
+    const out = curateCursorModels(CURSOR_DISCOVERED);
+    for (const model of out) expect(model).not.toMatch(/-(fast|xhigh|high|medium|low)$/);
   });
 });

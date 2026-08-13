@@ -34,7 +34,7 @@ export const CODEX_AISDK_MODELS: string[] = [
   "gpt-5.4-mini",
   "gpt-5.3-codex-spark",
 ];
-export const GROK_MODELS: string[] = ["grok-4.5", "grok-composer-2.5-fast"];
+export const GROK_MODELS: string[] = ["grok-4.6", "grok-4.5", "grok-composer-2.5-fast"];
 export const CURSOR_MODELS: string[] = [
   "auto",
   "composer-2.5",
@@ -42,7 +42,7 @@ export const CURSOR_MODELS: string[] = [
   "gpt-5.5",
   "claude-opus-4.8",
   "gemini-3.1-pro",
-  "grok-4.3",
+  "cursor-grok-4.6",
 ];
 export const HERMES_MODELS: string[] = [
   "nousresearch/hermes-4-405b",
@@ -178,7 +178,7 @@ export const MODEL_OPTIONS: Record<CodingAgentKind, { defaultModel: string; mode
   aisdk: { defaultModel: "opus", models: AISDK_MODELS },
   codex: { defaultModel: "gpt-5.6-sol", models: CODEX_MODELS },
   "codex-aisdk": { defaultModel: "gpt-5.6-sol", models: CODEX_AISDK_MODELS },
-  grok: { defaultModel: "grok-4.5", models: GROK_MODELS },
+  grok: { defaultModel: "grok-4.6", models: GROK_MODELS },
   cursor: { defaultModel: "auto", models: CURSOR_MODELS },
   hermes: { defaultModel: "nousresearch/hermes-4-405b", models: HERMES_MODELS },
   opencode: { defaultModel: "opencode/deepseek-v4-flash-free", models: OPENCODE_MODELS },
@@ -298,7 +298,7 @@ function addLatest(out: string[], candidates: string[]) {
   if (picked && !out.includes(picked)) out.push(picked);
 }
 
-function curateCursorModels(models: string[]): string[] {
+export function curateCursorModels(models: string[]): string[] {
   const variants = models.map(parseCursorVariant);
   const bases = [...new Set(variants.map((item) => item.base))];
   const out: string[] = [];
@@ -310,7 +310,11 @@ function curateCursorModels(models: string[]): string[] {
   addLatest(out, bases.filter((m) => /^gpt-\d/.test(m) && !m.includes("codex") && !/-(mini|nano)$/.test(m)));
   addLatest(out, bases.filter((m) => /^gpt-\d/.test(m) && m.includes("codex") && !m.includes("mini")));
   addLatest(out, bases.filter((m) => /^gpt-\d/.test(m) && m.includes("mini")));
-  addLatest(out, bases.filter((m) => /^grok-\d/.test(m)));
+  // Cursor prefixes its own Grok builds (`cursor-grok-4.6-high-fast`), so an
+  // anchored /^grok-/ silently dropped every Grok model from the picker when
+  // Cursor renamed them — discovery kept returning 14 variants and curation
+  // threw them all away. Match both spellings.
+  addLatest(out, bases.filter((m) => /^(?:cursor-)?grok-\d/.test(m)));
   addLatest(out, bases.filter((m) => /^claude-fable/.test(m)));
   addLatest(out, bases.filter((m) => /claude.*sonnet/.test(m)));
   addLatest(out, bases.filter((m) => /claude.*opus/.test(m)));
@@ -452,6 +456,11 @@ export function resolveModelForAgent(
     if (!requestedLevel && item.level === "high") value += 60;
     if (requestedLevel === "xhigh" && item.level === "xhigh") value += 20;
     if (requestedLevel === "xhigh" && item.level === "max") value += 12;
+    // Mirror of the above. Without it, asking for "max" on a family that stops
+    // at xhigh (every cursor-grok build) matched nothing, left all variants tied
+    // on 4, and handed back whichever the catalog happened to list first — which
+    // is `-low`, the quietest possible downgrade of an explicit max request.
+    if (requestedLevel === "max" && item.level === "xhigh") value += 12;
     if (requestedLevel === "high" && item.level === "medium") value += 8;
     if (!item.level) value += 2;
     return value;

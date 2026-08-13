@@ -1,3 +1,4 @@
+import { defaultModelForAgent } from "../../agent-catalog.ts";
 import { grokBin, grokEffortFor } from "../../tmux.ts";
 
 export async function pipeToGrokCli(
@@ -12,7 +13,7 @@ export async function pipeToGrokCli(
   } = {},
 ): Promise<string> {
   const cwd = opts.cwd ?? process.cwd();
-  const model = opts.model ?? "grok-4.5";
+  const model = opts.model ?? defaultModelForAgent("grok");
   const argv = [
     grokBin(),
     "--cwd",

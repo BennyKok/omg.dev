@@ -885,7 +885,7 @@ const CODEX_AISDK_MODELS = [
   "gpt-5.4-mini",
   "gpt-5.3-codex-spark",
 ];
-const GROK_MODELS = ["grok-4.5", "grok-composer-2.5-fast"];
+const GROK_MODELS = ["grok-4.6", "grok-4.5", "grok-composer-2.5-fast"];
 const CURSOR_MODELS = [
   "auto",
   "composer-2.5",
@@ -893,7 +893,7 @@ const CURSOR_MODELS = [
   "gpt-5.5",
   "claude-opus-4.8",
   "gemini-3.1-pro",
-  "grok-4.3",
+  "cursor-grok-4.6",
 ];
 const OPENCODE_MODELS = [
   "opencode/deepseek-v4-flash-free",
@@ -952,7 +952,7 @@ const AGENT_DEFAULT_MODEL: Record<AgentKind, string> = {
   aisdk: "opus",
   codex: "gpt-5.6-sol",
   "codex-aisdk": "gpt-5.6-sol",
-  grok: "grok-4.5",
+  grok: "grok-4.6",
   cursor: "auto",
   opencode: "opencode/deepseek-v4-flash-free",
   jcode: "auto",
