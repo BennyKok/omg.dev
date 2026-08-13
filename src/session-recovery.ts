@@ -5,7 +5,8 @@ import {
   patchEntry,
   type AisdkEntry,
 } from "./aisdk-registry.ts";
-import { addManaged, listManaged, patchManaged, type ManagedSession } from "./managed.ts";
+import { addManaged, listManaged, patchManaged, removeManaged, type ManagedSession } from "./managed.ts";
+import { computerAgentAdmissionContext, isScheduleSpawned } from "./agent-admission.ts";
 import {
   spawnManagedAisdkSession,
   spawnManagedCodexAisdkSession,
@@ -22,6 +23,7 @@ export type RecoveryResult = {
   recovered: number;
   failed: number;
   skippedLegacy: number;
+  skippedSchedule: number;
 };
 
 function matchingManaged(entry: AisdkEntry, managed: ManagedSession[]): ManagedSession | null {
@@ -88,7 +90,14 @@ export async function reconcileCommandFileSessions(
   log: (line: string) => void = console.log,
 ): Promise<RecoveryResult> {
   const bootId = currentBootId();
-  const result: RecoveryResult = { bootId, adopted: 0, recovered: 0, failed: 0, skippedLegacy: 0 };
+  const result: RecoveryResult = {
+    bootId,
+    adopted: 0,
+    recovered: 0,
+    failed: 0,
+    skippedLegacy: 0,
+    skippedSchedule: 0,
+  };
   if (!bootId) return result;
   const managed = listManaged();
   const assignments = userAssignments();
@@ -96,6 +105,15 @@ export async function reconcileCommandFileSessions(
   for (const entry of listEntries()) {
     const owner = matchingManaged(entry, managed);
     if (!owner) continue;
+    // A scheduled run already did its job. Relaunching it on every wake is
+    // how five leftover crons filled a computer_5 box and blocked New session.
+    // Self-hosted LFG has no Computer plan — leave those rows alone.
+    if (computerAgentAdmissionContext() && isScheduleSpawned(owner.spawnedBy)) {
+      patchEntry(entry.sessionId, { recoveryClaimBootId: bootId });
+      removeManaged(owner.tmuxName);
+      result.skippedSchedule++;
+      continue;
+    }
     const legacyTmuxAlive = !entry.bootId && tmuxHasSession(entry.tmuxName);
     // PIDs are only meaningful within the boot that recorded them. After a
     // reboot Linux may reuse the number for an unrelated process, so a stale
