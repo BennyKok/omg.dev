@@ -15,6 +15,7 @@ import { claudeOauthToken as sharedClaudeOauthToken } from "../claude-creds.ts";
 import {
   applyReleaseUpdate,
   applySourceUpdate,
+  changelogDelta,
   releaseUpdateStatus,
   scheduleRestart,
   sourceUpdateStatus,
@@ -2829,6 +2830,11 @@ a{color:#60a5fa}
               );
             patch.idleAgentArchiveMinutes = minutes;
           }
+          if (b?.skippedUpdateVersion !== undefined) {
+            if (typeof b.skippedUpdateVersion !== "string" || b.skippedUpdateVersion.length > 100)
+              return err(400, "skippedUpdateVersion must be a string of 100 characters or fewer");
+            patch.skippedUpdateVersion = b.skippedUpdateVersion;
+          }
           const settings = await setGlobalSettings(patch);
           return json({ settings });
         }
@@ -3979,7 +3985,14 @@ a{color:#60a5fa}
             : install.channel === "release"
               ? await releaseUpdateStatus(PATHS.root, install, force)
               : null;
-          return json({ install, update, bootId: SERVER_INSTANCE_ID });
+          // Only worth fetching once an update is actually available on a
+          // channel with release tags — a "here's what changed" list for the
+          // version you're already on, or for a source checkout with no
+          // CHANGELOG-aligned versioning, is not useful.
+          const changelog = update?.channel === "release" && update.state === "available"
+            ? await changelogDelta(PATHS.root, install, force)
+            : [];
+          return json({ install, update, changelog, bootId: SERVER_INSTANCE_ID });
         }
         if (req.method === "POST") {
           if (install.channel !== "source" && install.channel !== "release") {
