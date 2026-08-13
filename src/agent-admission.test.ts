@@ -8,6 +8,9 @@ import {
   NO_AGENT_LIMIT,
   agentLaunchMemoryBudget,
   computerAgentAdmissionContext,
+  interactiveResidentCount,
+  isScheduleSpawned,
+  scheduleResidentCount,
 } from "./agent-admission.ts";
 
 describe("Computer agent admission", () => {
@@ -18,6 +21,18 @@ describe("Computer agent admission", () => {
     expect(
       residentAgentCount([{ busy: true }, { launching: true }, { busy: false }]),
     ).toBe(3);
+  });
+
+  test("scheduled runs sit in their own resident pool", () => {
+    const sessions = [
+      { busy: false, spawnedBy: "schedule" },
+      { busy: false },
+      { launching: true, spawnedBy: "schedule" },
+    ];
+    expect(interactiveResidentCount(sessions)).toBe(1);
+    expect(scheduleResidentCount(sessions)).toBe(2);
+    expect(isScheduleSpawned("schedule")).toBe(true);
+    expect(isScheduleSpawned("subagent")).toBe(false);
   });
 
   test("an idle-only fleet can still fill the cap", () => {
@@ -32,26 +47,32 @@ describe("Computer agent admission", () => {
     expect(computerAgentAdmissionContext("free")).toEqual({
       plan: "free",
       limit: 1,
+      scheduleLimit: 1,
     });
     expect(computerAgentAdmissionContext("computer_5")).toEqual({
       plan: "computer_5",
       limit: 5,
+      scheduleLimit: 2,
     });
     expect(computerAgentAdmissionContext("computer_10")).toEqual({
       plan: "computer_10",
       limit: 16,
+      scheduleLimit: 3,
     });
     expect(computerAgentAdmissionContext("computer_20")).toEqual({
       plan: "computer_20",
       limit: 24,
+      scheduleLimit: 4,
     });
     expect(computerAgentAdmissionContext("computer_early")).toEqual({
       plan: "computer_early",
       limit: 24,
+      scheduleLimit: 4,
     });
     expect(computerAgentAdmissionContext("computer_trial")).toEqual({
       plan: "computer_trial",
       limit: 1,
+      scheduleLimit: 1,
     });
     const admission = new AgentAdmissionController();
     expect(admission.tryAcquire(1, [{ busy: true }])).toMatchObject({
@@ -177,6 +198,7 @@ describe("Computer agent admission", () => {
     expect(computerAgentAdmissionContext("retired-plan")).toEqual({
       plan: "free",
       limit: 1,
+      scheduleLimit: 1,
     });
     expect(computerAgentAdmissionContext("")).toBeNull();
   });
@@ -222,11 +244,13 @@ describe("Computer agent admission", () => {
       expect(computerAgentAdmissionContext(undefined, path)).toEqual({
         plan: "computer_5",
         limit: 5,
+        scheduleLimit: 2,
       });
       writeFileSync(path, "free\n");
       expect(computerAgentAdmissionContext(undefined, path)).toEqual({
         plan: "free",
         limit: 1,
+        scheduleLimit: 1,
       });
     } finally {
       rmSync(dir, { recursive: true, force: true });

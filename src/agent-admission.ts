@@ -18,11 +18,14 @@ export type AgentAdmissionPlan =
 export type AgentAdmissionContext = {
   plan: AgentAdmissionPlan;
   limit: number;
+  /** Concurrent scheduled runs. Separate from `limit` — a cron must not fill the interactive cap. */
+  scheduleLimit: number;
 };
 
 export type AgentActivity = {
   busy?: boolean;
   launching?: boolean;
+  spawnedBy?: string | null;
 };
 
 export type AgentMemoryBudget = {
@@ -66,6 +69,23 @@ const LIMITS: Readonly<Record<AgentAdmissionPlan, number>> = {
   computer_early: 24,
 };
 
+// Scheduled fires are not interactive sessions. They get a smaller, separate
+// pool so a leftover cron cannot fill the Computer and block "New session".
+// These numbers exist only when computerAgentAdmissionContext() is non-null
+// (a managed Computer). Self-hosted lfg serve never reads this table.
+const SCHEDULE_LIMITS: Readonly<Record<AgentAdmissionPlan, number>> = {
+  free: 1,
+  computer_trial: 1,
+  computer_5: 2,
+  computer_10: 3,
+  computer_20: 4,
+  computer_early: 4,
+};
+
+export function isScheduleSpawned(spawnedBy: string | null | undefined): boolean {
+  return spawnedBy === "schedule";
+}
+
 const COMPUTER_PLAN_FILE = "/etc/omg/computer-plan";
 
 function currentComputerPlan(planFile: string): string | undefined {
@@ -100,11 +120,11 @@ export function computerAgentAdmissionContext(
     plan === "computer_20" ||
     plan === "computer_early"
   ) {
-    return { plan, limit: LIMITS[plan] };
+    return { plan, limit: LIMITS[plan], scheduleLimit: SCHEDULE_LIMITS[plan] };
   }
   // A stale or malformed cloud-plan value must fail safe for the Computer,
   // while ordinary non-Computer LFG installs keep their local setting policy.
-  return { plan: "free", limit: LIMITS.free };
+  return { plan: "free", limit: LIMITS.free, scheduleLimit: SCHEDULE_LIMITS.free };
 }
 
 /**
@@ -123,6 +143,15 @@ export function computerAgentAdmissionContext(
  */
 export function residentAgentCount(sessions: readonly AgentActivity[]): number {
   return sessions.length;
+}
+
+/** Interactive New-session / resume / fork work. Scheduled runs are a different pool. */
+export function interactiveResidentCount(sessions: readonly AgentActivity[]): number {
+  return residentAgentCount(sessions.filter((session) => !isScheduleSpawned(session.spawnedBy)));
+}
+
+export function scheduleResidentCount(sessions: readonly AgentActivity[]): number {
+  return residentAgentCount(sessions.filter((session) => isScheduleSpawned(session.spawnedBy)));
 }
 
 /**
