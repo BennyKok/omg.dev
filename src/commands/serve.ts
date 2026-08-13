@@ -862,6 +862,35 @@ function withAutoAgentListMeta<T extends { id: string; cwd?: string; prompt?: st
   return { ...meta, ...truncateAutoAgentPrompt(a.prompt) };
 }
 
+/**
+ * Why the session LIST leaves `cmd` on the floor.
+ *
+ * `cmd` is the full spawn command line, which for a managed session embeds the
+ * entire omg.dev runtime contract AND the complete user prompt. Measured on a
+ * live box: 15 sessions carrying 36 KB of `cmd` — 67.7% of a 53 KB
+ * /api/sessions response, median 2,019 chars per session — refetched by the
+ * dashboard's 5s poll and again by /api/bootstrap on every cold open. Over the
+ * hosted relay those bytes cross uncompressed (see the box→relay leg in
+ * control-plane's session-proxy.ts).
+ *
+ * Nothing that reads the list ever looks at it: the web UI declares the field
+ * on its Session type but renders nothing from it, and the MCP listing slims
+ * rows itself (see slimSession in mcp.ts). Truncating instead of dropping
+ * would still leak prompt text, which this codebase treats as sensitive —
+ * control-plane's session proxy clones a whole request just to keep one enum,
+ * precisely so prompt text cannot reach telemetry.
+ *
+ * Everything the server derives from `cmd` (model, thinking level, codex
+ * prompt recovery, headless detection) happens inside listSessions() while
+ * building the row, so stripping it at the serialization boundary costs
+ * nothing. `?full=1` on /api/sessions opts back in for the one caller that
+ * genuinely wants the command line: omg_list_sessions with verbose:true.
+ */
+export function sessionListRow(session: Session): Omit<Session, "cmd"> {
+  const { cmd: _dropped, ...row } = session;
+  return row;
+}
+
 function repoRootForManagedCwd(cwd: string): string | undefined {
   const top = Bun.spawnSync({
     cmd: ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
@@ -2905,7 +2934,7 @@ a{color:#60a5fa}
             codingAgents: boot.codingAgents ?? null,
             models: boot.models ?? null,
             settings: boot.settings ?? null,
-            sessions: boot.sessions ?? null,
+            sessions: boot.sessions ? boot.sessions.map(sessionListRow) : null,
             users: boot.users ?? null,
             repos: boot.repos ?? null,
             auto: {
@@ -3997,7 +4026,11 @@ a{color:#60a5fa}
         noteListSessionsClientActivity();
         const sessions = await listSessionsCached();
         warmChatTranscripts(sessions);
-        return json({ sessions });
+        // `?full=1` opts back into the spawn command line (`cmd`) — see
+        // sessionListRow for why the default leaves it out. The one caller
+        // that wants it is omg_list_sessions with verbose:true.
+        const full = url.searchParams.get("full") === "1";
+        return json({ sessions: full ? sessions : sessions.map(sessionListRow) });
       }
 
       if (path === "/api/install") {

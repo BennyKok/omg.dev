@@ -512,7 +512,6 @@ export type Session = {
   // Prefer this over the raw agent kind for labels/tooltips.
   agentLabel?: string | null;
   pid?: number;
-  cmd?: string;
   cwd?: string;
   project?: string;
   title?: string | null;

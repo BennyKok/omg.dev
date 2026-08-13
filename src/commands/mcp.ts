@@ -35,6 +35,9 @@ type SessionRow = {
   status?: string | null;
   assignedUser?: string | null;
   lastActivityAt?: number | null;
+  // Only present on /api/sessions?full=1 (the verbose listing); the default
+  // list response drops the spawn command line.
+  cmd?: string;
 };
 type SessionCreateResponse = {
   ok?: boolean;
@@ -521,7 +524,12 @@ export function buildOmgMcpServer(): McpServer {
     },
     async ({ parentSessionId, driveableOnly, verbose }) => {
       const parent = parentSessionId ? await resolveSid(parentSessionId) : undefined;
-      const { sessions } = await api<{ sessions: SessionRow[] }>("/api/sessions");
+      // verbose asks for the raw rows, spawn command line included; the list
+      // endpoint only ships `cmd` when explicitly asked (see sessionListRow in
+      // serve.ts).
+      const { sessions } = await api<{ sessions: SessionRow[] }>(
+        verbose ? "/api/sessions?full=1" : "/api/sessions",
+      );
       const filtered = sessions.filter((session) => {
         if (driveableOnly && (!session.sessionId || !session.tmuxTarget)) return false;
         if (!parent) return true;
