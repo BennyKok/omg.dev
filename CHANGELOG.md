@@ -2,6 +2,17 @@
 
 Recent product updates and deployment notes.
 
+## August 13, 2026 - Schedules fire on time on cloud Computers (v0.1.355)
+
+- **A schedule on a managed cloud Computer now wakes it.** Schedules only tick
+  while the machine is awake, so "every morning at 8" on a Computer that had
+  gone to sleep used to fire late, whenever you next opened it. LFG now tells
+  the platform the times it needs, and the platform wakes the machine at the
+  due minute. Schedules on your own machines are unchanged.
+- **Nothing about a schedule leaves the machine except the clock.** The
+  platform receives opaque ids, cron times, and your timezone. Names, prompts,
+  and folders stay on the Computer.
+
 ## August 12, 2026 - A cleaner new-session prompt (v0.1.354)
 
 - **The new-session prompt stays on one line on a phone.** Its shorter
