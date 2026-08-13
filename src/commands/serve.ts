@@ -1040,6 +1040,56 @@ async function listSetupChecksCached(opts: { refresh?: boolean } = {}) {
   return setupChecksInFlight;
 }
 
+/**
+ * Cache for listCodingAgents — the single most expensive thing /api/bootstrap
+ * does, by an order of magnitude.
+ *
+ * statusFor() probes every coding agent's auth state, and those probes SHELL
+ * OUT: `cursor-agent status` boots a whole Node runtime, `jcode auth status`
+ * runs a shell wrapper, plus `git rev-parse`. Measured on a real box: 26
+ * execve's and 1542 ms per call, 97% of it blocked in wait4 — and identical on
+ * the second call, because nothing cached it. /api/bootstrap fans out ten
+ * tasks in parallel and every one of the other nine finishes in 5-130 ms, so
+ * this alone set the endpoint's 1557 ms.
+ *
+ * Worse than its own latency: statusFor is SYNCHRONOUS, so those spawns block
+ * the Bun event loop for ~1.5 s and stall every other in-flight request. That
+ * is what made a 1 ms /api/voice/config land at 1918 ms in the browser.
+ *
+ * A TTL is the right shape because the answer is "is this CLI logged in",
+ * which changes on a human action, not on its own — and every route that can
+ * change it busts the cache explicitly (see the /api/coding-agents mutation
+ * hook in fetch()). In-flight dedup mirrors listSetupChecksCached above so a
+ * cold cache under concurrent boots still only pays for one probe sweep.
+ */
+const CODING_AGENTS_CACHE_TTL_MS = 60_000;
+let codingAgentsCache:
+  | { expiresAt: number; agents: Awaited<ReturnType<typeof listCodingAgents>> }
+  | null = null;
+let codingAgentsInFlight: Promise<Awaited<ReturnType<typeof listCodingAgents>>> | null = null;
+
+async function listCodingAgentsCached(opts: { refresh?: boolean } = {}) {
+  const now = Date.now();
+  if (!opts.refresh && codingAgentsCache && codingAgentsCache.expiresAt > now) {
+    return codingAgentsCache.agents;
+  }
+  if (!opts.refresh && codingAgentsInFlight) return codingAgentsInFlight;
+  codingAgentsInFlight = listCodingAgents()
+    .then((agents) => {
+      codingAgentsCache = { agents, expiresAt: Date.now() + CODING_AGENTS_CACHE_TTL_MS };
+      return agents;
+    })
+    .finally(() => {
+      codingAgentsInFlight = null;
+    });
+  return codingAgentsInFlight;
+}
+
+/** Drop the cached agent/auth probe so the next read re-runs it. */
+function invalidateCodingAgentsCache() {
+  codingAgentsCache = null;
+}
+
 async function readAgentReport(agent: string, date: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
   if (!/^[a-z0-9_-]+$/.test(agent)) return null;
@@ -2646,10 +2696,13 @@ a{color:#60a5fa}
       // ---- coding-agent config: which session backends are shown in the
       // composer, plus lightweight setup health/actions for Settings.
       if (path === "/api/coding-agents" && req.method === "GET") {
-        if (url.searchParams.get("refreshModels") === "1") {
+        const refresh = url.searchParams.get("refreshModels") === "1";
+        if (refresh) {
           await refreshModelCatalog({ reason: "manual", onLog: (line) => console.log(line) });
         }
-        const agents = await listCodingAgents();
+        // An explicit refresh is the user asking for ground truth, so it pays
+        // the full probe; the ordinary Settings read takes the cache.
+        const agents = await listCodingAgentsCached({ refresh });
         return json({
           agents,
           models: listModelCatalog(agents),
@@ -2760,7 +2813,7 @@ a{color:#60a5fa}
           return sessions;
         });
         const reposTask = listRepos();
-        const codingAgentsTask = listCodingAgents();
+        const codingAgentsTask = listCodingAgentsCached();
         const settingsTask = getGlobalSettings();
         const tasks = {
           agents: listAgentSummaries(),
@@ -6776,6 +6829,19 @@ a{color:#60a5fa}
         if (apiTimingStart) evlog("api_timing", { endpoint: path, durationMs: apiDurationMs(apiTimingStart) });
       }
       })();
+      // Any write under /api/coding-agents can change what statusFor() probes
+      // (connect an account, run setup, drop a key, log in via terminal). There
+      // are a dozen such routes, so invalidate at this one choke point instead
+      // of per-handler, where a newly added route would silently miss it. Runs
+      // AFTER the handler so the next read re-probes the post-mutation state.
+      // /api/setup/... is included because runSetupAction can install a CLI,
+      // which changes the binary paths statusFor() reports.
+      if (
+        req.method !== "GET" &&
+        (path.startsWith("/api/coding-agents") || path.startsWith("/api/setup"))
+      ) {
+        invalidateCodingAgentsCache();
+      }
       return maybeCompressResponse(req, path, response);
     },
   });
