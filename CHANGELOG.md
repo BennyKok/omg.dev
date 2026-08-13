@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## August 13, 2026 - Settings cannot take the app down on a bad update check (v0.1.359)
+
+- **Opening Settings no longer crashes if the update payload is empty.** The
+  last fix refused to store a bad `/api/install` answer, but the row still
+  read `info?.install.channel`. That only guards `info`. A missing `install`
+  still threw, and the router boundary replaced the whole app. The read now
+  chains through `install` as well, and a throw in that row stays in that row.
+
 ## August 13, 2026 - Settings stops crashing when an update check comes back empty (v0.1.358)
 
 - **Opening Settings no longer takes the app down.** The update check assumed the
