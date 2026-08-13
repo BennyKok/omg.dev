@@ -2640,7 +2640,7 @@ a{color:#60a5fa}
         return json({ stats: await serverStats() });
       }
       if (path === "/api/server/wake-tick" && req.method === "POST") {
-        return handleWakeTick();
+        return handleWakeTick((l) => console.log(l));
       }
       if (path === "/api/server/session-usage" && req.method === "GET") {
         return json({ usage: await sessionUsage() });

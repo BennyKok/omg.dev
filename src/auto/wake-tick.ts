@@ -1,8 +1,9 @@
 import { autoSchedulerTickNow } from "./scheduler.ts";
 
 export function handleWakeTick(
-  tick: () => Promise<unknown> = autoSchedulerTickNow,
+  onLog: (line: string) => void = () => {},
+  tick: (logger: (line: string) => void) => Promise<unknown> = autoSchedulerTickNow,
 ): Response {
-  queueMicrotask(() => void tick().catch(() => {}));
+  queueMicrotask(() => void tick(onLog).catch(() => {}));
   return Response.json({ ok: true });
 }

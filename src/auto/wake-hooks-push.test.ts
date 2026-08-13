@@ -64,13 +64,22 @@ describe("wake hook pushes", () => {
     push.setWakeHooksBootId("boot-123");
     await push.pushWakeHooksNow();
 
-    expect(received).toEqual([{
-      hooks: [{ id: "private-agent", schedule: "0 9 * * *", enabled: true }],
+    const firstId = received[0]?.hooks[0]?.id;
+    await push.pushWakeHooksNow();
+
+    expect(received[0]).toEqual({
+      hooks: [{
+        id: expect.stringMatching(/^[0-9a-f]{16}$/),
+        schedule: "0 9 * * *",
+        enabled: true,
+      }],
       tz: settings.getGlobalSettingsSync().timeZone,
       bootId: "boot-123",
-    }]);
+    });
+    expect(received[1]?.hooks[0]?.id).toBe(firstId);
     expect(JSON.stringify(received[0])).not.toContain("secret prompt");
     expect(JSON.stringify(received[0])).not.toContain("Private name");
+    expect(JSON.stringify(received[0])).not.toContain("private-agent");
     expect(JSON.stringify(received[0])).not.toContain("/private/worktree");
   });
 
