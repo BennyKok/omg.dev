@@ -25,6 +25,7 @@ import { AppState } from "react-native";
 import { CLOUD_BINDING_ID, CONTROLPLANE_ORIGIN, STORAGE_KEYS } from "./config";
 import { getAuthToken, getSession, signOut as authSignOut, type SignedInUser } from "./auth";
 import { forgetAllTransports, getHostedTransport } from "./transport";
+import { startCloudPresence } from "./presence";
 import { waitForReady, type ComputerReadiness } from "./readiness";
 
 export type ComputerBinding = {
@@ -265,9 +266,65 @@ export function OmgProvider({ children }: PropsWithChildren) {
     return () => sub.remove();
   }, [authStatus, refreshMachines, probe]);
 
+  /**
+   * "background" is the only state that means gone.
+   *
+   * iOS emits "inactive" for anything that merely covers the app for a moment:
+   * pulling down Notification Center, an incoming call banner, the app
+   * switcher, a system permission sheet. Treating that as absence — which
+   * `state === "active"` does — releases the presence lease and starts the
+   * pause clock because someone glanced at their notifications for two
+   * seconds. Only a real background transition should end the lease.
+   */
+  const [foregrounded, setForegrounded] = useState(
+    () => AppState.currentState !== "background",
+  );
+  const presenceStopRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      setForegrounded(state !== "background");
+    });
+    return () => sub.remove();
+  }, []);
+
+  /**
+   * Presence is the keep-awake demand channel for a cloud Computer.
+   *
+   * The control plane pauses a Computer after a grace period with no
+   * activity, and mint/refresh traffic explicitly "never provisions, wakes,
+   * or extends a Computer" — a presence lease is the only way a UI client
+   * says "someone is still here". The web dashboard renews one; this app sent
+   * none, and the Computer paused out from under the session. probe() wakes a
+   * paused Computer; this loop stops it pausing in the first place.
+   *
+   * One effect covers all three release triggers, because each flips a
+   * dependency: backgrounding clears foregrounded, sign-out clears
+   * authStatus, and picking another machine changes bindingId. The cleanup
+   * releases the lease so the pause clock starts when usage actually ends
+   * instead of one grace period later.
+   */
+  useEffect(() => {
+    if (authStatus !== "signed-in" || bindingId !== CLOUD_BINDING_ID || !foregrounded) {
+      return;
+    }
+    const lease = startCloudPresence(controlPlane);
+    presenceStopRef.current = lease.stop;
+    return () => {
+      presenceStopRef.current = null;
+      lease.stop();
+    };
+  }, [authStatus, bindingId, foregrounded]);
+
   const signOut = useCallback(async () => {
+    // Release the presence lease before the token goes away; a release sent
+    // after authSignOut can only fail. stop() is idempotent, so the effect
+    // cleanup below does not send a second one.
+    presenceStopRef.current?.();
     await authSignOut();
     forgetAllTransports();
+    // The presence keys stay on purpose: the server-side lease can outlive a
+    // failed release, and wiping the seq ratchet would restart eventSeq at 1
+    // against it — which the server then silently ignores as stale forever.
     await AsyncStorage.multiRemove([STORAGE_KEYS.binding]);
     setBindingId(null);
     setReadiness(null);

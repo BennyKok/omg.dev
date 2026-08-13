@@ -53,6 +53,13 @@ export const STORAGE_KEYS = {
   mode: "omg:mobile:mode",
   /** Last binding the user opened, so the app reopens where they left off. */
   binding: "omg:mobile:binding",
+  /** Stable cloud-presence lease id, generated once per install. */
+  presenceLeaseId: "omg:mobile:presence-lease-id",
+  /**
+   * Highest presence eventSeq ever issued. The server ignores a renewal whose
+   * seq is not ahead of what it has stored, so this must survive restarts.
+   */
+  presenceEventSeq: "omg:mobile:presence-event-seq",
   /** better-auth session token (SecureStore, not AsyncStorage). */
   sessionToken: "omg:mobile:session-token",
 } as const;

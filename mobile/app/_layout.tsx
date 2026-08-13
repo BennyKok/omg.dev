@@ -60,7 +60,11 @@ function RootNavigator() {
            * insets below the bar rather than starting under it.
            */
           headerTransparent: true,
-          headerBlurEffect: isDark ? "systemChromeMaterialDark" : "systemChromeMaterial",
+          // No headerBlurEffect. iOS 26 draws its own scroll edge effect on the
+          // bar, and RNScreens warns outright that setting both "may cause
+          // overlapping effects" — two materials stacked on one bar. The system
+          // one is the more native of the two and adapts to appearance without
+          // being told, which is the whole point of handing this to UIKit.
           headerTintColor: colors.text,
           headerBackButtonDisplayMode: "minimal",
           // The single place a screen background is painted. Every screen used

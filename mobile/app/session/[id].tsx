@@ -23,11 +23,14 @@
  * and looked hand-made next to any real iOS app. The overflow menu is a real
  * UIAlertController (`ActionSheetIOS`) rather than an in-app popover.
  *
- * The header is drawn in-screen rather than by the native stack on purpose:
- * KeyboardAvoidingView measures its frame relative to its PARENT, so a native
- * header would need its height fed back in as `keyboardVerticalOffset`, and
- * `useHeaderHeight` lives in @react-navigation/elements which this app does not
- * depend on directly. Offset 0 is only correct while this screen owns its bar.
+ * The header is drawn in-screen rather than by the native stack. That used to
+ * be forced: KeyboardAvoidingView measures against its PARENT, so a native
+ * header would have needed its height fed back as `keyboardVerticalOffset`,
+ * and `useHeaderHeight` lives in @react-navigation/elements, which this app
+ * does not depend on. Moving the keyboard to `useAnimatedKeyboard` removed
+ * that constraint — the lift is now driven by the real keyboard frame and does
+ * not care what sits above it — so switching this screen to the native bar is
+ * a free change whenever the avatar-in-the-title question is settled.
  */
 
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
@@ -39,7 +42,6 @@ import {
   Alert,
   Animated,
   FlatList,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   StyleSheet,
@@ -47,6 +49,7 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
+import Reanimated, { useAnimatedKeyboard, useAnimatedStyle } from "react-native-reanimated";
 import { Text, TextInput } from "../../src/omg/text";
 import * as Clipboard from "expo-clipboard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -408,12 +411,36 @@ export default function SessionScreen() {
   const thinking = busy && !streamText;
   const canSend = draft.trim().length > 0 && !sending;
 
+  /**
+   * Track the keyboard on the UI thread instead of using KeyboardAvoidingView.
+   *
+   * KAV runs on the JS thread and animates over a FIXED duration, while iOS
+   * moves the keyboard on the UI thread along its own curve. The two cannot
+   * agree, so the composer always trails the keyboard by a frame or several and
+   * lands on a different easing — which is the "it moves but it feels janky"
+   * you get on every screen that uses it. It is structural, not tunable.
+   *
+   * `useAnimatedKeyboard` reads the real keyboard frame in a worklet, so the
+   * composer is driven by the same curve on the same thread and tracks it
+   * exactly, including the interactive dismiss-by-dragging gesture, which KAV
+   * cannot follow at all.
+   *
+   * Reanimated 4.5 has been in package.json (and in the shipped binary) since
+   * the start and was never imported once; this needs no new dependency and no
+   * new build.
+   *
+   * The composer already carries `insets.bottom` of its own padding, so lifting
+   * by the full keyboard height would leave a home-indicator-sized gap above
+   * the keys. Subtracting it here means the total lift is exactly the keyboard
+   * height, and clamping at 0 keeps the resting state untouched.
+   */
+  const keyboard = useAnimatedKeyboard();
+  const keyboardLift = useAnimatedStyle(() => ({
+    paddingBottom: Math.max(0, keyboard.height.value - insets.bottom),
+  }));
+
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={0}
-    >
+    <Reanimated.View style={[{ flex: 1 }, keyboardLift]}>
       <View
         style={{
           paddingTop: insets.top + space.xs,
@@ -651,7 +678,7 @@ export default function SessionScreen() {
           </Pressable>
         </View>
       </GlassSurface>
-    </KeyboardAvoidingView>
+    </Reanimated.View>
   );
 }
 

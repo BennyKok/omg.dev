@@ -17,14 +17,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   View,
 } from "react-native";
+import Reanimated, { useAnimatedKeyboard, useAnimatedStyle } from "react-native-reanimated";
 import { Text } from "../src/omg/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OmgSession } from "@omg-dev/protocol";
@@ -190,11 +189,15 @@ export default function SessionsScreen() {
     );
   }, [client, idle, load]);
 
+  // Same UI-thread keyboard tracking as the session screen; see the note there
+  // for why KeyboardAvoidingView cannot be made to feel right.
+  const keyboard = useAnimatedKeyboard();
+  const keyboardLift = useAnimatedStyle(() => ({
+    paddingBottom: Math.max(0, keyboard.height.value - insets.bottom),
+  }));
+
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
+    <Reanimated.View style={[{ flex: 1 }, keyboardLift]}>
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingBottom: space.xl }}
@@ -400,6 +403,6 @@ export default function SessionsScreen() {
           bottomInset={insets.bottom}
         />
       ) : null}
-    </KeyboardAvoidingView>
+    </Reanimated.View>
   );
 }
