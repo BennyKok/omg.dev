@@ -591,6 +591,10 @@ type AutoAgent = {
   thinkingLevel?: string;
   lastRunAt?: number;
   running?: boolean; // mid-run right now (live, from the server poll)
+  // List responses ship only the first ~200 chars of `prompt` (the row renders
+  // it CSS-truncated anyway). When this is true, `prompt` is a preview and the
+  // editor must refetch GET /api/auto/agents/:id before editing it.
+  promptTruncated?: boolean;
 };
 
 type AutoFinding = {
@@ -5993,12 +5997,45 @@ export function App() {
     };
   }, [loading, tab]);
 
+  // Sessions + auto agents, polled only while this tab is actually on screen.
+  //
+  // A hidden tab cannot show anything it fetches, and this poll is not cheap:
+  // over the hosted relay each cycle is a round trip from the browser to the
+  // control plane, out to the box, and back. A backgrounded phone or a second
+  // monitor used to keep paying that every 5 seconds, forever.
+  //
+  // visibilitychange fires on tab switch, window minimise, and phone lock, and
+  // returning runs one immediate refresh so the view is never stale-on-arrival
+  // while it waits out the rest of an interval.
   useEffect(() => {
-    const id = setInterval(() => {
+    let id: number | null = null;
+    const tick = () => {
       refreshSessions().catch(() => {});
       refreshAuto().catch(() => {});
-    }, 5000);
-    return () => clearInterval(id);
+    };
+    const start = () => {
+      if (id === null) id = window.setInterval(tick, 5000);
+    };
+    const stop = () => {
+      if (id !== null) {
+        window.clearInterval(id);
+        id = null;
+      }
+    };
+    const onVisibility = () => {
+      if (document.hidden) {
+        stop();
+        return;
+      }
+      tick();
+      start();
+    };
+    if (!document.hidden) start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [refreshSessions, refreshAuto]);
 
   // Refresh the user roster when the tab regains focus. The roster rarely
@@ -20451,6 +20488,33 @@ function AgentEditorSheet({
   const [name, setName] = useState(existing?.name ?? "");
   const [prompt, setPrompt] = useState(existing?.prompt ?? "");
   const [schedule, setSchedule] = useState(existing?.schedule ?? "0 9 * * *");
+  // The list ships a ~200-char preview, so a long agent opens here showing a
+  // clipped prompt. Pull the real text once, and only adopt it if the field is
+  // still exactly the preview — a user who started typing during the fetch
+  // keeps their edit rather than having it overwritten from under them.
+  const [promptHydrated, setPromptHydrated] = useState(!existing?.promptTruncated);
+  useEffect(() => {
+    if (isNew || !existing?.promptTruncated) return;
+    let cancelled = false;
+    const preview = existing.prompt ?? "";
+    api<{ agent: AutoAgent }>(`/api/auto/agents/${encodeURIComponent(existing.id)}`)
+      .then((r) => {
+        if (cancelled) return;
+        const full = r.agent?.prompt;
+        if (typeof full === "string") {
+          setPrompt((current) => (current === preview ? full : current));
+        }
+        setPromptHydrated(true);
+      })
+      .catch(() => {
+        // Leave the editor on the preview and let the user retype rather than
+        // silently saving a clipped prompt: the save button stays disabled.
+        if (!cancelled) setPromptHydrated(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isNew, existing?.id, existing?.promptTruncated]);
   // Schedule picker: "simple" drives the cron from friendly controls; "advanced"
   // exposes the raw cron field. We open in simple mode when the existing cron maps
   // to a pattern the picker can represent, else advanced.
@@ -20520,6 +20584,10 @@ function AgentEditorSheet({
 
   async function save() {
     if (!name.trim() || !prompt.trim() || busy) return;
+    // Never write back a prompt we only ever held a preview of. The list
+    // truncates at 200 chars, so saving before the full text arrives would
+    // quietly replace a 9 KB agent instruction with its own first line.
+    if (!promptHydrated) return;
     setBusy(true);
     try {
       await onSave({
@@ -20558,8 +20626,14 @@ function AgentEditorSheet({
             placeholder="agent-name"
             className="flex-1 bg-transparent text-[17px] font-semibold outline-none placeholder:text-muted-foreground"
           />
-          <Button size="sm" variant="brand" disabled={busy} onClick={() => void save()}>
-            {busy ? <Loader2 className="size-4 animate-spin" /> : null}
+          <Button
+            size="sm"
+            variant="brand"
+            disabled={busy || !promptHydrated}
+            title={promptHydrated ? undefined : "Loading this agent's full prompt…"}
+            onClick={() => void save()}
+          >
+            {busy || !promptHydrated ? <Loader2 className="size-4 animate-spin" /> : null}
             Save
           </Button>
         </div>

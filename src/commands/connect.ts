@@ -265,6 +265,33 @@ type HttpFrame = {
   bodyB64?: string;
 };
 
+/**
+ * Headers for the hop onto this box's own local serve.
+ *
+ * `Accept-Encoding: identity` is deliberate and load-bearing. Bun's fetch
+ * advertises gzip/br by default and transparently inflates what comes back —
+ * but it hands over the ORIGINAL response headers. So local serve spent CPU
+ * compressing a body, fetch spent more CPU inflating it, and the frame left
+ * here as plaintext still labelled `content-encoding: br` carrying the
+ * COMPRESSED `content-length`. Measured on a live box: a 141,576-byte JSON
+ * body announcing itself as 48,210 bytes of brotli.
+ *
+ * That mismatch is the reason control-plane's session proxy has to strip
+ * content-encoding and content-length before it can answer a browser at all
+ * (see STRIPPED_RESPONSE_HEADERS there) — the headers could not be trusted.
+ * Asking for identity makes the frame self-consistent and drops a
+ * compress/inflate pair that never saved a single byte on the wire.
+ *
+ * The box→relay hop is compressed by the WebSocket's own permessage-deflate
+ * instead, which is negotiated per connection and so cannot desync the way a
+ * hand-copied content-encoding header did.
+ */
+function localServeHeaders(headers?: Record<string, string>): Record<string, string> {
+  // Set last so it wins: a caller-supplied accept-encoding would reintroduce
+  // exactly the lie described above.
+  return { ...(headers ?? {}), "accept-encoding": "identity" };
+}
+
 export function isHttpFrame(value: unknown): value is HttpFrame {
   return (
     typeof value === "object" &&
@@ -530,7 +557,7 @@ export async function streamToLocalServe(
   try {
     response = await fetchImpl(`http://${LOCAL_HOST}:${LOCAL_PORT}${frame.path}`, {
       method: frame.method,
-      headers: frame.headers,
+      headers: localServeHeaders(frame.headers),
       body: frame.bodyB64 ? Buffer.from(frame.bodyB64, "base64") : undefined,
     });
   } catch (error) {
@@ -586,7 +613,7 @@ export async function forwardToLocalServe(frame: HttpFrame): Promise<{
   try {
     const response = await fetch(`http://${LOCAL_HOST}:${LOCAL_PORT}${frame.path}`, {
       method: frame.method,
-      headers: frame.headers,
+      headers: localServeHeaders(frame.headers),
       body: frame.bodyB64 ? Buffer.from(frame.bodyB64, "base64") : undefined,
     });
     const bodyB64 = Buffer.from(await response.arrayBuffer()).toString("base64");

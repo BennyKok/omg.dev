@@ -802,6 +802,46 @@ function withAutoAgentMeta<T extends { id: string; cwd?: string }>(a: T) {
   return { ...a, project: projectName(a.cwd || SELF_REPO), running: isRunning(a.id) };
 }
 
+/**
+ * How much prompt text a LIST response carries per agent.
+ *
+ * The agent list renders the prompt inside a single CSS-`truncate` line, so
+ * roughly the first 60 characters are the only ones a reader ever sees — but
+ * the full text shipped on every poll. That is not a rounding error once
+ * someone actually uses auto agents: a real box measured 29 agents carrying
+ * 89,978 bytes of prompt, 93% of a 98,980-byte response, re-fetched every 5
+ * seconds by the list poll and again by /api/bootstrap on every cold open.
+ *
+ * It is worse than it looks over the hosted relay, which strips
+ * `content-encoding` (see the box→relay leg in control-plane's
+ * session-proxy.ts), so those bytes cross the wire uncompressed.
+ *
+ * 200 is comfortably more than the line can show at any viewport. The editor
+ * needs the whole thing, so it refetches GET /api/auto/agents/:id on open —
+ * `promptTruncated` is the flag that tells it to.
+ */
+export const AUTO_AGENT_LIST_PROMPT_CHARS = 200;
+
+/** Pure half of withAutoAgentListMeta — exported so the clipping itself is
+ *  testable without standing up a server or touching the repo on disk. */
+export function truncateAutoAgentPrompt(prompt: string): {
+  prompt: string;
+  promptTruncated: boolean;
+} {
+  return prompt.length <= AUTO_AGENT_LIST_PROMPT_CHARS
+    ? { prompt, promptTruncated: false }
+    : { prompt: prompt.slice(0, AUTO_AGENT_LIST_PROMPT_CHARS), promptTruncated: true };
+}
+
+/** List-shaped agent: same as withAutoAgentMeta, minus the prompt tail. */
+function withAutoAgentListMeta<T extends { id: string; cwd?: string; prompt?: string }>(a: T) {
+  const meta = withAutoAgentMeta(a);
+  // An agent with no prompt at all keeps that shape rather than gaining an
+  // empty string, so the editor's "is this a preview?" check stays honest.
+  if (typeof a.prompt !== "string") return { ...meta, promptTruncated: false };
+  return { ...meta, ...truncateAutoAgentPrompt(a.prompt) };
+}
+
 function repoRootForManagedCwd(cwd: string): string | undefined {
   const top = Bun.spawnSync({
     cmd: ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
@@ -2764,7 +2804,7 @@ a{color:#60a5fa}
             repos: boot.repos ?? null,
             auto: {
               agents: boot.autoAgents
-                ? boot.autoAgents.map(withAutoAgentMeta)
+                ? boot.autoAgents.map(withAutoAgentListMeta)
                 : null,
               tz: boot.settings?.timeZone ?? DEFAULT_TIME_ZONE,
               findings: boot.findings ?? null,
@@ -3044,8 +3084,13 @@ a{color:#60a5fa}
         if (req.method === "GET") {
           const agents = await listAutoAgents();
           const settings = await getGlobalSettings();
+          // `?full=1` opts back into whole prompts for a caller that genuinely
+          // needs them. The default is truncated because the two hot callers —
+          // the list poll and the MCP listing tool — both only want enough to
+          // identify a row, and the MCP one is feeding an LLM context window.
+          const full = url.searchParams.get("full") === "1";
           return json({
-            agents: agents.map(withAutoAgentMeta),
+            agents: agents.map(full ? withAutoAgentMeta : withAutoAgentListMeta),
             tz: settings.timeZone,
           });
         }
@@ -3178,6 +3223,15 @@ a{color:#60a5fa}
       }
       {
         const m = path.match(/^\/api\/auto\/agents\/([a-z0-9_-]+)$/);
+        // One agent, whole prompt included. The list deliberately truncates
+        // (see AUTO_AGENT_LIST_PROMPT_CHARS), so this is where the editor gets
+        // the real text back before anyone edits and re-saves it — without it,
+        // opening and saving a long agent would silently store the preview.
+        if (m && req.method === "GET") {
+          const agent = await getAutoAgent(m[1]);
+          if (!agent) return err(404, "unknown auto agent");
+          return json({ agent: withAutoAgentMeta(agent) });
+        }
         if (m && req.method === "DELETE") {
           await deleteAutoAgent(m[1]);
           return json({ ok: true });

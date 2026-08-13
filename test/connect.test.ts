@@ -598,6 +598,49 @@ describe("streamToLocalServe", () => {
     };
   }
 
+  // Regression: Bun's fetch advertises gzip/br by default and silently inflates
+  // the response while handing back the ORIGINAL headers, so local serve's
+  // compression was spent and then thrown away — the frame left as plaintext
+  // still labelled `content-encoding: br` with the compressed content-length.
+  // A live box shipped a 141,576-byte body announcing itself as 48,210 bytes.
+  test("asks local serve for identity so the body and its headers agree", async () => {
+    const rec = recorder();
+    let seen: Record<string, string> | undefined;
+    await streamToLocalServe(
+      { type: "http", id: "req-enc", method: "GET", path: "/api/auto/agents" },
+      rec.sendBinary,
+      rec.sendJson,
+      (async (_url: string, init: RequestInit) => {
+        seen = init.headers as Record<string, string>;
+        return new Response("{}", { status: 200 });
+      }) as unknown as typeof fetch,
+    );
+    expect(seen?.["accept-encoding"]).toBe("identity");
+  });
+
+  test("identity wins over an accept-encoding handed in on the frame", async () => {
+    const rec = recorder();
+    let seen: Record<string, string> | undefined;
+    await streamToLocalServe(
+      {
+        type: "http",
+        id: "req-enc-2",
+        method: "GET",
+        path: "/api/skills",
+        headers: { "accept-encoding": "br, gzip", accept: "application/json" },
+      },
+      rec.sendBinary,
+      rec.sendJson,
+      (async (_url: string, init: RequestInit) => {
+        seen = init.headers as Record<string, string>;
+        return new Response("{}", { status: 200 });
+      }) as unknown as typeof fetch,
+    );
+    expect(seen?.["accept-encoding"]).toBe("identity");
+    // Everything else on the frame still goes through untouched.
+    expect(seen?.accept).toBe("application/json");
+  });
+
   test("streams a body larger than any single frame, in order and intact", async () => {
     // 26 MB is the artifact that took the box offline on the buffered path.
     const total = 27_508_662;
