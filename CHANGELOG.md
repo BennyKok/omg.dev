@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## August 13, 2026 - Hosted owner filter no longer hides every session (v0.1.366)
+
+Hosted Computers create unassigned sessions with an empty roster. A leftover
+owner filter hid them all while Settings still showed live agents — and
+"All projects" could not fix it because that is a different filter. Hosted
+surfaces now open Everyone, empty rosters clear invalid owner filters, and
+an explicit Everyone selection stays sticky.
+
 ## August 13, 2026 - Scheduled runs stop filling your session slots (v0.1.365)
 
 - **A leftover scheduled run no longer takes a New session slot.** On a
