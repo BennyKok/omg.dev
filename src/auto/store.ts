@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { PATHS } from "../config.ts";
 import { thinkingLevelsForAgent } from "../agent-catalog.ts";
+import { scheduleWakeHooksPush } from "./wake-hooks-push.ts";
 
 export type Severity = "high" | "med" | "low";
 export type AutoAgentBackend =
@@ -205,6 +206,7 @@ export async function saveAutoAgent(input: {
     ? list.map((a) => (a.id === id ? agent : a))
     : [...list, agent];
   await Bun.write(agentsPath(), JSON.stringify(next, null, 2));
+  scheduleWakeHooksPush();
   return agent;
 }
 
@@ -219,6 +221,7 @@ export async function deleteAutoAgent(id: string): Promise<void> {
       2,
     ),
   );
+  scheduleWakeHooksPush();
 }
 
 export async function setLastRun(id: string, ts: number): Promise<void> {

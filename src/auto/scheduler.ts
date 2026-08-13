@@ -96,43 +96,48 @@ function mostRecentDue(expr: string, now: Date, tz: string, lookbackMin = 1500):
 let timer: ReturnType<typeof setInterval> | null = null;
 let ticking = false;
 
+export async function autoSchedulerTickNow(
+  onLog: (s: string) => void = () => {},
+): Promise<boolean> {
+  if (ticking) return false; // a long catch-up batch can outlast the 60s interval
+  ticking = true;
+  try {
+    const now = new Date();
+    const tz = getGlobalSettingsSync().timeZone;
+    let agents;
+    try {
+      agents = await listAutoAgents();
+    } catch {
+      return true;
+    }
+    for (const a of agents) {
+      if (!a.enabled || !a.schedule) continue;
+      const due = mostRecentDue(a.schedule, now, tz);
+      if (due === null) continue;
+      if (a.lastRunAt && a.lastRunAt >= due) continue; // already ran for this instant
+      // Stamp first so a crash mid-run doesn't loop-retry the same instant.
+      await setLastRun(a.id, now.getTime()).catch(() => {});
+      onLog(`[auto-sched] firing ${a.id} (due ${new Date(due).toISOString()})`);
+      try {
+        await runAutoAgent(a, onLog); // sequential — chdir is process-global
+      } catch (e) {
+        onLog(`[auto-sched] ${a.id} failed: ${e}`);
+      }
+    }
+    return true;
+  } catch {
+    return true;
+  } finally {
+    ticking = false;
+  }
+}
+
 export function startAutoScheduler(onLog: (s: string) => void = () => {}): void {
   if (timer) return;
 
-  const tick = async () => {
-    if (ticking) return; // a long catch-up batch can outlast the 60s interval
-    ticking = true;
-    try {
-      const now = new Date();
-      const tz = getGlobalSettingsSync().timeZone;
-      let agents;
-      try {
-        agents = await listAutoAgents();
-      } catch {
-        return;
-      }
-      for (const a of agents) {
-        if (!a.enabled || !a.schedule) continue;
-        const due = mostRecentDue(a.schedule, now, tz);
-        if (due === null) continue;
-        if (a.lastRunAt && a.lastRunAt >= due) continue; // already ran for this instant
-        // Stamp first so a crash mid-run doesn't loop-retry the same instant.
-        await setLastRun(a.id, now.getTime()).catch(() => {});
-        onLog(`[auto-sched] firing ${a.id} (due ${new Date(due).toISOString()})`);
-        try {
-          await runAutoAgent(a, onLog); // sequential — chdir is process-global
-        } catch (e) {
-          onLog(`[auto-sched] ${a.id} failed: ${e}`);
-        }
-      }
-    } finally {
-      ticking = false;
-    }
-  };
-
-  timer = setInterval(() => void tick(), 60_000);
+  timer = setInterval(() => void autoSchedulerTickNow(onLog), 60_000);
   // Fire an initial tick shortly after boot so a restart near (or past) a
   // scheduled time catches up promptly instead of waiting up to 60s.
-  setTimeout(() => void tick(), 3_000);
+  setTimeout(() => void autoSchedulerTickNow(onLog), 3_000);
   onLog(`[auto-sched] started (tz=${getGlobalSettingsSync().timeZone}, 60s tick + catch-up)`);
 }

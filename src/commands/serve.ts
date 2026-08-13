@@ -56,6 +56,8 @@ import {
 } from "../auto/store.ts";
 import { runAutoAgent } from "../auto/runner.ts";
 import { startAutoScheduler } from "../auto/scheduler.ts";
+import { handleWakeTick } from "../auto/wake-tick.ts";
+import { pushWakeHooksNow, setWakeHooksBootId } from "../auto/wake-hooks-push.ts";
 import {
   getMetricsHistory,
   readAllPressure,
@@ -2636,6 +2638,9 @@ a{color:#60a5fa}
       }
       if (path === "/api/server/stats" && req.method === "GET") {
         return json({ stats: await serverStats() });
+      }
+      if (path === "/api/server/wake-tick" && req.method === "POST") {
+        return handleWakeTick();
       }
       if (path === "/api/server/session-usage" && req.method === "GET") {
         return json({ usage: await sessionUsage() });
@@ -6723,6 +6728,8 @@ a{color:#60a5fa}
     invalidateListSessionsCache();
   }
   startAutoScheduler((l) => console.log(l));
+  setWakeHooksBootId(SERVER_INSTANCE_ID);
+  void pushWakeHooksNow();
   // Rolling CPU/RAM/network/PSI history for the settings Performance panel.
   startMetricsSampler();
   const stopArtifactRefresh = startArtifactRefreshScheduler((l) => console.log(l));
