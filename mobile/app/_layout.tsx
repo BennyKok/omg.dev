@@ -60,12 +60,24 @@ function RootNavigator() {
            * set `contentInsetAdjustmentBehavior="automatic"` so their content
            * insets below the bar rather than starting under it.
            */
+          /**
+           * Both halves of this are load-bearing, and each was wrong alone.
+           *
+           * `headerTransparent` on its own means "draw NO background", not
+           * "use the system material" — the bar became a hole and the
+           * transcript scrolled up into the title, both unreadable. Dropping
+           * it instead fell back to the navigator's default, which is LIGHT:
+           * a white bar in a black app with an invisible title, because
+           * expo-router's stack knows nothing about our palette.
+           *
+           * `headerBlurEffect` is what actually asks UIKit for its own
+           * translucent chrome material, and it has to be told which
+           * appearance to use. RNScreens warns this may overlap iOS 26's
+           * scroll edge effect; the overlap is cosmetic, a hole and a white
+           * bar are not.
+           */
           headerTransparent: true,
-          // No headerBlurEffect. iOS 26 draws its own scroll edge effect on the
-          // bar, and RNScreens warns outright that setting both "may cause
-          // overlapping effects" — two materials stacked on one bar. The system
-          // one is the more native of the two and adapts to appearance without
-          // being told, which is the whole point of handing this to UIKit.
+          headerBlurEffect: isDark ? "systemChromeMaterialDark" : "systemChromeMaterialLight",
           headerTintColor: colors.text,
           headerBackButtonDisplayMode: "minimal",
           // The single place a screen background is painted. Every screen used

@@ -50,11 +50,30 @@ export const MAX_FONT_SCALE = 1.15;
 // forwardRef, not a plain function: screens focus the code field and the
 // composer through a ref, and a wrapper that swallows it silently breaks
 // focus() with no type error at the call site.
+/**
+ * Reset tracking to 0 unless a caller asks for something else.
+ *
+ * iOS recycles native text views, and RN only sends props that CHANGED — so a
+ * view whose new style omits `letterSpacing` keeps whatever the previous
+ * occupant set. sign-in.tsx spaces its 6-digit code field by 8pt, and after
+ * signing in the home composer's placeholder rendered as "W h a t   s h o u l
+ * d   w e", spaced by exactly that 8. Nothing in the composer's own styles
+ * mentioned tracking; it inherited it from a field on a screen that had
+ * already unmounted.
+ *
+ * Because it goes FIRST in the style array, the type scale's own tracking
+ * (largeTitle -0.4, overline 0.8, and the code field's 8) still wins wherever
+ * it is set deliberately. This only fixes the case where a component said
+ * nothing and got a stale value.
+ */
+const NO_INHERITED_TRACKING = { letterSpacing: 0 } as const;
+
 export const Text = forwardRef<RNText, TextProps>(
-  ({ maxFontSizeMultiplier, ...props }, ref) => (
+  ({ maxFontSizeMultiplier, style, ...props }, ref) => (
     <RNText
       ref={ref}
       {...props}
+      style={[NO_INHERITED_TRACKING, style]}
       maxFontSizeMultiplier={maxFontSizeMultiplier ?? MAX_FONT_SCALE}
     />
   ),
@@ -62,10 +81,11 @@ export const Text = forwardRef<RNText, TextProps>(
 Text.displayName = "Text";
 
 export const TextInput = forwardRef<RNTextInput, TextInputProps>(
-  ({ maxFontSizeMultiplier, ...props }, ref) => (
+  ({ maxFontSizeMultiplier, style, ...props }, ref) => (
     <RNTextInput
       ref={ref}
       {...props}
+      style={[NO_INHERITED_TRACKING, style]}
       maxFontSizeMultiplier={maxFontSizeMultiplier ?? MAX_FONT_SCALE}
     />
   ),
