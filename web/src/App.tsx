@@ -6087,6 +6087,7 @@ export function App() {
         .filter(
           (session) =>
             session.sessionId &&
+            session.spawnedBy !== "schedule" &&
             // A pane target means a driveable TUI session. Harness-backed
             // sessions have no pane, so admit those explicitly; otherwise Codex
             // AI-SDK sessions are fetched from /api/sessions and then hidden here.

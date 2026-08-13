@@ -564,22 +564,31 @@ function formatMemory(bytes: number): string {
 // when granted, the memory budget below still has to clear, so an override
 // can oversubscribe the setting but never the machine.
 async function activationGate(
-  options?: { overLimit?: boolean },
+  options?: { overLimit?: boolean; kind?: "interactive" | "schedule" },
 ): Promise<Response | { release: () => void; reclaimed?: number }> {
   const settings = getGlobalSettingsSync();
   if (settings.agentsPaused) {
     return err(503, "agent activation is paused");
   }
   const computer = computerAgentAdmissionContext();
-  const limit = computer?.limit ?? settings.maxLiveAgents;
+  const kind = options?.kind ?? "interactive";
+  const limit =
+    kind === "schedule"
+      ? (computer?.scheduleLimit ?? 1)
+      : (computer?.limit ?? settings.maxLiveAgents);
   if (limit === 0) return { release: () => {} };
   const overLimit = !computer && options?.overLimit === true;
   const reservation = await agentAdmission.acquire(
     overLimit ? NO_AGENT_LIMIT : limit,
     async () => {
       const available = hostAvailableMemory();
+      const sessions = await listSessions().catch(() => []);
+      const pool =
+        kind === "schedule"
+          ? sessions.filter((session) => session.spawnedBy === "schedule")
+          : sessions.filter((session) => session.spawnedBy !== "schedule");
       return {
-        sessions: await listSessions().catch(() => []),
+        sessions: pool,
         // Always measured, so every launch books its share of memory even on
         // the count-capped path. Only whether a shortfall REFUSES is
         // conditional.
@@ -626,6 +635,13 @@ async function activationGate(
       429,
       `${reservation.resident} of ${limit} agents live — close an agent, or raise the limit in Settings`,
       "agent_limit",
+    );
+  }
+  if (kind === "schedule") {
+    return err(
+      429,
+      `your ${computer.plan} Computer plan allows ${computer.scheduleLimit} concurrent scheduled runs; ${reservation.resident} live — wait for one to finish`,
+      "plan_limit",
     );
   }
   return err(
@@ -4799,7 +4815,10 @@ a{color:#60a5fa}
         // Global pause / live-agent cap. Applies to every activation — main and
         // subagent alike. Fork reaches here via its internal POST to
         // /api/sessions/new, so it inherits this gate for free.
-        const gate = await activationGate({ overLimit: body?.overLimit === true });
+        const gate = await activationGate({
+          overLimit: body?.overLimit === true,
+          kind: spawnedBy === "schedule" ? "schedule" : "interactive",
+        });
         if (gate instanceof Response) return gate;
         try {
         const tmuxName = `lfg-${randomBytes(3).toString("hex")}`;

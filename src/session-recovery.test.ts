@@ -172,4 +172,38 @@ describe("command-file session boot recovery", () => {
 
     expect(managedLaunchRow(managed, {}, {})).toBeNull();
   });
+
+  test("does not relaunch a scheduled run after boot", async () => {
+    const key = "88888888-8888-4888-8888-888888888888";
+    addManaged({
+      tmuxName: "lfg-schedule-fire",
+      cwd: root,
+      createdAt: 1,
+      agent: "aisdk",
+      sessionId: key,
+      nativeSessionId: key,
+      model: "opus",
+      launchState: "running",
+      spawnedBy: "schedule",
+    });
+    writeEntry({
+      sessionId: key,
+      agent: "claude",
+      harnessPid: 2147483647,
+      tmuxName: "lfg-schedule-fire",
+      supervisor: "process",
+      bootId: "prior-boot",
+      cwd: root,
+      model: "opus",
+      busy: false,
+      createdAt: 1,
+    });
+
+    const result = await reconcileCommandFileSessions(() => {});
+    expect(result.skippedSchedule).toBe(1);
+    expect(result.recovered).toBe(0);
+    expect(listManaged()).toEqual([]);
+    expect(readEntry(key)?.recoveryClaimBootId).toBe(currentBootId());
+    expect(() => readFileSync(capture, "utf8")).toThrow();
+  });
 });
