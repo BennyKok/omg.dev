@@ -33,8 +33,11 @@ test("the wake tick handler responds immediately and starts a tick", async () =>
   const pending = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const response = wakeTick.handleWakeTick(async () => {
+  const lines: string[] = [];
+  const logger = (line: string) => lines.push(line);
+  const response = wakeTick.handleWakeTick(logger, async (onLog) => {
     called++;
+    onLog("[auto-sched] wake tick test");
     await pending;
   });
 
@@ -42,5 +45,6 @@ test("the wake tick handler responds immediately and starts a tick", async () =>
   expect(await response.json()).toEqual({ ok: true });
   await Promise.resolve();
   expect(called).toBe(1);
+  expect(lines).toEqual(["[auto-sched] wake tick test"]);
   release();
 });

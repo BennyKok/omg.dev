@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { getGlobalSettingsSync } from "../settings.ts";
 
 export type WakeHooksPayload = {
@@ -9,6 +10,10 @@ export type WakeHooksPayload = {
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let loggedFailure = false;
 let serverBootId: string | undefined;
+
+function opaqueAgentId(id: string): string {
+  return createHash("sha256").update(id).digest("hex").slice(0, 16);
+}
 
 export function setWakeHooksBootId(bootId: string | undefined): void {
   serverBootId = bootId;
@@ -24,7 +29,11 @@ export async function pushWakeHooksNow(): Promise<void> {
     const { listAutoAgents } = await import("./store.ts");
     const agents = await listAutoAgents();
     const payload: WakeHooksPayload = {
-      hooks: agents.map(({ id, schedule, enabled }) => ({ id, schedule, enabled })),
+      hooks: agents.map(({ id, schedule, enabled }) => ({
+        id: opaqueAgentId(id),
+        schedule,
+        enabled,
+      })),
       tz: getGlobalSettingsSync().timeZone,
       ...(serverBootId ? { bootId: serverBootId } : {}),
     };
