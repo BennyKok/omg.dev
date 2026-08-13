@@ -576,7 +576,7 @@ async function activationGate(
   // file, so spawnedBy=schedule is just another session under maxLiveAgents.
   const kind = computer && options?.kind === "schedule" ? "schedule" : "interactive";
   const limit =
-    kind === "schedule"
+    kind === "schedule" && computer
       ? computer.scheduleLimit
       : (computer?.limit ?? settings.maxLiveAgents);
   if (limit === 0) return { release: () => {} };
