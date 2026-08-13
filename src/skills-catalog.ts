@@ -293,3 +293,37 @@ export async function listSkillCatalog(repoRoots: string[] = []): Promise<SkillC
   }
   return skillIndexRefresh;
 }
+
+/** Drop the server-only body text so a catalog can be sent to a client. */
+export function withoutSkillKeywords(items: SkillCatalogItem[]): SkillCatalogItem[] {
+  return items.map(({ keywords: _keywords, ...rest }) => rest);
+}
+
+/**
+ * Full-text skill search, run where the text already lives.
+ *
+ * The catalog index holds up to 4000 characters of each skill's body so a
+ * query can match prose rather than just names. That text is 87% of the
+ * catalog's bytes, so it stays here: the client sends `q`, this matches
+ * against the same haystack the browser used to build itself, and only the
+ * hits go back — without the body.
+ *
+ * Matching is deliberately identical to the old client-side filter (lowercased
+ * substring over trigger + name + description + body) so moving it across the
+ * wire changes where the work happens and nothing about which skills match.
+ */
+export async function searchSkillCatalog(
+  repoRoots: string[] = [],
+  query: string,
+  limit = 50,
+): Promise<SkillCatalogItem[]> {
+  const items = await listSkillCatalog(repoRoots);
+  const q = query.trim().toLowerCase();
+  if (!q) return withoutSkillKeywords(items).slice(0, limit);
+  const hits = items.filter((skill) =>
+    `${skill.trigger} ${skill.name} ${skill.description} ${skill.keywords || ""}`
+      .toLowerCase()
+      .includes(q),
+  );
+  return withoutSkillKeywords(hits).slice(0, limit);
+}
