@@ -2,6 +2,24 @@
 
 Recent product updates and deployment notes.
 
+## August 13, 2026 - The dashboard stops asking your CLIs if they are logged in on every load (v0.1.361)
+
+- **Opening the dashboard was costing a second and a half of pure waiting.**
+  Every page load asked each coding agent whether it was signed in, and it
+  asked by actually running them: `cursor-agent status` starts a whole Node
+  runtime, `jcode auth status` runs a shell wrapper. That is 26 processes
+  spawned per load, measured at 1542ms, to re-answer a question that only
+  changes when you log in or out of something.
+- **It was also holding up everything else on the box.** That probe ran
+  synchronously, so while it worked, nothing else the server was doing could
+  make progress. It is why small requests landed at two seconds during a cold
+  open: a config endpoint that does 1ms of work was measured at 1918ms, and
+  the same endpoint took 307ms when nothing else was competing with it.
+- **The answer is cached for a minute now, and dropped the moment it can
+  change.** Connecting an account, running setup, adding a key or logging in
+  through the terminal all clear it, so what you see is still current. Hitting
+  Refresh in Settings still forces the full check.
+
 ## August 13, 2026 - The keyboard stops pushing sheets off the screen (v0.1.360)
 
 - **The project picker and the Resume sheet now grow into a page when you tap a
