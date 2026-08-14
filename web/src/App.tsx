@@ -8466,6 +8466,71 @@ function UsageRings({
   );
 }
 
+function UsageRingsLoading({
+  size = 22,
+  className,
+}: {
+  size?: number;
+  className?: string;
+}) {
+  const c = size / 2;
+  const sw = size >= 40 ? 4 : 3;
+  const gap = sw + 1.5;
+  const outer = c - sw / 2 - 0.5;
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      className={cn("shrink-0 -rotate-90 animate-spin motion-reduce:animate-none", className)}
+      role="status"
+      aria-label="Loading usage"
+    >
+      {[0, 1, 2].map((i) => {
+        const r = outer - i * gap;
+        if (r <= 0) return null;
+        const circ = 2 * Math.PI * r;
+        const color = USAGE_RING_COLORS[i % USAGE_RING_COLORS.length];
+        return (
+          <g key={i}>
+            <circle
+              cx={c}
+              cy={c}
+              r={r}
+              fill="none"
+              stroke={color}
+              strokeOpacity={0.16}
+              strokeWidth={sw}
+            />
+            <circle
+              cx={c}
+              cy={c}
+              r={r}
+              fill="none"
+              stroke={color}
+              strokeWidth={sw}
+              strokeLinecap="round"
+              strokeDasharray={`${circ * (0.22 + i * 0.08)} ${circ}`}
+              strokeDashoffset={circ * i * 0.18}
+            />
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function UsageRingsLoadingIndicator() {
+  return (
+    <span
+      className="flex shrink-0 items-center justify-center rounded-full p-1 pl-4 md:pl-1"
+      title="Loading usage"
+    >
+      <UsageRingsLoading />
+    </span>
+  );
+}
+
 // The composer's usage indicator: compact rings that expand into an animated
 // popover breaking down each limit window (label, %, reset time). Works for any
 // provider that reports windows; falls back to the provider note otherwise.
@@ -17808,15 +17873,13 @@ function NewSessionDialog({
     setProjectSheetOpen(false);
   }
 
-  // One ring, one request: the composer asks only for the source behind the
-  // agent it's showing, and re-asks when the Claude account changes — each
-  // account has its own limits, so switching must re-read them.
-  const { usage } = useProviderUsage({
+  // A pinned account shows its own limits. Claude Auto has no pinned account,
+  // so it folds every connected Claude profile into one combined-capacity ring.
+  const { usage, loading: usageLoading } = useProviderUsage({
     agent,
-    accountId: agent === "aisdk" ? claudeAccountId : null,
-    // Auto has no concrete account until the server makes the launch decision;
-    // showing account 1's ring here would falsely imply that it was selected.
-    enabled: open && (agent !== "aisdk" || !!claudeAccountId),
+    accountId: agent === "aisdk" ? claudeAccountId || null : null,
+    combineAccounts: agent === "aisdk" && !claudeAccountId,
+    enabled: open,
   });
 
   useEffect(() => {
@@ -18362,7 +18425,11 @@ function NewSessionDialog({
         )}
       >
         {/* Left: Apple-Watch-style usage rings; tap to expand the breakdown. */}
-        {usage ? <UsageRingsButton provider={usage} /> : null}
+        {usageLoading ? (
+          <UsageRingsLoadingIndicator />
+        ) : usage ? (
+          <UsageRingsButton provider={usage} />
+        ) : null}
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-xs",
