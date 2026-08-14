@@ -15,6 +15,7 @@ import { homedir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
 import { MAIN_REF } from "./agents/collectors/git-fresh.ts";
 import { listManaged } from "./managed.ts";
+import { recentlyActiveCwds } from "./resume-cache.ts";
 import { tmuxHasSession } from "./tmux.ts";
 
 // Persistent, env-overridable. Never default to /tmp: it is cleared on reboot
@@ -314,6 +315,8 @@ export type WorktreeSweepResult = {
   unmanaged: string[];
   /** Owned worktrees held back because they contain uncommitted work. */
   dirty: string[];
+  /** Held back because the session was active inside the recency window. */
+  recentlyActive: string[];
 };
 
 /**
@@ -362,15 +365,32 @@ function worktreesInUse(): Set<string> {
 export async function sweepStaleWorktrees(opts?: {
   minAgeMs?: number;
   now?: number;
+  recentActivityMs?: number;
 }): Promise<WorktreeSweepResult> {
   const minAgeMs = opts?.minAgeMs ?? worktreeSweepMinAgeMs();
   const now = opts?.now ?? Date.now();
+  const recentActivityMs = opts?.recentActivityMs ?? worktreeSweepRecentActivityMs();
   const managed = new Set<string>();
   for (const m of listManaged()) {
     managed.add(m.tmuxName);
     managed.add(basename(m.cwd));
   }
   const inUse = worktreesInUse();
+  // Every other liveness signal describes this instant. A reboot, a crash, or
+  // a resume that re-keyed the managed row makes a perfectly resumable session
+  // look dead to all of them, and deleting its worktree is exactly what makes
+  // it unresumable. Recent activity survives all three.
+  const recentNames = new Set<string>();
+  try {
+    for (const cwd of recentlyActiveCwds(recentActivityMs, now)) {
+      if (cwd.startsWith(`${WORKTREE_ROOT}/`)) {
+        const name = cwd.slice(WORKTREE_ROOT.length + 1).split("/")[0];
+        if (name) recentNames.add(name);
+      }
+    }
+  } catch {
+    // An unreadable cache must never widen what the sweeper deletes.
+  }
   const result: WorktreeSweepResult = {
     scanned: 0,
     removed: [],
@@ -379,6 +399,7 @@ export async function sweepStaleWorktrees(opts?: {
     failed: [],
     unmanaged: [],
     dirty: [],
+    recentlyActive: [],
   };
 
   if (!existsSync(WORKTREE_ROOT)) return result;
@@ -404,6 +425,11 @@ export async function sweepStaleWorktrees(opts?: {
 
     if (tmuxHasSession(name) || managed.has(name) || inUse.has(name)) {
       result.kept++;
+      continue;
+    }
+
+    if (recentNames.has(name)) {
+      result.recentlyActive.push(name);
       continue;
     }
 
@@ -444,6 +470,16 @@ function worktreeSweepMinAgeMs(): number {
   return Number.isFinite(n) && n >= 0 ? n : 2 * 60_000;
 }
 
+// How far back a session must have been silent before its worktree may be
+// reclaimed. Deliberately generous: keeping a stale directory costs disk,
+// while deleting a live one costs the session.
+function worktreeSweepRecentActivityMs(): number {
+  const raw = process.env.LFG_WORKTREE_SWEEP_RECENT_MS;
+  const fallback = 24 * 60 * 60_000;
+  const n = raw ? parseInt(raw, 10) : fallback;
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
 let sweepTimer: ReturnType<typeof setInterval> | null = null;
 let sweeping = false;
 
@@ -462,6 +498,7 @@ export function startWorktreeSweep(onLog: (s: string) => void = () => {}): void 
           `[worktree-sweep] scanned=${r.scanned} removed=${r.removed.length}` +
             (r.removed.length ? ` [${r.removed.join(", ")}]` : "") +
             (r.failed.length ? ` failed=[${r.failed.join(", ")}]` : "") +
+            (r.recentlyActive.length ? ` kept-recent=${r.recentlyActive.length}` : "") +
             (r.dirty.length ? ` kept-dirty=[${r.dirty.join(", ")}]` : ""),
         );
       }
