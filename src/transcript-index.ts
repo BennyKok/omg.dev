@@ -854,6 +854,7 @@ export function transcriptIndexCurrent(path: string): boolean {
 export function deleteTranscriptIndexForPath(path: string): void {
   init();
   pageTotalCache.delete(path);
+  directNextOffset.delete(path);
   const d = database();
   d.transaction(() => {
     d.query("DELETE FROM transcript_messages_fts WHERE rowid IN (SELECT rowid FROM transcript_messages WHERE path = ?)")

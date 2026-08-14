@@ -7,11 +7,18 @@ import { addManaged, resetManagedRegistryForTests } from "./managed.ts";
 import { resetResumeCacheConnectionForTests } from "./resume-cache.ts";
 import {
   cwdForTranscript,
+  loadJcodeCombinedMessages,
   normalizeLineMessages,
+  resetJcodeTranscriptSyncForTests,
   resolveTranscript,
   setJcodeSessionsDirForTests,
+  syncJcodeTranscriptIndex,
 } from "./sessions.ts";
-import { indexedMessagePage, resetTranscriptIndexConnectionForTests } from "./transcript-index.ts";
+import {
+  indexedMessagePage,
+  resetTranscriptIndexConnectionForTests,
+  sessionIndexKey,
+} from "./transcript-index.ts";
 
 const originalData = PATHS.data;
 const SESSION_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -78,6 +85,7 @@ beforeEach(() => {
   resetManagedRegistryForTests();
   resetResumeCacheConnectionForTests();
   resetTranscriptIndexConnectionForTests();
+  resetJcodeTranscriptSyncForTests();
 });
 
 afterEach(() => {
@@ -85,6 +93,7 @@ afterEach(() => {
   resetManagedRegistryForTests();
   resetResumeCacheConnectionForTests();
   resetTranscriptIndexConnectionForTests();
+  resetJcodeTranscriptSyncForTests();
   PATHS.data = originalData;
   rmSync(root, { recursive: true, force: true });
 });
@@ -164,7 +173,7 @@ describe("normalizeLineMessages jcode journal", () => {
 });
 
 describe("resolveTranscript jcode", () => {
-  test("resolves a managed session by remembered native id", async () => {
+  test("resolves a managed session by remembered native id into the session index", async () => {
     const { journal } = writeJcodeSession({});
     addManaged({
       tmuxName: "lfg-jcode",
@@ -176,12 +185,13 @@ describe("resolveTranscript jcode", () => {
       launchState: "running",
     });
 
-    expect(await resolveTranscript(SESSION_ID)).toBe(journal);
+    expect(await resolveTranscript(SESSION_ID)).toBe(sessionIndexKey(SESSION_ID));
     expect(await cwdForTranscript(journal)).toBe(CWD);
+    expect(await cwdForTranscript(sessionIndexKey(SESSION_ID))).toBe(CWD);
   });
 
   test("resolves by cwd + createdAt when native id is not stored yet", async () => {
-    const { journal } = writeJcodeSession({
+    writeJcodeSession({
       createdAt: "2026-08-13T15:18:07.477Z",
     });
     addManaged({
@@ -193,7 +203,7 @@ describe("resolveTranscript jcode", () => {
       launchState: "running",
     });
 
-    expect(await resolveTranscript(SESSION_ID)).toBe(journal);
+    expect(await resolveTranscript(SESSION_ID)).toBe(sessionIndexKey(SESSION_ID));
   });
 
   test("does not bind an older same-cwd journal from before launch", async () => {
@@ -227,7 +237,7 @@ describe("resolveTranscript jcode", () => {
   });
 
   test("indexes the journal so the messages page can return chat history", async () => {
-    const { journal } = writeJcodeSession({
+    writeJcodeSession({
       lines: [
         journalLine([
           {
@@ -257,12 +267,111 @@ describe("resolveTranscript jcode", () => {
       launchState: "running",
     });
 
-    expect(await resolveTranscript(SESSION_ID)).toBe(journal);
-    const page = await indexedMessagePage(journal, SESSION_ID, { limit: 20 });
+    const path = await resolveTranscript(SESSION_ID);
+    expect(path).toBe(sessionIndexKey(SESSION_ID));
+    if (!path) throw new Error("expected jcode transcript path");
+    const page = await indexedMessagePage(path, SESSION_ID, { limit: 20 });
     expect(page.total).toBe(2);
     expect(page.messages.map((m) => ({ role: m.role, text: m.text }))).toEqual([
       { role: "user", text: "Fix the drawer morph" },
       { role: "assistant", text: "I will inspect the drawer." },
     ]);
+  });
+
+  test("recovers full history when the journal was rewritten but session.json still has turns", async () => {
+    // Reproduce the production failure: jcode rewrites journal.jsonl down to a
+    // few recent lines while session_<id>.json still holds the full chat.
+    const id = NATIVE_ID;
+    writeFileSync(
+      join(sessionsDir, `${id}.json`),
+      JSON.stringify({
+        id,
+        working_dir: CWD,
+        created_at: "2026-08-13T15:18:07.477Z",
+        updated_at: "2026-08-13T15:20:00.000Z",
+        last_pid: 773668,
+        model: "claude-opus-5",
+        messages: [
+          {
+            id: "message_sys",
+            role: "user",
+            display_role: "system",
+            timestamp: "2026-08-13T15:18:07.480Z",
+            content: [{ type: "text", text: "<system-reminder>\n# Session Context\n</system-reminder>" }],
+          },
+          {
+            id: "message_user_1",
+            role: "user",
+            timestamp: "2026-08-13T15:18:07.741Z",
+            content: [{ type: "text", text: "User: Fix the drawer morph" }],
+          },
+          {
+            id: "message_asst_1",
+            role: "assistant",
+            timestamp: "2026-08-13T15:18:10.938Z",
+            content: [{ type: "text", text: "I will inspect the drawer." }],
+          },
+          {
+            id: "message_user_2",
+            role: "user",
+            timestamp: "2026-08-13T15:19:00.000Z",
+            content: [{ type: "text", text: "Also fix the tint." }],
+          },
+          {
+            id: "message_asst_2",
+            role: "assistant",
+            timestamp: "2026-08-13T15:19:05.000Z",
+            content: [{ type: "text", text: "Tint is next." }],
+          },
+        ],
+      }),
+    );
+    // Truncated journal: only a post-rewrite user turn, none of the history above.
+    writeFileSync(
+      join(sessionsDir, `${id}.journal.jsonl`),
+      journalLine([
+        {
+          id: "message_user_3",
+          role: "user",
+          timestamp: "2026-08-13T15:20:00.000Z",
+          content: [{ type: "text", text: "hi" }],
+        },
+      ]) + "\n",
+    );
+    addManaged({
+      tmuxName: "lfg-jcode",
+      cwd: CWD,
+      createdAt: Date.parse("2026-08-13T15:18:07.000Z"),
+      agent: "jcode",
+      sessionId: SESSION_ID,
+      nativeSessionId: id,
+      launchState: "running",
+    });
+
+    const combined = await loadJcodeCombinedMessages(id);
+    expect(combined.map((m) => m.text)).toEqual([
+      "Fix the drawer morph",
+      "I will inspect the drawer.",
+      "Also fix the tint.",
+      "Tint is next.",
+      "hi",
+    ]);
+
+    const path = await resolveTranscript(SESSION_ID);
+    expect(path).toBe(sessionIndexKey(SESSION_ID));
+    if (!path) throw new Error("expected jcode transcript path");
+    const page = await indexedMessagePage(path, SESSION_ID, { limit: 50 });
+    expect(page.total).toBe(5);
+    expect(page.messages.map((m) => ({ role: m.role, text: m.text }))).toEqual([
+      { role: "user", text: "Fix the drawer morph" },
+      { role: "assistant", text: "I will inspect the drawer." },
+      { role: "user", text: "Also fix the tint." },
+      { role: "assistant", text: "Tint is next." },
+      { role: "user", text: "hi" },
+    ]);
+
+    // Second resolve is a stamp no-op and keeps the same history.
+    expect(await syncJcodeTranscriptIndex(SESSION_ID, id)).toBe(path);
+    expect((await indexedMessagePage(path, SESSION_ID, { limit: 50 })).total).toBe(5);
   });
 });
