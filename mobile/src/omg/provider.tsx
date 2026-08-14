@@ -37,6 +37,25 @@ export type ComputerBinding = {
   computerUrl?: string | null;
 };
 
+/**
+ * What the SELECTED box can run and where. Read from /api/bootstrap, which is
+ * the same one round trip the web takes, rather than /api/agents (auto agents,
+ * a different thing entirely) plus /api/repos as two calls.
+ *
+ * This has to be per-machine state, not global: agents are configured on the
+ * box and folders exist on its disk, so it is invalidated whenever bindingId
+ * changes. Caching it across a switch would offer you a project that does not
+ * exist on the machine you are now pointed at.
+ */
+export type CodingAgent = {
+  key: string;
+  label: string;
+  visible?: boolean;
+  status?: { configured?: boolean; accountConnected?: boolean };
+};
+
+export type Repo = { name: string; cwd: string };
+
 /** Shape returned by control-plane getCloudComputer. */
 export type CloudComputer = {
   status?: string;
@@ -70,6 +89,14 @@ type OmgContextValue = {
   readiness: ComputerReadiness | null;
   /** Re-probe /api/bootstrap, waiting out a wake. */
   probe: () => Promise<void>;
+
+  /**
+   * The selected box's roster. Empty until a bootstrap lands, and cleared on
+   * every machine switch — see the type note above for why it cannot be
+   * shared across machines.
+   */
+  agents: CodingAgent[];
+  repos: Repo[];
 };
 
 const Context = createContext<OmgContextValue | null>(null);
@@ -334,6 +361,31 @@ export function OmgProvider({ children }: PropsWithChildren) {
     setAuthStatus("signed-out");
   }, []);
 
+  /**
+   * The roster is DERIVED from readiness, never fetched or stored separately.
+   * readiness is already reset to null on selectBinding, so a machine switch
+   * empties this by construction — there is no second piece of state that can
+   * be left holding the previous box's projects.
+   *
+   * Only agents this box can actually launch are offered. An agent that is
+   * hidden in Settings or has no account behind it would 400 on
+   * POST /api/sessions/new, so listing it is offering a choice that fails.
+   */
+  const agents = useMemo<CodingAgent[]>(
+    () =>
+      readiness?.status === "ready"
+        ? readiness.roster.agents.filter(
+            (a) => a.visible !== false && a.status?.configured !== false,
+          )
+        : [],
+    [readiness],
+  );
+
+  const repos = useMemo<Repo[]>(
+    () => (readiness?.status === "ready" ? readiness.roster.repos : []),
+    [readiness],
+  );
+
   const value = useMemo<OmgContextValue>(
     () => ({
       authStatus,
@@ -350,6 +402,8 @@ export function OmgProvider({ children }: PropsWithChildren) {
       client,
       readiness,
       probe,
+      agents,
+      repos,
     }),
     [
       authStatus,
@@ -366,6 +420,8 @@ export function OmgProvider({ children }: PropsWithChildren) {
       client,
       readiness,
       probe,
+      agents,
+      repos,
     ],
   );
 

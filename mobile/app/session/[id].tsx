@@ -69,7 +69,6 @@ import { AgentAvatar, Icon, IconButton } from "../../src/components";
 import { agentLabel as agentDisplayName } from "../../src/omg/agent-icons";
 import { showActionMenu, type MenuAction } from "../../src/omg/native-menu";
 import { useOmg } from "../../src/omg/provider";
-import { GlassSurface, LIQUID_GLASS } from "../../src/omg/glass";
 import { useTheme } from "../../src/omg/theme";
 import { useToast } from "../../src/omg/toast";
 import {
@@ -549,9 +548,20 @@ export default function SessionScreen() {
         </View>
       ) : null}
 
-      <GlassSurface
-        variant="clear"
-        fallbackColor="transparent"
+      {/* The bar itself draws NOTHING.
+ *
+ * It used to be a surface in its own right: a fill plus a hairline rule
+ * across the top, with the rounded field sitting on it. Against a black
+ * transcript that reads as a grey slab pasted along the bottom of the
+ * screen — a band whose edges have no meaning, since the thing you
+ * interact with is the pill inside it, not the panel behind it.
+ *
+ * The fill and the rule were there to separate the composer from the
+ * scrolling transcript. The field's own shape already does that, and
+ * `keyboardDismissMode="interactive"` means content is meant to pass
+ * behind it. So the bar is now pure layout, and the field is the only
+ * surface — the same rule the home composer follows. */}
+      <View
         style={{
           flexDirection: "row",
           alignItems: "flex-end",
@@ -559,12 +569,6 @@ export default function SessionScreen() {
           paddingHorizontal: space.md,
           paddingTop: space.sm,
           paddingBottom: insets.bottom + space.sm,
-          // Under Liquid Glass the bar is a blurred surface, so a hairline rule
-          // and an opaque fill would both fight it. Everywhere else they are
-          // what separates the composer from the transcript behind it.
-          borderTopWidth: LIQUID_GLASS ? 0 : StyleSheet.hairlineWidth,
-          borderTopColor: colors.border,
-          backgroundColor: LIQUID_GLASS ? "transparent" : colors.bg,
         }}
       >
         {/* One field, everything else flat. The bar used to stack three
@@ -662,7 +666,7 @@ export default function SessionScreen() {
             )}
           </Pressable>
         </View>
-      </GlassSurface>
+      </View>
     </Reanimated.View>
   );
 }

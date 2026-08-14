@@ -38,25 +38,44 @@ export function machineSpec(machine?: {
 }
 
 /**
- * A machine's human name. Paired boxes report a folder rather than a hostname,
- * and its basename is the most recognisable thing we have — "vibes" beats
- * "62494ca7-db41-4e88…" for someone picking between two machines.
+ * A machine's own name — what to call the COMPUTER, not the work it happens to
+ * be pointed at.
+ *
+ * This used to prefer `defaultFolder`'s basename, so the header chip on the
+ * home screen read "vibes": the name of a project directory, presented as the
+ * name of a machine. Two boxes bound to folders of the same name were
+ * indistinguishable, and switching machines could leave the chip completely
+ * unchanged. The folder is a separate decision, now made in the composer, and
+ * conflating the two made both unreadable.
+ *
+ * The hostname is the machine's real identity, so it goes first. The folder
+ * stays as a fallback rather than being dropped: a paired box that has not
+ * advertised a URL yet still needs something recognisable, and a folder name
+ * beats a truncated uuid.
  */
 export function bindingLabel(binding: {
   id: string;
   defaultFolder?: string | null;
   computerUrl?: string | null;
 }): string {
-  const folder = binding.defaultFolder?.split("/").filter(Boolean).pop();
-  if (folder) return folder;
   if (binding.computerUrl) {
     try {
-      return new URL(binding.computerUrl).hostname.split(".")[0];
+      const host = new URL(binding.computerUrl).hostname.split(".")[0];
+      if (host && host !== "localhost" && !/^\d+$/.test(host)) return host;
     } catch {
       /* fall through */
     }
   }
+  const folder = binding.defaultFolder?.split("/").filter(Boolean).pop();
+  if (folder) return folder;
   return `${binding.id.slice(0, 8)}…`;
+}
+
+/** The folder a machine defaults to, for the composer's project caption. */
+export function bindingFolderLabel(binding: {
+  defaultFolder?: string | null;
+}): string | null {
+  return binding.defaultFolder?.split("/").filter(Boolean).pop() ?? null;
 }
 
 /** Turn a readiness/cloud status code into something a person can act on. */

@@ -15,8 +15,21 @@
 
 import type { OmgTransport } from "@omg-dev/client";
 
+/** What the box can run, and the folders it can run in. */
+export type BootstrapRoster = {
+  agents: { key: string; label: string; visible?: boolean; status?: { configured?: boolean; accountConnected?: boolean } }[];
+  repos: { name: string; cwd: string }[];
+};
+
 export type ComputerReadiness =
-  | { status: "ready"; version?: string; sessions: unknown[] }
+  /**
+   * The roster rides along on `ready` rather than being fetched separately.
+   * /api/bootstrap already returns `codingAgents` and `repos` and this probe
+   * already parses that body — a second request for data we just threw away
+   * would be a second source of truth that can disagree with this one, and it
+   * would have to be re-issued on the same events. One fetch, one owner.
+   */
+  | { status: "ready"; version?: string; sessions: unknown[]; roster: BootstrapRoster }
   /** Cold sandbox resuming. Retry — do not surface an error. */
   | { status: "waking" }
   /** Too many live agents for this plan (429) or this box's local cap. */
@@ -51,6 +64,14 @@ export async function probeReadiness(
       status: "ready",
       version: typeof body?.version === "string" ? body.version : undefined,
       sessions: Array.isArray(body?.sessions) ? body.sessions : [],
+      roster: {
+        // `codingAgents` is the launchable roster. `agents` on the same body is
+        // AUTO agents (scheduled watches) — a different feature with a
+        // confusingly similar name, and reading it here would offer someone's
+        // cron jobs as coding backends.
+        agents: Array.isArray(body?.codingAgents) ? body.codingAgents : [],
+        repos: Array.isArray(body?.repos) ? body.repos : [],
+      },
     };
   }
 

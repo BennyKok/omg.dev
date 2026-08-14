@@ -15,12 +15,9 @@ import { useFocusEffect, useNavigation, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
-  StyleSheet,
   View,
 } from "react-native";
 import Reanimated, { useAnimatedKeyboard, useAnimatedStyle } from "react-native-reanimated";
@@ -32,37 +29,35 @@ import type { OmgConnectionStatus } from "@omg-dev/client";
 import {
   EmptyState,
   HomeComposer,
-  Icon,
   IconButton,
   PrimaryButton,
   SectionHeader,
   SessionCard,
   StatusDot,
 } from "../src/components";
-import { BrandMark } from "../src/omg/brand-mark";
 import { useComputerPicker } from "../src/omg/computer-picker";
+import { useAgentPicker, useProjectPicker } from "../src/omg/session-options";
 import { useOmg } from "../src/omg/provider";
 import { useToast } from "../src/omg/toast";
-import { LIQUID_GLASS } from "../src/omg/glass";
 import { SessionListSkeleton } from "../src/omg/skeleton";
 import { useTheme } from "../src/omg/theme";
 import { bindingLabel } from "../src/omg/format";
 import { CLOUD_BINDING_ID } from "../src/omg/config";
 
 /**
- * The agent a composer session launches on. Omitting `agent` from
- * POST /api/sessions/new makes the server pick "aisdk" (verified in
- * src/commands/serve.ts), so the avatar simply shows that default.
+ * The list screen owns the draft and the two choices that go with it; the
+ * pickers own which options exist and which one is current. See
+ * session-options.ts for why neither selection is persisted.
  */
-const COMPOSER_AGENT = "aisdk";
-
 export default function SessionsScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const { colors, isDark, type, space, radius } = useTheme();
+  const { colors, type, space } = useTheme();
   const { client, readiness, probe, bindingId, bindings } = useOmg();
   const computerPicker = useComputerPicker();
+  const agentPicker = useAgentPicker();
+  const projectPicker = useProjectPicker();
 
   const [sessions, setSessions] = useState<OmgSession[]>([]);
   const [loading, setLoading] = useState(false);
@@ -136,8 +131,8 @@ export default function SessionsScreen() {
 
   /**
    * The composer Start button. Same request the web's composer sends
-   * (POST /api/sessions/new); `agent` is omitted so the box runs its default,
-   * and `cwd` rides along when the paired machine reports a folder.
+   * (POST /api/sessions/new), now carrying both choices explicitly instead of
+   * letting the server pick the agent and the binding pick the folder.
    */
   const startSession = useCallback(async () => {
     const prompt = draft.trim();
@@ -149,7 +144,8 @@ export default function SessionsScreen() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt,
-          cwd: currentBinding?.defaultFolder ?? undefined,
+          agent: agentPicker.agent,
+          cwd: projectPicker.cwd ?? undefined,
         }),
       });
       setDraft("");
@@ -161,42 +157,53 @@ export default function SessionsScreen() {
     } finally {
       setStarting(false);
     }
-  }, [client, currentBinding, draft, starting, load, router]);
+  }, [client, agentPicker.agent, projectPicker.cwd, draft, starting, load, router]);
 
   /**
-   * The web's "Smart clear": archive every idle session in one request. Busy
-   * sessions are never in the list, so nothing running is touched.
+   * Archive one session, the gesture the row itself commits to.
+   *
+   * This replaces "Smart clear", which was a text button in a section header
+   * that archived EVERY idle session behind one confirm. That is a bulk
+   * destructive action reachable by a single tap next to the rows it destroys,
+   * offered on a phone, where the thing people actually want is to get rid of
+   * ONE row. Swiping a row archives that row, which is both the iOS idiom and
+   * the operation people were reaching for.
+   *
+   * Same endpoint the session screen's own Archive uses, scoped to one id, so
+   * there is one archive path rather than a per-row special case. No confirm
+   * dialog: a deliberate swipe past a threshold IS the confirmation, and an
+   * archived session can be resumed.
    */
-  const smartClear = useCallback(() => {
-    if (!client) return;
-    const ids = idle.map((s) => s.sessionId).filter((id): id is string => !!id);
-    if (!ids.length) return;
-    Alert.alert(
-      `Archive ${ids.length} idle session${ids.length === 1 ? "" : "s"}?`,
-      "They can be resumed later.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Archive",
-          style: "destructive",
-          onPress: () => {
-            void (async () => {
-              try {
-                await client.transport.request("/api/sessions/close-all", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ source: "live_clear_idle", scope: "idle", sessionIds: ids }),
-                });
-                await load();
-              } catch (e) {
-                setError(e instanceof Error ? e.message : String(e));
-              }
-            })();
-          },
-        },
-      ],
-    );
-  }, [client, idle, load]);
+  const archiveSession = useCallback(
+    (sessionId: string | null) => {
+      if (!client || !sessionId) return;
+      // Drop the row immediately. The request is not instant, and leaving a
+      // card that has just been swiped away sitting on screen until the server
+      // answers reads as the gesture having failed.
+      setSessions((current) => current.filter((s) => s.sessionId !== sessionId));
+      void (async () => {
+        try {
+          await client.transport.request("/api/sessions/close-all", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              source: "mobile_swipe_archive",
+              scope: "idle",
+              sessionIds: [sessionId],
+            }),
+          });
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        } finally {
+          // Re-read either way: on success this confirms the removal, and on
+          // failure it puts the row back rather than leaving the list lying.
+          await load();
+        }
+      })();
+    },
+    [client, load],
+  );
+
 
   /**
    * The bar is the system's, not ours.
@@ -384,8 +391,6 @@ export default function SessionsScreen() {
                   label="Idle"
                   count={idle.length}
                   dotColor={colors.success}
-                  actionLabel="Smart clear"
-                  onAction={smartClear}
                 />
                 <View style={{ gap: space.md }}>
                   {idle.map((s, i) => (
@@ -396,6 +401,7 @@ export default function SessionsScreen() {
                       agent={s.agent ?? s.agentLabel}
                       blocked={s.status === "blocked"}
                       onPress={() => openSession(s.sessionId)}
+                      onArchive={() => archiveSession(s.sessionId)}
                     />
                   ))}
                 </View>
@@ -413,8 +419,11 @@ export default function SessionsScreen() {
           onChangeText={setDraft}
           onStart={() => void startSession()}
           starting={starting}
-          projectLabel={currentBinding ? bindingLabel(currentBinding) : null}
-          agent={COMPOSER_AGENT}
+          projectLabel={projectPicker.label}
+          onPickProject={projectPicker.open}
+          agent={agentPicker.agent}
+          agentLabel={agentPicker.label}
+          onPickAgent={agentPicker.open}
           bottomInset={insets.bottom}
         />
       ) : null}

@@ -6,13 +6,21 @@
 
 import {
   ActivityIndicator,
+  Dimensions,
   Image,
+  PanResponder,
   Pressable,
   StyleSheet,
   View,
   type ViewStyle,
 } from "react-native";
-import Reanimated from "react-native-reanimated";
+import { useMemo, useRef } from "react";
+import * as Haptics from "expo-haptics";
+import Reanimated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { Text, TextInput } from "./omg/text";
 import {
   SymbolView,
@@ -25,6 +33,13 @@ import { agentIcon } from "./omg/agent-icons";
 import { GlassSurface, LIQUID_GLASS } from "./omg/glass";
 import { PressableScale, useListItemMotion } from "./omg/motion";
 import { useTheme } from "./omg/theme";
+
+/** Leftward drag past this, or a fast enough flick, archives the row. */
+const SWIPE_ARCHIVE_PX = 96;
+const SWIPE_ARCHIVE_VELOCITY = 0.5;
+/** How far the card travels before the red behind it is at full strength. */
+const REVEAL_WIDTH = 96;
+const SCREEN_WIDTH = Dimensions.get("window").width;
 
 /** Green when the agent is working, grey when idle, amber when blocked. */
 export function StatusDot({
@@ -419,6 +434,7 @@ export function SessionCard({
   busy,
   blocked,
   onPress,
+  onArchive,
 }: {
   title: string;
   subtitle?: string | null;
@@ -426,86 +442,189 @@ export function SessionCard({
   busy?: boolean;
   blocked?: boolean;
   onPress: () => void;
+  /** Omit to make the row unswipeable — a running session has nothing to archive. */
+  onArchive?: () => void;
 }) {
-  const { colors, isDark, radius, type, space } = useTheme();
+  const { colors, isDark, radius, type, space, motion } = useTheme();
   // Entering/exiting/layout live on this outer, style-less view rather than
   // folded into PressableScale below: list membership (a card arriving,
   // leaving, or resettling because a sibling did) and press feedback are
   // different concerns with different lifetimes, and PressableScale is
   // reused by four other pressables that have no list to belong to.
   const listMotion = useListItemMotion();
+
+  /**
+   * Swipe-to-archive, on PanResponder rather than react-native-gesture-handler.
+   *
+   * GH resolves in node_modules as a transitive dependency of
+   * expo-router/react-native-screens, but its native module is NOT in this
+   * app's binary — checked with `nm` against the installed .app — so importing
+   * Swipeable would throw at runtime and could only be fixed by a new
+   * TestFlight build. PanResponder is React Native core and rides along in the
+   * JS bundle, so this reaches the phone in an over-the-air update. Same
+   * reasoning, and the same shape, as the toast's swipe-to-dismiss.
+   */
+  const translateX = useSharedValue(0);
+  const archiveRef = useRef(onArchive);
+  archiveRef.current = onArchive;
+  const swipeable = !!onArchive;
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        // Only claim a gesture that is clearly HORIZONTAL and leftward. The
+        // card sits in a vertical ScrollView, so a responder that took every
+        // touch would eat scrolling; requiring dx to beat dy leaves the list
+        // scrollable and makes the two gestures unambiguous rather than
+        // racing.
+        //
+        // This MUST be the capture variant. The card's own PressableScale
+        // becomes the responder on touch-start, and a responder is only
+        // dislodged by an ancestor asking during the CAPTURE phase — the
+        // bubbling `onMoveShouldSetPanResponder` is never even consulted once
+        // a child holds the gesture. With the bubbling version the swipe was
+        // silently dead: every drag was delivered to the Pressable, which does
+        // nothing with movement, so the card neither moved nor opened.
+        onMoveShouldSetPanResponderCapture: (_evt, gesture) =>
+          swipeable && gesture.dx < -8 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5,
+        onPanResponderMove: (_evt, gesture) => {
+          if (gesture.dx < 0) translateX.value = Math.max(gesture.dx, -REVEAL_WIDTH * 1.4);
+        },
+        onPanResponderRelease: (_evt, gesture) => {
+          const committed =
+            gesture.dx < -SWIPE_ARCHIVE_PX || gesture.vx < -SWIPE_ARCHIVE_VELOCITY;
+          if (committed) {
+            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            // Slide the card out under its own exit rather than snapping back
+            // and letting the row vanish from a list update: the motion is the
+            // confirmation that the swipe did something.
+            translateX.value = withTiming(-SCREEN_WIDTH, { duration: motion.fast });
+            archiveRef.current?.();
+          } else {
+            translateX.value = withTiming(0, { duration: motion.quick });
+          }
+        },
+        onPanResponderTerminate: () => {
+          translateX.value = withTiming(0, { duration: motion.quick });
+        },
+      }),
+    [swipeable, translateX, motion.fast, motion.quick],
+  );
+
+  const cardStyle = useAnimatedStyle(() => ({ transform: [{ translateX: translateX.value }] }));
+  // The red behind the card only earns its pixels once the card has moved off
+  // them. Tied to travel rather than faded on a timer so it cannot appear
+  // under a stationary row.
+  const revealStyle = useAnimatedStyle(() => ({
+    opacity: Math.min(1, Math.abs(translateX.value) / REVEAL_WIDTH),
+  }));
+
   return (
     <Reanimated.View
       entering={listMotion.entering}
       exiting={listMotion.exiting}
       layout={listMotion.layout}
     >
-      <PressableScale
-        onPress={onPress}
-        scale={0.97}
-        style={({ pressed }) => ({
-          flexDirection: "row",
-          alignItems: "center",
-          gap: space.md,
-          backgroundColor: pressed ? colors.cardPressed : colors.card,
-          borderRadius: radius.xl,
-          marginHorizontal: space.lg,
-          padding: space.lg,
-          // Shadows are invisible on a black page; dark mode gets a hairline
-          // instead so the card still reads as a surface.
-          shadowColor: colors.text,
-          shadowOpacity: isDark ? 0 : 0.06,
-          shadowRadius: 12,
-          shadowOffset: { width: 0, height: 2 },
-          elevation: 1,
-          borderWidth: isDark ? StyleSheet.hairlineWidth : 0,
-          borderColor: colors.borderSoft,
-        })}
-      >
-        <AgentAvatar agent={agent} />
-        <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
-          <Text numberOfLines={1} style={{ ...type.headline, color: colors.text }}>
-            {title}
-          </Text>
-          {subtitle ? (
-            <Text numberOfLines={1} style={{ ...type.footnote, color: colors.textMuted }}>
-              {subtitle}
+      {swipeable ? (
+        <Reanimated.View
+          pointerEvents="none"
+          style={[
+            revealStyle,
+            {
+              // Written out rather than spreading StyleSheet.absoluteFill,
+              // which is a REGISTERED STYLE ID (a number) — spreading it
+              // silently contributes nothing, and the reveal would have sat
+              // at zero size behind the card.
+              position: "absolute",
+              top: 0,
+              right: 0,
+              bottom: 0,
+              left: 0,
+              backgroundColor: colors.danger,
+              borderRadius: radius.xl,
+              marginHorizontal: space.lg,
+              alignItems: "flex-end",
+              justifyContent: "center",
+              paddingRight: space.xl,
+            },
+          ]}
+        >
+          <Icon ios="archivebox.fill" android="archive" size={20} color="#ffffff" />
+        </Reanimated.View>
+      ) : null}
+      <Reanimated.View style={cardStyle} {...(swipeable ? panResponder.panHandlers : {})}>
+        <PressableScale
+          onPress={onPress}
+          scale={0.97}
+          style={({ pressed }) => ({
+            flexDirection: "row",
+            alignItems: "center",
+            gap: space.md,
+            backgroundColor: pressed ? colors.cardPressed : colors.card,
+            borderRadius: radius.xl,
+            marginHorizontal: space.lg,
+            padding: space.lg,
+            // Shadows are invisible on a black page; dark mode gets a hairline
+            // instead so the card still reads as a surface.
+            shadowColor: colors.text,
+            shadowOpacity: isDark ? 0 : 0.06,
+            shadowRadius: 12,
+            shadowOffset: { width: 0, height: 2 },
+            elevation: 1,
+            borderWidth: isDark ? StyleSheet.hairlineWidth : 0,
+            borderColor: colors.borderSoft,
+          })}
+        >
+          <AgentAvatar agent={agent} />
+          <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
+            <Text numberOfLines={1} style={{ ...type.headline, color: colors.text }}>
+              {title}
             </Text>
-          ) : null}
-        </View>
-        {blocked ? (
-          <Icon ios="pause.fill" android="pause" size={12} color={colors.warning} />
-        ) : (
-          <View
-            style={{
-              width: 10,
-              height: 10,
-              borderRadius: 5,
-              backgroundColor: busy ? colors.brand : colors.success,
-            }}
-          />
-        )}
-      </PressableScale>
+            {subtitle ? (
+              <Text numberOfLines={1} style={{ ...type.footnote, color: colors.textMuted }}>
+                {subtitle}
+              </Text>
+            ) : null}
+          </View>
+          {blocked ? (
+            <Icon ios="pause.fill" android="pause" size={12} color={colors.warning} />
+          ) : (
+            <View
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 5,
+                backgroundColor: busy ? colors.brand : colors.success,
+              }}
+            />
+          )}
+        </PressableScale>
+      </Reanimated.View>
     </Reanimated.View>
   );
 }
 
 /**
- * The home composer, pinned to the bottom of the screen. ONE surface: a
- * floating field that holds the agent avatar, the input, and the Start button
- * inside it — the iOS Messages/Mail shape, where the send control lives at
- * the end of the field rather than in a toolbar of its own. The project label
- * is a flat caption below, not a second pill: it is metadata about the field,
- * and wrapping metadata in its own filled, bordered container is how the old
- * layout ended up reading as boxes inside boxes. Start is ink, not orange —
- * brand orange belongs to the mark and the working dot only.
+ * The home composer, pinned to the bottom of the screen.
  *
- * It used to also carry stash, attach and dictate buttons. None of the three
- * was ever wired to anything: the screen rendered them without handlers, so all
- * three were tap-and-nothing-happens. A dictate button is the least defensible
- * of the three — the iOS keyboard already has one, and ours did less.
+ * ONE surface: a floating field holding the agent button, the input, and send.
+ * Below it sits a flat caption row of the two things a new session actually
+ * needs decided — WHICH AGENT and WHICH FOLDER — as bare glyph+label buttons
+ * rather than pills, because they are metadata about the field above and a
+ * filled container would promote them to a second competing surface.
  *
- * Purely presentational: the screen owns the draft and the submit.
+ * Both were previously undecidable. The agent was hardcoded to the server
+ * default and the folder caption was a LABEL, not a control: it printed the
+ * machine's `defaultFolder` and there was no way to run anywhere else. So the
+ * app could only ever start one kind of session in one directory, on a product
+ * whose entire point is choosing.
+ *
+ * Send is a send button, not "Start", and it only exists once there is
+ * something to send. A permanently visible, permanently dimmed button is a
+ * control that reads as broken; the field is self-evidently a thing you type
+ * into, so nothing is lost by letting the button arrive with the text.
+ *
+ * Purely presentational: the screen owns the draft, the choices and the submit.
  */
 export function HomeComposer({
   value,
@@ -513,7 +632,10 @@ export function HomeComposer({
   onStart,
   starting,
   projectLabel,
+  onPickProject,
   agent,
+  agentLabel,
+  onPickAgent,
   bottomInset = 0,
 }: {
   value: string;
@@ -521,7 +643,10 @@ export function HomeComposer({
   onStart: () => void;
   starting?: boolean;
   projectLabel?: string | null;
+  onPickProject?: () => void;
   agent?: string | null;
+  agentLabel?: string | null;
+  onPickAgent?: () => void;
   bottomInset?: number;
 }) {
   const { colors, isDark, radius, type, space } = useTheme();
@@ -541,13 +666,7 @@ export function HomeComposer({
         backgroundColor: LIQUID_GLASS ? "transparent" : colors.bg,
       }}
     >
-      {/* Liquid Glass on iOS 26+, a solid card everywhere else. The composer
-          floats over scrolling content, which is exactly the case Apple's
-          glass is for — and GlassSurface keeps a real background underneath so
-          older systems get a card rather than a transparent hole. It earns its
-          place here as the ONE surface: now that the chip's own pill is gone,
-          this is the only fill in the composer, so it is a field with a
-          background rather than one container stacked on another. */}
+      {/* Liquid Glass on iOS 26+, a solid card everywhere else. */}
       <GlassSurface
         variant="regular"
         fallbackColor={colors.card}
@@ -558,8 +677,6 @@ export function HomeComposer({
           borderRadius: radius.pill,
           minHeight: 52,
           paddingLeft: space.sm,
-          // Symmetric with the avatar side: the send button is the right-hand
-          // control now, and 4pt of air made it read as squeezed into a corner.
           paddingRight: space.sm,
           overflow: "hidden",
           shadowColor: colors.text,
@@ -570,7 +687,19 @@ export function HomeComposer({
           ...(LIQUID_GLASS ? {} : hairline),
         }}
       >
-        <AgentAvatar agent={agent} size={32} />
+        {/* The avatar IS the agent picker. It already showed which agent would
+            run, so making it the control means the answer and the way to
+            change it are the same object, rather than adding a second
+            affordance that says the same thing. */}
+        <PressableScale
+          onPress={onPickAgent}
+          disabled={!onPickAgent}
+          scale={0.9}
+          accessibilityRole="button"
+          accessibilityLabel={`Agent: ${agentLabel ?? "Claude"}. Change`}
+        >
+          <AgentAvatar agent={agent} size={32} />
+        </PressableScale>
         <TextInput
           value={value}
           onChangeText={onChangeText}
@@ -588,58 +717,108 @@ export function HomeComposer({
             paddingVertical: space.sm,
           }}
         />
-        {/* Send lives INSIDE the field, the Messages shape — a control of the
-            input, not a neighbour of it. Kept compact (34pt) so the field's
-            52pt height still reads as one pill, not a pill wearing a pill. */}
-        <PressableScale
-          onPress={onStart}
-          disabled={!canStart}
-          accessibilityLabel="Start session"
-          scale={0.94}
-          dim={0.8}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: space.xs,
-            backgroundColor: colors.text,
-            borderRadius: radius.pill,
-            height: 34,
-            paddingHorizontal: space.md,
-            opacity: !canStart ? 0.35 : 1,
-          }}
-        >
-          {starting ? (
-            <ActivityIndicator size="small" color={colors.bg} />
-          ) : (
-            <>
-              <Text style={{ ...type.subhead, fontWeight: "600", color: colors.bg }}>Start</Text>
-              <Icon ios="arrow.up" android="arrow_upward" size={14} color={colors.bg} />
-            </>
-          )}
-        </PressableScale>
+        {/* Arrives with the text and leaves with it. Circular and glyph-only:
+            the Messages send button, not a labelled call to action. */}
+        {canStart || starting ? (
+          <PressableScale
+            onPress={onStart}
+            disabled={!canStart}
+            accessibilityLabel="Start session"
+            scale={0.94}
+            dim={0.8}
+            style={{
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: colors.text,
+              borderRadius: radius.pill,
+              width: 34,
+              height: 34,
+            }}
+          >
+            {starting ? (
+              <ActivityIndicator size="small" color={colors.bg} />
+            ) : (
+              <Icon ios="arrow.up" android="arrow_upward" size={16} color={colors.bg} />
+            )}
+          </PressableScale>
+        ) : null}
       </GlassSurface>
 
-      {/* The project label is a caption, not a chip: no fill, no hairline, no
-          fixed height. It answers "where will this session run" — metadata
-          about the field above — and a filled container would promote it to a
-          second surface competing with the one that matters. */}
+      {/* Agent and folder as flat captions. No fill, no hairline, no fixed
+          height — they answer "what will run this, and where", which is
+          metadata about the field above. */}
       <View
         style={{
           flexDirection: "row",
           alignItems: "center",
-          gap: space.xs,
+          gap: space.lg,
           marginTop: space.sm,
           marginLeft: space.xs,
         }}
       >
-        <Icon ios="folder.fill" android="folder" size={13} color={colors.textMuted} />
-        <Text
-          numberOfLines={1}
-          style={{ ...type.footnote, color: colors.textMuted, maxWidth: 140 }}
-        >
-          {projectLabel ?? "Project"}
-        </Text>
+        <ComposerCaptionButton
+          ios="cpu"
+          android="memory"
+          label={agentLabel ?? "Claude"}
+          onPress={onPickAgent}
+          accessibilityLabel={`Agent: ${agentLabel ?? "Claude"}. Change`}
+        />
+        <ComposerCaptionButton
+          ios="folder.fill"
+          android="folder"
+          label={projectLabel ?? "Project"}
+          onPress={onPickProject}
+          accessibilityLabel={`Project: ${projectLabel ?? "none"}. Change`}
+        />
       </View>
     </View>
+  );
+}
+
+/**
+ * One caption-weight control under the composer. Shared by the agent and the
+ * folder so the two cannot drift into looking like different kinds of thing —
+ * they are the same kind of decision and read as one row.
+ */
+function ComposerCaptionButton({
+  ios,
+  android,
+  label,
+  onPress,
+  accessibilityLabel,
+}: {
+  ios: SFSymbol;
+  android: AndroidSymbol;
+  label: string;
+  onPress?: () => void;
+  accessibilityLabel: string;
+}) {
+  const { colors, type, space } = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={!onPress}
+      hitSlop={10}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.xs,
+        opacity: pressed ? 0.5 : 1,
+        minWidth: 0,
+      })}
+    >
+      <Icon ios={ios} android={android} size={13} color={colors.textMuted} />
+      <Text
+        numberOfLines={1}
+        style={{ ...type.footnote, color: colors.textMuted, maxWidth: 130 }}
+      >
+        {label}
+      </Text>
+      {onPress ? (
+        <Icon ios="chevron.up.chevron.down" android="unfold_more" size={10} color={colors.textMuted} />
+      ) : null}
+    </Pressable>
   );
 }
