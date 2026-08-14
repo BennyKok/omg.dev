@@ -7626,9 +7626,23 @@ export function App() {
                 )}
               </>
             ) : null}
-            {embedded ? null : isMobile ? null : (
+            {isMobile ? null : (
               <>
-                <UpdateNavButton />
+                {/* Self-update is the box's own concern, and a host that
+                    mounts LFG owns its update story — so this stays out of
+                    embedded chrome. Ask does NOT: see below. */}
+                {embedded ? null : <UpdateNavButton />}
+                {/* Deliberately NOT embed-gated. Ask is the one piece of
+                    chrome that reports a BLOCKED agent, and hiding it left
+                    desktop hosts with no ask affordance at all: mobile gets
+                    the "an agent needs you" headline in LiveHeaderContext,
+                    but that header is `isMobile && tab === "live"` only, so
+                    on a hosted desktop the question surfaced nowhere outside
+                    the asking conversation's own SessionQuestionPanel. The
+                    agent sat blocked and the user was never told. The
+                    Notifications page this opens is already reachable
+                    embedded through PagesMenu, so this adds an entry point
+                    rather than a destination. */}
                 <AskNavButton
                   active={tab === "notifications"}
                   onOpen={() => setTab("notifications")}
@@ -7724,12 +7738,23 @@ export function App() {
               // header is hidden. The host owns identity/settings chrome, not
               // the LFG workspace's project scope.
               onProjectChange={changeProjectFilter}
-              // Embed: host owns identity/settings — no user picker, settings,
-              // or ask chrome inside the iframe. LFG still owns its Live,
-              // Shipped, and Artifacts pages, so their navigation remains.
+              // Embed: host owns identity/settings — no user picker or settings
+              // inside the iframe. LFG still owns its Live, Shipped, and
+              // Artifacts pages, so their navigation remains.
               onUserChange={embedded ? undefined : changeUserFilter}
               onOpenSettings={embedded ? undefined : () => setTab("settings")}
-              onOpenAsk={embedded ? undefined : () => setTab("ask")}
+              // Ask is NOT host chrome — it reports a BLOCKED agent, and the
+              // host has no equivalent of its own. Gating it on `embedded`
+              // left the hosted desktop surface with no ask affordance at
+              // all (the "an agent needs you" headline is mobile-Live only),
+              // so an agent could sit waiting with nothing on screen saying
+              // so. Opens the Notification Center, which renders the open
+              // questions and is already reachable embedded via PagesMenu.
+              //
+              // This used to open a dedicated ask tab, which never existed —
+              // the shell's tabs are live/notifications/artifacts/settings —
+              // so the non-embedded rail button navigated nowhere.
+              onOpenAsk={() => setTab("notifications")}
               onOpenShipped={openShipped}
               // Built here rather than inside RailStage: the shell owns the tab
               // state and the extension registry, and the rail should not have to

@@ -69,12 +69,44 @@ describe("page navigation reachability", () => {
 
   test("host-owned chrome stays out of the embedded header", () => {
     // Un-suppressing the header must not leak omg's own concerns back in.
-    for (const guarded of ["<AskNavButton", "<UserFilterMenu"]) {
+    // Identity IS host-owned: omg renders its own account control, and two
+    // user pickers on one page is the duplication embedding removes.
+    for (const guarded of ["<UserFilterMenu"]) {
       const at = app.indexOf(guarded, app.indexOf(") : liveDesktopWorkspace ? null : ("));
       expect(at, `${guarded} not found in the header`).toBeGreaterThan(0);
       // Each is preceded by an `embedded ? null :` guard within a few lines.
       const before = app.slice(Math.max(0, at - 200), at);
       expect(before, `${guarded} is not gated on embedded`).toContain("embedded ? null :");
     }
+  });
+
+  test("the ask badge is reachable when embedded", () => {
+    // Ask used to be grouped with the host-owned chrome above, on the theory
+    // that surfacing a blocked agent was omg's concern. omg never built an
+    // ask surface, so hiding LFG's left hosted DESKTOP users with nothing:
+    // the "an agent needs you" headline in LiveHeaderContext is rendered
+    // under `isMobile && tab === "live"`, and SessionQuestionPanel only
+    // shows inside the conversation that asked. An agent could block on
+    // omg_ask_user and no chrome anywhere said so.
+    //
+    // Both entry points must therefore survive embedding: the header badge,
+    // and the rail's, which RailStage renders only when onOpenAsk is passed.
+    const at = app.indexOf("<AskNavButton", app.indexOf(") : liveDesktopWorkspace ? null : ("));
+    expect(at, "<AskNavButton not found in the header").toBeGreaterThan(0);
+    const before = app.slice(Math.max(0, at - 200), at);
+    expect(before, "<AskNavButton must not be gated on embedded").not.toContain(
+      "embedded ? null :",
+    );
+    // Asserted as booleans: a failing toContain on the whole file prints all
+    // of App.tsx into the runner output, which buries the actual failure.
+    expect(
+      /onOpenAsk=\{embedded \?/.test(app),
+      "the rail's ask entry point must not be gated on embedded",
+    ).toBe(false);
+    // There is no "ask" tab — open questions live in the Notification
+    // Center, so routing anywhere else lands on a page that renders nothing.
+    expect(app.includes('setTab("ask")'), 'nothing may route to a non-existent "ask" tab').toBe(
+      false,
+    );
   });
 });

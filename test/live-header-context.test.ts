@@ -71,12 +71,30 @@ describe("contextual mobile Live header", () => {
     expect(source).toContain(": `${questionCount} agents need you`");
   });
 
-  test("keeps urgent questions accessible without restoring a badge", async () => {
+  test("keeps urgent questions accessible in the mobile header", async () => {
     const source = await app();
     expect(source).toContain("const { questions } = useAsk();");
     expect(source).toContain("Tap to open notifications");
     expect(source).toContain("const showCard = intro;");
-    expect(source).toContain("embedded ? null : isMobile ? null");
+  });
+
+  test("the headline does not cover hosted desktop, so the badge must", async () => {
+    const source = await app();
+    // This header is the reason the ask badge was once dropped from embedded
+    // chrome: the headline was treated as the replacement affordance. It is
+    // rendered under `isMobile && tab === "live"`, so it never covers a
+    // hosted DESKTOP surface — which is how an agent blocked on
+    // omg_ask_user ended up with no on-screen indication anywhere.
+    //
+    // Both halves are asserted together so they cannot drift apart: if the
+    // headline is ever made to cover desktop, revisit the badge; until then
+    // the badge is the only thing standing between a blocked agent and a
+    // user who never finds out.
+    expect(source).toContain('{isMobile && tab === "live" ? (');
+    expect(
+      /embedded \? null : isMobile \? null/.test(source),
+      "the ask badge must not be re-gated on embedded while the headline is mobile-only",
+    ).toBe(false);
   });
 });
 
