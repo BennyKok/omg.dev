@@ -190,6 +190,6 @@ describe("sendToOrigin", () => {
     await expect(sendToOrigin({
       text: "wrong target",
       sessionId: "22222222-2222-4222-8222-222222222222",
-    })).rejects.toThrow("owning OMG session");
+    })).rejects.toThrow("owning omg.dev session");
   });
 });

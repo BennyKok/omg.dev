@@ -389,6 +389,7 @@ describe("coding agent auth detection", () => {
 
   test("Jcode reports a configured provider without claiming a connected account", async () => {
     const home = useTmpHome();
+    setEnv("PATH", home);
     const jcode = join(home, "jcode");
     writeFileSync(
       jcode,
@@ -405,6 +406,7 @@ describe("coding agent auth detection", () => {
 
   test("Jcode reports stored provider credentials as a connected account", async () => {
     const home = useTmpHome();
+    setEnv("PATH", home);
     const jcode = join(home, "jcode");
     writeFileSync(
       jcode,
