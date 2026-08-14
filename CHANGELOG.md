@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## August 14, 2026 - Jcode mark matches upstream gray (v0.1.375)
+
+- **Jcode's agent icon no longer wears an invented blue tint.** The torus
+  geometry was already correct, but the dots still used a cyan/blue gradient.
+  Upstream brands the mark monochrome gray (`#7e7e7e` on the favicon). The
+  icon now matches that palette, cache-busting refreshes warm browsers, and a
+  regression test blocks the blue colors from coming back.
+
 ## August 14, 2026 - Jcode transcript and resume reliability (v0.1.374)
 
 - **Jcode sessions no longer show an empty or nearly empty transcript after a
