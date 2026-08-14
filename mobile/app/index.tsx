@@ -58,7 +58,7 @@ import { CLOUD_BINDING_ID } from "../src/omg/config";
  * "Welcome".
  */
 function LiveWelcome({ firstName, busyCount }: { firstName: string; busyCount: number }) {
-  const { colors, type, space } = useTheme();
+  const { colors, type } = useTheme();
   const [showActivity, setShowActivity] = useState(false);
 
   useEffect(() => {
@@ -75,12 +75,7 @@ function LiveWelcome({ firstName, busyCount }: { firstName: string; busyCount: n
   return (
     <Text
       numberOfLines={1}
-      style={{
-        ...type.title,
-        color: colors.text,
-        paddingHorizontal: space.lg,
-        paddingTop: space.sm,
-      }}
+      style={{ ...type.headline, color: colors.text, maxWidth: 210 }}
     >
       {busyCount > 0 && showActivity ? activity : welcome}
     </Text>
@@ -316,6 +311,23 @@ export default function SessionsScreen() {
        */
       headerLargeTitle: false,
       title: "",
+      /**
+       * The greeting sits ON the bar, level with the two buttons — the row the
+       * web puts it in.
+       *
+       * It spent a version as page content because iOS 26 wraps bar items in a
+       * glass capsule and a sentence inside one looked like a control. That is
+       * per-ITEM, not per-bar: `hidesSharedBackground` opts this one out, so
+       * the greeting is plain text on the bar and the buttons opposite keep
+       * their glass.
+       */
+      unstable_headerLeftItems: () => [
+        {
+          type: "custom",
+          hidesSharedBackground: true,
+          element: <LiveWelcome firstName={firstName} busyCount={working.length} />,
+        },
+      ],
       headerRight: () => (
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
           {/* TWO BUTTONS, NOT ONE CHIP.
@@ -367,6 +379,8 @@ export default function SessionsScreen() {
     computerPicker.options,
     machineName,
     currentBinding?.online,
+    firstName,
+    working.length,
     colors,
     space,
   ]);
@@ -379,12 +393,24 @@ export default function SessionsScreen() {
   // Same UI-thread keyboard tracking as the session screen; see the note there
   // for why KeyboardAvoidingView cannot be made to feel right.
   const keyboard = useAnimatedKeyboard();
-  const keyboardLift = useAnimatedStyle(() => ({
-    paddingBottom: Math.max(0, keyboard.height.value - insets.bottom),
+  /**
+   * THE COMPOSER MOVES ITSELF, because padding never moved it.
+   *
+   * It is absolutely positioned so the list can scroll underneath the glass,
+   * and an absolutely positioned child is laid out against its parent's BORDER
+   * box — the parent's animated `paddingBottom` slides the flow content up and
+   * leaves the absolute child exactly where it was. On a phone that meant the
+   * keyboard came up and covered the composer completely: not just invisible,
+   * but untappable, which is why the folder pill "stopped working" while the
+   * keyboard was open. A translate on the composer itself is not subject to
+   * any of that.
+   */
+  const composerLift = useAnimatedStyle(() => ({
+    transform: [{ translateY: -Math.max(0, keyboard.height.value - insets.bottom) }],
   }));
 
   return (
-    <Reanimated.View style={[{ flex: 1 }, keyboardLift]}>
+    <Reanimated.View style={{ flex: 1 }}>
       <ScrollView
         style={{ flex: 1 }}
         /**
@@ -413,13 +439,6 @@ export default function SessionsScreen() {
           />
         }
       >
-        {/* The greeting is PAGE CONTENT, not a bar item.
-            In the bar, iOS 26 wrapped it in the same glass capsule it gives
-            every button, so a sentence looked like a control you could press.
-            The web puts it at the top of the page as plain text and lets it
-            scroll away, which is also what it is: a greeting, not chrome. */}
-        <LiveWelcome firstName={firstName} busyCount={working.length} />
-
         {(connection === "reconnecting" || connection === "offline") && ready ? (
           <Text
             style={{
@@ -558,8 +577,8 @@ export default function SessionsScreen() {
           at a hard edge above it. `bottom: 0` is the parent's PADDING box, so
           the keyboard lift above still carries the composer up. */}
       {ready ? (
-        <View
-          style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
+        <Reanimated.View
+          style={[{ position: "absolute", left: 0, right: 0, bottom: 0 }, composerLift]}
           onLayout={(e) => setComposerHeight(e.nativeEvent.layout.height)}
         >
         <HomeComposer
@@ -576,7 +595,7 @@ export default function SessionsScreen() {
           dictation={dictation}
           bottomInset={insets.bottom}
         />
-        </View>
+        </Reanimated.View>
       ) : null}
     </Reanimated.View>
   );

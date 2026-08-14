@@ -430,7 +430,9 @@ export default function SessionScreen() {
           alignItems: "center",
           gap: space.sm,
           borderRadius: radius.pill,
-          paddingLeft: space.xs,
+          // The mark is a circle inside a capsule, so it needs more of a lead
+          // than a square would: at 4pt it sat against the glass.
+          paddingLeft: space.sm,
           paddingRight: space.md,
           paddingVertical: space.xs,
           overflow: "hidden",
@@ -510,6 +512,9 @@ export default function SessionScreen() {
        */
       unstable_headerLeftItems: () => [
         { type: "custom", hidesSharedBackground: true, element: <BackDisc /> },
+        // The bar spaces its items generously, which left the capsule floating
+        // away from the chevron instead of reading as the pair they are.
+        { type: "spacing", spacing: -6 },
         { type: "custom", hidesSharedBackground: true, element: <TitleCapsule /> },
       ],
       headerLeft: () => (

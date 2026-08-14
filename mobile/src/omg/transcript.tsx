@@ -149,23 +149,98 @@ function entryKey(message: Entry, index: number): string {
 }
 
 export function TranscriptRow({ item }: { item: TranscriptItem }) {
-  const { space } = useTheme();
   if (item.type === "message") return <TranscriptEntry message={item.message} />;
-  /**
-   * A run of tool calls is a stack of individually bordered boxes, 4pt apart —
-   * what the WEB draws (see web/src/components/ai-elements/tool.tsx).
-   *
-   * This was briefly one merged surface with shared hairlines, on the argument
-   * that a run is one unit of work. It reads fine in isolation and it is the
-   * wrong call: the same session then looked like two different products
-   * depending on which surface you opened it from, and the web's version is
-   * the one people see first.
-   */
+  return <ToolRun pairs={item.pairs} />;
+}
+
+/**
+ * A RUN COLLAPSES TO ONE BADGE — "4 tool calls" — and opens into the four.
+ *
+ * A single answer routinely does eight or ten things, and even as compact
+ * badges that is ten chips of scaffolding wedged between two paragraphs of the
+ * reply you were reading. The run is one unit of work, so it gets one line
+ * until you ask; the badges then behave exactly as they did, each opening to
+ * its own arguments.
+ *
+ * A lone call is NOT wrapped. Hiding one thing behind a disclosure that says
+ * "1 tool call" is strictly more work than showing it.
+ */
+function ToolRun({ pairs }: { pairs: ToolPair[] }) {
+  const { colors, type, space, radius, motion } = useTheme();
+  const [open, setOpen] = useState(false);
+  const turn = useSharedValue(0);
+
+  const chevron = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${turn.value * 180}deg` }],
+  }));
+
+  const names = useMemo(
+    () =>
+      pairs
+        .map((pair) => (pair.call ? parseToolCall(pair.call.text)?.name : null))
+        .filter((name): name is string => !!name),
+    [pairs],
+  );
+  const unique = useMemo(() => [...new Set(names)], [names]);
+
+  if (pairs.length < 2) {
+    return (
+      <View style={{ alignSelf: "stretch" }}>
+        {pairs.map((pair) => (
+          <ToolEntry key={pair.key} call={pair.call} result={pair.result} />
+        ))}
+      </View>
+    );
+  }
+
+  // "4 × shell" when a run hammers one tool, which is the common shape and
+  // says more than a bare count; "4 tool calls" when it is a mixed batch.
+  const label =
+    unique.length === 1 ? `${pairs.length} × ${unique[0]}` : `${pairs.length} tool calls`;
+  const symbol: Symbols =
+    unique.length === 1 ? toolSymbol(unique[0]) : { ios: "wrench.and.screwdriver", android: "build" };
+
+  const toggle = () => {
+    void Haptics.selectionAsync();
+    turn.value = withTiming(open ? 0 : 1, { duration: motion.quick });
+    setOpen((value) => !value);
+  };
+
   return (
     <View style={{ alignSelf: "stretch", gap: space.xs }}>
-      {item.pairs.map((pair) => (
-        <ToolEntry key={pair.key} call={pair.call} result={pair.result} />
-      ))}
+      <Pressable
+        onPress={toggle}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={`${label}. ${open ? "Hide" : "Show"} the steps`}
+        style={({ pressed }) => ({
+          alignSelf: "flex-start",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 5,
+          minHeight: 26,
+          paddingHorizontal: space.sm,
+          paddingVertical: 3,
+          borderRadius: radius.pill,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: pressed ? colors.cardPressed : colors.card,
+        })}
+      >
+        <Icon ios={symbol.ios} android={symbol.android} size={12} color={colors.textMuted} />
+        <Text style={{ ...type.caption, fontWeight: "500", color: colors.text }}>{label}</Text>
+        <Reanimated.View style={chevron}>
+          <Icon ios="chevron.down" android="expand_more" size={11} color={colors.textMuted} />
+        </Reanimated.View>
+      </Pressable>
+
+      {open ? (
+        <View style={{ alignSelf: "stretch", gap: space.xs, paddingLeft: space.sm }}>
+          {pairs.map((pair) => (
+            <ToolEntry key={pair.key} call={pair.call} result={pair.result} />
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
