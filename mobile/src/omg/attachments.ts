@@ -100,11 +100,20 @@ export function useAttachments(sessionId: string | null) {
       if (picking) return;
       setPicking(true);
       try {
-        const permission =
-          source === "camera"
-            ? await ImagePicker.requestCameraPermissionsAsync()
-            : await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (!permission.granted) return;
+        /**
+         * ONLY THE CAMERA ASKS. `launchImageLibraryAsync` presents
+         * PHPickerViewController, which runs OUT OF PROCESS and hands back
+         * only what the user picked — so iOS grants it no library access and
+         * asks for none. Calling `requestMediaLibraryPermissionsAsync` first
+         * put a "would like full access to your Photo Library" alert in front
+         * of someone who wanted to attach one screenshot, and full access is
+         * not a thing this app ever needs. Verified on the simulator: the
+         * prompt appeared for the library path and stopped once this went.
+         */
+        if (source === "camera") {
+          const permission = await ImagePicker.requestCameraPermissionsAsync();
+          if (!permission.granted) return;
+        }
 
         const result =
           source === "camera"
