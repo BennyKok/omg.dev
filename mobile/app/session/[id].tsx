@@ -306,29 +306,6 @@ export default function SessionScreen() {
   }, [client, id]);
 
   /** This session's own sent messages, newest last — the composer's history. */
-  const history = useMemo(
-    () => messages.filter((m) => m.role === "user" && m.text).map((m) => m.text as string),
-    [messages],
-  );
-
-  /**
-   * Reuse an earlier prompt. This replaces a pair of 9pt stepper chevrons wedged
-   * into the composer: they worked, but they were a terminal idiom rendered at a
-   * size iOS would never ship, and you had to tap blindly to discover what was
-   * behind them. A menu shows the actual prompts and picks in one tap.
-   */
-  const historyOptions = useMemo<MenuOption[]>(
-    () =>
-      [...new Set(history)]
-        .reverse()
-        .slice(0, 6)
-        .map((text) => ({
-          label: text.length > 64 ? `${text.slice(0, 63)}…` : text,
-          onPress: () => setDraft(text),
-        })),
-    [history],
-  );
-
   /** Everything the transcript can be copied into, oldest first. */
   const copyTranscript = useCallback(() => {
     const text = messages
@@ -452,10 +429,12 @@ export default function SessionScreen() {
             flexDirection: "row",
             alignItems: "center",
             gap: space.sm,
-            // The system capsule hugs this row exactly, so the trailing inset
-            // has to come from inside it — without this the name ends flush
-            // against the glass.
-            paddingRight: space.sm,
+            // The system capsule hugs this row EXACTLY, so both insets have to
+            // come from inside it. Without them the chevron sits on the glass
+            // on one side and the name on the other, which reads as a label
+            // that outgrew its badge.
+            paddingLeft: space.xs,
+            paddingRight: space.md,
           }}
         >
           <Pressable
@@ -724,6 +703,25 @@ export default function SessionScreen() {
               : { borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }),
           }}
         >
+          {/* Attach sits at the HEAD of the field, where the thing it adds
+              will appear. It used to be a disc on a row underneath, which put
+              two of the composer's three controls outside the box they act
+              on. */}
+          {/* Attach sits at the HEAD of the field, where the thing it adds
+              will appear. It used to be a disc on a row underneath, which put
+              two of the composer's three controls outside the box they act
+              on. */}
+          <DropdownMenu title="Attach" options={attachments.options} style={{ width: 28, height: 28 }}>
+            <View
+              accessibilityRole="button"
+              accessibilityLabel="Attach a file"
+              style={{ width: 28, height: 28, alignItems: "center", justifyContent: "center" }}
+            >
+              <Icon ios="paperclip" android="attach_file" size={17} color={colors.textMuted} />
+            </View>
+          </DropdownMenu>
+
+
           <TextInput
             value={draft}
             onChangeText={setDraft}
@@ -746,28 +744,65 @@ export default function SessionScreen() {
               lineHeight: 21,
             }}
           />
-          {/* The mic lives INSIDE the field, the way dictation does everywhere
-              else on iOS and the way the web composer does it: it acts on the
-              text, so it belongs to the box that holds the text. */}
-          <IconButton
-            ios={dictation.state === "recording" ? "stop.circle.fill" : "mic"}
-            android={dictation.state === "recording" ? "stop_circle" : "mic"}
-            accessibilityLabel={
-              dictation.state === "recording" ? "Stop dictating" : "Dictate a message"
-            }
-            onPress={dictation.toggle}
-            busy={dictation.state === "transcribing"}
-            size={18}
-            color={dictation.state === "recording" ? colors.danger : colors.textMuted}
-          />
+          {/**
+           * ONE BUTTON, TWO JOBS, decided by whether there is anything to
+           * send. An empty composer can only be filled — so it offers the
+           * mic. The moment there are words, the only thing you want is to
+           * send them, so the same spot becomes the arrow. Showing both at
+           * once means one of them is always the wrong answer, and on a phone
+           * that is a 44pt target spent on nothing.
+           */}
+          {canSend || sending ? (
+            <Pressable
+              onPress={send}
+              disabled={!canSend}
+              accessibilityRole="button"
+              accessibilityLabel={busy ? "Queue the message" : "Send the message"}
+              accessibilityState={{ disabled: !canSend }}
+              style={({ pressed }) => ({
+                width: 32,
+                height: 32,
+                borderRadius: 16,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: colors.foreground,
+                opacity: !canSend ? 0.3 : pressed ? 0.75 : 1,
+              })}
+            >
+              {sending ? (
+                <ActivityIndicator size="small" color={colors.bg} />
+              ) : (
+                <Icon
+                  ios={busy ? "plus" : "arrow.up"}
+                  android={busy ? "add" : "arrow_upward"}
+                  size={15}
+                  weight="semibold"
+                  color={colors.bg}
+                />
+              )}
+            </Pressable>
+          ) : (
+            <IconButton
+              ios={dictation.state === "recording" ? "stop.circle.fill" : "mic"}
+              android={dictation.state === "recording" ? "stop_circle" : "mic"}
+              accessibilityLabel={
+                dictation.state === "recording" ? "Stop dictating" : "Dictate a message"
+              }
+              onPress={dictation.toggle}
+              busy={dictation.state === "transcribing"}
+              size={18}
+              color={dictation.state === "recording" ? colors.danger : colors.textMuted}
+            />
+          )}
         </GlassSurface>
 
-        {/* Actions under the field: what ADDS to the message on the left, and
-            the one control that sends it on the right, where the thumb is. */}
-        <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
-          {/* Stop only exists while there is something to stop. A permanently
-              visible, permanently dimmed button reads as a broken control. */}
-          {busy ? (
+        {/* Nothing under the field except the one control that has no home
+            inside it. Attach lives at the head of the input, send and dictate
+            share its tail, and the prompt HISTORY is gone: it was a third menu
+            competing for the same row, and re-sending an old prompt is not
+            what a running session is for. */}
+        {busy ? (
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
             <IconButton
               ios="stop.fill"
               android="stop"
@@ -777,93 +812,8 @@ export default function SessionScreen() {
               color={colors.danger}
               background={colors.secondary}
             />
-          ) : null}
-
-          {/* Explicit size — an unsized SwiftUI host overhangs its content and
-              swallows taps on whatever sits beside it. */}
-          {/* Glass, like the field above them. A flat `secondary` disc next to
-              a glass field is two different materials doing the same job six
-              points apart. */}
-          <DropdownMenu title="Attach" options={attachments.options} style={{ width: 36, height: 36 }}>
-            <GlassSurface
-              variant="regular"
-              fallbackColor={colors.secondary}
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 18,
-                alignItems: "center",
-                justifyContent: "center",
-                overflow: "hidden",
-              }}
-            >
-              <View accessibilityRole="button" accessibilityLabel="Attach a file">
-                <Icon ios="paperclip" android="attach_file" size={16} color={colors.textSecondary} />
-              </View>
-            </GlassSurface>
-          </DropdownMenu>
-
-          {historyOptions.length ? (
-            <DropdownMenu title="Reuse a prompt" options={historyOptions} style={{ width: 36, height: 36 }}>
-              <GlassSurface
-                variant="regular"
-                fallbackColor={colors.secondary}
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 18,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  overflow: "hidden",
-                }}
-              >
-                <View accessibilityRole="button" accessibilityLabel="Reuse an earlier prompt">
-                  <Icon
-                    ios="clock.arrow.circlepath"
-                    android="history"
-                    size={16}
-                    color={colors.textSecondary}
-                  />
-                </View>
-              </GlassSurface>
-            </DropdownMenu>
-          ) : null}
-
-          <View style={{ flex: 1 }} />
-
-          <Pressable
-            onPress={send}
-            disabled={!canSend}
-            accessibilityRole="button"
-            accessibilityLabel={busy ? "Queue the message" : "Send the message"}
-            accessibilityState={{ disabled: !canSend }}
-            style={({ pressed }) => ({
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 6,
-              height: 36,
-              paddingHorizontal: space.md,
-              borderRadius: radius.pill,
-              backgroundColor: colors.foreground,
-              opacity: !canSend ? 0.3 : pressed ? 0.75 : 1,
-            })}
-          >
-            {sending ? (
-              <ActivityIndicator size="small" color={colors.bg} />
-            ) : (
-              <Icon
-                ios={busy ? "plus" : "arrow.up"}
-                android={busy ? "add" : "arrow_upward"}
-                size={14}
-                weight="semibold"
-                color={colors.bg}
-              />
-            )}
-            <Text style={{ ...type.subhead, fontWeight: "600", color: colors.bg }}>
-              {busy ? "Queue" : "Send"}
-            </Text>
-          </Pressable>
-        </View>
+          </View>
+        ) : null}
       </View>
     </Reanimated.View>
   );

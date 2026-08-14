@@ -149,36 +149,22 @@ function entryKey(message: Entry, index: number): string {
 }
 
 export function TranscriptRow({ item }: { item: TranscriptItem }) {
+  const { space } = useTheme();
   if (item.type === "message") return <TranscriptEntry message={item.message} />;
   /**
-   * A run of tool calls is ONE surface, not a stack of bordered tiles.
+   * A run of tool calls is a stack of individually bordered boxes, 4pt apart —
+   * what the WEB draws (see web/src/components/ai-elements/tool.tsx).
    *
-   * Each row used to carry its own border and radius with a 4pt gap between,
-   * so an eight-step run rendered as eight boxes with eight outlines and seven
-   * slots of dead space — the loudest thing on a screen whose actual content
-   * is the prose above and below it. The run is one unit of work; it should
-   * read as one block you can skim, with the steps separated by a hairline
-   * rather than by air.
-   *
-   * Same inset-grouped shape the session list uses, for the same reason.
+   * This was briefly one merged surface with shared hairlines, on the argument
+   * that a run is one unit of work. It reads fine in isolation and it is the
+   * wrong call: the same session then looked like two different products
+   * depending on which surface you opened it from, and the web's version is
+   * the one people see first.
    */
   return (
-    <View style={{ alignSelf: "stretch" }}>
-      {item.pairs.map((pair, i) => (
-        <ToolEntry
-          key={pair.key}
-          call={pair.call}
-          result={pair.result}
-          position={
-            item.pairs.length === 1
-              ? "only"
-              : i === 0
-                ? "first"
-                : i === item.pairs.length - 1
-                  ? "last"
-                  : "middle"
-          }
-        />
+    <View style={{ alignSelf: "stretch", gap: space.xs }}>
+      {item.pairs.map((pair) => (
+        <ToolEntry key={pair.key} call={pair.call} result={pair.result} />
       ))}
     </View>
   );
@@ -255,16 +241,7 @@ type ParsedCall = {
  * between two paragraphs of answer is the common case, and an agent's tool
  * traffic is context, not content.
  */
-function ToolEntry({
-  call,
-  result,
-  position = "only",
-}: {
-  call: Entry | null;
-  result: Entry | null;
-  /** Where this step sits in its run; see TranscriptRow. */
-  position?: "first" | "middle" | "last" | "only";
-}) {
+function ToolEntry({ call, result }: { call: Entry | null; result: Entry | null }) {
   const { colors, type, space, radius, motion } = useTheme();
   const [open, setOpen] = useState(false);
   const turn = useSharedValue(0);
@@ -274,7 +251,9 @@ function ToolEntry({
   const failed = useMemo(() => looksFailed(resultText), [resultText]);
 
   const chevron = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${turn.value * 90}deg` }],
+    // 180°, not 90°: it rests pointing DOWN like the web's ChevronDown and
+    // flips to point up when the panel opens.
+    transform: [{ rotate: `${turn.value * 180}deg` }],
   }));
 
   const expandable = !!parsed?.fields.length || !!parsed?.raw || !!resultText;
@@ -298,24 +277,20 @@ function ToolEntry({
   // says nothing at all until it is opened.
   const summary = parsed?.summary ?? (parsed ? null : oneLine(resultText || "(result)"));
 
-  const isFirst = position === "first" || position === "only";
-  const isLast = position === "last" || position === "only";
-
   return (
     <View
+      /**
+       * EACH CALL IS ITS OWN BOX, matching the web's Tool component
+       * (`rounded-lg border border-border/80`, header `px-3 py-2`, content
+       * behind a top border). This spent a version as one merged card with
+       * shared hairlines; that is not what the other surface draws, and a
+       * session read differently depending which one you opened it on.
+       */
       style={{
         alignSelf: "stretch",
         backgroundColor: colors.card,
-        // Only the run's outer corners round, and the border is drawn per-EDGE
-        // so adjacent steps share one hairline instead of stacking two.
-        borderTopLeftRadius: isFirst ? radius.md : 0,
-        borderTopRightRadius: isFirst ? radius.md : 0,
-        borderBottomLeftRadius: isLast ? radius.md : 0,
-        borderBottomRightRadius: isLast ? radius.md : 0,
-        borderLeftWidth: StyleSheet.hairlineWidth,
-        borderRightWidth: StyleSheet.hairlineWidth,
-        borderTopWidth: isFirst ? StyleSheet.hairlineWidth : 0,
-        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderRadius: radius.sm,
+        borderWidth: 1,
         borderColor: colors.border,
         overflow: "hidden",
       }}
@@ -331,34 +306,67 @@ function ToolEntry({
           flexDirection: "row",
           alignItems: "center",
           gap: space.sm,
+          // px-3 py-2 on the web.
           minHeight: 36,
-          paddingHorizontal: space.sm,
-          paddingVertical: space.xs,
+          paddingHorizontal: space.md,
+          paddingVertical: space.sm,
           backgroundColor: pressed ? colors.cardPressed : "transparent",
         })}
       >
-        <Reanimated.View style={chevron}>
-          <Icon
-            ios="chevron.right"
-            android="chevron_right"
-            size={10}
-            color={expandable ? colors.textMuted : "transparent"}
-          />
-        </Reanimated.View>
-        <Icon ios={symbol.ios} android={symbol.android} size={13} color={colors.textSecondary} />
+        <Icon ios={symbol.ios} android={symbol.android} size={13} color={colors.textMuted} />
         <Text
           numberOfLines={1}
           style={{
             ...type.caption,
-            fontFamily: MONO,
-            letterSpacing: 0,
+            fontWeight: "500",
             color: colors.text,
             flexShrink: 0,
-            maxWidth: "45%",
+            maxWidth: "38%",
           }}
         >
           {title}
         </Text>
+        {/**
+         * The web states the outcome in words on a badge, and this says it the
+         * same way — but ONLY when it is known.
+         *
+         * A call with no result attached is not a call that is running. See
+         * this file's header: `tool_use_id` does not survive normalization, so
+         * a PARALLEL batch is deliberately left unpaired, and every one of
+         * those finished long ago. A "Running" badge on them was this screen
+         * inventing a status out of the absence of one — four completed shells
+         * all claiming to be in flight. Silence is the honest answer to a
+         * question the data cannot answer.
+         */}
+        {result ? (
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 3,
+              paddingHorizontal: 6,
+              paddingVertical: 2,
+              borderRadius: radius.sm,
+              backgroundColor: colors.secondary,
+            }}
+          >
+            <Icon
+              ios={failed ? "xmark.circle.fill" : "checkmark.circle.fill"}
+              android={failed ? "cancel" : "check_circle"}
+              size={10}
+              color={failed ? colors.danger : colors.textMuted}
+            />
+            <Text
+              style={{
+                ...type.caption,
+                fontSize: 10,
+                color: failed ? colors.danger : colors.textMuted,
+              }}
+            >
+              {failed ? "Failed" : "Done"}
+            </Text>
+          </View>
+        ) : null}
         {summary ? (
           <Text
             numberOfLines={1}
@@ -370,18 +378,17 @@ function ToolEntry({
         ) : (
           <View style={{ flex: 1 }} />
         )}
-        {/* Outcome is colour, not a word: the row is 36pt tall and the reader is
-            scanning for the one call that went wrong. */}
-        {result ? (
-          <View
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: 3,
-              backgroundColor: failed ? colors.danger : colors.success,
-            }}
+        {/* Chevron on the TRAILING edge, pointing down and rotating on open —
+            the web's `ChevronDown ... group-data-[panel-open]/tool:rotate-180`.
+            It used to lead the row, which put the least important thing first. */}
+        <Reanimated.View style={chevron}>
+          <Icon
+            ios="chevron.down"
+            android="expand_more"
+            size={11}
+            color={expandable ? colors.textMuted : "transparent"}
           />
-        ) : null}
+        </Reanimated.View>
       </Pressable>
 
       {open ? (
