@@ -7,7 +7,13 @@
 // believing there's room and it dies mid-run.
 
 import { expect, test } from "bun:test";
-import { mergeProviderUsage, type ProviderUsage } from "./usage.ts";
+import {
+  matchUsageProvider,
+  matchUsageProviders,
+  mergeProviderUsage,
+  type ProviderUsage,
+  type UsageProviderRef,
+} from "./usage.ts";
 
 const BASE = { id: "claude:all", kind: "claude", label: "Claude" };
 
@@ -160,4 +166,27 @@ test("a complete fold carries no caveat note", () => {
   expect(merged.note).toBeUndefined();
   expect(merged.id).toBe("claude:all");
   expect(merged.accountId).toBeUndefined();
+});
+
+const REFS: UsageProviderRef[] = [
+  { id: "claude:a", kind: "claude", label: "Claude 1", accountId: "a" },
+  { id: "claude:b", kind: "claude", label: "Claude 2", accountId: "b" },
+  { id: "codex", kind: "codex", label: "Codex" },
+];
+
+test("a pinned composer account matches only its own usage source", () => {
+  expect(matchUsageProviders(REFS, "aisdk", "b", true).map((ref) => ref.id)).toEqual([
+    "claude:b",
+  ]);
+});
+
+test("a combined composer account matches every source in its provider family", () => {
+  expect(matchUsageProviders(REFS, "aisdk", null, true).map((ref) => ref.id)).toEqual([
+    "claude:a",
+    "claude:b",
+  ]);
+});
+
+test("the historical single-source matcher still returns the first family source", () => {
+  expect(matchUsageProvider(REFS, "aisdk", null)?.id).toBe("claude:a");
 });

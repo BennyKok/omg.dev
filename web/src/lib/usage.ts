@@ -170,14 +170,30 @@ export function matchUsageProvider<T extends UsageProviderRef>(
   agent: string,
   accountId?: string | null,
 ): T | null {
+  return matchUsageProviders(refs, agent, accountId)[0] ?? null;
+}
+
+/**
+ * The usage sources behind a composer selection.
+ *
+ * A pinned account resolves to that source. An account-less selection normally
+ * keeps the historical first-source behavior, but callers can request every
+ * source in the family for an Auto / combined account selection.
+ */
+export function matchUsageProviders<T extends UsageProviderRef>(
+  refs: T[],
+  agent: string,
+  accountId?: string | null,
+  combineAccounts = false,
+): T[] {
   const kind = usageProviderKind(agent);
   const ofKind = refs.filter((ref) => ref.kind === kind);
-  if (!ofKind.length) return null;
+  if (!ofKind.length) return [];
   if (accountId) {
     const exact = ofKind.find((ref) => ref.accountId === accountId);
-    if (exact) return exact;
+    if (exact) return [exact];
   }
-  return ofKind[0];
+  return combineAccounts ? ofKind : ofKind.slice(0, 1);
 }
 
 export type UsageFeed = {
@@ -291,10 +307,12 @@ export function useUsageFeed({
 export function useProviderUsage({
   agent,
   accountId,
+  combineAccounts = false,
   enabled = true,
 }: {
   agent: string;
   accountId?: string | null;
+  combineAccounts?: boolean;
   enabled?: boolean;
 }): { usage: ProviderUsage | null; loading: boolean } {
   const [usage, setUsage] = useState<ProviderUsage | null>(null);
@@ -313,12 +331,30 @@ export function useProviderUsage({
       try {
         const refs = await fetchUsageProviders();
         if (generation.current !== gen) return;
-        const ref = matchUsageProvider(refs, agent, accountId);
-        if (!ref) {
+        const matches = matchUsageProviders(refs, agent, accountId, combineAccounts);
+        if (!matches.length) {
           setUsage(null);
           return;
         }
-        const provider = await fetchProviderUsage(ref.id);
+        const provider =
+          matches.length === 1
+            ? await fetchProviderUsage(matches[0].id)
+            : mergeProviderUsage(
+                await Promise.all(
+                  matches.map(async (ref) => {
+                    try {
+                      return await fetchProviderUsage(ref.id);
+                    } catch {
+                      return { ...ref, available: false, note: "Couldn't read usage" };
+                    }
+                  }),
+                ),
+                {
+                  id: `${usageProviderKind(agent)}:all`,
+                  kind: usageProviderKind(agent),
+                  label: usageProviderKind(agent).replace(/^./, (letter) => letter.toUpperCase()),
+                },
+              );
         if (generation.current !== gen) return;
         setUsage(provider);
       } catch {
@@ -327,7 +363,7 @@ export function useProviderUsage({
         if (generation.current === gen) setLoading(false);
       }
     })();
-  }, [agent, accountId, enabled]);
+  }, [agent, accountId, combineAccounts, enabled]);
 
   return { usage, loading };
 }
