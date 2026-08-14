@@ -47,6 +47,23 @@ const MONO = Platform.select({ ios: "Menlo", android: "monospace", default: "mon
  */
 marked.setOptions({ gfm: true, breaks: false });
 
+/**
+ * Body copy, in ONE place.
+ *
+ * 16px at 1.5 leading, which is what `.msg-text.markdown` resolves to on the
+ * web (16px, line-height 1.5 = 24). The two surfaces show the same agent
+ * output, so a paragraph has to break at the same rhythm on both. This used to
+ * be written out at three separate call sites at lineHeight 23 — both a
+ * millimetre off the web and three chances to drift apart.
+ *
+ * A hook rather than a constant because the colour comes from the theme, which
+ * follows the device's appearance.
+ */
+export function useBodyText() {
+  const { colors, type } = useTheme();
+  return { ...type.callout, fontSize: 16, lineHeight: 24, color: colors.text };
+}
+
 /** Parsing can throw on pathological input; a transcript must never blank out. */
 function lex(src: string): Token[] {
   try {
@@ -89,7 +106,7 @@ function Blocks({ tokens, caret }: { tokens: Token[]; caret?: boolean }) {
 
 function Block({ token, caret }: { token: Token; caret?: boolean }) {
   const { colors, type, space, radius } = useTheme();
-  const body = { ...type.callout, fontSize: 16, lineHeight: 23, color: colors.text };
+  const body = useBodyText();
 
   switch (token.type) {
     case "space":
@@ -198,8 +215,8 @@ function Block({ token, caret }: { token: Token; caret?: boolean }) {
 
 /** Ordered and unordered, nested to any depth. */
 function MdList({ list, caret }: { list: Tokens.List; caret?: boolean }) {
-  const { colors, type, space } = useTheme();
-  const body = { ...type.callout, fontSize: 16, lineHeight: 23, color: colors.text };
+  const { colors, space } = useTheme();
+  const body = useBodyText();
   const start = typeof list.start === "number" && list.start ? list.start : 1;
 
   return (
@@ -235,8 +252,7 @@ function MdList({ list, caret }: { list: Tokens.List; caret?: boolean }) {
  * inline so the bullet and its text share a baseline instead of stacking.
  */
 function ListItemBody({ item, caret }: { item: Tokens.ListItem; caret?: boolean }) {
-  const { colors, type } = useTheme();
-  const body = { ...type.callout, fontSize: 16, lineHeight: 23, color: colors.text };
+  const body = useBodyText();
   const children = item.tokens ?? [];
 
   const onlyText =
