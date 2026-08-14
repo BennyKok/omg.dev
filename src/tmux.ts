@@ -876,6 +876,13 @@ export function spawnManagedJcodeSession(opts: ManagedJcodeSessionOptions): { ok
   const dec = new TextDecoder();
   const argv = managedJcodeSessionArgv(opts);
   containTmuxCommand(argv, jcodeBin(), opts.containInAgentSlice, opts);
+  // Process-isolated tests capture the launch contract instead of really
+  // creating a tmux session (see spawnManagedHarness).
+  const capture = process.env.LFG_TEST_HARNESS_CAPTURE;
+  if (capture) {
+    writeFileSync(capture, JSON.stringify({ cmd: argv, cwd: opts.cwd }));
+    return { ok: true };
+  }
   const create = Bun.spawnSync(argv);
   if (create.exitCode !== 0) {
     return { ok: false, error: dec.decode(create.stderr) || "new-session failed" };

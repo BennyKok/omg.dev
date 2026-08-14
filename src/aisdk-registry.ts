@@ -19,7 +19,12 @@ import { join } from "node:path";
 import { PATHS } from "./config.ts";
 import { removeCursor } from "./agents/backends/cmd-tail.ts";
 
-const DIR = join(PATHS.data, "aisdk");
+// Resolved per call, not captured at import. Tests point PATHS.data at a temp
+// dir after this module loads; a captured constant made them read and write the
+// live registry, which both hid failures and left stray entries in real data.
+function dir(): string {
+  return join(PATHS.data, "aisdk");
+}
 
 // Shape-compatible with tmux.ts PanePrompt / web SessionPrompt so live-ws can
 // publish registry prompts on the same SSE `prompt` channel as pane selectors.
@@ -95,15 +100,15 @@ export type AisdkCommand =
   | { type: "dismiss" };
 
 function entryPath(sessionId: string): string {
-  return join(DIR, `${sessionId}.json`);
+  return join(dir(), `${sessionId}.json`);
 }
 
 export function cmdPath(sessionId: string): string {
-  return join(DIR, `${sessionId}.cmd`);
+  return join(dir(), `${sessionId}.cmd`);
 }
 
 export function writeEntry(entry: AisdkEntry): void {
-  mkdirSync(DIR, { recursive: true });
+  mkdirSync(dir(), { recursive: true });
   writeFileSync(entryPath(entry.sessionId), JSON.stringify(entry, null, 2));
   // Our own writes must be visible to our own next read, whatever the snapshot
   // window says: a caller that writes and then lists is asking about the write
@@ -186,24 +191,30 @@ export function patchEntry(sessionId: string, patch: Partial<AisdkEntry>): void 
  * this only ever collapses duplicate work inside one burst.
  */
 const SNAPSHOT_WINDOW_MS = 50;
-let snapshot: { at: number; entries: AisdkEntry[] } | null = null;
+// Keyed by directory as well as time: PATHS.data is redirected in tests, and a
+// time-only key let a snapshot taken against one registry answer a read against
+// another.
+let snapshot: { at: number; dir: string; entries: AisdkEntry[] } | null = null;
 
 export function listEntries(): AisdkEntry[] {
   const now = Date.now();
-  if (snapshot && now - snapshot.at < SNAPSHOT_WINDOW_MS) return snapshot.entries;
+  const root = dir();
+  if (snapshot && snapshot.dir === root && now - snapshot.at < SNAPSHOT_WINDOW_MS) {
+    return snapshot.entries;
+  }
   let files: string[];
   try {
-    files = readdirSync(DIR);
+    files = readdirSync(root);
   } catch {
     entryCache.clear();
-    snapshot = { at: now, entries: [] };
+    snapshot = { at: now, dir: root, entries: [] };
     return [];
   }
   const out: AisdkEntry[] = [];
   const seen = new Set<string>();
   for (const f of files) {
     if (!f.endsWith(".json")) continue;
-    const path = join(DIR, f);
+    const path = join(root, f);
     seen.add(path);
     const e = readEntryAt(path);
     if (e) out.push(e);
@@ -211,7 +222,7 @@ export function listEntries(): AisdkEntry[] {
   // Closed sessions delete their entry; drop their cached parse with them so
   // this map tracks the directory instead of growing for the process's life.
   for (const path of entryCache.keys()) if (!seen.has(path)) entryCache.delete(path);
-  snapshot = { at: now, entries: out };
+  snapshot = { at: now, dir: root, entries: out };
   return out;
 }
 
@@ -245,7 +256,7 @@ export function removeEntry(sessionId: string): void {
 
 // Append one command for the harness to pick up. The harness tails this file.
 export function appendCmd(sessionId: string, cmd: AisdkCommand): void {
-  mkdirSync(DIR, { recursive: true });
+  mkdirSync(dir(), { recursive: true });
   appendFileSync(cmdPath(sessionId), JSON.stringify(cmd) + "\n");
 }
 

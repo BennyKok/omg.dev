@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PATHS } from "./config.ts";
@@ -244,5 +244,68 @@ describe("command-file session boot recovery", () => {
     expect(result.skippedSchedule).toBe(0);
     expect(result.recovered).toBe(1);
     expect(listManaged()[0]?.tmuxName).toBe("lfg-self-hosted-schedule");
+  });
+
+  test("reopens a jcode pane killed by a reboot against its own journal", async () => {
+    const key = "44444444-4444-4444-8444-444444444444";
+    const native = "session_fox_1786682997292_3adacdab25715ce2";
+    addManaged({
+      tmuxName: "lfg-jcode-dead",
+      cwd: root,
+      createdAt: 1,
+      agent: "jcode",
+      sessionId: key,
+      nativeSessionId: native,
+      model: "claude-opus-5",
+      thinkingLevel: "high",
+      launchState: "running",
+    });
+
+    const result = await reconcileCommandFileSessions(() => {});
+
+    expect(result.recoveredTmux).toBe(1);
+    const launch = JSON.parse(readFileSync(capture, "utf8")) as { cmd: string[] };
+    expect(launch.cmd).toContain("tmux");
+    // `--resume` is a `repl` flag, so ordering matters to the jcode CLI.
+    expect(launch.cmd.indexOf("--resume")).toBeGreaterThan(launch.cmd.indexOf("repl"));
+    expect(launch.cmd[launch.cmd.indexOf("--resume") + 1]).toBe(native);
+    const row = listManaged().find((r) => r.tmuxName === "lfg-jcode-dead");
+    expect(row?.launchState).toBe("running");
+    expect(row?.recoveryClaimBootId).toBe(currentBootId() ?? undefined);
+  });
+
+  test("does not relaunch the same jcode pane twice in one boot", async () => {
+    addManaged({
+      tmuxName: "lfg-jcode-claimed",
+      cwd: root,
+      createdAt: 1,
+      agent: "jcode",
+      sessionId: "55555555-5555-4555-8555-555555555555",
+      nativeSessionId: "session_fox_1786682997292_3adacdab25715ce2",
+      launchState: "running",
+      recoveryClaimBootId: currentBootId() ?? "unknown-boot",
+    });
+
+    const result = await reconcileCommandFileSessions(() => {});
+
+    expect(result.recoveredTmux).toBe(0);
+    expect(existsSync(capture)).toBe(false);
+  });
+
+  test("leaves a jcode row alone when its worktree was reclaimed", async () => {
+    addManaged({
+      tmuxName: "lfg-jcode-no-worktree",
+      cwd: join(root, "gone"),
+      createdAt: 1,
+      agent: "jcode",
+      sessionId: "66666666-6666-4666-8666-666666666666",
+      nativeSessionId: "session_fox_1786682997292_3adacdab25715ce2",
+      launchState: "running",
+    });
+
+    const result = await reconcileCommandFileSessions(() => {});
+
+    expect(result.recoveredTmux).toBe(0);
+    expect(existsSync(capture)).toBe(false);
   });
 });
