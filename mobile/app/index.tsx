@@ -45,6 +45,18 @@ import { bindingLabel } from "../src/omg/format";
 import { CLOUD_BINDING_ID } from "../src/omg/config";
 
 /**
+ * Where a row sits in its inset-grouped section, so only the group's outer
+ * corners round and the last row skips its separator. A one-row section is
+ * "only" — both ends are the edge.
+ */
+function groupPosition(index: number, total: number): "first" | "middle" | "last" | "only" {
+  if (total === 1) return "only";
+  if (index === 0) return "first";
+  if (index === total - 1) return "last";
+  return "middle";
+}
+
+/**
  * The list screen owns the draft and the two choices that go with it; the
  * pickers own which options exist and which one is current. See
  * session-options.ts for why neither selection is persisted.
@@ -369,7 +381,9 @@ export default function SessionsScreen() {
             {working.length > 0 ? (
               <>
                 <SectionHeader label="Working" count={working.length} dotColor={colors.brand} />
-                <View style={{ gap: space.md }}>
+                {/* No `gap`: the rows are one inset-grouped surface, so any
+                    space between them would slice it back into tiles. */}
+                <View>
                   {working.map((s, i) => (
                     <SessionCard
                       key={s.sessionId ?? i}
@@ -379,6 +393,7 @@ export default function SessionsScreen() {
                       busy
                       blocked={s.status === "blocked"}
                       onPress={() => openSession(s.sessionId)}
+                      position={groupPosition(i, working.length)}
                     />
                   ))}
                 </View>
@@ -392,7 +407,7 @@ export default function SessionsScreen() {
                   count={idle.length}
                   dotColor={colors.success}
                 />
-                <View style={{ gap: space.md }}>
+                <View>
                   {idle.map((s, i) => (
                     <SessionCard
                       key={s.sessionId ?? i}
@@ -402,6 +417,7 @@ export default function SessionsScreen() {
                       blocked={s.status === "blocked"}
                       onPress={() => openSession(s.sessionId)}
                       onArchive={() => archiveSession(s.sessionId)}
+                      position={groupPosition(i, idle.length)}
                     />
                   ))}
                 </View>

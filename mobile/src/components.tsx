@@ -342,9 +342,17 @@ export function IconButton({
  * A circular agent mark. The marks carry their own brand colour, so the disc
  * underneath stays neutral and a fleet list is scannable without reading a word.
  */
+/**
+ * The avatar's default diameter, named because the grouped-list separator is
+ * inset to exactly this plus the row's gaps. A literal in two places would
+ * drift the day the avatar is resized, and the inset would silently stop
+ * lining up with the title.
+ */
+export const AVATAR_SIZE = 40;
+
 export function AgentAvatar({
   agent,
-  size = 40,
+  size = AVATAR_SIZE,
 }: {
   agent?: string | null;
   size?: number;
@@ -421,11 +429,23 @@ export function SectionHeader({
 }
 
 /**
- * One session as its own card — individually rounded, floating on the page
- * with a soft shadow and air between cards, the way the web Computer renders
- * them. Avatar left, bold one-line title, muted one-line subtitle, and the
- * status dot on the RIGHT edge: brand orange while working, green when idle,
- * a pause glyph when blocked.
+ * One session as a row in an INSET-GROUPED LIST, the way Settings, Mail and
+ * Messages render a list on iOS.
+ *
+ * It used to be an individually rounded card, floating on the page with its
+ * own hairline and 12pt of air on every side — a faithful copy of the web
+ * Computer. On a phone that reads as a stack of loose tiles: each row states
+ * its own edges, so six sessions are six competing objects rather than one
+ * list you scan. The separators here do that job with one pixel instead of
+ * four edges, which is why the system uses them.
+ *
+ * The group is the surface. `position` tells the row where it sits so only the
+ * outer corners round, and every row but the last carries a separator inset to
+ * the text column — aligned past the avatar, again as the system does, so the
+ * inset reads as a column guide instead of a broken line.
+ *
+ * Avatar left, one-line title, muted one-line subtitle, status dot right:
+ * brand orange while working, green when idle, a pause glyph when blocked.
  */
 export function SessionCard({
   title,
@@ -435,6 +455,7 @@ export function SessionCard({
   blocked,
   onPress,
   onArchive,
+  position = "only",
 }: {
   title: string;
   subtitle?: string | null;
@@ -444,14 +465,33 @@ export function SessionCard({
   onPress: () => void;
   /** Omit to make the row unswipeable — a running session has nothing to archive. */
   onArchive?: () => void;
+  /**
+   * Where this row sits in its group. Only the outer corners of a group are
+   * rounded, and only a non-last row draws a separator, so the group reads as
+   * one surface rather than a stack of tiles.
+   */
+  position?: "first" | "middle" | "last" | "only";
 }) {
-  const { colors, isDark, radius, type, space, motion } = useTheme();
+  const { colors, radius, type, space, motion } = useTheme();
   // Entering/exiting/layout live on this outer, style-less view rather than
   // folded into PressableScale below: list membership (a card arriving,
   // leaving, or resettling because a sibling did) and press feedback are
   // different concerns with different lifetimes, and PressableScale is
   // reused by four other pressables that have no list to belong to.
   const listMotion = useListItemMotion();
+
+  // The group's corners, not the row's. A middle row is square on both ends;
+  // the first and last row each round only the edge that is actually the edge
+  // of the group.
+  const isFirst = position === "first" || position === "only";
+  const isLast = position === "last" || position === "only";
+  const groupRadius = radius.xl;
+  const corners = {
+    borderTopLeftRadius: isFirst ? groupRadius : 0,
+    borderTopRightRadius: isFirst ? groupRadius : 0,
+    borderBottomLeftRadius: isLast ? groupRadius : 0,
+    borderBottomRightRadius: isLast ? groupRadius : 0,
+  };
 
   /**
    * Swipe-to-archive, on PanResponder rather than react-native-gesture-handler.
@@ -541,7 +581,7 @@ export function SessionCard({
               bottom: 0,
               left: 0,
               backgroundColor: colors.danger,
-              borderRadius: radius.xl,
+              ...corners,
               marginHorizontal: space.lg,
               alignItems: "flex-end",
               justifyContent: "center",
@@ -561,22 +601,27 @@ export function SessionCard({
             alignItems: "center",
             gap: space.md,
             backgroundColor: pressed ? colors.cardPressed : colors.card,
-            borderRadius: radius.xl,
+            ...corners,
             marginHorizontal: space.lg,
-            padding: space.lg,
-            // Shadows are invisible on a black page; dark mode gets a hairline
-            // instead so the card still reads as a surface.
-            shadowColor: colors.text,
-            shadowOpacity: isDark ? 0 : 0.06,
-            shadowRadius: 12,
-            shadowOffset: { width: 0, height: 2 },
-            elevation: 1,
-            borderWidth: isDark ? StyleSheet.hairlineWidth : 0,
-            borderColor: colors.borderSoft,
+            // Tighter than the old card's uniform 16pt. A grouped row is sized
+            // by its content and the 44pt minimum touch target, not by padding
+            // holding an isolated tile apart from its neighbours.
+            paddingLeft: space.md,
+            // More room on the right than the left: the status dot is a 10pt
+            // circle with no visual mass of its own, so an equal inset leaves
+            // it looking stuck to the group's edge. The avatar on the left is
+            // big enough not to need the same help.
+            paddingRight: space.lg,
+            paddingVertical: 10,
+            minHeight: 60,
+            // No shadow and no per-row border. The group is one surface, so an
+            // outline on every row would draw the tile edges this layout
+            // exists to remove; on a black page the shadow was invisible
+            // anyway.
           })}
         >
           <AgentAvatar agent={agent} />
-          <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
+          <View style={{ flex: 1, gap: 1, minWidth: 0 }}>
             <Text numberOfLines={1} style={{ ...type.headline, color: colors.text }}>
               {title}
             </Text>
@@ -598,6 +643,26 @@ export function SessionCard({
               }}
             />
           )}
+          {/* The separator sits on the row's bottom edge and stops short on
+              the left, aligned to the title rather than the avatar — the
+              system inset, which reads as a column guide instead of a line
+              that has been broken. The last row draws none: the group's own
+              edge already ends the list, and a rule there would look like a
+              row was cut off.
+              `pointerEvents="none"` so a hairline can never eat a tap. */}
+          {!isLast ? (
+            <View
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                left: space.md + AVATAR_SIZE + space.md,
+                right: 0,
+                bottom: 0,
+                height: StyleSheet.hairlineWidth,
+                backgroundColor: colors.borderSoft,
+              }}
+            />
+          ) : null}
         </PressableScale>
       </Reanimated.View>
     </Reanimated.View>

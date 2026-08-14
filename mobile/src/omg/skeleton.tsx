@@ -110,11 +110,20 @@ export function Bone({
  * lands — worth promoting avatar/padding/radius to shared tokens if another
  * skeleton needs the same shape.
  */
+/**
+ * Mirrors SessionCard's grouped-row geometry in src/components.tsx. A skeleton
+ * that does not match the row it stands in for is worse than no skeleton: the
+ * list visibly jumps when real data lands, which is the exact flicker the
+ * skeleton exists to prevent. Keep these in step with that file.
+ */
 const CARD = {
-  padding: 16, // space.lg
+  paddingLeft: 12, // space.md
+  paddingRight: 16, // space.lg — the dot needs more air than the avatar
+  paddingVertical: 10,
+  minHeight: 60,
   gap: 12, // space.md
-  avatar: 40, // AgentAvatar default size
-  radius: 18, // radius.xl
+  avatar: 40, // AVATAR_SIZE
+  radius: 18, // radius.xl — the GROUP's outer corners only
   dot: 10,
   titleHeight: 17, // type.headline fontSize
   titleWidth: 148,
@@ -126,11 +135,15 @@ const CARD = {
 export function SessionCardSkeleton({
   progress,
   reducedMotion,
+  position = "only",
 }: {
   progress: SharedValue<number>;
   reducedMotion: boolean;
+  position?: "first" | "middle" | "last" | "only";
 }) {
-  const { colors, isDark, space } = useTheme();
+  const { colors, space } = useTheme();
+  const isFirst = position === "first" || position === "only";
+  const isLast = position === "last" || position === "only";
   return (
     <View
       style={{
@@ -138,11 +151,15 @@ export function SessionCardSkeleton({
         alignItems: "center",
         gap: CARD.gap,
         backgroundColor: colors.card,
-        borderRadius: CARD.radius,
+        borderTopLeftRadius: isFirst ? CARD.radius : 0,
+        borderTopRightRadius: isFirst ? CARD.radius : 0,
+        borderBottomLeftRadius: isLast ? CARD.radius : 0,
+        borderBottomRightRadius: isLast ? CARD.radius : 0,
         marginHorizontal: space.lg,
-        padding: CARD.padding,
-        borderWidth: isDark ? StyleSheet.hairlineWidth : 0,
-        borderColor: colors.borderSoft,
+        paddingLeft: CARD.paddingLeft,
+        paddingRight: CARD.paddingRight,
+        paddingVertical: CARD.paddingVertical,
+        minHeight: CARD.minHeight,
       }}
     >
       <Bone
@@ -169,6 +186,19 @@ export function SessionCardSkeleton({
         />
       </View>
       <View style={{ width: CARD.dot, height: CARD.dot, borderRadius: CARD.dot / 2, backgroundColor: colors.secondary }} />
+      {!isLast ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: CARD.paddingLeft + CARD.avatar + CARD.gap,
+            right: 0,
+            bottom: 0,
+            height: StyleSheet.hairlineWidth,
+            backgroundColor: colors.borderSoft,
+          }}
+        />
+      ) : null}
     </View>
   );
 }
@@ -181,9 +211,17 @@ export function SessionListSkeleton({ count = 3, style }: { count?: number; styl
   const { space } = useTheme();
   const { progress, reducedMotion } = useShimmer();
   return (
-    <View style={[{ gap: space.md }, style]}>
+    // No gap — one grouped surface, same as the real list.
+    <View style={style}>
       {Array.from({ length: count }, (_, i) => (
-        <SessionCardSkeleton key={i} progress={progress} reducedMotion={reducedMotion} />
+        <SessionCardSkeleton
+          key={i}
+          progress={progress}
+          reducedMotion={reducedMotion}
+          position={
+            count === 1 ? "only" : i === 0 ? "first" : i === count - 1 ? "last" : "middle"
+          }
+        />
       ))}
     </View>
   );
