@@ -76,9 +76,47 @@ function RootNavigator() {
            * scroll edge effect; the overlap is cosmetic, a hole and a white
            * bar are not.
            */
-          headerTransparent: true,
-          headerBlurEffect: isDark ? "systemChromeMaterialDark" : "systemChromeMaterialLight",
+          /**
+           * `headerTransparent` is NOT how you ask for the system material,
+           * and using it cost us the large title.
+           *
+           * RNSScreenStackHeaderConfig.mm maps the two props separately:
+           * `headerTransparent` sets `edgesForExtendedLayout = UIRectEdgeAll`,
+           * which makes the screen's content view extend UNDER the bar; only
+           * `headerStyle.backgroundColor` with alpha 0 reaches
+           * `configureWithTransparentBackground`, and only then does
+           * `appearance.backgroundEffect` (the blur) actually show, because an
+           * opaque background paints over it.
+           *
+           * So `headerTransparent: true` alone gave us the worst of both: the
+           * bar kept an opaque appearance, and the screen's black ScrollView
+           * was laid out on top of the large title. The title was there the
+           * whole time, drawn underneath the page — which is why the home
+           * screen showed a tall empty band with a seam at its bottom edge and
+           * no "Sessions" anywhere.
+           *
+           * The combination below is the one UIKit actually wants here: an
+           * ordinary (non-extended) layout so the title has the band to
+           * itself, and the bar painted with the page colour so bar and page
+           * read as one surface. The blur is dropped deliberately — a blur
+           * needs something to sample, and with a non-extended layout there is
+           * nothing behind the bar, so it resolved to a flat mid-grey slab
+           * that looked worse than either. The hairline still appears on
+           * scroll, which is the only cue that actually carries meaning.
+           */
+          headerTransparent: false,
+          headerStyle: { backgroundColor: colors.bg },
           headerTintColor: colors.text,
+          /**
+           * `headerTintColor` colours the back chevron and the COLLAPSED title
+           * only. The large title is a separate label with its own style, and
+           * its default is the system label colour resolved against the
+           * navigator's light appearance — i.e. black. In a black app that is
+           * an invisible title once it is on screen at all. Same root cause as
+           * the white bar above: the stack knows nothing about our palette
+           * unless told.
+           */
+          headerLargeTitleStyle: { color: colors.text },
           headerBackButtonDisplayMode: "minimal",
           // The single place a screen background is painted. Every screen used
           // to re-paint colors.bg on its own root on top of this, which is the
