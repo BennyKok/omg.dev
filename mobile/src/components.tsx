@@ -17,6 +17,7 @@ import {
 import { useEffect, useMemo, useRef } from "react";
 import * as Haptics from "expo-haptics";
 import Reanimated, {
+  Easing,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
@@ -436,31 +437,81 @@ export const AVATAR_SIZE = 40;
 export function AgentAvatar({
   agent,
   size = AVATAR_SIZE,
+  busy,
 }: {
   agent?: string | null;
   size?: number;
+  /** Draws the working ring around the mark. See below for why a RING. */
+  busy?: boolean;
 }) {
   const { colors } = useTheme();
+  const spin = useSharedValue(0);
+
+  useEffect(() => {
+    if (!busy) {
+      spin.value = 0;
+      return;
+    }
+    spin.value = withRepeat(withTiming(1, { duration: 900, easing: Easing.linear }), -1, false);
+  }, [busy, spin]);
+
+  const ring = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${spin.value * 360}deg` }],
+  }));
   // The marks carry their own brand colour, so the disc underneath stays
   // neutral. Tinting it per agent fought the icon and turned a terracotta
   // asterisk on white into a terracotta asterisk on orange.
+  /**
+   * A RING AROUND THE MARK while the agent works, the way the web draws it.
+   *
+   * The row already carries a dot on its trailing edge, but that is a state
+   * you read; this is the one the eye catches without being asked. It goes
+   * round the mark rather than replacing it, so you can still see WHICH agent
+   * is busy — the identity and the activity are two facts, and a spinner that
+   * covers the icon throws one away.
+   *
+   * A single arc on a rotating border, not an ActivityIndicator: the system
+   * spinner cannot be made to hug a 32pt circle, and its grey competes with
+   * the amber this state is coloured everywhere else.
+   */
+  const ringSize = size + 8;
   return (
-    <View
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        backgroundColor: colors.secondary,
-        alignItems: "center",
-        justifyContent: "center",
-        overflow: "hidden",
-      }}
-    >
-      <Image
-        source={agentIcon(agent)}
-        style={{ width: Math.round(size * 0.62), height: Math.round(size * 0.62) }}
-        resizeMode="contain"
-      />
+    <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
+      {busy ? (
+        <Reanimated.View
+          pointerEvents="none"
+          style={[
+            {
+              position: "absolute",
+              width: ringSize,
+              height: ringSize,
+              borderRadius: ringSize / 2,
+              borderWidth: 2,
+              borderColor: "transparent",
+              borderTopColor: colors.warning,
+              borderRightColor: colors.warning,
+            },
+            ring,
+          ]}
+        />
+      ) : null}
+      <View
+        style={{
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: colors.secondary,
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+        }}
+      >
+        <Image
+          source={agentIcon(agent)}
+          style={{ width: Math.round(size * 0.62), height: Math.round(size * 0.62) }}
+          resizeMode="contain"
+        />
+      </View>
     </View>
   );
 }
@@ -725,7 +776,7 @@ export function SessionCard({
           {/* 32, not 40. The mark identifies the agent; it is not the subject
               of the row, and at 40 it was the largest thing on a card whose
               actual content is the session's name. */}
-          <AgentAvatar agent={agent} size={32} />
+          <AgentAvatar agent={agent} size={32} busy={busy} />
           <View style={{ flex: 1, gap: 1, minWidth: 0 }}>
             <Text numberOfLines={1} style={{ ...type.headline, color: colors.text }}>
               {title}
@@ -1015,10 +1066,12 @@ function ComposerCaptionButton({
   accessibilityLabel: string;
 }) {
   const { colors, radius, type, space } = useTheme();
+  // Glass, like the field it captions and the buttons inside it. A flat fill
+  // here was the last piece of chrome on this screen made of something else.
   const pill = (
-    <View
-      accessibilityRole={options.length ? "button" : undefined}
-      accessibilityLabel={accessibilityLabel}
+    <GlassSurface
+      variant="regular"
+      fallbackColor={colors.secondary}
       style={{
         flexDirection: "row",
         alignItems: "center",
@@ -1027,8 +1080,8 @@ function ComposerCaptionButton({
         minHeight: 32,
         paddingHorizontal: space.md - 2,
         borderRadius: radius.pill,
-        backgroundColor: colors.secondary,
         minWidth: 0,
+        overflow: "hidden",
       }}
     >
       <Icon ios={ios} android={android} size={13} color={colors.textSecondary} />
@@ -1039,7 +1092,7 @@ function ComposerCaptionButton({
       >
         {label}
       </Text>
-    </View>
+    </GlassSurface>
   );
   if (!options.length) return pill;
   return <DropdownMenu options={options}>{pill}</DropdownMenu>;

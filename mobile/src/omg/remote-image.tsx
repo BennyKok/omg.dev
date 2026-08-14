@@ -21,7 +21,16 @@
  */
 
 import { useEffect, useState } from "react";
-import { Image, View, type ImageStyle, type StyleProp } from "react-native";
+import {
+  Image,
+  Modal,
+  Pressable,
+  StatusBar,
+  useWindowDimensions,
+  View,
+  type ImageStyle,
+  type StyleProp,
+} from "react-native";
 
 import { useOmg } from "./provider";
 
@@ -158,16 +167,93 @@ export function AuthenticatedImage({
     );
   }
 
+  return <TappableImage uri={load.uri} {...{ width, height, radius, placeholderColor, style, accessibilityLabel }} />;
+}
+
+/**
+ * The thumbnail, and the full-size view behind it.
+ *
+ * A transcript image is a 240pt tile of something that was worth attaching —
+ * a screenshot of the bug, a diff, a design. At that size it is a reminder,
+ * not a thing you can read, so tapping opens it against black at the size the
+ * screen allows. Tap anywhere to close: a full-bleed picture with a chrome bar
+ * over it would be spending the screen on the way out.
+ *
+ * The lightbox lives HERE rather than in a provider because the bytes already
+ * do — the data URI is fetched once for the tile and the sheet reuses it, so
+ * opening one costs no request and no second decode.
+ */
+function TappableImage({
+  uri,
+  width,
+  height,
+  radius,
+  placeholderColor,
+  style,
+  accessibilityLabel,
+}: {
+  uri: string;
+  width: number;
+  height: number;
+  radius: number;
+  placeholderColor: string;
+  style?: StyleProp<ImageStyle>;
+  accessibilityLabel: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const screen = useWindowDimensions();
+
   return (
-    <Image
-      source={{ uri: load.uri }}
-      accessibilityLabel={accessibilityLabel}
-      accessible
-      resizeMode="cover"
-      style={[
-        { width, height, borderRadius: radius, backgroundColor: placeholderColor },
-        style,
-      ]}
-    />
+    <>
+      <Pressable
+        onPress={() => setOpen(true)}
+        accessibilityRole="imagebutton"
+        accessibilityLabel={`${accessibilityLabel}. Open`}
+        style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}
+      >
+        <Image
+          source={{ uri }}
+          accessibilityLabel={accessibilityLabel}
+          accessible
+          resizeMode="cover"
+          style={[
+            { width, height, borderRadius: radius, backgroundColor: placeholderColor },
+            style,
+          ]}
+        />
+      </Pressable>
+
+      <Modal
+        visible={open}
+        transparent
+        animationType="fade"
+        // The system back gesture and the hardware back button both close it.
+        onRequestClose={() => setOpen(false)}
+        statusBarTranslucent
+      >
+        <StatusBar hidden />
+        <Pressable
+          onPress={() => setOpen(false)}
+          accessibilityRole="button"
+          accessibilityLabel="Close the image"
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.96)",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Image
+            source={{ uri }}
+            accessibilityLabel={accessibilityLabel}
+            accessible
+            // `contain`, so a tall screenshot is readable end to end rather
+            // than cropped to the middle of itself.
+            resizeMode="contain"
+            style={{ width: screen.width, height: screen.height }}
+          />
+        </Pressable>
+      </Modal>
+    </>
   );
 }

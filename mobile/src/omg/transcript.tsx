@@ -245,9 +245,34 @@ function ToolRun({ pairs }: { pairs: ToolPair[] }) {
   );
 }
 
+/**
+ * Claude records STEERING as a synthetic user turn — `[Request interrupted by
+ * user]` — and this screen was drawing it as a message the human typed: a full
+ * card, quoting a sentence nobody wrote, sitting where their words go. The web
+ * keeps the row (it carries the ordering) and reduces it to a status line; this
+ * is the same rule, matched to `isRequestInterruptedMessage` in
+ * web/src/lib/transcript-status.ts so the two cannot drift.
+ */
+const INTERRUPTED = /^\[Request interrupted by user(?: for tool use)?\]$/i;
+
+function isInterruptedTurn(message: Entry): boolean {
+  if (message.role !== "user") return false;
+  return INTERRUPTED.test((message.text ?? "").trim());
+}
+
 export function TranscriptEntry({ message }: { message: Entry }) {
   const { colors, type, space } = useTheme();
   const isUser = message.role === "user";
+
+  if (isInterruptedTurn(message)) {
+    return (
+      <View style={{ alignSelf: "stretch", alignItems: "center", paddingVertical: 2 }}>
+        <Text style={{ ...type.caption, fontSize: 11, color: colors.textMuted }}>
+          Interrupted
+        </Text>
+      </View>
+    );
+  }
   const isSystem = message.role !== "user" && message.role !== "assistant";
 
   // A message carrying only a file or an image has no text to fall back on, and

@@ -883,24 +883,11 @@ export default function SessionScreen() {
         </GlassSurface>
         </View>
 
-        {/* Nothing under the field except the one control that has no home
-            inside it. Attach lives at the head of the input, send and dictate
-            share its tail, and the prompt HISTORY is gone: it was a third menu
-            competing for the same row, and re-sending an old prompt is not
-            what a running session is for. */}
-        {busy ? (
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <IconButton
-              ios="stop.fill"
-              android="stop"
-              accessibilityLabel="Stop the agent"
-              onPress={() => void stop()}
-              size={15}
-              color={colors.danger}
-              background={colors.secondary}
-            />
-          </View>
-        ) : null}
+        {/* No stop button down here. Stopping a run is not a composer
+            control — the composer is for what you are about to say — and a red
+            square parked under the field was the loudest thing on the screen
+            for something you rarely do. It lives in the ⋯ menu, which is where
+            the session's other verbs already are. */}
       </View>
     </Reanimated.View>
   );
