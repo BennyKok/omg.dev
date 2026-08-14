@@ -21,6 +21,7 @@ import {
   capturePane,
   parsePrompt,
   isBusy,
+  isJcodeBusy,
   type PanePrompt,
 } from "./tmux.ts";
 import {
@@ -52,7 +53,7 @@ type HtmlMessage = {
   name?: string;
   size?: number;
 };
-type LivePane = { sid: string; tp: string | null; target: string | null };
+type LivePane = { sid: string; tp: string | null; target: string | null; agent: Session["agent"] | null };
 type ChannelKind = "transcript" | "status" | "agent_run";
 type Channel = { kind: ChannelKind; key: string; resumeFromSeq?: number };
 type AgentRunSnapshot = {
@@ -461,8 +462,9 @@ export function createLiveWsSupport(opts: {
 
   const hydrateTarget = async (tail: SidTail) => {
     const all = await listSessionsCached();
-    const bySid = new Map(all.map((s) => [s.sessionId, s.tmuxTarget ?? null]));
-    tail.pane.target = bySid.get(tail.sid) ?? null;
+    const session = all.find((s) => s.sessionId === tail.sid);
+    tail.pane.target = session?.tmuxTarget ?? null;
+    tail.pane.agent = session?.agent ?? null;
   };
 
   const subscribeTailToTranscript = async (tail: SidTail, tp: string) => {
@@ -587,7 +589,7 @@ export function createLiveWsSupport(opts: {
       tail.lastSig = sig;
       publishSid(tail.sid, "prompt", { prompt: prompt ?? null });
     }
-    const busy = pane ? isBusy(pane) : false;
+    const busy = pane ? (tail.pane.agent === "jcode" ? isJcodeBusy(pane) : isBusy(pane)) : false;
     const bsig = busy ? "1" : "0";
     if (bsig !== tail.lastBusy) {
       tail.lastBusy = bsig;
@@ -609,7 +611,7 @@ export function createLiveWsSupport(opts: {
     const tail: SidTail = {
       sid,
       sockets: new Set(),
-      pane: { sid, tp, target: null },
+      pane: { sid, tp, target: null, agent: null },
       lastSig: " ",
       lastBusy: "?",
       lastQ: "[]",
