@@ -49,7 +49,12 @@ import type { OmgMessage } from "@omg-dev/protocol";
 
 import { Icon } from "../components";
 import { relativeTime } from "./format";
-import { CodeBlock, Markdown } from "./markdown";
+import { CodeBlock, Markdown, useBodyText } from "./markdown";
+import {
+  parseMessageAttachments,
+  type MessageAttachment,
+} from "./message-attachments";
+import { AuthenticatedImage } from "./remote-image";
 import { Text } from "./text";
 import { useTheme } from "./theme";
 
@@ -80,6 +85,17 @@ const MONO = Platform.select({ ios: "Menlo", android: "monospace", default: "mon
 
 /** How much of an expanded body is worth rendering into a single list cell. */
 const BODY_CHAR_LIMIT = 2_000;
+
+/**
+ * Attachment tile caps, in points.
+ *
+ * A lone attachment is usually a screenshot the sender wants to point at, so it
+ * gets enough room to be recognisable without taking over a phone screen. The
+ * web caps the same tile at 20rem / 15rem; these are the phone's equivalents,
+ * smaller because the viewport is.
+ */
+const ATTACHMENT_MAX = 240;
+const ATTACHMENT_TILE = 150;
 
 export function buildTranscriptItems(messages: Entry[]): TranscriptItem[] {
   const items: TranscriptItem[] = [];
@@ -783,6 +799,7 @@ function FallbackEntry({ message }: { message: Entry }) {
 
 export function UserMessage({ message }: { message: Entry }) {
   const { colors, type, space, radius } = useTheme();
+  const body = useBodyText();
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -807,26 +824,49 @@ export function UserMessage({ message }: { message: Entry }) {
 
   const stamp = relativeTime(message.ts);
 
+  // Attachments ride along in the user's text as absolute upload paths, because
+  // that is how the agent receives them. Split them back out so the transcript
+  // shows the pictures instead of `/tmp/lfg-uploads/…-IMG_0850.png` on its own
+  // line. COPY STILL TAKES THE RAW TEXT: what the agent saw is what gets
+  // copied, exactly as on the web.
+  const { body: text, attachments } = useMemo(
+    () => parseMessageAttachments(message.text ?? ""),
+    [message.text],
+  );
+
   return (
-    <View style={{ alignSelf: "stretch" }}>
-      <View
-        style={{
-          backgroundColor: colors.card,
-          borderRadius: radius.xl,
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: colors.border,
-          paddingHorizontal: space.lg,
-          paddingVertical: space.md,
-          opacity: message.pending ? 0.6 : 1,
-        }}
-      >
-        <Text
-          selectable
-          style={{ ...type.callout, fontSize: 16, lineHeight: 22, color: colors.text }}
+    <View style={{ alignSelf: "stretch", gap: space.xs }}>
+      {attachments.length ? (
+        <UserAttachments attachments={attachments} pending={message.pending} />
+      ) : null}
+      {/* A caption is optional: attach an image with nothing typed and the
+          picture is the whole message, with no empty bubble under it. */}
+      {text ? (
+        <View
+          style={{
+            backgroundColor: colors.card,
+            borderRadius: radius.xl,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: colors.border,
+            paddingHorizontal: space.lg,
+            paddingVertical: space.md,
+            opacity: message.pending ? 0.6 : 1,
+          }}
         >
-          {message.text}
-        </Text>
-      </View>
+          <Text
+            selectable
+            // The SAME body style the assistant's markdown uses. On the web
+            // both roles resolve to `.msg-text.markdown`, so a sent message and
+            // a reply read at one size and one rhythm; the bubble is the only
+            // difference between them. This used to be lineHeight 22 against
+            // the assistant's 23, which made the user's own words look
+            // fractionally tighter than the answer to them.
+            style={body}
+          >
+            {text}
+          </Text>
+        </View>
+      ) : null}
       <View
         style={{
           flexDirection: "row",
@@ -865,6 +905,92 @@ export function UserMessage({ message }: { message: Entry }) {
           <Text style={{ ...type.caption, color: colors.textMuted }}>{stamp}</Text>
         ) : null}
       </View>
+    </View>
+  );
+}
+
+/**
+ * The files a user attached, above the text rather than inside it.
+ *
+ * Deliberately not in the bubble: an image is not a run of text with a
+ * background, and boxing it in bubble chrome makes the caption and the picture
+ * read as one cramped card. Sent media gets its own frame and the words get
+ * theirs, which is both what the web does and what every messaging client does.
+ */
+function UserAttachments({
+  attachments,
+  pending,
+}: {
+  attachments: MessageAttachment[];
+  pending?: boolean;
+}) {
+  const { colors, space, radius } = useTheme();
+  const single = attachments.length === 1;
+
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: space.xs,
+        // Not `stretch`, which is the flex default: that pulls every tile on a
+        // row up to the tallest one's height, so a wide screenshot beside a
+        // tall one renders squashed. The web stylesheet carries this same note.
+        alignItems: "flex-start",
+        // Mid-send the picture is already local, so it stays visible and only
+        // dims — the bubble's own pending treatment.
+        opacity: pending ? 0.7 : 1,
+      }}
+    >
+      {attachments.map((attachment) =>
+        attachment.url ? (
+          <AuthenticatedImage
+            key={attachment.path}
+            path={attachment.url}
+            accessibilityLabel={attachment.name}
+            // One attachment gets room to be recognisable — the common case is
+            // a screenshot the user wants to point at. Several tile instead of
+            // each claiming the full width.
+            maxWidth={single ? ATTACHMENT_MAX : ATTACHMENT_TILE}
+            maxHeight={single ? ATTACHMENT_MAX : ATTACHMENT_TILE}
+            radius={radius.xl}
+            placeholderColor={colors.codeBg}
+            fallback={<AttachmentChip name={attachment.name} />}
+          />
+        ) : (
+          <AttachmentChip key={attachment.path} name={attachment.name} />
+        ),
+      )}
+    </View>
+  );
+}
+
+/**
+ * A named chip: the representation for an attachment with nothing to show
+ * inline — a PDF, or an image whose bytes are gone (uploads live in tmpdir,
+ * which a reboot clears). Still better than the raw path it replaces.
+ */
+function AttachmentChip({ name }: { name: string }) {
+  const { colors, type, space, radius } = useTheme();
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        maxWidth: "100%",
+        paddingHorizontal: space.md,
+        paddingVertical: 6,
+        borderRadius: radius.lg,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.border,
+        backgroundColor: colors.card,
+      }}
+    >
+      <Icon ios="paperclip" android="attach_file" size={13} color={colors.textSecondary} />
+      <Text numberOfLines={1} style={{ ...type.footnote, color: colors.text, flexShrink: 1 }}>
+        {name}
+      </Text>
     </View>
   );
 }
