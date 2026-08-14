@@ -17,7 +17,7 @@
 // session via the registry's isEntryBusy().
 
 import { listSessions, resolveTranscript, type Session } from "./sessions.ts";
-import { capturePane, isBusy } from "./tmux.ts";
+import { capturePane, isBusy, isJcodeBusy } from "./tmux.ts";
 import { findEntryByAnyId, isEntryBusy } from "./aisdk-registry.ts";
 import { enqueueTranscriptIndex } from "./transcript-index.ts";
 
@@ -86,7 +86,7 @@ const SETTLE_TICKS = 2;
 function sessionBusy(s: Session): boolean {
   if (s.tmuxTarget) {
     const pane = capturePane(s.tmuxTarget);
-    return pane ? isBusy(pane) : false;
+    return pane ? (s.agent === "jcode" ? isJcodeBusy(pane) : isBusy(pane)) : false;
   }
   if (s.sessionId) {
     const e = findEntryByAnyId(s.sessionId);

@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## August 14, 2026 - Every Jcode view shows its real working state (v0.1.371)
+
+- **Expanded Jcode sessions no longer flip back to Idle while working.** The
+  session list had the corrected status, but its one-second live stream still
+  used the old generic terminal detector and overrode the card with Idle. The
+  WebSocket, fallback stream, and fleet watcher now all use Jcode-aware activity
+  detection.
+
 ## August 14, 2026 - Jcode stays visibly active during long turns (v0.1.370)
 
 - **Long Jcode turns no longer look stuck.** Once enough output scrolled the

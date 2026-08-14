@@ -174,6 +174,7 @@ import {
   panePidForSession,
   tmuxHasSession,
   isBusy,
+  isJcodeBusy,
 } from "../tmux.ts";
 import {
   addManaged,
@@ -6476,7 +6477,7 @@ a{color:#60a5fa}
           .filter((s) => /^[0-9a-fA-F-]{36}$/.test(s))
           .slice(0, 24);
         evlog("live_stream_request", { rid, ids, idsCount: ids.length });
-        type LivePane = { sid: string; tp: string | null; target: string | null };
+        type LivePane = { sid: string; tp: string | null; target: string | null; agent: Session["agent"] | null };
         let panes: LivePane[] = [];
 
         let iv: ReturnType<typeof setInterval> | null = null;
@@ -6600,7 +6601,7 @@ a{color:#60a5fa}
                   `event: prompt\ndata: ${JSON.stringify({ sid: p.sid, prompt: prompt ?? null })}\n\n`,
                 );
               }
-              const busy = pane ? isBusy(pane) : false;
+              const busy = pane ? (p.agent === "jcode" ? isJcodeBusy(pane) : isBusy(pane)) : false;
               const bsig = busy ? "1" : "0";
               if (bsig !== (lastBusy.get(p.sid) ?? "0")) {
                 lastBusy.set(p.sid, bsig);
@@ -6627,8 +6628,12 @@ a{color:#60a5fa}
                 durationMs: Math.round((performance.now() - listT0) * 1000) / 1000,
                 phase: "target_hydration",
               });
-              const bySid = new Map(all.map((s) => [s.sessionId, s.tmuxTarget ?? null]));
-              for (const p of panes) p.target = bySid.get(p.sid) ?? null;
+              const bySid = new Map(all.map((s) => [s.sessionId, s]));
+              for (const p of panes) {
+                const session = bySid.get(p.sid);
+                p.target = session?.tmuxTarget ?? null;
+                p.agent = session?.agent ?? null;
+              }
             };
             (async () => {
               const resolveT0 = performance.now();
@@ -6644,7 +6649,7 @@ a{color:#60a5fa}
                     durationMs: Math.round((performance.now() - sidT0) * 1000) / 1000,
                   });
                   return tp || entry
-                    ? ({ sid, tp, target: null } satisfies LivePane)
+                    ? ({ sid, tp, target: null, agent: null } satisfies LivePane)
                     : null;
                 }),
               );
