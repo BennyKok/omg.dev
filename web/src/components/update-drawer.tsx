@@ -355,8 +355,10 @@ function UpdateDrawer() {
 
   return (
     <Drawer open={drawerOpen} onOpenChange={handleOpenChange} shouldScaleBackground={false}>
-      <DrawerContent className="mx-auto flex h-[80dvh] max-h-[80dvh] w-full max-w-lg flex-col overflow-hidden md:h-auto">
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <DrawerContent className="mx-auto flex max-h-[80dvh] w-full max-w-lg flex-col overflow-hidden">
+        {/* flex-auto keeps short changelogs content-sized, then shrinks the body
+            into a scroller before the actions can leave the viewport. */}
+        <div className="flex min-h-0 flex-auto flex-col overflow-hidden">
           <header className="flex shrink-0 items-start justify-between gap-3 border-b border-border/70 pb-3">
             <div className="min-w-0">
               <DrawerTitle>What's new</DrawerTitle>
@@ -374,7 +376,7 @@ function UpdateDrawer() {
             )}
           </header>
 
-          <div className="min-h-0 flex-1 overflow-y-auto py-3">
+          <div className="min-h-0 flex-auto overflow-y-auto py-3">
             {flow.phase === "confirmed" ? (
               <div className="flex flex-col items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
                 <CheckCircle2 className="size-6 text-emerald-500" />
