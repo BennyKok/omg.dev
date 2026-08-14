@@ -2,7 +2,7 @@
 
 Recent product updates and deployment notes.
 
-## August 14, 2026 - Jcode chat history survives a journal rewrite
+## August 14, 2026 - Jcode transcript and resume reliability (v0.1.374)
 
 - **Jcode sessions no longer show an empty or nearly empty transcript after a
   long turn.** Jcode keeps the full chat in `session_*.json` and sometimes
@@ -10,6 +10,10 @@ Recent product updates and deployment notes.
   journal, so opening those sessions looked like the transcript had failed to
   load. The serve path now merges the session snapshot with the live journal and
   serves the combined history through the session index.
+- **Jcode sessions survive a box reboot.** Resume now relaunches the pane against
+  the remembered jcode journal id instead of falling through to the Claude path.
+- **A missing transcript file no longer kills the whole server.** The live
+  tailer treats a vanished file as empty instead of crashing serve.
 
 ## August 14, 2026 - Combined Claude usage and the real Jcode mark (v0.1.373)
 
