@@ -9,6 +9,15 @@ Recent product updates and deployment notes.
   fall through to the managed Claude path.
 - **Your saved agent still wins.** The new host default applies only when this
   browser has no valid saved selection.
+- **A running server could claim a version it was not running.** It read the
+  version off disk every time you asked, so once an update landed in the folder
+  it reported the new number immediately, even though the old code was still
+  serving until a restart. Two fixes looked deployed earlier this week when
+  neither was.
+- **It now answers with the version it actually started on**, and reports a
+  boot id alongside it. The id changes only when the server truly restarts, so
+  "did my update take effect" has a straight answer instead of a number that
+  can be right about the folder and wrong about the process.
 
 ## August 13, 2026 - Hosted owner filter no longer hides every session (v0.1.366)
 
