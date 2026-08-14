@@ -17,6 +17,10 @@ const bottomSheet = () => slice("function BottomSheet(", "function FindingSheet(
 // The morph itself now lives in a hook, so the guards that used to read
 // BottomSheet's body read the hook's source instead.
 const HOOK = readFileSync(new URL("../web/src/lib/expand-on-focus.ts", import.meta.url), "utf8");
+const DRAWER = readFileSync(
+  new URL("../web/src/components/ui/drawer.tsx", import.meta.url),
+  "utf8",
+);
 const RESUME = readFileSync(
   new URL("../web/src/views/resume-session-sheet.tsx", import.meta.url),
   "utf8",
@@ -50,10 +54,8 @@ describe("the sheet morphs into a page for the keyboard", () => {
     // The footer is what lands on the keyboard; if it scrolls with the body it
     // is not a footer.
     const src = bottomSheet();
-    // `paged`, not `page`: the class is driven by the caller's prop OR the
-    // sheet's own focus state now (see the expandOnFocus block below).
-    expect(src).toContain('paged && "lfg-sheet-page"');
-    expect(src).toContain("const paged = page || morph.paged;");
+    // The class itself is DrawerContent's job now (see the next describe);
+    // BottomSheet's remaining job is the footer/scroller split.
     expect(src).toContain("flex min-h-0 flex-auto flex-col overflow-y-auto overscroll-contain");
     // basis-0 (`flex-1`) contributes nothing to an auto-height sheet, so the
     // compact card can collapse. Class attributes only — the comment above the
@@ -96,58 +98,60 @@ describe("the composer is opt-in", () => {
   });
 });
 
-describe("any sheet can enter page mode on focus, not just the finding", () => {
-  // FindingSheet drove `page` from focus by hand from the start. The auto-agent
-  // forms — which are nothing BUT fields — were left as content-sized cards, so
-  // they were the ones still being shoved off the top by the keyboard. The
-  // behaviour is shared now; these guard that it stays shared.
-  test("BottomSheet takes expandOnFocus and enters page mode from a field", () => {
-    const src = bottomSheet();
-    expect(src).toContain("expandOnFocus = false");
-    // The behaviour is the hook's; BottomSheet's job is to pass the flag down
-    // and wire all three handlers, since any missing one breaks fold-back.
-    expect(src).toContain("useExpandOnFocus(expandOnFocus)");
-    expect(src).toContain("onFocusCapture={morph.onFocusCapture}");
-    expect(src).toContain("onBlurCapture={morph.onBlurCapture}");
+describe("every drawer in the app gets the morph, not just opted-in sheets", () => {
+  // The morph used to be wired by hand at each call site, so any drawer whose
+  // author did not know about it kept fighting the keyboard. It lives in
+  // DrawerContent now: on by default, opt OUT with expandOnFocus={false}.
+  test("DrawerContent owns the hook and applies the class itself", () => {
+    expect(DRAWER).toContain("expandOnFocus = true");
+    expect(DRAWER).toContain("useExpandOnFocus(expandOnFocus && !isDesktop)");
+    expect(DRAWER).toContain("const paged = page || morph.paged");
+    expect(DRAWER).toContain('paged && "lfg-sheet-page"');
+  });
+
+  test("all three handlers are wired, and caller handlers still run", () => {
+    // A missing handler breaks fold-back; replacing the caller's handler
+    // silently breaks whatever that caller needed it for.
+    for (const handler of ["onPointerDownCapture", "onFocusCapture", "onBlurCapture"]) {
+      expect(DRAWER).toContain(`morph.${handler}(`);
+      expect(DRAWER).toContain(`${handler}?.(e)`);
+    }
     expect(HOOK).toContain("if (!isTypingTarget(e.target as Element)) return;");
   });
 
-  test("the auto-agent forms opt in", () => {
-    // Both the create and the edit sheet: an edit visit types just as much as
-    // a create one.
-    expect(APP).toContain('<BottomSheet onClose={onClose} title="New auto agent" expandOnFocus>');
-    const edit = APP.slice(APP.indexOf('title={isNew ? "New auto agent" : "Edit auto agent"}'));
-    expect(edit.slice(0, 200)).toContain("expandOnFocus");
+  test("page state is published so sheet bodies can react without duplicating it", () => {
+    expect(DRAWER).toContain('data-paged={paged ? "true" : "false"}');
+    expect(DRAWER).toContain("DrawerPagedContext");
+    expect(DRAWER).toContain("useDrawerPaged");
   });
 
-  test("BottomSheet's own fold-back keeps typed work and inter-field focus", () => {
-    // Same two rules FindingSheet applies to its reply box, generalised: any
-    // field in the sheet still holding a value pins it open, and focus moving
-    // between fields inside the sheet is not "left the sheet".
+  test("BottomSheet forwards its props instead of re-implementing the morph", () => {
+    const src = bottomSheet();
+    expect(src).toContain("page={page}");
+    expect(src).toContain("expandOnFocus={expandOnFocus}");
+    // Default-on here too: a sheet built from BottomSheet is a form more often
+    // than not.
+    expect(src).toContain("expandOnFocus = true");
+    expect(src).not.toContain("useExpandOnFocus(");
+  });
+
+  test("the hand-wired call sites are gone", () => {
+    // Folder picker and resume sheet inherit the morph now. Leftover local
+    // wiring would double-apply the class and drift out of sync.
+    const picker = slice("function ProjectFolderBrowser(", "function ComposerProjectSheet(");
+    expect(picker).not.toContain("useExpandOnFocus");
+    expect(picker).not.toContain("lfg-sheet-page");
+    expect(RESUME).not.toContain("useExpandOnFocus");
+    expect(RESUME).not.toContain("lfg-sheet-page");
+    // The resume sheet's own 72dvh cap still has to yield, now off the
+    // drawer's data attribute rather than a local state.
+    expect(RESUME).toContain("group-data-[paged=true]/drawer-content:max-h-none");
+  });
+
+  test("BottomSheet's fold-back keeps typed work and inter-field focus", () => {
     expect(HOOK).toContain("contains(deepActiveElement())");
     expect(HOOK).toContain("if (field.value.trim()) return;");
     expect(HOOK).toContain("useEffect(() => cancelExit, []);");
-    expect(bottomSheet()).toContain("onPointerDownCapture={morph.onPointerDownCapture}");
-  });
-
-  test("the raw drawers that were still fighting the keyboard opt in too", () => {
-    // The project folder picker ("new folder" name field) and the resume
-    // sheet's search box never went through BottomSheet, so they never got the
-    // morph. Each needs the class AND all three handlers.
-    for (const [name, src] of [
-      ["folder picker", slice("function ProjectFolderBrowser(", "function ComposerProjectSheet(")],
-      ["resume sheet", RESUME],
-    ] as const) {
-      const morph = name === "folder picker" ? "pickerMorph" : "morph";
-      expect(src).toContain("useExpandOnFocus()");
-      expect(src).toContain(`${morph}.paged && "lfg-sheet-page"`);
-      expect(src).toContain(`onPointerDownCapture={${morph}.onPointerDownCapture}`);
-      expect(src).toContain(`onFocusCapture={${morph}.onFocusCapture}`);
-      expect(src).toContain(`onBlurCapture={${morph}.onBlurCapture}`);
-    }
-    // The resume sheet's own 72dvh cap has to yield, or page mode is a no-op
-    // on the surface that needs it.
-    expect(RESUME).toContain('morph.paged ? "flex-1" : "max-h-[72dvh]"');
   });
 });
 
