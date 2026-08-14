@@ -13,7 +13,7 @@ import { cn } from "./utils";
 // Bump whenever an agent mark in web/public changes: versioned icon URLs are
 // served `immutable, max-age=1y`, so a redrawn SVG at the same `?v=` keeps
 // serving the old art out of the browser cache forever.
-export const AGENT_ICON_VERSION = "20260811";
+export const AGENT_ICON_VERSION = "20260814";
 
 /**
  * The session-card / picker icon for an agent kind. Codex variants share the
