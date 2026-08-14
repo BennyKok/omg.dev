@@ -66,7 +66,7 @@ export function omgMcpServers(
   return { mcpServers: { omg: { type: "http", url } } };
 }
 
-export function appVersion(): string {
+function readVersionFromDisk(): string {
   try {
     const parsed = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
       version?: unknown;
@@ -77,6 +77,33 @@ export function appVersion(): string {
   } catch {
     return "unknown";
   }
+}
+
+/**
+ * The version of the code this process is RUNNING — resolved once, at module
+ * load, deliberately.
+ *
+ * Reading package.json per call reports whatever is on disk right now, which is
+ * a different fact and a misleading one: a server that has not restarted since a
+ * `git pull` / `omg update` advertises a version it is not executing. That is
+ * exactly the signal people reach for to confirm a deploy landed, so it fails in
+ * the worst possible direction. Observed on this fleet: /api/bootstrap reported
+ * 0.1.365 while serving code from 36 minutes before that version existed, and
+ * two shipped fixes read as deployed when neither was.
+ *
+ * Binding it at module scope ties it to process start. A lazy `if (!cached)`
+ * memo would look equivalent and reintroduce the same bug in miniature — the
+ * first call could land after a pull and cache the new version while running the
+ * old code. One readFileSync at import is not worth optimising.
+ *
+ * If something ever genuinely needs the on-disk value (an "update staged,
+ * restart to apply" affordance), add a separately named stagedVersion() rather
+ * than making this one ambiguous again.
+ */
+const RUNNING_VERSION = readVersionFromDisk();
+
+export function appVersion(): string {
+  return RUNNING_VERSION;
 }
 
 export type InstallChannel = "source" | "release" | "container" | "unknown";
