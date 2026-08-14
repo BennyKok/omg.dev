@@ -12,8 +12,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/BennyKok/omg.dev?style=flat)](https://github.com/BennyKok/omg.dev/stargazers)
 [![npm](https://img.shields.io/npm/v/@omg-dev/cli?label=%40omg-dev%2Fcli)](https://www.npmjs.com/package/@omg-dev/cli)
+[![Discord](https://img.shields.io/badge/Discord-join%20the%20community-5865F2?logo=discord&logoColor=white)](https://omg.dev/discord)
 
-[Quick start](#quick-start) · [Why omg.dev](#why-omgdev) · [Agents](#connect-a-coding-agent) · [Remote access](#reach-it-from-your-phone) · [Security](#security)
+[Quick start](#quick-start) · [Join the Discord](https://omg.dev/discord) · [Why omg.dev](#why-omgdev) · [Agents](#connect-a-coding-agent) · [Remote access](#reach-it-from-your-phone) · [Security](#security)
 
 <p>
   <img src="https://raw.githubusercontent.com/BennyKok/omg.dev/main/docs/images/omg-screenshot-1.jpg" alt="omg.dev web UI" width="31%" />
