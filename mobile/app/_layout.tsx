@@ -1,12 +1,18 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
 
 import { BrandMark } from "../src/omg/brand-mark";
 
 import { OmgProvider, useOmg } from "../src/omg/provider";
 import { useTheme } from "../src/omg/theme";
 import { ToastProvider } from "../src/omg/toast";
+
+/**
+ * Only iOS has the system chrome material AND the scroll-view inset behaviour
+ * that a translucent bar depends on. See the note on `headerTransparent`.
+ */
+const translucentBar = Platform.OS === "ios";
 
 function RootNavigator() {
   const { authStatus } = useOmg();
@@ -40,72 +46,55 @@ function RootNavigator() {
   }
 
   return (
-    <>
+    /**
+     * The ONE place the page colour is painted, now that every screen's own
+     * content view is transparent so the nav bar's blur has something to
+     * sample. Behind the navigator rather than on each screen: one fill, so
+     * there is nothing to disagree with mid-transition, and nothing opaque
+     * between the scrolling content and the bar.
+     */
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <StatusBar style={isDark ? "light" : "dark"} />
       <Stack
         screenOptions={{
           /**
-           * The nav bar is left to the system material.
+           * The nav bar is handed back to UIKit instead of being painted.
            *
            * `headerStyle: { backgroundColor: colors.bg }` forced it opaque,
            * which flattens the one piece of chrome iOS is most opinionated
            * about: a real UINavigationBar is translucent, samples what scrolls
            * under it, and grows a hairline only once content is behind it.
-           * Painting it a flat hex threw all of that away and left a bar that
-           * merely sat above the page instead of belonging to it.
            *
-           * `headerTransparent` + `headerBlurEffect` hands it back to UIKit,
-           * and the blur follows the system appearance on its own — which is
-           * also why it does not need a colour from us. The screens under it
-           * set `contentInsetAdjustmentBehavior="automatic"` so their content
-           * insets below the bar rather than starting under it.
-           */
-          /**
-           * Both halves of this are load-bearing, and each was wrong alone.
-           *
-           * `headerTransparent` on its own means "draw NO background", not
-           * "use the system material" — the bar became a hole and the
-           * transcript scrolled up into the title, both unreadable. Dropping
-           * it instead fell back to the navigator's default, which is LIGHT:
-           * a white bar in a black app with an invisible title, because
-           * expo-router's stack knows nothing about our palette.
-           *
-           * `headerBlurEffect` is what actually asks UIKit for its own
-           * translucent chrome material, and it has to be told which
-           * appearance to use. RNScreens warns this may overlap iOS 26's
-           * scroll edge effect; the overlap is cosmetic, a hole and a white
-           * bar are not.
-           */
-          /**
-           * `headerTransparent` is NOT how you ask for the system material,
-           * and using it cost us the large title.
-           *
+           * BOTH halves below are load-bearing, and each was wrong alone.
            * RNSScreenStackHeaderConfig.mm maps the two props separately:
            * `headerTransparent` sets `edgesForExtendedLayout = UIRectEdgeAll`,
-           * which makes the screen's content view extend UNDER the bar; only
+           * so the screen's content view extends UNDER the bar; only
            * `headerStyle.backgroundColor` with alpha 0 reaches
            * `configureWithTransparentBackground`, and only then does
            * `appearance.backgroundEffect` (the blur) actually show, because an
            * opaque background paints over it.
            *
-           * So `headerTransparent: true` alone gave us the worst of both: the
-           * bar kept an opaque appearance, and the screen's black ScrollView
-           * was laid out on top of the large title. The title was there the
-           * whole time, drawn underneath the page — which is why the home
-           * screen showed a tall empty band with a seam at its bottom edge and
-           * no "Sessions" anywhere.
+           * `headerTransparent` alone therefore left the appearance opaque and
+           * laid the black page on top of the large title — which is why the
+           * home screen showed a tall empty band and no "Sessions" anywhere.
+           * A transparent `headerStyle` alone left the layout un-extended, so
+           * the blur had nothing behind it and resolved to a flat grey slab.
            *
-           * The combination below is the one UIKit actually wants here: an
-           * ordinary (non-extended) layout so the title has the band to
-           * itself, and the bar painted with the page colour so bar and page
-           * read as one surface. The blur is dropped deliberately — a blur
-           * needs something to sample, and with a non-extended layout there is
-           * nothing behind the bar, so it resolved to a flat mid-grey slab
-           * that looked worse than either. The hairline still appears on
-           * scroll, which is the only cue that actually carries meaning.
+           * The screens under this set `contentInsetAdjustmentBehavior` to
+           * "automatic", which is what keeps their content STARTING below the
+           * bar while still passing under it on scroll.
+           *
+           * ANDROID KEEPS AN OPAQUE BAR. `headerBlurEffect` is iOS-only, and
+           * `contentInsetAdjustmentBehavior` is a UIScrollView property with
+           * no Android equivalent — so a transparent bar there would be
+           * absolutely positioned over content that nothing insets, putting
+           * the first row under the title with no way to scroll it clear.
+           * There is no system material to ask for, so the page colour is the
+           * honest answer.
            */
-          headerTransparent: false,
-          headerStyle: { backgroundColor: colors.bg },
+          headerTransparent: translucentBar,
+          headerStyle: { backgroundColor: translucentBar ? "transparent" : colors.bg },
+          headerBlurEffect: isDark ? "systemChromeMaterialDark" : "systemChromeMaterialLight",
           headerTintColor: colors.text,
           /**
            * `headerTintColor` colours the back chevron and the COLLAPSED title
@@ -118,11 +107,23 @@ function RootNavigator() {
            */
           headerLargeTitleStyle: { color: colors.text },
           headerBackButtonDisplayMode: "minimal",
-          // The single place a screen background is painted. Every screen used
-          // to re-paint colors.bg on its own root on top of this, which is the
-          // double layering: two identical fills, and any disagreement between
-          // them showing up as a seam mid-transition.
-          contentStyle: { backgroundColor: colors.bg },
+          /**
+           * The screen background is TRANSPARENT, and the page colour is
+           * painted once behind the whole navigator instead (see the wrapper
+           * View in RootNavigator).
+           *
+           * This is the other half of the translucent bar. With
+           * `headerTransparent` the screen's content view extends under the
+           * bar — so if that view has an opaque background, it paints black
+           * over the large title and the blur has a solid sheet pressed
+           * against it. That is exactly what hid "Sessions": the title was
+           * rendering the whole time, underneath this fill.
+           *
+           * Painting behind the navigator instead means there is still exactly
+           * one place a background is drawn (no double-layering, no seam
+           * mid-transition) and the bar has real content to sample.
+           */
+          contentStyle: { backgroundColor: "transparent" },
         }}
       >
         <Stack.Protected guard={false}>
@@ -147,7 +148,7 @@ function RootNavigator() {
           />
         </Stack.Protected>
       </Stack>
-    </>
+    </View>
   );
 }
 
