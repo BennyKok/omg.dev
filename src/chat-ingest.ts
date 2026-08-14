@@ -95,7 +95,23 @@ class ChatTranscriptTailer {
 
   private async catchUpOnce(reason: string): Promise<ChatIngestResult> {
     const started = performance.now();
-    const st = statSync(this.path);
+    // A transcript can disappear under a live tailer: the worktree sweeper
+    // reclaims a directory, or an agent's own session file is rotated away.
+    // This runs on the live-socket poll path, where an uncaught ENOENT took
+    // down the whole serve process and every session with it. Report "nothing
+    // new" instead; the next poll picks the file up if it comes back.
+    let st: ReturnType<typeof statSync>;
+    try {
+      st = statSync(this.path);
+    } catch {
+      return {
+        indexed: 0,
+        lines: 0,
+        offset: this.offset ?? 0,
+        size: this.lastSize >= 0 ? this.lastSize : 0,
+        unchanged: true,
+      };
+    }
     if (st.size === this.lastSize && st.mtimeMs === this.lastMtimeMs) {
       const cursor = transcriptCursorFor(this.path);
       return {
