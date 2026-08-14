@@ -31,6 +31,13 @@ import {
   StatusDot,
 } from "../src/components";
 import { useAttachments } from "../src/omg/attachments";
+import {
+  buildSessionTree,
+  flattenNodes,
+  nodeBusy,
+  sessionStableId,
+  type SessionNode,
+} from "../src/omg/session-tree";
 import { useComputerPicker } from "../src/omg/computer-picker";
 import { useDictation } from "../src/omg/dictation";
 import { LucideIcon } from "../src/omg/lucide";
@@ -42,6 +49,88 @@ import { SessionListSkeleton } from "../src/omg/skeleton";
 import { useTheme } from "../src/omg/theme";
 import { bindingLabel } from "../src/omg/format";
 import { CLOUD_BINDING_ID } from "../src/omg/config";
+
+/**
+ * A session and everything it spawned.
+ *
+ * Children are indented under their parent with a spine and an elbow, the way
+ * the web draws the same family. The elbow lands on the CARD's midline rather
+ * than the midline of the card plus its own descendants, which is the detail
+ * that makes a three-deep tree still read as a tree.
+ *
+ * A subagent is not archivable from here: it belongs to its parent's run, and
+ * swiping one away would leave the parent waiting on something the list says
+ * is gone.
+ */
+function SessionFamily({
+  node,
+  depth = 0,
+  onOpen,
+  onArchive,
+}: {
+  node: SessionNode;
+  depth?: number;
+  onOpen: (id: string | null) => void;
+  onArchive?: (id: string | null) => void;
+}) {
+  const { colors, space } = useTheme();
+  const session = node.session;
+
+  return (
+    <View style={{ alignSelf: "stretch" }}>
+      <SessionCard
+        title={session.title || session.lastUserText || "Untitled session"}
+        subtitle={session.title ? session.lastUserText : null}
+        agent={session.agent ?? session.agentLabel}
+        busy={!!session.busy}
+        blocked={session.status === "blocked"}
+        onPress={() => onOpen(session.sessionId)}
+        onArchive={depth === 0 && onArchive ? () => onArchive(session.sessionId) : undefined}
+      />
+
+      {node.children.length ? (
+        <View style={{ marginLeft: space.xl, marginTop: space.sm, gap: space.sm }}>
+          {node.children.map((child, index) => {
+            const last = index === node.children.length - 1;
+            return (
+              <View key={sessionStableId(child.session) || index}>
+                {/* The spine runs the full height between siblings and stops at
+                    the last child's midline, so the family closes rather than
+                    trailing a line into the gap below it. */}
+                <View
+                  pointerEvents="none"
+                  style={{
+                    position: "absolute",
+                    left: -space.md,
+                    top: -space.sm,
+                    width: 1.5,
+                    height: last ? CARD_MIDLINE + space.sm : "100%",
+                    backgroundColor: colors.borderStrong,
+                  }}
+                />
+                <View
+                  pointerEvents="none"
+                  style={{
+                    position: "absolute",
+                    left: -space.md,
+                    top: CARD_MIDLINE,
+                    width: space.md,
+                    height: 1.5,
+                    backgroundColor: colors.borderStrong,
+                  }}
+                />
+                <SessionFamily node={child} depth={depth + 1} onOpen={onOpen} />
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/** Half a card, so the elbow meets the row at its middle. */
+const CARD_MIDLINE = 33;
 
 /**
  * The greeting the web Live view carries, in the bar slot the removed
@@ -196,8 +285,14 @@ export default function SessionsScreen() {
     return first ? `${first.charAt(0).toUpperCase()}${first.slice(1)}` : "";
   }, [user?.name]);
 
-  const working = sessions.filter((s) => s.busy);
-  const idle = sessions.filter((s) => !s.busy);
+  /**
+   * Families, not rows. A session that spawned subagents owns them, and the
+   * whole family is sectioned by whether ANYONE in it is working — see
+   * session-tree.ts for why the parent's own flag is not enough.
+   */
+  const roots = useMemo(() => buildSessionTree(sessions), [sessions]);
+  const working = useMemo(() => roots.filter(nodeBusy), [roots]);
+  const idle = useMemo(() => roots.filter((node) => !nodeBusy(node)), [roots]);
 
   const openSession = (id: string | null) => {
     if (!id) return;
@@ -525,19 +620,19 @@ export default function SessionsScreen() {
               <>
                 {/* Amber, not brand orange: the web's Working header carries
                     the same `bg-warning` as the busy row dot. */}
-                <SectionHeader label="Working" count={working.length} dotColor={colors.warning} />
+                <SectionHeader
+                  label="Working"
+                  count={flattenNodes(working).length}
+                  dotColor={colors.warning}
+                />
                 {/* Each session is its own card now, so the rows need air
                     between them — see SessionCard. */}
                 <View style={{ gap: space.sm }}>
-                  {working.map((s, i) => (
-                    <SessionCard
-                      key={s.sessionId ?? i}
-                      title={s.title || s.lastUserText || "Untitled session"}
-                      subtitle={s.title ? s.lastUserText : null}
-                      agent={s.agent ?? s.agentLabel}
-                      busy
-                      blocked={s.status === "blocked"}
-                      onPress={() => openSession(s.sessionId)}
+                  {working.map((node, i) => (
+                    <SessionFamily
+                      key={sessionStableId(node.session) || i}
+                      node={node}
+                      onOpen={openSession}
                     />
                   ))}
                 </View>
@@ -548,19 +643,16 @@ export default function SessionsScreen() {
               <>
                 <SectionHeader
                   label="Idle"
-                  count={idle.length}
+                  count={flattenNodes(idle).length}
                   dotColor={colors.success}
                 />
                 <View style={{ gap: space.sm }}>
-                  {idle.map((s, i) => (
-                    <SessionCard
-                      key={s.sessionId ?? i}
-                      title={s.title || s.lastUserText || "Untitled session"}
-                      subtitle={s.title ? s.lastUserText : null}
-                      agent={s.agent ?? s.agentLabel}
-                      blocked={s.status === "blocked"}
-                      onPress={() => openSession(s.sessionId)}
-                      onArchive={() => archiveSession(s.sessionId)}
+                  {idle.map((node, i) => (
+                    <SessionFamily
+                      key={sessionStableId(node.session) || i}
+                      node={node}
+                      onOpen={openSession}
+                      onArchive={archiveSession}
                     />
                   ))}
                 </View>

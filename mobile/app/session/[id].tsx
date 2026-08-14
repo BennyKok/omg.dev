@@ -86,6 +86,9 @@ import {
 /** Local id for the optimistic message, so it can be rolled back precisely. */
 let localSeq = 0;
 
+/** One screenful of history, and the step every "load more" adds. */
+const PAGE = 80;
+
 export default function SessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
@@ -114,6 +117,18 @@ export default function SessionScreen() {
     if (error) toast.show(error, { intent: "error" });
   }, [error, toast]);
   const [loading, setLoading] = useState(true);
+  /**
+   * HOW MUCH HISTORY IS ON SCREEN. The SDK's `getMessages` takes a limit and
+   * returns the tail, so "load more" is the same request with a bigger number
+   * rather than a cursor — the messages already rendered stay rendered and
+   * older ones appear above them.
+   */
+  const [limit, setLimit] = useState(PAGE);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [reachedStart, setReachedStart] = useState(false);
+  /** Set while the reader is away from the bottom and the agent says something. */
+  const [unseen, setUnseen] = useState(false);
+  const [atBottom, setAtBottom] = useState(true);
   const [sessionInfo, setSessionInfo] = useState<{ title: string; agent: string } | null>(null);
 
   const listRef = useRef<FlatList<TranscriptItem>>(null);
@@ -154,7 +169,7 @@ export default function SessionScreen() {
     if (!client || !id) return;
     setLoading(true);
     client
-      .getMessages(id, 80)
+      .getMessages(id, limit)
       .then((res) => {
         if (cancelled) return;
         setMessages(res.messages ?? []);
@@ -169,7 +184,7 @@ export default function SessionScreen() {
     return () => {
       cancelled = true;
     };
-  }, [client, id]);
+  }, [client, id, limit]);
 
   useEffect(() => {
     if (!client || !id) return;
@@ -179,6 +194,7 @@ export default function SessionScreen() {
           setMessages(event.messages ?? []);
           break;
         case "message":
+          if (!atBottomRef.current) setUnseen(true);
           setMessages((prev) => {
             // Drop the optimistic copy this message confirms, and de-dupe on id.
             const withoutPending = prev.filter(
@@ -226,11 +242,44 @@ export default function SessionScreen() {
     return buildTranscriptItems(entries);
   }, [messages, streamText]);
 
-  const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-    atBottomRef.current =
-      contentOffset.y + layoutMeasurement.height >= contentSize.height - 48;
-  }, []);
+  const onScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+      const bottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - 48;
+      atBottomRef.current = bottom;
+      setAtBottom(bottom);
+      if (bottom) setUnseen(false);
+
+      /**
+       * OLDER MESSAGES LOAD AS YOU REACH FOR THEM. The transcript opens on the
+       * last PAGE of a session that may have thousands of turns, and scrolling
+       * up used to stop at a hard edge with no way to say "there is more". The
+       * threshold is generous so the fetch is already running by the time the
+       * top arrives.
+       */
+      if (contentOffset.y < 400 && !loadingMore && !reachedStart && messages.length) {
+        setLoadingMore(true);
+        setLimit((current) => current + PAGE);
+      }
+    },
+    [loadingMore, reachedStart, messages.length],
+  );
+
+  // A page that comes back no larger than the one before it means the session
+  // has no more history, so stop asking on every scroll.
+  const lastCountRef = useRef(0);
+  useEffect(() => {
+    if (!loadingMore) return;
+    if (messages.length > lastCountRef.current) {
+      lastCountRef.current = messages.length;
+      setLoadingMore(false);
+      return;
+    }
+    if (messages.length && messages.length === lastCountRef.current) {
+      setReachedStart(true);
+      setLoadingMore(false);
+    }
+  }, [messages.length, loadingMore]);
 
   const handleContentSizeChange = useCallback(() => {
     // Follow the stream only while the reader is already at the bottom; never
@@ -649,6 +698,19 @@ export default function SessionScreen() {
         // The bar is transparent (set in _layout.tsx), so the list insets its
         // content below it instead of starting underneath it.
         contentInsetAdjustmentBehavior="automatic"
+        /**
+         * Without this, prepending a page of history yanks the transcript: the
+         * list keeps its scroll OFFSET, and 80 older messages above you means
+         * that offset now points somewhere else entirely. Anchoring to the
+         * first visible item keeps the sentence you were reading under your
+         * thumb while the history grows above it.
+         */
+        maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
+        ListHeaderComponent={
+          loadingMore ? (
+            <ActivityIndicator color={colors.textMuted} style={{ paddingVertical: space.md }} />
+          ) : null
+        }
         keyboardDismissMode="interactive"
         onScroll={onScroll}
         scrollEventThrottle={16}
@@ -732,6 +794,61 @@ export default function SessionScreen() {
           gap: space.sm,
         }}
       >
+        {/**
+         * JUMP BACK TO NOW — and say when there is something to come back to.
+         *
+         * Reading history in a live session is a trap without this: the
+         * transcript keeps growing above the fold and the only way back is a
+         * long drag. It appears only when you have actually left the bottom,
+         * and it says "New activity" rather than showing an unread COUNT,
+         * because a number here would be counting tool traffic and thinking
+         * blocks as if they were things someone said to you.
+         */}
+        {!atBottom ? (
+          <View style={{ alignItems: "center", paddingBottom: space.xs }}>
+            <Pressable
+              onPress={() => {
+                setUnseen(false);
+                listRef.current?.scrollToEnd({ animated: true });
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={unseen ? "New activity. Jump to the latest" : "Jump to the latest"}
+              style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+            >
+              <GlassSurface
+                variant="regular"
+                fallbackColor={colors.card}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  height: 32,
+                  paddingHorizontal: space.md,
+                  borderRadius: radius.pill,
+                  borderWidth: StyleSheet.hairlineWidth,
+                  borderColor: colors.border,
+                  overflow: "hidden",
+                }}
+              >
+                {unseen ? (
+                  <View
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: 3,
+                      backgroundColor: colors.warning,
+                    }}
+                  />
+                ) : null}
+                <Text style={{ ...type.caption, color: colors.text }}>
+                  {unseen ? "New activity" : "Latest"}
+                </Text>
+                <Icon ios="arrow.down" android="arrow_downward" size={11} color={colors.textMuted} />
+              </GlassSurface>
+            </Pressable>
+          </View>
+        ) : null}
+
         <AttachmentStrip items={attachments.items} onRemove={attachments.remove} />
 
         {/**

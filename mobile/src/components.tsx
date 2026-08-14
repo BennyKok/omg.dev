@@ -438,11 +438,20 @@ export function AgentAvatar({
   agent,
   size = AVATAR_SIZE,
   busy,
+  plain,
 }: {
   agent?: string | null;
   size?: number;
   /** Draws the working ring around the mark. See below for why a RING. */
   busy?: boolean;
+  /**
+   * No disc behind the mark. The web draws these marks straight onto the card
+   * — they are already circular artwork with their own brand colour, so a grey
+   * disc under them just puts a second circle round the first one. The disc
+   * stays where the mark sits on GLASS (the composer), which has no card
+   * beneath it to sit on.
+   */
+  plain?: boolean;
 }) {
   const { colors } = useTheme();
   const spin = useSharedValue(0);
@@ -500,7 +509,7 @@ export function AgentAvatar({
           width: size,
           height: size,
           borderRadius: size / 2,
-          backgroundColor: colors.secondary,
+          backgroundColor: plain ? "transparent" : colors.secondary,
           alignItems: "center",
           justifyContent: "center",
           overflow: "hidden",
@@ -508,7 +517,13 @@ export function AgentAvatar({
       >
         <Image
           source={agentIcon(agent)}
-          style={{ width: Math.round(size * 0.62), height: Math.round(size * 0.62) }}
+          // Without a disc the artwork can use the whole box; inside one it has
+          // to leave the disc a margin or it reads as a sticker on a coin.
+          style={
+            plain
+              ? { width: size, height: size }
+              : { width: Math.round(size * 0.62), height: Math.round(size * 0.62) }
+          }
           resizeMode="contain"
         />
       </View>
@@ -776,7 +791,7 @@ export function SessionCard({
           {/* 32, not 40. The mark identifies the agent; it is not the subject
               of the row, and at 40 it was the largest thing on a card whose
               actual content is the session's name. */}
-          <AgentAvatar agent={agent} size={32} busy={busy} />
+          <AgentAvatar agent={agent} size={32} busy={busy} plain />
           <View style={{ flex: 1, gap: 1, minWidth: 0 }}>
             <Text numberOfLines={1} style={{ ...type.headline, color: colors.text }}>
               {title}
