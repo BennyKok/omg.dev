@@ -66,8 +66,11 @@ import * as Clipboard from "expo-clipboard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OmgSession, OmgSessionPrompt } from "@omg-dev/protocol";
 
-import { AgentAvatar, Icon, IconButton } from "../../src/components";
+import { AgentAvatar, AttachmentStrip, Icon, IconButton } from "../../src/components";
 import { agentLabel as agentDisplayName } from "../../src/omg/agent-icons";
+import { useAttachments } from "../../src/omg/attachments";
+import { useDictation } from "../../src/omg/dictation";
+import { GlassSurface } from "../../src/omg/glass";
 import { DropdownMenu, type MenuOption } from "../../src/omg/menu";
 import { useOmg } from "../../src/omg/provider";
 import { useTheme } from "../../src/omg/theme";
@@ -89,6 +92,14 @@ export default function SessionScreen() {
   const insets = useSafeAreaInsets();
   const { colors, type, space, radius } = useTheme();
   const { client } = useOmg();
+
+  const attachments = useAttachments(id ?? null);
+  const dictation = useDictation(
+    client ? (path, init) => client.transport.fetch(path, init) : null,
+    // Dictation APPENDS. Someone who typed half a thought and then spoke the
+    // rest should end up with both, in that order.
+    (text) => setDraft((current) => (current ? `${current} ${text}` : text)),
+  );
 
   const [messages, setMessages] = useState<Entry[]>([]);
   const [streamText, setStreamText] = useState("");
@@ -262,11 +273,12 @@ export default function SessionScreen() {
   );
 
   const send = useCallback(() => {
-    const text = draft.trim();
+    const text = attachments.compose(draft.trim());
     if (!text || sending) return;
     setDraft("");
+    attachments.clear();
     void submit(text);
-  }, [draft, sending, submit]);
+  }, [attachments, draft, sending, submit]);
 
   /**
    * Answering the agent's question SENDS the answer. It used to drop the label
@@ -397,36 +409,69 @@ export default function SessionScreen() {
   useLayoutEffect(() => {
     navigation.setOptions({
       headerShown: true,
-      title,
+      // Empty, not the session's name: `headerTitle: () => null` leaves the
+      // native bar free to fall back to the STRING title, which it did — the
+      // name appeared twice, once in the capsule and once floating centred.
+      title: "",
       /**
-       * The title is a CAPSULE, like the two buttons flanking it.
+       * The title is a CAPSULE IN THE SAME MATERIAL as the buttons flanking
+       * it, sitting directly against the back button rather than centred.
        *
-       * iOS 26 gives every bar BUTTON its own glass disc, so a bare avatar and
-       * two lines of text floating between them read as the one thing on the
-       * bar that had not been given a shape. Putting the same capsule around
-       * the title makes the bar three objects on a black field instead of two
-       * objects and some loose content — and it groups the avatar with the
-       * name it belongs to.
+       * iOS 26 gives every bar BUTTON its own glass disc. A bare avatar and
+       * two lines of text floating between them were the one thing on the bar
+       * with no shape, and painting them onto a flat `card` fill made a second
+       * kind of surface up there — a slab next to two pieces of glass. Same
+       * GlassSurface as everything else, so the bar is one material.
+       *
+       * Left-aligned (`headerTitleAlign`) so it hugs the back button and grows
+       * rightwards with the session's name, which is what a title that can be
+       * any length wants: a centred capsule moves its own left edge every time
+       * the name changes.
        */
-      headerTitle: () => (
+      /**
+       * IN THE LEFT SLOT, WITH THE BACK CHEVRON — not centred.
+       *
+       * `headerTitleAlign: "left"` is an Android-only option on native-stack;
+       * on iOS the bar centres its title view no matter what, which left the
+       * capsule floating in the middle with a gap either side. The left slot
+       * is the only place UIKit will put content next to the back button, so
+       * the back chevron is drawn here too and the system back item is turned
+       * off (the swipe-back gesture is independent and still works).
+       *
+       * No material of our own: iOS 26 wraps the whole slot in one glass
+       * container — the same one it gives the ⋯ button — so back and title
+       * come out as a single capsule that hugs its content and grows with the
+       * session's name. Painting a second surface inside that container was a
+       * capsule inside a capsule.
+       */
+      headerBackVisible: false,
+      headerLeft: () => (
         <View
           style={{
             flexDirection: "row",
             alignItems: "center",
             gap: space.sm,
-            backgroundColor: colors.card,
-            borderRadius: radius.pill,
-            borderWidth: StyleSheet.hairlineWidth,
-            borderColor: colors.border,
-            // Tighter on the leading edge: the avatar is already a circle, so
-            // it sets its own optical inset and a full pad would leave a hole.
-            paddingLeft: space.xs,
-            paddingRight: space.md,
-            paddingVertical: space.xs,
+            // The system capsule hugs this row exactly, so the trailing inset
+            // has to come from inside it — without this the name ends flush
+            // against the glass.
+            paddingRight: space.sm,
           }}
         >
+          <Pressable
+            onPress={() => navigation.goBack()}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+            style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
+          >
+            <Icon ios="chevron.backward" android="arrow_back" size={19} color={colors.text} />
+          </Pressable>
           <AgentAvatar agent={agentLabel} size={26} />
-          <View style={{ maxWidth: 200 }}>
+          {/* Wide enough to say something. A session's name is the first
+              words of a prompt, so 170pt truncated almost every one of them
+              at two words; the bar can afford this much and still clear the ⋯
+              button on the narrowest phone. */}
+          <View style={{ maxWidth: 215 }}>
             <Text
               numberOfLines={1}
               ellipsizeMode="tail"
@@ -440,11 +485,15 @@ export default function SessionScreen() {
           </View>
         </View>
       ),
+      headerTitle: () => null,
       headerRight: () =>
         menuOptions.length ? (
           <DropdownMenu options={menuOptions}>
             <View accessibilityRole="button" accessibilityLabel="Session actions">
-              <Icon ios="ellipsis.circle" android="more_horiz" size={20} color={colors.text} />
+              {/* Three dots, not `ellipsis.circle`: the circle is drawn by
+                  the bar's own glass disc, and the symbol's own ring inside it
+                  made two concentric circles. */}
+              <Icon ios="ellipsis" android="more_horiz" size={20} color={colors.text} />
             </View>
           </DropdownMenu>
         ) : null,
@@ -467,7 +516,12 @@ export default function SessionScreen() {
   }
 
   const thinking = busy && !streamText;
-  const canSend = draft.trim().length > 0 && !sending;
+  // An attachment with no words is still a message — "look at this" is the
+  // most common thing a screenshot is sent for.
+  const canSend =
+    (draft.trim().length > 0 || attachments.items.some((item) => item.path)) &&
+    !sending &&
+    !attachments.uploading;
 
   /**
    * Track the keyboard on the UI thread instead of using KeyboardAvoidingView.
@@ -598,14 +652,13 @@ export default function SessionScreen() {
  * surface — the same rule the home composer follows. */}
       <View
         style={{
-          flexDirection: "row",
-          alignItems: "flex-end",
-          gap: space.sm,
           paddingHorizontal: space.md,
           paddingTop: space.sm,
           paddingBottom: insets.bottom + space.sm,
         }}
       >
+        <AttachmentStrip items={attachments.items} onRemove={attachments.remove} />
+        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: space.sm }}>
         {/* One field, everything else flat. The bar used to stack three
             surfaces — the glass bar, a card-painted pill inside it, and
             card-painted discs on the buttons — which on a device reads as a
@@ -625,6 +678,34 @@ export default function SessionScreen() {
             color={colors.danger}
           />
         ) : null}
+
+        {/* Attach, then dictate, then history: the two that ADD to the message
+            sit next to the field, and the one that replaces it sits furthest
+            from Send. */}
+        <DropdownMenu title="Attach" options={attachments.options}>
+          <View
+            accessibilityRole="button"
+            accessibilityLabel="Attach a file"
+            style={{ minHeight: 44, minWidth: 32, alignItems: "center", justifyContent: "center" }}
+          >
+            <Icon ios="paperclip" android="attach_file" size={18} color={colors.textMuted} />
+          </View>
+        </DropdownMenu>
+
+        {/* Recording is a STATE, so the button shows it: the glyph turns into a
+            stop square in the danger colour rather than staying a mic that
+            gives no way to tell whether it is listening. */}
+        <IconButton
+          ios={dictation.state === "recording" ? "stop.circle.fill" : "mic"}
+          android={dictation.state === "recording" ? "stop_circle" : "mic"}
+          accessibilityLabel={
+            dictation.state === "recording" ? "Stop dictating" : "Dictate a message"
+          }
+          onPress={dictation.toggle}
+          busy={dictation.state === "transcribing"}
+          size={18}
+          color={dictation.state === "recording" ? colors.danger : colors.textMuted}
+        />
 
         {historyOptions.length ? (
           <DropdownMenu title="Reuse a prompt" options={historyOptions}>
@@ -706,6 +787,7 @@ export default function SessionScreen() {
               />
             )}
           </Pressable>
+        </View>
         </View>
       </View>
     </Reanimated.View>

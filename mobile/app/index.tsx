@@ -42,15 +42,42 @@ import { bindingLabel } from "../src/omg/format";
 import { CLOUD_BINDING_ID } from "../src/omg/config";
 
 /**
- * Where a row sits in its inset-grouped section, so only the group's outer
- * corners round and the last row skips its separator. A one-row section is
- * "only" — both ends are the edge.
+ * The greeting the web Live view carries, in the bar slot the removed
+ * "Sessions" title left empty.
+ *
+ * It is the RESTING state: what the header says when nothing is happening.
+ * While agents are working it yields to that for a short cameo and comes back
+ * — the same dwell the web uses (8s of greeting, 2.8s of activity), because a
+ * status line that flips at an even rate reads as a ticker and stops being
+ * glanceable.
+ *
+ * The name comes from the signed-in account or not at all. There is no
+ * fallback to a user id or an email stem: "Welcome, itechbenny" is worse than
+ * "Welcome".
  */
-function groupPosition(index: number, total: number): "first" | "middle" | "last" | "only" {
-  if (total === 1) return "only";
-  if (index === 0) return "first";
-  if (index === total - 1) return "last";
-  return "middle";
+function LiveWelcome({ firstName, busyCount }: { firstName: string; busyCount: number }) {
+  const { colors, type } = useTheme();
+  const [showActivity, setShowActivity] = useState(false);
+
+  useEffect(() => {
+    if (!busyCount) {
+      setShowActivity(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowActivity((current) => !current), showActivity ? 2800 : 8000);
+    return () => clearTimeout(timer);
+  }, [busyCount, showActivity]);
+
+  const welcome = firstName ? `Welcome, ${firstName}` : "Welcome";
+  const activity = `${busyCount} agent${busyCount === 1 ? "" : "s"} building`;
+  return (
+    <Text
+      numberOfLines={1}
+      style={{ ...type.headline, color: colors.text, maxWidth: 230 }}
+    >
+      {busyCount > 0 && showActivity ? activity : welcome}
+    </Text>
+  );
 }
 
 /**
@@ -63,7 +90,7 @@ export default function SessionsScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { colors, type, space } = useTheme();
-  const { client, readiness, probe, bindingId, bindings } = useOmg();
+  const { client, readiness, probe, bindingId, bindings, user } = useOmg();
   const computerPicker = useComputerPicker();
   const agentPicker = useAgentPicker();
   const projectPicker = useProjectPicker();
@@ -128,6 +155,14 @@ export default function SessionsScreen() {
     : bindingId === CLOUD_BINDING_ID
       ? "Cloud computer"
       : "No computer";
+
+  /** First name only, capitalised — the web greets the same way. */
+  const firstName = useMemo(() => {
+    const raw = user?.name?.trim();
+    if (!raw) return "";
+    const first = raw.split(/\s+/)[0] ?? "";
+    return first ? `${first.charAt(0).toUpperCase()}${first.slice(1)}` : "";
+  }, [user?.name]);
 
   const working = sessions.filter((s) => s.busy);
   const idle = sessions.filter((s) => !s.busy);
@@ -243,6 +278,7 @@ export default function SessionsScreen() {
        */
       headerLargeTitle: false,
       title: "",
+      headerLeft: () => <LiveWelcome firstName={firstName} busyCount={working.length} />,
       headerRight: () => (
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
           {/* TWO BUTTONS, NOT ONE CHIP.
@@ -294,9 +330,16 @@ export default function SessionsScreen() {
     computerPicker.options,
     machineName,
     currentBinding?.online,
+    firstName,
+    working.length,
     colors,
     space,
   ]);
+
+  // The composer floats over the list rather than sitting under it, so the
+  // list has to know how tall it is. Measured rather than assumed: it grows
+  // with the draft.
+  const [composerHeight, setComposerHeight] = useState(0);
 
   // Same UI-thread keyboard tracking as the session screen; see the note there
   // for why KeyboardAvoidingView cannot be made to feel right.
@@ -309,8 +352,18 @@ export default function SessionsScreen() {
     <Reanimated.View style={[{ flex: 1 }, keyboardLift]}>
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingBottom: space.xl }}
+        /**
+         * The list runs UNDER the composer, which floats over it. The padding
+         * is the composer's measured height, so the last session can still be
+         * scrolled clear of it — a fixed number would either strand the last
+         * row under the glass or leave a dead band when the composer is one
+         * line tall.
+         */
+        contentContainerStyle={{ paddingBottom: composerHeight + space.md }}
         keyboardShouldPersistTaps="handled"
+        // Scrolling the list puts the keyboard away. Reaching for the field is
+        // an explicit act; scrolling past it is how you say you are done.
+        keyboardDismissMode="on-drag"
         // Lets the system large title collapse into the bar on scroll, and
         // insets content below it instead of starting underneath.
         contentInsetAdjustmentBehavior="automatic"
@@ -410,9 +463,9 @@ export default function SessionsScreen() {
             {working.length > 0 ? (
               <>
                 <SectionHeader label="Working" count={working.length} dotColor={colors.brand} />
-                {/* No `gap`: the rows are one inset-grouped surface, so any
-                    space between them would slice it back into tiles. */}
-                <View>
+                {/* Each session is its own card now, so the rows need air
+                    between them — see SessionCard. */}
+                <View style={{ gap: space.sm }}>
                   {working.map((s, i) => (
                     <SessionCard
                       key={s.sessionId ?? i}
@@ -422,7 +475,6 @@ export default function SessionsScreen() {
                       busy
                       blocked={s.status === "blocked"}
                       onPress={() => openSession(s.sessionId)}
-                      position={groupPosition(i, working.length)}
                     />
                   ))}
                 </View>
@@ -436,7 +488,7 @@ export default function SessionsScreen() {
                   count={idle.length}
                   dotColor={colors.success}
                 />
-                <View>
+                <View style={{ gap: space.sm }}>
                   {idle.map((s, i) => (
                     <SessionCard
                       key={s.sessionId ?? i}
@@ -446,7 +498,6 @@ export default function SessionsScreen() {
                       blocked={s.status === "blocked"}
                       onPress={() => openSession(s.sessionId)}
                       onArchive={() => archiveSession(s.sessionId)}
-                      position={groupPosition(i, idle.length)}
                     />
                   ))}
                 </View>
@@ -457,8 +508,16 @@ export default function SessionsScreen() {
       </ScrollView>
 
       {/* The composer only makes sense against a serving machine; readiness
-          states own the whole screen until then. */}
+          states own the whole screen until then.
+
+          Absolute, so the list scrolls beneath the glass instead of stopping
+          at a hard edge above it. `bottom: 0` is the parent's PADDING box, so
+          the keyboard lift above still carries the composer up. */}
       {ready ? (
+        <View
+          style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
+          onLayout={(e) => setComposerHeight(e.nativeEvent.layout.height)}
+        >
         <HomeComposer
           value={draft}
           onChangeText={setDraft}
@@ -471,6 +530,7 @@ export default function SessionsScreen() {
           agentOptions={agentPicker.options}
           bottomInset={insets.bottom}
         />
+        </View>
       ) : null}
     </Reanimated.View>
   );

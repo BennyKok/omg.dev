@@ -30,6 +30,7 @@ import {
 } from "expo-symbols";
 
 import { agentIcon } from "./omg/agent-icons";
+import type { Attachment } from "./omg/attachments";
 import { GlassSurface, LIQUID_GLASS } from "./omg/glass";
 import { LucideIcon, type LucideName } from "./omg/lucide";
 import { DropdownMenu, type MenuOption } from "./omg/menu";
@@ -438,23 +439,19 @@ export function SectionHeader({
 }
 
 /**
- * One session as a row in an INSET-GROUPED LIST, the way Settings, Mail and
- * Messages render a list on iOS.
+ * One session as its own CARD, spaced from its neighbours and carrying its own
+ * edge — the same shape the web Computer uses.
  *
- * It used to be an individually rounded card, floating on the page with its
- * own hairline and 12pt of air on every side — a faithful copy of the web
- * Computer. On a phone that reads as a stack of loose tiles: each row states
- * its own edges, so six sessions are six competing objects rather than one
- * list you scan. The separators here do that job with one pixel instead of
- * four edges, which is why the system uses them.
+ * This spent a version as an inset-grouped list (one shared surface, hairline
+ * separators, only the group's outer corners rounded) on the argument that
+ * separate tiles compete with each other. Seen on the device, the grouped
+ * version buried the thing that matters: a session is a separate object with
+ * its own agent, its own state and its own swipe-to-archive, and the list is
+ * short enough that it was never a scanning problem. Matching the web also
+ * means the two surfaces stop describing the same session two ways.
  *
- * The group is the surface. `position` tells the row where it sits so only the
- * outer corners round, and every row but the last carries a separator inset to
- * the text column — aligned past the avatar, again as the system does, so the
- * inset reads as a column guide instead of a broken line.
- *
- * Avatar left, one-line title, muted one-line subtitle, status dot right:
- * brand orange while working, green when idle, a pause glyph when blocked.
+ * Avatar left, one-line title, muted one-line subtitle, state right: a spinner
+ * while working, a green dot when idle, a pause glyph when blocked.
  */
 export function SessionCard({
   title,
@@ -464,7 +461,6 @@ export function SessionCard({
   blocked,
   onPress,
   onArchive,
-  position = "only",
 }: {
   title: string;
   subtitle?: string | null;
@@ -474,12 +470,6 @@ export function SessionCard({
   onPress: () => void;
   /** Omit to make the row unswipeable — a running session has nothing to archive. */
   onArchive?: () => void;
-  /**
-   * Where this row sits in its group. Only the outer corners of a group are
-   * rounded, and only a non-last row draws a separator, so the group reads as
-   * one surface rather than a stack of tiles.
-   */
-  position?: "first" | "middle" | "last" | "only";
 }) {
   const { colors, radius, type, space, motion } = useTheme();
   // Entering/exiting/layout live on this outer, style-less view rather than
@@ -489,18 +479,9 @@ export function SessionCard({
   // reused by four other pressables that have no list to belong to.
   const listMotion = useListItemMotion();
 
-  // The group's corners, not the row's. A middle row is square on both ends;
-  // the first and last row each round only the edge that is actually the edge
-  // of the group.
-  const isFirst = position === "first" || position === "only";
-  const isLast = position === "last" || position === "only";
-  const groupRadius = radius.xl;
-  const corners = {
-    borderTopLeftRadius: isFirst ? groupRadius : 0,
-    borderTopRightRadius: isFirst ? groupRadius : 0,
-    borderBottomLeftRadius: isLast ? groupRadius : 0,
-    borderBottomRightRadius: isLast ? groupRadius : 0,
-  };
+  // The archive backdrop has to match the card it is revealed from, or the red
+  // shows past the corners as four sharp ears.
+  const corners = { borderRadius: radius.xl };
 
   /**
    * Swipe-to-archive, on PanResponder rather than react-native-gesture-handler.
@@ -610,7 +591,20 @@ export function SessionCard({
             alignItems: "center",
             gap: space.md,
             backgroundColor: pressed ? colors.cardPressed : colors.card,
-            ...corners,
+            /**
+             * A CARD PER SESSION, not one grouped surface.
+             *
+             * This was an inset-grouped list — shared surface, hairline
+             * separators, only the group's outer corners rounded — on the
+             * argument that six tiles read as six competing objects. On the
+             * device that argument lost: the web surface spaces its sessions
+             * apart and gives each one an edge, and a session IS a separate
+             * object (its own agent, its own state, its own swipe-to-archive).
+             * The rows now match the web.
+             */
+            borderRadius: radius.xl,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: colors.border,
             marginHorizontal: space.lg,
             // Tighter than the old card's uniform 16pt. A grouped row is sized
             // by its content and the 44pt minimum touch target, not by padding
@@ -623,10 +617,6 @@ export function SessionCard({
             paddingRight: space.lg,
             paddingVertical: 10,
             minHeight: 60,
-            // No shadow and no per-row border. The group is one surface, so an
-            // outline on every row would draw the tile edges this layout
-            // exists to remove; on a black page the shadow was invisible
-            // anyway.
           })}
         >
           <AgentAvatar agent={agent} />
@@ -640,38 +630,25 @@ export function SessionCard({
               </Text>
             ) : null}
           </View>
+          {/* A WORKING session SPINS. A dot the same size and shape as the
+              idle one, differing only in hue, made "is it running?" a
+              colour-matching exercise — and on the web that question is
+              answered by motion. Only a live session animates, so the eye goes
+              to the one row that is doing something. */}
           {blocked ? (
             <Icon ios="pause.fill" android="pause" size={12} color={colors.warning} />
+          ) : busy ? (
+            <ActivityIndicator size="small" color={colors.brand} />
           ) : (
             <View
               style={{
                 width: 10,
                 height: 10,
                 borderRadius: 5,
-                backgroundColor: busy ? colors.brand : colors.success,
+                backgroundColor: colors.success,
               }}
             />
           )}
-          {/* The separator sits on the row's bottom edge and stops short on
-              the left, aligned to the title rather than the avatar — the
-              system inset, which reads as a column guide instead of a line
-              that has been broken. The last row draws none: the group's own
-              edge already ends the list, and a rule there would look like a
-              row was cut off.
-              `pointerEvents="none"` so a hairline can never eat a tap. */}
-          {!isLast ? (
-            <View
-              pointerEvents="none"
-              style={{
-                position: "absolute",
-                left: space.md + AVATAR_SIZE + space.md,
-                right: 0,
-                bottom: 0,
-                height: StyleSheet.hairlineWidth,
-                backgroundColor: colors.borderSoft,
-              }}
-            />
-          ) : null}
         </PressableScale>
       </Reanimated.View>
     </Reanimated.View>
@@ -776,51 +753,14 @@ export function HomeComposer({
             inside a SwiftUI Menu, so React Native never sees the touch), and a
             spring that cannot fire is worse than none. The menu's own
             appearance is the feedback. */}
+        {/* No affordance badge. A chevron tucked under the avatar was a 14pt
+            label explaining a control that opens the moment you touch it —
+            the kind of hint that makes an interface look unsure of itself.
+            Pressing it teaches it once and for good. */}
         {agentOptions.length ? (
           <DropdownMenu options={agentOptions}>
-            {/* A BADGE, because the pill that used to say "Claude ⌄" is gone.
-                Without it the avatar is a picture of the agent and nothing
-                says it can be changed — the caption pill was carrying that
-                whole job. The badge is the same move iOS makes on an avatar
-                that owns a menu: small, at the trailing-bottom corner, out of
-                the mark's way. It is 14pt because it is a hint, not a
-                control; the 32pt avatar behind it is the target. */}
-            <View
-              accessibilityLabel={`Agent: ${agentLabel ?? "Claude"}. Change`}
-              style={{ paddingRight: 3, paddingBottom: 3 }}
-            >
+            <View accessibilityLabel={`Agent: ${agentLabel ?? "Claude"}. Change`}>
               <AgentAvatar agent={agent} size={32} />
-              <View
-                style={{
-                  position: "absolute",
-                  right: 0,
-                  bottom: 0,
-                  width: 14,
-                  height: 14,
-                  borderRadius: 7,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: colors.card,
-                  /**
-                   * `borderStrong`, not `border`. In the dark palette a soft
-                   * hairline is plenty, but in light BOTH the badge fill and
-                   * the composer under it are within a few percent of white
-                   * (#ffffff on #f9f9fb) and the badge disappeared entirely —
-                   * verified on the simulator in light appearance. The
-                   * stronger edge is the only thing separating them there, and
-                   * it is still quiet in the dark.
-                   */
-                  borderWidth: StyleSheet.hairlineWidth,
-                  borderColor: colors.borderStrong,
-                }}
-              >
-                <Icon
-                  ios="chevron.up.chevron.down"
-                  android="unfold_more"
-                  size={8}
-                  color={colors.textMuted}
-                />
-              </View>
             </View>
           </DropdownMenu>
         ) : (
@@ -955,11 +895,88 @@ function ComposerCaptionButton({
       >
         {label}
       </Text>
-      {options.length ? (
-        <Icon ios="chevron.up.chevron.down" android="unfold_more" size={10} color={colors.textMuted} />
-      ) : null}
     </View>
   );
   if (!options.length) return pill;
   return <DropdownMenu options={options}>{pill}</DropdownMenu>;
+}
+
+/**
+ * The files waiting to go with the next message.
+ *
+ * Thumbnails, not filenames: someone who just picked three screenshots knows
+ * them by what they look like, and `IMG_4021.PNG` identifies nothing. The strip
+ * only exists while something is attached, so the composer keeps its height in
+ * the common case.
+ *
+ * An upload in flight dims its thumbnail and shows a spinner over it; one that
+ * failed goes red and stays put, because a row that removes itself is a row
+ * you cannot retry.
+ */
+export function AttachmentStrip({
+  items,
+  onRemove,
+}: {
+  items: Attachment[];
+  onRemove: (id: string) => void;
+}) {
+  const { colors, radius, space } = useTheme();
+  if (!items.length) return null;
+  return (
+    <View style={{ flexDirection: "row", gap: space.sm, paddingBottom: space.sm }}>
+      {items.map((item) => (
+        <View key={item.id}>
+          <Image
+            source={{ uri: item.uri }}
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: radius.md,
+              opacity: item.path ? 1 : 0.5,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: item.failed ? colors.danger : colors.border,
+            }}
+          />
+          {!item.path && !item.failed ? (
+            <View
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <ActivityIndicator size="small" color={colors.text} />
+            </View>
+          ) : null}
+          {/* The remove target is deliberately bigger than the glyph: it sits
+              on a 56pt thumbnail, and a 12pt cross would be unhittable. */}
+          <Pressable
+            onPress={() => onRemove(item.id)}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel={`Remove ${item.name}`}
+            style={{
+              position: "absolute",
+              top: -6,
+              right: -6,
+              width: 22,
+              height: 22,
+              borderRadius: 11,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: colors.card,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: colors.borderStrong,
+            }}
+          >
+            <Icon ios="xmark" android="close" size={10} color={colors.textSecondary} />
+          </Pressable>
+        </View>
+      ))}
+    </View>
+  );
 }

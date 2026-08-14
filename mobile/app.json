@@ -10,7 +10,10 @@
       "supportsTablet": true,
       "bundleIdentifier": "dev.omg.computer",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "Take a photo to attach to a message.",
+        "NSPhotoLibraryUsageDescription": "Attach a photo to a message.",
+        "NSMicrophoneUsageDescription": "Dictate a message instead of typing it."
       },
       "runtimeVersion": {
         "policy": "appVersion"
@@ -19,9 +22,8 @@
     "android": {
       "package": "dev.omg.computer",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#1B1210",
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false
@@ -33,7 +35,8 @@
       "expo-status-bar",
       "expo-router",
       "expo-font",
-      "expo-asset"
+      "expo-asset",
+      "expo-audio"
     ],
     "scheme": "omg",
     "extra": {
