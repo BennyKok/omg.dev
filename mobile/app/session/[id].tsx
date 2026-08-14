@@ -702,7 +702,11 @@ export default function SessionScreen() {
           fallbackColor={colors.card}
           style={{
             flexDirection: "row",
-            alignItems: "flex-end",
+            // CENTRED, not bottom-aligned. One line of text in a 52pt box sat
+            // on the floor of it with all the slack above — the placeholder
+            // read as if it had slipped. The field grows with the text, so
+            // centring stays right at every height.
+            alignItems: "center",
             gap: space.xs,
             // Not `pill`: this field grows to 120pt for a long prompt, and a
             // full pill radius on a tall box bulges. `xl` keeps the same
@@ -731,12 +735,15 @@ export default function SessionScreen() {
             style={{
               flex: 1,
               maxHeight: 120,
-              minHeight: 30,
-              paddingTop: Platform.OS === "ios" ? 7 : 2,
-              paddingBottom: 7,
+              // No vertical padding of its own: the box centres it, and
+              // padding here would fight that and push the text low again.
+              minHeight: 24,
+              paddingTop: 0,
+              paddingBottom: 0,
               color: colors.text,
               ...type.callout,
               fontSize: 16,
+              lineHeight: 21,
             }}
           />
           {/* The mic lives INSIDE the field, the way dictation does everywhere
@@ -774,44 +781,51 @@ export default function SessionScreen() {
 
           {/* Explicit size — an unsized SwiftUI host overhangs its content and
               swallows taps on whatever sits beside it. */}
+          {/* Glass, like the field above them. A flat `secondary` disc next to
+              a glass field is two different materials doing the same job six
+              points apart. */}
           <DropdownMenu title="Attach" options={attachments.options} style={{ width: 36, height: 36 }}>
-            <View
-              accessibilityRole="button"
-              accessibilityLabel="Attach a file"
+            <GlassSurface
+              variant="regular"
+              fallbackColor={colors.secondary}
               style={{
                 width: 36,
                 height: 36,
                 borderRadius: 18,
                 alignItems: "center",
                 justifyContent: "center",
-                backgroundColor: colors.secondary,
+                overflow: "hidden",
               }}
             >
-              <Icon ios="paperclip" android="attach_file" size={16} color={colors.textSecondary} />
-            </View>
+              <View accessibilityRole="button" accessibilityLabel="Attach a file">
+                <Icon ios="paperclip" android="attach_file" size={16} color={colors.textSecondary} />
+              </View>
+            </GlassSurface>
           </DropdownMenu>
 
           {historyOptions.length ? (
             <DropdownMenu title="Reuse a prompt" options={historyOptions} style={{ width: 36, height: 36 }}>
-              <View
-                accessibilityRole="button"
-                accessibilityLabel="Reuse an earlier prompt"
+              <GlassSurface
+                variant="regular"
+                fallbackColor={colors.secondary}
                 style={{
                   width: 36,
                   height: 36,
                   borderRadius: 18,
                   alignItems: "center",
                   justifyContent: "center",
-                  backgroundColor: colors.secondary,
+                  overflow: "hidden",
                 }}
               >
-                <Icon
-                  ios="clock.arrow.circlepath"
-                  android="history"
-                  size={16}
-                  color={colors.textSecondary}
-                />
-              </View>
+                <View accessibilityRole="button" accessibilityLabel="Reuse an earlier prompt">
+                  <Icon
+                    ios="clock.arrow.circlepath"
+                    android="history"
+                    size={16}
+                    color={colors.textSecondary}
+                  />
+                </View>
+              </GlassSurface>
             </DropdownMenu>
           ) : null}
 
