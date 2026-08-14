@@ -22,6 +22,7 @@ import {
   AudioModule,
   IOSOutputFormat,
   RecordingPresets,
+  setAudioModeAsync,
   useAudioRecorder,
   type RecordingOptions,
 } from "expo-audio";
@@ -63,6 +64,15 @@ export function useDictation(
     if (state !== "idle" || !transportFetch) return;
     const permission = await AudioModule.requestRecordingPermissionsAsync();
     if (!permission.granted) return;
+    /**
+     * THE AUDIO SESSION HAS TO BE PUT IN RECORDING MODE FIRST, or `record()`
+     * throws `RecordingDisabledException: Recording not allowed on iOS`. The
+     * permission dialog is not the gate — AVAudioSession's category is, and
+     * expo-audio leaves it in a playback category until told otherwise. Found
+     * on the device: the mic button did nothing at all, silently, because the
+     * throw landed in a promise nobody was awaiting.
+     */
+    await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
     await recorder.prepareToRecordAsync();
     recorder.record();
     setState("recording");
@@ -89,6 +99,12 @@ export function useDictation(
       // state the user can retry from. The composer is not the place to
       // explain a provider outage.
     } finally {
+      // Hand the session back. Leaving the app in a recording category makes
+      // every later sound quiet and routes it oddly, long after dictation is
+      // over — the kind of bug that gets blamed on the phone.
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(
+        () => {},
+      );
       setState("idle");
     }
   }, [onText, recorder, state, transportFetch]);

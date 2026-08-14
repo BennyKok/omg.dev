@@ -682,7 +682,10 @@ export default function SessionScreen() {
         {/* Attach, then dictate, then history: the two that ADD to the message
             sit next to the field, and the one that replaces it sits furthest
             from Send. */}
-        <DropdownMenu title="Attach" options={attachments.options}>
+        {/* Explicit size — see the note on the home composer's paperclip. An
+            unsized SwiftUI host overhangs its content and swallows taps on
+            whatever sits beside it, which here is the mic. */}
+        <DropdownMenu title="Attach" options={attachments.options} style={{ width: 32, height: 44 }}>
           <View
             accessibilityRole="button"
             accessibilityLabel="Attach a file"

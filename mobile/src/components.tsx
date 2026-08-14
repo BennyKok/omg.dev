@@ -838,7 +838,14 @@ export function HomeComposer({
       >
         {/* Same two controls as the session composer, in the row that already
             holds this prompt's other decisions. */}
-        <DropdownMenu options={attachments.options}>
+        {/* The Host is given an EXPLICIT size. `matchContents` measured wider
+            than the pill it wraps, and the overhang sat on top of the mic
+            button next to it — taps on the mic went into the menu's host and
+            died there, so dictation looked broken while the paperclip and the
+            folder pill either side of it worked. A SwiftUI host is an opaque
+            native view: anything it covers is unreachable, whether or not it
+            draws there. */}
+        <DropdownMenu options={attachments.options} style={{ width: 36, height: 32 }}>
           <View
             accessibilityRole="button"
             accessibilityLabel="Attach a file"
