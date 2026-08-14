@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## August 14, 2026 - Bottom sheets get out of the keyboard's way (v0.1.372)
+
+- **Every bottom sheet now expands into a full-height page when you focus a
+  field.** The drawer-to-page morph was wired by hand on a few sheets, so the
+  rest were still being shoved off the top of the screen by the mobile
+  keyboard. It now lives in the shared drawer component: on by default for
+  every sheet, folding back down when you leave the field, and keeping the
+  sheet open while there is typed work in it.
+
 ## August 14, 2026 - Every Jcode view shows its real working state (v0.1.371)
 
 - **Expanded Jcode sessions no longer flip back to Idle while working.** The
