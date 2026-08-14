@@ -821,7 +821,10 @@ export function HomeComposer({
         style={{
           flexDirection: "row",
           alignItems: "center",
-          gap: space.lg,
+          // Tighter than before: each control now states its own edges, so
+          // the wide gap that separated two runs of bare text is no longer
+          // doing any work.
+          gap: space.sm,
           marginTop: space.sm,
           marginLeft: space.xs,
         }}
@@ -846,9 +849,21 @@ export function HomeComposer({
 }
 
 /**
- * One caption-weight control under the composer. Shared by the agent and the
- * folder so the two cannot drift into looking like different kinds of thing —
- * they are the same kind of decision and read as one row.
+ * One control under the composer. Shared by the agent and the folder so the
+ * two cannot drift into looking like different kinds of thing — they are the
+ * same kind of decision and read as one row.
+ *
+ * A FILLED PILL, not a caption. These were 13pt muted text with a 10pt
+ * chevron and no background: the reasoning was that they are metadata about
+ * the field above, so a container would promote them to a competing surface.
+ * On a real screen that argument loses. They are the only way to change which
+ * agent runs and where, and rendered as grey fine print they read as a status
+ * line — something the app is telling you, not something you can press. The
+ * web composer gets this right with filled pills, and the 44pt touch target
+ * the system asks for cannot be honoured by a 13pt line of text either.
+ *
+ * A quiet fill is enough. It does not compete with the input above, because
+ * that is a taller pill with a live caret and a send button in it.
  */
 function ComposerCaptionButton({
   ios,
@@ -863,26 +878,32 @@ function ComposerCaptionButton({
   onPress?: () => void;
   accessibilityLabel: string;
 }) {
-  const { colors, type, space } = useTheme();
+  const { colors, radius, type, space } = useTheme();
   return (
     <Pressable
       onPress={onPress}
       disabled={!onPress}
-      hitSlop={10}
+      hitSlop={8}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       style={({ pressed }) => ({
         flexDirection: "row",
         alignItems: "center",
-        gap: space.xs,
-        opacity: pressed ? 0.5 : 1,
+        gap: 5,
+        // 32pt tall with hitSlop taking it past the 44pt minimum. The old
+        // bare text could not be hit reliably at all.
+        minHeight: 32,
+        paddingHorizontal: space.md - 2,
+        borderRadius: radius.pill,
+        backgroundColor: pressed ? colors.cardPressed : colors.secondary,
         minWidth: 0,
       })}
     >
-      <Icon ios={ios} android={android} size={13} color={colors.textMuted} />
+      <Icon ios={ios} android={android} size={13} color={colors.textSecondary} />
       <Text
         numberOfLines={1}
-        style={{ ...type.footnote, color: colors.textMuted, maxWidth: 130 }}
+        // Readable weight, not fine print: this is a control's label.
+        style={{ ...type.footnote, fontWeight: "500", color: colors.text, maxWidth: 130 }}
       >
         {label}
       </Text>
