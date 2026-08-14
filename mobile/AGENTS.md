@@ -1,3 +1,56 @@
+# LOOK AT THE APP. There is a real simulator, over Tailscale.
+
+A UI change is not verified until you have SEEN it. `tsc --noEmit` and
+`expo export` both pass on a layout that renders as an unreadable grey screen —
+that happened on 2026-08-14, and a broken nav bar was committed and pushed on
+the strength of those two green checks. Neither one can see a screen.
+
+The Mac is a Tailscale peer, so it is reachable from any dev box on the tailnet
+with no port forwarding and no VPN setup:
+
+```bash
+# The Mac. Use the MagicDNS name, not the 100.x IP — the IP can change.
+ssh bennykok@bennys-macbook-pro-2 'xcrun simctl list devices booted'
+```
+
+Full loop — Metro here, simulator there:
+
+```bash
+# 1. Metro needs --tunnel: the Mac cannot reach this box's localhost.
+cd mobile && npx expo start --tunnel --port 8081 > /tmp/metro.log 2>&1 &
+
+# 2. Get the tunnel URL (it is NOT printed to the log).
+curl -s localhost:4040/api/tunnels | python3 -c \
+  "import json,sys;print(json.load(sys.stdin)['tunnels'][0]['public_url'])"
+
+# 3. Point the dev client at it. The scheme is `omg` (app.json -> expo.scheme),
+#    NOT `omgdev` — the bundle id is dev.omg.computer and confusing the two
+#    gives a useless `OSStatus error -10814`.
+ssh bennykok@bennys-macbook-pro-2 \
+  'xcrun simctl openurl booted "omg://expo-development-client/?url=<TUNNEL_URL_ENCODED>"'
+
+# 4. Wait for `iOS Bundled` in /tmp/metro.log, then LOOK.
+ssh bennykok@bennys-macbook-pro-2 'xcrun simctl io booted screenshot /tmp/s.png'
+scp bennykok@bennys-macbook-pro-2:/tmp/s.png /tmp/s.png
+```
+
+Fast refresh applies edits in a couple of seconds, so the probe-and-look loop
+below is cheap. Use it instead of reasoning about what UIKit "should" do.
+
+## Probe with colour when a layout is a mystery
+
+Reading RNScreens source and reasoning about `edgesForExtendedLayout` produced
+a confident, wrong answer twice. Painting views in primary colours answered it
+in one reload each:
+
+- Suspect view red, the one above it semi-transparent green — then look at which
+  colour actually reaches the screen. If your fill never appears, it is covered,
+  and whatever you concluded about layering is wrong.
+- Set a text style to red to find out whether a label is missing or merely
+  drawn underneath something.
+
+Revert the probe colours before committing.
+
 # Expo HAS CHANGED
 
 Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before writing any code.
