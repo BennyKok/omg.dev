@@ -133,12 +133,36 @@ function entryKey(message: Entry, index: number): string {
 }
 
 export function TranscriptRow({ item }: { item: TranscriptItem }) {
-  const { space } = useTheme();
   if (item.type === "message") return <TranscriptEntry message={item.message} />;
+  /**
+   * A run of tool calls is ONE surface, not a stack of bordered tiles.
+   *
+   * Each row used to carry its own border and radius with a 4pt gap between,
+   * so an eight-step run rendered as eight boxes with eight outlines and seven
+   * slots of dead space — the loudest thing on a screen whose actual content
+   * is the prose above and below it. The run is one unit of work; it should
+   * read as one block you can skim, with the steps separated by a hairline
+   * rather than by air.
+   *
+   * Same inset-grouped shape the session list uses, for the same reason.
+   */
   return (
-    <View style={{ alignSelf: "stretch", gap: space.xs }}>
-      {item.pairs.map((pair) => (
-        <ToolEntry key={pair.key} call={pair.call} result={pair.result} />
+    <View style={{ alignSelf: "stretch" }}>
+      {item.pairs.map((pair, i) => (
+        <ToolEntry
+          key={pair.key}
+          call={pair.call}
+          result={pair.result}
+          position={
+            item.pairs.length === 1
+              ? "only"
+              : i === 0
+                ? "first"
+                : i === item.pairs.length - 1
+                  ? "last"
+                  : "middle"
+          }
+        />
       ))}
     </View>
   );
@@ -215,7 +239,16 @@ type ParsedCall = {
  * between two paragraphs of answer is the common case, and an agent's tool
  * traffic is context, not content.
  */
-function ToolEntry({ call, result }: { call: Entry | null; result: Entry | null }) {
+function ToolEntry({
+  call,
+  result,
+  position = "only",
+}: {
+  call: Entry | null;
+  result: Entry | null;
+  /** Where this step sits in its run; see TranscriptRow. */
+  position?: "first" | "middle" | "last" | "only";
+}) {
   const { colors, type, space, radius, motion } = useTheme();
   const [open, setOpen] = useState(false);
   const turn = useSharedValue(0);
@@ -249,13 +282,24 @@ function ToolEntry({ call, result }: { call: Entry | null; result: Entry | null 
   // says nothing at all until it is opened.
   const summary = parsed?.summary ?? (parsed ? null : oneLine(resultText || "(result)"));
 
+  const isFirst = position === "first" || position === "only";
+  const isLast = position === "last" || position === "only";
+
   return (
     <View
       style={{
         alignSelf: "stretch",
         backgroundColor: colors.card,
-        borderRadius: radius.md,
-        borderWidth: StyleSheet.hairlineWidth,
+        // Only the run's outer corners round, and the border is drawn per-EDGE
+        // so adjacent steps share one hairline instead of stacking two.
+        borderTopLeftRadius: isFirst ? radius.md : 0,
+        borderTopRightRadius: isFirst ? radius.md : 0,
+        borderBottomLeftRadius: isLast ? radius.md : 0,
+        borderBottomRightRadius: isLast ? radius.md : 0,
+        borderLeftWidth: StyleSheet.hairlineWidth,
+        borderRightWidth: StyleSheet.hairlineWidth,
+        borderTopWidth: isFirst ? StyleSheet.hairlineWidth : 0,
+        borderBottomWidth: StyleSheet.hairlineWidth,
         borderColor: colors.border,
         overflow: "hidden",
       }}
