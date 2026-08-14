@@ -369,6 +369,7 @@ import {
   configuredAgentOptions,
   displayedAgentOption,
   lockedAgentOptions,
+  resolveInitialAgent,
   scheduledAgentOptions,
   type AgentAccessMode,
   type AgentKind,
@@ -5133,7 +5134,7 @@ export function App() {
   // Host-mounted single page: suppress every piece of LFG shell chrome the
   // host already renders (header, brand, nav, composer).
   const bare = useBareSurface();
-  const { connectionOnboarding, viewer } = useEmbeddedHostOptions();
+  const { connectionOnboarding, defaultAgent, viewer } = useEmbeddedHostOptions();
   // Session deep-links win over filter/identity work so the target card opens
   // as soon as bootstrap returns sessions.
   const prioritizeSession = shouldPrioritizeSession(deepLinkSearch) || !!sessionDeepLinkRef.current;
@@ -6749,7 +6750,10 @@ export function App() {
       repos: repos.map((repo) => ({ cwd: repo.cwd, project: repoProject(repo) })),
       fallbackCwd: localStorage.getItem("lfg_v2_repo"),
     });
-    const launchAgent = (localStorage.getItem("lfg_v2_agent") as AgentKind | null) || "aisdk";
+    const launchAgent = resolveInitialAgent(
+      localStorage.getItem("lfg_v2_agent"),
+      defaultAgent,
+    );
     const launchModel =
       localStorage.getItem(`lfg_model_${launchAgent}`) ||
       localStorage.getItem("lfg_model") ||
@@ -6851,7 +6855,10 @@ export function App() {
       projectFilter !== "__all"
         ? repos.find((repo) => repoProject(repo) === projectFilter)
         : undefined;
-    const launchAgent = (localStorage.getItem("lfg_v2_agent") as AgentKind | null) || "aisdk";
+    const launchAgent = resolveInitialAgent(
+      localStorage.getItem("lfg_v2_agent"),
+      defaultAgent,
+    );
     const launchModel =
       localStorage.getItem(`lfg_model_${launchAgent}`) ||
       localStorage.getItem("lfg_model") ||
@@ -17272,17 +17279,18 @@ function NewSessionDialog({
 }) {
   const catalog = useAgentModelCatalog();
   const accessMode = useContext(AgentAccessModeContext);
+  const { defaultAgent } = useEmbeddedHostOptions();
   const defaultModelFor = (key: AgentKind) => catalog.defaults[key] ?? AGENT_DEFAULT_MODEL[key];
   const [agent, setAgent] = useState<AgentKind>(
-    () => (localStorage.getItem("lfg_v2_agent") as AgentKind | null) || "aisdk",
+    () => resolveInitialAgent(localStorage.getItem("lfg_v2_agent"), defaultAgent),
   );
   const [claudeAccountId, setClaudeAccountId] = useState("");
   const [repo, setRepo] = useState(() => localStorage.getItem("lfg_v2_repo") || "");
   const [model, setModel] = useState(
     () =>
-      localStorage.getItem(`lfg_model_${localStorage.getItem("lfg_v2_agent") || "aisdk"}`) ||
+      localStorage.getItem(`lfg_model_${agent}`) ||
       localStorage.getItem("lfg_model") ||
-      defaultModelFor((localStorage.getItem("lfg_v2_agent") as AgentKind | null) || "aisdk"),
+      defaultModelFor(agent),
   );
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(
     () => savedThinkingLevel(),

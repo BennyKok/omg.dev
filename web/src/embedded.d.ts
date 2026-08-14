@@ -9,6 +9,18 @@ export type {
   OmgTransport,
 } from "@omg-dev/client";
 
+export type AgentKind =
+  | "claude"
+  | "aisdk"
+  | "codex"
+  | "codex-aisdk"
+  | "opencode"
+  | "jcode"
+  | "grok"
+  | "cursor"
+  | "pi"
+  | "copilot";
+
 /**
  * Central sink for client errors raised inside the surface, in addition to the
  * report that goes through the transport into the user's own lfg instance.
@@ -91,6 +103,8 @@ export interface OmgAppSurfaceProps {
   assetBaseUrl?: string;
   sessionId?: string | null;
   className?: string;
+  /** The agent used when this browser has no valid saved selection. */
+  defaultAgent?: AgentKind;
   /**
    * Show LFG's embedded first-run provider connection gate. Defaults to true.
    * Managed hosts that preselect a credential-free agent can disable this and

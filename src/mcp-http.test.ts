@@ -143,6 +143,6 @@ describe("caller identity over the shared MCP endpoint", () => {
     );
 
     expect(reply.isError).toBe(true);
-    expect(reply.text).toContain("can only target their owning OMG session");
+    expect(reply.text).toContain("can only target their owning omg.dev session");
   });
 });

@@ -25,6 +25,7 @@ import {
 } from "./lib/embedded-host-options";
 import { claimSurfaceAttribute } from "./lib/surface-attribute";
 import { createOmgRouter } from "./router";
+import type { AgentKind } from "./lib/coding-agent-options";
 
 export type {
   EmbeddedViewer,
@@ -59,6 +60,8 @@ export interface OmgAppSurfaceProps {
   assetBaseUrl?: string;
   sessionId?: string | null;
   className?: string;
+  /** The agent used when this browser has no valid saved selection. */
+  defaultAgent?: AgentKind;
   /**
    * Show LFG's embedded first-run provider connection gate. Defaults to true.
    * Managed hosts that preselect a credential-free agent can disable this and
@@ -302,6 +305,7 @@ export function OmgAppSurface({
   assetBaseUrl,
   sessionId,
   className,
+  defaultAgent = "aisdk",
   connectionOnboarding = true,
   viewer,
   hostedTranscription,
@@ -331,6 +335,7 @@ export function OmgAppSurface({
     <div className={className} data-lfg-app-surface="">
       <EmbeddedHostOptionsProvider
         value={{
+          defaultAgent,
           connectionOnboarding,
           viewer,
           hostedTranscription,

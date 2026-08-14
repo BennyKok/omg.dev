@@ -294,8 +294,9 @@ function opencodePath(): string | null {
 
 function jcodePath(): string | null {
   const home = userHome();
+  const override = process.env.LFG_JCODE_PATH?.trim();
+  if (override) return existsSync(override) ? override : null;
   return which("jcode", [
-    process.env.LFG_JCODE_PATH ?? "",
     `${home}/.local/bin/jcode`,
     `${home}/.jcode/bin/jcode`,
     "/usr/local/bin/jcode",

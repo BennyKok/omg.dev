@@ -43,6 +43,21 @@ export const AGENT_CATALOG: readonly AgentCatalogEntry[] = [
   { key: "copilot", label: "copilot" },
 ];
 
+const AGENT_KEYS = new Set<AgentKind>(AGENT_CATALOG.map((entry) => entry.key));
+
+/**
+ * Use a saved agent when it is valid. Otherwise, use the default selected by
+ * the host. This keeps the host default in one place for every launch path.
+ */
+export function resolveInitialAgent(
+  savedAgent: string | null,
+  defaultAgent: AgentKind,
+): AgentKind {
+  return savedAgent && AGENT_KEYS.has(savedAgent as AgentKind)
+    ? (savedAgent as AgentKind)
+    : defaultAgent;
+}
+
 /** The catalog subset a scheduled auto agent can actually run. */
 export function scheduledAgentOptions(): AgentCatalogEntry[] {
   return AGENT_CATALOG.filter((option) => option.scheduled);
