@@ -34,7 +34,9 @@ import {
   type ResumableQueryResult,
 } from "./resume-cache";
 import {
+  deleteTranscriptIndexForPath,
   indexedRecentMessages,
+  indexSessionMessagesDirect,
   searchTranscriptIndex,
   sessionHasIndexedMessages,
   sessionIndexKey,
@@ -1096,8 +1098,12 @@ const JCODE_SESSION_ID = /^session_[a-z0-9]+_\d+_[0-9a-f]+$/i;
 async function findJcodeTranscriptById(id: string): Promise<string | null> {
   if (!id || id.includes("/") || id.includes("\\") || id.includes("..")) return null;
   if (!JCODE_SESSION_ID.test(id)) return null;
-  const p = join(jcodeSessionsDir(), `${id}.journal.jsonl`);
-  return (await Bun.file(p).exists()) ? p : null;
+  const journal = join(jcodeSessionsDir(), `${id}.journal.jsonl`);
+  if (await Bun.file(journal).exists()) return journal;
+  // jcode can keep the full chat in session_<id>.json after a journal rewrite
+  // (or before the first journal flush). Meta alone is enough to bind the id.
+  const meta = join(jcodeSessionsDir(), `${id}.json`);
+  return (await Bun.file(meta).exists()) ? journal : null;
 }
 
 type JcodeSessionMeta = {
@@ -1105,7 +1111,145 @@ type JcodeSessionMeta = {
   working_dir?: string;
   created_at?: string;
   last_pid?: number;
+  updated_at?: string;
+  messages?: JcodeRawMessage[];
 };
+
+type JcodeRawMessage = {
+  id?: string;
+  role?: string;
+  timestamp?: string;
+  content?: unknown;
+  display_role?: string;
+};
+
+// jcode stores history in TWO places that drift apart:
+//   - ~/.jcode/sessions/<id>.journal.jsonl  — append-only (sometimes rewritten)
+//   - ~/.jcode/sessions/<id>.json           — full `messages` snapshot
+// After a rewrite the journal can hold only a few recent lines while the JSON
+// still has hundreds of turns. LFG used to tail the journal alone, so the UI
+// looked empty ("transcription not loading"). Merge both, drop system noise,
+// and serve the result through the synthetic lfg:// session index so live
+// reads and WS backlog see the full chat.
+function isJcodeNoiseMessage(m: JcodeRawMessage): boolean {
+  if (m.display_role === "system") return true;
+  const check = (text: string) => text.includes("<system-reminder>");
+  if (typeof m.content === "string") return check(m.content);
+  if (!Array.isArray(m.content)) return false;
+  for (const block of m.content) {
+    if (!block || typeof block !== "object") continue;
+    const b = block as { type?: string; text?: string };
+    if ((b.type === "text" || b.type === "output_text") && typeof b.text === "string" && check(b.text)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function normalizeJcodeRawMessages(messages: JcodeRawMessage[], updatedAt?: string): SessionMsg[] {
+  const filtered = messages.filter((m) => !isJcodeNoiseMessage(m));
+  if (!filtered.length) return [];
+  return normalizeLineMessages(
+    JSON.stringify({
+      meta: { updated_at: updatedAt },
+      append_messages: filtered,
+    }),
+  );
+}
+
+async function loadJcodeSessionJsonMessages(nativeId: string): Promise<SessionMsg[]> {
+  const p = join(jcodeSessionsDir(), `${nativeId}.json`);
+  try {
+    const meta = (await Bun.file(p).json()) as JcodeSessionMeta;
+    if (!Array.isArray(meta.messages) || !meta.messages.length) return [];
+    return normalizeJcodeRawMessages(meta.messages, meta.updated_at);
+  } catch {
+    return [];
+  }
+}
+
+async function loadJcodeJournalMessages(journalPath: string): Promise<SessionMsg[]> {
+  try {
+    if (!(await Bun.file(journalPath).exists())) return [];
+    const text = await Bun.file(journalPath).text();
+    const out: SessionMsg[] = [];
+    for (const line of text.split("\n")) {
+      if (!line.trim()) continue;
+      out.push(...normalizeLineMessages(line));
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+export async function loadJcodeCombinedMessages(nativeId: string): Promise<SessionMsg[]> {
+  if (!nativeId || !JCODE_SESSION_ID.test(nativeId)) return [];
+  const journalPath = join(jcodeSessionsDir(), `${nativeId}.journal.jsonl`);
+  const fromMeta = await loadJcodeSessionJsonMessages(nativeId);
+  const fromJournal = await loadJcodeJournalMessages(journalPath);
+  // Meta is the durable snapshot (can hold the pre-rewrite history). Journal is
+  // the live append stream (can hold turns not yet flushed into meta). Union by
+  // id, then order by timestamp so a truncated journal still yields a full chat.
+  const seen = new Set<string>();
+  const out: SessionMsg[] = [];
+  for (const msg of [...fromMeta, ...fromJournal]) {
+    const key = msg.id ?? `${msg.role}\0${msg.ts ?? ""}\0${msg.kind}\0${msg.text.slice(0, 64)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(msg);
+  }
+  out.sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
+  return out;
+}
+
+function jcodeSourceStamp(nativeId: string): string {
+  const journal = join(jcodeSessionsDir(), `${nativeId}.journal.jsonl`);
+  const meta = join(jcodeSessionsDir(), `${nativeId}.json`);
+  const part = (p: string): string => {
+    try {
+      const st = statSync(p);
+      return `${st.size}:${st.mtimeMs}`;
+    } catch {
+      return "0:0";
+    }
+  };
+  return `${part(journal)}|${part(meta)}`;
+}
+
+type JcodeSyncState = { stamp: string; journalSize: number; messageCount: number };
+const jcodeSyncState = new Map<string, JcodeSyncState>();
+
+export function resetJcodeTranscriptSyncForTests(): void {
+  jcodeSyncState.clear();
+}
+
+// Sync the synthetic lfg:// index for a jcode session from journal + meta.
+// Returns the session index key used as transcriptPath. Idempotent while the
+// on-disk sources are unchanged. Incremental while the journal only grows;
+// full rebuild when the journal shrinks (rewrite) so recovered meta history
+// is ordered before the fresh journal delta.
+export async function syncJcodeTranscriptIndex(sessionId: string, nativeId: string): Promise<string> {
+  const key = sessionIndexKey(sessionId);
+  const stamp = jcodeSourceStamp(nativeId);
+  let journalSize = 0;
+  try {
+    journalSize = statSync(join(jcodeSessionsDir(), `${nativeId}.journal.jsonl`)).size;
+  } catch {}
+  const prev = jcodeSyncState.get(sessionId);
+  if (prev?.stamp === stamp && sessionHasIndexedMessages(sessionId)) return key;
+
+  const messages = await loadJcodeCombinedMessages(nativeId);
+  const truncated = prev != null && journalSize < prev.journalSize;
+  const recoveredHistory =
+    prev != null && messages.length > prev.messageCount + 5 && journalSize <= prev.journalSize;
+  if (truncated || recoveredHistory || !sessionHasIndexedMessages(sessionId)) {
+    deleteTranscriptIndexForPath(key);
+  }
+  if (messages.length) indexSessionMessagesDirect(sessionId, messages);
+  jcodeSyncState.set(sessionId, { stamp, journalSize, messageCount: messages.length });
+  return key;
+}
 
 // Locate the live jcode journal for a managed session. Prefer the remembered
 // native id, then last_pid vs the pane pid, then working_dir + createdAt so a
@@ -1139,7 +1283,10 @@ async function findJcodeTranscriptForManaged(managed: {
       continue;
     }
     const journal = join(jcodeSessionsDir(), `${id}.journal.jsonl`);
-    if (!(await Bun.file(journal).exists())) continue;
+    const hasJournal = await Bun.file(journal).exists();
+    // Meta-only is enough: after a journal rewrite jcode may leave only the JSON
+    // snapshot until the next turn appends a fresh journal line.
+    if (!hasJournal && !(Array.isArray(meta.messages) && meta.messages.length)) continue;
     const createdAt = meta.created_at ? Date.parse(meta.created_at) : 0;
     const cwdMatch = !!managed.cwd && meta.working_dir === managed.cwd;
     const pidMatch = !!pid && meta.last_pid === pid;
@@ -2594,8 +2741,8 @@ export async function listSessions(): Promise<Session[]> {
   }
 
   // "jcode" sessions: jcode runs in a tmux pane (like cursor/grok) and writes
-  // an append-only journal under ~/.jcode/sessions. Resolving it here lets the
-  // live view backfill + tail the chat and gives the card its last message.
+  // a journal + session.json under ~/.jcode/sessions. We merge both into the
+  // synthetic lfg:// index so a rewritten journal cannot blank the live view.
   for (const m of managedSessions.filter((row) => row.agent === "jcode" && row.sessionId)) {
     if (!tmux.hasSession(m.tmuxName)) continue;
     const pid = tmux.panePid(m.tmuxName);
@@ -2606,25 +2753,36 @@ export async function listSessions(): Promise<Session[]> {
     const found = await profileAsync(profile, "findJcodeTranscript_ms", () =>
       findJcodeTranscriptForManaged(m),
     );
-    const transcriptPath = found?.path ?? null;
     const nativeSessionId = found?.id ?? m.nativeSessionId ?? null;
     if (found?.id) rememberNativeSession(m, found.id);
+    let transcriptPath: string | null = null;
     let last: SessionMsg | null = null;
     let lastActivityAt: number | null = m.createdAt;
     let lastUser: string | null = null;
-    if (transcriptPath) {
-      try {
-        lastActivityAt = statSync(transcriptPath).mtimeMs;
-      } catch {}
-      const meta = await profileAsync(profile, "transcriptTailMeta_ms", () =>
-        transcriptTailMeta(transcriptPath, lastActivityAt ?? 0),
+    if (found?.id) {
+      transcriptPath = await profileAsync(profile, "syncJcodeTranscript_ms", () =>
+        syncJcodeTranscriptIndex(m.sessionId!, found.id),
       );
-      last = meta.last;
-      lastUser = meta.lastUser;
+      for (const p of [found.path, join(jcodeSessionsDir(), `${found.id}.json`)]) {
+        try {
+          const mt = statSync(p).mtimeMs;
+          if (!lastActivityAt || mt > lastActivityAt) lastActivityAt = mt;
+        } catch {}
+      }
+      const recent = await profileAsync(profile, "jcodeRecent_ms", () =>
+        indexedRecentMessages(transcriptPath!, m.sessionId!, 40),
+      );
+      last = recent[recent.length - 1] ?? null;
+      for (let i = recent.length - 1; i >= 0; i--) {
+        if (recent[i].role === "user" && recent[i].kind === "text") {
+          lastUser = recent[i].text;
+          break;
+        }
+      }
     }
     let title = managedTitle(m, m.sessionId!, nativeSessionId, overrides);
-    if (!title && transcriptPath)
-      title = await profileAsync(profile, "cachedFirstTitle_ms", () => cachedFirstTitle(transcriptPath));
+    if (!title && found?.path)
+      title = await profileAsync(profile, "cachedFirstTitle_ms", () => cachedFirstTitle(found.path));
     if (!title) title = m.title || (m.cwd ? basename(m.cwd) : project);
     out.push({
       agent: "jcode",
@@ -2896,15 +3054,17 @@ export async function resolveTranscript(sessionId: string): Promise<string | nul
     if (managed.launchState === "launching") return null;
     return managed.cwd ? (await findCursorTranscriptByCwd(managed.cwd, managed.createdAt))?.path ?? null : null;
   }
-  // jcode: journal lives under ~/.jcode/sessions named by jcode's own session
-  // id (session_<name>_<ms>_<hash>), not lfg's UUID. Resolve by remembered
-  // native id first, else by pane pid / cwd + createdAt. Handle it here so
-  // the claude-oriented fallback below never fires for jcode.
+  // jcode: history lives under ~/.jcode/sessions as a journal plus a session.json
+  // snapshot, named by jcode's own id (session_<name>_<ms>_<hash>), not lfg's
+  // UUID. Merge both into the synthetic lfg:// index so a rewritten journal
+  // cannot blank /messages. Handle it here so the claude-oriented fallback
+  // below never fires for jcode.
   if (managed?.agent === "jcode") {
     const found = await findJcodeTranscriptForManaged(managed);
     if (found) {
       rememberNativeSession(managed, found.id);
-      return found.path;
+      const sid = managed.sessionId ?? sessionId;
+      return await syncJcodeTranscriptIndex(sid, found.id);
     }
     return null;
   }

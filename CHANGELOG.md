@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## August 14, 2026 - Jcode chat history survives a journal rewrite
+
+- **Jcode sessions no longer show an empty or nearly empty transcript after a
+  long turn.** Jcode keeps the full chat in `session_*.json` and sometimes
+  rewrites `*.journal.jsonl` down to a few recent lines. omg.dev only tailed the
+  journal, so opening those sessions looked like the transcript had failed to
+  load. The serve path now merges the session snapshot with the live journal and
+  serves the combined history through the session index.
+
 ## August 14, 2026 - Combined Claude usage and the real Jcode mark (v0.1.373)
 
 - **Claude Auto now shows one combined usage ring.** The new-session composer
