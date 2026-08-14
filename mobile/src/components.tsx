@@ -725,7 +725,12 @@ export function HomeComposer({
       style={{
         paddingHorizontal: space.lg,
         paddingTop: space.sm,
-        paddingBottom: Math.max(bottomInset, space.sm),
+        // The home indicator's inset PLUS a gap, not the larger of the two.
+        // `Math.max` let the inset swallow the gap on every device that has
+        // one, so the field sat flush against the indicator here while the
+        // session composer — which adds them — floated correctly. Two
+        // composers, two heights, on screens you swap between constantly.
+        paddingBottom: bottomInset + space.sm,
         // Transparent under glass so the blur has content to sample; opaque
         // otherwise so list rows do not show through the composer.
         backgroundColor: LIQUID_GLASS ? "transparent" : colors.bg,
