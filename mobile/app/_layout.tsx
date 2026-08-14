@@ -103,6 +103,29 @@ function RootNavigator() {
            * nothing behind the bar, so it resolved to a flat mid-grey slab
            * that looked worse than either. The hairline still appears on
            * scroll, which is the only cue that actually carries meaning.
+           *
+           * MEASURED, 2026-08-14, iPhone 17 Pro sim (iOS 26.0), dark
+           * appearance. The full translucent combination was tried again —
+           * `headerTransparent: true` + alpha-0 `headerStyle` +
+           * `headerBlurEffect` + a page-colour View behind the navigator — and
+           * it is WORSE than what is here. Two probes, both on-device:
+           *
+           *  1. Wrapper View painted red, `contentStyle` semi-transparent
+           *     green. NO red was visible anywhere. The screen's content view
+           *     covers the wrapper completely, so "paint the page behind the
+           *     navigator" buys nothing; the page colour simply stops being
+           *     drawn and the light system material shows through instead.
+           *     That is why the whole app turned light grey while the palette
+           *     stayed dark, leaving muted text unreadable.
+           *  2. `headerLargeTitleStyle` set to red. The title rendered as a
+           *     faint red SMUDGE inside the band — it is drawn UNDER the blur,
+           *     not over it, so "Sessions" stays illegible no matter what
+           *     colour it is given.
+           *
+           * So the blur samples correctly (probe 1 showed the green darkening
+           * under the bar), but the large title is on the wrong side of it.
+           * Do not reach for `headerBlurEffect` here again without a device
+           * screenshot proving the title is legible.
            */
           headerTransparent: false,
           headerStyle: { backgroundColor: colors.bg },
