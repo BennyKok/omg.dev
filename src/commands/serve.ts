@@ -2946,6 +2946,12 @@ a{color:#60a5fa}
             },
             onboarding: boot.onboarding ?? null,
             version: appVersion(),
+            // Changes only when this process restarts, so it answers "is my
+            // code actually running" without depending on a version string —
+            // two commits can share a version, and a checkout can be bumped
+            // under a process that never reloaded. Read it, deploy, restart,
+            // confirm it changed. Same id /api/install?ready=1 already returns.
+            bootId: SERVER_INSTANCE_ID,
             // Null on self-hosted. The live rail and admission use this to
             // keep Computer schedule rules off a normal lfg serve.
             computer: computerAgentAdmissionContext(),
