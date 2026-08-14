@@ -174,6 +174,9 @@ describe("OMG icon assets", () => {
   // a dot-matrix torus: jcode.sh/favicon.svg is 109 <circle>s, and
   // assets/app-icons/Jcode.icns rasterizes the same ring. Guessing a monogram
   // from a product's first letter is exactly how a wrong mark ships unnoticed.
+  // A later redraw kept the torus geometry but painted it cyan/blue; upstream
+  // is monochrome gray (#7e7e7e on the favicon). Color inventing is the same
+  // class of bug as letter inventing.
   test("draws the jcode mark as the upstream dot-matrix torus, not a J", async () => {
     const source = await readFile("web/public/agent-jcode.svg", "utf8");
 
@@ -187,6 +190,11 @@ describe("OMG icon assets", () => {
 
     // Keep the provenance comment so the next redraw traces back to upstream.
     expect(source).toContain("jcode.sh/favicon.svg");
+
+    // Upstream favicon fill is #7e7e7e. Reject the invented blue/cyan palette
+    // that briefly shipped after the geometry fix.
+    expect(source).toMatch(/fill=["']#7e7e7e["']/i);
+    expect(source).not.toMatch(/#38BDF8|#2DD4BF|#2563EB|#7DD3FC/i);
 
     // The dots must stay inside the 512 squircle: the first refit overflowed
     // the artboard and clipped the ring on all four sides.
