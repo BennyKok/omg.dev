@@ -28,7 +28,8 @@ const common = {
 // These cases intentionally mirror /api/sessions/resume. Historical Claude
 // and direct Codex sessions recover through their SDK harnesses; the other
 // durable backends relaunch their own managed transport.
-const result = agent === "claude" || agent === "aisdk"
+// `await` covers every arm — the cursor launcher is async, the rest are not.
+const result = await (agent === "claude" || agent === "aisdk"
   ? spawnManagedAisdkSession({
       ...common,
       model: "opus",
@@ -62,7 +63,7 @@ const result = agent === "claude" || agent === "aisdk"
                 ...common,
                 nativeSessionId: resume,
               })
-            : { ok: false, error: `${agent} has no durable recovery launcher` };
+            : { ok: false, error: `${agent} has no durable recovery launcher` });
 
 console.log(JSON.stringify(result));
 if (!result.ok) process.exit(1);

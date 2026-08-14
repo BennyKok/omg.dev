@@ -4499,7 +4499,10 @@ a{color:#60a5fa}
           });
           if (assignedUser) assignUser(tmuxName, assignedUser);
           const prompt = body?.prompt?.trim() || undefined;
-          const spawned = agent === "grok"
+          // `await` covers both arms: spawnManagedCursorSession is async (it
+          // must not block this thread — see createCursorChat), and awaiting
+          // the sync grok result is a no-op.
+          const spawned = await (agent === "grok"
             ? spawnManagedGrokSession({
                 name: tmuxName,
                 cwd,
@@ -4517,7 +4520,7 @@ a{color:#60a5fa}
                 nativeSessionId: sessionId,
                 omgSessionId: sessionId,
                 omgUser: assignedUser,
-              });
+              }));
           if (!spawned.ok) {
             removeManaged(tmuxName);
             assignUser(tmuxName, null);
@@ -5038,7 +5041,10 @@ a{color:#60a5fa}
         // Tag the new session before spawn so a concurrent /api/sessions refresh
         // can show the durable row under the right user filter immediately.
         if (assignedUser) assignUser(tmuxName, assignedUser);
-        const r: { ok: boolean; error?: string; nativeSessionId?: string } =
+        // `await` covers every arm: the cursor launcher is async (it must not
+        // block this thread — see createCursorChat), and awaiting the sync
+        // results of the others is a no-op.
+        const r: { ok: boolean; error?: string; nativeSessionId?: string } = await (
           agent === "codex"
             ? spawnManagedCodexSession({ name: tmuxName, cwd, prompt, model: resolvedModel, thinkingLevel, omgSessionId: launchId, omgUser: assignedUser, containInAgentSlice: isSubagent })
             : agent === "grok"
@@ -5131,7 +5137,7 @@ a{color:#60a5fa}
                         omgUser: assignedUser,
                         containInAgentSlice: isSubagent,
                       })
-                    : spawnManagedSession({ name: tmuxName, cwd, prompt, model: resolvedModel, thinkingLevel, omgSessionId: launchId, omgUser: assignedUser, containInAgentSlice: isSubagent, claudeAccountId });
+                    : spawnManagedSession({ name: tmuxName, cwd, prompt, model: resolvedModel, thinkingLevel, omgSessionId: launchId, omgUser: assignedUser, containInAgentSlice: isSubagent, claudeAccountId }));
         if (!r.ok) {
           // The caller received no committed session. Release the claim so a
           // corrected retry can create one; normal closes retain their claim.
