@@ -28,10 +28,15 @@ const USER_TASK = "=== USER TASK ===";
  * callers use this projection to keep the user's actual first message readable.
  */
 export function parseOmgPromptEnvelope(text: string): OmgPromptEnvelope | null {
-  const header = CONTRACT_HEADERS.find((candidate) => text.startsWith(candidate));
+  // Managed live turns can carry the transport timestamp that omg.dev prepends
+  // to user messages. Parse from the contract header, but only when the prefix is
+  // exactly one timestamp, so ordinary prose that quotes a contract stays plain.
+  const timestampPrefix = text.match(/^\[[^\]\n]+\]\s+/)?.[0] ?? "";
+  const envelope = timestampPrefix ? text.slice(timestampPrefix.length) : text;
+  const header = CONTRACT_HEADERS.find((candidate) => envelope.startsWith(candidate));
   if (!header) return null;
 
-  const headerEnd = text.indexOf("\n");
+  const headerEnd = envelope.indexOf("\n");
   if (headerEnd < 0) return null;
 
   // Pair the end marker to whichever spelling opened the envelope, but accept
@@ -39,7 +44,7 @@ export function parseOmgPromptEnvelope(text: string): OmgPromptEnvelope | null {
   let contractEnd = -1;
   let endMarker = "";
   for (const candidate of CONTRACT_ENDS) {
-    const at = text.indexOf(candidate, headerEnd + 1);
+    const at = envelope.indexOf(candidate, headerEnd + 1);
     if (at < 0) continue;
     if (contractEnd < 0 || at < contractEnd) {
       contractEnd = at;
@@ -48,13 +53,13 @@ export function parseOmgPromptEnvelope(text: string): OmgPromptEnvelope | null {
   }
   if (contractEnd < 0) return null;
 
-  const taskMarker = text.indexOf(USER_TASK, contractEnd + endMarker.length);
+  const taskMarker = envelope.indexOf(USER_TASK, contractEnd + endMarker.length);
   if (taskMarker < 0) return null;
 
-  const headerLine = text.slice(0, headerEnd);
+  const headerLine = envelope.slice(0, headerEnd);
   const version = headerLine.match(/\(capability version ([^)]+)\)/)?.[1] ?? null;
-  const instructions = text.slice(headerEnd + 1, contractEnd).trim();
-  const task = text.slice(taskMarker + USER_TASK.length).replace(/^\s*\n?/, "").trim();
+  const instructions = envelope.slice(headerEnd + 1, contractEnd).trim();
+  const task = envelope.slice(taskMarker + USER_TASK.length).replace(/^\s*\n?/, "").trim();
 
   if (!instructions || !task) return null;
   return { instructions, task, version };
