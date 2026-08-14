@@ -4,6 +4,7 @@ import * as React from "react"
 import { Drawer as DrawerPrimitive } from "vaul"
 
 import { cn } from "@/lib/utils"
+import { useExpandOnFocus } from "@/lib/expand-on-focus"
 import {
   Dialog,
   DialogClose,
@@ -35,6 +36,16 @@ function useIsDesktopDrawer() {
 }
 
 const DrawerDesktopContext = React.createContext(false)
+
+// Page mode is owned by DrawerContent now, but the sheet's own body often has
+// to react to it (bottom-anchoring its content, dropping a height cap). This
+// carries the state down instead of making every caller re-derive it.
+const DrawerPagedContext = React.createContext(false)
+
+/** True while the surrounding drawer wears `.lfg-sheet-page`. */
+function useDrawerPaged() {
+  return React.useContext(DrawerPagedContext)
+}
 
 function Drawer({
   // vaul-only props that base-ui's Dialog root doesn't understand — pull them
@@ -114,14 +125,30 @@ function DrawerContent({
   className,
   overlayClassName,
   children,
+  expandOnFocus = true,
+  page = false,
+  onPointerDownCapture,
+  onFocusCapture,
+  onBlurCapture,
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Content> & {
   overlayClassName?: string
+  /** Opt out of the focus-driven drawer → page morph. On by default: a
+   *  content-sized bottom sheet always loses to the mobile soft keyboard, so
+   *  every sheet with a field in it wants this. See lib/expand-on-focus.ts. */
+  expandOnFocus?: boolean
+  /** Force page mode regardless of focus, for callers that drive it. */
+  page?: boolean
 }) {
   const isDesktop = React.useContext(DrawerDesktopContext)
+  // Desktop is a centered dialog with its own height cap and no soft keyboard,
+  // so the morph is a no-op there; skip the listeners entirely.
+  const morph = useExpandOnFocus(expandOnFocus && !isDesktop)
+  const paged = page || morph.paged
 
   if (isDesktop) {
     return (
+      <DrawerPagedContext.Provider value={false}>
       <DialogContent
         data-slot="drawer-content"
         showCloseButton={false}
@@ -138,24 +165,43 @@ function DrawerContent({
       >
         {children}
       </DialogContent>
+      </DrawerPagedContext.Provider>
     )
   }
 
   return (
+    <DrawerPagedContext.Provider value={paged}>
     <DrawerPortal data-slot="drawer-portal">
       <DrawerOverlay className={overlayClassName} />
       <DrawerPrimitive.Content
         data-slot="drawer-content"
+        data-paged={paged ? "true" : "false"}
         className={cn(
           "group/drawer-content fixed z-[70] flex h-auto flex-col bg-transparent p-4 text-sm before:absolute before:inset-2 before:-z-10 before:rounded-4xl before:border before:border-border before:bg-background data-[vaul-drawer-direction=bottom]:inset-x-0 data-[vaul-drawer-direction=bottom]:bottom-0 data-[vaul-drawer-direction=bottom]:mt-24 data-[vaul-drawer-direction=bottom]:max-h-[80vh] data-[vaul-drawer-direction=left]:inset-y-0 data-[vaul-drawer-direction=left]:left-0 data-[vaul-drawer-direction=left]:w-3/4 data-[vaul-drawer-direction=right]:inset-y-0 data-[vaul-drawer-direction=right]:right-0 data-[vaul-drawer-direction=right]:w-3/4 data-[vaul-drawer-direction=top]:inset-x-0 data-[vaul-drawer-direction=top]:top-0 data-[vaul-drawer-direction=top]:mb-24 data-[vaul-drawer-direction=top]:max-h-[80vh] data-[vaul-drawer-direction=left]:sm:max-w-sm data-[vaul-drawer-direction=right]:sm:max-w-sm",
+          paged && "lfg-sheet-page",
           className
         )}
+        // All three handlers, always: a missing one breaks fold-back. Caller
+        // handlers still run — they are chained, not replaced.
+        onPointerDownCapture={(e) => {
+          morph.onPointerDownCapture()
+          onPointerDownCapture?.(e)
+        }}
+        onFocusCapture={(e) => {
+          morph.onFocusCapture(e)
+          onFocusCapture?.(e)
+        }}
+        onBlurCapture={(e) => {
+          morph.onBlurCapture(e)
+          onBlurCapture?.(e)
+        }}
         {...props}
       >
         <div className="mx-auto mt-4 hidden h-1.5 w-[100px] shrink-0 rounded-full bg-muted group-data-[vaul-drawer-direction=bottom]/drawer-content:block" />
         {children}
       </DrawerPrimitive.Content>
     </DrawerPortal>
+    </DrawerPagedContext.Provider>
   )
 }
 
@@ -245,4 +291,5 @@ export {
   DrawerFooter,
   DrawerTitle,
   DrawerDescription,
+  useDrawerPaged,
 }

@@ -321,7 +321,6 @@ import {
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 import { deepActiveElement, isTypingTarget } from "@/lib/active-element";
-import { useExpandOnFocus } from "@/lib/expand-on-focus";
 import { useExtensionNavTabs } from "./lib/extensions";
 import type { ExtensionNavTab } from "./lib/extensions";
 import {
@@ -16776,8 +16775,6 @@ function ProjectFolderBrowser({
     void browse(initialPath, true);
   }, [browse, initialPath, open, startCreating]);
 
-  const pickerMorph = useExpandOnFocus();
-
   async function finish(endpoint: string, body: object) {
     setLoading(true);
     setError(null);
@@ -16803,17 +16800,13 @@ function ProjectFolderBrowser({
           you navigate; the delete confirmation is short and looks stranded in
           it, so let that one state hug its content. */}
       <DrawerContent
+        // "New folder" and the delete confirmation both put a text field at
+        // the bottom of a sheet that is already tall; DrawerContent's own
+        // expand-on-focus morph keeps the keyboard from pushing them off.
         className={cn(
           "mx-auto max-w-lg overflow-hidden",
           deleteTarget ? "h-auto" : "h-[min(82dvh,42rem)]",
-          pickerMorph.paged && "lfg-sheet-page",
         )}
-        // "New folder" and the delete confirmation both put a text field at
-        // the bottom of a sheet that is already tall; the keyboard would
-        // otherwise push the field, and the button next to it, off the top.
-        onPointerDownCapture={pickerMorph.onPointerDownCapture}
-        onFocusCapture={pickerMorph.onFocusCapture}
-        onBlurCapture={pickerMorph.onBlurCapture}
       >
         <DrawerTitle className="sr-only">Choose a project folder</DrawerTitle>
         <div className="flex min-h-0 flex-1 flex-col px-4 pb-[max(var(--lfg-safe-bottom),1rem)]">
@@ -19809,7 +19802,7 @@ function BottomSheet({
   onClose,
   title,
   page = false,
-  expandOnFocus = false,
+  expandOnFocus = true,
   footer,
   children,
 }: {
@@ -19834,12 +19827,6 @@ function BottomSheet({
   footer?: ReactNode;
   children: ReactNode;
 }) {
-  // The morph itself lives in useExpandOnFocus so the raw <Drawer> surfaces
-  // that never go through BottomSheet can have it too. See expand-on-focus.ts
-  // for why focus-driven page mode is the only layout iOS handles natively.
-  const morph = useExpandOnFocus(expandOnFocus);
-  const paged = page || morph.paged;
-
   return (
     <Drawer
       open
@@ -19856,10 +19843,12 @@ function BottomSheet({
         // Keep both the scrim and sheet above it without raising every Drawer in
         // the app, since page-level drawers intentionally sit below some screens.
         overlayClassName="z-[100]"
-        className={cn("z-[100]", paged && "lfg-sheet-page")}
-        onPointerDownCapture={morph.onPointerDownCapture}
-        onFocusCapture={morph.onFocusCapture}
-        onBlurCapture={morph.onBlurCapture}
+        className="z-[100]"
+        // The morph lives in DrawerContent now, so every drawer in the app has
+        // it. `page` still lets a caller force it; `expandOnFocus` is kept as
+        // an explicit opt-out for sheets with no fields.
+        page={page}
+        expandOnFocus={expandOnFocus}
       >
         <DrawerTitle className="sr-only">{title}</DrawerTitle>
         {/* min-h-0 twice on purpose: without it a flex child refuses to shrink
@@ -20434,7 +20423,7 @@ function NewAutoAgentComposer({
   }
 
   return (
-    <BottomSheet onClose={onClose} title="New auto agent" expandOnFocus>
+    <BottomSheet onClose={onClose} title="New auto agent">
       <div className="px-2 pb-4 pt-1">
         <div className="flex items-center gap-2">
           <Sparkles className="size-5 text-primary" />
@@ -20657,7 +20646,6 @@ function AgentEditorSheet({
     <BottomSheet
       onClose={onClose}
       title={isNew ? "New auto agent" : "Edit auto agent"}
-      expandOnFocus
     >
       <div className="px-2 pb-4 pt-1">
         <div className="flex items-center gap-2">
