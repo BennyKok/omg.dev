@@ -702,13 +702,12 @@ export function SessionCard({
              * The rows now match the web.
              */
             borderRadius: radius.xl,
-            // A FULL POINT, not a hairline. The web draws `border border-border`
-            // — 1px of rgba(84,84,88,.35) — and at 0.33pt the same colour was
-            // a suggestion of an edge that disappeared against black on a real
-            // screen. This is the "chrome border" the cards are supposed to
-            // have.
+            // A full point, in the STRONGER border colour. `border` is
+            // rgba(84,84,88,.35) and even at 1pt it reads as a rumour against
+            // black; `borderStrong` is the same hue at .65 and gives the card
+            // an edge you can actually see, which is the point of having one.
             borderWidth: 1,
-            borderColor: colors.border,
+            borderColor: colors.borderStrong,
             marginHorizontal: space.lg,
             // Tighter than the old card's uniform 16pt. A grouped row is sized
             // by its content and the 44pt minimum touch target, not by padding
@@ -723,7 +722,10 @@ export function SessionCard({
             minHeight: 60,
           })}
         >
-          <AgentAvatar agent={agent} />
+          {/* 32, not 40. The mark identifies the agent; it is not the subject
+              of the row, and at 40 it was the largest thing on a card whose
+              actual content is the session's name. */}
+          <AgentAvatar agent={agent} size={32} />
           <View style={{ flex: 1, gap: 1, minWidth: 0 }}>
             <Text numberOfLines={1} style={{ ...type.headline, color: colors.text }}>
               {title}
@@ -826,6 +828,27 @@ export function HomeComposer({
         backgroundColor: LIQUID_GLASS ? "transparent" : colors.bg,
       }}
     >
+      {/* WHERE it runs sits ABOVE the box, at the trailing edge — a caption on
+          the message you are about to send, not another button competing with
+          the two inside the field. */}
+      {projectOptions.length ? (
+        <View
+          style={{
+            flexDirection: "row",
+            justifyContent: "flex-end",
+            marginBottom: space.xs,
+          }}
+        >
+          <ComposerCaptionButton
+            ios="folder.fill"
+            android="folder"
+            label={projectLabel ?? "Project"}
+            options={projectOptions}
+            accessibilityLabel={`Project: ${projectLabel ?? "none"}. Change`}
+          />
+        </View>
+      ) : null}
+
       {/* Liquid Glass on iOS 26+, a solid card everywhere else. */}
       <GlassSurface
         variant="regular"
@@ -886,6 +909,49 @@ export function HomeComposer({
             paddingVertical: space.sm,
           }}
         />
+        {/* Attach sits in the field, at the trailing edge, next to the control
+            that sends. Both act on the message, so both belong to the box that
+            holds it. */}
+        <DropdownMenu options={attachments.options} style={{ width: 30, height: 30 }}>
+          <View
+            accessibilityRole="button"
+            accessibilityLabel="Attach a file"
+            style={{ width: 30, height: 30, alignItems: "center", justifyContent: "center" }}
+          >
+            <Icon ios="paperclip" android="attach_file" size={17} color={colors.textMuted} />
+          </View>
+        </DropdownMenu>
+
+        {/* Dictate until there are words to send, then the same spot sends
+            them — the rule the session composer follows. */}
+        {!canStart && !starting ? (
+          <Pressable
+            onPress={dictation.toggle}
+            accessibilityRole="button"
+            accessibilityLabel={
+              dictation.state === "recording" ? "Stop dictating" : "Dictate a prompt"
+            }
+            style={({ pressed }) => ({
+              width: 30,
+              height: 30,
+              alignItems: "center",
+              justifyContent: "center",
+              opacity: pressed ? 0.6 : 1,
+            })}
+          >
+            {dictation.state === "transcribing" ? (
+              <ActivityIndicator size="small" color={colors.textMuted} />
+            ) : (
+              <Icon
+                ios={dictation.state === "recording" ? "stop.circle.fill" : "mic"}
+                android={dictation.state === "recording" ? "stop_circle" : "mic"}
+                size={17}
+                color={dictation.state === "recording" ? colors.danger : colors.textMuted}
+              />
+            )}
+          </Pressable>
+        ) : null}
+
         {/* Arrives with the text and leaves with it. Circular and glyph-only:
             the Messages send button, not a labelled call to action. */}
         {canStart || starting ? (
@@ -913,82 +979,6 @@ export function HomeComposer({
         ) : null}
       </GlassSurface>
 
-      {/* Just the folder. The agent had a pill here too, saying "Claude" next
-          to an avatar that already draws Claude's mark and opens the same
-          menu — one decision wearing two controls, six points apart. The
-          avatar wins: it is the thing you look at to answer "what will run
-          this", so it is the thing to press to change it. */}
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          // Tighter than before: each control now states its own edges, so
-          // the wide gap that separated two runs of bare text is no longer
-          // doing any work.
-          gap: space.sm,
-          marginTop: space.sm,
-          marginLeft: space.xs,
-        }}
-      >
-        {/* Same two controls as the session composer, in the row that already
-            holds this prompt's other decisions. */}
-        {/* The Host is given an EXPLICIT size. `matchContents` measured wider
-            than the pill it wraps, and the overhang sat on top of the mic
-            button next to it — taps on the mic went into the menu's host and
-            died there, so dictation looked broken while the paperclip and the
-            folder pill either side of it worked. A SwiftUI host is an opaque
-            native view: anything it covers is unreachable, whether or not it
-            draws there. */}
-        <DropdownMenu options={attachments.options} style={{ width: 36, height: 32 }}>
-          <View
-            accessibilityRole="button"
-            accessibilityLabel="Attach a file"
-            style={{
-              minHeight: 32,
-              minWidth: 36,
-              alignItems: "center",
-              justifyContent: "center",
-              borderRadius: radius.pill,
-              backgroundColor: colors.secondary,
-            }}
-          >
-            <Icon ios="paperclip" android="attach_file" size={14} color={colors.textSecondary} />
-          </View>
-        </DropdownMenu>
-        <Pressable
-          onPress={dictation.toggle}
-          accessibilityRole="button"
-          accessibilityLabel={
-            dictation.state === "recording" ? "Stop dictating" : "Dictate a prompt"
-          }
-          style={({ pressed }) => ({
-            minHeight: 32,
-            minWidth: 36,
-            alignItems: "center",
-            justifyContent: "center",
-            borderRadius: radius.pill,
-            backgroundColor: pressed ? colors.cardPressed : colors.secondary,
-          })}
-        >
-          {dictation.state === "transcribing" ? (
-            <ActivityIndicator size="small" color={colors.textSecondary} />
-          ) : (
-            <Icon
-              ios={dictation.state === "recording" ? "stop.circle.fill" : "mic"}
-              android={dictation.state === "recording" ? "stop_circle" : "mic"}
-              size={14}
-              color={dictation.state === "recording" ? colors.danger : colors.textSecondary}
-            />
-          )}
-        </Pressable>
-        <ComposerCaptionButton
-          ios="folder.fill"
-          android="folder"
-          label={projectLabel ?? "Project"}
-          options={projectOptions}
-          accessibilityLabel={`Project: ${projectLabel ?? "none"}. Change`}
-        />
-      </View>
     </View>
   );
 }

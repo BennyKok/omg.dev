@@ -511,11 +511,26 @@ export default function SessionScreen() {
        * still what should appear.
        */
       unstable_headerLeftItems: () => [
-        { type: "custom", hidesSharedBackground: true, element: <BackDisc /> },
-        // The bar spaces its items generously, which left the capsule floating
-        // away from the chevron instead of reading as the pair they are.
-        { type: "spacing", spacing: -6 },
-        { type: "custom", hidesSharedBackground: true, element: <TitleCapsule /> },
+        {
+          type: "custom",
+          hidesSharedBackground: true,
+          /**
+           * ONE ITEM HOLDING BOTH SHAPES, not two items side by side.
+           *
+           * As two items the bar owned the space between them, and it is
+           * generous — the capsule floated a finger's width off the chevron
+           * instead of reading as the pair they are, and a negative spacing
+           * item does not claw it back. Inside one item the gap is a `gap`
+           * property and it is exactly what it says. Each shape still draws
+           * its own glass, so this is two backgrounds, not one long pill.
+           */
+          element: (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <BackDisc />
+              <TitleCapsule />
+            </View>
+          ),
+        },
       ],
       headerLeft: () => (
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
