@@ -2,6 +2,18 @@
 
 Recent product updates and deployment notes.
 
+## August 14, 2026 - Jcode sessions report the right state and controls (v0.1.369)
+
+- **Jcode no longer looks busy while it waits for you.** Draft text, dialogs,
+  and other idle terminal content no longer trigger the Working state. Active
+  turns now follow Jcode's live turn indicator.
+- **The omg.dev instruction contract is visible again.** Live prompts include a
+  transport timestamp, and the chat now recognizes that form and restores the
+  collapsible instruction box above the user's task.
+- **Jcode has its full thinking control.** New sessions can use `low`, `medium`,
+  `high`, `xhigh`, or `max`, and the selected effort is applied when the session
+  starts.
+
 ## August 14, 2026 - The server tells you the truth about which version it is running (v0.1.368)
 
 - **A running server could claim a version it was not running.** It read the
