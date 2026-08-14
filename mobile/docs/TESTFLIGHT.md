@@ -68,6 +68,18 @@ resolved through `expo-router`, so it typechecked and bundled locally while
 being absent from `package.json`. EAS installs fresh. Always `npx expo install`
 the thing you import.
 
+**TWO LOCKFILES MEANT EAS INSTALLED THE WRONG ONE.** `mobile/` carried both
+`bun.lock` and a `package-lock.json` last written 2026-08-12. `expo install`
+uses bun, so it updated `bun.lock` only — and EAS built from the npm lockfile,
+which still described the older dependency set. The build SUCCEEDED, shipped a
+binary without `expo-image-picker`/`expo-audio` in it, and the app then died on
+`Cannot find native module 'ExponentImagePicker'` at import. Nothing before
+runtime says a word about it: `tsc`, `expo export` and the build itself all
+pass, because locally the modules are in `node_modules`.
+
+`package-lock.json` is deleted. If one ever reappears, delete it again rather
+than keeping both in sync.
+
 **Cheap check before spending a build slot:**
 
     npx tsc --noEmit
