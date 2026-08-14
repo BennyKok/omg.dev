@@ -1447,7 +1447,12 @@ const CURSOR_STOP_HINT = /ctrl\+c to stop/i;
 const CURSOR_TOKEN_METER = /\b(?:Reading|Editing|Thinking|Generating|Planning|Searching|Running|Working)\b\s+[\d.]+k?\s+tokens?\b/i;
 export function isBusy(pane: string): boolean {
   const lastNonEmpty = pane.split("\n").findLast((line) => line.trim()) ?? "";
-  const jcodeBusy = pane.includes("J-Code - Coding Agent") && !/^\s*>\s*$/.test(lastNonEmpty);
+  // Jcode uses `>` for its idle composer and `→` while a turn is active. Do not
+  // infer activity from any other final line: a draft, selector, or clipped pane
+  // can all hide the bare idle prompt and previously made Jcode look busy.
+  const jcodeBusy =
+    pane.includes("J-Code - Coding Agent") &&
+    (/^\s*→/.test(lastNonEmpty) || /^\s*(?:Thinking|Working|Running)\.\.\.\s*$/i.test(lastNonEmpty));
   return (
     jcodeBusy ||
     BUSY_METER.test(pane) ||

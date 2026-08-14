@@ -149,7 +149,10 @@ describe("coding agent adapter contract", () => {
     const header = "J-Code - Coding Agent\nType your message, or 'quit' to exit.\n";
     expect(isBusy(`${header}\n> `)).toBe(false);
     expect(isBusy(`${header}\n> build it\nThinking...`)).toBe(true);
+    expect(isBusy(`${header}\n> build it\n[bash] $ bun test\n\n  →`)).toBe(true);
     expect(isBusy(`${header}\n> build it\ndone\n\n> `)).toBe(false);
+    expect(isBusy(`${header}\n> unfinished draft`)).toBe(false);
+    expect(isBusy(`${header}\nChoose a model:\n1. Fast\n2. Smart`)).toBe(false);
   });
 
   test("cursor managed sessions resume their preallocated native chat", () => {
