@@ -749,10 +749,37 @@ export default function SessionScreen() {
          * transcript reads as a slab; the glass is what makes it chrome
          * floating over content rather than a panel pasted on.
          */}
+        {/* ATTACH IS ITS OWN BUTTON, beside the field rather than inside it.
+            Everything in the box acts on the text you are writing; attaching a
+            file adds a different KIND of thing to the message, and it earns a
+            control of its own — the plus button's place in Messages. Its own
+            glass circle, bottom-aligned so it stays level with the last line
+            as the field grows. */}
+        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: space.sm }}>
+        <DropdownMenu title="Attach" options={attachments.options} style={{ width: 44, height: 44 }}>
+          <GlassSurface
+            variant="regular"
+            fallbackColor={colors.secondary}
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 22,
+              alignItems: "center",
+              justifyContent: "center",
+              overflow: "hidden",
+            }}
+          >
+            <View accessibilityRole="button" accessibilityLabel="Attach a file">
+              <Icon ios="paperclip" android="attach_file" size={18} color={colors.textSecondary} />
+            </View>
+          </GlassSurface>
+        </DropdownMenu>
+
         <GlassSurface
           variant="regular"
           fallbackColor={colors.card}
           style={{
+            flex: 1,
             flexDirection: "row",
             // CENTRED, not bottom-aligned. One line of text in a 52pt box sat
             // on the floor of it with all the slack above — the placeholder
@@ -780,20 +807,6 @@ export default function SessionScreen() {
               will appear. It used to be a disc on a row underneath, which put
               two of the composer's three controls outside the box they act
               on. */}
-          {/* Attach sits at the HEAD of the field, where the thing it adds
-              will appear. It used to be a disc on a row underneath, which put
-              two of the composer's three controls outside the box they act
-              on. */}
-          <DropdownMenu title="Attach" options={attachments.options} style={{ width: 28, height: 28 }}>
-            <View
-              accessibilityRole="button"
-              accessibilityLabel="Attach a file"
-              style={{ width: 28, height: 28, alignItems: "center", justifyContent: "center" }}
-            >
-              <Icon ios="paperclip" android="attach_file" size={17} color={colors.textMuted} />
-            </View>
-          </DropdownMenu>
-
 
           <TextInput
             value={draft}
@@ -868,6 +881,7 @@ export default function SessionScreen() {
             />
           )}
         </GlassSurface>
+        </View>
 
         {/* Nothing under the field except the one control that has no home
             inside it. Attach lives at the head of the input, send and dictate
