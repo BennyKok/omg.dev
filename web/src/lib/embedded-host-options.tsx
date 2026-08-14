@@ -1,6 +1,9 @@
 import { createContext, useContext, type ReactNode } from "react";
+import type { AgentKind } from "./coding-agent-options";
 
 export interface EmbeddedHostOptions {
+  /** The agent used when this browser has no valid saved selection. */
+  defaultAgent: AgentKind;
   /**
    * Whether LFG should own the first-run provider connection gate. A managed
    * host can disable it when it has already selected a credential-free agent
@@ -95,6 +98,7 @@ export interface EmbeddedViewer {
 }
 
 const EmbeddedHostOptionsContext = createContext<EmbeddedHostOptions>({
+  defaultAgent: "aisdk",
   connectionOnboarding: true,
 });
 
