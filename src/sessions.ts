@@ -3,7 +3,7 @@
 import { readFile, readdir, readlink } from "node:fs/promises";
 import { statSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { join, basename } from "node:path";
-import { panePidForSession, tmuxHasSession, tmuxTargetForPid, capturePane, isBusy } from "./tmux";
+import { panePidForSession, tmuxHasSession, tmuxTargetForPid, capturePane, isBusy, isJcodeBusy } from "./tmux";
 import { isManagedName, listManaged, patchManaged, type ManagedSession } from "./managed";
 import {
   listEntries as listAisdkEntries,
@@ -2815,7 +2815,7 @@ function sessionBusy(s: Session): boolean {
       const hit = busyCache.get(s.tmuxTarget);
       if (hit && now - hit.at < BUSY_CACHE_TTL_MS) return hit.busy;
       const pane = capturePane(s.tmuxTarget);
-      const busy = pane ? isBusy(pane) : false;
+      const busy = pane ? (s.agent === "jcode" ? isJcodeBusy(pane) : isBusy(pane)) : false;
       busyCache.set(s.tmuxTarget, { at: now, busy });
       return busy;
     }
