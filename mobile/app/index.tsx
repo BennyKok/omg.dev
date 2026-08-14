@@ -58,7 +58,7 @@ import { CLOUD_BINDING_ID } from "../src/omg/config";
  * "Welcome".
  */
 function LiveWelcome({ firstName, busyCount }: { firstName: string; busyCount: number }) {
-  const { colors, type } = useTheme();
+  const { colors, type, space } = useTheme();
   const [showActivity, setShowActivity] = useState(false);
 
   useEffect(() => {
@@ -75,7 +75,12 @@ function LiveWelcome({ firstName, busyCount }: { firstName: string; busyCount: n
   return (
     <Text
       numberOfLines={1}
-      style={{ ...type.headline, color: colors.text, maxWidth: 230 }}
+      style={{
+        ...type.title,
+        color: colors.text,
+        paddingHorizontal: space.lg,
+        paddingTop: space.sm,
+      }}
     >
       {busyCount > 0 && showActivity ? activity : welcome}
     </Text>
@@ -125,25 +130,48 @@ export default function SessionsScreen() {
 
   const ready = readiness?.status === "ready";
 
-  const load = useCallback(async () => {
-    if (!client || !ready) return;
-    setLoading(true);
-    try {
-      setSessions(await client.listSessions());
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [client, ready]);
+  /**
+   * @param quiet Skip the loading flag. A background refresh must not light up
+   * the pull-to-refresh spinner — the list would appear to be reloading every
+   * few seconds while nobody asked it to.
+   */
+  const load = useCallback(
+    async (quiet = false) => {
+      if (!client || !ready) return;
+      if (!quiet) setLoading(true);
+      try {
+        setSessions(await client.listSessions());
+        setError(null);
+      } catch (e) {
+        // A failed background poll keeps the list it already has. Only a
+        // refresh someone ASKED for is worth an error banner.
+        if (!quiet) setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!quiet) setLoading(false);
+      }
+    },
+    [client, ready],
+  );
 
-  // Refresh when the tab regains focus rather than on a blind interval: the
-  // live socket already pushes status, so polling only matters for the gap
-  // while this screen was not on screen.
+  /**
+   * TITLES AND SUBTITLES GO STALE WHILE YOU WATCH THEM, so this polls.
+   *
+   * The live socket carries connection state and per-session TRANSCRIPTS —
+   * `subscribeConnection` and `subscribeTranscript` are the only channels the
+   * SDK exposes. There is nothing that pushes "this session's title changed",
+   * and a session's title and last message change constantly while an agent
+   * works. Refreshing only on focus meant the list you were staring at was a
+   * snapshot from whenever you opened it: a session would sit there named
+   * after a prompt it finished ten minutes ago.
+   *
+   * 10s, and only while the screen is focused, so a backgrounded app is not
+   * talking to the machine. Quiet, so it never touches the refresh spinner.
+   */
   useFocusEffect(
     useCallback(() => {
       void load();
+      const timer = setInterval(() => void load(true), 10_000);
+      return () => clearInterval(timer);
     }, [load]),
   );
 
@@ -288,7 +316,6 @@ export default function SessionsScreen() {
        */
       headerLargeTitle: false,
       title: "",
-      headerLeft: () => <LiveWelcome firstName={firstName} busyCount={working.length} />,
       headerRight: () => (
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
           {/* TWO BUTTONS, NOT ONE CHIP.
@@ -340,8 +367,6 @@ export default function SessionsScreen() {
     computerPicker.options,
     machineName,
     currentBinding?.online,
-    firstName,
-    working.length,
     colors,
     space,
   ]);
@@ -388,6 +413,13 @@ export default function SessionsScreen() {
           />
         }
       >
+        {/* The greeting is PAGE CONTENT, not a bar item.
+            In the bar, iOS 26 wrapped it in the same glass capsule it gives
+            every button, so a sentence looked like a control you could press.
+            The web puts it at the top of the page as plain text and lets it
+            scroll away, which is also what it is: a greeting, not chrome. */}
+        <LiveWelcome firstName={firstName} busyCount={working.length} />
+
         {(connection === "reconnecting" || connection === "offline") && ready ? (
           <Text
             style={{
@@ -472,7 +504,9 @@ export default function SessionsScreen() {
 
             {working.length > 0 ? (
               <>
-                <SectionHeader label="Working" count={working.length} dotColor={colors.brand} />
+                {/* Amber, not brand orange: the web's Working header carries
+                    the same `bg-warning` as the busy row dot. */}
+                <SectionHeader label="Working" count={working.length} dotColor={colors.warning} />
                 {/* Each session is its own card now, so the rows need air
                     between them — see SessionCard. */}
                 <View style={{ gap: space.sm }}>

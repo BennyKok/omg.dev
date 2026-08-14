@@ -53,6 +53,7 @@ import {
   Alert,
   Animated,
   FlatList,
+  Keyboard,
   Platform,
   Pressable,
   StyleSheet,
@@ -70,7 +71,7 @@ import { AgentAvatar, AttachmentStrip, Icon, IconButton } from "../../src/compon
 import { agentLabel as agentDisplayName } from "../../src/omg/agent-icons";
 import { useAttachments } from "../../src/omg/attachments";
 import { useDictation } from "../../src/omg/dictation";
-import { GlassSurface } from "../../src/omg/glass";
+import { GlassSurface, LIQUID_GLASS } from "../../src/omg/glass";
 import { DropdownMenu, type MenuOption } from "../../src/omg/menu";
 import { useOmg } from "../../src/omg/provider";
 import { useTheme } from "../../src/omg/theme";
@@ -555,6 +556,27 @@ export default function SessionScreen() {
     paddingBottom: Math.max(0, keyboard.height.value - insets.bottom),
   }));
 
+  /**
+   * THE LIFT ALONE IS NOT ENOUGH — the list has to follow it.
+   *
+   * Raising the composer shrinks the list above it, and a FlatList keeps its
+   * scroll OFFSET when that happens, so the bottom of the transcript slides
+   * out of sight behind the keyboard. You tap the field to reply and the
+   * message you are replying to disappears: the screen looks like it did not
+   * move at all.
+   *
+   * Only when the transcript was already pinned to the bottom. Someone who
+   * scrolled up to read history is holding their place on purpose, and
+   * yanking them to the end because a keyboard opened would be worse than the
+   * bug.
+   */
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardDidShow", () => {
+      if (atBottomRef.current) listRef.current?.scrollToEnd({ animated: true });
+    });
+    return () => show.remove();
+  }, []);
+
   return (
     <Reanimated.View style={[{ flex: 1 }, keyboardLift]}>
       <FlatList
@@ -655,92 +677,47 @@ export default function SessionScreen() {
           paddingHorizontal: space.md,
           paddingTop: space.sm,
           paddingBottom: insets.bottom + space.sm,
+          gap: space.sm,
         }}
       >
         <AttachmentStrip items={attachments.items} onRemove={attachments.remove} />
-        <View style={{ flexDirection: "row", alignItems: "flex-end", gap: space.sm }}>
-        {/* One field, everything else flat. The bar used to stack three
-            surfaces — the glass bar, a card-painted pill inside it, and
-            card-painted discs on the buttons — which on a device reads as a
-            box inside a box inside a box. iOS Messages is the reference: the
-            rounded field is the ONLY surface, the send control lives inside
-            it, and every other button is a bare glyph on the bar. */}
 
-        {/* Stop only exists while there is something to stop. A permanently
-            visible, permanently dimmed button reads as a broken control. */}
-        {busy ? (
-          <IconButton
-            ios="stop.fill"
-            android="stop"
-            accessibilityLabel="Stop the agent"
-            onPress={() => void stop()}
-            size={15}
-            color={colors.danger}
-          />
-        ) : null}
-
-        {/* Attach, then dictate, then history: the two that ADD to the message
-            sit next to the field, and the one that replaces it sits furthest
-            from Send. */}
-        {/* Explicit size — see the note on the home composer's paperclip. An
-            unsized SwiftUI host overhangs its content and swallows taps on
-            whatever sits beside it, which here is the mic. */}
-        <DropdownMenu title="Attach" options={attachments.options} style={{ width: 32, height: 44 }}>
-          <View
-            accessibilityRole="button"
-            accessibilityLabel="Attach a file"
-            style={{ minHeight: 44, minWidth: 32, alignItems: "center", justifyContent: "center" }}
-          >
-            <Icon ios="paperclip" android="attach_file" size={18} color={colors.textMuted} />
-          </View>
-        </DropdownMenu>
-
-        {/* Recording is a STATE, so the button shows it: the glyph turns into a
-            stop square in the danger colour rather than staying a mic that
-            gives no way to tell whether it is listening. */}
-        <IconButton
-          ios={dictation.state === "recording" ? "stop.circle.fill" : "mic"}
-          android={dictation.state === "recording" ? "stop_circle" : "mic"}
-          accessibilityLabel={
-            dictation.state === "recording" ? "Stop dictating" : "Dictate a message"
-          }
-          onPress={dictation.toggle}
-          busy={dictation.state === "transcribing"}
-          size={18}
-          color={dictation.state === "recording" ? colors.danger : colors.textMuted}
-        />
-
-        {historyOptions.length ? (
-          <DropdownMenu title="Reuse a prompt" options={historyOptions}>
-            <View
-              accessibilityRole="button"
-              accessibilityLabel="Reuse an earlier prompt"
-              style={{ minHeight: 44, minWidth: 32, alignItems: "center", justifyContent: "center" }}
-            >
-              <Icon
-                ios="clock.arrow.circlepath"
-                android="history"
-                size={17}
-                color={colors.textMuted}
-              />
-            </View>
-          </DropdownMenu>
-        ) : null}
-
-        <View
+        {/**
+         * THE FIELD GETS THE WHOLE WIDTH, and the buttons get their own row.
+         *
+         * They used to share one line: stop, paperclip, mic and history all
+         * squeezed to the left of a field that ended up about half the bar.
+         * On a phone that is a row of unlabelled glyphs crowding the one
+         * control you actually came to use, and the field was too narrow to
+         * read back what you had typed. The web composer does not do this —
+         * it gives the input its own line and puts the actions under it — and
+         * that is the shape this now follows.
+         *
+         * Glass, like the home composer. A flat `card` fill next to the
+         * transcript reads as a slab; the glass is what makes it chrome
+         * floating over content rather than a panel pasted on.
+         */}
+        <GlassSurface
+          variant="regular"
+          fallbackColor={colors.card}
           style={{
-            flex: 1,
             flexDirection: "row",
             alignItems: "flex-end",
             gap: space.xs,
-            minHeight: 44,
-            backgroundColor: colors.card,
-            borderRadius: radius.pill,
-            borderWidth: StyleSheet.hairlineWidth,
-            borderColor: colors.border,
+            // Not `pill`: this field grows to 120pt for a long prompt, and a
+            // full pill radius on a tall box bulges. `xl` keeps the same
+            // family at every height.
+            borderRadius: radius.xl,
+            minHeight: 52,
             paddingLeft: space.md,
-            paddingRight: 5,
-            paddingVertical: 4,
+            paddingRight: space.sm,
+            paddingVertical: 6,
+            overflow: "hidden",
+            // Only when the OS cannot draw glass: the fallback is a flat fill,
+            // and a flat fill with no edge disappears into the page.
+            ...(LIQUID_GLASS
+              ? {}
+              : { borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }),
           }}
         >
           <TextInput
@@ -754,14 +731,92 @@ export default function SessionScreen() {
             style={{
               flex: 1,
               maxHeight: 120,
-              minHeight: 28,
-              paddingTop: Platform.OS === "ios" ? 6 : 2,
-              paddingBottom: 6,
+              minHeight: 30,
+              paddingTop: Platform.OS === "ios" ? 7 : 2,
+              paddingBottom: 7,
               color: colors.text,
               ...type.callout,
               fontSize: 16,
             }}
           />
+          {/* The mic lives INSIDE the field, the way dictation does everywhere
+              else on iOS and the way the web composer does it: it acts on the
+              text, so it belongs to the box that holds the text. */}
+          <IconButton
+            ios={dictation.state === "recording" ? "stop.circle.fill" : "mic"}
+            android={dictation.state === "recording" ? "stop_circle" : "mic"}
+            accessibilityLabel={
+              dictation.state === "recording" ? "Stop dictating" : "Dictate a message"
+            }
+            onPress={dictation.toggle}
+            busy={dictation.state === "transcribing"}
+            size={18}
+            color={dictation.state === "recording" ? colors.danger : colors.textMuted}
+          />
+        </GlassSurface>
+
+        {/* Actions under the field: what ADDS to the message on the left, and
+            the one control that sends it on the right, where the thumb is. */}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
+          {/* Stop only exists while there is something to stop. A permanently
+              visible, permanently dimmed button reads as a broken control. */}
+          {busy ? (
+            <IconButton
+              ios="stop.fill"
+              android="stop"
+              accessibilityLabel="Stop the agent"
+              onPress={() => void stop()}
+              size={15}
+              color={colors.danger}
+              background={colors.secondary}
+            />
+          ) : null}
+
+          {/* Explicit size — an unsized SwiftUI host overhangs its content and
+              swallows taps on whatever sits beside it. */}
+          <DropdownMenu title="Attach" options={attachments.options} style={{ width: 36, height: 36 }}>
+            <View
+              accessibilityRole="button"
+              accessibilityLabel="Attach a file"
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 18,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: colors.secondary,
+              }}
+            >
+              <Icon ios="paperclip" android="attach_file" size={16} color={colors.textSecondary} />
+            </View>
+          </DropdownMenu>
+
+          {historyOptions.length ? (
+            <DropdownMenu title="Reuse a prompt" options={historyOptions} style={{ width: 36, height: 36 }}>
+              <View
+                accessibilityRole="button"
+                accessibilityLabel="Reuse an earlier prompt"
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 18,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: colors.secondary,
+                }}
+              >
+                <Icon
+                  ios="clock.arrow.circlepath"
+                  android="history"
+                  size={16}
+                  color={colors.textSecondary}
+                />
+              </View>
+            </DropdownMenu>
+          ) : null}
+
+          <View style={{ flex: 1 }} />
+
           <Pressable
             onPress={send}
             disabled={!canSend}
@@ -769,11 +824,12 @@ export default function SessionScreen() {
             accessibilityLabel={busy ? "Queue the message" : "Send the message"}
             accessibilityState={{ disabled: !canSend }}
             style={({ pressed }) => ({
-              width: 30,
-              height: 30,
-              borderRadius: 15,
+              flexDirection: "row",
               alignItems: "center",
-              justifyContent: "center",
+              gap: 6,
+              height: 36,
+              paddingHorizontal: space.md,
+              borderRadius: radius.pill,
               backgroundColor: colors.foreground,
               opacity: !canSend ? 0.3 : pressed ? 0.75 : 1,
             })}
@@ -784,13 +840,15 @@ export default function SessionScreen() {
               <Icon
                 ios={busy ? "plus" : "arrow.up"}
                 android={busy ? "add" : "arrow_upward"}
-                size={15}
+                size={14}
                 weight="semibold"
                 color={colors.bg}
               />
             )}
+            <Text style={{ ...type.subhead, fontWeight: "600", color: colors.bg }}>
+              {busy ? "Queue" : "Send"}
+            </Text>
           </Pressable>
-        </View>
         </View>
       </View>
     </Reanimated.View>

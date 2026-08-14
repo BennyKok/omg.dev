@@ -14,11 +14,12 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import * as Haptics from "expo-haptics";
 import Reanimated, {
   useAnimatedStyle,
   useSharedValue,
+  withRepeat,
   withTiming,
 } from "react-native-reanimated";
 import { Text, TextInput } from "./omg/text";
@@ -37,12 +38,84 @@ import { DropdownMenu, type MenuOption } from "./omg/menu";
 import { PressableScale, useListItemMotion } from "./omg/motion";
 import { useTheme } from "./omg/theme";
 
+/**
+ * Tailwind's `bg-success/30` in a language React Native understands. The web
+ * expresses these indicator colours as alpha over a token, and the token is
+ * a hex string here, so the two stay comparable rather than becoming two
+ * hand-picked colours that drift.
+ */
+function withAlpha(hex: string, alpha: number): string {
+  const value = hex.replace("#", "");
+  const full = value.length === 3 ? value.split("").map((c) => c + c).join("") : value;
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 /** Leftward drag past this, or a fast enough flick, archives the row. */
 const SWIPE_ARCHIVE_PX = 96;
 const SWIPE_ARCHIVE_VELOCITY = 0.5;
 /** How far the card travels before the red behind it is at full strength. */
 const REVEAL_WIDTH = 96;
 const SCREEN_WIDTH = Dimensions.get("window").width;
+
+/**
+ * THE session indicator, matched to the web surface exactly.
+ *
+ * The web defines it once (`STATUS_DOT_BUSY` / `STATUS_DOT_IDLE` in
+ * web/src/App.tsx) precisely so the surfaces cannot drift, so this mirrors
+ * those two rules rather than inventing a phone-flavoured version:
+ *
+ *   busy — `animate-pulse bg-warning`: amber, PULSING. It draws the eye
+ *          because "an agent is working right now" is the one thing on this
+ *          screen worth looking at. A spinner said the same thing louder and
+ *          in the wrong colour.
+ *   idle — `bg-success/30 ring-1 ring-inset ring-success/20`: green at 30%
+ *          with a fainter ring inside it. Deliberately quiet — a wall of
+ *          full-strength green marks "nothing is happening" as if it were
+ *          news.
+ *
+ * Blocked keeps the pause glyph, which the web also draws in warning.
+ */
+export function SessionStatusDot({
+  busy,
+  size = 8,
+}: {
+  busy?: boolean;
+  size?: number;
+}) {
+  const { colors } = useTheme();
+  const pulse = useSharedValue(1);
+
+  useEffect(() => {
+    if (!busy) {
+      pulse.value = 1;
+      return;
+    }
+    // Tailwind's `animate-pulse`: 2s, opacity 1 → .5 → 1, ease-in-out.
+    pulse.value = withRepeat(withTiming(0.5, { duration: 1000 }), -1, true);
+  }, [busy, pulse]);
+
+  const pulseStyle = useAnimatedStyle(() => ({ opacity: busy ? pulse.value : 1 }));
+
+  return (
+    <Reanimated.View
+      style={[
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: busy ? colors.warning : withAlpha(colors.success, 0.3),
+          ...(busy
+            ? {}
+            : { borderWidth: 1, borderColor: withAlpha(colors.success, 0.2) }),
+        },
+        pulseStyle,
+      ]}
+    />
+  );
+}
 
 /** Green when the agent is working, grey when idle, amber when blocked. */
 export function StatusDot({
@@ -423,11 +496,37 @@ export function SectionHeader({
         paddingBottom: space.sm,
       }}
     >
-      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dotColor }} />
+      {/* 6pt, as on the web (`size-1.5`) — the row dots are 8pt, and a section
+          marker that matched them competed with the rows it introduces. */}
+      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: dotColor }} />
       <Text style={{ ...type.overline, color: colors.textMuted, textTransform: "uppercase" }}>
         {label}
-        {typeof count === "number" ? ` ${count}` : ""}
       </Text>
+      {/* The count is a CHIP, not part of the label. Same as the web: a
+          tabular number on the muted surface, so "IDLE 8" does not read as a
+          section called "idle 8". */}
+      {typeof count === "number" ? (
+        <View
+          style={{
+            paddingHorizontal: 6,
+            paddingVertical: 1,
+            borderRadius: 999,
+            backgroundColor: colors.secondary,
+          }}
+        >
+          <Text
+            style={{
+              ...type.caption,
+              fontSize: 10,
+              fontVariant: ["tabular-nums"],
+              color: colors.textMuted,
+              fontWeight: "500",
+            }}
+          >
+            {count}
+          </Text>
+        </View>
+      ) : null}
       <View style={{ flex: 1 }} />
       {actionLabel && onAction ? (
         <Pressable onPress={onAction} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}>
@@ -603,7 +702,12 @@ export function SessionCard({
              * The rows now match the web.
              */
             borderRadius: radius.xl,
-            borderWidth: StyleSheet.hairlineWidth,
+            // A FULL POINT, not a hairline. The web draws `border border-border`
+            // — 1px of rgba(84,84,88,.35) — and at 0.33pt the same colour was
+            // a suggestion of an edge that disappeared against black on a real
+            // screen. This is the "chrome border" the cards are supposed to
+            // have.
+            borderWidth: 1,
             borderColor: colors.border,
             marginHorizontal: space.lg,
             // Tighter than the old card's uniform 16pt. A grouped row is sized
@@ -630,24 +734,14 @@ export function SessionCard({
               </Text>
             ) : null}
           </View>
-          {/* A WORKING session SPINS. A dot the same size and shape as the
-              idle one, differing only in hue, made "is it running?" a
-              colour-matching exercise — and on the web that question is
-              answered by motion. Only a live session animates, so the eye goes
-              to the one row that is doing something. */}
+          {/* One definition of "is this session working?", shared with the
+              web — see SessionStatusDot. A spinner here was louder than the
+              web's pulsing dot and in the brand orange rather than warning
+              amber, so the two surfaces disagreed about the same session. */}
           {blocked ? (
             <Icon ios="pause.fill" android="pause" size={12} color={colors.warning} />
-          ) : busy ? (
-            <ActivityIndicator size="small" color={colors.brand} />
           ) : (
-            <View
-              style={{
-                width: 10,
-                height: 10,
-                borderRadius: 5,
-                backgroundColor: colors.success,
-              }}
-            />
+            <SessionStatusDot busy={busy} />
           )}
         </PressableScale>
       </Reanimated.View>
