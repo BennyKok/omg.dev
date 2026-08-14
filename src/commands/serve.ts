@@ -7029,7 +7029,7 @@ a{color:#60a5fa}
 
   const recovered = await reconcileCommandFileSessions((l) => console.log(l));
   if (recovered.adopted || recovered.recovered || recovered.failed || recovered.skippedLegacy) {
-    console.log(`[session-recovery] adopted=${recovered.adopted} recovered=${recovered.recovered} failed=${recovered.failed} skippedLegacy=${recovered.skippedLegacy}`);
+    console.log(`[session-recovery] adopted=${recovered.adopted} recovered=${recovered.recovered} recoveredTmux=${recovered.recoveredTmux} failed=${recovered.failed} skippedLegacy=${recovered.skippedLegacy}`);
     invalidateListSessionsCache();
   }
   // Probe the coding agents once at boot so the first dashboard open reads a

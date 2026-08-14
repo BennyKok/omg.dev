@@ -58,6 +58,12 @@ export type ManagedSession = {
   /** Set when boot reconciliation relaunched a process without replaying its turn. */
   interruptedAt?: number;
   recoveredFromBootId?: string;
+  /**
+   * Boot id that already attempted recovery for this row. Native TUI agents
+   * have no aisdk registry entry to journal against, so the claim lives here
+   * to keep a crash-looping relaunch from respawning on every serve restart.
+   */
+  recoveryClaimBootId?: string;
 };
 
 type ManagedRegistry = {
