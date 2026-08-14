@@ -2,13 +2,8 @@
 
 Recent product updates and deployment notes.
 
-## August 14, 2026 - Hosted Computers start with credential-free OpenCode (v0.1.367)
+## August 14, 2026 - The server tells you the truth about which version it is running (v0.1.368)
 
-- **A new hosted Computer now opens with OpenCode selected.** The host can set
-  the first coding agent before the composer starts, so a first prompt cannot
-  fall through to the managed Claude path.
-- **Your saved agent still wins.** The new host default applies only when this
-  browser has no valid saved selection.
 - **A running server could claim a version it was not running.** It read the
   version off disk every time you asked, so once an update landed in the folder
   it reported the new number immediately, even though the old code was still
@@ -18,6 +13,14 @@ Recent product updates and deployment notes.
   boot id alongside it. The id changes only when the server truly restarts, so
   "did my update take effect" has a straight answer instead of a number that
   can be right about the folder and wrong about the process.
+
+## August 14, 2026 - Hosted Computers start with credential-free OpenCode (v0.1.367)
+
+- **A new hosted Computer now opens with OpenCode selected.** The host can set
+  the first coding agent before the composer starts, so a first prompt cannot
+  fall through to the managed Claude path.
+- **Your saved agent still wins.** The new host default applies only when this
+  browser has no valid saved selection.
 
 ## August 13, 2026 - Hosted owner filter no longer hides every session (v0.1.366)
 
