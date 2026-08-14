@@ -4402,6 +4402,70 @@ a{color:#60a5fa}
           console.warn(`[resume] no transcript found for ${sessionId} — cannot resume`);
           return err(404, "no transcript found for that session");
         }
+        // jcode owns a durable journal under ~/.jcode/sessions keyed by its own
+        // session id, and its REPL takes `--resume <id>`. Relaunch the pane
+        // against that id so a rebooted box reopens the real conversation
+        // instead of falling through to the claude harness, which cannot find
+        // the lfg UUID and dies with "No conversation found with session ID".
+        {
+          const prior = listManaged().find(
+            (row) =>
+              row.agent === "jcode" &&
+              (row.sessionId === sessionId || row.nativeSessionId === sessionId),
+          );
+          const jcodeNativeId = prior?.nativeSessionId;
+          if (prior && jcodeNativeId && jcodeNativeId !== sessionId) {
+            const cwd = await resolveResumeCwd(prior.cwd, prior.project ?? cachedResume?.project);
+            const tmuxName = `lfg-${randomBytes(3).toString("hex")}`;
+            const tag = resolveSessionUserTag(body?.user || cachedResume?.assignedUser);
+            if (!tag.ok) return err(400, `unknown user "${tag.unknown}"`);
+            const assignedUser = tag.user;
+            const resumeModel = model || prior.model || "auto";
+            await indexTranscript(transcript, sessionId);
+            addManaged({
+              ...prior,
+              tmuxName,
+              cwd,
+              createdAt: Date.now(),
+              agent: "jcode",
+              sessionId,
+              nativeSessionId: jcodeNativeId,
+              launchState: "launching",
+              model: resumeModel,
+              repoRoot: repoRootForManagedCwd(cwd),
+            });
+            // The pre-reboot row is now a duplicate of the same conversation.
+            if (prior.tmuxName !== tmuxName) removeManaged(prior.tmuxName);
+            if (assignedUser) assignUser(tmuxName, assignedUser);
+            const spawned = spawnManagedJcodeSession({
+              name: tmuxName,
+              cwd,
+              prompt: body?.prompt?.trim() || undefined,
+              model: resumeModel,
+              thinkingLevel: prior.thinkingLevel,
+              resume: jcodeNativeId,
+              omgSessionId: sessionId,
+              omgUser: assignedUser,
+            });
+            if (!spawned.ok) {
+              removeManaged(tmuxName);
+              assignUser(tmuxName, null);
+              return err(502, spawned.error || "failed to resume jcode session");
+            }
+            patchManaged(tmuxName, { launchState: "running" });
+            updateResumableUser(sessionId, assignedUser ?? null);
+            invalidateListSessionsCache();
+            console.log(`[resume] jcode resume ${sessionId} → pane ${tmuxName} (${jcodeNativeId})`);
+            return json({
+              ok: true,
+              tmuxName,
+              cwd,
+              sessionId,
+              resumedFrom: jcodeNativeId,
+              agent: "jcode",
+            });
+          }
+        }
         // Grok and Cursor both resume their native file-backed conversation in
         // place. Keep the native id as the stable LFG id, warm the transcript
         // before launch, and persist a managed row so serve restarts rediscover

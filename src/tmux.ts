@@ -827,6 +827,12 @@ export type ManagedJcodeSessionOptions = {
   omgSessionId?: string;
   omgUser?: string | null;
   containInAgentSlice?: boolean;
+  /**
+   * jcode's own session id (session_<name>_<ms>_<hash>). When set, the REPL
+   * reopens that journal instead of starting an empty conversation, which is
+   * how a jcode pane survives a reboot.
+   */
+  resume?: string;
 };
 
 export function managedJcodeSessionArgv(opts: ManagedJcodeSessionOptions): string[] {
@@ -846,6 +852,7 @@ export function managedJcodeSessionArgv(opts: ManagedJcodeSessionOptions): strin
   ];
   if (opts.model && opts.model !== "auto") argv.push("--model", opts.model);
   argv.push("repl");
+  if (opts.resume) argv.push("--resume", opts.resume);
   addSessionEnv(argv, opts.omgSessionId, opts.omgUser, opts.name);
   if (opts.thinkingLevel) {
     const i = argv.indexOf("new-session");

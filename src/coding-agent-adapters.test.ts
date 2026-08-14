@@ -146,6 +146,26 @@ describe("coding agent adapter contract", () => {
     expect(jcodeReplPrompt("first line\n\nsecond\tline")).toBe("first line second line");
   });
 
+  test("jcode managed sessions resume their native journal", () => {
+    const nativeId = "session_fox_1786682997292_3adacdab25715ce2";
+    const argv = managedJcodeSessionArgv({
+      name: "lfg-test",
+      cwd: "/tmp/lfg-test",
+      model: "claude-opus-5",
+      resume: nativeId,
+      omgSessionId: "session-id",
+    });
+
+    // `--resume` is a `repl` subcommand flag, so it has to follow `repl`.
+    expect(argv.indexOf("--resume")).toBeGreaterThan(argv.indexOf("repl"));
+    expect(argv[argv.indexOf("--resume") + 1]).toBe(nativeId);
+  });
+
+  test("jcode managed sessions omit --resume when starting fresh", () => {
+    const argv = managedJcodeSessionArgv({ name: "lfg-test", cwd: "/tmp/lfg-test" });
+    expect(argv).not.toContain("--resume");
+  });
+
   test("jcode is busy until its REPL prints the next prompt", () => {
     const header = "J-Code - Coding Agent\nType your message, or 'quit' to exit.\n";
     expect(isBusy(`${header}\n> `)).toBe(false);
