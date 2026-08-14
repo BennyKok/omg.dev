@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## August 14, 2026 - Jcode stays visibly active during long turns (v0.1.370)
+
+- **Long Jcode turns no longer look stuck.** Once enough output scrolled the
+  startup header off the terminal, the status detector stopped recognizing the
+  pane as Jcode and reported it as idle. Managed Jcode sessions now use their
+  known agent type and keep following the live `→` turn indicator.
+
 ## August 14, 2026 - Jcode sessions report the right state and controls (v0.1.369)
 
 - **Jcode no longer looks busy while it waits for you.** Draft text, dialogs,

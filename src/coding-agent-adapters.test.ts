@@ -31,6 +31,7 @@ import {
   agentBrowserEnv,
   AGENT_BROWSER_IDLE_TIMEOUT_MS,
   isBusy,
+  isJcodeBusy,
   parsePrompt,
 } from "./tmux.ts";
 
@@ -150,6 +151,7 @@ describe("coding agent adapter contract", () => {
     expect(isBusy(`${header}\n> `)).toBe(false);
     expect(isBusy(`${header}\n> build it\nThinking...`)).toBe(true);
     expect(isBusy(`${header}\n> build it\n[bash] $ bun test\n\n  →`)).toBe(true);
+    expect(isJcodeBusy(`[bash] $ bun test\n\n  →`)).toBe(true);
     expect(isBusy(`${header}\n> build it\ndone\n\n> `)).toBe(false);
     expect(isBusy(`${header}\n> unfinished draft`)).toBe(false);
     expect(isBusy(`${header}\nChoose a model:\n1. Fast\n2. Smart`)).toBe(false);
