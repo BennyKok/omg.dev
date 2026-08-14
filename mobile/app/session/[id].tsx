@@ -423,13 +423,10 @@ export default function SessionScreen() {
 
   if (!client) {
     return (
-      // No fill of its own. The page colour is painted once behind the whole
-      // navigator (see _layout.tsx); an opaque background here would extend
-      // under the transparent bar and paint over the title, which is the same
-      // bug that hid "Sessions" on the home screen.
       <View
         style={{
           flex: 1,
+          backgroundColor: colors.bg,
           alignItems: "center",
           justifyContent: "center",
         }}
