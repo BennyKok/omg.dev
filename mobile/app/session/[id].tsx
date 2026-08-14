@@ -384,6 +384,76 @@ export default function SessionScreen() {
    * would push the overflow button off the bar. The maxWidth is what makes
    * UIKit truncate the title instead of the chrome.
    */
+  /** The chevron on its own glass disc — one bar item. */
+  const BackDisc = useCallback(
+    () => (
+      <GlassSurface
+        variant="clear"
+        fallbackColor={colors.card}
+        style={{
+          width: 36,
+          height: 36,
+          borderRadius: 18,
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+        }}
+      >
+        <Pressable
+          onPress={() => navigation.goBack()}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          style={({ pressed }) => ({
+            width: 36,
+            height: 36,
+            alignItems: "center",
+            justifyContent: "center",
+            opacity: pressed ? 0.5 : 1,
+          })}
+        >
+          <Icon ios="chevron.backward" android="arrow_back" size={17} color={colors.text} />
+        </Pressable>
+      </GlassSurface>
+    ),
+    [colors, navigation],
+  );
+
+  /** The agent and the session's name, on their own glass capsule. */
+  const TitleCapsule = useCallback(
+    () => (
+      <GlassSurface
+        variant="clear"
+        fallbackColor={colors.card}
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: space.sm,
+          borderRadius: radius.pill,
+          paddingLeft: space.xs,
+          paddingRight: space.md,
+          paddingVertical: space.xs,
+          overflow: "hidden",
+        }}
+      >
+        <AgentAvatar agent={agentLabel} size={26} />
+        <View style={{ maxWidth: 190 }}>
+          <Text
+            numberOfLines={1}
+            ellipsizeMode="tail"
+            style={{ ...type.subhead, fontWeight: "600", color: colors.text }}
+          >
+            {title}
+          </Text>
+          <Text numberOfLines={1} style={{ ...type.caption, color: colors.textMuted }}>
+            {busy ? "Working…" : agentDisplayName(agentLabel)}
+          </Text>
+        </View>
+      </GlassSurface>
+    ),
+    [agentLabel, busy, colors, radius.pill, space, title, type],
+  );
+
   useLayoutEffect(() => {
     navigation.setOptions({
       headerShown: true,
@@ -423,46 +493,29 @@ export default function SessionScreen() {
        * capsule inside a capsule.
        */
       headerBackVisible: false,
+      /**
+       * TWO ITEMS, TWO BACKGROUNDS — a disc for the chevron and a capsule for
+       * the name, not one long pill holding both.
+       *
+       * iOS 26 gives ADJACENT bar items a SHARED background, which is why
+       * putting the chevron and the title in one `headerLeft` fused them into
+       * a single capsule. `unstable_headerLeftItems` addresses them as
+       * separate items, and `hidesSharedBackground` opts each out of the
+       * shared one so the glass below is the only material either of them
+       * has. Two shapes, the way the reference draws it.
+       *
+       * `headerLeft` stays as the fallback: these items are an iOS-only path
+       * (and iOS 26 at that), and on anything older the same two elements are
+       * still what should appear.
+       */
+      unstable_headerLeftItems: () => [
+        { type: "custom", hidesSharedBackground: true, element: <BackDisc /> },
+        { type: "custom", hidesSharedBackground: true, element: <TitleCapsule /> },
+      ],
       headerLeft: () => (
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: space.sm,
-            // The system capsule hugs this row EXACTLY, so both insets have to
-            // come from inside it. Without them the chevron sits on the glass
-            // on one side and the name on the other, which reads as a label
-            // that outgrew its badge.
-            paddingLeft: space.xs,
-            paddingRight: space.md,
-          }}
-        >
-          <Pressable
-            onPress={() => navigation.goBack()}
-            hitSlop={10}
-            accessibilityRole="button"
-            accessibilityLabel="Back"
-            style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
-          >
-            <Icon ios="chevron.backward" android="arrow_back" size={19} color={colors.text} />
-          </Pressable>
-          <AgentAvatar agent={agentLabel} size={26} />
-          {/* Wide enough to say something. A session's name is the first
-              words of a prompt, so 170pt truncated almost every one of them
-              at two words; the bar can afford this much and still clear the ⋯
-              button on the narrowest phone. */}
-          <View style={{ maxWidth: 215 }}>
-            <Text
-              numberOfLines={1}
-              ellipsizeMode="tail"
-              style={{ ...type.subhead, fontWeight: "600", color: colors.text }}
-            >
-              {title}
-            </Text>
-            <Text numberOfLines={1} style={{ ...type.caption, color: colors.textMuted }}>
-              {busy ? "Working…" : agentDisplayName(agentLabel)}
-            </Text>
-          </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
+          <BackDisc />
+          <TitleCapsule />
         </View>
       ),
       headerTitle: () => null,

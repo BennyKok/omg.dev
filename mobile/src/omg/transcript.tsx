@@ -286,10 +286,21 @@ function ToolEntry({ call, result }: { call: Entry | null; result: Entry | null 
        * shared hairlines; that is not what the other surface draws, and a
        * session read differently depending which one you opened it on.
        */
+      /**
+       * COLLAPSED, IT IS A BADGE — a small rounded rectangle that says which
+       * tool ran and nothing else, sized to its own name rather than to the
+       * screen. Eight steps of a run then read as eight quiet chips under the
+       * sentence that explains them, instead of eight full-width panels each
+       * repeating a command nobody asked to see yet.
+       *
+       * Opening it is what asks to see it: the box stretches, the arguments
+       * and the result appear, and the badge becomes the header of that panel.
+       */
       style={{
-        alignSelf: "stretch",
+        alignSelf: open ? "stretch" : "flex-start",
+        maxWidth: "100%",
         backgroundColor: colors.card,
-        borderRadius: radius.sm,
+        borderRadius: open ? radius.sm : radius.pill,
         borderWidth: 1,
         borderColor: colors.border,
         overflow: "hidden",
@@ -305,23 +316,21 @@ function ToolEntry({ call, result }: { call: Entry | null; result: Entry | null 
         style={({ pressed }) => ({
           flexDirection: "row",
           alignItems: "center",
-          gap: space.sm,
-          // px-3 py-2 on the web.
-          minHeight: 36,
-          paddingHorizontal: space.md,
-          paddingVertical: space.sm,
+          gap: 5,
+          minHeight: open ? 36 : 26,
+          paddingHorizontal: open ? space.md : space.sm,
+          paddingVertical: open ? space.sm : 3,
           backgroundColor: pressed ? colors.cardPressed : "transparent",
         })}
       >
-        <Icon ios={symbol.ios} android={symbol.android} size={13} color={colors.textMuted} />
+        <Icon ios={symbol.ios} android={symbol.android} size={12} color={colors.textMuted} />
         <Text
           numberOfLines={1}
           style={{
             ...type.caption,
             fontWeight: "500",
             color: colors.text,
-            flexShrink: 0,
-            maxWidth: "38%",
+            flexShrink: 1,
           }}
         >
           {title}
@@ -367,7 +376,10 @@ function ToolEntry({ call, result }: { call: Entry | null; result: Entry | null 
             </Text>
           </View>
         ) : null}
-        {summary ? (
+        {/* The summary is the first line of the CONTENT, so it waits for the
+            same tap the arguments do. Collapsed, the badge says which tool —
+            that is the whole point of it being a badge. */}
+        {open && summary ? (
           <Text
             numberOfLines={1}
             ellipsizeMode="middle"
@@ -375,9 +387,9 @@ function ToolEntry({ call, result }: { call: Entry | null; result: Entry | null 
           >
             {summary}
           </Text>
-        ) : (
+        ) : open ? (
           <View style={{ flex: 1 }} />
-        )}
+        ) : null}
         {/* Chevron on the TRAILING edge, pointing down and rotating on open —
             the web's `ChevronDown ... group-data-[panel-open]/tool:rotate-180`.
             It used to lead the row, which put the least important thing first. */}
