@@ -560,7 +560,6 @@ const CACHE_TTL_MS = 60_000;
 const STATIC_PROVIDERS: UsageProviderRef[] = [
   { id: "codex", kind: "codex", label: "Codex" },
   { id: "grok", kind: "grok", label: "Grok" },
-  { id: "hermes", kind: "hermes", label: "Hermes" },
   { id: "opencode", kind: "opencode", label: "OpenCode" },
 ];
 
@@ -591,9 +590,7 @@ function collect(ref: UsageProviderRef): Promise<ProviderUsage> {
   if (ref.kind === "codex") return codexUsage(ref);
   if (ref.kind === "grok") return grokUsage(ref);
   if (ref.kind === "opencode") return opencodeUsage(ref);
-  return Promise.resolve(
-    staticProvider(ref, "Usage is stored in Hermes' own state database"),
-  );
+  return Promise.resolve(staticProvider(ref, "Usage is unavailable for this provider"));
 }
 
 const cache = new Map<string, { at: number; data: ProviderUsage }>();

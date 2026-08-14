@@ -4,6 +4,7 @@ import {
   appendOmgTranscriptEvent,
   omgMessagesToUIMessages,
   omgUIMessagesToMessages,
+  reconcileOmgQueueMessages,
   type OmgChatMessage,
   type OmgMessage,
 } from "./omg-chat-transport";
@@ -89,5 +90,128 @@ describe("a message queued behind a running turn", () => {
     expect(rendered[0].id).toBe("row-9");
     expect(rendered[0].queued).toBeUndefined();
     expect(splitQueuedRenderItems(buildChatRenderItems(rendered)).queued).toHaveLength(0);
+  });
+
+  test("restores the queued bubble from the server after session re-entry", () => {
+    const current = omgMessagesToUIMessages([
+      { id: "row-1", role: "assistant", kind: "text", text: "Still working.", ts: TS },
+    ]);
+    const next = reconcileOmgQueueMessages(current, [
+      {
+        id: "send-1",
+        text: "look at the tests too",
+        status: "queued",
+        createdAt: TS + 20,
+      },
+    ]);
+
+    const rendered = omgUIMessagesToMessages(next);
+    expect(rendered.at(-1)).toMatchObject({
+      id: "queue-send-1",
+      role: "user",
+      text: "look at the tests too",
+      pending: true,
+      queued: true,
+    });
+  });
+
+  test("replaces the local optimistic bubble with the stable queue row", () => {
+    const next = reconcileOmgQueueMessages([optimisticQueued("look at the tests too")], [
+      {
+        id: "send-1",
+        text: "look at the tests too",
+        status: "queued",
+        createdAt: TS,
+      },
+    ]);
+
+    expect(next).toHaveLength(1);
+    expect(next[0].id).toBe("queue-send-1");
+  });
+
+  test("removes the restored bubble when the queue reports delivery", () => {
+    const queued = reconcileOmgQueueMessages([], [
+      {
+        id: "send-1",
+        text: "look at the tests too",
+        status: "queued",
+        createdAt: TS,
+      },
+    ]);
+    const delivered = reconcileOmgQueueMessages(queued, [
+      {
+        id: "send-1",
+        text: "look at the tests too",
+        status: "delivered",
+        createdAt: TS,
+      },
+    ]);
+
+    expect(delivered).toHaveLength(0);
+  });
+
+  test("keeps a later identical follow-up visible until its own row lands", () => {
+    const current = omgMessagesToUIMessages([
+      { id: "row-1", role: "user", kind: "text", text: "looks good", ts: TS },
+    ]);
+    const next = reconcileOmgQueueMessages(current, [
+      { id: "send-1", text: "looks good", status: "queued", createdAt: TS - 100 },
+      { id: "send-2", text: "looks good", status: "queued", createdAt: TS - 50 },
+    ]);
+
+    // The first send claims the transcript row; the second keeps its bubble.
+    expect(next.some((message) => message.id === "queue-send-1")).toBe(false);
+    expect(next.some((message) => message.id === "queue-send-2")).toBe(true);
+  });
+
+  test("a delivered send still claims its transcript row", () => {
+    const current = omgMessagesToUIMessages([
+      { id: "row-1", role: "user", kind: "text", text: "yes", ts: TS },
+    ]);
+    const next = reconcileOmgQueueMessages(current, [
+      { id: "send-1", text: "yes", status: "delivered", createdAt: TS - 100 },
+      { id: "send-2", text: "yes", status: "queued", createdAt: TS - 50 },
+    ]);
+
+    expect(next.some((message) => message.id === "queue-send-2")).toBe(true);
+  });
+
+  test("hydrates a failed send with its error and keeps it through the render pipeline", () => {
+    const next = reconcileOmgQueueMessages([], [
+      {
+        id: "send-1",
+        text: "deploy it",
+        status: "failed",
+        error: "message never left the input box after retries",
+        createdAt: TS,
+      },
+    ]);
+
+    const rendered = omgUIMessagesToMessages(next);
+    expect(rendered).toHaveLength(1);
+    expect(rendered[0]).toMatchObject({
+      id: "queue-send-1",
+      role: "user",
+      failed: true,
+      queueError: "message never left the input box after retries",
+      queueId: "send-1",
+    });
+    expect(rendered[0].pending).toBeUndefined();
+    // A failed bubble is not pinned with the queued rail — it renders in place.
+    expect(splitQueuedRenderItems(buildChatRenderItems(rendered)).queued).toHaveLength(0);
+  });
+
+  test("a failed bubble becomes pending again when the queue reports the retry", () => {
+    const failed = reconcileOmgQueueMessages([], [
+      { id: "send-1", text: "deploy it", status: "failed", error: "boom", createdAt: TS },
+    ]);
+    const retried = reconcileOmgQueueMessages(failed, [
+      { id: "send-1", text: "deploy it", status: "pending", createdAt: TS },
+    ]);
+
+    const rendered = omgUIMessagesToMessages(retried);
+    expect(rendered).toHaveLength(1);
+    expect(rendered[0]).toMatchObject({ id: "queue-send-1", pending: true });
+    expect(rendered[0].failed).toBeUndefined();
   });
 });

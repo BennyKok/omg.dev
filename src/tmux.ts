@@ -406,23 +406,6 @@ export function cursorBin(): string {
   return (_cursorBin = "cursor-agent");
 }
 
-let _hermesBin: string | null = null;
-export function hermesBin(): string {
-  if (_hermesBin) return _hermesBin;
-  const onPath = Bun.which("hermes");
-  if (onPath) return (_hermesBin = onPath);
-  const home = process.env.HOME ?? homedir();
-  for (const p of [
-    process.env.LFG_HERMES_PATH ?? "",
-    `${home}/.local/bin/hermes`,
-    `${home}/.bun/bin/hermes`,
-    "/usr/local/bin/hermes",
-  ]) {
-    if (p && existsSync(p)) return (_hermesBin = p);
-  }
-  return (_hermesBin = "hermes");
-}
-
 // Spawned agents run with cwd set to one repo, but Claude Code scopes tool
 // access to the cwd tree — which sandboxes the agent to that single repo. The
 // agents are trusted operators of this whole box, so grant tool access to the
@@ -1003,37 +986,6 @@ export function cursorRelaunchArgv(opts: {
   ];
 }
 
-export function spawnManagedHermesSession(opts: {
-  name: string;
-  cwd: string;
-  model?: string;
-  provider?: string;
-  omgSessionId?: string;
-  omgUser?: string | null;
-}): { ok: boolean; error?: string } {
-  const dec = new TextDecoder();
-  const argv = [
-    "tmux",
-    "new-session",
-    "-d",
-    "-s",
-    opts.name,
-    "-c",
-    opts.cwd,
-    hermesBin(),
-    "--yolo",
-    "--cli",
-    "chat",
-  ];
-  if (opts.model) argv.push("--model", opts.model);
-  if (opts.provider) argv.push("--provider", opts.provider);
-  addSessionEnv(argv, opts.omgSessionId, opts.omgUser, opts.name);
-  const create = Bun.spawnSync(argv);
-  if (create.exitCode !== 0)
-    return { ok: false, error: dec.decode(create.stderr) || "new-session failed" };
-  return { ok: true };
-}
-
 // Spawn a headless "aisdk" session directly. I/O and lifecycle are registry /
 // command-file driven; no tmux pane is involved.
 export function spawnManagedAisdkSession(opts: {
@@ -1219,6 +1171,59 @@ export function spawnManagedOpencodeAisdkSession(opts: {
     containInAgentSlice: opts.containInAgentSlice,
   });
 }
+
+type ManagedStructuredSessionOptions = {
+  name: string;
+  cwd: string;
+  prompt?: string;
+  model: string;
+  key: string;
+  thinkingLevel?: string;
+  omgSessionId?: string;
+  omgUser?: string | null;
+  containInAgentSlice?: boolean;
+  resume?: string;
+  recoveredAt?: number;
+};
+
+function spawnManagedStructuredSession(
+  moduleName: "grok-acp-session" | "cursor-acp-session" | "copilot-sdk-session" | "jcode-sdk-session",
+  opts: ManagedStructuredSessionOptions,
+): ManagedHarnessSpawnResult {
+  const harnessPath = `${import.meta.dir}/agents/backends/${moduleName}.ts`;
+  const argv = [
+    process.execPath,
+    harnessPath,
+    "--key", opts.key,
+    "--model", opts.model,
+    "--cwd", opts.cwd,
+    "--managed-name", opts.name,
+  ];
+  if (opts.thinkingLevel) argv.push("--thinking-level", opts.thinkingLevel);
+  if (opts.resume) argv.push("--resume", opts.resume);
+  if (opts.recoveredAt) argv.push("--recovered-at", String(opts.recoveredAt));
+  const prompt = withOmgRuntimeContract(opts.prompt);
+  if (prompt?.trim()) argv.push("--", prompt);
+  return spawnManagedHarness(argv, {
+    name: opts.name,
+    cwd: opts.cwd,
+    omgSessionId: opts.omgSessionId ?? opts.key,
+    omgUser: opts.omgUser,
+    containInAgentSlice: opts.containInAgentSlice,
+  });
+}
+
+export const spawnManagedGrokAcpSession = (opts: ManagedStructuredSessionOptions) =>
+  spawnManagedStructuredSession("grok-acp-session", opts);
+
+export const spawnManagedCursorAcpSession = (opts: ManagedStructuredSessionOptions) =>
+  spawnManagedStructuredSession("cursor-acp-session", opts);
+
+export const spawnManagedCopilotSdkSession = (opts: ManagedStructuredSessionOptions) =>
+  spawnManagedStructuredSession("copilot-sdk-session", opts);
+
+export const spawnManagedJcodeSdkSession = (opts: ManagedStructuredSessionOptions) =>
+  spawnManagedStructuredSession("jcode-sdk-session", opts);
 
 // Codex 0.135 can show an update selector before the composer, which strands a
 // dashboard-spawned pane until someone manually presses "Skip". Dismiss only
