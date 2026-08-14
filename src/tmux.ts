@@ -823,6 +823,7 @@ export type ManagedJcodeSessionOptions = {
   cwd: string;
   prompt?: string;
   model?: string;
+  thinkingLevel?: string;
   omgSessionId?: string;
   omgUser?: string | null;
   containInAgentSlice?: boolean;
@@ -846,6 +847,17 @@ export function managedJcodeSessionArgv(opts: ManagedJcodeSessionOptions): strin
   if (opts.model && opts.model !== "auto") argv.push("--model", opts.model);
   argv.push("repl");
   addSessionEnv(argv, opts.omgSessionId, opts.omgUser, opts.name);
+  if (opts.thinkingLevel) {
+    const i = argv.indexOf("new-session");
+    argv.splice(
+      i + 1,
+      0,
+      "-e",
+      `JCODE_OPENAI_REASONING_EFFORT=${opts.thinkingLevel}`,
+      "-e",
+      `JCODE_ANTHROPIC_REASONING_EFFORT=${opts.thinkingLevel}`,
+    );
+  }
   return argv;
 }
 

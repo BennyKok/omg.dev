@@ -126,6 +126,7 @@ describe("coding agent adapter contract", () => {
       cwd: "/tmp/lfg-test",
       prompt: "hello",
       model: "auto",
+      thinkingLevel: "xhigh",
       omgSessionId: "session-id",
       omgUser: "user@example.com",
     });
@@ -134,6 +135,8 @@ describe("coding agent adapter contract", () => {
     expect(argv).toContain("--no-update");
     expect(argv).toContain("--no-selfdev");
     expect(argv).not.toContain("--model");
+    expect(argv).toContain("JCODE_OPENAI_REASONING_EFFORT=xhigh");
+    expect(argv).toContain("JCODE_ANTHROPIC_REASONING_EFFORT=xhigh");
     expect(argv).toContain("LFG_SESSION_ID=session-id");
     expect(argv).toContain("LFG_USER=user@example.com");
   });

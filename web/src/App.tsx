@@ -922,6 +922,7 @@ function agentSupportsThinking(agent: AgentKind): boolean {
     agent === "cursor" ||
     agent === "codex" ||
     agent === "codex-aisdk" ||
+    agent === "jcode" ||
     agent === "pi"
   );
 }
@@ -962,7 +963,7 @@ const AGENT_THINKING_LEVELS: Record<AgentKind, string[]> = {
   grok: ["low", "medium", "high"],
   cursor: ["low", "medium", "high", "xhigh", "max"],
   opencode: [],
-  jcode: [],
+  jcode: ["low", "medium", "high", "xhigh", "max"],
   // pi's own list, straight from its --thinking help. It has a real "off".
   pi: ["off", "minimal", "low", "medium", "high", "xhigh"],
   // copilot's CLI exposes no reasoning-effort knob (thinkingLevelsForAgent
