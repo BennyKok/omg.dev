@@ -177,6 +177,12 @@ function RootNavigator() {
             name="settings"
             options={{ title: "Settings", headerLargeTitle: true }}
           />
+          {/* Questions waiting on you, and what shipped. Pushed from the
+              greeting, which is where the web puts the same door. */}
+          <Stack.Screen
+            name="notifications"
+            options={{ title: "Notifications", headerLargeTitle: true }}
+          />
         </Stack.Protected>
       </Stack>
     </>

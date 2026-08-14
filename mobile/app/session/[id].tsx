@@ -400,11 +400,85 @@ export default function SessionScreen() {
     ]);
   }, [client, id, router]);
 
+  /**
+   * Rename. The server keeps an override title per session
+   * (`PUT /api/sessions/<id>/title`), which is what the web's inline rename
+   * writes — so the name follows the session onto every surface rather than
+   * being a phone-only label.
+   */
+  const rename = useCallback(() => {
+    if (!client || !id) return;
+    Alert.prompt(
+      "Rename session",
+      "This name is what every surface shows.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Save",
+          onPress: (value?: string) => {
+            const next = (value ?? "").trim();
+            void (async () => {
+              try {
+                await client.transport.request(`/api/sessions/${id}/title`, {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ title: next }),
+                });
+                setSessionInfo((info) => (info ? { ...info, title: next || "Session" } : info));
+              } catch (e) {
+                setError(e instanceof Error ? e.message : String(e));
+              }
+            })();
+          },
+        },
+      ],
+      "plain-text",
+      title === "Session" ? "" : title,
+    );
+  }, [client, id, title]);
+
+  /**
+   * Fork: a new session that starts from this transcript. The server does the
+   * copying (`POST /api/sessions/<id>/fork`); the phone only has to say which
+   * session and then go to whatever comes back.
+   */
+  const fork = useCallback(() => {
+    if (!client || !id) return;
+    void (async () => {
+      try {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        const res = await client.transport.request<{ sessionId?: string }>(
+          `/api/sessions/${id}/fork`,
+          { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
+        );
+        if (res?.sessionId) router.replace(`/session/${res.sessionId}`);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    })();
+  }, [client, id, router]);
+
+  /** The id, for pasting into another agent — what the web's "Copy reference" does. */
+  const copyReference = useCallback(() => {
+    if (!id) return;
+    void Clipboard.setStringAsync(id);
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    toast.show("Session reference copied");
+  }, [id, toast]);
+
+  /**
+   * The same verbs the web's session menu carries, minus the ones that need a
+   * screen this app does not have yet (Files, Terminal, Token usage). Ordered
+   * by how often they are wanted, with the destructive one last and alone.
+   */
   const menuOptions = useMemo<MenuOption[]>(() => {
     const options: MenuOption[] = [];
     if (busy) {
       options.push({ label: "Stop the agent", icon: "stop.fill", onPress: () => void stop() });
     }
+    options.push({ label: "Rename", icon: "pencil", onPress: rename });
+    options.push({ label: "Fork", icon: "arrow.triangle.branch", onPress: fork });
+    options.push({ label: "Copy reference", icon: "link", onPress: copyReference });
     if (messages.some((m) => m.text)) {
       options.push({ label: "Copy transcript", icon: "doc.on.doc", onPress: copyTranscript });
     }
@@ -417,7 +491,7 @@ export default function SessionScreen() {
       });
     }
     return options;
-  }, [busy, messages, stop, copyTranscript, archive]);
+  }, [busy, messages, stop, copyTranscript, archive, rename, fork, copyReference]);
 
   /**
    * The native bar: system back on the left (this is a pushed screen, so the

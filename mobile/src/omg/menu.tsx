@@ -37,7 +37,7 @@ import {
   Section,
   Toggle,
 } from "@expo/ui/swift-ui";
-import { disabled as disabledModifier } from "@expo/ui/swift-ui/modifiers";
+import { disabled as disabledModifier, frame } from "@expo/ui/swift-ui/modifiers";
 import { Asset } from "expo-asset";
 import * as Haptics from "expo-haptics";
 import { type SFSymbol } from "expo-symbols";
@@ -74,7 +74,14 @@ export type MenuOption = {
   destructive?: boolean;
   /** Listed but not pickable — a computer whose plan cannot serve, say. */
   disabled?: boolean;
-  onPress: () => void;
+  /**
+   * Rows behind this one. A SwiftUI `Menu` nested in a menu is a submenu, so
+   * this is how "pick an agent, then pick its model" stays ONE control: the
+   * agent row opens sideways into its models instead of the composer growing
+   * a second picker that has to be kept in agreement with the first.
+   */
+  submenu?: MenuOption[];
+  onPress?: () => void;
 };
 
 /**
@@ -93,31 +100,36 @@ export type MenuOption = {
  */
 const imageUriCache = new Map<string, string>();
 
-function useMenuImageUris(options: MenuOption[]): Record<number, string> {
-  const [uris, setUris] = useState<Record<number, string>>(() => initialUris(options));
-  // The identity of `options` changes on every render at most call sites; the
-  // IMAGES in it almost never do. Keying the effect on the module ids means one
-  // resolve per distinct set, not one per render.
-  const key = options.map((o) => String(o.image ?? "")).join("|");
+/**
+ * Keyed by the IMAGE, never by the row's position.
+ *
+ * The first version returned `Record<index, uri>`, which was fine until rows
+ * gained submenus: a submenu's rows are indexed from zero too, so model row 0
+ * drew the FIRST AGENT's mark and every model in the list wore somebody else's
+ * face. The cache is keyed by the module reference, which is what actually
+ * identifies the picture.
+ */
+function useMenuImageUris(options: MenuOption[]): number {
+  const [version, setVersion] = useState(0);
+  const images = collectImages(options);
+  const key = images.join("|");
 
   useEffect(() => {
     let alive = true;
-    const pending = options
-      .map((option, index) => ({ option, index }))
-      .filter(({ option }) => option.image && !imageUriCache.has(String(option.image)));
+    const pending = images.filter((image) => !imageUriCache.has(image));
     if (!pending.length) return;
     void Promise.all(
-      pending.map(async ({ option }) => {
+      pending.map(async (image) => {
         try {
-          const asset = Asset.fromModule(option.image as number);
+          const asset = Asset.fromModule(Number(image));
           const uri = asset.localUri ?? (await asset.downloadAsync()).localUri;
-          if (uri) imageUriCache.set(String(option.image), uri);
+          if (uri) imageUriCache.set(image, uri);
         } catch {
           // A missing icon is a menu row without a picture, not a broken menu.
         }
       }),
     ).then(() => {
-      if (alive) setUris(initialUris(options));
+      if (alive) setVersion((n) => n + 1);
     });
     return () => {
       alive = false;
@@ -125,16 +137,24 @@ function useMenuImageUris(options: MenuOption[]): Record<number, string> {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  return uris;
+  return version;
 }
 
-function initialUris(options: MenuOption[]): Record<number, string> {
-  const out: Record<number, string> = {};
-  options.forEach((option, index) => {
-    const uri = option.image ? imageUriCache.get(String(option.image)) : undefined;
-    if (uri) out[index] = uri;
-  });
+/** Every image in the tree, submenus included. */
+function collectImages(options: MenuOption[]): string[] {
+  const out: string[] = [];
+  const walk = (list: MenuOption[]) => {
+    for (const option of list) {
+      if (option.image) out.push(String(option.image));
+      if (option.submenu) walk(option.submenu);
+    }
+  };
+  walk(options);
   return out;
+}
+
+function uriFor(option: MenuOption): string | undefined {
+  return option.image ? imageUriCache.get(String(option.image)) : undefined;
 }
 
 export function DropdownMenu({
@@ -151,7 +171,9 @@ export function DropdownMenu({
   children: ReactNode;
 }) {
   const { isDark } = useTheme();
-  const imageUris = useMenuImageUris(options);
+  // Re-renders when a picture finishes resolving; the URIs themselves are read
+  // per row from the cache.
+  useMenuImageUris(options);
 
   /**
    * One place for the selection tap, so no call site can forget it and no two
@@ -160,7 +182,7 @@ export function DropdownMenu({
   const select = (option: MenuOption) => {
     if (option.disabled) return;
     void Haptics.selectionAsync();
-    option.onPress();
+    option.onPress?.();
   };
 
   if (Platform.OS !== "ios") {
@@ -196,10 +218,49 @@ export function DropdownMenu({
     );
   }
 
-  const rows = options.map((option, index) => {
+  const renderRows = (list: MenuOption[], keyPrefix = ""): ReactNode[] =>
+    list.map((option, index) => {
+    const key = `${keyPrefix}${index}`;
     const press = () => select(option);
+
+    // A row with children is a submenu, not a choice: opening it IS the
+    // action, so it gets no press handler and no checkmark of its own.
+    if (option.submenu?.length) {
+      const submenuUri = uriFor(option);
+      return (
+        <Menu
+          key={key}
+          // A string label is the simple path, but it can only carry an SF
+          // Symbol — and these rows are agents, whose whole identity is a brand
+          // mark. `label` also accepts a VIEW, so the mark survives the row
+          // becoming a submenu instead of the menu silently losing its faces.
+          label={
+            submenuUri ? (
+              <Label
+                title={option.label}
+                icon={
+                  <SwiftImage
+                    uiImage={submenuUri}
+                    // A `uiImage` has a natural size and WILL use it — the
+                    // `size` prop only sets a font, which an SF Symbol reads
+                    // and a bitmap ignores. Without a frame the mark rendered
+                    // at its own resolution and swallowed the row.
+                    modifiers={[frame({ width: 20, height: 20 })]}
+                  />
+                }
+              />
+            ) : (
+              option.label
+            )
+          }
+          systemImage={submenuUri ? undefined : option.icon}
+        >
+          {renderRows(option.submenu, `${key}-`)}
+        </Menu>
+      );
+    }
     const modifiers = option.disabled ? [disabledModifier(true)] : undefined;
-    const uri = imageUris[index];
+    const uri = uriFor(option);
     /**
      * A bundled mark has to be passed as CONTENT, not as a prop: `label` and
      * `systemImage` only speak SF Symbols. Both native views fall back to
@@ -209,13 +270,16 @@ export function DropdownMenu({
      * which one is current.
      */
     const content = uri ? (
-      <Label title={option.label} icon={<SwiftImage uiImage={uri} size={20} />} />
+      <Label
+        title={option.label}
+        icon={<SwiftImage uiImage={uri} modifiers={[frame({ width: 20, height: 20 })]} />}
+      />
     ) : null;
     // A row that says which of several things is current is a Toggle; SwiftUI
     // draws it in a menu as the system checkmark, aligned in its own gutter.
     return option.selected === undefined ? (
       <Button
-        key={index}
+        key={key}
         label={content ? undefined : option.label}
         systemImage={content ? undefined : option.icon}
         role={option.destructive ? "destructive" : undefined}
@@ -226,7 +290,7 @@ export function DropdownMenu({
       </Button>
     ) : (
       <Toggle
-        key={index}
+        key={key}
         label={content ? undefined : option.label}
         systemImage={content ? undefined : option.icon}
         isOn={option.selected}
@@ -237,6 +301,8 @@ export function DropdownMenu({
       </Toggle>
     );
   });
+
+  const rows = renderRows(options);
 
   return (
     /**

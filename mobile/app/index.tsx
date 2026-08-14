@@ -14,7 +14,7 @@
 import { useFocusEffect, useNavigation, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
-import { RefreshControl, ScrollView, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, View } from "react-native";
 import Reanimated, { useAnimatedKeyboard, useAnimatedStyle } from "react-native-reanimated";
 import { Text } from "../src/omg/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -40,6 +40,7 @@ import {
 } from "../src/omg/session-tree";
 import { useComputerPicker } from "../src/omg/computer-picker";
 import { useDictation } from "../src/omg/dictation";
+import { useUsage } from "../src/omg/usage";
 import { LucideIcon } from "../src/omg/lucide";
 import { DropdownMenu } from "../src/omg/menu";
 import { useAgentPicker, useProjectPicker } from "../src/omg/session-options";
@@ -146,7 +147,16 @@ const CARD_MIDLINE = 33;
  * fallback to a user id or an email stem: "Welcome, itechbenny" is worse than
  * "Welcome".
  */
-function LiveWelcome({ firstName, busyCount }: { firstName: string; busyCount: number }) {
+function LiveWelcome({
+  firstName,
+  busyCount,
+  onPress,
+}: {
+  firstName: string;
+  busyCount: number;
+  /** The greeting is the door to the Notification Center, as on the web. */
+  onPress?: () => void;
+}) {
   const { colors, type } = useTheme();
   const [showActivity, setShowActivity] = useState(false);
 
@@ -162,12 +172,14 @@ function LiveWelcome({ firstName, busyCount }: { firstName: string; busyCount: n
   const welcome = firstName ? `Welcome, ${firstName}` : "Welcome";
   const activity = `${busyCount} agent${busyCount === 1 ? "" : "s"} building`;
   return (
-    <Text
-      numberOfLines={1}
-      style={{ ...type.headline, color: colors.text, maxWidth: 210 }}
-    >
-      {busyCount > 0 && showActivity ? activity : welcome}
-    </Text>
+    <Pressable onPress={onPress} accessibilityRole="button" hitSlop={8}>
+      <Text
+        numberOfLines={1}
+        style={{ ...type.headline, color: colors.text, maxWidth: 210 }}
+      >
+        {busyCount > 0 && showActivity ? activity : welcome}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -186,11 +198,21 @@ export default function SessionsScreen() {
   // No session exists yet, so these upload to the pre-session endpoint and
   // ride along in the prompt that creates one.
   const attachments = useAttachments(null);
+  const { providers: usage } = useUsage();
   const agentPicker = useAgentPicker();
   const projectPicker = useProjectPicker();
 
   const [sessions, setSessions] = useState<OmgSession[]>([]);
   const [loading, setLoading] = useState(false);
+  /**
+   * ONLY A PULL SPINS THE SPINNER.
+   *
+   * `loading` covers every read — focus, the 10s poll, a machine probe — and
+   * wiring RefreshControl to it meant the list flashed "refreshing" on its own
+   * every few seconds. A refresh indicator is a reply to a gesture; when
+   * nobody asked, the answer is silence.
+   */
+  const [pulling, setPulling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const toast = useToast();
   useEffect(() => {
@@ -290,7 +312,10 @@ export default function SessionsScreen() {
    * whole family is sectioned by whether ANYONE in it is working — see
    * session-tree.ts for why the parent's own flag is not enough.
    */
-  const roots = useMemo(() => buildSessionTree(sessions), [sessions]);
+  const roots = useMemo(
+    () => buildSessionTree(sessions.filter((session) => projectPicker.matches(session))),
+    [sessions, projectPicker],
+  );
   const working = useMemo(() => roots.filter(nodeBusy), [roots]);
   const idle = useMemo(() => roots.filter((node) => !nodeBusy(node)), [roots]);
 
@@ -316,6 +341,9 @@ export default function SessionsScreen() {
         body: JSON.stringify({
           prompt,
           agent: agentPicker.agent,
+          // Omitted unless it was actually chosen: the box's own default is a
+          // better answer than a model this app guessed at.
+          model: agentPicker.model ?? undefined,
           cwd: projectPicker.cwd ?? undefined,
         }),
       });
@@ -329,7 +357,17 @@ export default function SessionsScreen() {
     } finally {
       setStarting(false);
     }
-  }, [attachments, client, agentPicker.agent, projectPicker.cwd, draft, starting, load, router]);
+  }, [
+    attachments,
+    client,
+    agentPicker.agent,
+    agentPicker.model,
+    projectPicker.cwd,
+    draft,
+    starting,
+    load,
+    router,
+  ]);
 
   /**
    * Archive one session, the gesture the row itself commits to.
@@ -420,11 +458,29 @@ export default function SessionsScreen() {
         {
           type: "custom",
           hidesSharedBackground: true,
-          element: <LiveWelcome firstName={firstName} busyCount={working.length} />,
+          element: (
+            <LiveWelcome
+              firstName={firstName}
+              busyCount={flattenNodes(working).length}
+              onPress={() => router.push("/notifications")}
+            />
+          ),
         },
       ],
       headerRight: () => (
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
+          {/* The greeting is the door on the web, but a sentence inside a
+              custom bar item does not reliably take a tap on iOS — verified on
+              the simulator, twice. A bar BUTTON does, so the Notification
+              Center gets one of its own. */}
+          <IconButton
+            ios="bell"
+            android="notifications"
+            accessibilityLabel="Notifications"
+            onPress={() => router.push("/notifications")}
+            size={19}
+            color={colors.textSecondary}
+          />
           {/* TWO BUTTONS, NOT ONE CHIP.
               The machine name and the gear used to share a single pill, which
               read as one control and made the name look pressable-adjacent
@@ -525,10 +581,10 @@ export default function SessionsScreen() {
         contentInsetAdjustmentBehavior="automatic"
         refreshControl={
           <RefreshControl
-            refreshing={loading}
+            refreshing={pulling}
             onRefresh={() => {
-              void probe();
-              void load();
+              setPulling(true);
+              void Promise.all([probe(), load(true)]).finally(() => setPulling(false));
             }}
             tintColor={colors.textMuted}
           />
@@ -685,6 +741,7 @@ export default function SessionsScreen() {
           agentOptions={agentPicker.options}
           attachments={attachments}
           dictation={dictation}
+          usage={usage}
           bottomInset={insets.bottom}
         />
         </Reanimated.View>

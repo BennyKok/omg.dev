@@ -35,6 +35,8 @@ import { agentIcon } from "./omg/agent-icons";
 import type { Attachment } from "./omg/attachments";
 import { GlassSurface, LIQUID_GLASS } from "./omg/glass";
 import { LucideIcon, type LucideName } from "./omg/lucide";
+import { peakPct, type ProviderUsage } from "./omg/usage";
+import type { OmgColors } from "./omg/palette";
 import { DropdownMenu, type MenuOption } from "./omg/menu";
 import { PressableScale, useListItemMotion } from "./omg/motion";
 import { useTheme } from "./omg/theme";
@@ -788,10 +790,11 @@ export function SessionCard({
             minHeight: 60,
           })}
         >
-          {/* 32, not 40. The mark identifies the agent; it is not the subject
-              of the row, and at 40 it was the largest thing on a card whose
-              actual content is the session's name. */}
-          <AgentAvatar agent={agent} size={32} busy={busy} plain />
+          {/* 22. The mark identifies the agent; it is not the subject of the
+              row. Without a disc around it the artwork reads at full size, so
+              what used to need 40pt of circle now says the same thing in half
+              of that and stops competing with the session's name. */}
+          <AgentAvatar agent={agent} size={22} busy={busy} plain />
           <View style={{ flex: 1, gap: 1, minWidth: 0 }}>
             <Text numberOfLines={1} style={{ ...type.headline, color: colors.text }}>
               {title}
@@ -851,6 +854,7 @@ export function HomeComposer({
   agentOptions,
   attachments,
   dictation,
+  usage = [],
   bottomInset = 0,
 }: {
   value: string;
@@ -870,6 +874,8 @@ export function HomeComposer({
     remove: (id: string) => void;
   };
   dictation: { state: "idle" | "recording" | "transcribing"; toggle: () => void };
+  /** Rate-limit windows, one ring each. Empty until the machine answers. */
+  usage?: ProviderUsage[];
   bottomInset?: number;
 }) {
   const { colors, isDark, radius, type, space } = useTheme();
@@ -894,27 +900,6 @@ export function HomeComposer({
         backgroundColor: LIQUID_GLASS ? "transparent" : colors.bg,
       }}
     >
-      {/* WHERE it runs sits ABOVE the box, at the trailing edge — a caption on
-          the message you are about to send, not another button competing with
-          the two inside the field. */}
-      {projectOptions.length ? (
-        <View
-          style={{
-            flexDirection: "row",
-            justifyContent: "flex-end",
-            marginBottom: space.xs,
-          }}
-        >
-          <ComposerCaptionButton
-            ios="folder.fill"
-            android="folder"
-            label={projectLabel ?? "Project"}
-            options={projectOptions}
-            accessibilityLabel={`Project: ${projectLabel ?? "none"}. Change`}
-          />
-        </View>
-      ) : null}
-
       {/* Liquid Glass on iOS 26+, a solid card everywhere else. */}
       <GlassSurface
         variant="regular"
@@ -1045,8 +1030,63 @@ export function HomeComposer({
         ) : null}
       </GlassSurface>
 
+      {/* UNDER the box: what the fleet has spent on the left, where the next
+          session runs on the right. Both are facts ABOUT the message you are
+          composing rather than controls inside it, and giving each a side to
+          own beats a queue of pills all starting from the left edge. */}
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginTop: space.sm,
+          // Asymmetric on purpose: small rings read better held off the edge,
+          // while the folder pill has its own fill and can sit closer to it.
+          paddingLeft: space.sm,
+          paddingRight: space.xs,
+        }}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          {usage.map((provider) => (
+            <UsageRing
+              key={provider.id}
+              pct={provider.available ? peakPct(provider) : null}
+              color={ringColor(provider.available ? peakPct(provider) : null, colors)}
+            >
+              <Image
+                source={agentIcon(provider.kind)}
+                style={{ width: 11, height: 11 }}
+                resizeMode="contain"
+              />
+            </UsageRing>
+          ))}
+        </View>
+
+        {projectOptions.length ? (
+          <ComposerCaptionButton
+            ios="folder.fill"
+            android="folder"
+            label={projectLabel ?? "Project"}
+            options={projectOptions}
+            accessibilityLabel={`Project: ${projectLabel ?? "none"}. Change`}
+          />
+        ) : null}
+      </View>
     </View>
   );
+}
+
+/**
+ * A ring runs green until the window is worth knowing about, then amber, then
+ * red — the three states the rest of the app already uses for
+ * fine / attention / stop. One brand colour would have made 12% and 95% look
+ * equally worth reading.
+ */
+function ringColor(pct: number | null, colors: OmgColors): string {
+  if (pct === null) return colors.border;
+  if (pct >= 90) return colors.danger;
+  if (pct >= 70) return colors.warning;
+  return colors.success;
 }
 
 /**
@@ -1189,6 +1229,102 @@ export function AttachmentStrip({
           </Pressable>
         </View>
       ))}
+    </View>
+  );
+}
+
+/**
+ * One provider's rate-limit window, as a ring.
+ *
+ * NO SVG IN THIS APP — `react-native-svg` is a native module and the whole
+ * point of the last few builds has been to avoid adding one for a decoration.
+ * So the arc is drawn the way CSS did it before conic gradients: two half-disc
+ * masks, each rotated, with a hole punched in the middle. The right half
+ * carries the first 180°, the left half the rest.
+ *
+ * An unavailable provider draws its track and no arc. That is deliberately
+ * different from 0%: "we could not ask" and "you have used none of it" look
+ * nothing alike once you are close to a limit.
+ */
+export function UsageRing({
+  pct,
+  size = 22,
+  color,
+  children,
+}: {
+  pct: number | null;
+  size?: number;
+  color: string;
+  /** Drawn in the hole — the agent's mark, at ring scale. */
+  children?: React.ReactNode;
+}) {
+  const { colors } = useTheme();
+  const angle = pct === null ? 0 : Math.min(100, Math.max(0, pct)) * 3.6;
+  const half = size / 2;
+  const hole = size - 5;
+
+  const Wedge = ({ rotate, clip }: { rotate: number; clip: "left" | "right" }) => (
+    <View
+      style={{
+        position: "absolute",
+        width: half,
+        height: size,
+        overflow: "hidden",
+        [clip === "right" ? "right" : "left"]: 0,
+      }}
+    >
+      <View
+        style={{
+          position: "absolute",
+          width: half,
+          height: size,
+          [clip === "right" ? "left" : "right"]: 0,
+          borderTopRightRadius: clip === "right" ? half : 0,
+          borderBottomRightRadius: clip === "right" ? half : 0,
+          borderTopLeftRadius: clip === "left" ? half : 0,
+          borderBottomLeftRadius: clip === "left" ? half : 0,
+          backgroundColor: color,
+          transform: [
+            { translateX: clip === "right" ? -half / 2 : half / 2 },
+            { rotate: `${rotate}deg` },
+            { translateX: clip === "right" ? half / 2 : -half / 2 },
+          ],
+        }}
+      />
+    </View>
+  );
+
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: half,
+        backgroundColor: colors.secondary,
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+      }}
+    >
+      {pct !== null ? (
+        <>
+          <Wedge clip="right" rotate={Math.min(angle, 180) - 180} />
+          {angle > 180 ? <Wedge clip="left" rotate={angle - 360} /> : null}
+        </>
+      ) : null}
+      <View
+        style={{
+          width: hole,
+          height: hole,
+          borderRadius: hole / 2,
+          backgroundColor: colors.bg,
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+        }}
+      >
+        {children}
+      </View>
     </View>
   );
 }
