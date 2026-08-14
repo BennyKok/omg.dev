@@ -155,6 +155,9 @@ export const GROK_THINKING_LEVELS = ["low", "medium", "high"] as const;
  * that the Claude vocabulary has to collapse.
  */
 export const PI_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
+// Jcode exposes the same /effort vocabulary as Claude. The managed REPL uses
+// that command both before the first prompt and for live session changes.
+export const JCODE_THINKING_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type ModelCatalogItem = {
   key: CodingAgentKind;
   label: string;
@@ -482,6 +485,7 @@ export function thinkingLevelsForAgent(agent: string): readonly string[] | null 
   // hands the user a level that either kills the session or does nothing.
   if (agent === "grok") return GROK_THINKING_LEVELS;
   if (agent === "pi") return PI_THINKING_LEVELS;
+  if (agent === "jcode") return JCODE_THINKING_LEVELS;
   if (agent === "codex" || agent === "codex-aisdk") return CODEX_THINKING_LEVELS;
   if (agent === "cursor") return CURSOR_THINKING_LEVELS;
   return null;

@@ -5013,6 +5013,7 @@ a{color:#60a5fa}
                   cwd,
                   prompt,
                   model: resolvedModel ?? "auto",
+                  thinkingLevel,
                   omgSessionId: launchId,
                   omgUser: assignedUser,
                   containInAgentSlice: isSubagent,

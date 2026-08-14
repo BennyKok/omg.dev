@@ -16,6 +16,7 @@ import {
   CLAUDE_THINKING_LEVELS,
   CODEX_THINKING_LEVELS,
   GROK_THINKING_LEVELS,
+  JCODE_THINKING_LEVELS,
   PI_THINKING_LEVELS,
   thinkingLevelsForAgent,
 } from "./agent-catalog.ts";
@@ -58,8 +59,9 @@ describe("levels offered per agent", () => {
     ]);
   });
 
-  test("Claude and codex are unchanged", () => {
+  test("Claude, Jcode, and codex expose their supported levels", () => {
     expect(thinkingLevelsForAgent("claude")).toEqual(CLAUDE_THINKING_LEVELS);
+    expect(thinkingLevelsForAgent("jcode")).toEqual(JCODE_THINKING_LEVELS);
     expect(thinkingLevelsForAgent("codex")).toEqual(CODEX_THINKING_LEVELS);
   });
 
