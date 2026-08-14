@@ -30,7 +30,9 @@ import {
   SessionCard,
   StatusDot,
 } from "../src/components";
+import { useAttachments } from "../src/omg/attachments";
 import { useComputerPicker } from "../src/omg/computer-picker";
+import { useDictation } from "../src/omg/dictation";
 import { LucideIcon } from "../src/omg/lucide";
 import { DropdownMenu } from "../src/omg/menu";
 import { useAgentPicker, useProjectPicker } from "../src/omg/session-options";
@@ -92,6 +94,9 @@ export default function SessionsScreen() {
   const { colors, type, space } = useTheme();
   const { client, readiness, probe, bindingId, bindings, user } = useOmg();
   const computerPicker = useComputerPicker();
+  // No session exists yet, so these upload to the pre-session endpoint and
+  // ride along in the prompt that creates one.
+  const attachments = useAttachments(null);
   const agentPicker = useAgentPicker();
   const projectPicker = useProjectPicker();
 
@@ -113,6 +118,10 @@ export default function SessionsScreen() {
   const [connection, setConnection] = useState<OmgConnectionStatus>("connecting");
   const [draft, setDraft] = useState("");
   const [starting, setStarting] = useState(false);
+  const dictation = useDictation(
+    client ? (path, init) => client.transport.fetch(path, init) : null,
+    (text) => setDraft((current) => (current ? `${current} ${text}` : text)),
+  );
 
   const ready = readiness?.status === "ready";
 
@@ -179,7 +188,7 @@ export default function SessionsScreen() {
    * letting the server pick the agent and the binding pick the folder.
    */
   const startSession = useCallback(async () => {
-    const prompt = draft.trim();
+    const prompt = attachments.compose(draft.trim());
     if (!prompt || !client || starting) return;
     setStarting(true);
     try {
@@ -193,6 +202,7 @@ export default function SessionsScreen() {
         }),
       });
       setDraft("");
+      attachments.clear();
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await load();
       if (res?.sessionId) router.push(`/session/${res.sessionId}`);
@@ -201,7 +211,7 @@ export default function SessionsScreen() {
     } finally {
       setStarting(false);
     }
-  }, [client, agentPicker.agent, projectPicker.cwd, draft, starting, load, router]);
+  }, [attachments, client, agentPicker.agent, projectPicker.cwd, draft, starting, load, router]);
 
   /**
    * Archive one session, the gesture the row itself commits to.
@@ -528,6 +538,8 @@ export default function SessionsScreen() {
           agent={agentPicker.agent}
           agentLabel={agentPicker.label}
           agentOptions={agentPicker.options}
+          attachments={attachments}
+          dictation={dictation}
           bottomInset={insets.bottom}
         />
         </View>

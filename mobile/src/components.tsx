@@ -687,6 +687,8 @@ export function HomeComposer({
   agent,
   agentLabel,
   agentOptions,
+  attachments,
+  dictation,
   bottomInset = 0,
 }: {
   value: string;
@@ -699,6 +701,13 @@ export function HomeComposer({
   agent?: string | null;
   agentLabel?: string | null;
   agentOptions: MenuOption[];
+  /** The files going with this prompt, and how to pick more. */
+  attachments: {
+    items: Attachment[];
+    options: MenuOption[];
+    remove: (id: string) => void;
+  };
+  dictation: { state: "idle" | "recording" | "transcribing"; toggle: () => void };
   bottomInset?: number;
 }) {
   const { colors, isDark, radius, type, space } = useTheme();
@@ -827,6 +836,50 @@ export function HomeComposer({
           marginLeft: space.xs,
         }}
       >
+        {/* Same two controls as the session composer, in the row that already
+            holds this prompt's other decisions. */}
+        <DropdownMenu options={attachments.options}>
+          <View
+            accessibilityRole="button"
+            accessibilityLabel="Attach a file"
+            style={{
+              minHeight: 32,
+              minWidth: 36,
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: radius.pill,
+              backgroundColor: colors.secondary,
+            }}
+          >
+            <Icon ios="paperclip" android="attach_file" size={14} color={colors.textSecondary} />
+          </View>
+        </DropdownMenu>
+        <Pressable
+          onPress={dictation.toggle}
+          accessibilityRole="button"
+          accessibilityLabel={
+            dictation.state === "recording" ? "Stop dictating" : "Dictate a prompt"
+          }
+          style={({ pressed }) => ({
+            minHeight: 32,
+            minWidth: 36,
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: radius.pill,
+            backgroundColor: pressed ? colors.cardPressed : colors.secondary,
+          })}
+        >
+          {dictation.state === "transcribing" ? (
+            <ActivityIndicator size="small" color={colors.textSecondary} />
+          ) : (
+            <Icon
+              ios={dictation.state === "recording" ? "stop.circle.fill" : "mic"}
+              android={dictation.state === "recording" ? "stop_circle" : "mic"}
+              size={14}
+              color={dictation.state === "recording" ? colors.danger : colors.textSecondary}
+            />
+          )}
+        </Pressable>
         <ComposerCaptionButton
           ios="folder.fill"
           android="folder"
