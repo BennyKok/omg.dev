@@ -2,6 +2,17 @@
 
 Recent product updates and deployment notes.
 
+## August 14, 2026 - Combined Claude usage and the real Jcode mark (v0.1.373)
+
+- **Claude Auto now shows one combined usage ring.** The new-session composer
+  folds every connected Claude profile into one capacity view, while a pinned
+  profile still shows only its own limits.
+- **Usage no longer disappears while it loads.** Mobile and desktop composers
+  show animated activity rings until the selected profile data is ready.
+- **Jcode now uses its real dot-matrix torus mark.** The agent picker no longer
+  shows an invented letterform, and cache-busting replaces the old icon in warm
+  browsers.
+
 ## August 14, 2026 - Bottom sheets get out of the keyboard's way (v0.1.372)
 
 - **Every bottom sheet now expands into a full-height page when you focus a
