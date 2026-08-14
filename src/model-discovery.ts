@@ -148,12 +148,6 @@ function jcodePath(): string | null {
   return which("jcode", [`${home}/.local/bin/jcode`, `${home}/.jcode/bin/jcode`, "/usr/local/bin/jcode"]);
 }
 
-function hermesPath(): string | null {
-  if (process.env.LFG_HERMES_PATH) return process.env.LFG_HERMES_PATH;
-  const home = userHome();
-  return which("hermes", [`${home}/.local/bin/hermes`, `${home}/.bun/bin/hermes`, "/usr/local/bin/hermes"]);
-}
-
 function commandFor(key: ProviderKey): string[] | null {
   if (key === "codex" || key === "codex-aisdk") {
     const bin = codexPath();
@@ -174,10 +168,6 @@ function commandFor(key: ProviderKey): string[] | null {
   if (key === "jcode") {
     const bin = jcodePath();
     return bin ? [bin, "--no-update", "model", "list", "--json"] : null;
-  }
-  if (key === "hermes") {
-    const bin = hermesPath();
-    return bin ? [bin, "models"] : null;
   }
   return null;
 }
@@ -274,10 +264,6 @@ function parseModels(key: ProviderKey, text: string): { models: string[]; labels
   if (key === "cursor") return parseDashListModels(text);
   if (key === "opencode") return parsePlainModelLines(text);
   if (key === "jcode") return parseJcodeModels(text);
-  if (key === "hermes") {
-    const dash = parseDashListModels(text);
-    return dash.models.length ? dash : parsePlainModelLines(text);
-  }
   return { models: [], labels: {} };
 }
 

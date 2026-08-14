@@ -193,7 +193,7 @@ async function cmdCreate(args: string[]) {
   }
   const agent = option(args, "--agent")?.trim() || "aisdk";
   if (agent === "hermes") {
-    console.error('agent "hermes" is temporarily unavailable');
+    console.error('agent "hermes" has been removed');
     process.exit(1);
   }
   if (!MODEL_OPTIONS[agent as keyof typeof MODEL_OPTIONS]) {

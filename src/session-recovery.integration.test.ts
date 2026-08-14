@@ -49,13 +49,15 @@ describe("session recovery integration", () => {
       "claude",
       "codex",
       "codex-aisdk",
+      "copilot",
       "cursor",
       "grok",
+      "jcode",
       "opencode",
       "pi",
     ]);
-    expect(CODING_AGENT_ADAPTERS.copilot.recovery).toBe("process-bound");
-    expect(CODING_AGENT_ADAPTERS.jcode.recovery).toBe("process-bound");
+    expect(CODING_AGENT_ADAPTERS.copilot.recovery).toBe("durable");
+    expect(CODING_AGENT_ADAPTERS.jcode.recovery).toBe("durable");
   });
 
   test("every durable backend hands its recovery id across its process boundary", () => {
@@ -93,13 +95,12 @@ describe("session recovery integration", () => {
       });
 
       expect(result.exitCode, `${agent}: ${output(result, "stderr")}`).toBe(0);
-      const direct = ["claude", "aisdk", "codex", "codex-aisdk", "opencode", "pi"].includes(agent);
+      const direct = true;
       const captured = JSON.parse(readFileSync(direct ? harnessCapture : tmuxCapture, "utf8")) as
         | string[]
         | { cmd: string[] };
       const argv = Array.isArray(captured) ? captured : captured.cmd;
-      if (direct) expect(argv, agent).not.toContain("tmux");
-      else expect(argv, agent).toContain("new-session");
+      expect(argv, agent).not.toContain("tmux");
       if (agent === "claude" || agent === "aisdk") {
         const at = argv.indexOf("--session");
         expect(argv.slice(at, at + 2), agent).toEqual(["--session", resume]);

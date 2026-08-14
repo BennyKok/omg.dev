@@ -77,7 +77,6 @@ describe("usage providers", () => {
       "claude",
       "codex",
       "grok",
-      "hermes",
       "opencode",
     ]);
   });

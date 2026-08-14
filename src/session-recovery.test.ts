@@ -292,6 +292,42 @@ describe("command-file session boot recovery", () => {
     expect(existsSync(capture)).toBe(false);
   });
 
+  test("marks a dead first-launch SDK row failed when startup never minted a thread id", async () => {
+    const key = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    addManaged({
+      tmuxName: "lfg-grok-killed",
+      cwd: root,
+      createdAt: 1,
+      agent: "grok",
+      runtime: "command-file",
+      sessionId: key,
+      model: "grok-code-fast-1",
+      launchState: "running",
+    });
+    writeEntry({
+      sessionId: key,
+      agent: "grok",
+      threadId: null,
+      harnessPid: 2147483647,
+      tmuxName: "lfg-grok-killed",
+      supervisor: "process",
+      bootId: "prior-boot",
+      cwd: root,
+      model: "grok-code-fast-1",
+      busy: false,
+      createdAt: 1,
+    });
+
+    const result = await reconcileCommandFileSessions(() => {});
+    expect(result.failed).toBe(1);
+    expect(result.recovered).toBe(0);
+    expect(listManaged()[0]).toEqual(expect.objectContaining({
+      tmuxName: "lfg-grok-killed",
+      launchState: "failed",
+      launchError: "grok recovery handle missing",
+    }));
+  });
+
   test("leaves a jcode row alone when its worktree was reclaimed", async () => {
     addManaged({
       tmuxName: "lfg-jcode-no-worktree",

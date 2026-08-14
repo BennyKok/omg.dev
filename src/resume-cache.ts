@@ -30,7 +30,15 @@ export type ResumableCacheRow = ResumableSession & {
   resumable?: boolean;
 };
 
-export type ResumableBackend = "aisdk" | "codex-aisdk" | "opencode" | "pi";
+export type ResumableBackend =
+  | "aisdk"
+  | "codex-aisdk"
+  | "opencode"
+  | "pi"
+  | "grok"
+  | "cursor"
+  | "copilot"
+  | "jcode";
 
 export type ResumableQuery = {
   limit?: number;
