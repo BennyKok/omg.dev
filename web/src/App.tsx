@@ -438,6 +438,8 @@ export type ClaudeAccountInfo = {
   number: number;
   label: string;
   connected: boolean;
+  /** Stored sign-in is dead and only a browser login can revive it. */
+  needsReconnect?: boolean;
   removable: boolean;
   createdAt: number;
 };

@@ -985,12 +985,18 @@ async function startAuthSession(
 ): Promise<CodingAgentAuthSession> {
   const binary = authProviderBinary(provider);
   if (!binary) throw new Error(`Install ${AUTH_PROVIDER_LABELS[provider]} before signing in`);
-  const claudeConfigDir =
-    provider === "claude" && opts.claudeAccountId
-      ? claudeAccountConfigDir(opts.claudeAccountId)
-      : undefined;
-  if (provider === "claude" && opts.claudeAccountId && !claudeConfigDir) {
-    throw new Error("Claude account not found");
+  // Reconnecting a specific account has to write its OWN config dir, or the
+  // login silently repairs whichever account the environment points at. The
+  // default account is the exception and stays implicit: it is the login the
+  // Claude CLI already owns, and on macOS that lives in the Keychain, which
+  // an explicit CLAUDE_CONFIG_DIR would bypass. Session launch resolves the
+  // same way (see claudeLaunchCommandForAccount), so sign-in and run agree.
+  let claudeConfigDir: string | null | undefined;
+  if (provider === "claude" && opts.claudeAccountId) {
+    const resolved = claudeAccountConfigDir(opts.claudeAccountId);
+    if (!resolved) throw new Error("Claude account not found");
+    claudeConfigDir =
+      opts.claudeAccountId === DEFAULT_CLAUDE_ACCOUNT_ID ? undefined : resolved;
   }
 
   for (const existing of authSessions.values()) {

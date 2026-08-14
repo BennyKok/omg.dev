@@ -27,6 +27,24 @@ describe("Claude account registry", () => {
     );
   }
 
+  /** A stored credential the CLI can never renew — the reconnect case. */
+  function breakSignIn(configDir: string): void {
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      join(configDir, ".credentials.json"),
+      JSON.stringify({
+        claudeAiOauth: { accessToken: "spent", expiresAt: Date.now() - 60_000 },
+      }),
+      { mode: 0o600 },
+    );
+  }
+
+  function seed(): void {
+    root = mkdtempSync(join(tmpdir(), "lfg-claude-accounts-"));
+    process.env.HOME = join(root, "home");
+    process.env.LFG_CLAUDE_ACCOUNTS_PATH = join(root, "data", "accounts.json");
+  }
+
   afterEach(() => {
     if (originalHome === undefined) delete process.env.HOME;
     else process.env.HOME = originalHome;
@@ -34,6 +52,50 @@ describe("Claude account registry", () => {
     else process.env.LFG_CLAUDE_ACCOUNTS_PATH = originalStore;
     if (root) rmSync(root, { recursive: true, force: true });
     root = "";
+  });
+
+  // The reported bug: with more than one account, signing out of (or breaking)
+  // one made its row vanish, so the only control that could fix it was gone.
+  test("a signed-out account stays listed so it can be reconnected", () => {
+    seed();
+    const second = createClaudeAccount();
+    connect(claudeAccountConfigDir(second.id)!, "second-token");
+
+    // Account 1 holds no credential — it is signed out, not unknown.
+    expect(listClaudeAccounts()).toMatchObject([
+      { id: "default", number: 1, connected: false, needsReconnect: false },
+      { id: second.id, number: 2, connected: true },
+    ]);
+    expect(connectedClaudeAccounts().map((account) => account.number)).toEqual([2]);
+  });
+
+  test("an unrenewable credential reads as needing a reconnect, not as connected", () => {
+    seed();
+    connect(join(process.env.HOME!, ".claude"), "default-token");
+    const second = createClaudeAccount();
+    breakSignIn(claudeAccountConfigDir(second.id)!);
+
+    expect(listClaudeAccounts()).toMatchObject([
+      { number: 1, connected: true, needsReconnect: false },
+      { number: 2, connected: false, needsReconnect: true },
+    ]);
+    // A dead account must not be routable, or auto would pick it and fail.
+    expect(connectedClaudeAccounts().map((account) => account.number)).toEqual([1]);
+  });
+
+  test("a lone broken default account is still listed", () => {
+    seed();
+    breakSignIn(join(process.env.HOME!, ".claude"));
+
+    expect(listClaudeAccounts()).toMatchObject([
+      { id: "default", connected: false, needsReconnect: true },
+    ]);
+  });
+
+  test("a machine that never connected Claude lists nothing", () => {
+    seed();
+
+    expect(listClaudeAccounts()).toEqual([]);
   });
 
   test("imports the existing Claude login as account 1 and adds isolated accounts", () => {
