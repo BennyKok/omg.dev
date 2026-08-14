@@ -13,6 +13,9 @@ Recent product updates and deployment notes.
 - **Jcode has its full thinking control.** New sessions can use `low`, `medium`,
   `high`, `xhigh`, or `max`, and the selected effort is applied when the session
   starts.
+- **The mobile update drawer keeps its action visible.** Long release notes now
+  scroll inside a drawer that fits its content and the screen, so the Update
+  button does not fall below the viewport.
 
 ## August 14, 2026 - The server tells you the truth about which version it is running (v0.1.368)
 
