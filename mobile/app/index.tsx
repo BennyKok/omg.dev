@@ -14,12 +14,7 @@
 import { useFocusEffect, useNavigation, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
-import {
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  View,
-} from "react-native";
+import { RefreshControl, ScrollView, View } from "react-native";
 import Reanimated, { useAnimatedKeyboard, useAnimatedStyle } from "react-native-reanimated";
 import { Text } from "../src/omg/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -36,6 +31,8 @@ import {
   StatusDot,
 } from "../src/components";
 import { useComputerPicker } from "../src/omg/computer-picker";
+import { LucideIcon } from "../src/omg/lucide";
+import { DropdownMenu } from "../src/omg/menu";
 import { useAgentPicker, useProjectPicker } from "../src/omg/session-options";
 import { useOmg } from "../src/omg/provider";
 import { useToast } from "../src/omg/toast";
@@ -235,41 +232,71 @@ export default function SessionsScreen() {
   useLayoutEffect(() => {
     navigation.setOptions({
       headerShown: true,
-      headerLargeTitle: true,
-      title: "Sessions",
+      /**
+       * NO TITLE, large or small.
+       *
+       * "Sessions" was a 34pt word naming the only screen the app opens on,
+       * costing a fifth of the viewport to say something the content already
+       * says: a list of sessions, under a "WORKING" header, in an app whose
+       * icon you just tapped. The list starts at the top of the screen now
+       * and the bar is left to the two controls that do something.
+       */
+      headerLargeTitle: false,
+      title: "",
       headerRight: () => (
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
-          <Pressable
-            onPress={computerPicker.open}
-            accessibilityRole="button"
-            accessibilityLabel={`Computer: ${machineName}. Change`}
-            style={({ pressed }) => ({
-              flexDirection: "row",
-              alignItems: "center",
-              gap: space.xs,
-              opacity: pressed ? 0.5 : 1,
-            })}
-          >
-            <StatusDot busy={currentBinding?.online ?? false} size={7} />
-            <Text
-              numberOfLines={1}
-              style={{ ...type.footnote, color: colors.textSecondary, maxWidth: 130 }}
+          {/* TWO BUTTONS, NOT ONE CHIP.
+              The machine name and the gear used to share a single pill, which
+              read as one control and made the name look pressable-adjacent
+              rather than pressable. Split, each is a glyph on its own disc —
+              the shape iOS 26 gives bar items — and the machine's name moves
+              into the menu, where the checkmark already says which one is
+              current. The dot keeps the one thing the name was really
+              carrying: whether that machine is up. */}
+          <DropdownMenu title="Computer" options={computerPicker.options}>
+            <View
+              accessibilityRole="button"
+              accessibilityLabel={`Computer: ${machineName}. Change`}
+              style={{
+                width: 36,
+                height: 36,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
             >
-              {machineName}
-            </Text>
-          </Pressable>
+              <LucideIcon name="monitor" size={20} color={colors.textSecondary} />
+              <View
+                style={{
+                  position: "absolute",
+                  // Bottom-trailing of the glyph box, the corner UIKit badges
+                  // from, clear of the monitor's stand.
+                  right: 6,
+                  bottom: 6,
+                }}
+              >
+                <StatusDot busy={currentBinding?.online ?? false} size={7} />
+              </View>
+            </View>
+          </DropdownMenu>
           <IconButton
-            ios="gearshape"
-            android="settings"
+            lucide="settings"
             accessibilityLabel="Settings"
             onPress={() => router.push("/settings")}
-            size={18}
+            size={20}
             color={colors.textSecondary}
           />
         </View>
       ),
     });
-  }, [navigation, router, computerPicker.open, machineName, currentBinding?.online, colors, type, space]);
+  }, [
+    navigation,
+    router,
+    computerPicker.options,
+    machineName,
+    currentBinding?.online,
+    colors,
+    space,
+  ]);
 
   // Same UI-thread keyboard tracking as the session screen; see the note there
   // for why KeyboardAvoidingView cannot be made to feel right.
@@ -316,7 +343,11 @@ export default function SessionsScreen() {
           <EmptyState
             title="No computer selected"
             detail="Choose which computer this app should talk to."
-            action={<PrimaryButton label="Choose a computer" onPress={computerPicker.open} />}
+            action={
+              <DropdownMenu title="Computer" options={computerPicker.options}>
+                <PrimaryButton label="Choose a computer" />
+              </DropdownMenu>
+            }
           />
         ) : readiness?.status === "waking" ? (
           // Skeleton cards, not a spinner: the sessions that were here before
@@ -350,11 +381,9 @@ export default function SessionsScreen() {
             action={
               <View style={{ gap: space.sm }}>
                 <PrimaryButton label="Try again" onPress={() => void probe()} />
-                <PrimaryButton
-                  label="Choose another"
-                  tone="quiet"
-                  onPress={computerPicker.open}
-                />
+                <DropdownMenu title="Computer" options={computerPicker.options}>
+                  <PrimaryButton label="Choose another" tone="quiet" />
+                </DropdownMenu>
               </View>
             }
           />
@@ -436,10 +465,10 @@ export default function SessionsScreen() {
           onStart={() => void startSession()}
           starting={starting}
           projectLabel={projectPicker.label}
-          onPickProject={projectPicker.open}
+          projectOptions={projectPicker.options}
           agent={agentPicker.agent}
           agentLabel={agentPicker.label}
-          onPickAgent={agentPicker.open}
+          agentOptions={agentPicker.options}
           bottomInset={insets.bottom}
         />
       ) : null}

@@ -1,8 +1,8 @@
 /**
- * Switching which Computer this app talks to — a native action sheet rather
- * than a screen push, because choosing between two machines never justified a
- * whole navigation transition. Every call site shares this one menu instead of
- * hand-rolling its own list.
+ * Switching which Computer this app talks to — a menu anchored to the machine
+ * chip rather than a screen push, because choosing between two machines never
+ * justified a whole navigation transition. Every call site shares this one menu
+ * instead of hand-rolling its own list.
  *
  * Switching is not managing: pairing, per-machine detail and the blocked-plan
  * escape hatch still live on app/computers.tsx, which this menu's last entry
@@ -16,14 +16,13 @@
  * a blocked machine is listed disabled, with its reason folded into the label
  * and a way out to the web where billing actually lives.
  */
-import { useRouter } from "expo-router";
-import * as Haptics from "expo-haptics";
-import { useCallback, useEffect } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useMemo } from "react";
 import { Linking } from "react-native";
 
 import { CLOUD_BINDING_ID } from "./config";
 import { bindingLabel, cloudStatusLabel, relativeTime } from "./format";
-import { showActionMenu, type MenuAction } from "./native-menu";
+import { type MenuOption } from "./menu";
 import { useOmg } from "./provider";
 import { useToast } from "./toast";
 
@@ -41,66 +40,69 @@ export function useComputerPicker() {
     if (machinesError) toast.show(machinesError, { intent: "error" });
   }, [machinesError, toast]);
 
-  const cloudBlocked = BLOCKED_CLOUD_STATUSES.has(cloud?.status ?? "");
-
-  const choose = useCallback(
-    (id: string) => {
-      void Haptics.selectionAsync();
-      void selectBinding(id);
-    },
-    [selectBinding],
+  /**
+   * Refresh on FOCUS, not on open.
+   *
+   * The action sheet this replaced could re-read the machine list at the moment
+   * it was asked for. An anchored menu has no open hook on iOS — SwiftUI builds
+   * its rows from whatever is rendered — so the list has to already be fresh
+   * when the chip is pressed. Focus is the closest honest moment: a pairing
+   * done outside the app (`omg connect`) lands whenever the screen comes back,
+   * rather than one open later.
+   */
+  useFocusEffect(
+    useCallback(() => {
+      void refreshMachines();
+    }, [refreshMachines]),
   );
 
-  const open = useCallback(() => {
-    // The old pushed screen offered pull-to-refresh; a menu has no such
-    // gesture, so a fresh pairing done outside the app (`omg connect`) is
-    // picked up on the NEXT open rather than making this one wait on a
-    // network round trip before it can even appear.
-    void refreshMachines();
+  const cloudBlocked = BLOCKED_CLOUD_STATUSES.has(cloud?.status ?? "");
 
-    const actions: MenuAction[] = bindings.map((b) => {
-      const selected = b.id === bindingId;
+  const options = useMemo<MenuOption[]>(() => {
+    const rows: MenuOption[] = bindings.map((b) => ({
       // Online rows already say everything in the name (bindingLabel prefers
       // the paired folder's basename); an offline one is worth a reason.
-      const detail = b.online ? "" : ` — last seen ${relativeTime(b.lastSeenAt) || "a while ago"}`;
-      return {
-        label: `${selected ? "✓ " : ""}${bindingLabel(b)}${detail}`,
-        onPress: () => choose(b.id),
-      };
-    });
+      label: b.online
+        ? bindingLabel(b)
+        : `${bindingLabel(b)} — last seen ${relativeTime(b.lastSeenAt) || "a while ago"}`,
+      selected: b.id === bindingId,
+      onPress: () => void selectBinding(b.id),
+    }));
 
-    actions.push({
-      label: `${bindingId === CLOUD_BINDING_ID && !cloudBlocked ? "✓ " : ""}Cloud computer — ${cloudStatusLabel(cloud?.status, cloud?.blockedReason)}`,
+    rows.push({
+      label: `Cloud computer — ${cloudStatusLabel(cloud?.status, cloud?.blockedReason)}`,
+      selected: bindingId === CLOUD_BINDING_ID && !cloudBlocked,
       disabled: cloudBlocked,
-      onPress: () => choose(CLOUD_BINDING_ID),
+      onPress: () => void selectBinding(CLOUD_BINDING_ID),
     });
 
     if (cloudBlocked) {
-      actions.push({
+      rows.push({
         label: "Fix this on omg.dev",
+        icon: "arrow.up.right.square",
         onPress: () => void Linking.openURL("https://app.omg.dev/"),
       });
     }
 
     /**
-     * The sheet switches; the screen manages. They are not competing answers.
+     * The menu switches; the screen manages. They are not competing answers.
      *
-     * An action sheet is a list of short labels, and there are things it
-     * structurally cannot carry — above all "Pair a new machine by running
-     * `omg connect` on it", which is the only place in the app that explains
-     * pairing exists. Without a route to that screen, an account with nothing
-     * paired sees one cloud entry and no way to discover it can have more.
-     * Machine specs, the folder each box is bound to, and the blocked-plan
-     * reason are all the same shape of problem: they need room this does not
-     * have.
+     * A menu is a list of short labels, and there are things it structurally
+     * cannot carry — above all "Pair a new machine by running `omg connect` on
+     * it", which is the only place in the app that explains pairing exists.
+     * Without a route to that screen, an account with nothing paired sees one
+     * cloud entry and no way to discover it can have more. Machine specs, the
+     * folder each box is bound to, and the blocked-plan reason are all the same
+     * shape of problem: they need room this does not have.
      */
-    actions.push({
+    rows.push({
       label: "Manage computers…",
+      icon: "gearshape",
       onPress: () => router.push("/computers"),
     });
 
-    showActionMenu("Choose a computer", actions);
-  }, [bindings, bindingId, cloud, cloudBlocked, choose, refreshMachines, router]);
+    return rows;
+  }, [bindings, bindingId, cloud, cloudBlocked, selectBinding, router]);
 
-  return { open, cloudBlocked };
+  return { options, cloudBlocked };
 }

@@ -77,12 +77,12 @@ export default function SettingsScreen() {
 
       <SectionLabel>Computer</SectionLabel>
       <Card>
-        {/* This one pushes rather than opening the switcher sheet. The header
+        {/* This one pushes rather than opening the switcher menu. The header
             chip on Sessions is where you switch machines mid-task; Settings is
             where you manage them, and the screen is the only place pairing,
             per-machine detail and the blocked-plan reason have room. The
             chevron is honest here for the same reason it would have been a lie
-            on a row that only opened a sheet. */}
+            on a row that only opened a menu. */}
         <Row onPress={() => router.push("/computers")}>
           <StatusDot busy={current?.online ?? false} />
           <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>{machineName}</Text>

@@ -25,8 +25,9 @@
  * Every glyph on this screen is an SF Symbol via `Icon`/`IconButton`. It used
  * to draw its own chevrons, paperclip, mic and pause out of rotated Views —
  * ~190 lines of geometry that could never match the system's optical weights,
- * and looked hand-made next to any real iOS app. The overflow menu is a real
- * UIAlertController (`ActionSheetIOS`) rather than an in-app popover.
+ * and looked hand-made next to any real iOS app. The overflow and the prompt
+ * history are system menus anchored to their buttons (see src/omg/menu.tsx),
+ * not sheets thrown up from the bottom of the screen.
  *
  * The bar is the system's, not ours. It used to be drawn in-screen because
  * KeyboardAvoidingView measures against its PARENT, so a native header would
@@ -67,7 +68,7 @@ import type { OmgSession, OmgSessionPrompt } from "@omg-dev/protocol";
 
 import { AgentAvatar, Icon, IconButton } from "../../src/components";
 import { agentLabel as agentDisplayName } from "../../src/omg/agent-icons";
-import { showActionMenu, type MenuAction } from "../../src/omg/native-menu";
+import { DropdownMenu, type MenuOption } from "../../src/omg/menu";
 import { useOmg } from "../../src/omg/provider";
 import { useTheme } from "../../src/omg/theme";
 import { useToast } from "../../src/omg/toast";
@@ -301,22 +302,19 @@ export default function SessionScreen() {
    * Reuse an earlier prompt. This replaces a pair of 9pt stepper chevrons wedged
    * into the composer: they worked, but they were a terminal idiom rendered at a
    * size iOS would never ship, and you had to tap blindly to discover what was
-   * behind them. A sheet shows the actual prompts and picks in one tap.
+   * behind them. A menu shows the actual prompts and picks in one tap.
    */
-  const openHistory = useCallback(() => {
-    const recent = [...new Set(history)].reverse().slice(0, 6);
-    if (!recent.length) return;
-    showActionMenu(
-      "Reuse a prompt",
-      recent.map((text) => ({
-        label: text.length > 64 ? `${text.slice(0, 63)}…` : text,
-        onPress: () => {
-          void Haptics.selectionAsync();
-          setDraft(text);
-        },
-      })),
-    );
-  }, [history]);
+  const historyOptions = useMemo<MenuOption[]>(
+    () =>
+      [...new Set(history)]
+        .reverse()
+        .slice(0, 6)
+        .map((text) => ({
+          label: text.length > 64 ? `${text.slice(0, 63)}…` : text,
+          onPress: () => setDraft(text),
+        })),
+    [history],
+  );
 
   /** Everything the transcript can be copied into, oldest first. */
   const copyTranscript = useCallback(() => {
@@ -363,15 +361,24 @@ export default function SessionScreen() {
     ]);
   }, [client, id, router]);
 
-  const openMenu = useCallback(() => {
-    const actions: MenuAction[] = [];
-    if (busy) actions.push({ label: "Stop the agent", onPress: () => void stop() });
-    if (messages.some((m) => m.text)) {
-      actions.push({ label: "Copy transcript", onPress: copyTranscript });
+  const menuOptions = useMemo<MenuOption[]>(() => {
+    const options: MenuOption[] = [];
+    if (busy) {
+      options.push({ label: "Stop the agent", icon: "stop.fill", onPress: () => void stop() });
     }
-    if (!busy) actions.push({ label: "Archive session", destructive: true, onPress: archive });
-    showActionMenu(sessionInfo?.title ?? "Session", actions);
-  }, [busy, messages, stop, copyTranscript, archive, sessionInfo?.title]);
+    if (messages.some((m) => m.text)) {
+      options.push({ label: "Copy transcript", icon: "doc.on.doc", onPress: copyTranscript });
+    }
+    if (!busy) {
+      options.push({
+        label: "Archive session",
+        icon: "archivebox",
+        destructive: true,
+        onPress: archive,
+      });
+    }
+    return options;
+  }, [busy, messages, stop, copyTranscript, archive]);
 
   /**
    * The native bar: system back on the left (this is a pushed screen, so the
@@ -391,8 +398,33 @@ export default function SessionScreen() {
     navigation.setOptions({
       headerShown: true,
       title,
+      /**
+       * The title is a CAPSULE, like the two buttons flanking it.
+       *
+       * iOS 26 gives every bar BUTTON its own glass disc, so a bare avatar and
+       * two lines of text floating between them read as the one thing on the
+       * bar that had not been given a shape. Putting the same capsule around
+       * the title makes the bar three objects on a black field instead of two
+       * objects and some loose content — and it groups the avatar with the
+       * name it belongs to.
+       */
       headerTitle: () => (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: space.sm,
+            backgroundColor: colors.card,
+            borderRadius: radius.pill,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: colors.border,
+            // Tighter on the leading edge: the avatar is already a circle, so
+            // it sets its own optical inset and a full pad would leave a hole.
+            paddingLeft: space.xs,
+            paddingRight: space.md,
+            paddingVertical: space.xs,
+          }}
+        >
           <AgentAvatar agent={agentLabel} size={26} />
           <View style={{ maxWidth: 200 }}>
             <Text
@@ -408,18 +440,16 @@ export default function SessionScreen() {
           </View>
         </View>
       ),
-      headerRight: () => (
-        <IconButton
-          ios="ellipsis.circle"
-          android="more_horiz"
-          accessibilityLabel="Session actions"
-          onPress={openMenu}
-          size={20}
-          color={colors.text}
-        />
-      ),
+      headerRight: () =>
+        menuOptions.length ? (
+          <DropdownMenu options={menuOptions}>
+            <View accessibilityRole="button" accessibilityLabel="Session actions">
+              <Icon ios="ellipsis.circle" android="more_horiz" size={20} color={colors.text} />
+            </View>
+          </DropdownMenu>
+        ) : null,
     });
-  }, [navigation, title, agentLabel, busy, openMenu, colors, type, space]);
+  }, [navigation, title, agentLabel, busy, menuOptions, colors, type, space, radius]);
 
   if (!client) {
     return (
@@ -481,7 +511,12 @@ export default function SessionScreen() {
           paddingHorizontal: space.lg,
           paddingTop: space.lg,
           paddingBottom: space.md,
-          gap: space.xl,
+          // 24pt between EVERY item read as a transcript of isolated objects
+          // rather than a conversation: a tool run and the sentence explaining
+          // it were pushed as far apart as two separate turns. 16pt keeps the
+          // turns legible while letting related things sit together, now that
+          // a run of tool calls is one grouped surface instead of N tiles.
+          gap: space.lg,
         }}
         // The bar is transparent (set in _layout.tsx), so the list insets its
         // content below it instead of starting underneath it.
@@ -591,15 +626,21 @@ export default function SessionScreen() {
           />
         ) : null}
 
-        {history.length ? (
-          <IconButton
-            ios="clock.arrow.circlepath"
-            android="history"
-            accessibilityLabel="Reuse an earlier prompt"
-            onPress={openHistory}
-            size={17}
-            color={colors.textMuted}
-          />
+        {historyOptions.length ? (
+          <DropdownMenu title="Reuse a prompt" options={historyOptions}>
+            <View
+              accessibilityRole="button"
+              accessibilityLabel="Reuse an earlier prompt"
+              style={{ minHeight: 44, minWidth: 32, alignItems: "center", justifyContent: "center" }}
+            >
+              <Icon
+                ios="clock.arrow.circlepath"
+                android="history"
+                size={17}
+                color={colors.textMuted}
+              />
+            </View>
+          </DropdownMenu>
         ) : null}
 
         <View

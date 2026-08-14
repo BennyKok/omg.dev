@@ -31,7 +31,9 @@
     },
     "plugins": [
       "expo-status-bar",
-      "expo-router"
+      "expo-router",
+      "expo-font",
+      "expo-asset"
     ],
     "scheme": "omg",
     "extra": {

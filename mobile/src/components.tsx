@@ -31,6 +31,8 @@ import {
 
 import { agentIcon } from "./omg/agent-icons";
 import { GlassSurface, LIQUID_GLASS } from "./omg/glass";
+import { LucideIcon, type LucideName } from "./omg/lucide";
+import { DropdownMenu, type MenuOption } from "./omg/menu";
 import { PressableScale, useListItemMotion } from "./omg/motion";
 import { useTheme } from "./omg/theme";
 
@@ -249,16 +251,25 @@ export function PrimaryButton({
 }
 
 
-/** An SF Symbol on iOS with a Material fallback elsewhere. */
+/**
+ * Which glyph to draw. Either an SF Symbol pair or a Lucide name, never both
+ * and never neither — a union rather than three optional props, so a call site
+ * cannot compile with no glyph at all.
+ *
+ * SF Symbols are the default and should stay that way; see omg/lucide.tsx for
+ * the narrow case Lucide exists to cover.
+ */
+export type GlyphProps =
+  | { ios: SFSymbol; android: AndroidSymbol; lucide?: never }
+  | { lucide: LucideName; ios?: never; android?: never };
+
+/** An SF Symbol on iOS with a Material fallback elsewhere, or a Lucide glyph. */
 export function Icon({
-  ios,
-  android,
   size = 20,
   color,
   weight = "regular",
-}: {
-  ios: SFSymbol;
-  android: AndroidSymbol;
+  ...glyph
+}: GlyphProps & {
   size?: number;
   color?: string;
   /**
@@ -267,9 +278,10 @@ export function Icon({
    */
   weight?: SymbolWeight;
 }) {
+  if (glyph.lucide) return <LucideIcon name={glyph.lucide} size={size} color={color} />;
   return (
     <SymbolView
-      name={{ ios, android, web: android }}
+      name={{ ios: glyph.ios, android: glyph.android, web: glyph.android }}
       size={size}
       weight={weight}
       tintColor={color}
@@ -284,8 +296,6 @@ export function Icon({
  * because the glyph size is a visual choice and the target is an Apple minimum.
  */
 export function IconButton({
-  ios,
-  android,
   onPress,
   disabled,
   size = 18,
@@ -293,9 +303,8 @@ export function IconButton({
   background,
   accessibilityLabel,
   busy,
-}: {
-  ios: SFSymbol;
-  android: AndroidSymbol;
+  ...glyph
+}: GlyphProps & {
   onPress?: () => void;
   disabled?: boolean;
   size?: number;
@@ -332,7 +341,7 @@ export function IconButton({
       {busy ? (
         <ActivityIndicator size="small" color={color ?? colors.textSecondary} />
       ) : (
-        <Icon ios={ios} android={android} size={size} color={color ?? colors.textSecondary} />
+        <Icon {...glyph} size={size} color={color ?? colors.textSecondary} />
       )}
     </PressableScale>
   );
@@ -697,10 +706,10 @@ export function HomeComposer({
   onStart,
   starting,
   projectLabel,
-  onPickProject,
+  projectOptions,
   agent,
   agentLabel,
-  onPickAgent,
+  agentOptions,
   bottomInset = 0,
 }: {
   value: string;
@@ -708,10 +717,11 @@ export function HomeComposer({
   onStart: () => void;
   starting?: boolean;
   projectLabel?: string | null;
-  onPickProject?: () => void;
+  /** Empty when this machine has one folder — see session-options.ts. */
+  projectOptions: MenuOption[];
   agent?: string | null;
   agentLabel?: string | null;
-  onPickAgent?: () => void;
+  agentOptions: MenuOption[];
   bottomInset?: number;
 }) {
   const { colors, isDark, radius, type, space } = useTheme();
@@ -760,16 +770,62 @@ export function HomeComposer({
         {/* The avatar IS the agent picker. It already showed which agent would
             run, so making it the control means the answer and the way to
             change it are the same object, rather than adding a second
-            affordance that says the same thing. */}
-        <PressableScale
-          onPress={onPickAgent}
-          disabled={!onPickAgent}
-          scale={0.9}
-          accessibilityRole="button"
-          accessibilityLabel={`Agent: ${agentLabel ?? "Claude"}. Change`}
-        >
+            affordance that says the same thing.
+
+            No PressableScale: the menu owns the press (the trigger lives
+            inside a SwiftUI Menu, so React Native never sees the touch), and a
+            spring that cannot fire is worse than none. The menu's own
+            appearance is the feedback. */}
+        {agentOptions.length ? (
+          <DropdownMenu options={agentOptions}>
+            {/* A BADGE, because the pill that used to say "Claude ⌄" is gone.
+                Without it the avatar is a picture of the agent and nothing
+                says it can be changed — the caption pill was carrying that
+                whole job. The badge is the same move iOS makes on an avatar
+                that owns a menu: small, at the trailing-bottom corner, out of
+                the mark's way. It is 14pt because it is a hint, not a
+                control; the 32pt avatar behind it is the target. */}
+            <View
+              accessibilityLabel={`Agent: ${agentLabel ?? "Claude"}. Change`}
+              style={{ paddingRight: 3, paddingBottom: 3 }}
+            >
+              <AgentAvatar agent={agent} size={32} />
+              <View
+                style={{
+                  position: "absolute",
+                  right: 0,
+                  bottom: 0,
+                  width: 14,
+                  height: 14,
+                  borderRadius: 7,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: colors.card,
+                  /**
+                   * `borderStrong`, not `border`. In the dark palette a soft
+                   * hairline is plenty, but in light BOTH the badge fill and
+                   * the composer under it are within a few percent of white
+                   * (#ffffff on #f9f9fb) and the badge disappeared entirely —
+                   * verified on the simulator in light appearance. The
+                   * stronger edge is the only thing separating them there, and
+                   * it is still quiet in the dark.
+                   */
+                  borderWidth: StyleSheet.hairlineWidth,
+                  borderColor: colors.borderStrong,
+                }}
+              >
+                <Icon
+                  ios="chevron.up.chevron.down"
+                  android="unfold_more"
+                  size={8}
+                  color={colors.textMuted}
+                />
+              </View>
+            </View>
+          </DropdownMenu>
+        ) : (
           <AgentAvatar agent={agent} size={32} />
-        </PressableScale>
+        )}
         <TextInput
           value={value}
           onChangeText={onChangeText}
@@ -814,9 +870,11 @@ export function HomeComposer({
         ) : null}
       </GlassSurface>
 
-      {/* Agent and folder as flat captions. No fill, no hairline, no fixed
-          height — they answer "what will run this, and where", which is
-          metadata about the field above. */}
+      {/* Just the folder. The agent had a pill here too, saying "Claude" next
+          to an avatar that already draws Claude's mark and opens the same
+          menu — one decision wearing two controls, six points apart. The
+          avatar wins: it is the thing you look at to answer "what will run
+          this", so it is the thing to press to change it. */}
       <View
         style={{
           flexDirection: "row",
@@ -830,17 +888,10 @@ export function HomeComposer({
         }}
       >
         <ComposerCaptionButton
-          ios="cpu"
-          android="memory"
-          label={agentLabel ?? "Claude"}
-          onPress={onPickAgent}
-          accessibilityLabel={`Agent: ${agentLabel ?? "Claude"}. Change`}
-        />
-        <ComposerCaptionButton
           ios="folder.fill"
           android="folder"
           label={projectLabel ?? "Project"}
-          onPress={onPickProject}
+          options={projectOptions}
           accessibilityLabel={`Project: ${projectLabel ?? "none"}. Change`}
         />
       </View>
@@ -849,18 +900,18 @@ export function HomeComposer({
 }
 
 /**
- * One control under the composer. Shared by the agent and the folder so the
- * two cannot drift into looking like different kinds of thing — they are the
- * same kind of decision and read as one row.
+ * One control under the composer. The folder is the only one left — the agent
+ * moved onto the avatar — but this stays generic rather than being inlined,
+ * because "which folder" is not the last decision that will want a pill here.
  *
- * A FILLED PILL, not a caption. These were 13pt muted text with a 10pt
- * chevron and no background: the reasoning was that they are metadata about
- * the field above, so a container would promote them to a competing surface.
- * On a real screen that argument loses. They are the only way to change which
- * agent runs and where, and rendered as grey fine print they read as a status
- * line — something the app is telling you, not something you can press. The
- * web composer gets this right with filled pills, and the 44pt touch target
- * the system asks for cannot be honoured by a 13pt line of text either.
+ * A FILLED PILL, not a caption. This was 13pt muted text with a 10pt chevron
+ * and no background: the reasoning was that it is metadata about the field
+ * above, so a container would promote it to a competing surface. On a real
+ * screen that argument loses. It is the only way to change where the session
+ * runs, and rendered as grey fine print it reads as a status line — something
+ * the app is telling you, not something you can press. The web composer gets
+ * this right with filled pills, and the 44pt touch target the system asks for
+ * cannot be honoured by a 13pt line of text either.
  *
  * A quiet fill is enough. It does not compete with the input above, because
  * that is a taller pill with a live caret and a send button in it.
@@ -869,35 +920,32 @@ function ComposerCaptionButton({
   ios,
   android,
   label,
-  onPress,
+  options,
   accessibilityLabel,
 }: {
   ios: SFSymbol;
   android: AndroidSymbol;
   label: string;
-  onPress?: () => void;
+  /** Empty means there is nothing to choose; the pill stays, unpressable. */
+  options: MenuOption[];
   accessibilityLabel: string;
 }) {
   const { colors, radius, type, space } = useTheme();
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={!onPress}
-      hitSlop={8}
-      accessibilityRole="button"
+  const pill = (
+    <View
+      accessibilityRole={options.length ? "button" : undefined}
       accessibilityLabel={accessibilityLabel}
-      style={({ pressed }) => ({
+      style={{
         flexDirection: "row",
         alignItems: "center",
         gap: 5,
-        // 32pt tall with hitSlop taking it past the 44pt minimum. The old
-        // bare text could not be hit reliably at all.
+        // 32pt tall, and the menu's trigger area is the pill itself.
         minHeight: 32,
         paddingHorizontal: space.md - 2,
         borderRadius: radius.pill,
-        backgroundColor: pressed ? colors.cardPressed : colors.secondary,
+        backgroundColor: colors.secondary,
         minWidth: 0,
-      })}
+      }}
     >
       <Icon ios={ios} android={android} size={13} color={colors.textSecondary} />
       <Text
@@ -907,9 +955,11 @@ function ComposerCaptionButton({
       >
         {label}
       </Text>
-      {onPress ? (
+      {options.length ? (
         <Icon ios="chevron.up.chevron.down" android="unfold_more" size={10} color={colors.textMuted} />
       ) : null}
-    </Pressable>
+    </View>
   );
+  if (!options.length) return pill;
+  return <DropdownMenu options={options}>{pill}</DropdownMenu>;
 }

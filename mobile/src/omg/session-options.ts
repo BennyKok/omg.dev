@@ -21,11 +21,10 @@
  * be a 400 at launch, discovered only after typing a prompt. The roster is the
  * only authority, so the default is derived from it every time.
  */
-import * as Haptics from "expo-haptics";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { agentLabel as agentDisplayName } from "./agent-icons";
-import { showActionMenu, type MenuAction } from "./native-menu";
+import { agentIcon, agentLabel as agentDisplayName } from "./agent-icons";
+import { type MenuOption } from "./menu";
 import { useOmg, type CodingAgent } from "./provider";
 
 /**
@@ -60,28 +59,30 @@ export function useAgentPicker() {
 
   const label = useMemo(() => labelFor(agent, agents), [agent, agents]);
 
-  const open = useCallback(() => {
-    if (agents.length < 2) return;
-    showActionMenu(
-      "Run with",
-      agents.map<MenuAction>((a) => ({
-        label: `${a.key === agent ? "✓ " : ""}${labelFor(a.key, agents)}`,
-        onPress: () => {
-          void Haptics.selectionAsync();
-          setChosen(a.key);
-        },
-      })),
-    );
-  }, [agents, agent]);
+  /**
+   * One choice is not a choice. An empty list lets the composer render the
+   * control as plain text with no chevron, rather than a menu with a single
+   * row in it — and it is why these hooks hand back OPTIONS rather than an
+   * `open()`: the menu is anchored to the control, so the control is what
+   * renders it. See ./menu.tsx.
+   */
+  const options = useMemo<MenuOption[]>(
+    () =>
+      agents.length > 1
+        ? agents.map((a) => ({
+            label: labelFor(a.key, agents),
+            // The same mark the avatar and every session row already draw for
+            // this agent. A menu of nine names is a list; a menu of nine marks
+            // is the thing you were already looking at.
+            image: agentIcon(a.key),
+            selected: a.key === agent,
+            onPress: () => setChosen(a.key),
+          }))
+        : [],
+    [agents, agent],
+  );
 
-  return {
-    agent,
-    label,
-    // One choice is not a choice. Returning undefined lets the composer render
-    // the caption as plain text with no chevron, rather than a control that
-    // opens a sheet with a single row in it.
-    open: agents.length > 1 ? open : undefined,
-  };
+  return { agent, label, options };
 }
 
 function labelFor(key: string, agents: CodingAgent[]): string {
@@ -126,21 +127,19 @@ export function useProjectPicker() {
     return repos.find((r) => r.cwd === cwd)?.name ?? basename(cwd);
   }, [cwd, repos]);
 
-  const open = useCallback(() => {
-    if (repos.length < 2) return;
-    showActionMenu(
-      "Run in",
-      repos.map<MenuAction>((r) => ({
-        label: `${r.cwd === cwd ? "✓ " : ""}${r.name || basename(r.cwd)}`,
-        onPress: () => {
-          void Haptics.selectionAsync();
-          setChosen(r.cwd);
-        },
-      })),
-    );
-  }, [repos, cwd]);
+  const options = useMemo<MenuOption[]>(
+    () =>
+      repos.length > 1
+        ? repos.map((r) => ({
+            label: r.name || basename(r.cwd),
+            selected: r.cwd === cwd,
+            onPress: () => setChosen(r.cwd),
+          }))
+        : [],
+    [repos, cwd],
+  );
 
-  return { cwd, label, open: repos.length > 1 ? open : undefined };
+  return { cwd, label, options };
 }
 
 function basename(path: string): string {

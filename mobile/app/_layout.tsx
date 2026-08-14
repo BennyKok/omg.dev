@@ -1,8 +1,9 @@
-import { Stack } from "expo-router";
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 
 import { BrandMark } from "../src/omg/brand-mark";
+import { useLucideFont } from "../src/omg/lucide";
 
 import { OmgProvider, useOmg } from "../src/omg/provider";
 import { useTheme } from "../src/omg/theme";
@@ -11,8 +12,12 @@ import { ToastProvider } from "../src/omg/toast";
 function RootNavigator() {
   const { authStatus } = useOmg();
   const { colors, isDark } = useTheme();
+  // Shares the splash with auth, rather than flashing an icon-less bar for a
+  // frame: the font resolves from a bundled asset, so this is never a wait
+  // the user can perceive on a warm start.
+  const glyphsReady = useLucideFont();
 
-  if (authStatus === "loading") {
+  if (authStatus === "loading" || !glyphsReady) {
     return (
       <View style={[styles.splash, { backgroundColor: colors.bg }]}>
         <BrandMark />
@@ -154,12 +159,16 @@ function RootNavigator() {
         <Stack.Protected guard>
           {/* Both this and session/[id] set the rest of their header options
               from inside the screen, because the items on the right need screen
-              state (the machine chip here, the session overflow there). */}
-          <Stack.Screen name="index" options={{ title: "Sessions" }} />
+              state (the machine button here, the session overflow there).
+
+              No title on the list: see app/index.tsx. Empty here too, so it
+              does not flash "Sessions" for the frame before that screen's
+              layout effect runs. */}
+          <Stack.Screen name="index" options={{ title: "" }} />
           <Stack.Screen name="session/[id]" options={{ title: "Session" }} />
-          {/* Switching machines is the frequent action and belongs in the
-              action sheet; pairing and per-machine detail still need a screen.
-              See computer-picker.ts for why both exist. */}
+          {/* Switching machines is the frequent action and belongs in the menu
+              on the machine chip; pairing and per-machine detail still need a
+              screen. See computer-picker.ts for why both exist. */}
           <Stack.Screen
             name="computers"
             options={{ title: "Computers", headerLargeTitle: true }}
@@ -175,14 +184,36 @@ function RootNavigator() {
 }
 
 export default function Layout() {
+  const { isDark } = useTheme();
   return (
     <OmgProvider>
-      {/* Above RootNavigator so the banner overlays every screen's header and
-          content instead of being clipped by whichever Stack.Screen owns the
-          view underneath it. */}
-      <ToastProvider>
-        <RootNavigator />
-      </ToastProvider>
+      {/**
+       * TELL THE NAVIGATOR WHICH APPEARANCE THIS APP IS IN. It cannot see the
+       * palette, and its default is LIGHT.
+       *
+       * This is the root cause of a class of bugs this app had been patching
+       * one symptom at a time: the white navigation bar, the invisible large
+       * title, and — the one that found it — a system menu that came up light
+       * grey with black text in a black app, but only when its trigger sat in
+       * the bar. expo-router's native stack derives the header's UIKit
+       * appearance from THIS theme (`experimental_userInterfaceStyle: dark ?
+       * "dark" : "light"` in useHeaderConfigProps), which becomes
+       * `navigationBar.overrideUserInterfaceStyle`. Everything UIKit draws for
+       * the bar — its material, and any menu presented from a view inside it —
+       * then follows that override rather than the window.
+       *
+       * Explicit colours (headerTintColor, headerLargeTitleStyle) fixed the
+       * things we paint ourselves; they could never fix the things the system
+       * paints. Naming the appearance once here does both.
+       */}
+      <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
+        {/* Above RootNavigator so the banner overlays every screen's header and
+            content instead of being clipped by whichever Stack.Screen owns the
+            view underneath it. */}
+        <ToastProvider>
+          <RootNavigator />
+        </ToastProvider>
+      </ThemeProvider>
     </OmgProvider>
   );
 }
