@@ -58,6 +58,19 @@ export type ProviderUsage = UsageProviderRef & {
   windows?: UsageWindow[];
 };
 
+/** One provider family, folded across every account that reported usage. */
+export type UsageSummaryProvider = {
+  id: string;
+  kind: string;
+  label: string;
+  plan: string | null;
+  available: boolean;
+  /** Number of accounts/sources that supplied at least one usage window. */
+  accounts: number;
+  note?: string;
+  windows?: UsageWindow[];
+};
+
 const HOME = homedir();
 
 function isoToMs(s: unknown): number | null {
@@ -637,4 +650,87 @@ export async function getAllUsage(
   const live = new Set(refs.map((ref) => ref.id));
   for (const id of cache.keys()) if (!live.has(id)) cache.delete(id);
   return Promise.all(refs.map((ref) => loadProvider(ref, options.force ?? false)));
+}
+
+/**
+ * Fold per-account usage into one reading per provider family.
+ *
+ * A source only reports when it is available and supplies at least one window.
+ * Window percentages use their own reporting count because some accounts omit
+ * individual windows. Reset times use the soonest value for the same label.
+ */
+export function mergeUsageByKind(providers: ProviderUsage[]): UsageSummaryProvider[] {
+  const groups = new Map<string, ProviderUsage[]>();
+  for (const provider of providers) {
+    const members = groups.get(provider.kind) ?? [];
+    members.push(provider);
+    groups.set(provider.kind, members);
+  }
+
+  return [...groups.entries()].map(([kind, members]) => {
+    const live = members.filter(
+      (member) => member.available && (member.windows?.length ?? 0) > 0,
+    );
+    const label = members.length === 1
+      ? members[0].label
+      : kind.charAt(0).toUpperCase() + kind.slice(1);
+    const plan = live.find((member) => member.plan != null)?.plan
+      ?? members.find((member) => member.plan != null)?.plan
+      ?? null;
+    const base = { id: kind, kind, label, plan, accounts: live.length };
+
+    if (!live.length) {
+      const note = members.find((member) => member.note)?.note;
+      return { ...base, available: false, ...(note ? { note } : {}) };
+    }
+
+    const byLabel = new Map<
+      string,
+      { sum: number; n: number; resetsAt: number | null }
+    >();
+    const order: string[] = [];
+    for (const member of live) {
+      for (const window of member.windows ?? []) {
+        let slot = byLabel.get(window.label);
+        if (!slot) {
+          slot = { sum: 0, n: 0, resetsAt: null };
+          byLabel.set(window.label, slot);
+          order.push(window.label);
+        }
+        if (typeof window.pct === "number" && Number.isFinite(window.pct)) {
+          slot.sum += Math.max(0, Math.min(100, window.pct));
+          slot.n += 1;
+        }
+        if (
+          window.resetsAt != null
+          && (slot.resetsAt == null || window.resetsAt < slot.resetsAt)
+        ) {
+          slot.resetsAt = window.resetsAt;
+        }
+      }
+    }
+
+    const windows = order.map((windowLabel) => {
+      const slot = byLabel.get(windowLabel)!;
+      return {
+        label: windowLabel,
+        pct: slot.n ? slot.sum / slot.n : null,
+        resetsAt: slot.resetsAt,
+      };
+    });
+    const missing = members.length - live.length;
+    const note = missing > 0
+      ? `${live.length} of ${members.length} accounts reporting`
+      : members.length === 1
+        ? members[0].note
+        : undefined;
+    return { ...base, available: true, windows, ...(note ? { note } : {}) };
+  });
+}
+
+/** Merged usage, using the same per-source cache and in-flight requests. */
+export async function getUsageSummary(
+  options: { force?: boolean } = {},
+): Promise<UsageSummaryProvider[]> {
+  return mergeUsageByKind(await getAllUsage(options));
 }

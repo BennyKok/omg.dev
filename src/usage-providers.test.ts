@@ -3,7 +3,112 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeAccountConfigDir, createClaudeAccount } from "./claude-accounts.ts";
-import { getAllUsage, getProviderUsage, listUsageProviders } from "./usage.ts";
+import {
+  getAllUsage,
+  getProviderUsage,
+  listUsageProviders,
+  mergeUsageByKind,
+  type ProviderUsage,
+} from "./usage.ts";
+
+function provider(
+  id: string,
+  windows: NonNullable<ProviderUsage["windows"]>,
+  extra: Partial<ProviderUsage> = {},
+): ProviderUsage {
+  return {
+    id,
+    kind: "claude",
+    label: "Claude",
+    plan: "max",
+    available: true,
+    windows,
+    ...extra,
+  };
+}
+
+describe("usage summary", () => {
+  test("a single account passes through as its provider family", () => {
+    expect(
+      mergeUsageByKind([
+        provider("claude:default", [{ label: "5 hr", pct: 40, resetsAt: 5_000 }]),
+      ]),
+    ).toEqual([
+      {
+        id: "claude",
+        kind: "claude",
+        label: "Claude",
+        plan: "max",
+        available: true,
+        accounts: 1,
+        windows: [{ label: "5 hr", pct: 40, resetsAt: 5_000 }],
+      },
+    ]);
+  });
+
+  test("two accounts average windows by label", () => {
+    const [summary] = mergeUsageByKind([
+      provider("claude:a", [
+        { label: "5 hr", pct: 80, resetsAt: null },
+        { label: "7 day", pct: 20, resetsAt: null },
+      ]),
+      provider("claude:b", [
+        { label: "7 day", pct: 40, resetsAt: null },
+        { label: "5 hr", pct: 20, resetsAt: null },
+      ]),
+    ]);
+
+    expect(summary.accounts).toBe(2);
+    expect(summary.windows).toEqual([
+      { label: "5 hr", pct: 50, resetsAt: null },
+      { label: "7 day", pct: 30, resetsAt: null },
+    ]);
+  });
+
+  test("an unavailable account is excluded from the mean", () => {
+    const [summary] = mergeUsageByKind([
+      provider("claude:a", [{ label: "5 hr", pct: 80, resetsAt: null }]),
+      provider("claude:b", [], { available: false, note: "Sign-in expired — reconnect" }),
+    ]);
+
+    expect(summary.accounts).toBe(1);
+    expect(summary.windows?.[0]?.pct).toBe(80);
+    expect(summary.note).toBe("1 of 2 accounts reporting");
+  });
+
+  test("all unavailable accounts produce no windows", () => {
+    const [summary] = mergeUsageByKind([
+      provider("claude:a", [], { available: false, note: "Not signed in" }),
+      provider("claude:b", [], { available: false, note: "Sign-in expired" }),
+    ]);
+
+    expect(summary).toMatchObject({
+      id: "claude",
+      available: false,
+      accounts: 0,
+      note: "Not signed in",
+    });
+    expect(summary.windows).toBeUndefined();
+  });
+
+  test("each account percentage is clamped before averaging", () => {
+    const [summary] = mergeUsageByKind([
+      provider("claude:a", [{ label: "5 hr", pct: 120, resetsAt: null }]),
+      provider("claude:b", [{ label: "5 hr", pct: 0, resetsAt: null }]),
+    ]);
+
+    expect(summary.windows?.[0]?.pct).toBe(50);
+  });
+
+  test("the soonest reset wins for each window label", () => {
+    const [summary] = mergeUsageByKind([
+      provider("claude:a", [{ label: "5 hr", pct: 10, resetsAt: 3_000 }]),
+      provider("claude:b", [{ label: "5 hr", pct: 20, resetsAt: 1_000 }]),
+    ]);
+
+    expect(summary.windows?.[0]?.resetsAt).toBe(1_000);
+  });
+});
 
 describe("usage providers", () => {
   const originalHome = process.env.HOME;
