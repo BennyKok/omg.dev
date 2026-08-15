@@ -45,6 +45,21 @@ command file and parses the command. Its 250 ms poll interval matches
 `managed-sdk-session.ts`. Deterministic jitter spreads messages across the poll
 phase instead of measuring only its best or worst alignment.
 
+## Lifecycle paths
+
+`legacy_tmux_start_ready` creates a tmux session, pseudo-terminal, fake agent
+process, and first visible composer. `structured_process_start_ready` starts the
+same Bun helper as a detached process and waits for control-plane readiness.
+
+`legacy_tmux_archive` kills the tmux session and confirms its removal.
+`structured_process_archive` sends the real command-file close shape, honors the
+production 300 ms grace period, waits for process exit, and removes the control
+files.
+
+These scenarios exclude real CLI loading, authentication, provider connection,
+and transcript loading. They compare LFG's local supervisor overhead. A live
+provider benchmark is required for actual ready-to-prompt latency.
+
 ## Scope
 
 This benchmark measures LFG-to-runtime command acceptance. It does not measure
@@ -60,9 +75,20 @@ median result from the three runs.
 
 | Scenario | p50 | p95 | p99 |
 | --- | ---: | ---: | ---: |
-| Legacy tmux confirmed acceptance | 457.293 ms | 462.352 ms | 467.351 ms |
-| Structured append and SQLite persistence | 0.271 ms | 0.442 ms | 3.370 ms |
-| Structured harness acceptance | 130.459 ms | 233.070 ms | 240.834 ms |
+| Legacy tmux confirmed acceptance | 457.475 ms | 462.536 ms | 463.673 ms |
+| Structured append and SQLite persistence | 0.285 ms | 0.381 ms | 3.409 ms |
+| Structured harness acceptance | 129.444 ms | 233.440 ms | 241.082 ms |
+| Legacy tmux start ready | 86.310 ms | 98.754 ms | 109.902 ms |
+| Structured process start ready | 57.229 ms | 70.251 ms | 79.806 ms |
+| Legacy tmux archive | 11.273 ms | 13.475 ms | 14.886 ms |
+| Structured process archive | 300.474 ms | 301.301 ms | 301.711 ms |
 
-The structured harness path was 3.511 times faster at p50 and 1.987 times
-faster at p95. It saved 327.631 ms at p50 and 229.610 ms at p95.
+The structured harness path was 3.534 times faster at p50 and 1.980 times
+faster at p95. It saved 328.031 ms at p50 and 228.573 ms at p95.
+
+The structured supervisor started 1.532 times faster at p50 and 1.361 times
+faster at p95. These values stop at local control-plane readiness. They do not
+include the SDK or ACP provider handshake.
+
+Structured archive was 26.652 times slower at p50. It added 289.185 ms. The
+production close path's fixed 300 ms grace period causes almost all this cost.
