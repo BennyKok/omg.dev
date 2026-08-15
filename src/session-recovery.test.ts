@@ -105,6 +105,42 @@ describe("command-file session boot recovery", () => {
     expect(launch.cmd).toContain("--recovered-at");
   });
 
+  test("adopts an alive same-boot harness without relaunching it", async () => {
+    const key = "34343434-3434-4434-8434-343434343434";
+    addManaged({
+      tmuxName: "lfg-same-boot",
+      cwd: root,
+      createdAt: 1,
+      agent: "aisdk",
+      sessionId: key,
+      nativeSessionId: key,
+      model: "opus",
+      launchState: "running",
+    });
+    writeEntry({
+      sessionId: key,
+      agent: "claude",
+      harnessPid: process.pid,
+      tmuxName: "lfg-same-boot",
+      supervisor: "process",
+      bootId: currentBootId(),
+      cwd: root,
+      model: "opus",
+      busy: false,
+      createdAt: 1,
+    });
+
+    const result = await reconcileCommandFileSessions(() => {});
+
+    expect(result.adopted).toBe(1);
+    expect(result.recovered).toBe(0);
+    expect(() => readFileSync(capture, "utf8")).toThrow();
+    expect(readEntry(key)).toEqual(expect.objectContaining({
+      harnessPid: process.pid,
+      recoveryClaimBootId: null,
+    }));
+  });
+
   test("does not surface a dead registry entry as an already-live managed session", () => {
     const key = "44444444-4444-4444-8444-444444444444";
     const managed = {
