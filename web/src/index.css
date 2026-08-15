@@ -960,6 +960,51 @@ html.lfg-keyboard-open {
     }
   }
 
+  /* Failed send: the queue gave up, so the bubble stays as a record with the
+     delivery error and a retry affordance. Destructive tint, static (nothing
+     is in flight), dashed edge like the queued state it follows. */
+  .user-bubble.is-failed.markdown {
+    border: 1px dashed color-mix(in oklab, var(--destructive) 55%, transparent);
+    background: linear-gradient(
+        color-mix(in oklab, var(--destructive) 8%, transparent),
+        color-mix(in oklab, var(--destructive) 8%, transparent)
+      )
+      padding-box;
+    box-shadow: none;
+  }
+
+  .user-failed-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    padding-right: 2px;
+    font-size: 11px;
+    line-height: 1.4;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    color: var(--destructive);
+  }
+
+  .user-failed-retry {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    flex-shrink: 0;
+    border-radius: 9999px;
+    padding: 1px 8px;
+    font: inherit;
+    color: var(--destructive);
+    border: 1px solid color-mix(in oklab, var(--destructive) 45%, transparent);
+    background: transparent;
+    cursor: pointer;
+    transition: background-color 150ms ease-out;
+  }
+
+  .user-failed-retry:hover {
+    background: color-mix(in oklab, var(--destructive) 12%, transparent);
+  }
+
   .lfg-organic-activity {
     --send-organic-edge:
       radial-gradient(ellipse 38% 20% at 23% 0%, rgba(0, 122, 255, 0.78), transparent 78%),

@@ -662,7 +662,6 @@ const STATIC_PROVIDERS: UsageProviderRef[] = [
   { id: "codex", kind: "codex", label: "Codex" },
   { id: "cursor", kind: "cursor", label: "Cursor" },
   { id: "grok", kind: "grok", label: "Grok" },
-  { id: "hermes", kind: "hermes", label: "Hermes" },
   { id: "opencode", kind: "opencode", label: "OpenCode" },
 ];
 
@@ -694,9 +693,7 @@ function collect(ref: UsageProviderRef): Promise<ProviderUsage> {
   if (ref.kind === "cursor") return cursorUsage(ref);
   if (ref.kind === "grok") return grokUsage(ref);
   if (ref.kind === "opencode") return opencodeUsage(ref);
-  return Promise.resolve(
-    staticProvider(ref, "Usage is stored in Hermes' own state database"),
-  );
+  return Promise.resolve(staticProvider(ref, "Usage is unavailable for this provider"));
 }
 
 const cache = new Map<string, { at: number; data: ProviderUsage }>();

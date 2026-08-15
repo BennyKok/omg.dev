@@ -17,7 +17,7 @@ import { userAssignments } from "./users";
 import { PATHS } from "./config";
 import { homedir } from "node:os";
 import { projectName } from "./projects";
-import { isCommandFileAgent } from "./coding-agent-adapters";
+import { usesCommandFileRuntime } from "./coding-agent-adapters";
 import type { CodingAgentKind } from "./coding-agents";
 import { OMG_CAPABILITY_VERSION, stripOmgRuntimeContract } from "./omg-capabilities.ts";
 import {
@@ -81,6 +81,10 @@ const DIRECT_INDEX_MANAGED_AGENTS = new Set<ManagedSession["agent"]>([
   "codex-aisdk",
   "opencode",
   "pi",
+  "grok",
+  "cursor",
+  "copilot",
+  "jcode",
 ]);
 
 type SessionProfile = {
@@ -286,6 +290,7 @@ export type SessionMsg = {
 
 export type Session = {
   agent: CodingAgentKind;
+  runtime?: "tmux" | "command-file";
   // Display-name override from a custom agent profile (see src/agent-profile.ts),
   // or null/absent to fall back to the agent kind. Currently only pi-backed
   // sessions can set this.
@@ -471,7 +476,7 @@ export function managedLaunchRow(
   const sessionId = m.sessionId ?? m.nativeSessionId ?? null;
   if (!sessionId) return null;
   const agent = m.agent ?? "claude";
-  const commandFile = isCommandFileAgent(agent);
+  const commandFile = usesCommandFileRuntime(agent, m.runtime);
   const candidateEntry = commandFile ? findAisdkEntryByAnyId(sessionId) : null;
   const directEntry = candidateEntry && isPidAlive(candidateEntry.harnessPid)
     ? candidateEntry
@@ -518,11 +523,12 @@ export function managedLaunchRow(
   const cmd = pid ? readProcCmd(pid, fallbackCmd) : fallbackCmd;
   const model = m.model ?? cmd.match(/--model\s+(\S+)/)?.[1] ?? null;
   const transcriptPath =
-    m.agent && DIRECT_INDEX_MANAGED_AGENTS.has(m.agent) && sessionId
+    commandFile && m.agent && DIRECT_INDEX_MANAGED_AGENTS.has(m.agent) && sessionId
       ? sessionIndexKey(sessionId)
       : null;
   return {
     agent,
+    runtime: commandFile ? "command-file" : "tmux",
     pid,
     cmd,
     cwd: m.cwd,
@@ -2413,7 +2419,7 @@ export async function listSessions(): Promise<Session[]> {
     {
       const t = tmux.targetForPid(p.pid);
       const rec = t ? managedByName.get(t.split(":")[0]) : undefined;
-      if (rec && isCommandFileAgent(rec.agent)) continue;
+      if (rec && usesCommandFileRuntime(rec.agent, rec.runtime)) continue;
     }
 
     let cwd: string | null = null;
@@ -2818,8 +2824,9 @@ export async function listSessions(): Promise<Session[]> {
     const isCodex = e.agent === "codex";
     const isOpencode = e.agent === "opencode";
     const isPi = e.agent === "pi";
+    const publicAgent = isCodex ? "codex-aisdk" : (e.agent ?? "claude") === "claude" ? "aisdk" : e.agent!;
     const codexThreadId = isCodex ? (e.threadId ?? null) : null;
-    const nativeSessionId = isCodex || isOpencode || isPi ? (e.threadId ?? null) : e.sessionId;
+    const nativeSessionId = e.agent === "claude" || !e.agent ? e.sessionId : (e.threadId ?? null);
     const managedRec = e.tmuxName ? managedByName.get(e.tmuxName) : undefined;
     rememberNativeSession(managedRec, nativeSessionId);
     const sessionId = managedVisibleId(managedRec, e.sessionId) ?? e.sessionId;
@@ -2857,7 +2864,8 @@ export async function listSessions(): Promise<Session[]> {
       startedAt = statSync(`/proc/${e.harnessPid}`).ctimeMs;
     } catch {}
     out.push({
-      agent: isCodex ? "codex-aisdk" : isOpencode ? "opencode" : isPi ? "pi" : "aisdk",
+      agent: publicAgent,
+      runtime: "command-file",
       // Only pi carries a profile display-name override today; other backends
       // leave it null.
       agentLabel: isPi ? (e.agentLabel ?? null) : null,
@@ -2868,7 +2876,9 @@ export async function listSessions(): Promise<Session[]> {
           ? `lfg opencode-aisdk-session --model ${e.model}`
           : isPi
             ? `lfg pi-session --model ${e.model}`
-            : `lfg aisdk-session --model ${e.model}`,
+            : publicAgent === "aisdk"
+              ? `lfg aisdk-session --model ${e.model}`
+              : `lfg ${publicAgent}-session --model ${e.model}`,
       cwd: e.cwd,
       project,
       title,
@@ -2890,7 +2900,7 @@ export async function listSessions(): Promise<Session[]> {
       // Codex slugs and opencode "provider/model" ids aren't Claude aliases —
       // pass them through raw. modelAlias would leave them unchanged anyway, but
       // be explicit about intent.
-      model: isCodex || isOpencode ? e.model : modelAlias(e.model),
+      model: publicAgent === "aisdk" || isPi ? modelAlias(e.model) : e.model,
       thinkingLevel: e.thinkingLevel ?? managedRec?.thinkingLevel ?? null,
       ...(e.recoveredAt
         ? {
@@ -3041,11 +3051,18 @@ export async function resolveTranscript(sessionId: string): Promise<string | nul
   const managed = listManaged().find(
     (m) => m.sessionId === sessionId || m.nativeSessionId === sessionId,
   );
+  // Command-file Grok/Cursor/Copilot/JCode (and the older SDK agents) index
+  // directly. Do this before the native-file branches: those agents still have
+  // managed.agent === "cursor"/"jcode"/… on new rows, and hunting ~/.cursor or
+  // ~/.jcode returns null — or worse, another session's journal in the same cwd.
+  if (managed && usesCommandFileRuntime(managed.agent, managed.runtime)) {
+    return sessionIndexKey(managed.sessionId ?? sessionId);
+  }
   // cursor: the transcript lives under ~/.cursor/projects/<enc-cwd>/… named by
   // cursor's own chat id (not lfg's id). Resolve by remembered native id first,
   // else by the newest transcript in the session's cwd. Handle it here so the
   // claude-oriented cwd fallback below (which assumes ~/.claude/projects) never
-  // fires for cursor.
+  // fires for a legacy tmux cursor row.
   if (managed?.agent === "cursor") {
     if (managed.nativeSessionId) {
       const byId = await findCursorTranscriptById(managed.nativeSessionId);
@@ -3070,9 +3087,6 @@ export async function resolveTranscript(sessionId: string): Promise<string | nul
   }
   if (managed?.agent === "codex") {
     return await findManagedCodexTranscript(managed);
-  }
-  if (managed?.agent && DIRECT_INDEX_MANAGED_AGENTS.has(managed.agent)) {
-    return sessionIndexKey(managed.sessionId ?? sessionId);
   }
   const entry = findAisdkEntryByAnyId(sessionId);
   if (entry) return sessionIndexKey(entry.sessionId);
@@ -3160,8 +3174,8 @@ export type ResumableSession = {
   // Which engine the session was recorded with. "claude" resumes via the claude
   // CLI (`claude --resume`); "codex" resumes via a codex-aisdk harness keyed to
   // the rollout's threadId. The serve /resume endpoint branches on this.
-  agent: "claude" | "codex" | "opencode" | "pi" | "grok" | "cursor";
-  backend?: "aisdk" | "codex-aisdk" | "opencode" | "pi";
+  agent: "claude" | "codex" | "opencode" | "pi" | "grok" | "cursor" | "copilot" | "jcode";
+  backend?: "aisdk" | "codex-aisdk" | "opencode" | "pi" | "grok" | "cursor" | "copilot" | "jcode";
   resumeHandle?: string | null;
   model?: string | null;
   assignedUser?: string | null;
@@ -3455,14 +3469,18 @@ async function refreshResumableCacheOnce(focusSessionId?: string): Promise<void>
         ? "opencode"
         : m.agent === "pi"
           ? "pi"
-          : "aisdk";
+          : m.agent === "grok" || m.agent === "cursor" || m.agent === "copilot" || m.agent === "jcode"
+            ? m.agent
+            : "aisdk";
     const agent = backend === "codex-aisdk"
       ? "codex"
       : backend === "opencode"
         ? "opencode"
-        : backend === "pi"
-          ? "pi"
-          : "claude";
+      : backend === "pi"
+        ? "pi"
+        : backend === "grok" || backend === "cursor" || backend === "copilot" || backend === "jcode"
+          ? backend
+        : "claude";
     const sdkEntry = sdkEntries.get(m.sessionId);
     const resumeHandle = backend === "aisdk"
       ? m.sessionId

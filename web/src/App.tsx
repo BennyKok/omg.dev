@@ -103,6 +103,12 @@ import {
   type OmgTranscriptSubscribe,
 } from "./lib/omg-chat-transport";
 import {
+  queueRowHydration,
+  reconcileQueueMessages,
+  retryQueuedMessage,
+} from "./lib/queue-reconcile";
+import { canDriveSession } from "./lib/session-runtime";
+import {
   prefetchTranscripts,
   readTranscriptCache,
   updateTranscriptCacheMessages,
@@ -509,6 +515,7 @@ type ActionRow = {
 
 export type Session = {
   agent?: "claude" | "aisdk" | "codex" | "codex-aisdk" | "opencode" | "grok" | "cursor" | string;
+  runtime?: "tmux" | "command-file";
   // Display-name override from a custom agent profile (server-side), when set.
   // Prefer this over the raw agent kind for labels/tooltips.
   agentLabel?: string | null;
@@ -615,6 +622,12 @@ type Message = {
   // yet read by the agent. See MessageBubble / ChatStream — it renders as a
   // distinct "waiting" bubble pinned below the turn that is still streaming.
   queued?: boolean;
+  // The send queue gave up on this message. Stays visible with the delivery
+  // error until the user retries (queueId targets the retry endpoint) or
+  // clears the queue.
+  failed?: boolean;
+  queueError?: string;
+  queueId?: string;
   seed?: boolean;
   // A draft assistant turn we joined mid-stream: its text was already fully
   // accumulated when we connected, so it renders settled instead of replaying
@@ -654,6 +667,8 @@ type QueueMsg = {
   text: string;
   status: "pending" | "sending" | "queued" | "failed" | "delivered";
   error?: string;
+  createdAt?: number;
+  updatedAt?: number;
 };
 
 type LoadOlderMessages = (sid: string) => Promise<boolean>;
@@ -1471,17 +1486,6 @@ function SessionStatusDot({
  * login has no identity to disambiguate, so stamping "1" on every Claude mark
  * in the fleet would be noise rather than information.
  */
-
-function isHarnessAgent(agent?: string | null): boolean {
-  return agent === "aisdk" || agent === "codex-aisdk" || agent === "opencode";
-}
-
-function canDriveSession(
-  session: Pick<Session, "agent" | "tmuxTarget" | "shippedReview">,
-): boolean {
-  if (session.shippedReview) return false;
-  return !!session.tmuxTarget || isHarnessAgent(session.agent);
-}
 
 function uploadFile<T>(
   path: string,
@@ -2479,14 +2483,20 @@ function reconcileSnapshotMessages(current: Message[], incoming: Message[]): Mes
   const incomingIds = new Set(next.map((message) => message.id).filter(Boolean));
   const incomingUserText = next.filter((message) => message.role === "user" && message.kind === "text");
   const latestIncomingTs = next.reduce((max, message) => Math.max(max, message.ts ?? 0), 0);
+  // Incoming user rows claim local pending bubbles one-to-one: with a repeated
+  // identical follow-up, only as many bubbles settle as rows actually arrived.
+  const claimedIncoming = new Set<number>();
   for (const local of current) {
     if (local.seed || local.kind === "thinking") continue;
     if (local.id && incomingIds.has(local.id)) continue;
-    if (
-      local.pending &&
-      incomingUserText.some((message) => sameMessageNeedle(message.text, local.text))
-    ) {
-      continue;
+    if (local.pending) {
+      const claimIndex = incomingUserText.findIndex(
+        (message, index) => !claimedIncoming.has(index) && sameMessageNeedle(message.text, local.text),
+      );
+      if (claimIndex >= 0) {
+        claimedIncoming.add(claimIndex);
+        continue;
+      }
     }
     const localTs = local.ts ?? (local.pending ? Date.now() : 0);
     if (local.pending || !latestIncomingTs || localTs >= latestIncomingTs) next.push(local);
@@ -2534,6 +2544,21 @@ function sameMessageNeedle(a?: string, b?: string) {
   const bn = messageNeedle(b);
   if (!an || !bn) return false;
   return an.includes(bn) || bn.includes(an);
+}
+
+// Queue-event reconciliation lives in lib/queue-reconcile (shared with the WS
+// hook and the AI-SDK transport). It never truncates: paged-in history must
+// survive every queue event.
+function hydrateQueueMessage(item: QueueMsg): Message {
+  return {
+    id: `queue-${item.id}`,
+    role: "user",
+    kind: "text",
+    text: item.text,
+    html: escapeHtml(item.text).replace(/\n/g, "<br>"),
+    ts: item.createdAt ?? item.updatedAt ?? Date.now(),
+    ...queueRowHydration(item),
+  };
 }
 
 function seedMessageForSession(session: Session): Message | null {
@@ -4546,8 +4571,18 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
           next = [...current.filter((item) => item.kind !== "thinking"), message];
         } else {
           const realUser = message.role === "user" && message.kind === "text";
+          // A real user row claims exactly ONE pending bubble with the same
+          // text — claiming all of them would make a repeated identical
+          // follow-up vanish.
+          let pendingClaimed = false;
           next = realUser
-            ? current.filter((item) => !item.pending || !sameMessageNeedle(message.text, item.text))
+            ? current.filter((item) => {
+                if (!item.pending || pendingClaimed || !sameMessageNeedle(message.text, item.text)) {
+                  return true;
+                }
+                pendingClaimed = true;
+                return false;
+              })
             : current.filter((item) => {
                 if (item.kind === "thinking") return false;
                 if (message.role === "assistant" && message.kind === "text" && isDraftAssistantMessage(item)) {
@@ -4711,6 +4746,16 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
       setPromptsBySid((prev) => ({ ...prev, [payload.sid]: payload.prompt }));
     });
 
+    es.addEventListener("queue", (event) => {
+      const payload = parseLiveEvent<{ sid: string; queue: QueueMsg[] }>(event.data);
+      if (!payload || !active.has(payload.sid)) return;
+      const queue = Array.isArray(payload.queue) ? payload.queue : [];
+      setMessagesBySid((prev) => ({
+        ...prev,
+        [payload.sid]: reconcileQueueMessages(prev[payload.sid] ?? [], queue, hydrateQueueMessage),
+      }));
+    });
+
     es.onerror = () => {
       evlog("live_stream_client_error", {
         rid,
@@ -4771,7 +4816,14 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
   const removeOptimisticMessage = useCallback((sid: string, text: string) => {
     setMessagesBySid((prev) => {
       const current = prev[sid] ?? [];
-      const next = current.filter((item) => !item.pending || !sameMessageNeedle(item.text, text));
+      // One confirmation settles one bubble — a repeated identical follow-up
+      // keeps its own pending bubble until its own confirmation lands.
+      let removed = false;
+      const next = current.filter((item) => {
+        if (removed || !item.pending || !sameMessageNeedle(item.text, text)) return true;
+        removed = true;
+        return false;
+      });
       return next.length === current.length ? prev : { ...prev, [sid]: next };
     });
   }, []);
@@ -4844,7 +4896,7 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
               removeOptimisticMessage(sid, text);
               return;
             }
-            if (item.status === "delivered" || item.status === "queued") {
+            if (item.status === "delivered") {
               await refreshMessagesForSid(sid, text, { dropOptimistic: true }).catch(() => null);
               removeOptimisticMessage(sid, text);
               return;
@@ -13121,6 +13173,18 @@ function SessionChatBody({
     }
   }
 
+  // Re-queue a failed send. The next queue event repaints the bubble as
+  // pending; delivery (and any further failure) flows from the server.
+  const retryQueued = useCallback(
+    (message: Message) => {
+      if (!sid || !message.queueId) return;
+      void retryQueuedMessage(sid, message.queueId).catch((err) =>
+        onError(err instanceof Error ? err.message : String(err)),
+      );
+    },
+    [sid, onError],
+  );
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <StaleCapabilitiesBanner session={session} />
@@ -13135,6 +13199,7 @@ function SessionChatBody({
         busy={chatBusy}
         loading={historyLoading}
         onLoadOlderMessages={loadOlderMessages}
+        onRetryQueued={retryQueued}
       />
 
       <SessionQuestionPanel sessionIds={[session.sessionId, session.nativeSessionId]} />
@@ -15258,7 +15323,7 @@ const onTouchStart = (e: ReactTouchEvent) => {
           </span>
         ) : null}
         {!collapsedView && (
-          (session.agent === "claude" || session.agent === "opencode" || session.agent === "hermes") &&
+          (session.agent === "claude" || session.agent === "opencode") &&
           (session.tmuxTarget || session.agent === "opencode") &&
           sid ? (
           <DropdownMenu>
@@ -15356,12 +15421,14 @@ const ChatStream = memo(function ChatStream({
   busy,
   loading,
   onLoadOlderMessages,
+  onRetryQueued,
 }: {
   sid: string | null;
   messages: Message[];
   busy: boolean;
   loading: boolean;
   onLoadOlderMessages: LoadOlderMessages;
+  onRetryQueued?: (message: Message) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const transcriptView = useContext(TranscriptViewContext);
@@ -15510,6 +15577,7 @@ const ChatStream = memo(function ChatStream({
                 message={item.message}
                 live={busy && index === items.length - 1}
                 entering={!!item.message.id && enteringIdsRef.current.has(item.message.id)}
+                onRetryQueued={onRetryQueued}
               />
             ),
           )}
@@ -15518,7 +15586,7 @@ const ChatStream = memo(function ChatStream({
               then what it will read next. */}
           {queuedItems.map((item) =>
             item.type === "msg" ? (
-              <MessageBubble key={item.key} message={item.message} />
+              <MessageBubble key={item.key} message={item.message} onRetryQueued={onRetryQueued} />
             ) : null,
           )}
         </ConversationContent>
@@ -15931,10 +15999,12 @@ function UserBubble({
   html,
   pending,
   queued,
+  failed,
 }: {
   html: string;
   pending?: boolean;
   queued?: boolean;
+  failed?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
@@ -15969,6 +16039,7 @@ function UserBubble({
         "msg-text markdown user-bubble text-base w-fit max-w-full",
         pending && !queued && "is-pending",
         queued && "is-queued",
+        failed && "is-failed",
       )}
     >
       {/* The organic shimmer means "in flight". A queued turn is deliberately
@@ -16251,6 +16322,7 @@ function MessageBubble({
   message,
   live = false,
   entering = false,
+  onRetryQueued,
 }: {
   message: Message;
   // Whether the session is actively working on THIS turn — drives the thinking
@@ -16259,6 +16331,8 @@ function MessageBubble({
   // First appearance of a settled assistant turn while live — plays a one-shot
   // entrance so the draft→final swap doesn't flash.
   entering?: boolean;
+  // Retry a failed queue send through the server queue's retry endpoint.
+  onRetryQueued?: (message: Message) => void;
 }) {
   const openArtifact = useContext(ArtifactViewerContext);
   // Must run before the early returns below — hooks can't be conditional. The
@@ -16416,6 +16490,7 @@ function MessageBubble({
   const isUser = message.role === "user";
   if (isUser) {
     const queued = !!message.queued && !!message.pending;
+    const failed = !!message.failed;
     return (
       <AiMessage
         ref={sendMorphRef}
@@ -16441,6 +16516,27 @@ function MessageBubble({
               Queued · sends when this turn ends
             </span>
           ) : null}
+          {/* A failed send never reached the agent at all. Keep it visible with
+              the delivery error and offer retry through the queue's retry
+              endpoint — disappearing here would silently drop the user's words. */}
+          {failed ? (
+            <span className="user-failed-label" role="alert">
+              <TriangleAlert className="size-3" aria-hidden="true" />
+              <span className="min-w-0">
+                Failed to send{message.queueError ? ` — ${message.queueError}` : ""}
+              </span>
+              {message.queueId && onRetryQueued ? (
+                <button
+                  type="button"
+                  className="user-failed-retry"
+                  onClick={() => onRetryQueued(message)}
+                >
+                  <RotateCcw className="size-3" aria-hidden="true" />
+                  Retry
+                </button>
+              ) : null}
+            </span>
+          ) : null}
           {userContent.attachments.length > 0 ? (
             <UserAttachments attachments={userContent.attachments} pending={message.pending} />
           ) : null}
@@ -16448,7 +16544,7 @@ function MessageBubble({
               picture is the whole message, with no empty bubble under it. */}
           {userContent.html ? (
             <MessageActions text={omgEnvelope?.task ?? message.text ?? ""} isUser>
-              <UserBubble html={userContent.html} pending={message.pending} queued={queued} />
+              <UserBubble html={userContent.html} pending={message.pending} queued={queued} failed={failed} />
             </MessageActions>
           ) : null}
         </div>

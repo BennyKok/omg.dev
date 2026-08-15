@@ -126,7 +126,8 @@ import {
   MAX_IDLE_ARCHIVE_MINUTES,
   MIN_IDLE_ARCHIVE_MINUTES,
 } from "../idle-archive.ts";
-import { isCommandFileAgent } from "../coding-agent-adapters.ts";
+import { CODING_AGENT_ADAPTERS, resolveActiveSessionAgent, usesCommandFileRuntime } from "../coding-agent-adapters.ts";
+import { launchCodingAgentSession } from "../coding-agent-provider.ts";
 import {
   enqueueTranscriptIndex,
   indexedMessagePage,
@@ -156,9 +157,7 @@ import {
   tmuxKillPane,
   tmuxKillSession,
   closeAgentBrowserSession,
-  spawnManagedSession,
   relaunchSessionWithModel,
-  spawnManagedCodexSession,
   spawnManagedGrokSession,
   spawnManagedCursorSession,
   relaunchCursorSessionWithModel,
@@ -168,7 +167,6 @@ import {
   spawnManagedPiSession,
   spawnManagedCopilotSession,
   spawnManagedJcodeSession,
-  dismissCodexUpdatePrompt,
   dismissCursorTrustPrompt,
   dismissResumeSummaryGate,
   panePidForSession,
@@ -196,7 +194,7 @@ import {
   liveTransportMode,
   type LiveWsSocketData,
 } from "../live-ws.ts";
-import { appendCmd as appendAisdkCmd, removeEntry as removeAisdkEntry, readEntry as readAisdkEntry, findEntryByAnyId as findAisdkEntryByAnyId, isEntryBusy as isAisdkEntryBusy, isPidAlive as isAisdkPidAlive, patchEntry as patchAisdkEntry, terminateHarnessProcess } from "../aisdk-registry.ts";
+import { appendCmd as appendAisdkCmd, removeEntry as removeAisdkEntry, readEntry as readAisdkEntry, findEntryByAnyId as findAisdkEntryByAnyId, isEntryBusy as isAisdkEntryBusy, isPidAlive as isAisdkPidAlive, patchEntry as patchAisdkEntry, terminateHarnessProcess, waitForHarnessExit, wakeHarnessCommandReader } from "../aisdk-registry.ts";
 import { markClosed } from "../closing.ts";
 import { assignUser, resolveSessionUserTag, rosterEmails, userAssignments, userRoster } from "../users.ts";
 import {
@@ -501,7 +499,16 @@ const OPENCODE_DISABLED_MODELS = new Set<string>([
   "novita-ai/zai-org/glm-5.2",
   "novita-ai/zai-org/glm-5.1",
 ]);
-import { enqueueMessage, listQueue, retryMessage, clearResolved, reconcileQueued, getMessage } from "../sendq.ts";
+import {
+  enqueueMessage,
+  listQueue,
+  retryMessage,
+  clearResolved,
+  reconcileQueued,
+  getMessage,
+  recordCommandFileMessage,
+  resumePersistedQueues,
+} from "../sendq.ts";
 import { startFleetWatcher } from "../voice-bus.ts";
 import { startSessionPushBridge } from "../session-push.ts";
 
@@ -954,6 +961,9 @@ function persistManagedResume(session: Session): void {
         ? "opencode"
         : session.agent === "pi"
           ? "pi"
+          : session.runtime === "command-file" &&
+              (session.agent === "grok" || session.agent === "cursor" || session.agent === "copilot" || session.agent === "jcode")
+            ? session.agent
           : null;
   if (!backend && !session.transcriptPath) return;
   const fileBackedId =
@@ -979,6 +989,8 @@ function persistManagedResume(session: Session): void {
         ? "opencode"
         : backend === "pi"
           ? "pi"
+          : backend === "grok" || backend === "cursor" || backend === "copilot" || backend === "jcode"
+            ? backend
           : session.agent === "grok"
             ? "grok"
             : session.agent === "cursor"
@@ -1616,7 +1628,7 @@ async function closeLiveSession(
   // agent-browser daemons reparent under user systemd and outlive tmux/harness
   // exit; idle timeout is the backstop, this is the explicit teardown path.
   closeAgentBrowserSession(sess.tmuxName);
-  if (isCommandFileAgent(sess.agent)) {
+  if (usesCommandFileRuntime(sess.agent, sess.runtime)) {
     // Ask the harness to shut down, then tear down its supervisor pane and
     // control-plane files. markClosed tombstones the harness pid so the
     // session drops out of the list immediately. For codex-aisdk the
@@ -1625,7 +1637,13 @@ async function closeLiveSession(
     const entry = findAisdkEntryByAnyId(id);
     const key = entry?.sessionId ?? id;
     appendAisdkCmd(key, { type: "close" });
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    if (entry) {
+      wakeHarnessCommandReader(entry);
+      // Return as soon as the harness exits. Old harnesses have no wake
+      // capability and keep their 250 ms command poll; the 300 ms bound still
+      // preserves the previous force-stop behavior for a stuck SDK close.
+      await waitForHarnessExit(entry.harnessPid);
+    }
     if (entry && isAisdkPidAlive(entry.harnessPid)) {
       if (entry.supervisor === "process") terminateHarnessProcess(entry);
       else if (sess.tmuxName) tmuxKillSession(sess.tmuxName);
@@ -1717,7 +1735,7 @@ async function archiveIdleDurableAgentsForMemory(): Promise<number> {
       (session) =>
         !!session.sessionId &&
         session.managed &&
-        isCommandFileAgent(session.agent) &&
+        usesCommandFileRuntime(session.agent, session.runtime) &&
         !session.busy &&
         !session.launching,
     )
@@ -2000,7 +2018,10 @@ function sendAiTextDeltaPart(
 function interruptLiveSession(session: Session): { ok: boolean; error?: string; status?: number } {
   const sid = session.sessionId;
   if (!sid) return { ok: false, error: "live session has no id", status: 409 };
-  if (isCommandFileAgent(session.agent)) {
+  if (session.agent === "hermes") {
+    return { ok: false, error: "Hermes has been removed", status: 410 };
+  }
+  if (usesCommandFileRuntime(session.agent, session.runtime)) {
     const key = findAisdkEntryByAnyId(sid)?.sessionId ?? sid;
     appendAisdkCmd(key, { type: "interrupt" });
     return { ok: true };
@@ -2023,6 +2044,7 @@ function sendPromptToLiveSession(
   if (!prompt) return { ok: true };
   const sid = session.sessionId;
   if (!sid) return { ok: false, error: "live session has no id" };
+  if (session.agent === "hermes") return { ok: false, error: "Hermes has been removed" };
   traceLog("session_send_request", {
     sessionId: sid,
     agent: session.agent,
@@ -2034,7 +2056,7 @@ function sendPromptToLiveSession(
     const interrupted = interruptLiveSession(session);
     if (!interrupted.ok) return interrupted;
   }
-  if (isCommandFileAgent(session.agent)) {
+  if (usesCommandFileRuntime(session.agent, session.runtime)) {
     const key = findAisdkEntryByAnyId(sid)?.sessionId ?? sid;
     patchAisdkEntry(key, { recoveredAt: null });
     if (session.tmuxName) patchManaged(session.tmuxName, { interruptedAt: undefined });
@@ -2042,12 +2064,19 @@ function sendPromptToLiveSession(
     traceLog("session_send_aisdk_cmd", { sessionId: sid, key, chars: prompt.length });
     return {
       ok: true,
-      msg: { id: randomBytes(8).toString("hex"), text: prompt, status: "delivered" },
+      msg: recordCommandFileMessage(sid, prompt, !!session.busy),
     };
   }
   if (!session.tmuxTarget) return { ok: false, error: "session is not in a tmux pane — cannot send" };
   const transportPrompt = session.agent === "jcode" ? prompt.replace(/\s+/g, " ").trim() : prompt;
-  return { ok: true, msg: enqueueMessage(sid, transportPrompt) };
+  return {
+    ok: true,
+    msg: enqueueMessage(sid, transportPrompt, {
+      // Jcode's REPL buffers a complete stdin line while its current turn is
+      // active. It accepted the line, but the agent has not read it yet.
+      queuedBehindTurn: session.agent === "jcode" && !!session.busy,
+    }),
+  };
 }
 
 function liveSessionIds(sessions: Session[]): Set<string> {
@@ -4308,6 +4337,7 @@ a{color:#60a5fa}
             cwd,
             createdAt: Date.now(),
             agent: cachedResume.backend,
+            runtime: "command-file",
             sessionId,
             nativeSessionId: resumeHandle,
             launchState: "launching",
@@ -4336,49 +4366,17 @@ a{color:#60a5fa}
             }
           }
           const prompt = body?.prompt?.trim() || undefined;
-          const spawned = cachedResume.backend === "codex-aisdk"
-            ? spawnManagedCodexAisdkSession({
-                name: tmuxName,
-                cwd,
-                prompt,
-                model: resumeModel,
-                key: sessionId,
-                resume: resumeHandle,
-                omgSessionId: sessionId,
-                omgUser: assignedUser,
-              })
-            : cachedResume.backend === "opencode"
-              ? spawnManagedOpencodeAisdkSession({
-                  name: tmuxName,
-                  cwd,
-                  prompt,
-                  model: resumeModel,
-                  key: sessionId,
-                  resume: resumeHandle,
-                  omgSessionId: sessionId,
-                  omgUser: assignedUser,
-                })
-              : cachedResume.backend === "pi"
-                ? spawnManagedPiSession({
-                    name: tmuxName,
-                    cwd,
-                    prompt,
-                    model: resumeModel,
-                    key: sessionId,
-                    resume: resumeHandle,
-                    omgSessionId: sessionId,
-                    omgUser: assignedUser,
-                  })
-                : spawnManagedAisdkSession({
-                    name: tmuxName,
-                    cwd,
-                    prompt,
-                    model: resumeModel,
-                    sessionId,
-                    omgSessionId: sessionId,
-                    omgUser: assignedUser,
-                    claudeAccountId: pinnedClaudeAccountId,
-                  });
+          const spawned = launchCodingAgentSession({
+            agent: cachedResume.backend,
+            name: tmuxName,
+            cwd,
+            prompt,
+            model: resumeModel,
+            sessionId,
+            resume: resumeHandle,
+            omgUser: assignedUser,
+            claudeAccountId: pinnedClaudeAccountId,
+          });
           if (!spawned.ok) {
             removeManaged(tmuxName);
             assignUser(tmuxName, null);
@@ -4760,41 +4758,20 @@ a{color:#60a5fa}
           overLimit?: boolean;
           agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "jcode" | "grok" | "cursor" | "copilot" | "hermes" | "pi";
         } | null;
-        if (body?.agent === "hermes") {
-          return err(400, "agent \"hermes\" is temporarily unavailable");
+        const agent = resolveActiveSessionAgent(body?.agent);
+        if (!agent) {
+          if (body?.agent === "hermes") return err(410, "agent \"hermes\" has been removed");
+          return err(400, `unknown coding agent "${body?.agent ?? ""}"`);
         }
-        // Default flip (Task B): with no agent specified, the default Claude path
-        // now goes through the AI SDK ("aisdk") rather than the Claude CLI. Every
-        // explicit value still works, INCLUDING explicit "claude" for the CLI.
-        const agent =
-          body?.agent === "codex"
-            ? "codex"
-            : body?.agent === "codex-aisdk"
-              ? "codex-aisdk"
-              : body?.agent === "opencode"
-                ? "opencode"
-                : body?.agent === "jcode"
-                  ? "jcode"
-                : body?.agent === "grok"
-                  ? "grok"
-                  : body?.agent === "cursor"
-                    ? "cursor"
-                    : body?.agent === "pi"
-                      ? "pi"
-                      : body?.agent === "copilot"
-                        ? "copilot"
-                        : body?.agent === "claude"
-                          ? "claude"
-                          : "aisdk";
         const requestedClaudeAccountId = body?.claudeAccountId?.trim() || undefined;
         const selectedClaudeAccount =
-          agent === "claude" || agent === "aisdk"
+          agent === "aisdk"
             ? await pickClaudeAccountForNewSession({
                 explicitAccountId: requestedClaudeAccountId,
                 readCapacity: (account) => getProviderUsage(`claude:${account.id}`),
               })
             : null;
-        if ((agent === "claude" || agent === "aisdk") && requestedClaudeAccountId && !selectedClaudeAccount) {
+        if (agent === "aisdk" && requestedClaudeAccountId && !selectedClaudeAccount) {
           return err(400, "Claude account is missing or not connected");
         }
         const claudeAccountId = selectedClaudeAccount?.id;
@@ -4808,13 +4785,6 @@ a{color:#60a5fa}
           agent === "opencode" && requestedModel && OPENCODE_DISABLED_MODELS.has(requestedModel)
             ? opencodeDefault
             : requestedModel;
-        if (agent === "claude" && model) {
-          const allowed = modelsForAgent("claude");
-          if (!allowed.includes(model))
-            return err(400, `unknown model "${model}" (expected one of ${allowed.join(", ")})`);
-        }
-        if (agent === "codex" && model && !/^[A-Za-z0-9_.:-]{1,80}$/.test(model))
-          return err(400, "invalid codex model name");
         if (agent === "aisdk" && model) {
           const allowed = modelsForAgent("aisdk");
           if (!allowed.includes(model))
@@ -4962,35 +4932,10 @@ a{color:#60a5fa}
             depth: subagentDepth,
           });
         }
-        // aisdk sessions own their sessionId up front (deterministic transcript
-        // path), so we generate it here and hand it to the harness.
-        const aisdkSessionId = agent === "aisdk" ? crypto.randomUUID() : null;
-        // codex-aisdk can't pick its transcript id (codex mints the threadId
-        // after turn 1), so we mint a CONTROL-PLANE KEY instead — it names the
-        // registry/command files and is what serve routes sends through until
-        // the threadId is known. (See the codex-aisdk harness header.)
-        const codexAisdkKey = agent === "codex-aisdk" ? crypto.randomUUID() : null;
-        // opencode mints a control-plane KEY that is ALSO the transcript id: the
-        // harness self-persists the Claude-shaped transcript named by this key, so
-        // the returned sessionId == key (no after-turn-1 id to wait for, unlike
-        // codex-aisdk). See the opencode harness header.
-        const opencodeKey = agent === "opencode" ? crypto.randomUUID() : null;
-        // Grok does not write ~/.grok/active_sessions.json until a real
-        // conversation starts, so a newly-opened blank TUI has no native id yet.
-        // Mint a stable lfg id up front; listSessions maps it to Grok's native
-        // transcript later once Grok creates one.
-        const grokKey = agent === "grok" ? crypto.randomUUID() : null;
-        // pi mints its own session id almost immediately (right after the
-        // RpcClient starts, before turn 1) but not synchronously with this
-        // request — same control-plane-key treatment as codex-aisdk.
-        const piKey = agent === "pi" ? crypto.randomUUID() : null;
-        const launchId =
-          aisdkSessionId ??
-          codexAisdkKey ??
-          opencodeKey ??
-          grokKey ??
-          piKey ??
-          crypto.randomUUID();
+        // Every provider receives one stable control-plane id. SDK/RPC drivers
+        // use it as their registry key. TUI drivers use it until they expose a
+        // native transcript id. This keeps provider-specific ids out of serve.
+        const launchId = crypto.randomUUID();
         const createdAt = Date.now();
         const launchModel =
           agent === "grok"
@@ -5014,6 +4959,7 @@ a{color:#60a5fa}
           cwd,
           createdAt,
           agent,
+          runtime: CODING_AGENT_ADAPTERS[agent].transport,
           sessionId: launchId,
           nativeSessionId:
             agent === "aisdk" || agent === "opencode"
@@ -5038,100 +4984,18 @@ a{color:#60a5fa}
         // Tag the new session before spawn so a concurrent /api/sessions refresh
         // can show the durable row under the right user filter immediately.
         if (assignedUser) assignUser(tmuxName, assignedUser);
-        const r: { ok: boolean; error?: string; nativeSessionId?: string } =
-          agent === "codex"
-            ? spawnManagedCodexSession({ name: tmuxName, cwd, prompt, model: resolvedModel, thinkingLevel, omgSessionId: launchId, omgUser: assignedUser, containInAgentSlice: isSubagent })
-            : agent === "grok"
-              ? spawnManagedGrokSession({
-                  name: tmuxName,
-                  cwd,
-                  prompt,
-                  model: resolvedModel ?? GROK_DEFAULT_MODEL(),
-                  thinkingLevel,
-                  omgSessionId: launchId,
-                  omgUser: assignedUser,
-                  containInAgentSlice: isSubagent,
-                })
-            : agent === "cursor"
-              ? spawnManagedCursorSession({
-                  name: tmuxName,
-                  cwd,
-                  prompt,
-                  model: resolvedModel ?? "auto",
-                  omgSessionId: launchId,
-                  omgUser: assignedUser,
-                  containInAgentSlice: isSubagent,
-                })
-            : agent === "copilot"
-              ? spawnManagedCopilotSession({
-                  name: tmuxName,
-                  cwd,
-                  prompt,
-                  model: resolvedModel,
-                  omgSessionId: launchId,
-                  omgUser: assignedUser,
-                  containInAgentSlice: isSubagent,
-                })
-            : agent === "jcode"
-              ? spawnManagedJcodeSession({
-                  name: tmuxName,
-                  cwd,
-                  prompt,
-                  model: resolvedModel ?? "auto",
-                  thinkingLevel,
-                  omgSessionId: launchId,
-                  omgUser: assignedUser,
-                  containInAgentSlice: isSubagent,
-                })
-            : agent === "aisdk"
-              ? spawnManagedAisdkSession({
-                  name: tmuxName,
-                  cwd,
-                  prompt,
-                  model: resolvedModel ?? "opus",
-                  sessionId: aisdkSessionId!,
-                  thinkingLevel,
-                  omgSessionId: launchId,
-                  omgUser: assignedUser,
-                  containInAgentSlice: isSubagent,
-                  claudeAccountId,
-                })
-              : agent === "codex-aisdk"
-                ? spawnManagedCodexAisdkSession({
-                    name: tmuxName,
-                    cwd,
-                    prompt,
-                    model: resolvedModel ?? "gpt-5.5",
-                    key: codexAisdkKey!,
-                    thinkingLevel,
-                    omgSessionId: launchId,
-                    omgUser: assignedUser,
-                    containInAgentSlice: isSubagent,
-                  })
-                : agent === "opencode"
-                  ? spawnManagedOpencodeAisdkSession({
-                      name: tmuxName,
-                      cwd,
-                      prompt,
-                      model: resolvedModel ?? opencodeDefault!,
-                      key: opencodeKey!,
-                      omgSessionId: launchId,
-                      omgUser: assignedUser,
-                      containInAgentSlice: isSubagent,
-                    })
-                  : agent === "pi"
-                    ? spawnManagedPiSession({
-                        name: tmuxName,
-                        cwd,
-                        prompt,
-                        model: resolvedModel ?? PI_DEFAULT_MODEL,
-                        key: piKey!,
-                        thinkingLevel,
-                        omgSessionId: launchId,
-                        omgUser: assignedUser,
-                        containInAgentSlice: isSubagent,
-                      })
-                    : spawnManagedSession({ name: tmuxName, cwd, prompt, model: resolvedModel, thinkingLevel, omgSessionId: launchId, omgUser: assignedUser, containInAgentSlice: isSubagent, claudeAccountId });
+        const r = launchCodingAgentSession({
+          agent,
+          name: tmuxName,
+          cwd,
+          prompt,
+          model: launchModel,
+          thinkingLevel,
+          sessionId: launchId,
+          omgUser: assignedUser,
+          containInAgentSlice: isSubagent,
+          claudeAccountId,
+        });
         if (!r.ok) {
           // The caller received no committed session. Release the claim so a
           // corrected retry can create one; normal closes retain their claim.
@@ -5139,30 +5003,8 @@ a{color:#60a5fa}
           assignUser(tmuxName, null);
           return err(502, r.error || "failed to start session");
         }
-        if (agent === "cursor" && r.nativeSessionId) {
-          patchManaged(tmuxName, { nativeSessionId: r.nativeSessionId });
-        }
-        if (agent === "codex") {
-          void (async () => {
-            for (let i = 0; i < 12; i++) {
-              await new Promise((res) => setTimeout(res, 500));
-              if (dismissCodexUpdatePrompt(`${tmuxName}:0.0`)) break;
-            }
-          })();
-        }
-        // Belt-and-suspenders for the cursor workspace-trust dialog: the marker
-        // pre-write in spawnManagedCursorSession normally suppresses it, but auto-
-        // accept any dialog that still surfaces so the pane never hangs before its
-        // first turn (which is what strands cursor streaming).
-        if (agent === "cursor") {
-          void (async () => {
-            for (let i = 0; i < 12; i++) {
-              await new Promise((res) => setTimeout(res, 500));
-              if (dismissCursorTrustPrompt(`${tmuxName}:0.0`)) break;
-            }
-          })();
-        }
-        if (agent === "aisdk" || agent === "opencode" || agent === "cursor" || agent === "jcode")
+        if (r.nativeSessionId) patchManaged(tmuxName, { nativeSessionId: r.nativeSessionId });
+        if (CODING_AGENT_ADAPTERS[agent].transport === "command-file")
           patchManaged(tmuxName, { launchState: "running" });
         // The spawn (and the launchState patch above) changed what the session
         // list contains, so retire any snapshot taken during it.
@@ -5971,6 +5813,16 @@ a{color:#60a5fa}
           if (!model) return err(400, "expected { model }");
           const sess = (await listSessions()).find((s) => s.sessionId === m[1]);
           if (!sess) return err(404, "session not found");
+          if (sess.runtime === "command-file" && (sess.agent === "jcode" || sess.agent === "copilot")) {
+            const allowed = modelsForAgent(sess.agent);
+            if (!allowed.includes(model))
+              return err(400, `unknown model "${model}" (expected one of ${allowed.join(", ")})`);
+            const entry = findAisdkEntryByAnyId(m[1]);
+            if (!entry) return err(409, "session control process is unavailable");
+            appendAisdkCmd(entry.sessionId, { type: "set_model", model });
+            if (sess.tmuxName) patchManaged(sess.tmuxName, { model });
+            return json({ ok: true, model });
+          }
           if (sess.agent === "opencode") {
             if (!/^[A-Za-z0-9_.:\/-]{1,80}$/.test(model))
               return err(400, "invalid opencode model name");
@@ -5979,14 +5831,6 @@ a{color:#60a5fa}
             const key = findAisdkEntryByAnyId(m[1])?.sessionId ?? m[1];
             appendAisdkCmd(key, { type: "set_model", model });
             return json({ ok: true, model });
-          }
-          if (sess.agent === "hermes") {
-            if (!/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
-              return err(400, "invalid hermes model name");
-            if (!sess.tmuxTarget)
-              return err(409, "session is not in a tmux pane — cannot change model");
-            const msg = enqueueMessage(m[1], `/model ${model}`);
-            return json({ ok: true, msg });
           }
           if (sess.agent !== "claude")
             return err(409, "mid-session model change is only supported for Claude sessions");
@@ -6052,7 +5896,7 @@ a{color:#60a5fa}
           if (!allowed.includes(thinkingLevel))
             return err(400, `unknown thinking level "${thinkingLevel}" for ${sess.agent} (expected one of ${allowed.join(", ")})`);
 
-          if (sess.agent === "aisdk" || sess.agent === "codex-aisdk" || sess.agent === "pi") {
+          if (sess.agent === "aisdk" || sess.agent === "codex-aisdk" || sess.agent === "pi" || (sess.agent === "jcode" && sess.runtime === "command-file")) {
             const entry = findAisdkEntryByAnyId(m[1]);
             if (!entry) return err(409, "session control process is unavailable");
             appendAisdkCmd(entry.sessionId, { type: "set_thinking_level", thinkingLevel });
@@ -7031,6 +6875,10 @@ a{color:#60a5fa}
   if (recovered.adopted || recovered.recovered || recovered.failed || recovered.skippedLegacy) {
     console.log(`[session-recovery] adopted=${recovered.adopted} recovered=${recovered.recovered} recoveredTmux=${recovered.recoveredTmux} failed=${recovered.failed} skippedLegacy=${recovered.skippedLegacy}`);
     invalidateListSessionsCache();
+  }
+  const resumedQueueMessages = resumePersistedQueues();
+  if (resumedQueueMessages) {
+    console.log(`[sendq] resumed=${resumedQueueMessages}`);
   }
   // Probe the coding agents once at boot so the first dashboard open reads a
   // warm cache instead of paying ~1.5 s of CLI spawns in the foreground.

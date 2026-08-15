@@ -1,5 +1,13 @@
 import type { ChatTransport, UIMessage, UIMessageChunk } from "ai";
 import { omgFetch } from "./omg-client";
+import {
+  matchedQueueRowIds,
+  queueRowNeedsBubble,
+  queueRowHydration,
+  queuedMessageId,
+  QUEUE_MESSAGE_ID_PREFIX,
+  type QueueReconcileMessage,
+} from "./queue-reconcile";
 
 export type OmgMessage = {
   id?: string;
@@ -21,6 +29,12 @@ export type OmgMessage = {
   // "waiting" state instead of an ordinary in-flight bubble, and clears when the
   // real transcript row for the same text replaces the optimistic one.
   queued?: boolean;
+  // The send queue gave up on this message. Stays visible with the delivery
+  // error until the user retries (queueId targets the retry endpoint) or
+  // clears the queue.
+  failed?: boolean;
+  queueError?: string;
+  queueId?: string;
   seed?: boolean;
   catchUp?: boolean;
 };
@@ -32,6 +46,15 @@ export type OmgAiStreamPart = {
   text?: string;
   reset?: boolean;
   ts?: number;
+};
+
+export type OmgQueueMessage = {
+  id: string;
+  text: string;
+  status: "pending" | "sending" | "queued" | "failed" | "delivered";
+  error?: string;
+  createdAt?: number;
+  updatedAt?: number;
 };
 
 export type OmgChatMetadata = {
@@ -47,6 +70,7 @@ export type OmgChatMessage = UIMessage<OmgChatMetadata, OmgChatDataParts>;
 export type OmgTranscriptEvent =
   | { type: "message"; message: OmgMessage }
   | { type: "ai_part"; part: OmgAiStreamPart }
+  | { type: "queue"; queue: OmgQueueMessage[] }
   | { type: "busy"; busy: boolean }
   | { type: "error"; error: string };
 
@@ -240,6 +264,78 @@ function upsertOmgUIMessage(current: OmgChatMessage[], incoming: OmgChatMessage)
   return out;
 }
 
+function omgQueueReconcileRow(message: OmgChatMessage): QueueReconcileMessage {
+  return { id: message.id, role: message.role, ...message.metadata?.omgMessage };
+}
+
+/**
+ * Rebuild queue-owned user bubbles from the server queue after a transcript
+ * re-entry. Matching is one-to-one against the visible transcript (see
+ * matchedQueueRowIds), so a repeated identical follow-up keeps its bubble
+ * until its own row lands, and failed rows stay visible for retry.
+ */
+export function reconcileOmgQueueMessages(
+  current: OmgChatMessage[],
+  queue: OmgQueueMessage[],
+): OmgChatMessage[] {
+  const visible = queue.filter(queueRowNeedsBubble);
+  const visibleIds = new Set(visible.map((item) => queuedMessageId(item.id)));
+  let next = current.filter(
+    (message) => !message.id.startsWith(QUEUE_MESSAGE_ID_PREFIX) || visibleIds.has(message.id),
+  );
+  const matched = matchedQueueRowIds(queue, next.map(omgQueueReconcileRow));
+  const claimedOptimistic = new Set<number>();
+
+  for (const item of visible) {
+    const id = queuedMessageId(item.id);
+    if (matched.has(item.id)) {
+      next = next.filter((message) => message.id !== id);
+      continue;
+    }
+    const row: OmgMessage = {
+      id,
+      role: "user",
+      kind: "text",
+      text: item.text,
+      html: escapeHtml(item.text).replace(/\n/g, "<br>"),
+      ts: item.createdAt ?? item.updatedAt ?? Date.now(),
+      ...queueRowHydration(item),
+    };
+    const [message] = omgMessagesToUIMessages([row]);
+    if (!message) continue;
+
+    const existingIndex = next.findIndex((candidate) => candidate.id === id);
+    if (existingIndex >= 0) {
+      // Refresh in place: the same row moves pending → queued → failed.
+      next = [...next];
+      next[existingIndex] = message;
+      continue;
+    }
+
+    const exactText = normText(item.text);
+    const optimisticIndex = next.findIndex((candidate, index) => {
+      if (claimedOptimistic.has(index)) return false;
+      if (candidate.id.startsWith(QUEUE_MESSAGE_ID_PREFIX)) return false;
+      const pending = candidate.metadata?.omgMessage;
+      return (
+        candidate.role === "user" &&
+        !!pending?.pending &&
+        !pending.failed &&
+        pending?.kind === "text" &&
+        normText(pending.text) === exactText
+      );
+    });
+    if (optimisticIndex >= 0) {
+      claimedOptimistic.add(optimisticIndex);
+      next = [...next];
+      next[optimisticIndex] = message;
+    } else {
+      next = upsertOmgUIMessage(next, message);
+    }
+  }
+  return next;
+}
+
 function updateDraftText(current: OmgChatMessage[], part: OmgAiStreamPart): OmgChatMessage[] {
   if (!part.id) return current;
   const existingIndex = current.findIndex(
@@ -324,6 +420,7 @@ export function appendOmgTranscriptEvent(
   if (event.type === "ai_part") {
     return opts.streamActive ? current : updateDraftText(current, event.part);
   }
+  if (event.type === "queue") return reconcileOmgQueueMessages(current, event.queue);
   if (event.type === "busy" && !event.busy) {
     // Turn ended: any assistant message still marked streaming is a stale
     // draft. The server never emits an explicit end for drafts (it just stops
@@ -386,6 +483,7 @@ class OmgChunkEmitter {
       this.handlePart(event.part);
       return;
     }
+    if (event.type === "queue") return;
     this.handleMessage(event.message);
   }
 

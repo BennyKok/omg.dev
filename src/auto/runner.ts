@@ -215,11 +215,7 @@ async function runSelectedBackend(
     );
   }
   if (backend === "hermes") {
-    onLog(`[auto] hermes run (${prompt.length} chars) in ${cwd} [model: ${agent.model ?? "default"}]`);
-    const { pipeToHermesCli } = await import("../agents/backends/hermes-cli.ts");
-    return await runInCwd(cwd, () =>
-      pipeToHermesCli(prompt, onLog, { cwd, model: agent.model }),
-    );
+    throw new Error("Hermes has been removed. Select another auto-agent backend.");
   }
   return await runClaude(prompt, cwd, onLog, agent.tools ?? [], {
     model: agent.model,

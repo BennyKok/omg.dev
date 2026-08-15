@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { visibilityRecoveryAction } from "./live-visibility";
 import { api, omgFetch, openOmgLiveSocket } from "./lib/omg-client";
+import type { OmgQueueMessage } from "./lib/omg-chat-transport";
+import {
+  queueRowHydration,
+  reconcileQueueMessages,
+} from "./lib/queue-reconcile";
 
 type Session = {
   agent?: string;
@@ -34,6 +39,12 @@ export type Message = {
   version?: number;
   title?: string;
   pending?: boolean;
+  queued?: boolean;
+  // A send the queue gave up on: stays visible with its error until the user
+  // retries (queueId targets the retry endpoint) or clears the queue.
+  failed?: boolean;
+  queueError?: string;
+  queueId?: string;
   seed?: boolean;
   catchUp?: boolean;
 };
@@ -49,12 +60,7 @@ export type AiStreamPart = {
 
 type PromptOption = { index: number; label: string; selected?: boolean };
 type SessionPrompt = { question?: string; options: PromptOption[] };
-type QueueMsg = {
-  id: string;
-  text: string;
-  status: "pending" | "sending" | "queued" | "failed" | "delivered";
-  error?: string;
-};
+type QueueMsg = OmgQueueMessage;
 type LoadOlderMessages = (sid: string) => Promise<boolean>;
 type StatusRow = Pick<
   Session,
@@ -107,6 +113,7 @@ type AgentRunHandler = {
 export type TranscriptEvent =
   | { type: "message"; message: Message }
   | { type: "ai_part"; part: AiStreamPart }
+  | { type: "queue"; queue: QueueMsg[] }
   | { type: "busy"; busy: boolean }
   | { type: "error"; error: string };
 export type TranscriptSubscribe = (
@@ -171,6 +178,18 @@ function sameMessageNeedle(a?: string, b?: string) {
   const bn = messageNeedle(b);
   if (!an || !bn) return false;
   return an.includes(bn) || bn.includes(an);
+}
+
+function hydrateQueueMessage(item: QueueMsg): Message {
+  return {
+    id: `queue-${item.id}`,
+    role: "user",
+    kind: "text",
+    text: item.text,
+    html: escapeHtml(item.text).replace(/\n/g, "<br>"),
+    ts: item.createdAt ?? item.updatedAt ?? Date.now(),
+    ...queueRowHydration(item),
+  };
 }
 
 function seedMessageForSession(session: Session): Message | null {
@@ -267,11 +286,18 @@ function upsertMessageById(current: Message[], message: Message): Message[] {
   const id = mediaIdentity(normalized);
   if (!id || normalized.kind === "thinking") return [...current.filter((item) => item.kind !== "thinking"), normalized];
   const existingIndex = current.findIndex((item) => mediaIdentity(item) === id);
+  // A real user row claims exactly ONE pending bubble with the same text —
+  // claiming all of them would make a repeated identical follow-up vanish.
+  let pendingClaimed = false;
   const withoutTransient = current.filter((item, index) => {
     if (index === existingIndex) return false;
     if (item.kind === "thinking") return false;
     if (normalized.role === "user" && normalized.kind === "text") {
-      return !item.pending || !sameMessageNeedle(normalized.text, item.text);
+      if (item.pending && !pendingClaimed && sameMessageNeedle(normalized.text, item.text)) {
+        pendingClaimed = true;
+        return false;
+      }
+      return true;
     }
     if (normalized.role === "assistant" && normalized.kind === "text" && isDraftAssistantMessage(item)) return false;
     return true;
@@ -289,16 +315,22 @@ function reconcileSnapshotMessages(current: Message[], incoming: Message[]): Mes
   const incomingIds = new Set(next.map(mediaIdentity).filter(Boolean));
   const incomingUserText = next.filter((message) => message.role === "user" && message.kind === "text");
   const latestIncomingTs = next.reduce((max, message) => Math.max(max, message.ts ?? 0), 0);
+  // Incoming user rows claim local pending bubbles one-to-one: with a repeated
+  // identical follow-up, only as many bubbles settle as rows actually arrived.
+  const claimedIncoming = new Set<number>();
   for (const local of current) {
     const normalized = normalizeMessageIdentity(local);
     if (normalized.seed || normalized.kind === "thinking") continue;
     const id = mediaIdentity(normalized);
     if (id && incomingIds.has(id)) continue;
-    if (
-      normalized.pending &&
-      incomingUserText.some((message) => sameMessageNeedle(message.text, normalized.text))
-    ) {
-      continue;
+    if (normalized.pending) {
+      const claimIndex = incomingUserText.findIndex(
+        (message, index) => !claimedIncoming.has(index) && sameMessageNeedle(message.text, normalized.text),
+      );
+      if (claimIndex >= 0) {
+        claimedIncoming.add(claimIndex);
+        continue;
+      }
     }
     const localTs = normalized.ts ?? (normalized.pending ? Date.now() : 0);
     if (normalized.pending || !latestIncomingTs || localTs >= latestIncomingTs) next.push(normalized);
@@ -383,6 +415,7 @@ export function useLiveSocket(
   const lastSeqRef = useRef<Record<string, number>>({});
   const agentRunHandlersRef = useRef<Record<string, AgentRunHandler>>({});
   const transcriptListenersRef = useRef<Record<string, Set<(event: TranscriptEvent) => void>>>({});
+  const queueBySidRef = useRef<Record<string, QueueMsg[]>>({});
   const seenRef = useRef<Record<string, Set<string>>>({});
   const messagesRef = useRef(messagesBySid);
   const nextBeforeRef = useRef(nextBeforeBySid);
@@ -630,8 +663,15 @@ export function useLiveSocket(
       return;
     }
     if (payload.t === "prompt") setPromptsBySid((prev) => ({ ...prev, [sid]: payload.prompt ?? null }));
-    // queue events are intentionally ignored — send status is polled by
-    // trackSendStatus for optimistic-bubble reconciliation; no composer chip.
+    if (payload.t === "queue") {
+      const queue = Array.isArray(payload.queue) ? payload.queue : [];
+      queueBySidRef.current[sid] = queue;
+      emitTranscriptEvent(sid, { type: "queue", queue });
+      setMessagesBySid((prev) => ({
+        ...prev,
+        [sid]: reconcileQueueMessages(prev[sid] ?? [], queue, hydrateQueueMessage),
+      }));
+    }
   }, [emitTranscriptEvent, markFirst, send]);
 
   useEffect(() => {
@@ -898,6 +938,9 @@ export function useLiveSocket(
     activeTranscriptIdsRef.current = expanded;
     const active = new Set([...expanded, ...Object.keys(transcriptListenersRef.current)]);
     const live = new Set(Object.keys(listBusy));
+    queueBySidRef.current = Object.fromEntries(
+      Object.entries(queueBySidRef.current).filter(([sid]) => live.has(sid)),
+    );
     const previousActive = desiredRef.current;
     desiredRef.current = active;
     seenRef.current = Object.fromEntries(Object.entries(seenRef.current).filter(([sid]) => live.has(sid)));
@@ -1001,7 +1044,14 @@ export function useLiveSocket(
   const removeOptimisticMessage = useCallback((sid: string, text: string) => {
     setMessagesBySid((prev) => {
       const current = prev[sid] ?? [];
-      const next = current.filter((item) => !item.pending || !sameMessageNeedle(item.text, text));
+      // One confirmation settles one bubble — a repeated identical follow-up
+      // keeps its own pending bubble until its own confirmation lands.
+      let removed = false;
+      const next = current.filter((item) => {
+        if (removed || !item.pending || !sameMessageNeedle(item.text, text)) return true;
+        removed = true;
+        return false;
+      });
       return next.length === current.length ? prev : { ...prev, [sid]: next };
     });
   }, []);
@@ -1054,7 +1104,7 @@ export function useLiveSocket(
             removeOptimisticMessage(sid, text);
             return;
           }
-          if (item.status === "delivered" || item.status === "queued") {
+          if (item.status === "delivered") {
             await refreshMessagesForSid(sid, text, { dropOptimistic: true }).catch(() => null);
             removeOptimisticMessage(sid, text);
             return;
@@ -1109,6 +1159,8 @@ export function useLiveSocket(
   const subscribeTranscript = useCallback<TranscriptSubscribe>((sid, listener) => {
     const listeners = transcriptListenersRef.current[sid] || (transcriptListenersRef.current[sid] = new Set());
     listeners.add(listener);
+    const queue = queueBySidRef.current[sid];
+    if (queue) listener({ type: "queue", queue });
     const channel = transcriptChannel(sid);
     const id = channelId(channel);
     desiredRef.current.add(sid);
