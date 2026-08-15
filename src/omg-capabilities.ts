@@ -99,6 +99,17 @@ const CONTRACT_ENDS = [
   "=== END LFG RUNTIME CONTRACT ===",
 ] as const;
 const USER_TASK = "=== USER TASK ===";
+// The subagent envelope is a second, independent wrapper: serve.ts wraps a
+// delegated prompt in this before the harness wraps the result in the runtime
+// contract, so a subagent's prompt carries BOTH and stripping one still leaves
+// the other as the visible title. Unlike the runtime contract it has no
+// "=== END … ===" line — it is terminated by USER_TASK. Same branding history
+// applies; only the first entry is ever written.
+const SUBAGENT_HEADERS = [
+  "=== LFG SUBAGENT OPERATING CONTRACT ===",
+  "=== OMG SUBAGENT OPERATING CONTRACT ===",
+  "=== omg.dev SUBAGENT OPERATING CONTRACT ===",
+] as const;
 
 /** Earliest occurrence of any known contract marker, or -1. */
 function firstIndexOf(text: string, needles: readonly string[], from = 0): { at: number; needle: string } {
@@ -136,14 +147,34 @@ export function withOmgRuntimeContract(prompt: string | undefined): string | und
  * original text rather than blanking the card.
  */
 export function stripOmgRuntimeContract(text: string): string {
-  const header = firstIndexOf(text, CONTRACT_HEADERS);
-  if (header.at < 0) return text;
-  const end = firstIndexOf(text, CONTRACT_ENDS, header.at + header.needle.length);
-  if (end.at < 0) return text;
+  let out = text;
+  // Bounded: a prompt carries at most a runtime + a subagent envelope today,
+  // and a loop that can't make progress exits on the identity check anyway.
+  for (let i = 0; i < 4; i++) {
+    const next = stripOneContract(out);
+    if (next === null || next === out) break;
+    out = next;
+  }
+  return out;
+}
+
+/** One envelope peeled off the front, or null when there is nothing to strip. */
+function stripOneContract(text: string): string | null {
+  const header = firstIndexOf(text, [...CONTRACT_HEADERS, ...SUBAGENT_HEADERS]);
+  if (header.at < 0) return null;
+  const isSubagent = (SUBAGENT_HEADERS as readonly string[]).includes(header.needle);
+  const afterHeader = header.at + header.needle.length;
+  // The subagent envelope has no end marker; USER_TASK is its only terminator,
+  // so a missing one means we can't tell contract from task and must not guess.
+  const end = isSubagent
+    ? { at: afterHeader, needle: "" }
+    : firstIndexOf(text, CONTRACT_ENDS, afterHeader);
+  if (end.at < 0) return null;
   const after = text.slice(end.at + end.needle.length);
   const taskAt = after.indexOf(USER_TASK);
+  if (isSubagent && taskAt < 0) return null;
   const body = taskAt < 0 ? after : after.slice(taskAt + USER_TASK.length);
-  return `${text.slice(0, header.at)}${body}`.trim() || text;
+  return `${text.slice(0, header.at)}${body}`.trim() || null;
 }
 
 /**
