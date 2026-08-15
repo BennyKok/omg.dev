@@ -91,47 +91,86 @@ function SessionFamily({
 
       {node.children.length ? (
         <View style={{ marginLeft: space.xl, marginTop: space.sm, gap: space.sm }}>
-          {node.children.map((child, index) => {
-            const last = index === node.children.length - 1;
-            return (
-              <View key={sessionStableId(child.session) || index}>
-                {/* The spine runs the full height between siblings and stops at
-                    the last child's midline, so the family closes rather than
-                    trailing a line into the gap below it. */}
-                <View
-                  pointerEvents="none"
-                  style={{
-                    position: "absolute",
-                    left: -space.md,
-                    top: -space.sm,
-                    width: 1.5,
-                    height: last ? CARD_MIDLINE + space.sm : "100%",
-                    backgroundColor: colors.borderStrong,
-                  }}
-                />
-                <View
-                  pointerEvents="none"
-                  style={{
-                    position: "absolute",
-                    left: -space.md,
-                    top: CARD_MIDLINE,
-                    width: space.md,
-                    height: 1.5,
-                    backgroundColor: colors.borderStrong,
-                  }}
-                />
-                <SessionFamily node={child} depth={depth + 1} onOpen={onOpen} />
-              </View>
-            );
-          })}
+          {node.children.map((child, index) => (
+            <SessionBranch
+              key={sessionStableId(child.session) || index}
+              node={child}
+              depth={depth + 1}
+              last={index === node.children.length - 1}
+              onOpen={onOpen}
+            />
+          ))}
         </View>
       ) : null}
     </View>
   );
 }
 
-/** Half a card, so the elbow meets the row at its middle. */
-const CARD_MIDLINE = 33;
+/**
+ * One child, plus the two lines that tie it to its parent.
+ *
+ * THE HEIGHT IS MEASURED, not assumed. The elbow has to meet the card on its
+ * MIDLINE, and a card is 60pt with one line of text and ~72 with two — a
+ * constant put the join above centre on some rows and below it on others, which
+ * is exactly the sort of thing that makes a tree look hand-drawn.
+ *
+ * The spine is one continuous run. Drawn per-child at `height: 100%` it stopped
+ * at each card's bottom edge and left a gap-sized hole between every sibling —
+ * a dashed line down the family. Stretching it `top`-to-`bottom` past the gap
+ * closes those; the last child stops it at its own midline so the family ends
+ * on the elbow instead of trailing a line into whatever follows.
+ */
+function SessionBranch({
+  node,
+  depth,
+  last,
+  onOpen,
+}: {
+  node: SessionNode;
+  depth: number;
+  last: boolean;
+  onOpen: (id: string | null) => void;
+}) {
+  const { colors, space } = useTheme();
+  const [cardHeight, setCardHeight] = useState(0);
+  // Until the row has been measured, a sane default keeps the line from
+  // flashing at the wrong place on first paint.
+  const midline = cardHeight ? cardHeight / 2 : 30;
+
+  return (
+    <View onLayout={(e) => setCardHeight(e.nativeEvent.layout.height)}>
+      {/* The card inside carries its own 16pt margin, so the branch has to
+          cross that too — an elbow sized to the indent alone stopped in mid
+          air with a gap before the row it was pointing at. */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          left: 0,
+          top: -space.sm,
+          width: LINE,
+          backgroundColor: colors.borderStrong,
+          ...(last ? { height: midline + space.sm } : { bottom: -space.sm }),
+        }}
+      />
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          left: 0,
+          top: midline,
+          width: space.lg,
+          height: LINE,
+          backgroundColor: colors.borderStrong,
+        }}
+      />
+      <SessionFamily node={node} depth={depth} onOpen={onOpen} />
+    </View>
+  );
+}
+
+/** Hairlines vanish against black at this length; a point and a half reads. */
+const LINE = 1.5;
 
 /**
  * The greeting the web Live view carries, in the bar slot the removed

@@ -35,7 +35,7 @@ import { agentIcon } from "./omg/agent-icons";
 import type { Attachment } from "./omg/attachments";
 import { GlassSurface, LIQUID_GLASS } from "./omg/glass";
 import { LucideIcon, type LucideName } from "./omg/lucide";
-import { peakPct, type ProviderUsage } from "./omg/usage";
+import { peakPct, providerKindForAgent, type ProviderUsage } from "./omg/usage";
 import type { OmgColors } from "./omg/palette";
 import { DropdownMenu, type MenuOption } from "./omg/menu";
 import { PressableScale, useListItemMotion } from "./omg/motion";
@@ -1046,20 +1046,28 @@ export function HomeComposer({
           paddingRight: space.xs,
         }}
       >
+        {/* ONLY THE AGENT THAT WILL RUN THIS. Six rings said what the whole
+            fleet had spent, which is a dashboard; the composer's question is
+            narrower — "if I send this, is there room?" — and that is one
+            agent's window. Several rings can still appear for it when the box
+            has more than one account of that kind, which is the honest answer
+            to the same question. */}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-          {usage.map((provider) => (
-            <UsageRing
-              key={provider.id}
-              pct={provider.available ? peakPct(provider) : null}
-              color={ringColor(provider.available ? peakPct(provider) : null, colors)}
-            >
-              <Image
-                source={agentIcon(provider.kind)}
-                style={{ width: 11, height: 11 }}
-                resizeMode="contain"
-              />
-            </UsageRing>
-          ))}
+          {usage
+            .filter((provider) => provider.kind === providerKindForAgent(agent))
+            .map((provider) => (
+              <UsageRing
+                key={provider.id}
+                pct={provider.available ? peakPct(provider) : null}
+                color={ringColor(provider.available ? peakPct(provider) : null, colors)}
+              >
+                <Image
+                  source={agentIcon(provider.kind)}
+                  style={{ width: 11, height: 11 }}
+                  resizeMode="contain"
+                />
+              </UsageRing>
+            ))}
         </View>
 
         {projectOptions.length ? (

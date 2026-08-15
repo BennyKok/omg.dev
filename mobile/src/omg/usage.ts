@@ -91,3 +91,25 @@ export function useUsage(): { providers: ProviderUsage[]; refresh: () => void } 
 
   return { providers, refresh };
 }
+
+/**
+ * Which usage provider an agent draws from.
+ *
+ * The provider directory speaks in FAMILIES (`claude`, `codex`) while the agent
+ * roster speaks in harnesses — `aisdk` is Claude Code driven through the AI
+ * SDK, `codex-aisdk` is Codex the same way — so the two names disagree for
+ * exactly the entries people use most. Anything not listed shares its own name
+ * with its provider, which is true for grok, cursor, copilot and the rest.
+ */
+export function providerKindForAgent(agent: string | null | undefined): string {
+  switch ((agent ?? "").trim().toLowerCase()) {
+    case "aisdk":
+    case "claude":
+      return "claude";
+    case "codex":
+    case "codex-aisdk":
+      return "codex";
+    default:
+      return (agent ?? "").trim().toLowerCase();
+  }
+}
