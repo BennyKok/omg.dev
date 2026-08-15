@@ -1310,7 +1310,14 @@ function ComposerCaptionButton({
         gap: 5,
         // 32pt tall, and the menu's trigger area is the pill itself.
         minHeight: 32,
-        paddingHorizontal: space.md - 2,
+        /**
+         * TIGHT TO THE LABEL. At 14 each side a four-letter model name wore
+         * more padding than text, and three of these in a row read as three
+         * empty capsules with words parked in them. 9 is enough to keep the
+         * glass off the glyphs and no more — the pill is meant to be the size
+         * of what it says.
+         */
+        paddingHorizontal: 9,
         borderRadius: radius.pill,
         // Sized by its label, full stop. The row it lives in scrolls, so
         // there is nothing to give way for — and giving way meant truncating
