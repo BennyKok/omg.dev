@@ -1139,6 +1139,13 @@ export function HomeComposer({
                *
                * A 32pt capsule, the pill's own height, so the caption row reads
                * as two chips rather than one chip and some loose marks.
+               *
+               * THE RINGS FILL IT. They were 24pt inside 32, which spent a
+               * quarter of the chip on padding and left arcs too fine to read
+               * at arm's length — the one number this control exists to show.
+               * 30 inside 32 keeps just enough glass to separate them from
+               * whatever scrolls underneath, and gives every arc 25% more
+               * circumference to say it with.
                */
               <GlassSurface
                 key={provider.id}
@@ -1154,6 +1161,7 @@ export function HomeComposer({
                 }}
               >
                 <UsageRings
+                  size={30}
                   windows={provider.available ? orderWindows(provider.windows ?? []) : []}
                 />
               </GlassSurface>
@@ -1222,15 +1230,30 @@ function ComposerCaptionButton({
         minHeight: 32,
         paddingHorizontal: space.md - 2,
         borderRadius: radius.pill,
+        // Sized by its label, but able to give way rather than push the rings
+        // off the row when a project name is very long.
         minWidth: 0,
+        flexShrink: 1,
         overflow: "hidden",
       }}
     >
-      <Icon ios={ios} android={android} size={13} color={colors.textSecondary} />
+      {/* 15, not 13. At 13 the folder read as a bullet point next to its own
+          label — a glyph that small stops being recognisable as a folder and
+          becomes texture. */}
+      <Icon ios={ios} android={android} size={15} color={colors.textSecondary} />
       <Text
         numberOfLines={1}
-        // Readable weight, not fine print: this is a control's label.
-        style={{ ...type.footnote, fontWeight: "500", color: colors.text, maxWidth: 130 }}
+        /**
+         * THE PILL HUGS ITS LABEL.
+         *
+         * `maxWidth: 130` truncated every project whose name ran past about
+         * fourteen characters — "lfg-worktrees…" — so the control that exists
+         * to say WHERE the next session runs frequently could not finish
+         * saying it, while empty space sat to its left. It grows with the name
+         * now; the cap is the width of the row, so a pathological name still
+         * cannot push the rings off the screen.
+         */
+        style={{ ...type.footnote, fontWeight: "500", color: colors.text, flexShrink: 1 }}
       >
         {label}
       </Text>
@@ -1347,7 +1370,10 @@ export function UsageRings({
 }) {
   const { colors } = useTheme();
   const shown = windows.slice(0, RING_COLORS.length);
-  const thickness = 3;
+  // Thicker than the web's, because this is 30pt across on a phone held at
+  // arm's length rather than 52 on a desk. Below 3.5 the two arcs read as one
+  // fuzzy ring at a glance, which is the opposite of the point.
+  const thickness = 3.5;
   const gap = thickness + 1;
 
   return (
