@@ -226,12 +226,26 @@ export function LaunchScreen({
   return (
     <Reanimated.View
       pointerEvents={leaving ? "none" : "auto"}
-      style={[StyleSheet.absoluteFill, styles.screen, { backgroundColor: colors.bg }, backdropStyle]}
+      style={[StyleSheet.absoluteFill, { backgroundColor: colors.bg }, backdropStyle]}
     >
-      <Reanimated.View style={markStyle}>
+      {/**
+       * TWO LAYERS, EACH CENTRED ON THE SCREEN — not one centred column of
+       * mark-above-caption.
+       *
+       * As a column the PAIR was centred, which put the mark's own centre
+       * above the screen's by half the caption's height plus its gap. Invisible
+       * at rest, and very visible at 7x: a view scales about its own centre, so
+       * the mark rushed out along a line that missed the middle of the screen
+       * and the zoom read as drifting off toward the top. The mark owns the
+       * centre now and the caption is offset from it.
+       */}
+      <Reanimated.View style={[StyleSheet.absoluteFill, styles.screen, markStyle]}>
         <BrandMark size={64} holeColor={colors.bg} />
       </Reanimated.View>
-      <Reanimated.View style={[styles.caption, captionStyle]}>
+      <Reanimated.View
+        pointerEvents="none"
+        style={[StyleSheet.absoluteFill, styles.screen, styles.caption, captionStyle]}
+      >
         <ShimmerText text={label} />
       </Reanimated.View>
     </Reanimated.View>
@@ -244,6 +258,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   caption: {
-    marginTop: 18,
+    // Pushed below the mark, which is centred: half of 64, and a gap.
+    paddingTop: 64 + 36,
   },
 });

@@ -61,7 +61,14 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from "react-native";
-import Reanimated, { useAnimatedKeyboard, useAnimatedStyle } from "react-native-reanimated";
+import Reanimated, {
+  FadeIn,
+  FadeOut,
+  useAnimatedKeyboard,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { Text, TextInput } from "../../src/omg/text";
 import * as Clipboard from "expo-clipboard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -444,7 +451,7 @@ export default function SessionScreen() {
    * composer or from tapping an answer to the agent's question.
    */
   const submit = useCallback(
-    async (text: string) => {
+    async (text: string, mode: "steer" | "queue" = "steer") => {
       const trimmed = text.trim();
       if (!trimmed || !client || !id) return;
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -487,7 +494,23 @@ export default function SessionScreen() {
           }
           return;
         }
-        await client.sendMessage(id, trimmed);
+        if (mode === "queue") {
+          /**
+           * QUEUE, NOT STEER. The machine takes both on the same endpoint and
+           * they mean opposite things: a steer interrupts the turn in flight,
+           * a queued message waits behind it. Interrupting is the right
+           * default when you are answering an agent that is stuck, and the
+           * wrong one when you have simply thought of the next thing — which
+           * is why this is a separate gesture rather than a mode switch.
+           */
+          await client.transport.request(`/api/sessions/${encodeURIComponent(id)}/send`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: trimmed, mode: "queue" }),
+          });
+        } else {
+          await client.sendMessage(id, trimmed);
+        }
         setError(null);
       } catch (e) {
         // Roll the message back AND give the person their words back — losing
@@ -503,13 +526,31 @@ export default function SessionScreen() {
     [client, id, live, router],
   );
 
-  const send = useCallback(() => {
-    const text = attachments.compose(draft.trim());
-    if (!text || sending) return;
-    setDraft("");
-    attachments.clear();
-    void submit(text);
-  }, [attachments, draft, sending, submit]);
+  /** Shown for a beat after a long-press send, so the gesture confirms itself. */
+  const [queuedHint, setQueuedHint] = useState(false);
+
+  const send = useCallback(
+    (mode: "steer" | "queue" = "steer") => {
+      const text = attachments.compose(draft.trim());
+      if (!text || sending) return;
+      if (mode === "queue") {
+        /**
+         * A DIFFERENT WEIGHT FOR A DIFFERENT ACT. A tap steers; a long press
+         * puts the message behind the work in flight. Success feedback rather
+         * than the light impact of a normal send, because the whole point of
+         * the gesture is that something other than the obvious thing happened
+         * and you did not see the message go.
+         */
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setQueuedHint(true);
+        setTimeout(() => setQueuedHint(false), 1600);
+      }
+      setDraft("");
+      attachments.clear();
+      void submit(text, mode);
+    },
+    [attachments, draft, sending, submit],
+  );
 
   /**
    * Answering the agent's question SENDS the answer. It used to drop the label
@@ -1256,6 +1297,41 @@ export default function SessionScreen() {
           </View>
         ) : null}
 
+        {/**
+         * THE GESTURE CONFIRMS ITSELF.
+         *
+         * A long press that sends is invisible: the field empties exactly as
+         * it does on a tap, so nothing on screen distinguishes "queued behind
+         * the current turn" from "sent into it" — and those are opposite
+         * outcomes. A chip on the right, over the field it came from, for as
+         * long as it takes to read one word.
+         */}
+        {queuedHint ? (
+          <Reanimated.View
+            entering={FadeIn.duration(120)}
+            exiting={FadeOut.duration(160)}
+            pointerEvents="none"
+            style={{ alignItems: "flex-end", paddingRight: space.sm, paddingBottom: space.xs }}
+          >
+            <GlassSurface
+              variant="regular"
+              fallbackColor={colors.secondary}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 5,
+                paddingHorizontal: space.md - 2,
+                paddingVertical: 5,
+                borderRadius: radius.pill,
+                overflow: "hidden",
+              }}
+            >
+              <Icon ios="clock" android="schedule" size={12} color={colors.textSecondary} />
+              <Text style={{ ...type.caption, fontWeight: "500", color: colors.text }}>Queued</Text>
+            </GlassSurface>
+          </Reanimated.View>
+        ) : null}
+
         <AttachmentStrip items={attachments.items} onRemove={attachments.remove} />
 
         {/**
@@ -1377,10 +1453,14 @@ export default function SessionScreen() {
            */}
           {canSend || sending ? (
             <Pressable
-              onPress={send}
+              onPress={() => send("steer")}
+              // Hold to put it behind the work in flight instead of into it.
+              onLongPress={() => send("queue")}
+              delayLongPress={320}
               disabled={!canSend}
               accessibilityRole="button"
               accessibilityLabel={busy ? "Queue the message" : "Send the message"}
+              accessibilityHint="Press and hold to queue it behind the current turn"
               accessibilityState={{ disabled: !canSend }}
               style={({ pressed }) => ({
                 width: 32,
@@ -1405,17 +1485,43 @@ export default function SessionScreen() {
               )}
             </Pressable>
           ) : (
-            <IconButton
-              ios={dictation.state === "recording" ? "stop.circle.fill" : "mic"}
-              android={dictation.state === "recording" ? "stop_circle" : "mic"}
+            /**
+             * 32, NOT 36 — the send button's size, and the reason the field
+             * changed height as you typed.
+             *
+             * `IconButton` is a fixed 36pt disc. Idle, it made the box
+             * 36 + 12 of padding = 48pt; the moment there were words the 32pt
+             * send button took its place and the box fell to 44. So the
+             * composer was a different height depending on whether you had
+             * typed anything, and neither state matched the 44pt attach button
+             * beside it. Same size as send, so the row is one height always.
+             */
+            <Pressable
+              onPress={dictation.toggle}
+              accessibilityRole="button"
               accessibilityLabel={
                 dictation.state === "recording" ? "Stop dictating" : "Dictate a message"
               }
-              onPress={dictation.toggle}
-              busy={dictation.state === "transcribing"}
-              size={18}
-              color={dictation.state === "recording" ? colors.danger : colors.textMuted}
-            />
+              hitSlop={8}
+              style={({ pressed }) => ({
+                width: 32,
+                height: 32,
+                alignItems: "center",
+                justifyContent: "center",
+                opacity: pressed ? 0.6 : 1,
+              })}
+            >
+              {dictation.state === "transcribing" ? (
+                <ActivityIndicator size="small" color={colors.textMuted} />
+              ) : dictation.state === "recording" ? (
+                <VoiceMeter
+                  level={(dictation as { level?: number }).level}
+                  color={colors.danger}
+                />
+              ) : (
+                <Icon ios="mic" android="mic" size={18} color={colors.textMuted} />
+              )}
+            </Pressable>
           )}
         </GlassSurface>
         </View>
@@ -1431,6 +1537,50 @@ export default function SessionScreen() {
 }
 
 /** The small dark pill with animated dots shown while the agent is thinking. */
+/**
+ * WHAT RECORDING LOOKS LIKE: your own voice, moving.
+ *
+ * The recording state used to be a red stop button — the loudest object in the
+ * composer, and a control that says "this is a thing you must now cancel"
+ * rather than "I am listening". The web shows a level, and a level is the only
+ * honest answer to the question people actually have while they talk, which is
+ * whether the microphone is hearing them at all. Tapping it still stops; the
+ * whole meter is the target.
+ *
+ * Three bars, centre tallest, all driven by one amplitude. At rest they sit at
+ * a visible minimum so the control still reads as present in a silent room —
+ * and so it degrades to something sensible on a build whose dictation hook
+ * does not report a level yet.
+ */
+function VoiceMeter({ level, color }: { level?: number; color: string }) {
+  const amplitude = useSharedValue(0);
+
+  useEffect(() => {
+    // Fast up, slow down: the shape every level meter uses, because a bar that
+    // falls as fast as it rises reads as flicker rather than as a voice.
+    const next = Math.max(0, Math.min(1, level ?? 0));
+    amplitude.value = withTiming(next, {
+      duration: next > amplitude.value ? 70 : 190,
+    });
+  }, [level, amplitude]);
+
+  // Three explicit hooks rather than one called in a loop: hooks in a helper
+  // are a lint error waiting to become a real one the day the bar count is
+  // conditional.
+  const left = useAnimatedStyle(() => ({ height: 5 + amplitude.value * 15 * 0.7 }));
+  const middle = useAnimatedStyle(() => ({ height: 5 + amplitude.value * 15 }));
+  const right = useAnimatedStyle(() => ({ height: 5 + amplitude.value * 15 * 0.55 }));
+  const bar = { width: 3, borderRadius: 2, backgroundColor: color };
+
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 2.5 }}>
+      <Reanimated.View style={[bar, left]} />
+      <Reanimated.View style={[bar, middle]} />
+      <Reanimated.View style={[bar, right]} />
+    </View>
+  );
+}
+
 /**
  * THE AGENT IS WORKING — the same chip as a tool badge, because it belongs to
  * the same row of events.
