@@ -352,7 +352,10 @@ export default function SessionsScreen() {
   const [draft, setDraft] = useState("");
   const [starting, setStarting] = useState(false);
   const dictation = useDictation(
-    client ? (path, init) => client.transport.fetch(path, init) : null,
+    // The whole transport, not a fetch closure: dictation now opens a
+    // websocket to stream PCM as you speak, and the grant, its refresh and the
+    // selected machine's origin all live on this one object.
+    client?.transport ?? null,
     (text) => setDraft((current) => (current ? `${current} ${text}` : text)),
   );
 

@@ -120,7 +120,9 @@ export default function SessionScreen() {
 
   const attachments = useAttachments(id ?? null);
   const dictation = useDictation(
-    client ? (path, init) => client.transport.fetch(path, init) : null,
+    // The whole transport: the streaming path needs a socket as well as a
+    // POST, and this object owns the grant for both.
+    client?.transport ?? null,
     // Dictation APPENDS. Someone who typed half a thought and then spoke the
     // rest should end up with both, in that order.
     (text) => setDraft((current) => (current ? `${current} ${text}` : text)),
