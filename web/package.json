@@ -56,6 +56,14 @@
     "vaul": "^1.1.2",
     "web-haptics": "^0.0.6"
   },
+  "peerDependencies": {
+    "@tanstack/react-router": "^1.170.18",
+    "class-variance-authority": "^0.7.1",
+    "cnfast": "0.0.8",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "vaul": "^1.1.2"
+  },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.2",
     "@types/node": "^26.1.1",
