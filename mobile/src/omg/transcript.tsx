@@ -38,7 +38,15 @@ import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import type { AndroidSymbol, SFSymbol } from "expo-symbols";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Modal, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import {
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import Reanimated, {
   FadeIn,
   useAnimatedStyle,
@@ -430,6 +438,26 @@ export function TranscriptEntry({
   // used to render as an empty box — an invisible turn in the transcript. One
   // that ALSO has text still renders as text, so nothing a person wrote or read
   // can be swallowed by this branch.
+  /**
+   * AN AGENT'S OWN SCREENSHOT IS THE MESSAGE, not an attachment to one.
+   *
+   * `omg_display_image` posts a message of kind `image` carrying the artifact
+   * url — and a caption, which arrives in `text`. That caption was the bug:
+   * every branch below that could have drawn the picture was guarded by
+   * `!message.text`, so a displayed image fell through to the prose renderer
+   * and became a single grey line of caption with nothing above it. An agent
+   * that took a screenshot to SHOW you something showed you a sentence about
+   * it instead.
+   *
+   * It draws at the column's full width rather than at attachment-tile size:
+   * this is evidence the agent chose to put in front of you — a diff, a
+   * dashboard, a screen it just fixed — and a 240pt thumbnail of a phone
+   * screenshot is unreadable. Tapping still opens it full-bleed.
+   */
+  if (message.kind === "image" && (message.url || message.artifactId)) {
+    return <DisplayedImage message={message} />;
+  }
+
   const isAttachment =
     !!message.url || !!message.artifactId || message.kind === "image" || message.kind === "file";
   if (isAttachment && !message.text) return <AttachmentEntry message={message} />;
@@ -974,6 +1002,67 @@ function ThinkingEntry({ message, nextTs }: { message: Entry; nextTs?: number | 
 /* -------------------------------------------------------------------------- */
 /* Attachments, prose, and the catch-all                                       */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * A picture an agent put in the conversation, with its caption under it.
+ *
+ * The caption is styled as a caption — muted, small, under the image — rather
+ * than as the assistant's prose, because that is what it is: a line naming
+ * what you are looking at. Rendering it in body text (which is what happened
+ * before this existed) made the sentence the message and the image nothing.
+ *
+ * The height cap is deliberate and generous. Screenshots from this product are
+ * usually PHONE screenshots — 1206x2622, taller than they are wide — and a
+ * square cap would show a third of one. 420pt is about as much vertical room
+ * as can be given up without the transcript becoming a photo album.
+ */
+/**
+ * The artifact's own pixel dimensions, when it sent them.
+ *
+ * `OmgMessage` does not declare `width`/`height` — the protocol package
+ * predates artifacts carrying them — but the server puts them on the wire for
+ * every image message. Reading them through a narrow cast is honest about
+ * that gap; widening the shared type is the real fix and belongs in the
+ * protocol package, not here.
+ */
+function artifactRatio(message: Entry): number | null {
+  const { width, height } = message as Entry & { width?: number; height?: number };
+  if (typeof width !== "number" || typeof height !== "number" || height <= 0) return null;
+  return width / height;
+}
+
+function DisplayedImage({ message }: { message: Entry }) {
+  const { colors, type, space, radius } = useTheme();
+  const screen = useWindowDimensions();
+  const caption = (message.caption ?? message.text ?? message.alt ?? "").trim();
+  const path = message.url ?? (message.artifactId ? `/api/artifacts/${message.artifactId}` : null);
+  if (!path) return <AttachmentEntry message={message} />;
+
+  return (
+    <View style={{ alignSelf: "stretch", gap: space.xs, paddingHorizontal: space.xs }}>
+      <AuthenticatedImage
+        path={path}
+        accessibilityLabel={message.alt ?? (caption || "Image")}
+        maxWidth={screen.width - space.lg * 2 - space.xs * 2}
+        maxHeight={420}
+        // The artifact tells us its own dimensions, so the tile is the right
+        // shape before the bytes arrive.
+        ratio={artifactRatio(message)}
+        radius={radius.xl}
+        placeholderColor={colors.codeBg}
+        fallback={<AttachmentEntry message={message} />}
+        // CONTAIN, never cover. This is evidence an agent chose to show you;
+        // cropping it to fill a box can cut away the very thing it was posted
+        // to prove, and a screenshot cropped by the client is a lie about what
+        // was on screen.
+        style={{ resizeMode: "contain" }}
+      />
+      {caption ? (
+        <Text style={{ ...type.caption, color: colors.textMuted, lineHeight: 17 }}>{caption}</Text>
+      ) : null}
+    </View>
+  );
+}
 
 /**
  * An image or file in the transcript, as a tappable row.

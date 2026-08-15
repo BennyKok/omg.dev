@@ -369,11 +369,27 @@ export default function SessionScreen() {
    */
   const pinToEnd = useCallback(() => {
     if (!atBottomRef.current || touchingRef.current) return;
-    const attempts = [0, 60, 160, 320, 640, 1000];
+    // Out to three seconds, because the tail of a long transcript keeps
+    // growing as rows render: each attempt gets closer, and on a session with
+    // a screen and a half of markdown per turn the last few hundred points
+    // only exist after the second or third pass. A no-op once it has landed.
+    const attempts = [0, 60, 160, 320, 640, 1000, 1500, 2100, 2800];
+    /**
+     * `scrollToOffset` WITH AN ABSURD OFFSET, not `scrollToEnd`.
+     *
+     * `scrollToEnd` asks FlatList for its content height, which is a JS-side
+     * figure built from measured rows plus ESTIMATES for everything outside
+     * the window — so on a transcript whose rows run from a 20pt badge to a
+     * screen and a half of markdown, it aims short and the retries chase a
+     * number that keeps moving. An offset past the end is clamped NATIVELY to
+     * the real maximum by the scroll view itself, which knows the true content
+     * size, so each attempt lands exactly at the bottom of whatever has been
+     * laid out rather than at a guess about it.
+     */
     const timers = attempts.map((delay) =>
       setTimeout(() => {
         if (atBottomRef.current && !touchingRef.current) {
-          listRef.current?.scrollToEnd({ animated: false });
+          listRef.current?.scrollToOffset({ offset: 10 ** 7, animated: false });
         }
       }, delay),
     );
@@ -384,7 +400,7 @@ export default function SessionScreen() {
     // Follow the stream only while the reader is already at the bottom, and
     // never while their finger is on the glass — see touchingRef.
     if (atBottomRef.current && !touchingRef.current) {
-      listRef.current?.scrollToEnd({ animated: false });
+      listRef.current?.scrollToOffset({ offset: 10 ** 7, animated: false });
     }
   }, []);
 

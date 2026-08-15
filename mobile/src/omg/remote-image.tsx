@@ -127,6 +127,7 @@ export function AuthenticatedImage({
   path,
   maxWidth,
   maxHeight,
+  ratio: declaredRatio,
   radius,
   placeholderColor,
   fallback,
@@ -136,6 +137,16 @@ export function AuthenticatedImage({
   path: string;
   maxWidth: number;
   maxHeight: number;
+  /**
+   * The image's own aspect ratio, when the caller already knows it.
+   *
+   * An artifact message carries `width`/`height` on the wire, and using them
+   * means the tile is the RIGHT SHAPE from the first frame rather than a 4:3
+   * guess that reflows when the bytes land — and, with `resizeMode: contain`,
+   * that a tall phone screenshot is not letterboxed inside a landscape box.
+   * Measurement still wins once it arrives; this is what to believe until then.
+   */
+  ratio?: number | null;
   radius: number;
   placeholderColor: string;
   /** Drawn when the bytes can't be fetched — uploads live in tmpdir, which a
@@ -151,7 +162,8 @@ export function AuthenticatedImage({
   // The ratio is unknown until the bytes land, so the placeholder reserves a
   // conservative landscape tile rather than collapsing to nothing and shoving
   // the transcript down when the image appears.
-  const ratio = load.status === "ready" ? (load.ratio ?? 4 / 3) : 4 / 3;
+  const ratio =
+    (load.status === "ready" ? load.ratio : null) ?? declaredRatio ?? 4 / 3;
   // Fit inside BOTH caps: start from the full width, and if that makes the
   // image taller than the cap, height becomes the binding constraint instead.
   const width = Math.min(maxWidth, maxHeight * ratio);
