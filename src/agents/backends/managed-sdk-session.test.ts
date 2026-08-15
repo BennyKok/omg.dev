@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appendCmd, readEntry } from "../../aisdk-registry.ts";
+import { appendCmd, readEntry, wakeHarnessCommandReader } from "../../aisdk-registry.ts";
 import { PATHS } from "../../config.ts";
 import { resetTranscriptIndexConnectionForTests } from "../../transcript-index.ts";
 import { runManagedSdkSession } from "./managed-sdk-session.ts";
@@ -55,6 +55,7 @@ describe("managed SDK startup journaling and first-launch commands", () => {
           supervisor: "process",
           threadId: null,
         }));
+        expect(readEntry(KEY)?.commandWakeSignal).toBeUndefined();
         await connecting;
         return {
           nativeSessionId: "native-grok-1",
@@ -72,8 +73,41 @@ describe("managed SDK startup journaling and first-launch commands", () => {
     expect(readEntry(KEY)?.threadId ?? null).toBeNull();
     resumeConnect();
     await waitFor(() => readEntry(KEY)?.threadId === "native-grok-1");
+    expect(readEntry(KEY)?.commandWakeSignal).toBe("SIGUSR1");
     appendCmd(KEY, { type: "close" });
+    wakeHarnessCommandReader(readEntry(KEY)!);
     await done;
+  });
+
+  test("wakes a close command without waiting for the 250 ms poll", async () => {
+    const done = runManagedSdkSession({
+      key: KEY,
+      agent: "cursor",
+      cwd: root,
+      model: "auto",
+      managedName: "lfg-wake-close",
+      exitProcess: () => {},
+      async createRuntime() {
+        return {
+          nativeSessionId: "native-cursor-wake",
+          async runTurn() {
+            return { text: "ok" };
+          },
+          interrupt() {},
+          close() {},
+        };
+      },
+    });
+
+    await waitFor(() => readEntry(KEY)?.commandWakeSignal === "SIGUSR1");
+    const entry = readEntry(KEY)!;
+    appendCmd(KEY, { type: "close" });
+    expect(wakeHarnessCommandReader(entry)).toBe(true);
+    const outcome = await Promise.race([
+      done.then(() => "closed"),
+      Bun.sleep(150).then(() => "timeout"),
+    ]);
+    expect(outcome).toBe("closed");
   });
 
   test("delivers first-launch commands that arrive while createRuntime connects", async () => {
