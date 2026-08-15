@@ -15,6 +15,7 @@ import { LaunchScreen } from "../src/omg/launch";
 import { useLucideFont } from "../src/omg/lucide";
 
 import { OmgProvider, useOmg } from "../src/omg/provider";
+import { useNotificationTapRouting } from "../src/omg/push";
 import { useTheme } from "../src/omg/theme";
 import { ToastProvider } from "../src/omg/toast";
 
@@ -136,6 +137,18 @@ function LaunchGate() {
 
 function RootNavigator() {
   const { authStatus } = useOmg();
+  /**
+   * A tapped notification goes to the thing it is about.
+   *
+   * The hook call is unconditional, as hooks must be, but the NAVIGATION is
+   * gated on being signed in: a cold start launched by tapping a notification
+   * delivers the tap before there is a signed-in Stack to push into — this
+   * component is still returning <Splash/> at that moment, with no navigator
+   * mounted at all. `useLastNotificationResponse` holds the response until it
+   * is consumed, so gating waits rather than pushing into a tree that does not
+   * exist yet.
+   */
+  useNotificationTapRouting(authStatus === "signed-in");
   const { colors, isDark } = useTheme();
   // Shares the splash with auth, rather than flashing an icon-less bar for a
   // frame: the font resolves from a bundled asset, so this is never a wait
