@@ -4108,7 +4108,7 @@ a{color:#60a5fa}
       }
 
       // Combined usage/limits across every agent provider (Claude, Codex,
-      // Grok, OpenCode) for the Settings → Usage page. Each provider is
+      // Cursor, Grok, OpenCode) for the Settings → Usage page. Each provider is
       // self-cached for 60s, so this only pays for whatever has gone stale.
       if (path === "/api/usage") {
         return json({ providers: await getAllUsage({ force: url.searchParams.get("force") === "1" }) });
