@@ -131,9 +131,19 @@ marked.setOptions({ gfm: true, breaks: false });
  * A hook rather than a constant because the colour comes from the theme, which
  * follows the device's appearance.
  */
+/**
+ * TRANSCRIPT BODY TEXT — 17/26, not 16/24.
+ *
+ * 16 is iOS's callout size, which is what a caption or a secondary label
+ * wears. This is the reading surface of the whole app: long agent replies,
+ * read at arm's length, often one-handed on the move. 17 is the system's BODY
+ * size and the size Messages and Mail set their content in, and the leading
+ * goes with it — 26 keeps the same airy ratio rather than tightening the lines
+ * as the glyphs grow.
+ */
 export function useBodyText() {
   const { colors, type } = useTheme();
-  return { ...type.callout, fontSize: 16, lineHeight: 24, color: colors.text };
+  return { ...type.callout, fontSize: 17, lineHeight: 26, color: colors.text };
 }
 
 /** Parsing can throw on pathological input; a transcript must never blank out. */

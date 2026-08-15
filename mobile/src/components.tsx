@@ -813,10 +813,16 @@ export function SessionCard({
             borderWidth: 1,
             borderColor: colors.borderStrong,
             marginHorizontal: space.lg,
-            // Tighter than the old card's uniform 16pt. A grouped row is sized
-            // by its content and the 44pt minimum touch target, not by padding
-            // holding an isolated tile apart from its neighbours.
-            paddingLeft: space.md,
+            /**
+             * The mark needs room to be a mark.
+             *
+             * This was 12, tuned when the avatar had a disc behind it that did
+             * the spacing job on its own. Bare artwork against the card's own
+             * edge reads as crowded — the glyph starts where the border ends —
+             * and 16 gives it the same breathing room the title has from the
+             * text beside it.
+             */
+            paddingLeft: space.lg,
             // More room on the right than the left: the status dot is a 10pt
             // circle with no visual mass of its own, so an equal inset leaves
             // it looking stuck to the group's edge. The avatar on the left is
@@ -1319,6 +1325,9 @@ function ComposerCaptionButton({
 }) {
   const { colors, radius, type, space } = useTheme();
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
+  // A new label is a new width. Drop the cached one so the next pass measures
+  // the pill unconstrained rather than inside the box the old label earned.
+  useEffect(() => setSize(null), [label]);
   // Glass, like the field it captions and the buttons inside it. A flat fill
   // here was the last piece of chrome on this screen made of something else.
   const pill = (
@@ -1373,35 +1382,47 @@ function ComposerCaptionButton({
   );
   if (!options.length) return pill;
   /**
-   * THE MENU HOST HAS TO BE TOLD THE PILL'S SIZE.
+   * THE MENU HOST HAS TO BE TOLD THE PILL'S SIZE — and then told again when
+   * the label changes.
    *
    * `DropdownMenu` mounts a SwiftUI `Host` around its trigger, and `Host`'s
    * `matchContents` does not reliably size to React Native content hosted back
-   * inside it — the same defect that once made an unsized Host swallow taps
-   * meant for the button beside it, fixed there by giving it explicit
-   * dimensions. Here the width is not knowable in advance because it is a
-   * project name, so the pill is MEASURED and the measurement handed to the
-   * Host.
+   * inside it. So the pill is measured and the measurement handed to the Host,
+   * which is what stopped these controls from wearing a box wider than their
+   * own glass.
    *
-   * This is why the pills looked padded no matter how much padding came off
-   * them: the glass was already tight to the label, and the extra space was
-   * the host box around it.
+   * That fix then FROZE them, which is the bug this comment exists for. The
+   * measured View lives INSIDE the sized Host, so once a width was applied the
+   * child was constrained to it, `onLayout` reported that same width forever,
+   * and switching to a shorter project name left the pill at the old size. A
+   * measurement taken inside the thing it determines is a loop.
+   *
+   * Two things break it. The measured View is `flex-start`, so it takes its
+   * NATURAL width rather than filling whatever the Host currently is — a
+   * shorter label measures shorter even while the Host is still wide. And the
+   * cached size is dropped whenever the label changes, so the next layout pass
+   * starts unconstrained instead of converging down from the old value.
    */
   return (
     <DropdownMenu
       options={options}
       style={size ? { width: size.width, height: size.height } : undefined}
     >
-      <View onLayout={(e) => {
-        const { width, height } = e.nativeEvent.layout;
-        // Only on a real change: setting state from onLayout with the same
-        // numbers is a re-render loop.
-        setSize((current) =>
-          current && Math.abs(current.width - width) < 0.5 && Math.abs(current.height - height) < 0.5
-            ? current
-            : { width, height },
-        );
-      }}>
+      <View
+        style={{ alignSelf: "flex-start" }}
+        onLayout={(e) => {
+          const { width, height } = e.nativeEvent.layout;
+          // Only on a real change: setting state from onLayout with the same
+          // numbers is a re-render loop.
+          setSize((current) =>
+            current &&
+            Math.abs(current.width - width) < 0.5 &&
+            Math.abs(current.height - height) < 0.5
+              ? current
+              : { width, height },
+          );
+        }}
+      >
         {pill}
       </View>
     </DropdownMenu>
