@@ -2,6 +2,17 @@
 
 Recent product updates and deployment notes.
 
+## August 15, 2026 - One session, one row (v0.1.381)
+
+- **A delegated Codex session no longer appears twice in the session list.**
+  The per-turn engine process the harness spawns internally was being listed
+  as a session of its own, so one conversation showed up as two rows that both
+  opened the same transcript.
+- **Delegated sessions are titled by the actual ask.** They were showing
+  "=== LFG SUBAGENT OPERATING CONTRACT === - You are an LFG-managed subage…"
+  because a subagent prompt carries two nested envelopes and only the outer one
+  was being stripped for display.
+
 ## August 15, 2026 - Connect OpenCode Go without a terminal (v0.1.380)
 
 - **OpenCode's Go plan and Zen now connect with an API key in Settings →
