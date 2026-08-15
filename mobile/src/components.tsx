@@ -10,6 +10,7 @@ import {
   Image,
   PanResponder,
   Pressable,
+  ScrollView,
   StyleSheet,
   View,
   type ViewStyle,
@@ -1204,7 +1205,31 @@ export function HomeComposer({
          * Each appears only when there is a choice to make: a box with one
          * model for the current agent does not get a model pill.
          */}
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 }}>
+        {/**
+         * THE ROW SCROLLS; THE PILLS DO NOT SHRINK.
+         *
+         * Three controls and a project name do not always fit 393pt, and the
+         * flexible row answered that by squeezing each pill until its label
+         * truncated — so "gpt-5.6-sol" became "gpt-5.6…" and "All projects"
+         * became "All pro…", which is the one thing these controls exist to
+         * say. A pill is sized by its content now and the row scrolls when the
+         * set is wider than the screen: nothing is ever half-said, and the
+         * common case (two short labels) still shows everything at once.
+         */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          // Right-aligned when there is room to spare, so the group stays
+          // anchored to the folder pill's old edge instead of drifting left.
+          contentContainerStyle={{
+            flexGrow: 1,
+            justifyContent: "flex-end",
+            alignItems: "center",
+            gap: 6,
+          }}
+          style={{ flexShrink: 1 }}
+        >
           {modelOptions?.length ? (
             <ComposerCaptionButton
               label={modelLabel ?? "Model"}
@@ -1232,7 +1257,7 @@ export function HomeComposer({
               accessibilityLabel={`Project: ${projectLabel ?? "none"}. Change`}
             />
           ) : null}
-        </View>
+        </ScrollView>
       </View>
     </View>
   );
@@ -1287,10 +1312,10 @@ function ComposerCaptionButton({
         minHeight: 32,
         paddingHorizontal: space.md - 2,
         borderRadius: radius.pill,
-        // Sized by its label, but able to give way rather than push the rings
-        // off the row when a project name is very long.
-        minWidth: 0,
-        flexShrink: 1,
+        // Sized by its label, full stop. The row it lives in scrolls, so
+        // there is nothing to give way for — and giving way meant truncating
+        // the only thing the control says.
+        flexShrink: 0,
         overflow: "hidden",
       }}
     >
@@ -1312,7 +1337,7 @@ function ComposerCaptionButton({
          * now; the cap is the width of the row, so a pathological name still
          * cannot push the rings off the screen.
          */
-        style={{ ...type.footnote, fontWeight: "500", color: colors.text, flexShrink: 1 }}
+        style={{ ...type.footnote, fontWeight: "500", color: colors.text }}
       >
         {label}
       </Text>

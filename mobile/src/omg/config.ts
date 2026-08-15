@@ -62,6 +62,13 @@ export const STORAGE_KEYS = {
   presenceEventSeq: "omg:mobile:presence-event-seq",
   /** better-auth session token (SecureStore, not AsyncStorage). */
   sessionToken: "omg:mobile:session-token",
+  /**
+   * How the composer was last configured, per machine and agent: which model,
+   * how hard to think. Validated against the box's catalog on load — a stored
+   * choice can name something this machine no longer offers, and offering it
+   * would be a 400 at launch discovered only after typing a prompt.
+   */
+  composerSetup: "omg:mobile:composer-setup",
 } as const;
 
 export type ComputerMode = "direct" | "hosted";
