@@ -15,6 +15,7 @@ import {
 import { Text, TextInput, type TextInputHandle } from "../src/omg/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { Icon } from "../src/components";
 import { BrandMark } from "../src/omg/brand-mark";
 import { sendSignInCode, verifySignInCode } from "../src/omg/auth";
 import {
@@ -305,13 +306,20 @@ export default function SignInScreen() {
     }
   }, [normalizedEmail, resendSeconds, sending]);
 
-  const signIn = useCallback(async () => {
-    if (!codeIsValid || verifying) return;
+  /**
+   * `submitted` lets the auto-submit hand over the digits it just read, rather
+   * than racing `code` state that has not re-rendered yet — the six characters
+   * are in hand at the call site and waiting for React to agree is how an
+   * auto-submit verifies five of them.
+   */
+  const signIn = useCallback(async (submitted?: string) => {
+    const entered = (submitted ?? code).replace(/\D/g, "").slice(0, 6);
+    if (entered.length !== 6 || verifying) return;
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setVerifying(true);
     setError(null);
     try {
-      await verifySignInCode(normalizedEmail, code);
+      await verifySignInCode(normalizedEmail, entered);
       await refreshSession();
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (signInError) {
@@ -367,64 +375,126 @@ export default function SignInScreen() {
           </Text>
 
           {step === "email" ? (
-            <TextInput
-              autoCapitalize="none"
-              autoComplete="email"
-              autoCorrect={false}
-              editable={!busy}
-              inputMode="email"
-              keyboardType="email-address"
-              onChangeText={(value) => {
-                setEmail(value);
-                setError(null);
-              }}
-              onSubmitEditing={() => void requestCode()}
-              placeholder="Email address"
-              placeholderTextColor={colors.textMuted}
-              returnKeyType="next"
-              style={[
-                type.body,
-                styles.field,
-                {
-                  backgroundColor: colors.fieldFill,
-                  borderColor: error ? colors.danger : colors.borderStrong,
-                  borderRadius: radius.lg,
-                  color: colors.text,
-                },
-              ]}
-              textContentType="emailAddress"
-              value={email}
-            />
-          ) : (
-            <>
+            /**
+             * THE SUBMIT LIVES IN THE FIELD, copied from the dashboard's own
+             * sign-in (apps/web/src/components/auth/email-otp-form.tsx).
+             *
+             * The phone had a full-width Continue button 32pt below the input,
+             * which is a second object to look at for an action the field
+             * already implies — and on a tall screen it was the thing that
+             * left the form scattered down the page. One rounded field with an
+             * arrow inside it says the same thing in one shape, and it is the
+             * shape this app already uses everywhere else to send something.
+             *
+             * The arrow only exists once there is an address, exactly as the
+             * web fades it in: an enabled-looking button that does nothing is
+             * worse than no button.
+             */
+            <View style={styles.fieldWrap}>
               <TextInput
-                ref={codeInput}
-                autoComplete="one-time-code"
+                autoCapitalize="none"
+                autoComplete="email"
+                autoCorrect={false}
                 editable={!busy}
-                keyboardType="number-pad"
-                maxLength={6}
+                inputMode="email"
+                keyboardType="email-address"
                 onChangeText={(value) => {
-                  setCode(value.replace(/\D/g, "").slice(0, 6));
+                  setEmail(value);
                   setError(null);
                 }}
-                onSubmitEditing={() => void signIn()}
-                placeholder="000000"
+                onSubmitEditing={() => void requestCode()}
+                placeholder="you@example.com"
                 placeholderTextColor={colors.textMuted}
-                returnKeyType="done"
+                returnKeyType="go"
                 style={[
-                  type.title,
+                  type.body,
                   styles.field,
-                  styles.codeField,
                   {
                     backgroundColor: colors.fieldFill,
                     borderColor: error ? colors.danger : colors.borderStrong,
-                    borderRadius: radius.lg,
+                    borderRadius: radius.xl,
                     color: colors.text,
                   },
                 ]}
-                textContentType="oneTimeCode"
-                value={code}
+                textContentType="emailAddress"
+                value={email}
               />
+              {canSubmit ? (
+                <Pressable
+                  accessibilityLabel="Send sign-in code"
+                  accessibilityRole="button"
+                  disabled={busy}
+                  onPress={() => void requestCode()}
+                  style={({ pressed }) => [
+                    styles.fieldAction,
+                    { backgroundColor: colors.primary, opacity: pressed ? 0.82 : 1 },
+                  ]}
+                >
+                  {busy ? (
+                    <ActivityIndicator color={colors.primaryForeground} size="small" />
+                  ) : (
+                    <Icon android="arrow_upward" color={colors.primaryForeground} ios="arrow.up" size={16} />
+                  )}
+                </Pressable>
+              ) : null}
+            </View>
+          ) : (
+            <>
+              <View style={styles.fieldWrap}>
+                <TextInput
+                  ref={codeInput}
+                  autoComplete="one-time-code"
+                  editable={!busy}
+                  keyboardType="number-pad"
+                  maxLength={6}
+                  onChangeText={(value) => {
+                    const digits = value.replace(/\D/g, "").slice(0, 6);
+                    setCode(digits);
+                    setError(null);
+                    // SIX DIGITS IS THE WHOLE ANSWER, so it submits itself —
+                    // the dashboard does the same. Making someone press a
+                    // button after typing the last digit of a code they just
+                    // read off a screen is asking them to confirm a thing they
+                    // cannot have meant differently.
+                    if (digits.length === 6 && !busy) void signIn(digits);
+                  }}
+                  onSubmitEditing={() => void signIn()}
+                  placeholder="000000"
+                  placeholderTextColor={colors.textMuted}
+                  returnKeyType="done"
+                  style={[
+                    type.title,
+                    styles.field,
+                    styles.codeField,
+                    {
+                      backgroundColor: colors.fieldFill,
+                      borderColor: error ? colors.danger : colors.borderStrong,
+                      borderRadius: radius.xl,
+                      color: colors.text,
+                    },
+                  ]}
+                  textContentType="oneTimeCode"
+                  value={code}
+                />
+                {code.length === 6 ? (
+                  <Pressable
+                    accessibilityLabel="Sign in"
+                    accessibilityRole="button"
+                    disabled={busy}
+                    onPress={() => void signIn()}
+                    style={({ pressed }) => [
+                      styles.fieldAction,
+                      { backgroundColor: colors.primary, opacity: pressed ? 0.82 : 1 },
+                    ]}
+                  >
+                    {busy ? (
+                      <ActivityIndicator color={colors.primaryForeground} size="small" />
+                    ) : (
+                      <Icon android="arrow_upward" color={colors.primaryForeground} ios="arrow.up" size={16} />
+                    )}
+                  </Pressable>
+                ) : null}
+              </View>
 
               <View style={styles.codeActions}>
                 <Pressable disabled={busy} onPress={useDifferentEmail}>
@@ -446,28 +516,6 @@ export default function SignInScreen() {
             </>
           )}
         </View>
-
-        <Pressable
-          accessibilityRole="button"
-          disabled={!canSubmit}
-          onPress={() => void (step === "email" ? requestCode() : signIn())}
-          style={({ pressed }) => [
-            styles.button,
-            {
-              backgroundColor: colors.primary,
-              borderRadius: radius.lg,
-              opacity: canSubmit ? (pressed ? 0.82 : 1) : 0.45,
-            },
-          ]}
-        >
-          {busy ? (
-            <ActivityIndicator color={colors.primaryForeground} />
-          ) : (
-            <Text style={[type.headline, { color: colors.primaryForeground }]}>
-              {step === "email" ? "Continue" : "Sign in"}
-            </Text>
-          )}
-        </Pressable>
 
         {step === "email" ? (
           <>
@@ -512,6 +560,24 @@ const styles = StyleSheet.create({
      */
     flexGrow: 1,
   },
+  /** The field and the button that lives inside its trailing edge. */
+  fieldWrap: {
+    justifyContent: "center",
+    marginTop: 24,
+    width: "100%",
+  },
+  fieldAction: {
+    alignItems: "center",
+    borderRadius: 16,
+    bottom: 0,
+    height: 36,
+    justifyContent: "center",
+    margin: "auto",
+    position: "absolute",
+    right: 8,
+    top: 0,
+    width: 36,
+  },
   /** The single flexible gap: everything above it groups, everything below sits at the foot. */
   spacer: {
     flex: 1,
@@ -531,8 +597,12 @@ const styles = StyleSheet.create({
   field: {
     borderWidth: StyleSheet.hairlineWidth,
     height: 54,
-    marginTop: 32,
+    // The margin belongs to the wrapper now, or the absolutely positioned
+    // button inside it would be offset by it too.
     paddingHorizontal: 16,
+    // Room for the arrow that sits at the trailing edge: 36 for the button,
+    // 8 either side of it.
+    paddingRight: 52,
   },
   codeField: {
     letterSpacing: 8,
