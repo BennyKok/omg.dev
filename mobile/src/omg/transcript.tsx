@@ -1297,6 +1297,16 @@ function UserAttachments({
         flexDirection: "row",
         flexWrap: "wrap",
         gap: space.xs,
+        /**
+         * ON THE RIGHT, with the bubble they belong to.
+         *
+         * The caption under a sent picture is right-aligned because that is
+         * what "you said this" looks like in every messaging app — and the
+         * picture above it was starting from the left edge, so one message
+         * hung off both sides of the screen. They are one utterance and they
+         * share an edge.
+         */
+        justifyContent: "flex-end",
         // Not `stretch`, which is the flex default: that pulls every tile on a
         // row up to the tallest one's height, so a wide screenshot beside a
         // tall one renders squashed. The web stylesheet carries this same note.
