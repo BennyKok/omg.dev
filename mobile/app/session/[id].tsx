@@ -74,7 +74,13 @@ import * as Clipboard from "expo-clipboard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OmgSession, OmgSessionPrompt } from "@omg-dev/protocol";
 
-import { AgentAvatar, AttachmentStrip, Icon, IconButton } from "../../src/components";
+import {
+  AgentAvatar,
+  AttachmentStrip,
+  Icon,
+  IconButton,
+  VoiceMeter,
+} from "../../src/components";
 import { useAttachments } from "../../src/omg/attachments";
 import { useDictation } from "../../src/omg/dictation";
 import { GlassSurface, LIQUID_GLASS } from "../../src/omg/glass";
@@ -120,10 +126,33 @@ export default function SessionScreen() {
     // The whole transport: the streaming path needs a socket as well as a
     // POST, and this object owns the grant for both.
     client?.transport ?? null,
-    // Dictation APPENDS. Someone who typed half a thought and then spoke the
-    // rest should end up with both, in that order.
-    (text) => setDraft((current) => (current ? `${current} ${text}` : text)),
+    /**
+     * Dictation APPENDS, and a finished take SENDS.
+     *
+     * Stopping used to leave the words in the field waiting for a second tap
+     * on a button the thumb was already covering — you say the thing, then
+     * hunt for send. Speaking a message and sending it are one intention.
+     * Anything already typed still goes with it, in the order it was made.
+     *
+     * A cancelled take never reaches here at all: the hook drops it.
+     */
+    (text, meta) => {
+      setDraft((current) => {
+        const next = current ? `${current} ${text}` : text;
+        if (meta?.final) void submitRef.current?.(next);
+        return meta?.final ? "" : next;
+      });
+    },
   );
+
+  /**
+   * `send` is declared below the dictation hook that has to call it, so it is
+   * reached through a ref rather than by reordering two hundred lines of
+   * state around one callback.
+   */
+  const submitRef = useRef<((text: string) => void) | null>(null);
+  /** Where the finger went down on the mic, so an upward drag can cancel once. */
+  const cancelSwipeRef = useRef<{ y: number; fired: boolean } | null>(null);
 
   /** The not-yet-settled words, when a live take is running. */
   const dictationTail =
@@ -562,9 +591,15 @@ export default function SessionScreen() {
   /** Shown for a beat after a long-press send, so the gesture confirms itself. */
   const [queuedHint, setQueuedHint] = useState(false);
 
+  /**
+   * Dictation hands its finished text in directly rather than going through
+   * `draft`: the state update that would carry it has not committed yet at the
+   * moment the take ends, and sending an empty string is how a voice message
+   * disappears.
+   */
   const send = useCallback(
-    (mode: "steer" | "queue" = "steer") => {
-      const text = attachments.compose(draft.trim());
+    (mode: "steer" | "queue" = "steer", spoken?: string) => {
+      const text = attachments.compose((spoken ?? draft).trim());
       if (!text || sending) return;
       if (mode === "queue") {
         /**
@@ -584,6 +619,11 @@ export default function SessionScreen() {
     },
     [attachments, draft, sending, submit],
   );
+
+  // Kept current for the dictation callback declared above it.
+  useEffect(() => {
+    submitRef.current = (text: string) => send("steer", text);
+  }, [send]);
 
   /**
    * Answering the agent's question SENDS the answer. It used to drop the label
@@ -1491,9 +1531,37 @@ export default function SessionScreen() {
              */
             <Pressable
               onPress={dictation.toggle}
+              /**
+               * SWIPE UP TO THROW THE TAKE AWAY, the way a voice note is
+               * cancelled everywhere else. Tap now SENDS, so there has to be a
+               * gesture that does not — and it has to be one you can find
+               * without looking, because your thumb is already on the button
+               * and the words are already wrong.
+               *
+               * A long press cancels too: the same intention, for a thumb that
+               * would rather hold still than slide.
+               */
+              onLongPress={dictation.cancel}
+              delayLongPress={400}
+              onTouchStart={(e) => {
+                cancelSwipeRef.current = { y: e.nativeEvent.pageY, fired: false };
+              }}
+              onTouchMove={(e) => {
+                const swipe = cancelSwipeRef.current;
+                if (!swipe || swipe.fired || dictation.state !== "recording") return;
+                if (swipe.y - e.nativeEvent.pageY > 44) {
+                  swipe.fired = true;
+                  dictation.cancel();
+                }
+              }}
               accessibilityRole="button"
               accessibilityLabel={
-                dictation.state === "recording" ? "Stop dictating" : "Dictate a message"
+                dictation.state === "recording" ? "Stop and send" : "Dictate a message"
+              }
+              accessibilityHint={
+                dictation.state === "recording"
+                  ? "Swipe up or hold to discard this recording"
+                  : undefined
               }
               hitSlop={8}
               style={({ pressed }) => ({
@@ -1507,10 +1575,7 @@ export default function SessionScreen() {
               {dictation.state === "transcribing" ? (
                 <ActivityIndicator size="small" color={colors.textMuted} />
               ) : dictation.state === "recording" ? (
-                <VoiceMeter
-                  level={(dictation as { level?: number }).level}
-                  color={colors.danger}
-                />
+                <VoiceMeter level={dictation.level} color={colors.danger} />
               ) : (
                 <Icon ios="mic" android="mic" size={18} color={colors.textMuted} />
               )}
@@ -1530,50 +1595,6 @@ export default function SessionScreen() {
 }
 
 /** The small dark pill with animated dots shown while the agent is thinking. */
-/**
- * WHAT RECORDING LOOKS LIKE: your own voice, moving.
- *
- * The recording state used to be a red stop button — the loudest object in the
- * composer, and a control that says "this is a thing you must now cancel"
- * rather than "I am listening". The web shows a level, and a level is the only
- * honest answer to the question people actually have while they talk, which is
- * whether the microphone is hearing them at all. Tapping it still stops; the
- * whole meter is the target.
- *
- * Three bars, centre tallest, all driven by one amplitude. At rest they sit at
- * a visible minimum so the control still reads as present in a silent room —
- * and so it degrades to something sensible on a build whose dictation hook
- * does not report a level yet.
- */
-function VoiceMeter({ level, color }: { level?: number; color: string }) {
-  const amplitude = useSharedValue(0);
-
-  useEffect(() => {
-    // Fast up, slow down: the shape every level meter uses, because a bar that
-    // falls as fast as it rises reads as flicker rather than as a voice.
-    const next = Math.max(0, Math.min(1, level ?? 0));
-    amplitude.value = withTiming(next, {
-      duration: next > amplitude.value ? 70 : 190,
-    });
-  }, [level, amplitude]);
-
-  // Three explicit hooks rather than one called in a loop: hooks in a helper
-  // are a lint error waiting to become a real one the day the bar count is
-  // conditional.
-  const left = useAnimatedStyle(() => ({ height: 5 + amplitude.value * 15 * 0.7 }));
-  const middle = useAnimatedStyle(() => ({ height: 5 + amplitude.value * 15 }));
-  const right = useAnimatedStyle(() => ({ height: 5 + amplitude.value * 15 * 0.55 }));
-  const bar = { width: 3, borderRadius: 2, backgroundColor: color };
-
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 2.5 }}>
-      <Reanimated.View style={[bar, left]} />
-      <Reanimated.View style={[bar, middle]} />
-      <Reanimated.View style={[bar, right]} />
-    </View>
-  );
-}
-
 /**
  * THE AGENT IS WORKING — the same chip as a tool badge, because it belongs to
  * the same row of events.

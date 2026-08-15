@@ -935,6 +935,8 @@ export function HomeComposer({
   dictation: {
     state: "idle" | "recording" | "transcribing";
     toggle: () => void;
+    /** Throw the current take away instead of sending it. */
+    cancel?: () => void;
     /** 0..1 input level, and the live tail — see DictationCaption. */
     level?: number;
     partial?: string;
@@ -951,6 +953,8 @@ export function HomeComposer({
   const dictationTail =
     dictation.live && dictation.state === "recording" ? (dictation.partial ?? "").trim() : "";
   const canStart = value.trim().length > 0 && !starting;
+  /** Where the finger went down on the mic, so an upward drag can cancel once. */
+  const cancelSwipe = useRef<{ y: number; fired: boolean } | null>(null);
   const hairline = {
     borderWidth: isDark ? StyleSheet.hairlineWidth : 0,
     borderColor: colors.borderSoft,
@@ -1070,9 +1074,35 @@ export function HomeComposer({
         {!canStart && !starting ? (
           <Pressable
             onPress={dictation.toggle}
+            /**
+             * THE SAME RECORDING CONTROL AS THE CHAT COMPOSER — meter while
+             * listening, hold or swipe up to throw the take away.
+             *
+             * This screen had the old red stop square long after the session
+             * screen stopped using one, so the same act looked like two
+             * different features depending which composer you were in.
+             */
+            onLongPress={dictation.cancel}
+            delayLongPress={400}
+            onTouchStart={(e) => {
+              cancelSwipe.current = { y: e.nativeEvent.pageY, fired: false };
+            }}
+            onTouchMove={(e) => {
+              const swipe = cancelSwipe.current;
+              if (!swipe || swipe.fired || dictation.state !== "recording") return;
+              if (swipe.y - e.nativeEvent.pageY > 44) {
+                swipe.fired = true;
+                dictation.cancel?.();
+              }
+            }}
             accessibilityRole="button"
             accessibilityLabel={
-              dictation.state === "recording" ? "Stop dictating" : "Dictate a prompt"
+              dictation.state === "recording" ? "Stop and start the session" : "Dictate a prompt"
+            }
+            accessibilityHint={
+              dictation.state === "recording"
+                ? "Swipe up or hold to discard this recording"
+                : undefined
             }
             style={({ pressed }) => ({
               width: 30,
@@ -1084,13 +1114,10 @@ export function HomeComposer({
           >
             {dictation.state === "transcribing" ? (
               <ActivityIndicator size="small" color={colors.textMuted} />
+            ) : dictation.state === "recording" ? (
+              <VoiceMeter level={dictation.level} color={colors.danger} />
             ) : (
-              <Icon
-                ios={dictation.state === "recording" ? "stop.circle.fill" : "mic"}
-                android={dictation.state === "recording" ? "stop_circle" : "mic"}
-                size={17}
-                color={dictation.state === "recording" ? colors.danger : colors.textMuted}
-              />
+              <Icon ios="mic" android="mic" size={17} color={colors.textMuted} />
             )}
           </Pressable>
         ) : null}
@@ -1426,6 +1453,50 @@ function ComposerCaptionButton({
         {pill}
       </View>
     </DropdownMenu>
+  );
+}
+
+/**
+ * WHAT RECORDING LOOKS LIKE: your own voice, moving.
+ *
+ * The recording state used to be a red stop button — the loudest object in the
+ * composer, and a control that says "this is a thing you must now cancel"
+ * rather than "I am listening". The web shows a level, and a level is the only
+ * honest answer to the question people actually have while they talk, which is
+ * whether the microphone is hearing them at all. Tapping it still stops; the
+ * whole meter is the target.
+ *
+ * Three bars, centre tallest, all driven by one amplitude. At rest they sit at
+ * a visible minimum so the control still reads as present in a silent room —
+ * and so it degrades to something sensible on a build whose dictation hook
+ * does not report a level yet.
+ */
+export function VoiceMeter({ level, color }: { level?: number; color: string }) {
+  const amplitude = useSharedValue(0);
+
+  useEffect(() => {
+    // Fast up, slow down: the shape every level meter uses, because a bar that
+    // falls as fast as it rises reads as flicker rather than as a voice.
+    const next = Math.max(0, Math.min(1, level ?? 0));
+    amplitude.value = withTiming(next, {
+      duration: next > amplitude.value ? 70 : 190,
+    });
+  }, [level, amplitude]);
+
+  // Three explicit hooks rather than one called in a loop: hooks in a helper
+  // are a lint error waiting to become a real one the day the bar count is
+  // conditional.
+  const left = useAnimatedStyle(() => ({ height: 5 + amplitude.value * 15 * 0.7 }));
+  const middle = useAnimatedStyle(() => ({ height: 5 + amplitude.value * 15 }));
+  const right = useAnimatedStyle(() => ({ height: 5 + amplitude.value * 15 * 0.55 }));
+  const bar = { width: 3, borderRadius: 2, backgroundColor: color };
+
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 2.5 }}>
+      <Reanimated.View style={[bar, left]} />
+      <Reanimated.View style={[bar, middle]} />
+      <Reanimated.View style={[bar, right]} />
+    </View>
   );
 }
 

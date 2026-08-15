@@ -13,7 +13,7 @@
 
 import { useFocusEffect, useNavigation, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, View } from "react-native";
 import Reanimated, { useAnimatedKeyboard, useAnimatedStyle } from "react-native-reanimated";
 import { Text } from "../src/omg/text";
@@ -356,8 +356,22 @@ export default function SessionsScreen() {
     // websocket to stream PCM as you speak, and the grant, its refresh and the
     // selected machine's origin all live on this one object.
     client?.transport ?? null,
-    (text) => setDraft((current) => (current ? `${current} ${text}` : text)),
+    /**
+     * A finished take STARTS THE SESSION. Speaking a prompt and starting the
+     * work are one intention, and leaving the words in the field waiting for a
+     * second tap put a button under the thumb that had just finished
+     * dictating. A cancelled take never reaches here — the hook drops it.
+     */
+    (text, meta) => {
+      setDraft((current) => {
+        const next = current ? `${current} ${text}` : text;
+        if (meta?.final) void startRef.current?.(next);
+        return meta?.final ? "" : next;
+      });
+    },
   );
+  /** `startSession` is declared below the hook that has to call it. */
+  const startRef = useRef<((prompt: string) => void) | null>(null);
 
   const ready = readiness?.status === "ready";
 
@@ -485,8 +499,13 @@ export default function SessionsScreen() {
    * (POST /api/sessions/new), now carrying both choices explicitly instead of
    * letting the server pick the agent and the binding pick the folder.
    */
-  const startSession = useCallback(async () => {
-    const prompt = attachments.compose(draft.trim());
+  /**
+   * `spoken` comes straight from a finished dictation take, because the state
+   * update carrying it has not committed at the moment the take ends —
+   * reading `draft` there starts a session with an empty prompt.
+   */
+  const startSession = useCallback(async (spoken?: string) => {
+    const prompt = attachments.compose((spoken ?? draft).trim());
     if (!prompt || !client || starting) return;
     setStarting(true);
     try {
@@ -527,6 +546,11 @@ export default function SessionsScreen() {
     load,
     router,
   ]);
+
+  // Kept current for the dictation callback declared above it.
+  useEffect(() => {
+    startRef.current = (prompt: string) => void startSession(prompt);
+  }, [startSession]);
 
   /**
    * Archive one session, the gesture the row itself commits to.

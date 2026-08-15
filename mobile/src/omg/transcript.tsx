@@ -125,6 +125,17 @@ const BODY_CHAR_LIMIT = 2_000;
  * web caps the same tile at 20rem / 15rem; these are the phone's equivalents,
  * smaller because the viewport is.
  */
+/**
+ * How much of a long sent message stays visible, and what counts as long.
+ *
+ * The line count is the cap; the character count is the TEST, because
+ * `numberOfLines` cannot tell you whether it clipped anything. 460 characters
+ * is about ten lines at this width and size — deliberately generous, so the
+ * control only appears when there is really something folded away.
+ */
+const COLLAPSED_LINES = 10;
+const LONG_MESSAGE_CHARS = 460;
+
 const ATTACHMENT_MAX = 240;
 const ATTACHMENT_TILE = 150;
 
@@ -1215,6 +1226,7 @@ export function UserMessage({ message }: { message: Entry }) {
   };
 
   const stamp = relativeTime(message.ts);
+  const [expanded, setExpanded] = useState(false);
 
   // Attachments ride along in the user's text as absolute upload paths, because
   // that is how the agent receives them. Split them back out so the transcript
@@ -1225,6 +1237,7 @@ export function UserMessage({ message }: { message: Entry }) {
     () => parseMessageAttachments(message.text ?? ""),
     [message.text],
   );
+  const isLong = text.length > LONG_MESSAGE_CHARS;
 
   return (
     <View style={{ alignSelf: "stretch", gap: space.xs }}>
@@ -1265,9 +1278,35 @@ export function UserMessage({ message }: { message: Entry }) {
             // the assistant's 23, which made the user's own words look
             // fractionally tighter than the answer to them.
             style={body}
+            /**
+             * A LONG MESSAGE FOLDS.
+             *
+             * People paste things here — a stack trace, a spec, a whole file —
+             * and an eight-hundred-word bubble pushes the agent's reply, which
+             * is the thing you came back to read, entirely off the screen. Ten
+             * lines is enough to recognise what you sent; the rest is one tap
+             * away and stays expanded once opened.
+             *
+             * Only when it is actually long: a message that fits gets no
+             * control, because a "more" under three lines is furniture.
+             */
+            numberOfLines={expanded || !isLong ? undefined : COLLAPSED_LINES}
           >
             {text}
           </Text>
+          {isLong ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={expanded ? "Show less of this message" : "Show the whole message"}
+              hitSlop={8}
+              onPress={() => setExpanded((open) => !open)}
+              style={{ marginTop: space.xs }}
+            >
+              <Text style={{ ...type.footnote, fontWeight: "500", color: colors.textSecondary }}>
+                {expanded ? "Show less" : "Show more"}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
       <View
