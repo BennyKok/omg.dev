@@ -35,7 +35,7 @@
       "expo-router",
       "expo-font",
       "expo-asset",
-      "expo-audio"
+      "@siteed/audio-studio"
     ],
     "scheme": "omg",
     "extra": {
