@@ -49,6 +49,8 @@ import {
 } from "react-native";
 import Reanimated, {
   FadeIn,
+  FadeInDown,
+  LinearTransition,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -67,7 +69,17 @@ import { Text } from "./text";
 import { useTheme } from "./theme";
 
 /** A transcript message, plus the flag the live stream sets on its synthetic tail. */
-export type Entry = OmgMessage & { streaming?: boolean };
+export type Entry = OmgMessage & {
+  streaming?: boolean;
+  /**
+   * Sent with `mode: "queue"` — waiting BEHIND the turn in flight rather than
+   * interrupting it. A different fact from `pending`, which means the request
+   * itself is still in the air, and it deserves to look different: "Sending…"
+   * on a message that will sit untouched for four minutes is a lie about what
+   * is happening.
+   */
+  queued?: boolean;
+};
 
 /**
  * A call and the result it produced. Either side can be missing: a call whose
@@ -172,10 +184,37 @@ function entryKey(message: Entry, index: number): string {
   return message.id ?? `${message.kind ?? message.role ?? "msg"}-${index}`;
 }
 
-export function TranscriptRow({ item }: { item: TranscriptItem }) {
-  if (item.type === "message")
-    return <TranscriptEntry message={item.message} nextTs={item.nextTs} />;
-  return <ToolRun pairs={item.pairs} />;
+/**
+ * ROWS ARRIVE, THEY DO NOT APPEAR.
+ *
+ * A message that pops into existence at full size is the difference between a
+ * transcript and a chat. iMessage slides a sent bubble up from the composer;
+ * everything here — your message, the agent's reply, a tool badge — enters the
+ * same way, from slightly below and slightly transparent, on a spring short
+ * enough that it never delays reading.
+ *
+ * `entering` is passed ONLY for rows that arrived after the screen settled
+ * (see `fresh`): without that guard the whole first page animates in on open,
+ * which is eighty springs at once and looks like the app is loading rather
+ * than the conversation continuing.
+ *
+ * `layout` is what makes the rest of the list move rather than jump when a row
+ * above it grows — a streaming reply gaining a paragraph, a thinking block
+ * resolving into text.
+ */
+export function TranscriptRow({ item, fresh }: { item: TranscriptItem; fresh?: boolean }) {
+  return (
+    <Reanimated.View
+      entering={fresh ? FadeInDown.springify().damping(18).mass(0.6) : undefined}
+      layout={LinearTransition.springify().damping(20).mass(0.7)}
+    >
+      {item.type === "message" ? (
+        <TranscriptEntry message={item.message} nextTs={item.nextTs} />
+      ) : (
+        <ToolRun pairs={item.pairs} />
+      )}
+    </Reanimated.View>
+  );
 }
 
 /**
@@ -1213,7 +1252,8 @@ export function UserMessage({ message }: { message: Entry }) {
             borderColor: colors.border,
             paddingHorizontal: space.lg,
             paddingVertical: space.md,
-            opacity: message.pending ? 0.6 : 1,
+            // Both states are "not acted on yet", so both sit back a little.
+            opacity: message.pending || message.queued ? 0.6 : 1,
           }}
         >
           <Text
@@ -1263,7 +1303,14 @@ export function UserMessage({ message }: { message: Entry }) {
             <Text style={{ ...type.caption, color: colors.textMuted }}>Copied</Text>
           ) : null}
         </Pressable>
-        {message.pending ? (
+        {message.queued ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Icon ios="clock" android="schedule" size={11} color={colors.textMuted} />
+            <Text style={{ ...type.caption, color: colors.textMuted }}>
+              Queued{stamp ? ` · ${stamp}` : ""}
+            </Text>
+          </View>
+        ) : message.pending ? (
           <Text style={{ ...type.caption, color: colors.textMuted }}>Sending…</Text>
         ) : stamp ? (
           <Text style={{ ...type.caption, color: colors.textMuted }}>{stamp}</Text>

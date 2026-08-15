@@ -47,9 +47,14 @@ RULES = [
         "new provisioning profile: yes",
     ),
     (
+        # Flipped to YES on 2026-08-15: the app now ships expo-notifications,
+        # and this prompt is what enables the Push capability on the App ID and
+        # mints the APNs key. Answering "n" here is what leaves a binary whose
+        # provisioning profile has no aps-environment entitlement — a build
+        # that installs fine and can never receive a notification.
         re.compile(r"Would you like to set up Push Notifications|Setup Push Notifications"),
-        b"n\n",
-        "push key: no (not used yet)",
+        b"Y\n",
+        "push key: yes",
     ),
     (re.compile(r"Reuse this distribution certificate\?"), b"Y\n", "reuse cert: yes"),
     (re.compile(r"proceed\?|Continue\?"), b"Y\n", "proceed: yes"),

@@ -466,6 +466,9 @@ export default function SessionScreen() {
         text: trimmed,
         ts: Date.now(),
         pending: true,
+        // Carried into the bubble so a held send reads as queued rather than
+        // as sending — see Entry.queued.
+        queued: mode === "queue",
       };
       setMessages((prev) => [...prev, optimistic]);
       setSending(true);
@@ -523,6 +526,12 @@ export default function SessionScreen() {
         setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
         setDraft((current) => (current ? current : trimmed));
         setError(e instanceof Error ? e.message : String(e));
+        // The request has landed. A queued message is no longer in flight, but
+        // it IS still waiting behind the current turn — so the echo drops
+        // `pending` and keeps `queued` until the real message replaces it.
+        setMessages((prev) =>
+          prev.map((m) => (m.id === optimistic.id ? { ...m, pending: false } : m)),
+        );
       } finally {
         setSending(false);
         setResuming(false);
