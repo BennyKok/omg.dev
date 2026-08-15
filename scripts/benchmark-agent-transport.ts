@@ -7,7 +7,7 @@ import {
 import { arch, cpus, platform, release, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { appendCmd, cmdPath } from "../src/aisdk-registry.ts";
+import { appendCmd, cmdPath, removeEntry } from "../src/aisdk-registry.ts";
 import { readNewCmdLines } from "../src/agents/backends/cmd-tail.ts";
 import { PATHS } from "../src/config.ts";
 import {
@@ -18,6 +18,7 @@ import {
   inputBoxText,
   tmuxClearInput,
   tmuxEnter,
+  tmuxHasSession,
   tmuxType,
 } from "../src/tmux.ts";
 
@@ -82,13 +83,22 @@ async function runFakeTui(ackPath: string): Promise<never> {
 
 async function runCommandReceiver(commandFile: string, ackPath: string): Promise<never> {
   let offset = 0;
+  let timer: ReturnType<typeof setInterval>;
   const consume = () => {
     const next = readNewCmdLines(commandFile, offset);
     offset = next.offset;
-    for (const line of next.lines) appendFileSync(ackPath, `${line}\n`);
+    for (const line of next.lines) {
+      appendFileSync(ackPath, `${line}\n`);
+      try {
+        if ((JSON.parse(line) as { type?: string }).type === "close") {
+          clearInterval(timer);
+          process.exit(0);
+        }
+      } catch {}
+    }
   };
   appendFileSync(ackPath, "__ready__\n");
-  const timer = setInterval(consume, STRUCTURED_COMMAND_POLL_MS);
+  timer = setInterval(consume, STRUCTURED_COMMAND_POLL_MS);
   process.once("SIGTERM", () => {
     clearInterval(timer);
     process.exit(0);
@@ -236,6 +246,83 @@ function gitState(): { revision: string; dirty: boolean } {
   };
 }
 
+async function waitForProcessExit(process: ReturnType<typeof Bun.spawn>, timeoutMs: number): Promise<void> {
+  await Promise.race([process.exited.then(() => undefined), sleep(timeoutMs)]);
+  if (process.exitCode == null) {
+    process.kill("SIGTERM");
+    await process.exited;
+  }
+}
+
+async function benchmarkLifecycle(
+  iterations: number,
+  root: string,
+  suffix: string,
+): Promise<{
+  legacyStart: number[];
+  structuredStart: number[];
+  legacyArchive: number[];
+  structuredArchive: number[];
+}> {
+  const legacyStart: number[] = [];
+  const structuredStart: number[] = [];
+  const legacyArchive: number[] = [];
+  const structuredArchive: number[] = [];
+
+  for (let index = 0; index < iterations; index++) {
+    const tmuxName = `lfg-bench-start-${suffix}-${index}`;
+    const ackPath = join(root, `legacy-start-${index}.ack`);
+    const started = performance.now();
+    const tmuxStart = Bun.spawnSync([
+      "tmux", "new-session", "-d", "-s", tmuxName,
+      process.execPath, SCRIPT_PATH, "--fake-tui", ackPath,
+    ], { stdout: "pipe", stderr: "pipe" });
+    if (tmuxStart.exitCode !== 0) {
+      throw new Error(tmuxStart.stderr.toString() || "failed to start lifecycle tmux session");
+    }
+    await waitFor(() => inputBoxText(tmuxName) !== null, 5_000, 2);
+    legacyStart.push(performance.now() - started);
+
+    const archiveStarted = performance.now();
+    const killed = Bun.spawnSync(["tmux", "kill-session", "-t", `=${tmuxName}`], {
+      stdout: "ignore",
+      stderr: "pipe",
+    });
+    if (killed.exitCode !== 0) {
+      throw new Error(killed.stderr.toString() || "failed to archive lifecycle tmux session");
+    }
+    await waitFor(() => !tmuxHasSession(tmuxName), 2_000, 2);
+    legacyArchive.push(performance.now() - archiveStarted);
+  }
+
+  for (let index = 0; index < iterations; index++) {
+    const sessionId = `lifecycle-${suffix}-${index}`;
+    const commandFile = cmdPath(sessionId);
+    const ackPath = join(root, `structured-start-${index}.ack`);
+    const started = performance.now();
+    const receiver = Bun.spawn([
+      process.execPath,
+      SCRIPT_PATH,
+      "--command-receiver",
+      commandFile,
+      ackPath,
+    ], { stdout: "ignore", stderr: "pipe" });
+    await waitFor(() => receiverReady(ackPath), 5_000, 2);
+    structuredStart.push(performance.now() - started);
+
+    const archiveStarted = performance.now();
+    appendCmd(sessionId, { type: "close" });
+    // This is the production grace period in closeLiveSession. The harness can
+    // exit sooner, but the close owner deliberately waits before it checks.
+    await sleep(300);
+    await waitForProcessExit(receiver, 100);
+    removeEntry(sessionId);
+    structuredArchive.push(performance.now() - archiveStarted);
+  }
+
+  return { legacyStart, structuredStart, legacyArchive, structuredArchive };
+}
+
 async function run(options: Options) {
   const tmuxVersion = Bun.spawnSync(["tmux", "-V"], { stdout: "pipe", stderr: "pipe" });
   if (tmuxVersion.exitCode !== 0) throw new Error("tmux is required for this benchmark");
@@ -304,6 +391,8 @@ async function run(options: Options) {
       structuredAcceptSamples.push(performance.now() - started);
     }
 
+    const lifecycle = await benchmarkLifecycle(options.iterations, root, suffix);
+
     const metrics = [
       metric(
         "legacy_tmux_confirmed_accept",
@@ -320,9 +409,33 @@ async function run(options: Options) {
         "append, persist, poll command file, and parse one command",
         structuredAcceptSamples,
       ),
+      metric(
+        "legacy_tmux_start_ready",
+        "create tmux session, pseudo-terminal, process, and first composer",
+        lifecycle.legacyStart,
+      ),
+      metric(
+        "structured_process_start_ready",
+        "spawn detached process and publish its control-plane readiness",
+        lifecycle.structuredStart,
+      ),
+      metric(
+        "legacy_tmux_archive",
+        "kill tmux session and confirm removal",
+        lifecycle.legacyArchive,
+      ),
+      metric(
+        "structured_process_archive",
+        "append close, honor production grace period, and remove control files",
+        lifecycle.structuredArchive,
+      ),
     ];
     const legacy = metrics[0]!;
     const structured = metrics[2]!;
+    const legacyStart = metrics[3]!;
+    const structuredStart = metrics[4]!;
+    const legacyArchive = metrics[5]!;
+    const structuredArchive = metrics[6]!;
     return {
       schemaVersion: 1,
       generatedAt: new Date().toISOString(),
@@ -347,6 +460,14 @@ async function run(options: Options) {
         p95Speedup: round(legacy.p95Ms / structured.p95Ms),
         p50SavedMs: round(legacy.p50Ms - structured.p50Ms),
         p95SavedMs: round(legacy.p95Ms - structured.p95Ms),
+      },
+      lifecycleComparison: {
+        p50StartSpeedup: round(legacyStart.p50Ms / structuredStart.p50Ms),
+        p95StartSpeedup: round(legacyStart.p95Ms / structuredStart.p95Ms),
+        p50ArchiveSlowdown: round(structuredArchive.p50Ms / legacyArchive.p50Ms),
+        p95ArchiveSlowdown: round(structuredArchive.p95Ms / legacyArchive.p95Ms),
+        p50ArchiveAddedMs: round(structuredArchive.p50Ms - legacyArchive.p50Ms),
+        p95ArchiveAddedMs: round(structuredArchive.p95Ms - legacyArchive.p95Ms),
       },
       metrics,
     };
@@ -397,6 +518,12 @@ try {
     console.log(
       `Structured harness acceptance is ${result.comparison.p50Speedup.toFixed(2)}x faster at p50 ` +
       `and ${result.comparison.p95Speedup.toFixed(2)}x faster at p95.`,
+    );
+    console.log(
+      `Structured process startup is ${result.lifecycleComparison.p50StartSpeedup.toFixed(2)}x faster at p50.`,
+    );
+    console.log(
+      `Structured archive adds ${result.lifecycleComparison.p50ArchiveAddedMs.toFixed(2)} ms at p50.`,
     );
     console.log("This benchmark excludes provider, network, and model generation time.");
   }
