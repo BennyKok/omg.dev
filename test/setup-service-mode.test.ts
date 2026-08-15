@@ -67,3 +67,13 @@ test("source installs build packages before the web UI", () => {
   expect(packages).toBeGreaterThan(install);
   expect(web).toBeGreaterThan(packages);
 });
+
+test("the interpolated systemd unit does not execute comment text", () => {
+  const source = readFileSync(SETUP_SH, "utf8");
+  const functionStart = source.indexOf("install_linux_service() {");
+  const unitStart = source.indexOf("<<UNIT\n", functionStart);
+  const unitEnd = source.indexOf("\nUNIT", unitStart + 7);
+  expect(unitStart).toBeGreaterThan(functionStart);
+  expect(unitEnd).toBeGreaterThan(unitStart);
+  expect(source.slice(unitStart, unitEnd)).not.toContain("`");
+});
