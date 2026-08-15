@@ -7,16 +7,19 @@
  * section atomically between promise continuations.
  */
 
-export type AgentAdmissionPlan =
-  | "free"
-  | "computer_trial"
-  | "computer_5"
-  | "computer_10"
-  | "computer_20"
-  | "computer_early";
-
 export type AgentAdmissionContext = {
-  plan: AgentAdmissionPlan;
+  /**
+   * Plan label, for error copy and the dashboard only.
+   *
+   * LFG never derives a number from this string. It used to: a plan name was
+   * matched against a table baked into the bundle, and any name the table did
+   * not know fell through to the free tier's limit of 1. That made every new
+   * plan silently broken on every already-shipped Computer until an LFG
+   * release, a pin bump and a template rebake caught up, which is exactly what
+   * happened to the India Starter plans and, for far longer, to free itself.
+   * The control plane owns plan policy; this process only enforces it.
+   */
+  plan: string;
   limit: number;
   /** Concurrent scheduled runs. Separate from `limit` — a cron must not fill the interactive cap. */
   scheduleLimit: number;
@@ -56,75 +59,107 @@ export function agentLaunchMemoryBudget(
   };
 }
 
-const LIMITS: Readonly<Record<AgentAdmissionPlan, number>> = {
-  // Free stays single-agent; its 4 GiB machine now has enough headroom for the
-  // runtime, LFG, and the OS instead of forcing all three into 512 MiB.
-  free: 1,
-  computer_trial: 1,
-  // Paid tiers keep roughly 1.5–1.6 GiB of RAM available per admitted agent.
-  // Admission is a safety ceiling, not a promise that every agent owns a CPU.
-  computer_5: 5,
-  computer_10: 16,
-  computer_20: 24,
-  computer_early: 24,
-};
-
-// Scheduled fires are not interactive sessions. They get a smaller, separate
-// pool so a leftover cron cannot fill the Computer and block "New session".
-// These numbers exist only when computerAgentAdmissionContext() is non-null
-// (a managed Computer). Self-hosted lfg serve never reads this table.
-const SCHEDULE_LIMITS: Readonly<Record<AgentAdmissionPlan, number>> = {
-  free: 1,
-  computer_trial: 1,
-  computer_5: 2,
-  computer_10: 3,
-  computer_20: 4,
-  computer_early: 4,
-};
-
 export function isScheduleSpawned(spawnedBy: string | null | undefined): boolean {
   return spawnedBy === "schedule";
 }
 
-const COMPUTER_PLAN_FILE = "/etc/omg/computer-plan";
+/**
+ * The control plane's entitlement drop for this Computer.
+ *
+ * Deliberately NOT the older `/etc/omg/computer-plan`, which carried a bare
+ * plan name. Bundles already in the field read that path whole and compare it
+ * to a baked list of names, so writing JSON into it would make every shipped
+ * Computer — including the paid tiers that work today — fail through to a
+ * single agent for as long as the rollout took. A new filename is invisible to
+ * those bundles: they keep reading the old file and behaving exactly as they
+ * do now, while this one carries the real numbers.
+ */
+const COMPUTER_ENTITLEMENT_FILE = "/etc/omg/computer-entitlement.json";
 
-function currentComputerPlan(planFile: string): string | undefined {
+/**
+ * Sanity ceiling on a supplied limit. Not an entitlement and not a policy — it
+ * only stops a malformed or fat-fingered value from turning admission off. The
+ * memory budget is still the real gate underneath it.
+ */
+const MAX_SUPPLIED_LIMIT = 64;
+
+/**
+ * A Computer whose entitlement we cannot read admits one agent.
+ *
+ * This branch is reached only when the control plane HAS provisioned an
+ * entitlement and it arrived unreadable, so the box is definitely managed and
+ * guessing generously would hand out capacity nobody paid for. Unlike the plan
+ * table this replaces, it is loud: a demotion that logs is a demotion someone
+ * can find, and the silence of the old fall-through is the reason a broken
+ * entitlement survived two plan launches unnoticed.
+ */
+const UNREADABLE_ENTITLEMENT: AgentAdmissionContext = {
+  plan: "unknown",
+  limit: 1,
+  scheduleLimit: 1,
+};
+
+let warnedUnreadable = false;
+
+function readEntitlementSource(entitlementFile: string): string | undefined {
   try {
     // The control plane owns this root-written file and atomically replaces it
-    // while LFG is live. Reading it per admission makes downgrades immediate;
+    // while LFG is live. Reading it per admission makes plan changes immediate;
     // a process-start environment variable cannot do that.
-    return readFileSync(planFile, "utf8");
+    return readFileSync(entitlementFile, "utf8");
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
-    // Standalone LFG has no managed plan file, so retain the bootstrap env as
-    // its compatibility bridge. Any other file failure fails safe to Free.
-    return code === "ENOENT"
-      ? process.env.LFG_COMPUTER_PLAN
-      : "invalid-managed-plan";
+    // Standalone LFG has no entitlement file at all, and neither does a
+    // managed Computer in the window between wake and the control plane's
+    // first sync, so the bootstrap env stays the bridge for both.
+    return code === "ENOENT" ? process.env.LFG_COMPUTER_ENTITLEMENT : "";
   }
 }
 
-/** The per-Computer plan is supplied only by the trusted control plane. */
+function positiveInteger(value: unknown, ceiling: number): number | null {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) return null;
+  return Math.min(value, ceiling);
+}
+
+/**
+ * The per-Computer entitlement, supplied only by the trusted control plane.
+ *
+ * Returns null for an ordinary self-hosted `lfg serve`, which has no managed
+ * entitlement and keeps its own local setting policy.
+ */
 export function computerAgentAdmissionContext(
-  rawPlan?: string,
-  planFile = COMPUTER_PLAN_FILE,
+  rawEntitlement?: string,
+  entitlementFile = COMPUTER_ENTITLEMENT_FILE,
 ): AgentAdmissionContext | null {
-  const selectedPlan =
-    rawPlan === undefined ? currentComputerPlan(planFile) : rawPlan;
-  if (!selectedPlan?.trim()) return null;
-  const plan = selectedPlan.trim().toLowerCase();
-  if (
-    plan === "computer_trial" ||
-    plan === "computer_5" ||
-    plan === "computer_10" ||
-    plan === "computer_20" ||
-    plan === "computer_early"
-  ) {
-    return { plan, limit: LIMITS[plan], scheduleLimit: SCHEDULE_LIMITS[plan] };
+  const source =
+    rawEntitlement === undefined ? readEntitlementSource(entitlementFile) : rawEntitlement;
+  if (!source?.trim()) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch {
+    parsed = null;
   }
-  // A stale or malformed cloud-plan value must fail safe for the Computer,
-  // while ordinary non-Computer LFG installs keep their local setting policy.
-  return { plan: "free", limit: LIMITS.free, scheduleLimit: SCHEDULE_LIMITS.free };
+  if (!parsed || typeof parsed !== "object") return failUnreadable(source);
+
+  const entitlement = parsed as Record<string, unknown>;
+  const limit = positiveInteger(entitlement.limit, MAX_SUPPLIED_LIMIT);
+  const scheduleLimit = positiveInteger(entitlement.scheduleLimit, MAX_SUPPLIED_LIMIT);
+  if (limit === null || scheduleLimit === null) return failUnreadable(source);
+
+  const plan = typeof entitlement.plan === "string" ? entitlement.plan.trim() : "";
+  return { plan: plan || "managed", limit, scheduleLimit };
+}
+
+function failUnreadable(source: string): AgentAdmissionContext {
+  if (!warnedUnreadable) {
+    warnedUnreadable = true;
+    console.warn(
+      `[admission] unreadable Computer entitlement, holding at ${UNREADABLE_ENTITLEMENT.limit} agent: ${source.trim().slice(0, 200)}`,
+    );
+  }
+  return UNREADABLE_ENTITLEMENT;
 }
 
 /**
