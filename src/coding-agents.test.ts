@@ -387,6 +387,23 @@ describe("coding agent auth detection", () => {
     expect((await opencodeStatus(home)).accountConnected).toBe(true);
   });
 
+  test("OpenCode offers Go and Zen as connectable rows before any sign-in", async () => {
+    const home = useTmpHome();
+    // The settings page renders `status.providers`, so a box with no auth.json
+    // has to carry the rows or "connect Go" has nowhere to live.
+    const providers = (await opencodeStatus(home)).providers ?? [];
+    expect(providers.map((p) => p.id)).toEqual(["opencode-go", "opencode"]);
+    expect(providers.every((p) => p.method === "api-key" && !p.connected)).toBe(true);
+  });
+
+  test("a stored Go key shows as a connected, disconnectable row", async () => {
+    const home = useTmpHome();
+    writeOpencodeAuth(home, { "opencode-go": { type: "api", key: "sk-test" } });
+    const go = ((await opencodeStatus(home)).providers ?? []).find((p) => p.id === "opencode-go");
+    expect(go?.connected).toBe(true);
+    expect(go?.fromEnv).toBeUndefined();
+  });
+
   test("Jcode reports a configured provider without claiming a connected account", async () => {
     const home = useTmpHome();
     setEnv("PATH", home);

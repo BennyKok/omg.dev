@@ -21,8 +21,8 @@ import {
   piProviderMethod,
   startPiOAuthLogin,
   type PiAuthProviderId,
-  type PiProviderInfo,
 } from "./pi-auth.ts";
+import { hasOpenCodeAccountAuth, opencodeAuthProviders } from "./opencode-auth.ts";
 
 export type CodingAgentKind =
   | "claude"
@@ -70,8 +70,30 @@ export type CodingAgentStatus = {
   loginCommand?: string;
   /** Claude-only: isolated subscription accounts available to session launchers. */
   accounts?: ClaudeAccount[];
-  /** pi-only: model providers it can sign into, and whether each is connected. */
-  providers?: PiProviderInfo[];
+  /** pi and opencode: model providers signed into per provider, not per agent. */
+  providers?: AgentProviderInfo[];
+};
+
+/**
+ * One model provider an agent signs into on its own, rather than the agent
+ * holding a single account for the whole kind. pi and OpenCode both work this
+ * way, and both render through the same row in the settings UI, so the row
+ * shape lives here rather than in either credential module.
+ */
+export type AgentProviderInfo = {
+  id: string;
+  label: string;
+  method: "oauth" | "api-key";
+  connected: boolean;
+  /** Credential is real but not ours to delete (env var, or a vendor CLI's). */
+  fromEnv?: boolean;
+  /**
+   * Where the credential came from, when "From the environment" would be a lie.
+   * `fromEnv` carries two meanings the UI needs to keep apart — "cannot be
+   * deleted here" and "was set as an env var" — and only the first is always
+   * true of it.
+   */
+  detail?: string;
 };
 
 export type CodingAgentInfo = {
@@ -327,47 +349,6 @@ async function jcodeAuthStatus(): Promise<{ available: boolean; accountConnected
   } catch {
     return { available: false, accountConnected: false };
   }
-}
-
-/** OpenCode's credential store, honouring the XDG override it reads itself. */
-function opencodeAuthPath(): string {
-  const xdg = process.env.XDG_DATA_HOME?.trim();
-  return join(xdg ? xdg : join(userHome(), ".local", "share"), "opencode", "auth.json");
-}
-
-/**
- * Provider ids OpenCode holds a usable credential for.
- *
- * OpenCode keys a flat map by provider id (`opencode`, `opencode-go`, `openai`,
- * `fugu`, …) whose entries are either `{type:"api", key}` or an OAuth record
- * with `access`/`refresh`. An empty or missing file means the only models this
- * box can reach are OpenCode Zen's credential-free tier — `opencode models`
- * lists exactly those and nothing else, which is what makes this the right
- * signal for gating the picker.
- */
-function opencodeAuthProviderIds(): string[] {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(readFileSync(opencodeAuthPath(), "utf8"));
-  } catch {
-    return [];
-  }
-  if (!parsed || typeof parsed !== "object") return [];
-  const ids: string[] = [];
-  for (const [id, entry] of Object.entries(parsed as Record<string, unknown>)) {
-    if (!entry || typeof entry !== "object") continue;
-    const record = entry as { key?: unknown; access?: unknown; refresh?: unknown };
-    const secret = [record.key, record.access, record.refresh].some(
-      (value) => typeof value === "string" && value.trim().length > 0,
-    );
-    if (secret) ids.push(id);
-  }
-  return ids;
-}
-
-function hasOpenCodeAccountAuth(): boolean {
-  if (process.env.OPENCODE_API_KEY?.trim()) return true;
-  return opencodeAuthProviderIds().length > 0;
 }
 
 function grokPath(): string | null {
@@ -1134,10 +1115,11 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
     // It does decide which models the picker may honestly offer, though.
     accountConnected = hasOpenCodeAccountAuth();
     addBinary("OpenCode CLI", opencodePath());
+    // Go and Zen both authenticate with a pasted key, so they connect from the
+    // provider rows above. `opencode auth login` is still the way in for the
+    // OAuth providers (ChatGPT), which is why the command is still mentioned.
     instructions.push(
-      accountConnected
-        ? "OpenCode is signed in; run `opencode auth login` again to add another provider."
-        : "Run `opencode auth login` to reach paid providers — the free Zen models work without it.",
+      "Connect OpenCode Go or Zen with an API key above. The free Zen models work with no key at all, and `opencode auth login` adds OAuth providers such as ChatGPT.",
     );
   } else if (kind === "jcode") {
     const auth = await jcodeAuthStatus();
@@ -1192,6 +1174,7 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
       ? { accounts: listClaudeAccounts() }
       : {}),
     ...(kind === "pi" ? { providers: piAuthProviders() } : {}),
+    ...(kind === "opencode" ? { providers: opencodeAuthProviders() } : {}),
   };
 }
 
