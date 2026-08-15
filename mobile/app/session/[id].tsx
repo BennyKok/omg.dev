@@ -134,6 +134,21 @@ export default function SessionScreen() {
   const listRef = useRef<FlatList<TranscriptItem>>(null);
   /** Pinned-to-bottom is the default; reading history unpins it. */
   const atBottomRef = useRef(true);
+  /**
+   * NOTHING THE LIST REPORTS ABOUT ITS OWN POSITION COUNTS UNTIL A FINGER HAS
+   * MOVED IT.
+   *
+   * Opening a session landed a screen short of the newest message with the
+   * "Latest" pill already up, every time. `onScroll` fires while the list is
+   * still measuring — rows arrive, images resolve, content height keeps
+   * growing — and each of those events computed "you are not at the bottom"
+   * against a height that was about to change. That unpinned the transcript
+   * before the reader had done anything, so the follow-to-bottom stopped and
+   * the pill appeared to announce content the reader had never scrolled away
+   * from. The same premature events also tripped the load-older branch, which
+   * prepends a page nobody asked for at the moment of opening.
+   */
+  const userMovedRef = useRef(false);
 
   const firstUserText = messages.find((m) => m.role === "user" && m.text)?.text?.trim();
   const title = sessionInfo?.title ?? firstUserText ?? "Session";
@@ -244,6 +259,9 @@ export default function SessionScreen() {
 
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      // Layout noise, not a reader. See userMovedRef.
+      if (!userMovedRef.current) return;
+
       const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
       const bottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - 48;
       atBottomRef.current = bottom;
@@ -281,11 +299,45 @@ export default function SessionScreen() {
     }
   }, [messages.length, loadingMore]);
 
+  /**
+   * SCROLLING TO THE END ONCE DOES NOT REACH THE END.
+   *
+   * A FlatList only measures the rows it has rendered and ESTIMATES the rest,
+   * and this list's rows range from a 20pt tool badge to a screen and a half
+   * of markdown. `scrollToEnd` therefore aims at a content height that is a
+   * guess, lands short, and — because the rows it would have had to render to
+   * discover that are still outside the window — nothing forces a correction.
+   * Opening a long session put you a screen above the newest message, which on
+   * a chat surface is indistinguishable from the app failing to load it.
+   *
+   * So it is asked several times over the first second, as measurement
+   * catches up. Cheap (a no-op once the offset is right), bounded, and it
+   * stops the moment the reader takes hold of the list themselves.
+   */
+  const pinToEnd = useCallback(() => {
+    if (!atBottomRef.current) return;
+    const attempts = [0, 60, 160, 320, 640, 1000];
+    const timers = attempts.map((delay) =>
+      setTimeout(() => {
+        if (atBottomRef.current) listRef.current?.scrollToEnd({ animated: false });
+      }, delay),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
   const handleContentSizeChange = useCallback(() => {
     // Follow the stream only while the reader is already at the bottom; never
     // yank someone who scrolled up to read history back down.
     if (atBottomRef.current) listRef.current?.scrollToEnd({ animated: false });
   }, []);
+
+  // The transcript opens on the newest message. Re-run while the page count
+  // grows: the first paint is a cached peek and the machine's answer replaces
+  // it, and each of those is a new content height to land against.
+  useEffect(() => {
+    if (!data.length) return;
+    return pinToEnd();
+  }, [data.length, pinToEnd]);
 
   /**
    * One path for everything that puts words into the session, so the optimistic
@@ -795,6 +847,11 @@ export default function SessionScreen() {
           ) : null
         }
         keyboardDismissMode="interactive"
+        // A drag is the only thing that means "I am reading somewhere else".
+        // Programmatic scrolls and layout settling are not.
+        onScrollBeginDrag={() => {
+          userMovedRef.current = true;
+        }}
         onScroll={onScroll}
         scrollEventThrottle={16}
         onContentSizeChange={handleContentSizeChange}
@@ -900,6 +957,12 @@ export default function SessionScreen() {
             <Pressable
               onPress={() => {
                 setUnseen(false);
+                // Re-pin immediately rather than waiting for the animation to
+                // land and onScroll to agree: anything the agent says during
+                // that half second should follow, and the pill should not
+                // linger over the message you just asked to see.
+                atBottomRef.current = true;
+                setAtBottom(true);
                 listRef.current?.scrollToEnd({ animated: true });
               }}
               accessibilityRole="button"
