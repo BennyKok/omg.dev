@@ -423,12 +423,33 @@ export default function SessionScreen() {
     return () => timers.forEach(clearTimeout);
   }, []);
 
-  const handleContentSizeChange = useCallback(() => {
+  /**
+   * A NEW MESSAGE GLIDES; A STREAMING TOKEN DOES NOT.
+   *
+   * Following the bottom is one behaviour with two very different rhythms. A
+   * turn arriving — a reply, a tool badge, the working chip — is a single jump
+   * of tens of points, and jumping it instantly is the thing that makes this
+   * screen feel like a log being appended to rather than a conversation. A
+   * streaming reply is the same event forty times a second at a few points
+   * each, and animating THOSE is how you get a viewport that never settles:
+   * every scroll interrupts the last one, the text shivers, and reading it
+   * becomes work.
+   *
+   * So the size of the change decides. Above a line of text, glide. Below it,
+   * snap, and the words flow up under a viewport that holds still. The upper
+   * bound is there because a page of history arriving is not a message
+   * either — animating four thousand points would be a long slow ride to
+   * somewhere the reader did not ask to go.
+   */
+  const lastContentHeight = useRef(0);
+  const handleContentSizeChange = useCallback((_width: number, height: number) => {
+    const delta = height - lastContentHeight.current;
+    lastContentHeight.current = height;
     // Follow the stream only while the reader is already at the bottom, and
     // never while their finger is on the glass — see touchingRef.
-    if (atBottomRef.current && !touchingRef.current) {
-      listRef.current?.scrollToOffset({ offset: 10 ** 7, animated: false });
-    }
+    if (!atBottomRef.current || touchingRef.current) return;
+    const glide = delta > 24 && delta < 600;
+    listRef.current?.scrollToOffset({ offset: 10 ** 7, animated: glide });
   }, []);
 
   /**
