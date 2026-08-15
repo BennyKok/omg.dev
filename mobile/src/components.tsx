@@ -15,7 +15,7 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as Haptics from "expo-haptics";
 import Reanimated, {
   Easing,
@@ -1298,6 +1298,7 @@ function ComposerCaptionButton({
   accessibilityLabel: string;
 }) {
   const { colors, radius, type, space } = useTheme();
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   // Glass, like the field it captions and the buttons inside it. A flat fill
   // here was the last piece of chrome on this screen made of something else.
   const pill = (
@@ -1351,7 +1352,40 @@ function ComposerCaptionButton({
     </GlassSurface>
   );
   if (!options.length) return pill;
-  return <DropdownMenu options={options}>{pill}</DropdownMenu>;
+  /**
+   * THE MENU HOST HAS TO BE TOLD THE PILL'S SIZE.
+   *
+   * `DropdownMenu` mounts a SwiftUI `Host` around its trigger, and `Host`'s
+   * `matchContents` does not reliably size to React Native content hosted back
+   * inside it — the same defect that once made an unsized Host swallow taps
+   * meant for the button beside it, fixed there by giving it explicit
+   * dimensions. Here the width is not knowable in advance because it is a
+   * project name, so the pill is MEASURED and the measurement handed to the
+   * Host.
+   *
+   * This is why the pills looked padded no matter how much padding came off
+   * them: the glass was already tight to the label, and the extra space was
+   * the host box around it.
+   */
+  return (
+    <DropdownMenu
+      options={options}
+      style={size ? { width: size.width, height: size.height } : undefined}
+    >
+      <View onLayout={(e) => {
+        const { width, height } = e.nativeEvent.layout;
+        // Only on a real change: setting state from onLayout with the same
+        // numbers is a re-render loop.
+        setSize((current) =>
+          current && Math.abs(current.width - width) < 0.5 && Math.abs(current.height - height) < 0.5
+            ? current
+            : { width, height },
+        );
+      }}>
+        {pill}
+      </View>
+    </DropdownMenu>
+  );
 }
 
 /**
