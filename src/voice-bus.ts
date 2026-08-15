@@ -25,6 +25,8 @@ export type FleetEvent = {
   type: "completed";
   sessionId: string;
   title: string;
+  /** The session's project/repo label — see push.ts's PushNotification.project. */
+  project: string;
   user: string | null;
   at: number;
 };
@@ -156,6 +158,7 @@ async function tick(): Promise<void> {
         type: "completed",
         sessionId: id,
         title: (s.title || s.tmuxName || id.slice(0, 8)).slice(0, 120),
+        project: s.project,
         user: s.assignedUser ?? null,
         at: Date.now(),
       });

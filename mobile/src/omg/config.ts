@@ -62,6 +62,12 @@ export const STORAGE_KEYS = {
   presenceEventSeq: "omg:mobile:presence-event-seq",
   /** better-auth session token (SecureStore, not AsyncStorage). */
   sessionToken: "omg:mobile:session-token",
+  /**
+   * The Expo push token this device last registered with the machine, so
+   * Settings can show notifications as "on" without re-minting a token (and
+   * so turning them off unregisters the exact token that's live server-side).
+   */
+  nativePushToken: "omg:mobile:native-push-token",
 } as const;
 
 export type ComputerMode = "direct" | "hosted";

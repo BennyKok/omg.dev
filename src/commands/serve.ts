@@ -86,6 +86,7 @@ import {
   notifyAll,
   type PushSubscription,
 } from "../push.ts";
+import { saveNativeToken, removeNativeToken } from "../push-native.ts";
 import {
   listQuestions,
   getQuestion,
@@ -3314,6 +3315,26 @@ a{color:#60a5fa}
         return json({ user: me, notification, questions, findings });
       }
 
+      // ── Native push (APNs via Expo's push relay, iOS/Android app) ─────────
+      // Register / refresh a device's Expo push token. Same shape and same
+      // best-effort contract as /api/push/subscribe above — see push-native.ts
+      // for why this is a separate store instead of shoehorned into
+      // PushSubscription.
+      if (path === "/api/push/native/register" && req.method === "POST") {
+        const b = (await req.json().catch(() => null)) as
+          | { token: string; user?: string | null; platform?: string | null }
+          | null;
+        if (!b?.token) return err(400, "missing token");
+        await saveNativeToken(b);
+        return json({ ok: true });
+      }
+      // Drop a token (notifications turned off / signed out on that device).
+      if (path === "/api/push/native/unregister" && req.method === "POST") {
+        const b = (await req.json().catch(() => null)) as { token?: string } | null;
+        if (b?.token) await removeNativeToken(b.token);
+        return json({ ok: true });
+      }
+
       // ── Ask-user (human-in-the-loop for headless agents) ──────────────────
       // List open/all questions — the UI poller and the voice agent both read
       // this so they can surface and answer what's pending.
@@ -3364,20 +3385,33 @@ a{color:#60a5fa}
         // so the voice agent can read them out and answer on the user's behalf.
         // Carry the question in the push itself. A wake-only push would make
         // the worker fetch /api/push/pending, which it can only reach when the
-        // app is served from this box.
-        void notifyAll({
-          user: q.user,
-          notification: {
-            title: "omg needs your input",
-            body:
-              q.options?.length
-                ? `${q.question} — ${q.options.join(" / ")}`
-                : q.question,
-            url: "/",
-            tag: `ask-${q.id}`,
-            requireInteraction: true,
-          },
-        }).catch(() => {});
+        // app is served from this box. (Web only — see push-native.ts for why
+        // native never gets `body` verbatim.)
+        void (async () => {
+          const askSession = q.sessionId
+            ? (await listSessions()).find(
+                (s) => s.sessionId === q.sessionId || s.nativeSessionId === q.sessionId,
+              )
+            : undefined;
+          await notifyAll({
+            user: q.user,
+            notification: {
+              title: "omg needs your input",
+              body:
+                q.options?.length
+                  ? `${q.question} — ${q.options.join(" / ")}`
+                  : q.question,
+              // Straight to the session asking, not just the app root, so a
+              // tap — on any platform — lands on the actual question. Asks
+              // are always tied to a running session in practice; "/" is only
+              // ever a fallback for a hand-authored question with none.
+              url: q.sessionId ? `/?session=${encodeURIComponent(q.sessionId)}` : "/",
+              tag: `ask-${q.id}`,
+              requireInteraction: true,
+              project: askSession?.project,
+            },
+          });
+        })().catch(() => {});
         // Pushback asks never block — the answer arrives via session injection.
         if (q.pushback || b.wait === false) return json({ id: q.id, status: q.status });
         // Cap the block so a stuck request can't pin a connection forever.
@@ -5517,6 +5551,7 @@ a{color:#60a5fa}
                   ? `/?session=${encodeURIComponent(post.sessionId)}`
                   : "/notifications",
                 tag: `shipped-${post.id}-${post.rev}`,
+                project: post.project,
               },
             }).catch(() => {});
             if (sourceSession && body.sessionId && closeSession) {

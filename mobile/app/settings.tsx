@@ -16,8 +16,10 @@ import {
   Alert,
   Linking,
   ScrollView,
+  Switch,
   View,
 } from "react-native";
+import { useCallback, useEffect, useState } from "react";
 import { Text } from "../src/omg/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -26,6 +28,13 @@ import { useOmg } from "../src/omg/provider";
 import { useTheme } from "../src/omg/theme";
 import { bindingLabel } from "../src/omg/format";
 import { CLOUD_BINDING_ID } from "../src/omg/config";
+import {
+  getStoredPushToken,
+  pushPermissionStatus,
+  registerForPushNotifications,
+  unregisterForPushNotifications,
+  type PushPermissionStatus,
+} from "../src/omg/push";
 
 const WEB_PAGES: { label: string; path: string }[] = [
   { label: "Coding agents", path: "/settings/computer/coding-agents" },
@@ -37,7 +46,7 @@ const WEB_PAGES: { label: string; path: string }[] = [
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { colors, type, space } = useTheme();
-  const { user, signOut, bindings, bindingId } = useOmg();
+  const { user, client, signOut, bindings, bindingId } = useOmg();
   const router = useRouter();
 
   const current = bindings.find((b) => b.id === bindingId);
@@ -46,6 +55,65 @@ export default function SettingsScreen() {
     : bindingId === CLOUD_BINDING_ID
       ? "Cloud computer"
       : "None selected";
+
+  /**
+   * "on" tracks whether THIS device has a live, registered token — not just
+   * OS permission. iOS permission is a one-way ratchet (denied stays denied
+   * until Settings.app), so the toggle's own state is what needs to survive
+   * app restarts; the stored token (see push.ts) is what makes that possible
+   * without re-minting one on every mount.
+   */
+  const [permission, setPermission] = useState<PushPermissionStatus | "loading">("loading");
+  const [notificationsOn, setNotificationsOn] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const [status, token] = await Promise.all([pushPermissionStatus(), getStoredPushToken()]);
+      if (cancelled) return;
+      setPermission(status);
+      setNotificationsOn(status === "granted" && !!token);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const togglePush = useCallback(
+    async (next: boolean) => {
+      if (!client || pushBusy) return;
+      setPushBusy(true);
+      try {
+        if (next) {
+          const outcome = await registerForPushNotifications(client.transport, user?.email);
+          if (outcome === "registered") {
+            setPermission("granted");
+            setNotificationsOn(true);
+            return;
+          }
+          if (outcome === "denied") {
+            setPermission("denied");
+            return;
+          }
+          if (outcome === "unavailable") {
+            Alert.alert(
+              "Not available here",
+              "Push notifications need a real device (not a simulator) and a build that includes them.",
+            );
+            return;
+          }
+          Alert.alert("Couldn't turn on notifications", "Check your connection and try again.");
+        } else {
+          await unregisterForPushNotifications(client.transport);
+          setNotificationsOn(false);
+        }
+      } finally {
+        setPushBusy(false);
+      }
+    },
+    [client, pushBusy, user?.email],
+  );
 
   const confirmSignOut = () => {
     Alert.alert("Sign out?", "You'll need a new sign-in code to get back in.", [
@@ -95,6 +163,41 @@ export default function SettingsScreen() {
           />
         </Row>
       </Card>
+
+      {permission !== "unavailable" ? (
+        <>
+          <SectionLabel>Notifications</SectionLabel>
+          <Card>
+            <Row>
+              <View style={{ flex: 1 }}>
+                <Text style={{ ...type.callout, color: colors.text }}>Push notifications</Text>
+                {permission === "denied" ? (
+                  <Text style={{ ...type.footnote, color: colors.textMuted, marginTop: 2 }}>
+                    Blocked in iOS Settings — turn them on there first.
+                  </Text>
+                ) : null}
+              </View>
+              <Switch
+                value={notificationsOn}
+                onValueChange={(next) => void togglePush(next)}
+                disabled={pushBusy || permission === "denied" || permission === "loading" || !client}
+              />
+            </Row>
+          </Card>
+          <Text
+            style={{
+              ...type.footnote,
+              color: colors.textMuted,
+              paddingHorizontal: space.lg,
+              paddingTop: space.sm,
+              lineHeight: 18,
+            }}
+          >
+            An agent asking a question, a finished session, or something shipped — never the text
+            itself, only which project it's about.
+          </Text>
+        </>
+      ) : null}
 
       <SectionLabel>On the web</SectionLabel>
       <Card>
