@@ -33,7 +33,7 @@
   "dependencies": {
     "@omg-dev/client": "workspace:*",
     "@ai-sdk/react": "^4.0.19",
-    "@base-ui/react": "^1.3.0",
+    "@base-ui/react": "^1.6.0",
     "@number-flow/react": "^0.6.2",
     "@pierre/diffs": "^1.3.1",
     "@pierre/trees": "1.0.0-beta.6",
@@ -57,6 +57,7 @@
     "web-haptics": "^0.0.6"
   },
   "peerDependencies": {
+    "@base-ui/react": "^1.6.0",
     "@tanstack/react-router": "^1.170.18",
     "class-variance-authority": "^0.7.1",
     "cnfast": "0.0.8",

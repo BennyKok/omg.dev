@@ -22,6 +22,7 @@ const INDEX = join(DIST, "index.js");
 const MANIFEST = join(WEB, "package.json");
 
 const EXPECTED_PEERS = {
+  "@base-ui/react": "^1.6.0",
   "@tanstack/react-router": "^1.170.18",
   "class-variance-authority": "^0.7.1",
   cnfast: "0.0.8",
@@ -114,15 +115,39 @@ describe("vite.lib.config host-shared externals", () => {
       '"class-variance-authority"',
       '"vaul"',
       '"react"',
+      '"@base-ui/react"',
     ]) {
       expect(src).toContain(pkg);
     }
   });
 
-  test("does not externalize @base-ui/react (host 1.3.0 vs LFG 1.6.0)", () => {
-    expect(src).toContain("Deliberately NOT external");
-    expect(src).toMatch(/@base-ui\/react\s+—/);
-    expect(src).not.toMatch(/HOST_SHARED_EXTERNALS = \[[^\]]*@base-ui\/react/);
+  // @base-ui/react is only safe to externalize while the host declares a range
+  // that includes what we compile against. The earlier version of this test
+  // asserted the OPPOSITE — it pinned the skip in place — because both repos
+  // declared ^1.3.0 while their LOCKS diverged (LFG 1.6.0, host 1.3.0), so a
+  // declared-range comparison said "aligned" when the resolutions were not.
+  //
+  // Once external, the HOST's copy is what LFG runs against, so a host older
+  // than our compile target breaks every dialog and menu at runtime — silently,
+  // since nothing here would fail to build. Assert the floor explicitly.
+  test("@base-ui/react peer floor is >= the version the embed compiles against", () => {
+    const manifest = JSON.parse(readFileSync(MANIFEST, "utf8")) as {
+      dependencies: Record<string, string>;
+      peerDependencies?: Record<string, string>;
+    };
+    const compiled = manifest.dependencies["@base-ui/react"];
+    const peer = manifest.peerDependencies?.["@base-ui/react"];
+    expect(peer).toBe(compiled);
+    const minor = (range: string) => {
+      const m = /(\d+)\.(\d+)\.(\d+)/.exec(range);
+      if (!m) throw new Error(`unparseable range: ${range}`);
+      return [Number(m[1]), Number(m[2])] as const;
+    };
+    // 1.6 is the floor: Dialog.Title/Description gained the `(state) => style`
+    // callback there, and the embed is built against it.
+    const [major, min] = minor(compiled);
+    expect(major).toBe(1);
+    expect(min).toBeGreaterThanOrEqual(6);
   });
 
   test("declares peerDependencies for every externalized host-shared library", () => {

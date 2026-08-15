@@ -20,6 +20,7 @@ const HOST_SHARED_EXTERNALS = [
   "cnfast",
   "class-variance-authority",
   "vaul",
+  "@base-ui/react",
 ] as const;
 
 function isHostSharedExternal(id: string): boolean {
@@ -158,11 +159,26 @@ export default defineConfig({
       //   vaul                       — both 1.1.2. Pulls @radix-ui/* with
       //                                it; those drop out of this graph
       //                                once vaul is external.
+      //   @base-ui/react             — the largest single duplicate here.
+      //                                Externalizing this REQUIRES the host
+      //                                to move first, and the trap is that
+      //                                both repos DECLARED ^1.3.0 while the
+      //                                LOCKS diverged: LFG resolved 1.6.0,
+      //                                the host 1.3.0. Comparing declared
+      //                                ranges makes this look aligned when
+      //                                it is not — check the lockfile.
+      //                                Since the host's copy wins once this
+      //                                is external, the host must be >= what
+      //                                we compile against or every dialog
+      //                                and menu breaks at runtime. Both now
+      //                                declare ^1.6.0 (BennyKok/vibes
+      //                                apps/web), which also collapses the
+      //                                nested "@omg-dev/app/@base-ui/react"
+      //                                resolution in the host lockfile onto
+      //                                one copy — without that dedup this
+      //                                change saves nothing.
       //
       // Deliberately NOT external:
-      //   @base-ui/react             — LFG lock is 1.6.0, host lock is
-      //                                1.3.0. A runtime mismatch here
-      //                                would break every dialog/menu.
       //   tailwind-merge             — lazy via streamdown, not a host
       //                                dep (host uses cnfast)
       //   lucide-react / sonner / …  — same version, follow-up, not
