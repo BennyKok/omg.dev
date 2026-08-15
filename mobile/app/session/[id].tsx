@@ -74,13 +74,7 @@ import * as Clipboard from "expo-clipboard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OmgSession, OmgSessionPrompt } from "@omg-dev/protocol";
 
-import {
-  AgentAvatar,
-  AttachmentStrip,
-  DictationCaption,
-  Icon,
-  IconButton,
-} from "../../src/components";
+import { AgentAvatar, AttachmentStrip, Icon, IconButton } from "../../src/components";
 import { useAttachments } from "../../src/omg/attachments";
 import { useDictation } from "../../src/omg/dictation";
 import { GlassSurface, LIQUID_GLASS } from "../../src/omg/glass";
@@ -130,6 +124,10 @@ export default function SessionScreen() {
     // rest should end up with both, in that order.
     (text) => setDraft((current) => (current ? `${current} ${text}` : text)),
   );
+
+  /** The not-yet-settled words, when a live take is running. */
+  const dictationTail =
+    dictation.live && dictation.state === "recording" ? (dictation.partial ?? "").trim() : "";
 
   const [messages, setMessages] = useState<Entry[]>([]);
   const [streamText, setStreamText] = useState("");
@@ -1317,12 +1315,6 @@ export default function SessionScreen() {
           </Reanimated.View>
         ) : null}
 
-        {/* The live tail of what is being said, above the field the committed
-            words are landing in. See DictationCaption. */}
-        {dictation.live && dictation.state === "recording" ? (
-          <DictationCaption text={dictation.partial} />
-        ) : null}
-
         <AttachmentStrip items={attachments.items} onRemove={attachments.remove} />
 
         {/**
@@ -1406,8 +1398,18 @@ export default function SessionScreen() {
               on. */}
 
           <TextInput
-            value={draft}
+            /**
+             * THE LIVE TRANSCRIPT GOES IN THE FIELD. Dictation is typing with
+             * your voice, so the words belong where typed words would be —
+             * not in a caption above the box they are about to become.
+             * Committed chunks are already in `draft`; `partial` is only the
+             * unsettled tail, so appending it double-counts nothing.
+             */
+            value={dictationTail ? `${draft}${draft ? " " : ""}${dictationTail}` : draft}
             onChangeText={setDraft}
+            // Not editable mid-take: part of what is on screen is provisional
+            // and will be replaced when the transcriber settles it.
+            editable={!dictationTail}
             /**
              * Say what SENDING will do, because it is three different things.
              * Steering a running agent, queueing a follow-up behind one that

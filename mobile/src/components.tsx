@@ -941,6 +941,9 @@ export function HomeComposer({
   bottomInset?: number;
 }) {
   const { colors, isDark, radius, type, space } = useTheme();
+  /** The not-yet-settled words, when a live take is running. */
+  const dictationTail =
+    dictation.live && dictation.state === "recording" ? (dictation.partial ?? "").trim() : "";
   const canStart = value.trim().length > 0 && !starting;
   const hairline = {
     borderWidth: isDark ? StyleSheet.hairlineWidth : 0,
@@ -962,10 +965,6 @@ export function HomeComposer({
         backgroundColor: LIQUID_GLASS ? "transparent" : colors.bg,
       }}
     >
-      {dictation.live && dictation.state === "recording" ? (
-        <DictationCaption text={dictation.partial ?? ""} />
-      ) : null}
-
       {/* Liquid Glass on iOS 26+, a solid card everywhere else. */}
       <GlassSurface
         variant="regular"
@@ -1010,8 +1009,29 @@ export function HomeComposer({
           <AgentAvatar agent={agent} size={32} />
         )}
         <TextInput
-          value={value}
+          /**
+           * THE LIVE TRANSCRIPT GOES IN THE FIELD, not above it.
+           *
+           * It spent a version as a dimmed caption over the composer, which
+           * put the words you were saying somewhere other than the box they
+           * were about to become — you watched one place and typed in
+           * another. Dictation is typing with your voice, so it belongs in the
+           * field, exactly where typed words would be.
+           *
+           * Committed chunks are already IN `value` (that is what `onText`
+           * does); `partial` is only ever the tail the transcriber has not
+           * settled yet, so appending it here shows the whole sentence with no
+           * double-counting.
+           */
+          value={dictationTail ? `${value}${value ? " " : ""}${dictationTail}` : value}
           onChangeText={onChangeText}
+          /**
+           * Not editable mid-take. The field's contents are partly a
+           * provisional tail that will be REPLACED when the transcriber
+           * settles it, so a keystroke landing in the middle of that would be
+           * silently eaten. You are speaking, not typing.
+           */
+          editable={!dictationTail}
           placeholder="What should we work on?"
           placeholderTextColor={colors.textMuted}
           returnKeyType="send"
@@ -1385,41 +1405,6 @@ function ComposerCaptionButton({
         {pill}
       </View>
     </DropdownMenu>
-  );
-}
-
-/**
- * WHAT THE MACHINE HAS HEARD SO FAR, while you are still saying it.
- *
- * Committed chunks land in the composer as ordinary text — that is what
- * `onText` does — so this line only ever carries the TAIL the transcriber has
- * not committed yet. It is dimmed because it is provisional: those words can
- * still change before they become yours, and rendering them at full strength
- * beside text that is already final would be claiming more than the machine
- * has.
- *
- * Truncated from the HEAD, which is the opposite of everywhere else in this
- * app. A caption's newest words are the ones you are checking against what you
- * just said; losing the start of a long sentence costs nothing, losing the end
- * costs the whole point.
- *
- * Absent entirely when the take is not streaming — a box with no realtime
- * provider transcribes at the end, and an empty caption line would be a
- * promise of live text that is not coming.
- */
-export function DictationCaption({ text }: { text: string }) {
-  const { colors, type, space } = useTheme();
-  if (!text.trim()) return null;
-  return (
-    <View style={{ paddingHorizontal: space.sm, paddingBottom: space.xs }}>
-      <Text
-        numberOfLines={1}
-        ellipsizeMode="head"
-        style={{ ...type.footnote, color: colors.textMuted, fontStyle: "italic" }}
-      >
-        {text}
-      </Text>
-    </View>
   );
 }
 
