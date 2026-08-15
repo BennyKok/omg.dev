@@ -21,7 +21,10 @@
  * be a 400 at launch, discovered only after typing a prompt. The roster is the
  * only authority, so the default is derived from it every time.
  */
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useMemo, useState } from "react";
+
+import { STORAGE_KEYS } from "./config";
 
 import { agentIcon, agentLabel as agentDisplayName } from "./agent-icons";
 import { type MenuOption } from "./menu";
@@ -64,6 +67,29 @@ export function useAgentPicker() {
   const [model, setModel] = useState<string | null>(null);
   const [thinking, setThinking] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<ModelCatalogEntry[]>([]);
+  /**
+   * WHAT WAS CHOSEN LAST TIME, PER MACHINE AND AGENT.
+   *
+   * The original rule here was that nothing persists, because a stored choice
+   * can name something the current box no longer offers. That is a real
+   * hazard and the wrong conclusion: it made every launch forget how you work,
+   * and on a phone you are relaunching this app twenty times a day. The hazard
+   * is answered by VALIDATING against the catalog on the way out — an unknown
+   * model or level is dropped — not by refusing to remember.
+   */
+  const [saved, setSaved] = useState<Record<string, { model?: string; thinking?: string }>>({});
+  const [savedLoaded, setSavedLoaded] = useState(false);
+
+  useEffect(() => {
+    void AsyncStorage.getItem(STORAGE_KEYS.composerSetup)
+      .then((raw) => {
+        if (raw) setSaved(JSON.parse(raw) as typeof saved);
+      })
+      .catch(() => {
+        // Corrupt or absent: start fresh rather than blocking the composer.
+      })
+      .finally(() => setSavedLoaded(true));
+  }, []);
 
   /**
    * WHICH MODELS EACH AGENT CAN RUN, from the machine's own catalog
@@ -97,6 +123,31 @@ export function useAgentPicker() {
     setModel(null);
     setThinking(null);
   }, [bindingId]);
+
+  const setupKey = `${bindingId ?? "none"}:${chosen ?? "default"}`;
+
+  /** Remember a choice for this machine and agent. */
+  const remember = useCallback(
+    (patch: { model?: string | null; thinking?: string | null }, key: string) => {
+      setSaved((current) => {
+        const entry = { ...current[key] };
+        if (patch.model !== undefined) {
+          if (patch.model === null) delete entry.model;
+          else entry.model = patch.model;
+        }
+        if (patch.thinking !== undefined) {
+          if (patch.thinking === null) delete entry.thinking;
+          else entry.thinking = patch.thinking;
+        }
+        const next = { ...current, [key]: entry };
+        void AsyncStorage.setItem(STORAGE_KEYS.composerSetup, JSON.stringify(next)).catch(() => {
+          // A composer that cannot write its preference still works.
+        });
+        return next;
+      });
+    },
+    [],
+  );
 
   /**
    * The selection, resolved against what this box can actually run. A chosen
@@ -148,6 +199,27 @@ export function useAgentPicker() {
 
   const entry = useMemo(() => catalog.find((m) => m.key === agent), [catalog, agent]);
 
+  /**
+   * Restore last time's choices once BOTH the store and the catalog have
+   * answered. Validated on the way in: a model or a level this box does not
+   * offer is dropped rather than sent, which is the whole reason it was safe
+   * to start persisting these at all.
+   */
+  useEffect(() => {
+    if (!savedLoaded || !entry) return;
+    const remembered = saved[`${bindingId ?? "none"}:${agent}`];
+    if (!remembered) return;
+    if (remembered.model && entry.models?.includes(remembered.model)) {
+      setModel((current) => current ?? remembered.model ?? null);
+    }
+    if (remembered.thinking && entry.thinkingLevels?.includes(remembered.thinking)) {
+      setThinking((current) => current ?? remembered.thinking ?? null);
+    }
+    // `saved` is deliberately not a dependency: this restores ONCE per agent,
+    // and re-running it on every write would fight the user's next change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedLoaded, entry, agent, bindingId]);
+
   /** The model this session will start with, resolved against the box's list. */
   const activeModelName = useMemo(() => {
     const models = entry?.models ?? [];
@@ -163,32 +235,49 @@ export function useAgentPicker() {
     return models.map((m) => ({
       label: m,
       selected: m === activeModelName,
-      onPress: () => setModel(m),
+      onPress: () => {
+        setModel(m);
+        remember({ model: m }, `${bindingId ?? "none"}:${agent}`);
+      },
     }));
   }, [entry, activeModelName]);
 
+  /**
+   * THE LEVEL IS ALWAYS SOMETHING, and the pill always says what.
+   *
+   * This used to fall back to null and the pill read "Thinking" — a control
+   * naming its own topic rather than its value, which tells you nothing about
+   * what the next session will actually do. The machine has a default of its
+   * own, but it does not publish it (`/api/coding-agents` lists the levels and
+   * no default), so the app cannot echo it and must not invent a fact.
+   *
+   * "Medium" is the honest middle: every agent this box reports offers it, it
+   * is what a person means by "normal", and it is now a real choice we send
+   * rather than a blank we omit. Anything else the box offers is one tap away
+   * and remembered afterwards.
+   */
   const activeThinking = useMemo(() => {
     const levels = entry?.thinkingLevels ?? [];
+    if (!levels.length) return null;
     if (thinking && levels.includes(thinking)) return thinking;
-    return null;
+    if (levels.includes("medium")) return "medium";
+    return levels[Math.floor(levels.length / 2)] ?? null;
   }, [entry, thinking]);
 
   const thinkingOptions = useMemo<MenuOption[]>(() => {
     const levels = entry?.thinkingLevels ?? [];
     if (levels.length < 2) return [];
+    // No "Default" row: the pill now always shows a real level, so a row that
+    // means "whatever the box decides" would be a second answer to a question
+    // that already has one.
     return [
-      {
-        // The box picks when nobody says otherwise, and that is a real choice
-        // rather than the absence of one — so it is a row, and it can be
-        // returned to.
-        label: "Default",
-        selected: activeThinking === null,
-        onPress: () => setThinking(null),
-      },
       ...levels.map((level) => ({
         label: level.charAt(0).toUpperCase() + level.slice(1),
         selected: activeThinking === level,
-        onPress: () => setThinking(level),
+        onPress: () => {
+          setThinking(level);
+          remember({ thinking: level }, `${bindingId ?? "none"}:${agent}`);
+        },
       })),
     ];
   }, [entry, activeThinking]);
@@ -208,7 +297,7 @@ export function useAgentPicker() {
     thinking: activeThinking,
     thinkingLabel: activeThinking
       ? activeThinking.charAt(0).toUpperCase() + activeThinking.slice(1)
-      : "Thinking",
+      : null,
     thinkingOptions,
     label,
     options,

@@ -102,19 +102,16 @@ let localSeq = 0;
 const PAGE = 80;
 
 /**
- * ONE SIZE FOR EVERY ITEM IN THE NAVIGATION BAR — the back chevron, the title
- * capsule and the overflow menu.
+ * ONE SIZE FOR EVERY ITEM IN THE BAR — the back chevron, the title capsule and
+ * the overflow menu — and it is the ATTACHMENT BUTTON'S size.
  *
- * 36 is a ceiling, not a preference. iOS 26 draws its own glass background
- * around a bar item, and MEASURED on device that disc is ~39pt, so the ⋯ left
- * to the system stood taller than the two discs this screen draws. Growing
- * ours to match is not available: a custom `unstable_headerLeftItems` view
- * above 36pt is dropped from the bar ENTIRELY — verified at both 40 and 44,
- * where the chevron and the title vanished while the ⋯ stayed. So the ⋯ opts
- * out of the shared background and wears this disc too, and the three of them
- * are the same by construction rather than by coincidence.
+ * 44 is the number every other control on this screen already uses, and the
+ * one iOS asks for as a minimum touch target. It was stuck at 36 for as long
+ * as the navigator owned the bar: a custom header item taller than that is
+ * dropped from a UINavigationBar entirely (verified on device at 40 and 44).
+ * This screen draws its own bar now, so the ceiling is gone.
  */
-const BAR_ITEM = 36;
+const BAR_ITEM = 44;
 
 export default function SessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -860,116 +857,28 @@ export default function SessionScreen() {
     [agentLabel, busy, colors, radius.pill, space, title, type],
   );
 
+  /**
+   * THE BAR IS DRAWN BY THIS SCREEN, not by the navigator.
+   *
+   * It was a real UINavigationBar with custom items, and that bought less than
+   * it cost. The bar was already painted flat with `headerStyle` — no system
+   * material was in play — while the items API imposed a ceiling we could not
+   * clear: a custom left item taller than 36pt is DROPPED from the bar
+   * entirely, verified on device at 40 and at 44, where the chevron and the
+   * title vanished while the overflow button stayed. Meanwhile the attachment
+   * button 700pt below it is 44, and the two are the same class of control, so
+   * every size in here was wrong by 8pt with no way to fix it from inside the
+   * navigator.
+   *
+   * Drawing it here costs the system's own layout and buys the sizes back. The
+   * swipe-back gesture is independent of the header and still works; the
+   * transcript insets itself below the bar with padding it already computes;
+   * and the bar keeps the glass discs it had, because those were ours all
+   * along.
+   */
   useLayoutEffect(() => {
-    navigation.setOptions({
-      headerShown: true,
-      // Empty, not the session's name: `headerTitle: () => null` leaves the
-      // native bar free to fall back to the STRING title, which it did — the
-      // name appeared twice, once in the capsule and once floating centred.
-      title: "",
-      /**
-       * The title is a CAPSULE IN THE SAME MATERIAL as the buttons flanking
-       * it, sitting directly against the back button rather than centred.
-       *
-       * iOS 26 gives every bar BUTTON its own glass disc. A bare avatar and
-       * two lines of text floating between them were the one thing on the bar
-       * with no shape, and painting them onto a flat `card` fill made a second
-       * kind of surface up there — a slab next to two pieces of glass. Same
-       * GlassSurface as everything else, so the bar is one material.
-       *
-       * Left-aligned (`headerTitleAlign`) so it hugs the back button and grows
-       * rightwards with the session's name, which is what a title that can be
-       * any length wants: a centred capsule moves its own left edge every time
-       * the name changes.
-       */
-      /**
-       * IN THE LEFT SLOT, WITH THE BACK CHEVRON — not centred.
-       *
-       * `headerTitleAlign: "left"` is an Android-only option on native-stack;
-       * on iOS the bar centres its title view no matter what, which left the
-       * capsule floating in the middle with a gap either side. The left slot
-       * is the only place UIKit will put content next to the back button, so
-       * the back chevron is drawn here too and the system back item is turned
-       * off (the swipe-back gesture is independent and still works).
-       *
-       * No material of our own: iOS 26 wraps the whole slot in one glass
-       * container — the same one it gives the ⋯ button — so back and title
-       * come out as a single capsule that hugs its content and grows with the
-       * session's name. Painting a second surface inside that container was a
-       * capsule inside a capsule.
-       */
-      headerBackVisible: false,
-      /**
-       * TWO ITEMS, TWO BACKGROUNDS — a disc for the chevron and a capsule for
-       * the name, not one long pill holding both.
-       *
-       * iOS 26 gives ADJACENT bar items a SHARED background, which is why
-       * putting the chevron and the title in one `headerLeft` fused them into
-       * a single capsule. `unstable_headerLeftItems` addresses them as
-       * separate items, and `hidesSharedBackground` opts each out of the
-       * shared one so the glass below is the only material either of them
-       * has. Two shapes, the way the reference draws it.
-       *
-       * `headerLeft` stays as the fallback: these items are an iOS-only path
-       * (and iOS 26 at that), and on anything older the same two elements are
-       * still what should appear.
-       */
-      unstable_headerLeftItems: () => [
-        {
-          type: "custom",
-          hidesSharedBackground: true,
-          /**
-           * ONE ITEM HOLDING BOTH SHAPES, not two items side by side.
-           *
-           * As two items the bar owned the space between them, and it is
-           * generous — the capsule floated a finger's width off the chevron
-           * instead of reading as the pair they are, and a negative spacing
-           * item does not claw it back. Inside one item the gap is a `gap`
-           * property and it is exactly what it says. Each shape still draws
-           * its own glass, so this is two backgrounds, not one long pill.
-           */
-          element: (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <BackDisc />
-              <TitleCapsule />
-            </View>
-          ),
-        },
-      ],
-      headerLeft: () => (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
-          <BackDisc />
-          <TitleCapsule />
-        </View>
-      ),
-      headerTitle: () => null,
-      /**
-       * THE ⋯ WEARS OUR DISC TOO, so all three bar items are one size.
-       *
-       * Left to the system, this item got UIKit's own glass background —
-       * MEASURED at ~39pt against the 36pt discs we draw on the left, which is
-       * exactly the mismatch that reads as a mistake. The obvious fix, growing
-       * ours to match, is not available: a custom `unstable_headerLeftItems`
-       * view taller than 36pt is dropped from the bar entirely (verified on
-       * device at 40 and 44 — both left items vanished while the ⋯ stayed).
-       *
-       * So the shared background is opted out of on this side as well and the
-       * disc is drawn here, from the same constant as the other two. Same
-       * material, same diameter, no guessing at what UIKit would have done.
-       */
-      unstable_headerRightItems: () =>
-        menuOptions.length
-          ? [
-              {
-                type: "custom" as const,
-                hidesSharedBackground: true,
-                element: <OverflowDisc />,
-              },
-            ]
-          : [],
-      headerRight: () => (menuOptions.length ? <OverflowDisc /> : null),
-    });
-  }, [navigation, title, agentLabel, busy, menuOptions, colors, type, space, radius]);
+    navigation.setOptions({ headerShown: false });
+  }, [navigation]);
 
   if (!client) {
     return (
@@ -1094,7 +1003,14 @@ export default function SessionScreen() {
         keyExtractor={(item) => item.key}
         contentContainerStyle={{
           paddingHorizontal: space.lg,
-          paddingTop: space.lg,
+          /**
+           * Clears the bar this screen now draws itself: the safe area, the
+           * bar's own height, its padding, and a gap. With the system header
+           * gone there is no `contentInsetAdjustmentBehavior` doing this for
+           * us — and getting it wrong means the newest message opens hidden
+           * behind the chevron.
+           */
+          paddingTop: insets.top + BAR_ITEM + space.xs + space.lg,
           /**
            * ROOM FOR THE LAST MESSAGE TO CLEAR THE FLOATING COMPOSER — with a
            * floor, because the measurement can arrive late or not at all.
@@ -1122,9 +1038,9 @@ export default function SessionScreen() {
           // a run of tool calls is one grouped surface instead of N tiles.
           gap: space.lg,
         }}
-        // The bar is transparent (set in _layout.tsx), so the list insets its
-        // content below it instead of starting underneath it.
-        contentInsetAdjustmentBehavior="automatic"
+        // This screen owns its bar and its own top padding; letting UIKit
+        // add an inset on top of that would double-count the safe area.
+        contentInsetAdjustmentBehavior="never"
         /**
          * Without this, prepending a page of history yanks the transcript: the
          * list keeps its scroll OFFSET, and 80 older messages above you means
@@ -1172,6 +1088,37 @@ export default function SessionScreen() {
           )
         }
       />
+
+      {/**
+       * THE BAR, over the transcript rather than above it.
+       *
+       * Absolutely positioned so the list scrolls underneath — the same
+       * relationship the composer has with it at the other end — and painted
+       * with the page colour so the two edges of the screen are one surface.
+       * The list reserves room for it in its own top padding, so nothing
+       * starts underneath the chevron.
+       */}
+      <View
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          paddingTop: insets.top,
+          paddingHorizontal: space.md,
+          paddingBottom: space.xs,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          backgroundColor: colors.bg,
+        }}
+      >
+        <BackDisc />
+        <TitleCapsule />
+        {/* Pushes the overflow to the far edge without a spacer view. */}
+        <View style={{ flex: 1 }} />
+        {menuOptions.length ? <OverflowDisc /> : null}
+      </View>
 
       {/* The agent asked something — answering has to be one tap, and that tap
           has to actually answer. */}

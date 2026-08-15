@@ -68,6 +68,13 @@ export const STORAGE_KEYS = {
    * so turning them off unregisters the exact token that's live server-side).
    */
   nativePushToken: "omg:mobile:native-push-token",
+  /**
+   * How the composer was last configured, per machine and agent: which model,
+   * how hard to think. Validated against the box's catalog on load — a stored
+   * choice can name something this machine no longer offers, and offering it
+   * would be a 400 at launch discovered only after typing a prompt.
+   */
+  composerSetup: "omg:mobile:composer-setup",
 } as const;
 
 export type ComputerMode = "direct" | "hosted";
