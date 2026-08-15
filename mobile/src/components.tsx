@@ -897,6 +897,7 @@ export function HomeComposer({
   attachments,
   dictation,
   usage = [],
+  usageLoading,
   bottomInset = 0,
 }: {
   value: string;
@@ -918,6 +919,8 @@ export function HomeComposer({
   dictation: { state: "idle" | "recording" | "transcribing"; toggle: () => void };
   /** Rate-limit windows, one ring each. Empty until the machine answers. */
   usage?: ProviderUsage[];
+  /** Still asking. Draws a spinner where the rings will be. */
+  usageLoading?: boolean;
   bottomInset?: number;
 }) {
   const { colors, isDark, radius, type, space } = useTheme();
@@ -1095,6 +1098,32 @@ export function HomeComposer({
          * one circle per login answering a question nobody asked.
          */}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          {/**
+           * THE CAPSULE ARRIVES BEFORE THE NUMBERS DO.
+           *
+           * Usage is several requests to CLIs that answer at their own pace,
+           * so the rings appear seconds after the composer does. Rendering
+           * nothing until then made the caption row visibly reflow — and worse,
+           * said nothing about whether this machine reports usage at all. A
+           * spinner in the same 32pt capsule holds the space and answers the
+           * question: something is coming.
+           */}
+          {usageLoading && !usage.some((p) => p.kind === providerKindForAgent(agent)) ? (
+            <GlassSurface
+              variant="regular"
+              fallbackColor={colors.secondary}
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: radius.pill,
+                alignItems: "center",
+                justifyContent: "center",
+                overflow: "hidden",
+              }}
+            >
+              <ActivityIndicator size="small" color={colors.textMuted} />
+            </GlassSurface>
+          ) : null}
           {usage
             .filter((provider) => provider.kind === providerKindForAgent(agent))
             .map((provider) => (

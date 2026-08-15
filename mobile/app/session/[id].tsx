@@ -699,11 +699,21 @@ export default function SessionScreen() {
           alignItems: "center",
           gap: space.sm,
           borderRadius: radius.pill,
+          /**
+           * 36pt — the back disc's diameter, exactly.
+           *
+           * They sit side by side in the bar, so any difference between them
+           * reads as a mistake rather than a hierarchy. This used to be sized
+           * by its own padding around two lines of text, which happened to be
+           * close while the subtitle existed and stopped being close the
+           * moment it went. A fixed height and vertical centring keeps the pair
+           * matched whatever the title does.
+           */
+          height: 36,
           // The mark is a circle inside a capsule, so it needs more of a lead
           // than a square would: at 4pt it sat against the glass.
           paddingLeft: space.sm,
           paddingRight: space.md,
-          paddingVertical: space.xs,
           overflow: "hidden",
         }}
       >

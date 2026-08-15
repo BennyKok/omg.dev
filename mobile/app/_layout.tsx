@@ -1,6 +1,6 @@
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import Reanimated, {
   Easing,
@@ -11,6 +11,7 @@ import Reanimated, {
 } from "react-native-reanimated";
 
 import { BrandMark } from "../src/omg/brand-mark";
+import { LaunchScreen } from "../src/omg/launch";
 import { useLucideFont } from "../src/omg/lucide";
 
 import { OmgProvider, useOmg } from "../src/omg/provider";
@@ -58,6 +59,66 @@ function Splash() {
       </Reanimated.View>
       <StatusBar style={isDark ? "light" : "dark"} />
     </View>
+  );
+}
+
+/**
+ * Holds the launch screen up until the app has something true to show, and
+ * plays it out exactly once.
+ *
+ * ONCE is the important part. This covers the navigation bar as well as the
+ * page — that is why it lives here and not inside the list screen — and a
+ * full-screen cover that can come BACK would be intolerable every time a
+ * machine reconnects. After the first hand-off the list owns its own
+ * connecting states, inline, where they belong.
+ */
+function LaunchGate() {
+  const { authStatus, readiness, bindingId, machinesLoaded } = useOmg();
+  const [finished, setFinished] = useState(false);
+  /**
+   * A HARD CEILING ON HOLDING THE APP HOSTAGE.
+   *
+   * Everything below waits on the machine answering, and a machine that never
+   * answers would leave this screen up forever — the app would look hung, with
+   * no list, no error and no way to reach Settings to switch computers. After
+   * eight seconds the surface underneath takes over and says what is wrong in
+   * its own words, which it is built to do. The splash is a courtesy for the
+   * common fast case, not a gate on using the app.
+   */
+  const [expired, setExpired] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setExpired(true), 8000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const settling =
+    !expired &&
+    authStatus === "signed-in" &&
+    (!machinesLoaded ||
+      (!!bindingId &&
+        (readiness === null ||
+          readiness.status === "connecting" ||
+          readiness.status === "waking")));
+
+  if (finished) return null;
+
+  return (
+    <LaunchScreen
+      /**
+       * NEVER NAMES A MACHINE. The name is the thing that is not loaded yet
+       * at the moment this screen exists, which is how the old copy ended up
+       * reading "Connecting to No computer…".
+       */
+      label={
+        readiness?.status === "waking"
+          ? "Waking your computer"
+          : machinesLoaded && bindingId
+            ? "Connecting"
+            : "Setting things up"
+      }
+      done={!settling}
+      onFinished={() => setFinished(true)}
+    />
   );
 }
 
@@ -264,6 +325,8 @@ export default function Layout() {
             view underneath it. */}
         <ToastProvider>
           <RootNavigator />
+          {/* Above the navigator so it covers the bar too — see LaunchGate. */}
+          <LaunchGate />
         </ToastProvider>
       </ThemeProvider>
     </OmgProvider>

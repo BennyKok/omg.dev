@@ -319,7 +319,7 @@ export default function SessionsScreen() {
   // Already one entry per agent rather than per login: the machine folds them
   // now (`/api/usage/summary`), and useUsage only does it itself when talking
   // to a box too old to have that endpoint.
-  const { providers: usage } = useUsage();
+  const { providers: usage, loading: usageLoading } = useUsage();
   const { sessions: resumable, refresh: refreshResumable } = useResumable();
   const agentPicker = useAgentPicker();
   const projectPicker = useProjectPicker();
@@ -769,19 +769,20 @@ export default function SessionsScreen() {
           />
         ) : readiness?.status === "connecting" || readiness?.status === "waking" ? (
           /**
-           * SAY ONLY WHAT IS KNOWN.
+           * SAY ONLY WHAT IS KNOWN — and on a cold start, say it on the launch
+           * screen instead of here.
            *
-           * This screen used to claim "Waking your computer… It hibernated to
-           * save resources" for both states, which was frequently untrue: the
-           * optimistic state is set BEFORE the probe, so most of the time it
-           * was saying a machine had hibernated when nobody had asked it
-           * anything yet — and a paired machine is a laptop running
-           * `omg connect`, which does not hibernate at all. Only a 425 from
-           * the proxy, on the cloud Computer, means what that sentence says.
+           * This block used to be the app's first frame, which meant it read
+           * "Connecting to No computer…" until the bindings arrived: the
+           * machine name is exactly the thing that is not loaded yet at that
+           * moment. LaunchGate in app/_layout.tsx covers that window now, with
+           * the mark and no name. What is left here is the SECOND time and
+           * after — switching machines, or one that goes cold mid-session —
+           * where the name IS known and this screen has a list to keep.
            *
-           * Skeleton cards rather than a spinner either way: the sessions
-           * being fetched already exist, and the shape of the list says
-           * "these are coming back" without a word changing.
+           * Skeleton cards rather than a spinner: the sessions being fetched
+           * already exist, and the shape of the list says "these are coming
+           * back" without a word changing.
            */
           <View style={{ gap: space.lg, paddingTop: space.xl }}>
             <View style={{ alignItems: "center", gap: space.xs, paddingHorizontal: space.xl }}>
@@ -946,6 +947,7 @@ export default function SessionsScreen() {
           attachments={attachments}
           dictation={dictation}
           usage={usage}
+          usageLoading={usageLoading}
           bottomInset={insets.bottom}
         />
         </Reanimated.View>

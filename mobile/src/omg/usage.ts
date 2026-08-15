@@ -139,9 +139,23 @@ export function peakPct(provider: ProviderUsage): number | null {
  * step, and a ring that vanishes for a week is a regression to the person
  * looking at it.
  */
-export function useUsage(): { providers: ProviderUsage[]; refresh: () => void } {
+export function useUsage(): {
+  providers: ProviderUsage[];
+  /**
+   * A read is in flight and nothing has arrived yet.
+   *
+   * Worth its own flag rather than being inferred from an empty list, because
+   * empty means two different things: "still asking" and "this machine has no
+   * usage to report". The composer draws a spinner for the first and nothing
+   * for the second, and inferring it would have shown a spinner forever on a
+   * box with no providers.
+   */
+  loading: boolean;
+  refresh: () => void;
+} {
   const { client } = useOmg();
   const [providers, setProviders] = useState<ProviderUsage[]>([]);
+  const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
 
   const refresh = useCallback(() => setTick((n) => n + 1), []);
@@ -149,6 +163,7 @@ export function useUsage(): { providers: ProviderUsage[]; refresh: () => void } 
   useEffect(() => {
     if (!client) return;
     let cancelled = false;
+    setLoading(true);
 
     void (async () => {
       try {
@@ -157,6 +172,7 @@ export function useUsage(): { providers: ProviderUsage[]; refresh: () => void } 
         );
         if (cancelled) return;
         setProviders(merged.providers ?? []);
+        setLoading(false);
         return;
       } catch {
         // Falls through to the per-account walk below. Any failure counts:
@@ -199,6 +215,8 @@ export function useUsage(): { providers: ProviderUsage[]; refresh: () => void } 
         // A machine that cannot answer leaves the row empty rather than
         // showing rings full of nothing.
         if (!cancelled) setProviders([]);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     })();
 
@@ -214,7 +232,7 @@ export function useUsage(): { providers: ProviderUsage[]; refresh: () => void } 
     return () => clearInterval(timer);
   }, [refresh]);
 
-  return { providers, refresh };
+  return { providers, loading, refresh };
 }
 
 /**

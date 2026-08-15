@@ -77,6 +77,8 @@ type OmgContextValue = {
   bindings: ComputerBinding[];
   cloud: CloudComputer | null;
   machinesLoading: boolean;
+  /** The computer list has been answered at least once. See the state below. */
+  machinesLoaded: boolean;
   machinesError: string | null;
   refreshMachines: () => Promise<void>;
 
@@ -129,6 +131,15 @@ export function OmgProvider({ children }: PropsWithChildren) {
   const [bindings, setBindings] = useState<ComputerBinding[]>([]);
   const [cloud, setCloud] = useState<CloudComputer | null>(null);
   const [machinesLoading, setMachinesLoading] = useState(false);
+  /**
+   * The machine list has been answered at least once — which is NOT the same
+   * as it being non-empty, and not the same as `!machinesLoading` either
+   * (that is also false in the moment before the first request goes out). The
+   * launch screen needs to know the difference between "no computers" and
+   * "not asked yet"; without it the app flashed "No computer selected" at
+   * every cold start.
+   */
+  const [machinesLoaded, setMachinesLoaded] = useState(false);
   const [machinesError, setMachinesError] = useState<string | null>(null);
 
   const [bindingId, setBindingId] = useState<string | null>(null);
@@ -168,6 +179,7 @@ export function OmgProvider({ children }: PropsWithChildren) {
       }
     } finally {
       setMachinesLoading(false);
+      setMachinesLoaded(true);
     }
   }, []);
 
@@ -402,6 +414,7 @@ export function OmgProvider({ children }: PropsWithChildren) {
       bindings,
       cloud,
       machinesLoading,
+      machinesLoaded,
       machinesError,
       refreshMachines,
       bindingId,
@@ -420,6 +433,7 @@ export function OmgProvider({ children }: PropsWithChildren) {
       bindings,
       cloud,
       machinesLoading,
+      machinesLoaded,
       machinesError,
       refreshMachines,
       bindingId,
