@@ -35,12 +35,34 @@ import { useOmg, type CodingAgent } from "./provider";
  */
 export const DEFAULT_AGENT = "aisdk";
 
-type ModelCatalogEntry = { key: string; defaultModel?: string; models?: string[] };
+type ModelCatalogEntry = {
+  key: string;
+  defaultModel?: string;
+  models?: string[];
+  /** e.g. low | medium | high | xhigh. Per agent, and not every agent has any. */
+  thinkingLevels?: string[];
+};
 
+/**
+ * THREE CONTROLS, NOT ONE. Which agent, which model, how hard it should think.
+ *
+ * These were one menu with the models nested behind each agent, and nesting is
+ * what broke it: a submenu row cannot carry a brand mark (UIKit draws the open
+ * submenu's header from the image at its own size, which produced an ~80pt
+ * slab), and press-and-drag — the gesture iOS menus are built around, where
+ * you hold the control, slide onto a row and release — does not survive a
+ * sideways step into a second layer.
+ *
+ * So each question gets its own control, and every menu is ONE layer. The
+ * agent keeps its marks, the drag gesture works everywhere, and thinking —
+ * which the machine has always accepted on `/api/sessions/new` and this app
+ * has never offered — finally has somewhere to live.
+ */
 export function useAgentPicker() {
   const { agents, bindingId, client } = useOmg();
   const [chosen, setChosen] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
+  const [thinking, setThinking] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<ModelCatalogEntry[]>([]);
 
   /**
@@ -73,6 +95,7 @@ export function useAgentPicker() {
   useEffect(() => {
     setChosen(null);
     setModel(null);
+    setThinking(null);
   }, [bindingId]);
 
   /**
@@ -106,66 +129,90 @@ export function useAgentPicker() {
    */
   const options = useMemo<MenuOption[]>(() => {
     if (agents.length < 2) return [];
-
-    /**
-     * TWO SECTIONS, NOT NINE SUBMENUS.
-     *
-     * The models used to hang off each agent as a submenu, which cost the
-     * agents their marks: UIKit draws an open submenu's header from the menu's
-     * image at the image's own size, so a 96px brand mark became an ~80pt slab
-     * over the menu (photographed on device). Dropping the image fixed the
-     * slab and lost the thing that made this menu readable — nine names is a
-     * list, nine marks is the thing you were already looking at.
-     *
-     * Sections keep both. Every agent is a LEAF row, so it keeps its mark and
-     * its checkmark, and the models of the one currently selected sit under a
-     * second heading in the same menu. It is still one control and one gesture
-     * for the common case; picking a different agent's model is now two taps
-     * instead of a sideways slide, which is the price, and it buys a menu you
-     * can read at a glance.
-     */
-    const rows: MenuOption[] = agents.map((a) => ({
+    // ONE LAYER, WITH MARKS. Every row is a leaf, so each keeps the brand mark
+    // that makes this menu scannable, and a press-and-drag reaches all of them.
+    return agents.map((a) => ({
       label: labelFor(a.key, agents),
       image: agentIcon(a.key),
       selected: a.key === agent,
-      section: "Agent",
       onPress: () => {
         setChosen(a.key);
+        // The model and the thinking level belong to the agent that runs them;
+        // carrying a Claude model across to Codex would name something that
+        // agent cannot run.
         setModel(null);
+        setThinking(null);
       },
     }));
+  }, [agents, agent]);
 
-    const entry = catalog.find((m) => m.key === agent);
+  const entry = useMemo(() => catalog.find((m) => m.key === agent), [catalog, agent]);
+
+  /** The model this session will start with, resolved against the box's list. */
+  const activeModelName = useMemo(() => {
     const models = entry?.models ?? [];
-    const current = model ?? entry?.defaultModel ?? null;
-    if (models.length > 1) {
-      // NO ICONS on these rows. They are strings the box reported, not things
-      // with faces, and one icon in a menu indents every other label to make
-      // room for a gutter nothing else uses.
-      rows.push(
-        ...models.map((m) => ({
-          label: m,
-          selected: current === m,
-          section: labelFor(agent, agents),
-          onPress: () => {
-            setChosen(agent);
-            setModel(m);
-          },
-        })),
-      );
-    }
+    if (model && models.includes(model)) return model;
+    return entry?.defaultModel ?? models[0] ?? null;
+  }, [entry, model]);
 
-    return rows;
-  }, [agents, agent, catalog, model]);
+  const modelOptions = useMemo<MenuOption[]>(() => {
+    const models = entry?.models ?? [];
+    if (models.length < 2) return [];
+    // No icons: these are strings the box reported, not things with faces, and
+    // one icon in a menu indents every other label to make room for a gutter.
+    return models.map((m) => ({
+      label: m,
+      selected: m === activeModelName,
+      onPress: () => setModel(m),
+    }));
+  }, [entry, activeModelName]);
+
+  const activeThinking = useMemo(() => {
+    const levels = entry?.thinkingLevels ?? [];
+    if (thinking && levels.includes(thinking)) return thinking;
+    return null;
+  }, [entry, thinking]);
+
+  const thinkingOptions = useMemo<MenuOption[]>(() => {
+    const levels = entry?.thinkingLevels ?? [];
+    if (levels.length < 2) return [];
+    return [
+      {
+        // The box picks when nobody says otherwise, and that is a real choice
+        // rather than the absence of one — so it is a row, and it can be
+        // returned to.
+        label: "Default",
+        selected: activeThinking === null,
+        onPress: () => setThinking(null),
+      },
+      ...levels.map((level) => ({
+        label: level.charAt(0).toUpperCase() + level.slice(1),
+        selected: activeThinking === level,
+        onPress: () => setThinking(level),
+      })),
+    ];
+  }, [entry, activeThinking]);
 
   /** Null means "the box's default", which is what omitting it asks for. */
   const activeModel = useMemo(() => {
-    const entry = catalog.find((m) => m.key === agent);
     if (model && entry?.models?.includes(model)) return model;
     return null;
-  }, [catalog, agent, model]);
+  }, [entry, model]);
 
-  return { agent, model: activeModel, label, options };
+  return {
+    agent,
+    model: activeModel,
+    /** What the model pill shows: the choice, or the default it would use. */
+    modelLabel: activeModelName,
+    modelOptions,
+    thinking: activeThinking,
+    thinkingLabel: activeThinking
+      ? activeThinking.charAt(0).toUpperCase() + activeThinking.slice(1)
+      : "Thinking",
+    thinkingOptions,
+    label,
+    options,
+  };
 }
 
 function labelFor(key: string, agents: CodingAgent[]): string {

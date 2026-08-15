@@ -496,6 +496,10 @@ export default function SessionsScreen() {
           // Omitted unless it was actually chosen: the box's own default is a
           // better answer than a model this app guessed at.
           model: agentPicker.model ?? undefined,
+          // Omitted unless chosen: the box has its own default per agent, and
+          // sending a level it does not recognise is a 400 rather than a
+          // fallback.
+          thinkingLevel: agentPicker.thinking ?? undefined,
           cwd: projectPicker.cwd ?? undefined,
         }),
       });
@@ -944,6 +948,10 @@ export default function SessionsScreen() {
           agent={agentPicker.agent}
           agentLabel={agentPicker.label}
           agentOptions={agentPicker.options}
+          modelLabel={agentPicker.modelLabel}
+          modelOptions={agentPicker.modelOptions}
+          thinkingLabel={agentPicker.thinkingLabel}
+          thinkingOptions={agentPicker.thinkingOptions}
           attachments={attachments}
           dictation={dictation}
           usage={usage}

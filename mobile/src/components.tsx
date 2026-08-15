@@ -894,6 +894,10 @@ export function HomeComposer({
   agent,
   agentLabel,
   agentOptions,
+  modelLabel,
+  modelOptions,
+  thinkingLabel,
+  thinkingOptions,
   attachments,
   dictation,
   usage = [],
@@ -910,6 +914,11 @@ export function HomeComposer({
   agent?: string | null;
   agentLabel?: string | null;
   agentOptions: MenuOption[];
+  /** Which model, and how hard to think — each its own one-layer menu. */
+  modelLabel?: string | null;
+  modelOptions?: MenuOption[];
+  thinkingLabel?: string | null;
+  thinkingOptions?: MenuOption[];
   /** The files going with this prompt, and how to pick more. */
   attachments: {
     items: Attachment[];
@@ -1171,15 +1180,48 @@ export function HomeComposer({
             ))}
         </View>
 
-        {projectOptions.length ? (
-          <ComposerCaptionButton
-            ios="folder.fill"
-            android="folder"
-            label={projectLabel ?? "Project"}
-            options={projectOptions}
-            accessibilityLabel={`Project: ${projectLabel ?? "none"}. Change`}
-          />
-        ) : null}
+        {/**
+         * THE THREE THINGS THAT DECIDE THE RUN, each its own control.
+         *
+         * They used to be one menu with the models nested behind each agent,
+         * and nesting cost two things: a submenu row cannot carry a brand mark
+         * (UIKit sizes the open submenu's header image itself, which produced
+         * an ~80pt slab over the menu), and press-and-drag — hold the control,
+         * slide onto a row, release — does not survive a sideways step into a
+         * second layer. Separate controls keep every menu one layer deep.
+         *
+         * Each appears only when there is a choice to make: a box with one
+         * model for the current agent does not get a model pill.
+         */}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 }}>
+          {modelOptions?.length ? (
+            <ComposerCaptionButton
+              label={modelLabel ?? "Model"}
+              options={modelOptions}
+              accessibilityLabel={`Model: ${modelLabel ?? "default"}. Change`}
+            />
+          ) : null}
+
+          {thinkingOptions?.length ? (
+            <ComposerCaptionButton
+              ios="brain"
+              android="psychology"
+              label={thinkingLabel ?? "Thinking"}
+              options={thinkingOptions}
+              accessibilityLabel={`Thinking: ${thinkingLabel ?? "default"}. Change`}
+            />
+          ) : null}
+
+          {projectOptions.length ? (
+            <ComposerCaptionButton
+              ios="folder.fill"
+              android="folder"
+              label={projectLabel ?? "Project"}
+              options={projectOptions}
+              accessibilityLabel={`Project: ${projectLabel ?? "none"}. Change`}
+            />
+          ) : null}
+        </View>
       </View>
     </View>
   );
@@ -1211,8 +1253,9 @@ function ComposerCaptionButton({
   options,
   accessibilityLabel,
 }: {
-  ios: SFSymbol;
-  android: AndroidSymbol;
+  /** Optional: a model name is a name, and a symbol beside it would be decoration. */
+  ios?: SFSymbol;
+  android?: AndroidSymbol;
   label: string;
   /** Empty means there is nothing to choose; the pill stays, unpressable. */
   options: MenuOption[];
@@ -1243,7 +1286,9 @@ function ComposerCaptionButton({
       {/* 15, not 13. At 13 the folder read as a bullet point next to its own
           label — a glyph that small stops being recognisable as a folder and
           becomes texture. */}
-      <Icon ios={ios} android={android} size={15} color={colors.textSecondary} />
+      {ios && android ? (
+        <Icon ios={ios} android={android} size={15} color={colors.textSecondary} />
+      ) : null}
       <Text
         numberOfLines={1}
         /**
