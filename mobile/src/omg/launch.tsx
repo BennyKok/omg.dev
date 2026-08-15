@@ -39,6 +39,7 @@ import Reanimated, {
   useSharedValue,
   withDelay,
   withRepeat,
+  withSequence,
   withTiming,
 } from "react-native-reanimated";
 
@@ -51,8 +52,27 @@ const SHIMMER_MS = 1500;
 /** How many characters the bright part of the wave spans. */
 const SHIMMER_WIDTH = 4;
 
-const CAPTION_OUT_MS = 180;
-const MARK_OUT_MS = 460;
+/**
+ * THE EXIT IS A ZOOM PAST THE VIEWER, NOT A RESIZE.
+ *
+ * The first version grew the mark by 35% over 460ms on an ease-OUT curve, and
+ * on device that reads as exactly what it is: an icon changing size and then
+ * disappearing. Three things were wrong. 1.35x is a size change, not motion
+ * toward you. Ease-out means it moves fastest at the START and coasts to a
+ * stop — the shape of something settling, when this wants the shape of
+ * something launching. And 460ms is long enough to watch.
+ *
+ * So: a short DIP first (the anticipation every fast move needs — a thing that
+ * pulls back before it goes reads as intent rather than a glitch), then an
+ * accelerating rush to 7x in a quarter of a second. Seven, because the mark
+ * has to leave the screen: 64pt at 7x is 448pt against a 393pt-wide phone, so
+ * it passes the viewer rather than stopping in front of them.
+ */
+const CAPTION_OUT_MS = 120;
+const DIP_MS = 110;
+const ZOOM_MS = 250;
+const DIP_SCALE = 0.9;
+const ZOOM_SCALE = 7;
 
 function ShimmerText({ text }: { text: string }) {
   const { colors, type } = useTheme();
@@ -136,7 +156,9 @@ export function LaunchScreen({
 }) {
   const { colors } = useTheme();
   const breathe = useSharedValue(0);
-  const exit = useSharedValue(0);
+  const scale = useSharedValue(1);
+  const fade = useSharedValue(1);
+  const backdrop = useSharedValue(1);
   const caption = useSharedValue(1);
   const [leaving, setLeaving] = useState(false);
 
@@ -151,18 +173,41 @@ export function LaunchScreen({
   useEffect(() => {
     if (!done || leaving) return;
     setLeaving(true);
-    // Two values rather than one timeline: the caption leaves FIRST and alone,
-    // and the mark's swell begins only once it is gone. Driving both from a
-    // single progress meant every timing change to one silently re-cut the
-    // other.
+
+    /**
+     * One value per thing that moves, not one progress driving all of them.
+     * These four are deliberately out of step — the caption is gone before the
+     * dip, the page appears while the mark is still travelling — and expressing
+     * that as offsets into a shared timeline meant every timing tweak silently
+     * re-cut the others.
+     */
     caption.value = withTiming(0, { duration: CAPTION_OUT_MS });
-    exit.value = withDelay(
+
+    scale.value = withDelay(
       CAPTION_OUT_MS,
-      withTiming(1, { duration: MARK_OUT_MS, easing: Easing.out(Easing.cubic) }, (finished) => {
+      withSequence(
+        withTiming(DIP_SCALE, { duration: DIP_MS, easing: Easing.out(Easing.quad) }),
+        withTiming(ZOOM_SCALE, { duration: ZOOM_MS, easing: Easing.in(Easing.cubic) }),
+      ),
+    );
+
+    // The mark stays SOLID for most of the rush and blinks out at the end.
+    // Fading while it travels turns a launch into a dissolve.
+    fade.value = withDelay(
+      CAPTION_OUT_MS + DIP_MS + ZOOM_MS * 0.62,
+      withTiming(0, { duration: ZOOM_MS * 0.38 }, (finished) => {
         if (finished && onFinished) runOnJS(onFinished)();
       }),
     );
-  }, [done, leaving, exit, caption, onFinished]);
+
+    // The page underneath is revealed WHILE the mark is still on its way out,
+    // so the app is already there as the mark passes — rather than the mark
+    // leaving and a black frame waiting behind it.
+    backdrop.value = withDelay(
+      CAPTION_OUT_MS + DIP_MS + ZOOM_MS * 0.3,
+      withTiming(0, { duration: ZOOM_MS * 0.55 }),
+    );
+  }, [done, leaving, scale, fade, backdrop, caption, onFinished]);
 
   const markStyle = useAnimatedStyle(() => {
     if (!leaving) {
@@ -171,21 +216,12 @@ export function LaunchScreen({
         transform: [{ scale: 0.97 + breathe.value * 0.03 }],
       };
     }
-    return {
-      // Grows the whole way out, but only starts dissolving in the second
-      // half — a mark that fades as it grows reads as retreating, not opening.
-      opacity: 1 - Math.max(0, (exit.value - 0.45) / 0.55),
-      transform: [{ scale: 1 + exit.value * 0.35 }],
-    };
+    return { opacity: fade.value, transform: [{ scale: scale.value }] };
   });
 
   const captionStyle = useAnimatedStyle(() => ({ opacity: caption.value }));
 
-  const backdropStyle = useAnimatedStyle(() => ({
-    // Held opaque until the mark is most of the way through its swell, so the
-    // list does not show through underneath it mid-animation.
-    opacity: leaving ? 1 - Math.max(0, (exit.value - 0.55) / 0.45) : 1,
-  }));
+  const backdropStyle = useAnimatedStyle(() => ({ opacity: backdrop.value }));
 
   return (
     <Reanimated.View

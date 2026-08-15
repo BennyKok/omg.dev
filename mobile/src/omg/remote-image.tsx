@@ -20,10 +20,11 @@
  * its media feed and this file starts where that ended up.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
   Modal,
+  PanResponder,
   Pressable,
   StatusBar,
   useWindowDimensions,
@@ -31,6 +32,13 @@ import {
   type ImageStyle,
   type StyleProp,
 } from "react-native";
+import Reanimated, {
+  Easing,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 
 import { useOmg } from "./provider";
 
@@ -183,17 +191,35 @@ export function AuthenticatedImage({
 }
 
 /**
- * The thumbnail, and the full-size view behind it.
+ * The thumbnail, and the viewer it opens into.
  *
- * A transcript image is a 240pt tile of something that was worth attaching —
- * a screenshot of the bug, a diff, a design. At that size it is a reminder,
- * not a thing you can read, so tapping opens it against black at the size the
- * screen allows. Tap anywhere to close: a full-bleed picture with a chrome bar
- * over it would be spending the screen on the way out.
+ * THE VIEWER IS MODELLED ON PHOTOS, not on a modal with a picture in it. What
+ * shipped first was a cross-fade to a full-screen `Image` that closed on any
+ * tap, and next to any system app it read as a web lightbox: the picture
+ * appeared from nowhere with no relationship to the thing you pressed, and the
+ * only way out was a tap, which is not the gesture anybody's thumb reaches for.
  *
- * The lightbox lives HERE rather than in a provider because the bytes already
- * do — the data URI is fetched once for the tile and the sheet reuses it, so
- * opening one costs no request and no second decode.
+ * Three things make the difference, and all three are here:
+ *
+ *  - IT GROWS FROM THE THUMBNAIL. The tile is measured in window coordinates
+ *    on press, and the full-size image is transformed back onto that rect and
+ *    released. So the picture you pressed becomes the picture you are looking
+ *    at, and closing returns it to where it came from — the continuity iOS
+ *    uses everywhere and the reason the transition is legible at all.
+ *  - IT FOLLOWS YOUR FINGER OUT. Drag down and the image tracks the drag,
+ *    shrinking slightly while the black behind it thins toward the transcript.
+ *    Past a threshold — or on a fast flick — it goes home; short of it, it
+ *    springs back. A picture that can only be dismissed by a tap feels stuck
+ *    to the screen.
+ *  - IT ZOOMS. Pinch to 4x, double-tap to 2.5 and back. A screenshot of a
+ *    dense dashboard is the common case here and full-screen is still not
+ *    enough to read one.
+ *
+ * PanResponder rather than a gesture library: this app already drives its
+ * swipe-to-archive with it, react-native-gesture-handler is present only as
+ * somebody else's transitive dependency (undeclared, and this repo has already
+ * shipped one binary broken by depending on a module it did not declare), and
+ * two fingers of pinch is not enough work to justify taking that risk.
  */
 function TappableImage({
   uri,
@@ -212,60 +238,297 @@ function TappableImage({
   style?: StyleProp<ImageStyle>;
   accessibilityLabel: string;
 }) {
-  const [open, setOpen] = useState(false);
-  const screen = useWindowDimensions();
+  const thumb = useRef<View>(null);
+  const [origin, setOrigin] = useState<Rect | null>(null);
+
+  /**
+   * MEASURE BEFORE OPENING, and open only once the measurement lands.
+   *
+   * The viewer's whole transition is expressed relative to where the tile is
+   * on screen, and `measureInWindow` is asynchronous — opening first and
+   * measuring after would play the first frames from a rect of zeros, which is
+   * a picture flying in from the top-left corner.
+   */
+  const open = () => {
+    const node = thumb.current;
+    if (!node) return;
+    node.measureInWindow((x, y, w, h) => {
+      if (w > 0 && h > 0) setOrigin({ x, y, width: w, height: h });
+    });
+  };
 
   return (
     <>
-      <Pressable
-        onPress={() => setOpen(true)}
-        accessibilityRole="imagebutton"
-        accessibilityLabel={`${accessibilityLabel}. Open`}
-        style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}
-      >
-        <Image
-          source={{ uri }}
-          accessibilityLabel={accessibilityLabel}
-          accessible
-          resizeMode="cover"
-          style={[
-            { width, height, borderRadius: radius, backgroundColor: placeholderColor },
-            style,
-          ]}
-        />
-      </Pressable>
-
-      <Modal
-        visible={open}
-        transparent
-        animationType="fade"
-        // The system back gesture and the hardware back button both close it.
-        onRequestClose={() => setOpen(false)}
-        statusBarTranslucent
-      >
-        <StatusBar hidden />
+      {/* `collapsable={false}`: without it this View is optimised out of the
+          native hierarchy and there is nothing left to measure. */}
+      <View ref={thumb} collapsable={false}>
         <Pressable
-          onPress={() => setOpen(false)}
-          accessibilityRole="button"
-          accessibilityLabel="Close the image"
-          style={{
-            flex: 1,
-            backgroundColor: "rgba(0,0,0,0.96)",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
+          onPress={open}
+          accessibilityRole="imagebutton"
+          accessibilityLabel={`${accessibilityLabel}. Open`}
+          style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}
         >
           <Image
             source={{ uri }}
             accessibilityLabel={accessibilityLabel}
             accessible
-            // `contain`, so a tall screenshot is readable end to end rather
-            // than cropped to the middle of itself.
-            resizeMode="contain"
-            style={{ width: screen.width, height: screen.height }}
+            resizeMode="cover"
+            style={[
+              { width, height, borderRadius: radius, backgroundColor: placeholderColor },
+              style,
+            ]}
           />
         </Pressable>
-      </Modal>
+      </View>
+
+      {origin ? (
+        <ImageViewer
+          uri={uri}
+          origin={origin}
+          sourceRadius={radius}
+          accessibilityLabel={accessibilityLabel}
+          onClosed={() => setOrigin(null)}
+        />
+      ) : null}
     </>
+  );
+}
+
+type Rect = { x: number; y: number; width: number; height: number };
+
+/** Drag past this, or flick faster than this, and the viewer goes home. */
+const DISMISS_DISTANCE = 110;
+const DISMISS_VELOCITY = 0.75;
+const OPEN_MS = 260;
+const CLOSE_MS = 220;
+const MAX_ZOOM = 4;
+const DOUBLE_TAP_ZOOM = 2.5;
+const DOUBLE_TAP_MS = 280;
+
+function ImageViewer({
+  uri,
+  origin,
+  sourceRadius,
+  accessibilityLabel,
+  onClosed,
+}: {
+  uri: string;
+  origin: Rect;
+  sourceRadius: number;
+  accessibilityLabel: string;
+  /** Called once the close animation has finished and the modal can go. */
+  onClosed: () => void;
+}) {
+  const screen = useWindowDimensions();
+  const [ratio, setRatio] = useState<number | null>(null);
+
+  useEffect(() => {
+    Image.getSize(
+      uri,
+      (w, h) => setRatio(h > 0 ? w / h : null),
+      () => setRatio(null),
+    );
+  }, [uri]);
+
+  /**
+   * The rect the image occupies when open: the whole screen, minus whatever
+   * its own proportions cannot fill. Falls back to the thumbnail's shape until
+   * the real one is known, so the first frame is never a wrong-shaped box.
+   */
+  const target = useMemo<Rect>(() => {
+    const r = ratio ?? origin.width / origin.height;
+    const width = Math.min(screen.width, screen.height * r);
+    const height = width / r;
+    return {
+      x: (screen.width - width) / 2,
+      y: (screen.height - height) / 2,
+      width,
+      height,
+    };
+  }, [ratio, origin, screen]);
+
+  // 0 = sitting on the thumbnail, 1 = open. Everything else is derived.
+  const progress = useSharedValue(0);
+  const dragX = useSharedValue(0);
+  const dragY = useSharedValue(0);
+  const zoom = useSharedValue(1);
+  const panX = useSharedValue(0);
+  const panY = useSharedValue(0);
+
+  useEffect(() => {
+    progress.value = withTiming(1, { duration: OPEN_MS, easing: Easing.out(Easing.cubic) });
+  }, [progress]);
+
+  const close = useCallback(() => {
+    // Home is wherever the thumbnail is, so the picture returns to the row it
+    // came from rather than fading out over it.
+    zoom.value = withTiming(1, { duration: CLOSE_MS });
+    panX.value = withTiming(0, { duration: CLOSE_MS });
+    panY.value = withTiming(0, { duration: CLOSE_MS });
+    dragX.value = withTiming(0, { duration: CLOSE_MS });
+    dragY.value = withTiming(0, { duration: CLOSE_MS });
+    progress.value = withTiming(
+      0,
+      { duration: CLOSE_MS, easing: Easing.in(Easing.cubic) },
+      (finished) => {
+        if (finished) runOnJS(onClosed)();
+      },
+    );
+  }, [progress, dragX, dragY, zoom, panX, panY, onClosed]);
+
+  /** Pinch and drag state, kept off the render path. */
+  const pinch = useRef<{ distance: number; base: number } | null>(null);
+  const lastTap = useRef(0);
+  const zoomedRef = useRef(false);
+  const panBase = useRef({ x: 0, y: 0 });
+
+  const responder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_e, g) =>
+          Math.abs(g.dy) > 4 || Math.abs(g.dx) > 4 || _e.nativeEvent.touches.length > 1,
+        onPanResponderGrant: () => {
+          pinch.current = null;
+          panBase.current = { x: panX.value, y: panY.value };
+        },
+        onPanResponderMove: (e, g) => {
+          const touches = e.nativeEvent.touches;
+          if (touches.length > 1) {
+            const [a, b] = touches;
+            const distance = Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY);
+            if (!pinch.current) {
+              pinch.current = { distance, base: zoom.value };
+              return;
+            }
+            const next = (distance / pinch.current.distance) * pinch.current.base;
+            zoom.value = Math.min(MAX_ZOOM, Math.max(1, next));
+            zoomedRef.current = zoom.value > 1.02;
+            return;
+          }
+          if (zoomedRef.current) {
+            // Zoomed in, a drag PANS the image rather than dismissing it —
+            // otherwise you cannot look at the half you zoomed in for.
+            panX.value = panBase.current.x + g.dx;
+            panY.value = panBase.current.y + g.dy;
+            return;
+          }
+          dragX.value = g.dx;
+          dragY.value = g.dy;
+        },
+        onPanResponderRelease: (_e, g) => {
+          pinch.current = null;
+          if (zoomedRef.current) {
+            if (zoom.value <= 1.02) {
+              zoomedRef.current = false;
+              zoom.value = withTiming(1, { duration: 160 });
+              panX.value = withTiming(0, { duration: 160 });
+              panY.value = withTiming(0, { duration: 160 });
+            }
+            return;
+          }
+          const travelled = Math.hypot(g.dx, g.dy);
+          if (Math.abs(g.dy) > DISMISS_DISTANCE || Math.abs(g.vy) > DISMISS_VELOCITY) {
+            close();
+            return;
+          }
+          if (travelled < 6) {
+            // A tap. Two in quick succession is the zoom toggle; one closes.
+            const now = Date.now();
+            if (now - lastTap.current < DOUBLE_TAP_MS) {
+              lastTap.current = 0;
+              const zoomingIn = !zoomedRef.current;
+              zoomedRef.current = zoomingIn;
+              zoom.value = withTiming(zoomingIn ? DOUBLE_TAP_ZOOM : 1, { duration: 200 });
+              if (!zoomingIn) {
+                panX.value = withTiming(0, { duration: 200 });
+                panY.value = withTiming(0, { duration: 200 });
+              }
+              return;
+            }
+            lastTap.current = now;
+            setTimeout(() => {
+              if (lastTap.current && Date.now() - lastTap.current >= DOUBLE_TAP_MS) close();
+            }, DOUBLE_TAP_MS);
+            return;
+          }
+          dragX.value = withTiming(0, { duration: 200 });
+          dragY.value = withTiming(0, { duration: 200 });
+        },
+      }),
+    [close, dragX, dragY, panX, panY, zoom],
+  );
+
+  const imageStyle = useAnimatedStyle(() => {
+    // At progress 0 the full-size image is transformed back onto the tile's
+    // rect; at 1 it sits exactly where it belongs. One interpolation, so the
+    // two ends cannot drift apart.
+    const p = progress.value;
+    const shrink = target.width > 0 ? origin.width / target.width : 1;
+    const scale = shrink + (1 - shrink) * p;
+    const fromX = origin.x + origin.width / 2 - (target.x + target.width / 2);
+    const fromY = origin.y + origin.height / 2 - (target.y + target.height / 2);
+    // Dragging shrinks the picture a little, the way Photos does — it reads as
+    // the image being lifted off the screen rather than slid along it.
+    const pull = Math.min(1, Math.abs(dragY.value) / 400);
+    return {
+      opacity: p,
+      borderRadius: sourceRadius * (1 - p),
+      transform: [
+        { translateX: fromX * (1 - p) + dragX.value + panX.value },
+        { translateY: fromY * (1 - p) + dragY.value + panY.value },
+        { scale: scale * zoom.value * (1 - pull * 0.2) },
+      ],
+    };
+  });
+
+  const backdropStyle = useAnimatedStyle(() => {
+    const pull = Math.min(1, Math.abs(dragY.value) / 320);
+    return { opacity: progress.value * (1 - pull * 0.85) };
+  });
+
+  return (
+    <Modal
+      visible
+      transparent
+      animationType="none"
+      onRequestClose={() => close()}
+      statusBarTranslucent
+    >
+      <StatusBar hidden />
+      <View style={{ flex: 1 }} {...responder.panHandlers}>
+        <Reanimated.View
+          style={[
+            {
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: "rgba(0,0,0,0.96)",
+            },
+            backdropStyle,
+          ]}
+        />
+        <Reanimated.Image
+          source={{ uri }}
+          accessibilityLabel={accessibilityLabel}
+          accessible
+          // `contain`, so a tall screenshot is readable end to end rather than
+          // cropped to the middle of itself.
+          resizeMode="contain"
+          style={[
+            {
+              position: "absolute",
+              left: target.x,
+              top: target.y,
+              width: target.width,
+              height: target.height,
+            },
+            imageStyle,
+          ]}
+        />
+      </View>
+    </Modal>
   );
 }
