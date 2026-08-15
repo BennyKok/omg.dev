@@ -2,6 +2,23 @@
 
 Recent product updates and deployment notes.
 
+## August 15, 2026 - Durable coding-agent runtimes (v0.1.377)
+
+- **New coding-agent sessions no longer need terminal panes.** Claude, Codex,
+  Grok, Cursor, Jcode, Copilot, OpenCode, and Pi now use their SDK, ACP, or RPC
+  runtime through one shared interface. Existing terminal-pane sessions remain
+  visible and controllable during the migration.
+- **Queued messages now survive navigation and server restarts.** The server
+  stores each send in SQLite immediately, restores its UI state, preserves
+  order, and keeps failed sends available for retry.
+- **Agent launch and archive are faster.** The new runtimes avoid terminal
+  startup and remove the old archive grace delay. Recovery keeps the native
+  provider session and the selected model.
+- **Hermes is removed.** Stored Hermes schedules are disabled safely, and new
+  Hermes sessions cannot start.
+- **Long Claude sessions recover from silent network stalls.** The SDK runtime
+  restarts its stream without replaying the accepted prompt.
+
 ## August 15, 2026 - Cursor joins the usage page (v0.1.376)
 
 - **The Settings → Usage page now includes Cursor.** It reads included spend
