@@ -602,7 +602,9 @@ if [ "$LFG_INSTALL_MODE" = "source" ]; then
   ( cd "$LFG_DIR" && "$BUN_BIN" run --cwd packages/protocol build )
   ( cd "$LFG_DIR" && "$BUN_BIN" run --cwd packages/client build )
   say "Building the web UI..."
-  ( cd "$LFG_DIR" && "$BUN_BIN" run --cwd web build )
+  # Installed bundles do not use source maps. Avoid generating them here: the
+  # Rollup graph otherwise approaches the memory limit on a standard 2 GB VM.
+  ( cd "$LFG_DIR" && LFG_WEB_SOURCEMAP=0 "$BUN_BIN" run --cwd web build )
 else
   # Release mode: download source + prebuilt web UI + optional vendor tarballs,
   # extract them over $LFG_DIR, then install public deps on this target platform.

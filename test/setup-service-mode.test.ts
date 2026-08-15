@@ -63,7 +63,7 @@ test("source installs build required packages before the web UI", () => {
   const install = sourceInstall.indexOf('"$BUN_BIN" install');
   const protocol = sourceInstall.indexOf('"$BUN_BIN" run --cwd packages/protocol build');
   const client = sourceInstall.indexOf('"$BUN_BIN" run --cwd packages/client build');
-  const web = sourceInstall.indexOf('"$BUN_BIN" run --cwd web build');
+  const web = sourceInstall.indexOf('LFG_WEB_SOURCEMAP=0 "$BUN_BIN" run --cwd web build');
   expect(install).toBeGreaterThanOrEqual(0);
   expect(protocol).toBeGreaterThan(install);
   expect(client).toBeGreaterThan(protocol);
