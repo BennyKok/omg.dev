@@ -2,6 +2,19 @@
 
 Recent product updates and deployment notes.
 
+## August 15, 2026 - Connect OpenCode Go without a terminal (v0.1.380)
+
+- **OpenCode's Go plan and Zen now connect with an API key in Settings →
+  Coding agents.** Paste the key on the provider row and it is stored with
+  OpenCode's own credentials. Previously the only way in was running
+  `opencode auth login` in a terminal, which a hosted Computer may not have.
+- **The OpenCode row now shows which providers are connected**, including ones
+  signed in earlier from the CLI, instead of only reporting that OpenCode is
+  signed in somewhere.
+- **Connecting or disconnecting one provider leaves the others untouched**, so
+  adding a Go key no longer risks the ChatGPT login `opencode auth login`
+  wrote.
+
 ## August 15, 2026 - Plans run the agents they advertise (v0.1.378)
 
 - **Starter and Starter Plus Computers now run three agents at once**, as their
