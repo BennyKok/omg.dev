@@ -70,7 +70,12 @@ import {
 } from "../session-diff.ts";
 import { listSessionTree, readSessionFile } from "../session-files.ts";
 import { reportClientError, listClientErrors } from "../client-errors.ts";
-import { getAllUsage, getProviderUsage, listUsageProviders } from "../usage.ts";
+import {
+  getAllUsage,
+  getProviderUsage,
+  getUsageSummary,
+  listUsageProviders,
+} from "../usage.ts";
 import { sessionTokenUsage } from "../session-token-usage.ts";
 import {
   vapidPublicKey,
@@ -3866,6 +3871,14 @@ a{color:#60a5fa}
       // their rings, then pull each source independently below.
       if (path === "/api/usage/providers") {
         return json({ providers: listUsageProviders() });
+      }
+
+      // One request for fleet surfaces: accounts of the same provider family
+      // are folded after the existing cached, concurrent collectors resolve.
+      if (path === "/api/usage/summary") {
+        return json({
+          providers: await getUsageSummary({ force: url.searchParams.get("force") === "1" }),
+        });
       }
 
       // One source, fetched on its own. This is what makes a single ring (the
