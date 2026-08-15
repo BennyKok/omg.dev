@@ -252,6 +252,15 @@ const SPINE_INSET = 7;
 const ELBOW_RADIUS = 9;
 
 /**
+ * A conservative floor for the composer's height, before it has been
+ * measured — see `composerHeight` below. The real composer is at least the
+ * 44pt field row plus the agent/model/thinking pill row plus their spacing;
+ * this rounds up rather than down so a stale estimate over-clears the list
+ * instead of letting a row sit under the glass.
+ */
+const MIN_COMPOSER_HEIGHT = 96;
+
+/**
  * The greeting the web Live view carries, in the bar slot the removed
  * "Sessions" title left empty.
  *
@@ -376,6 +385,52 @@ export default function SessionsScreen() {
   const ready = readiness?.status === "ready";
 
   /**
+   * WHAT THE LIST ACTUALLY DEPENDS ON, not the whole payload.
+   *
+   * The 10s poll below re-fetches even when nothing a person would notice has
+   * changed, and the machine bumps heartbeat-y fields (`lastActivityAt`,
+   * `last.ts`) on a live-but-idle session just by having it open. Every field
+   * in the response therefore changes on a schedule that has nothing to do
+   * with what's on screen, and a naive `setSessions(freshArray)` would hand
+   * `roots`/`working`/`idle`/`recent` (all `useMemo`d off `sessions` by
+   * reference) a brand-new array every single poll regardless — which
+   * re-renders every mounted `SessionFamily`/`SessionCard` and re-arms each
+   * one's `layout: LinearTransition` (see motion.tsx) even though not one row
+   * actually moved.
+   *
+   * This is the best lead on a device report of the idle list appearing to
+   * render twice, offset, with a second list's rows peeking through the
+   * gaps — a continuous, needless full-list reflow (every mounted card,
+   * every 10s, forever) is exactly the kind of repeated stress under which
+   * Reanimated's layout/exiting transitions are known to leave a view
+   * mid-transition instead of settling. It was NOT caught in the act on the
+   * simulator (see the PR description for what was and wasn't verified live)
+   * — this fix removes a real, confirmed source of needless churn regardless
+   * of whether it's the exact mechanism, and is safe on its own merits: a
+   * quiet poll that changed nothing now costs a JSON compare instead of a
+   * full-tree re-render.
+   */
+  function sessionsSignature(list: OmgSession[]): string {
+    return JSON.stringify(
+      list.map((s) => [
+        s.sessionId,
+        s.nativeSessionId,
+        s.tmuxName,
+        s.title,
+        s.lastUserText,
+        s.agent,
+        s.agentLabel,
+        s.busy,
+        s.status,
+        s.parentSessionId,
+        s.parentNativeSessionId,
+        s.model,
+      ]),
+    );
+  }
+  const sessionsSignatureRef = useRef<string | null>(null);
+
+  /**
    * @param quiet Skip the loading flag. A background refresh must not light up
    * the pull-to-refresh spinner — the list would appear to be reloading every
    * few seconds while nobody asked it to.
@@ -385,7 +440,15 @@ export default function SessionsScreen() {
       if (!client || !ready) return;
       if (!quiet) setLoading(true);
       try {
-        setSessions(await client.listSessions());
+        const fresh = await client.listSessions();
+        const signature = sessionsSignature(fresh);
+        // Same rows, same order, same everything that renders: keep the
+        // existing array identity so nothing downstream re-renders or
+        // re-animates for a poll that changed nothing on screen.
+        if (signature !== sessionsSignatureRef.current) {
+          sessionsSignatureRef.current = signature;
+          setSessions(fresh);
+        }
         setError(null);
       } catch (e) {
         // A failed background poll keeps the list it already has. Only a
@@ -722,7 +785,20 @@ export default function SessionsScreen() {
   // The composer floats over the list rather than sitting under it, so the
   // list has to know how tall it is. Measured rather than assumed: it grows
   // with the draft.
-  const [composerHeight, setComposerHeight] = useState(0);
+  //
+  // The measurement is real but not instant — `onLayout` only fires once the
+  // composer (gated on `ready`, itself gated on the machine answering) has
+  // actually laid out, and every one of those is a render after this state's
+  // initial value ships. A `0` initial value meant every cold open, and every
+  // return from a state where the composer was unmounted, drew the list with
+  // NO clearance for a frame or more: the bottom padding read `space.md`
+  // alone, and the last row (plus the "opus / Thinking / All projects" pill
+  // row and the safe-area home indicator) sat under the glass until the real
+  // measurement landed. `MIN_COMPOSER_HEIGHT` is a deliberately conservative
+  // floor — the field's own 44pt row plus the pill row plus breathing room —
+  // so the worst case is "slightly too much clearance for one frame" instead
+  // of "a card and the toolbar overlap."
+  const [composerHeight, setComposerHeight] = useState(() => MIN_COMPOSER_HEIGHT + insets.bottom);
 
   // Same UI-thread keyboard tracking as the session screen; see the note there
   // for why KeyboardAvoidingView cannot be made to feel right.
@@ -963,7 +1039,29 @@ export default function SessionsScreen() {
       {ready ? (
         <Reanimated.View
           style={[{ position: "absolute", left: 0, right: 0, bottom: 0 }, composerLift]}
-          onLayout={(e) => setComposerHeight(e.nativeEvent.layout.height)}
+          /**
+           * NEVER SHRINK THE RESERVATION, only grow it.
+           *
+           * The composer's own first layout pass can land BEFORE the things
+           * that widen its pill row — `agentPicker`/`projectPicker` options
+           * resolve from the machine, `usage` rings arrive from a separate
+           * fetch (see `usageLoading` above) — so an early `onLayout` can
+           * measure a shorter composer than the one actually on screen a
+           * moment later, once those pills populate. Overwriting
+           * `composerHeight` on every measurement trusts that later growth
+           * re-fires `onLayout` and corrects itself — which it normally does —
+           * but the one time it lands late (a slow response, a re-render that
+           * coalesces with the resize) is the one time the pill row —
+           * "opus / Thinking / All projects" — sits on top of whatever card
+           * has scrolled to the bottom. Taking the max instead means a later,
+           * taller measurement still wins, and an earlier, larger one (e.g. a
+           * longer agent name that later shortens) only costs a little unused
+           * clearance rather than risking a covered row.
+           */
+          onLayout={(e) => {
+            const measured = e.nativeEvent.layout.height;
+            setComposerHeight((current) => Math.max(current, measured));
+          }}
         >
         <HomeComposer
           value={draft}
