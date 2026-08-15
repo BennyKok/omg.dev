@@ -41,6 +41,27 @@ export type AutoAgent = {
   lastRunAt?: number;
 };
 
+/**
+ * Keep old Hermes rows visible, but never schedule them again.
+ *
+ * This is a read migration. It avoids rewriting the store during a status read,
+ * and the next normal edit persists the disabled value.
+ */
+export function autoAgentEnabledForBackend(
+  enabled: boolean,
+  backend: AutoAgentBackend | undefined,
+): boolean {
+  return backend === "hermes" ? false : enabled;
+}
+
+export function normalizeStoredAutoAgents(agents: AutoAgent[]): AutoAgent[] {
+  return agents.map((agent) =>
+    agent.enabled !== autoAgentEnabledForBackend(agent.enabled, agent.agent)
+      ? { ...agent, enabled: false }
+      : agent
+  );
+}
+
 // "resolved" is TERMINAL and is the only status that means the underlying
 // problem is actually gone. Everything else — including "session" — only
 // records what happened to the *notification*, not to the problem. That gap is
@@ -102,7 +123,7 @@ export async function listAutoAgents(): Promise<AutoAgent[]> {
   const f = Bun.file(agentsPath());
   if (!(await f.exists())) return [];
   try {
-    return JSON.parse(await f.text()) as AutoAgent[];
+    return normalizeStoredAutoAgents(JSON.parse(await f.text()) as AutoAgent[]);
   } catch {
     return [];
   }
@@ -183,7 +204,7 @@ export async function saveAutoAgent(input: {
     name: input.name,
     prompt: input.prompt,
     schedule: input.schedule,
-    enabled: input.enabled,
+    enabled: autoAgentEnabledForBackend(input.enabled, backend),
     cwd: input.cwd ?? existing?.cwd,
     agent: backend,
     claudeAccountId: claudeAccountForBackend(

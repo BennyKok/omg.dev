@@ -1,24 +1,32 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ACTIVE_SESSION_AGENT_KINDS,
   CODING_AGENT_ADAPTERS,
   COMMAND_FILE_AGENT_KINDS,
   SESSION_AGENT_KINDS,
   TMUX_AGENT_KINDS,
   isCommandFileAgent,
   isTmuxAgent,
+  resolveActiveSessionAgent,
+  usesCommandFileRuntime,
 } from "./coding-agent-adapters.ts";
 import { CODING_AGENT_KINDS, CODING_AGENT_LABELS, isCodingAgentKind } from "./coding-agents.ts";
+import { ACTIVE_CODING_AGENT_PROVIDERS } from "./coding-agent-provider.ts";
 import { MODEL_OPTIONS, listModelCatalog, thinkingLevelsForAgent } from "./agent-catalog.ts";
 import {
   spawnManagedAisdkSession,
   spawnManagedCodexAisdkSession,
   spawnManagedCodexSession,
+  spawnManagedCopilotSdkSession,
   spawnManagedCopilotSession,
+  spawnManagedCursorAcpSession,
   spawnManagedCursorSession,
+  spawnManagedGrokAcpSession,
   spawnManagedGrokSession,
   spawnManagedOpencodeAisdkSession,
   spawnManagedPiSession,
   spawnManagedJcodeSession,
+  spawnManagedJcodeSdkSession,
   spawnManagedSession,
   managedCopilotSessionArgv,
   managedJcodeSessionArgv,
@@ -45,14 +53,49 @@ const launchers = {
   codex: spawnManagedCodexSession,
   "codex-aisdk": spawnManagedCodexAisdkSession,
   opencode: spawnManagedOpencodeAisdkSession,
-  jcode: spawnManagedJcodeSession,
-  grok: spawnManagedGrokSession,
-  cursor: spawnManagedCursorSession,
+  jcode: spawnManagedJcodeSdkSession,
+  grok: spawnManagedGrokAcpSession,
+  cursor: spawnManagedCursorAcpSession,
   pi: spawnManagedPiSession,
-  copilot: spawnManagedCopilotSession,
+  copilot: spawnManagedCopilotSdkSession,
 } satisfies Record<(typeof SESSION_AGENT_KINDS)[number], unknown>;
 
 describe("coding agent adapter contract", () => {
+  test("new sessions use the preferred SDK drivers for Claude and Codex", () => {
+    expect(resolveActiveSessionAgent(undefined)).toBe("aisdk");
+    expect(resolveActiveSessionAgent("claude")).toBe("aisdk");
+    expect(resolveActiveSessionAgent("codex")).toBe("codex-aisdk");
+    expect(resolveActiveSessionAgent("hermes")).toBeNull();
+    expect(ACTIVE_SESSION_AGENT_KINDS).not.toContain("claude");
+    expect(ACTIVE_SESSION_AGENT_KINDS).not.toContain("codex");
+  });
+
+  test("every adapter declares one product, driver, and capability contract", () => {
+    for (const agent of SESSION_AGENT_KINDS) {
+      const adapter = CODING_AGENT_ADAPTERS[agent];
+      expect(adapter.product, agent).toBeTruthy();
+      expect(adapter.driver, agent).toBeTruthy();
+      expect(adapter.capabilities.interrupt, agent).toBeTruthy();
+      expect(adapter.capabilities.toolAccess, agent).toBeTruthy();
+    }
+    expect(CODING_AGENT_ADAPTERS.claude.deprecated).toBe(true);
+    expect(CODING_AGENT_ADAPTERS.codex.deprecated).toBe(true);
+    expect(CODING_AGENT_ADAPTERS.jcode.capabilities.interrupt).toBe("immediate");
+  });
+
+  test("every active agent launches through the shared provider interface", () => {
+    expect(sorted(Object.keys(ACTIVE_CODING_AGENT_PROVIDERS))).toEqual(
+      sorted(ACTIVE_SESSION_AGENT_KINDS),
+    );
+    for (const kind of ACTIVE_SESSION_AGENT_KINDS) {
+      const provider = ACTIVE_CODING_AGENT_PROVIDERS[kind];
+      expect(provider.kind).toBe(kind);
+      expect(provider.product).toBe(CODING_AGENT_ADAPTERS[kind].product);
+      expect(provider.driver).toBe(CODING_AGENT_ADAPTERS[kind].driver);
+      expect(typeof provider.launch).toBe("function");
+    }
+  });
+
   test("every launchable coding agent has one delivery transport", () => {
     const adapterKinds = Object.keys(CODING_AGENT_ADAPTERS);
     const transportKinds = [...TMUX_AGENT_KINDS, ...COMMAND_FILE_AGENT_KINDS];
@@ -67,6 +110,14 @@ describe("coding agent adapter contract", () => {
       expect(isCommandFileAgent(agent)).toBe(adapter.transport === "command-file");
       expect(isTmuxAgent(agent)).toBe(adapter.transport === "tmux");
     }
+  });
+
+  test("explicit runtimes preserve terminal sessions created before the SDK migration", () => {
+    expect(usesCommandFileRuntime("jcode")).toBe(false);
+    expect(usesCommandFileRuntime("cursor")).toBe(false);
+    expect(usesCommandFileRuntime("jcode", "command-file")).toBe(true);
+    expect(usesCommandFileRuntime("cursor", "command-file")).toBe(true);
+    expect(usesCommandFileRuntime("aisdk")).toBe(true);
   });
 
   test("visible coding-agent settings only reference real adapters", () => {

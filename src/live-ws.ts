@@ -743,6 +743,10 @@ export function createLiveWsSupport(opts: {
       evlog("ws_subscribe", { rid: state.rid, sid, missing: true, durationMs: roundMs(performance.now() - t0) });
       const tail = await ensureSidTail(sid, null);
       tail.sockets.add(state.ws);
+      // A tail can outlive its last browser subscriber. Its queue signature is
+      // then already current, so pollQueue() has no change to publish when a new
+      // browser joins. Send the current queue directly to hydrate that browser.
+      safeSend(state.ws, { t: "queue", sid, queue: listQueue(sid) });
       return;
     }
     // Built inside the closure, because replayOrSnapshot only calls it when the
@@ -767,6 +771,7 @@ export function createLiveWsSupport(opts: {
     });
     const tail = await ensureSidTail(sid, tp);
     tail.sockets.add(state.ws);
+    safeSend(state.ws, { t: "queue", sid, queue: listQueue(sid) });
     void pollOne(tail);
     pollQueue(tail);
   };

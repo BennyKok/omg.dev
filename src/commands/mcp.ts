@@ -426,7 +426,7 @@ async function createSubagent({
 }: SubagentArgs, defaults: { agent?: string } = {}) {
   const agent = rawAgent?.trim() || defaults.agent || "aisdk";
   if (agent === "hermes") {
-    throw new Error('agent "hermes" is temporarily unavailable');
+    throw new Error('agent "hermes" has been removed');
   }
   if (!MODEL_OPTIONS[agent as keyof typeof MODEL_OPTIONS]) {
     throw new Error(`unknown agent "${agent}"`);

@@ -11,7 +11,11 @@ import { computerAgentAdmissionContext, isScheduleSpawned } from "./agent-admiss
 import {
   spawnManagedAisdkSession,
   spawnManagedCodexAisdkSession,
+  spawnManagedCopilotSdkSession,
+  spawnManagedCursorAcpSession,
+  spawnManagedGrokAcpSession,
   spawnManagedJcodeSession,
+  spawnManagedJcodeSdkSession,
   spawnManagedOpencodeAisdkSession,
   spawnManagedPiSession,
   tmuxHasSession,
@@ -38,7 +42,7 @@ function recoverJcodeSessions(bootId: string, log: (line: string) => void): numb
   let recovered = 0;
   const assignments = userAssignments();
   for (const row of listManaged()) {
-    if (row.agent !== "jcode") continue;
+    if (row.agent !== "jcode" || row.runtime === "command-file") continue;
     if (row.launchState !== "running" && row.launchState !== "launching") continue;
     if (!row.nativeSessionId || !row.cwd) continue;
     // One attempt per boot: a pane that dies immediately must not respawn on
@@ -122,6 +126,37 @@ function launchRecovered(
   if (entry.agent === "pi") {
     if (!entry.threadId) return { ok: false, error: "pi recovery handle missing" };
     return spawnManagedPiSession({
+      ...common,
+      key: entry.sessionId,
+      resume: entry.threadId,
+      thinkingLevel: entry.thinkingLevel ?? undefined,
+    });
+  }
+  if (entry.agent === "grok") {
+    if (!entry.threadId) return { ok: false, error: "grok recovery handle missing" };
+    return spawnManagedGrokAcpSession({
+      ...common,
+      key: entry.sessionId,
+      resume: entry.threadId,
+      thinkingLevel: entry.thinkingLevel ?? undefined,
+    });
+  }
+  if (entry.agent === "cursor") {
+    if (!entry.threadId) return { ok: false, error: "cursor recovery handle missing" };
+    return spawnManagedCursorAcpSession({ ...common, key: entry.sessionId, resume: entry.threadId });
+  }
+  if (entry.agent === "copilot") {
+    if (!entry.threadId) return { ok: false, error: "copilot recovery handle missing" };
+    return spawnManagedCopilotSdkSession({
+      ...common,
+      key: entry.sessionId,
+      resume: entry.threadId,
+      thinkingLevel: entry.thinkingLevel ?? undefined,
+    });
+  }
+  if (entry.agent === "jcode") {
+    if (!entry.threadId) return { ok: false, error: "jcode recovery handle missing" };
+    return spawnManagedJcodeSdkSession({
       ...common,
       key: entry.sessionId,
       resume: entry.threadId,

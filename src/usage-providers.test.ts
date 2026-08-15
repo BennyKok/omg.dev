@@ -78,7 +78,6 @@ describe("usage providers", () => {
       "codex",
       "cursor",
       "grok",
-      "hermes",
       "opencode",
     ]);
   });

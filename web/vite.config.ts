@@ -89,6 +89,7 @@ function precompressAssets(): Plugin {
 // lfg's Bun server (serve.ts) owns process-control + streams under /api/*.
 // In dev the Vite server proxies them through so the SPA stays single-origin.
 const API_TARGET = process.env.LFG_API_TARGET ?? "http://localhost:8766";
+const BUILD_SOURCEMAP = process.env.LFG_WEB_SOURCEMAP === "0" ? false : "hidden";
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), stampServiceWorkerVersion(), precompressAssets()],
@@ -97,7 +98,7 @@ export default defineConfig({
   // out of the served bundle's sourceMappingURL (no end-user devtools exposure),
   // while still writing web/dist/assets/*.js.map for server-side / agent use.
   build: {
-    sourcemap: "hidden",
+    sourcemap: BUILD_SOURCEMAP,
     rollupOptions: {
       output: {
         // Pin React + ReactDOM into their own chunk. They change only on a React

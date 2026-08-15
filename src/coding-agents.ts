@@ -411,16 +411,6 @@ function rejectGrokAgent(path: string | null): string | null {
   return isGrokAgentPath(path) ? null : path;
 }
 
-function hermesPath(): string | null {
-  const home = userHome();
-  return which("hermes", [
-    process.env.LFG_HERMES_PATH ?? "",
-    `${home}/.local/bin/hermes`,
-    `${home}/.bun/bin/hermes`,
-    "/usr/local/bin/hermes",
-  ]);
-}
-
 // pi has no standalone-CLI requirement: the backend drives LFG's own bundled
 // copy of @earendil-works/pi-coding-agent over its RPC protocol (see
 // agents/backends/pi-session.ts), with LFG_PI_PATH as an explicit override.
@@ -670,11 +660,6 @@ function hasPiAuth(): boolean {
   return hasPiProviderAuth();
 }
 
-function hasHermesConfig(): boolean {
-  const home = userHome();
-  return !!process.env.LFG_HERMES_PROVIDER || existsSync(`${home}/.hermes`);
-}
-
 function hasCopilotAuth(): boolean {
   const home = userHome();
   // Precedence matches Copilot CLI's env resolution: a Copilot-specific token
@@ -707,7 +692,6 @@ function installCommandFor(kind: CodingAgentKind): string | null {
   if (kind === "jcode") return "curl -fsSL https://jcode.sh/install | bash";
   if (kind === "grok") return "curl -fsSL https://x.ai/cli/install.sh | bash";
   if (kind === "cursor") return "curl -fsSL https://cursor.com/install | bash";
-  if (kind === "hermes") return "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash";
   if (kind === "copilot") return "npm install -g @github/copilot";
   // pi is no longer bundled. Its provider layer (@earendil-works/pi-ai) pulls
   // in eleven SDKs — Anthropic, OpenAI, Google GenAI, Mistral, Bedrock — which
@@ -728,7 +712,6 @@ function loginCommandPartsFor(kind: CodingAgentKind): string[] | null {
   if (kind === "jcode") return [jcodePath() ?? "jcode", "login"];
   if (kind === "grok") return [grokPath() ?? "grok", "login", "--device-auth"];
   if (kind === "cursor") return [cursorPath() ?? "cursor-agent", "login"];
-  if (kind === "hermes") return [hermesPath() ?? "hermes"];
   if (kind === "copilot") return [copilotPath() ?? "copilot"];
   // pi has no login subcommand — auth is file-based (~/.pi/agent/auth.json) or
   // ANTHROPIC_API_KEY, so there is no terminal login to offer.
@@ -1167,10 +1150,6 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
     addBinary("Cursor CLI", cursorPath());
     addAuth("Cursor auth", hasCursorAuth(), "run `cursor-agent login` once or set CURSOR_API_KEY");
     instructions.push("Install Cursor CLI, then run `cursor-agent login` and sign in, or set CURSOR_API_KEY.");
-  } else if (kind === "hermes") {
-    addBinary("Hermes CLI", hermesPath());
-    addAuth("Hermes config", hasHermesConfig(), "set LFG_HERMES_PROVIDER if your install needs it");
-    instructions.push("Install Hermes and set LFG_HERMES_PROVIDER when your provider is not the default.");
   } else if (kind === "pi") {
     const providers = piAuthProviders();
     accountConnected = providers.some((p) => p.connected && !p.fromEnv);
@@ -1471,7 +1450,6 @@ function setupEnvFor(kind: CodingAgentKind): Record<string, string> | null {
   if (kind === "jcode") return { LFG_INSTALL_JCODE: "1" };
   if (kind === "grok") return { LFG_INSTALL_GROK: "1" };
   if (kind === "cursor") return { LFG_INSTALL_CURSOR: "1" };
-  if (kind === "hermes") return { LFG_INSTALL_HERMES: "1" };
   if (kind === "copilot") return { LFG_INSTALL_COPILOT: "1" };
   return null;
 }
