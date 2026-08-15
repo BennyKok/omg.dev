@@ -82,6 +82,12 @@ fi
 #   source            - git clone + `bun install` (for development / forks that
 #                       can resolve the private provider themselves).
 LFG_INSTALL_MODE="${LFG_INSTALL_MODE:-release}"
+# Background service installation:
+#   auto (default) - use systemd/launchd when the host provides it; otherwise
+#                    leave process supervision to the hosting platform.
+#   1              - require and install the native user service.
+#   0              - install the application without a native user service.
+LFG_INSTALL_SERVICE="${LFG_INSTALL_SERVICE:-auto}"
 # Which release to pull in release mode: "latest" or a tag like v0.1.0.
 LFG_RELEASE="${LFG_RELEASE:-latest}"
 # Non-destructive defaults:
@@ -130,6 +136,23 @@ say()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[!]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31m[x]\033[0m %s\n' "$*" >&2; exit 1; }
 
+resolve_service_mode() {
+  case "$LFG_INSTALL_SERVICE" in
+    auto)
+      if [ "$OS_NAME" = "Darwin" ]; then
+        LFG_INSTALL_SERVICE=1
+      elif [ -d "${LFG_SYSTEMD_RUNTIME_DIR:-/run/systemd/system}" ] \
+        && command -v systemctl >/dev/null 2>&1; then
+        LFG_INSTALL_SERVICE=1
+      else
+        LFG_INSTALL_SERVICE=0
+      fi
+      ;;
+    0|1) ;;
+    *) die "LFG_INSTALL_SERVICE must be auto, 0, or 1." ;;
+  esac
+}
+
 on_err() { die "setup failed at line $1. Fix the issue above and re-run - it resumes safely."; }
 trap 'on_err $LINENO' ERR
 
@@ -140,7 +163,6 @@ case "$OS_NAME" in
   Linux)
     command -v sudo >/dev/null   || die "sudo is required."
     command -v apt-get >/dev/null || die "This script targets Debian/Ubuntu on Linux (apt-get not found)."
-    command -v systemctl >/dev/null || die "systemd (systemctl) is required on Linux."
     ;;
   Darwin)
     ;;
@@ -148,6 +170,10 @@ case "$OS_NAME" in
     die "Unsupported OS: $OS_NAME. This script supports Debian/Ubuntu Linux and macOS."
     ;;
 esac
+resolve_service_mode
+if [ "$OS_NAME" = "Linux" ] && [ "$LFG_INSTALL_SERVICE" = "1" ]; then
+  command -v systemctl >/dev/null || die "systemd (systemctl) is required when LFG_INSTALL_SERVICE=1."
+fi
 
 # If invoked from inside an existing checkout (i.e. via `omg setup`), use it.
 SCRIPT_SRC="${BASH_SOURCE[0]:-}"
@@ -567,9 +593,12 @@ if [ "$LFG_INSTALL_MODE" = "source" ]; then
     say "Cloning omg.dev into ${LFG_DIR} (git)..."
     git clone "$LFG_REPO_URL" "$LFG_DIR"
   fi
-  # The web UI ships prebuilt in web/dist, so no web build is needed here.
   say "Installing dependencies..."
   ( cd "$LFG_DIR" && "$BUN_BIN" install )
+  say "Building public packages..."
+  ( cd "$LFG_DIR" && "$BUN_BIN" run build:packages )
+  say "Building the web UI..."
+  ( cd "$LFG_DIR" && "$BUN_BIN" run --cwd web build )
 else
   # Release mode: download source + prebuilt web UI + optional vendor tarballs,
   # extract them over $LFG_DIR, then install public deps on this target platform.
@@ -959,7 +988,9 @@ PLIST
 }
 
 # ---- 9. background user service ----
-if [ "$OS_NAME" = "Linux" ]; then
+if [ "$LFG_INSTALL_SERVICE" != "1" ]; then
+  say "Skipping the native background service; the host platform must supervise omg.dev."
+elif [ "$OS_NAME" = "Linux" ]; then
   install_linux_service
 else
   install_macos_service
@@ -1006,7 +1037,9 @@ if [ "$LOCAL_HOSTNAME_READY" = "1" ]; then
 fi
 
 echo
-if [ "$OS_NAME" = "Linux" ]; then
+if [ "$LFG_INSTALL_SERVICE" != "1" ]; then
+  say "omg.dev is installed. The host platform must start and supervise it."
+elif [ "$OS_NAME" = "Linux" ]; then
   say "omg.dev is running as a systemd user service."
 else
   say "omg.dev is running as a launchd user service."
@@ -1030,7 +1063,9 @@ fi
 if [ "$TAILSCALE_SERVE_CONFIGURED" != "1" ]; then
   printf '    Remote     OMG_TAILSCALE_SERVE=1 omg setup\n'
 fi
-if [ "$OS_NAME" = "Linux" ]; then
+if [ "$LFG_INSTALL_SERVICE" != "1" ]; then
+  printf '    Start      cd %s && %s run %s/src/cli.ts serve\n' "$LFG_DIR" "$BUN_BIN" "$LFG_DIR"
+elif [ "$OS_NAME" = "Linux" ]; then
   printf '    Service    systemctl --user restart %s\n' "$SERVICE"
   printf '    Logs       journalctl --user -u %s -f\n' "$SERVICE"
 else
