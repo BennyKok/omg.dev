@@ -194,7 +194,7 @@ import {
   liveTransportMode,
   type LiveWsSocketData,
 } from "../live-ws.ts";
-import { appendCmd as appendAisdkCmd, removeEntry as removeAisdkEntry, readEntry as readAisdkEntry, findEntryByAnyId as findAisdkEntryByAnyId, isEntryBusy as isAisdkEntryBusy, isPidAlive as isAisdkPidAlive, patchEntry as patchAisdkEntry, terminateHarnessProcess } from "../aisdk-registry.ts";
+import { appendCmd as appendAisdkCmd, removeEntry as removeAisdkEntry, readEntry as readAisdkEntry, findEntryByAnyId as findAisdkEntryByAnyId, isEntryBusy as isAisdkEntryBusy, isPidAlive as isAisdkPidAlive, patchEntry as patchAisdkEntry, terminateHarnessProcess, waitForHarnessExit, wakeHarnessCommandReader } from "../aisdk-registry.ts";
 import { markClosed } from "../closing.ts";
 import { assignUser, resolveSessionUserTag, rosterEmails, userAssignments, userRoster } from "../users.ts";
 import {
@@ -1637,7 +1637,13 @@ async function closeLiveSession(
     const entry = findAisdkEntryByAnyId(id);
     const key = entry?.sessionId ?? id;
     appendAisdkCmd(key, { type: "close" });
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    if (entry) {
+      wakeHarnessCommandReader(entry);
+      // Return as soon as the harness exits. Old harnesses have no wake
+      // capability and keep their 250 ms command poll; the 300 ms bound still
+      // preserves the previous force-stop behavior for a stuck SDK close.
+      await waitForHarnessExit(entry.harnessPid);
+    }
     if (entry && isAisdkPidAlive(entry.harnessPid)) {
       if (entry.supervisor === "process") terminateHarnessProcess(entry);
       else if (sess.tmuxName) tmuxKillSession(sess.tmuxName);

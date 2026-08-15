@@ -50,6 +50,9 @@ export type AisdkEntry = {
   bootId?: string | null;
   recoveryClaimBootId?: string | null;
   recoveredAt?: number | null;
+  // New harnesses can wake their command-file reader immediately. Older rows
+  // omit this and continue to rely on the bounded polling fallback.
+  commandWakeSignal?: "SIGUSR1";
   thinkingLevel?: string | null;
   cwd: string;
   model: string;
@@ -296,6 +299,48 @@ export function terminateHarnessProcess(entry: AisdkEntry): boolean {
   } catch {
     return !isPidAlive(entry.harnessPid);
   }
+}
+
+/** Wake a compatible harness after appending a command. */
+export function wakeHarnessCommandReader(
+  entry: AisdkEntry,
+  sendSignal: (pid: number, signal: "SIGUSR1") => unknown = process.kill,
+): boolean {
+  if (entry.commandWakeSignal !== "SIGUSR1") return false;
+  try {
+    sendSignal(entry.harnessPid, "SIGUSR1");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Wait only while a harness remains alive, up to the old fixed grace window.
+ * Dependency hooks keep the timing policy deterministic in unit tests.
+ */
+export async function waitForHarnessExit(
+  pid: number,
+  opts: {
+    timeoutMs?: number;
+    pollMs?: number;
+    isAlive?: (candidate: number) => boolean;
+    sleep?: (milliseconds: number) => Promise<unknown>;
+    now?: () => number;
+  } = {},
+): Promise<boolean> {
+  const timeoutMs = opts.timeoutMs ?? 300;
+  const pollMs = opts.pollMs ?? 10;
+  const alive = opts.isAlive ?? isPidAlive;
+  const pause = opts.sleep ?? Bun.sleep;
+  const now = opts.now ?? performance.now.bind(performance);
+  const deadline = now() + timeoutMs;
+  while (alive(pid)) {
+    const remaining = deadline - now();
+    if (remaining <= 0) return false;
+    await pause(Math.min(pollMs, remaining));
+  }
+  return true;
 }
 
 // Authoritative "is this session actually working right now" check. The harness

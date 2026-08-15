@@ -84,6 +84,10 @@ async function runFakeTui(ackPath: string): Promise<never> {
 async function runCommandReceiver(commandFile: string, ackPath: string): Promise<never> {
   let offset = 0;
   let timer: ReturnType<typeof setInterval>;
+  const stop = () => {
+    clearInterval(timer);
+    process.off("SIGUSR1", consume);
+  };
   const consume = () => {
     const next = readNewCmdLines(commandFile, offset);
     offset = next.offset;
@@ -91,18 +95,19 @@ async function runCommandReceiver(commandFile: string, ackPath: string): Promise
       appendFileSync(ackPath, `${line}\n`);
       try {
         if ((JSON.parse(line) as { type?: string }).type === "close") {
-          clearInterval(timer);
+          stop();
           process.exit(0);
         }
       } catch {}
     }
   };
-  appendFileSync(ackPath, "__ready__\n");
   timer = setInterval(consume, STRUCTURED_COMMAND_POLL_MS);
+  process.on("SIGUSR1", consume);
   process.once("SIGTERM", () => {
-    clearInterval(timer);
+    stop();
     process.exit(0);
   });
+  appendFileSync(ackPath, "__ready__\n");
   return await new Promise<never>(() => {});
 }
 
@@ -312,10 +317,8 @@ async function benchmarkLifecycle(
 
     const archiveStarted = performance.now();
     appendCmd(sessionId, { type: "close" });
-    // This is the production grace period in closeLiveSession. The harness can
-    // exit sooner, but the close owner deliberately waits before it checks.
-    await sleep(300);
-    await waitForProcessExit(receiver, 100);
+    process.kill(receiver.pid, "SIGUSR1");
+    await waitForProcessExit(receiver, 300);
     removeEntry(sessionId);
     structuredArchive.push(performance.now() - archiveStarted);
   }
@@ -426,7 +429,7 @@ async function run(options: Options) {
       ),
       metric(
         "structured_process_archive",
-        "append close, honor production grace period, and remove control files",
+        "append close, wake command reader, await exit, and remove control files",
         lifecycle.structuredArchive,
       ),
     ];
@@ -522,9 +525,10 @@ try {
     console.log(
       `Structured process startup is ${result.lifecycleComparison.p50StartSpeedup.toFixed(2)}x faster at p50.`,
     );
-    console.log(
-      `Structured archive adds ${result.lifecycleComparison.p50ArchiveAddedMs.toFixed(2)} ms at p50.`,
-    );
+    const archiveDelta = result.lifecycleComparison.p50ArchiveAddedMs;
+    console.log(archiveDelta <= 0
+      ? `Structured archive saves ${Math.abs(archiveDelta).toFixed(2)} ms at p50.`
+      : `Structured archive adds ${archiveDelta.toFixed(2)} ms at p50.`);
     console.log("This benchmark excludes provider, network, and model generation time.");
   }
 } catch (error) {

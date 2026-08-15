@@ -187,6 +187,12 @@ export async function runManagedSdkSession(options: ManagedSdkSessionOptions): P
   if (runtime.nativeSessionId) {
     patchEntry(key, { threadId: runtime.nativeSessionId });
   }
+  // Advertise the signal only after the provider runtime is ready and the
+  // handler is installed. A mixed-version serve process then safely falls back
+  // to polling for older harnesses instead of signaling a process that would
+  // treat SIGUSR1 as fatal.
+  process.on("SIGUSR1", consumeCommands);
+  patchEntry(key, { commandWakeSignal: "SIGUSR1" });
 
   async function runTurn(prompt: string): Promise<void> {
     if (!runtime) return;
@@ -236,6 +242,7 @@ export async function runManagedSdkSession(options: ManagedSdkSessionOptions): P
   async function shutdown(): Promise<void> {
     if (closing) return;
     closing = true;
+    process.off("SIGUSR1", consumeCommands);
     promptResolver?.(null);
     promptResolver = null;
     removeEntry(key);
@@ -300,7 +307,7 @@ export async function runManagedSdkSession(options: ManagedSdkSessionOptions): P
         dispatch(JSON.parse(line) as AisdkCommand);
       } catch {}
     }
-    writeCursor(commandFile, commandOffset);
+    if (!closing) writeCursor(commandFile, commandOffset);
   }
 
   const poll = setInterval(consumeCommands, 250);
