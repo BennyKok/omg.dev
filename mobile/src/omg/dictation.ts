@@ -50,6 +50,7 @@ import {
   type AudioDataEvent,
 } from "@siteed/audio-studio";
 import type { OmgSocket, OmgTransport } from "@omg-dev/client";
+import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const SAMPLE_RATE = 16000;
@@ -124,9 +125,20 @@ function rmsLevel(bytes: Uint8Array): number {
  * there. Building a second auth path for the socket was explicitly out of
  * scope for this change.
  */
+/** Above the noise floor of a real room, below anything anyone would call quiet. */
+const SPEECH_FLOOR = 0.08;
+/** How long the room has to stay quiet before a take ends itself. */
+const SILENCE_MS = 2500;
+
 export function useDictation(
   transport: OmgTransport | null,
-  onText: (text: string) => void,
+  /**
+   * Called with the take's text. `final` distinguishes "this take is over"
+   * from anything a caller might one day stream in mid-flight — the composers
+   * use it to SEND, and sending on a non-final chunk would post half a
+   * sentence.
+   */
+  onText: (text: string, meta?: { final: boolean }) => void,
 ) {
   const recorder = useAudioRecorder();
   const [state, setState] = useState<DictationState>("idle");
@@ -137,6 +149,8 @@ export function useDictation(
   // The live, not-yet-committed transcript. Cleared on each committed chunk
   // and on stop.
   const [partial, setPartial] = useState("");
+  /** Set by `cancel`, read where the text would be handed to the composer. */
+  const cancelledRef = useRef(false);
   // Honest fallback signal: true only once the realtime bridge for the
   // CURRENT take is open and usable. False covers every other case — no
   // provider configured, the socket never opened, it dropped mid-take — so a
@@ -322,7 +336,7 @@ export function useDictation(
         }
       }
 
-      if (text) onText(text);
+      if (text && !cancelledRef.current) onText(text, { final: true });
     } catch {
       // Silent: a failed take leaves the draft exactly as it was, which is
       // the state the user can retry from. The composer is not the place to
@@ -333,8 +347,64 @@ export function useDictation(
       setLevel(0);
       setLive(false);
       setState("idle");
+      cancelledRef.current = false;
     }
   }, [closeSocket, onText, recorder, state, transport]);
+
+  /**
+   * SILENCE ENDS THE TAKE.
+   *
+   * People stop talking and then look at the screen waiting for something to
+   * happen; the button they have to press is behind their own thumb. Two and a
+   * half seconds under the floor is long enough to survive a pause for
+   * thought and short enough that nobody wonders whether it heard them.
+   *
+   * It only arms AFTER speech has been detected, so a take that starts in a
+   * quiet room does not end before its first word — and the floor is above
+   * digital silence, because a real microphone in a real room never reads
+   * zero.
+   */
+  const heardSpeechRef = useRef(false);
+  const quietSinceRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (state !== "recording") {
+      heardSpeechRef.current = false;
+      quietSinceRef.current = null;
+      return;
+    }
+    if (level > SPEECH_FLOOR) {
+      heardSpeechRef.current = true;
+      quietSinceRef.current = null;
+      return;
+    }
+    if (!heardSpeechRef.current) return;
+    const now = Date.now();
+    if (quietSinceRef.current == null) {
+      quietSinceRef.current = now;
+      return;
+    }
+    if (now - quietSinceRef.current >= SILENCE_MS) {
+      quietSinceRef.current = null;
+      void stop();
+    }
+  }, [level, state, stop]);
+
+  /**
+   * THROW THE TAKE AWAY.
+   *
+   * Stopping SENDS now, so there has to be a way out that does not — you
+   * started dictating, said the wrong thing, and want the last ten seconds to
+   * never have happened. The flag is read at the one place text would be
+   * handed over; the recorder still has to be stopped and the socket still has
+   * to be closed, because a cancelled take that leaves the microphone open is
+   * a worse bug than the one being avoided.
+   */
+  const cancel = useCallback(() => {
+    if (state !== "recording") return;
+    cancelledRef.current = true;
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    void stop();
+  }, [state, stop]);
 
   /** One button: tap to start, tap again to finish. */
   const toggle = useCallback(() => {
@@ -342,5 +412,5 @@ export function useDictation(
     else void start();
   }, [start, state, stop]);
 
-  return { state, level, partial, live, toggle };
+  return { state, level, partial, live, toggle, cancel };
 }
