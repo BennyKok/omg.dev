@@ -2,6 +2,17 @@
 
 Recent product updates and deployment notes.
 
+## August 15, 2026 - Plans run the agents they advertise (v0.1.378)
+
+- **Starter and Starter Plus Computers now run three agents at once**, as their
+  plan says. They were admitting one.
+- **Free and trial Computers also run three**, matching the pricing page. The
+  second session used to fail with "1 of 1 agents live".
+- **Plan limits now come from the control plane instead of a table baked into
+  this bundle.** A plan launched after a release used to be unknown to that
+  table and fell back to a single agent, silently. New plans no longer need an
+  LFG release to work.
+
 ## August 15, 2026 - Durable coding-agent runtimes (v0.1.377)
 
 - **New coding-agent sessions no longer need terminal panes.** Claude, Codex,
