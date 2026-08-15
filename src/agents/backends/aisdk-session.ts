@@ -174,7 +174,7 @@ type UserMsg = {
   parent_tool_use_id: null;
 };
 
-class InputChannel implements AsyncIterable<UserMsg> {
+export class InputChannel implements AsyncIterable<UserMsg> {
   private buffer: UserMsg[] = [];
   private waiter: ((v: IteratorResult<UserMsg>) => void) | null = null;
   private closed = false;
@@ -192,6 +192,28 @@ class InputChannel implements AsyncIterable<UserMsg> {
     } else {
       this.buffer.push(msg);
     }
+  }
+
+  private pushMessage(msg: UserMsg): void {
+    if (this.waiter) {
+      const w = this.waiter;
+      this.waiter = null;
+      w({ value: msg, done: false });
+    } else {
+      this.buffer.push(msg);
+    }
+  }
+
+  /**
+   * Move only messages the SDK has not requested yet to a replacement query.
+   * The in-flight prompt already handed to the old query is intentionally not
+   * replayed: provider execution may have started even when its event stream is
+   * silent. This keeps recovery at-most-once while closing the send/restart gap.
+   */
+  handoffTo(next: InputChannel): void {
+    const pending = this.buffer.splice(0);
+    this.close();
+    for (const msg of pending) next.pushMessage(msg);
   }
 
   close(): void {
@@ -216,6 +238,23 @@ class InputChannel implements AsyncIterable<UserMsg> {
       },
     };
   }
+}
+
+export const AISDK_STREAM_STALL_MS = 15 * 60_000;
+export const AISDK_STREAM_WATCHDOG_TICK_MS = 30_000;
+
+export function isAisdkStreamStalled(input: {
+  busy: boolean;
+  closing: boolean;
+  restartRequested: boolean;
+  lastSdkEventAt: number;
+  now: number;
+  stallMs?: number;
+}): boolean {
+  return input.busy &&
+    !input.closing &&
+    !input.restartRequested &&
+    input.now - input.lastSdkEventAt >= (input.stallMs ?? AISDK_STREAM_STALL_MS);
 }
 
 export async function cmdAisdkSession(argv: string[]): Promise<void> {
@@ -285,10 +324,12 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
 
   const publishDraft = makeDraftPublisher(sessionId);
 
-  const input = new InputChannel();
+  let input = new InputChannel();
   let closing = false;
   let draft = "";
   let busy = false;
+  let restartRequested = false;
+  let lastSdkEventAt = Date.now();
   const previousUsage = readStoredSessionTokenUsage(sessionId);
   let sessionTotals = previousUsage?.totals ?? {
     input: 0,
@@ -310,6 +351,8 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
       totals: sessionTotals,
     });
   };
+
+  let q: ReturnType<typeof query>;
 
   const refreshUsageSnapshot = () => {
     const request = ++usageRefresh;
@@ -356,15 +399,16 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
   const setBusy = (next: boolean) => {
     if (busy === next) return;
     busy = next;
+    if (next) lastSdkEventAt = Date.now();
     patchEntry(sessionId, next ? { busy: true } : { busy: false, draftText: null, draftUpdatedAt: null });
   };
 
-  const q = query({
+  const startQuery = (resumeRuntime: boolean) => query({
     prompt: input as AsyncIterable<never>,
     options: {
       model,
       cwd,
-      ...(resuming ? { resume: sessionId } : { sessionId }),
+      ...(resumeRuntime ? { resume: sessionId } : { sessionId }),
       // Full capability + no permission prompts, mirroring the tmux claude's
       // --dangerously-skip-permissions. settingSources honors ~/.claude config
       // (and loads filesystem skills).
@@ -399,6 +443,7 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
   });
 
   function handleMessage(msg: Record<string, unknown>): void {
+    lastSdkEventAt = Date.now();
     const type = msg.type as string;
     if (type === "stream_event") {
       setBusy(true);
@@ -487,6 +532,24 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
     }, 1500);
   }
 
+  function restartSilentRuntime(): void {
+    if (restartRequested || closing) return;
+    restartRequested = true;
+    const silentSeconds = Math.round((Date.now() - lastSdkEventAt) / 1000);
+    console.error(
+      `aisdk-session ${sessionId}: SDK stream silent ${silentSeconds}s while busy; restarting runtime`,
+    );
+    draft = "";
+    publishDraft("", true);
+    setBusy(false);
+    // Route sends that arrive during close/recreate to the next query. Only
+    // locally buffered messages move; the stuck in-flight prompt is not replayed.
+    const previousInput = input;
+    input = new InputChannel();
+    previousInput.handoffTo(input);
+    q.close();
+  }
+
   function dispatch(cmd: AisdkCommand): void {
     if (cmd.type === "send") {
       if (cmd.text.trim()) send(cmd.text);
@@ -533,23 +596,53 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
     writeCursor(cmdFile, cmdOffset);
   }, 250);
 
+  const watchdog = setInterval(() => {
+    if (isAisdkStreamStalled({
+      busy,
+      closing,
+      restartRequested,
+      lastSdkEventAt,
+      now: Date.now(),
+    })) restartSilentRuntime();
+  }, AISDK_STREAM_WATCHDOG_TICK_MS);
+
   // First message, if any, kicks off the conversation immediately.
   if (initialPrompt) send(initialPrompt);
 
   // The SDK message loop IS the session lifetime: it ends when the input
   // channel closes (shutdown) or the subprocess dies.
+  let runtimeGeneration = 0;
+  let unexpectedExit = false;
   try {
-    for await (const msg of q) {
-      handleMessage(msg as unknown as Record<string, unknown>);
-    }
-  } catch (e) {
-    if (!closing) {
-      console.error(`aisdk-session: query loop failed: ${e instanceof Error ? e.message : e}`);
+    while (!closing) {
+      q = startQuery(resuming || runtimeGeneration > 0);
+      restartRequested = false;
+      try {
+        for await (const msg of q) {
+          handleMessage(msg as unknown as Record<string, unknown>);
+        }
+      } catch (error) {
+        if (closing) break;
+        if (!restartRequested) {
+          console.error(`aisdk-session: query loop failed: ${error instanceof Error ? error.message : error}`);
+          unexpectedExit = true;
+          break;
+        }
+      }
+      if (closing) break;
+      if (restartRequested) {
+        runtimeGeneration++;
+        lastSdkEventAt = Date.now();
+        continue;
+      }
+      unexpectedExit = true;
+      break;
     }
   } finally {
     clearInterval(poll);
+    clearInterval(watchdog);
     removeEntry(sessionId);
-    process.exit(closing ? 0 : 1);
+    process.exit(closing && !unexpectedExit ? 0 : 1);
   }
 }
 
