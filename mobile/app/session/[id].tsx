@@ -727,9 +727,21 @@ export default function SessionScreen() {
    * against a parent, so there is no `keyboardVerticalOffset` to get wrong.
    */
   const keyboard = useAnimatedKeyboard();
-  const keyboardLift = useAnimatedStyle(() => ({
-    paddingBottom: Math.max(0, keyboard.height.value - insets.bottom),
+  /**
+   * The composer FLOATS over the transcript, so it carries its own lift.
+   *
+   * It used to be a flow sibling under the list, which meant the transcript
+   * stopped at a hard edge above it — on a screen whose whole content is one
+   * scrolling column, that wastes the bottom of the page on a bar. Now the
+   * list runs the full height and the composer sits on top of it, which also
+   * matches the home screen. An absolutely positioned child ignores its
+   * parent's padding, so the lift has to be a transform (learned the hard way
+   * on the home composer, where the keyboard covered it completely).
+   */
+  const composerLift = useAnimatedStyle(() => ({
+    transform: [{ translateY: -Math.max(0, keyboard.height.value - insets.bottom) }],
   }));
+  const [composerHeight, setComposerHeight] = useState(0);
 
   /**
    * THE LIFT ALONE IS NOT ENOUGH — the list has to follow it.
@@ -753,7 +765,7 @@ export default function SessionScreen() {
   }, []);
 
   return (
-    <Reanimated.View style={[{ flex: 1 }, keyboardLift]}>
+    <Reanimated.View style={{ flex: 1 }}>
       <FlatList
         ref={listRef}
         data={data}
@@ -761,7 +773,8 @@ export default function SessionScreen() {
         contentContainerStyle={{
           paddingHorizontal: space.lg,
           paddingTop: space.lg,
-          paddingBottom: space.md,
+          // Enough room for the last message to clear the floating composer.
+          paddingBottom: composerHeight + space.md,
           // 24pt between EVERY item read as a transcript of isolated objects
           // rather than a conversation: a tool run and the sentence explaining
           // it were pushed as far apart as two separate turns. 16pt keeps the
@@ -860,13 +873,21 @@ export default function SessionScreen() {
  * `keyboardDismissMode="interactive"` means content is meant to pass
  * behind it. So the bar is now pure layout, and the field is the only
  * surface — the same rule the home composer follows. */}
-      <View
-        style={{
-          paddingHorizontal: space.md,
-          paddingTop: space.sm,
-          paddingBottom: insets.bottom + space.sm,
-          gap: space.sm,
-        }}
+      <Reanimated.View
+        onLayout={(e) => setComposerHeight(e.nativeEvent.layout.height)}
+        style={[
+          {
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            paddingHorizontal: space.md,
+            paddingTop: space.sm,
+            paddingBottom: insets.bottom + space.sm,
+            gap: space.sm,
+          },
+          composerLift,
+        ]}
       >
         {/**
          * JUMP BACK TO NOW — and say when there is something to come back to.
@@ -947,7 +968,10 @@ export default function SessionScreen() {
             glass circle, bottom-aligned so it stays level with the last line
             as the field grows. */}
         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: space.sm }}>
-        <DropdownMenu title="Attach" options={attachments.options} style={{ width: 44, height: 44 }}>
+        {/* No heading: a menu with two rows called "Photo Library" and "Take
+            Photo", hanging off a paperclip, does not need a title telling you
+            it attaches things. */}
+        <DropdownMenu options={attachments.options} style={{ width: 44, height: 44 }}>
           <GlassSurface
             variant="regular"
             fallbackColor={colors.secondary}
@@ -978,10 +1002,10 @@ export default function SessionScreen() {
             // centring stays right at every height.
             alignItems: "center",
             gap: space.xs,
-            // Not `pill`: this field grows to 120pt for a long prompt, and a
-            // full pill radius on a tall box bulges. `xl` keeps the same
-            // family at every height.
-            borderRadius: radius.xl,
+            // Rounder than the panels around it, because it is a control and
+            // not a surface — but not a full pill, which bulges once the field
+            // grows to 120pt for a long prompt.
+            borderRadius: 24,
             minHeight: 52,
             paddingLeft: space.md,
             paddingRight: space.sm,
@@ -1079,7 +1103,7 @@ export default function SessionScreen() {
             square parked under the field was the loudest thing on the screen
             for something you rarely do. It lives in the ⋯ menu, which is where
             the session's other verbs already are. */}
-      </View>
+      </Reanimated.View>
     </Reanimated.View>
   );
 }

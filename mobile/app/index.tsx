@@ -139,31 +139,62 @@ function SessionBranch({
 
   return (
     <View onLayout={(e) => setCardHeight(e.nativeEvent.layout.height)}>
-      {/* The card inside carries its own 16pt margin, so the branch has to
-          cross that too — an elbow sized to the indent alone stopped in mid
-          air with a gap before the row it was pointing at. */}
-      <View
-        pointerEvents="none"
-        style={{
-          position: "absolute",
-          left: 0,
-          top: -space.sm,
-          width: LINE,
-          backgroundColor: colors.borderStrong,
-          ...(last ? { height: midline + space.sm } : { bottom: -space.sm }),
-        }}
-      />
-      <View
-        pointerEvents="none"
-        style={{
-          position: "absolute",
-          left: 0,
-          top: midline,
-          width: space.lg,
-          height: LINE,
-          backgroundColor: colors.borderStrong,
-        }}
-      />
+      {/**
+       * The last child gets a ROUNDED ELBOW drawn as one bordered box — a left
+       * border and a bottom border meeting in a corner radius, which is how
+       * the web draws it (`rounded-bl-lg border-b border-l`). Two straight
+       * rects meeting at a right angle is a different drawing: it reads as
+       * plumbing, and it cannot be softened at the join no matter how thin the
+       * lines are.
+       *
+       * A child with siblings below it is a T-junction instead: the spine has
+       * to carry on past the branch, so the corner cannot be part of it.
+       *
+       * The card inside carries its own 16pt margin, so the branch crosses
+       * that too — sized to the indent alone it stopped in mid air, short of
+       * the row it points at.
+       */}
+      {last ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: SPINE_INSET,
+            top: -space.sm,
+            width: space.lg - SPINE_INSET,
+            height: midline + space.sm,
+            borderLeftWidth: LINE,
+            borderBottomWidth: LINE,
+            borderBottomLeftRadius: ELBOW_RADIUS,
+            borderColor: colors.borderStrong,
+          }}
+        />
+      ) : (
+        <>
+          <View
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              left: SPINE_INSET,
+              top: -space.sm,
+              bottom: -space.sm,
+              width: LINE,
+              backgroundColor: colors.borderStrong,
+            }}
+          />
+          <View
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              left: SPINE_INSET,
+              top: midline,
+              width: space.lg - SPINE_INSET,
+              height: LINE,
+              backgroundColor: colors.borderStrong,
+            }}
+          />
+        </>
+      )}
       <SessionFamily node={node} depth={depth} onOpen={onOpen} />
     </View>
   );
@@ -171,6 +202,14 @@ function SessionBranch({
 
 /** Hairlines vanish against black at this length; a point and a half reads. */
 const LINE = 1.5;
+/**
+ * How far the spine sits inside the indent. At 0 it ran up the very edge of
+ * the child's box, which put it left of the parent card it descends from and
+ * made the family look detached from its own parent.
+ */
+const SPINE_INSET = 7;
+/** Enough curve to read as a corner at 1.5pt, not enough to become an arc. */
+const ELBOW_RADIUS = 9;
 
 /**
  * The greeting the web Live view carries, in the bar slot the removed

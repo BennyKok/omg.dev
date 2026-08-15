@@ -74,7 +74,18 @@ type ToolPair = { key: string; call: Entry | null; result: Entry | null };
  * column of cards separated by the list's paragraph-sized gap.
  */
 export type TranscriptItem =
-  | { type: "message"; key: string; message: Entry }
+  | {
+      type: "message";
+      key: string;
+      message: Entry;
+      /**
+       * When the NEXT thing happened. A thinking block has no duration of its
+       * own on the wire, and the honest stand-in is the gap until the agent
+       * did the next thing — which is exactly the number a reader wants from
+       * it ("how long was it stuck there?").
+       */
+      nextTs?: number | null;
+    }
   | { type: "tools"; key: string; pairs: ToolPair[] };
 
 const isCall = (message?: Entry) => message?.kind === "tool_use";
@@ -104,7 +115,12 @@ export function buildTranscriptItems(messages: Entry[]): TranscriptItem[] {
   while (index < messages.length) {
     const message = messages[index];
     if (!isCall(message) && !isResult(message)) {
-      items.push({ type: "message", key: entryKey(message, index), message });
+      items.push({
+        type: "message",
+        key: entryKey(message, index),
+        message,
+        nextTs: messages[index + 1]?.ts ?? null,
+      });
       index += 1;
       continue;
     }
@@ -149,7 +165,8 @@ function entryKey(message: Entry, index: number): string {
 }
 
 export function TranscriptRow({ item }: { item: TranscriptItem }) {
-  if (item.type === "message") return <TranscriptEntry message={item.message} />;
+  if (item.type === "message")
+    return <TranscriptEntry message={item.message} nextTs={item.nextTs} />;
   return <ToolRun pairs={item.pairs} />;
 }
 
@@ -260,7 +277,13 @@ function isInterruptedTurn(message: Entry): boolean {
   return INTERRUPTED.test((message.text ?? "").trim());
 }
 
-export function TranscriptEntry({ message }: { message: Entry }) {
+export function TranscriptEntry({
+  message,
+  nextTs,
+}: {
+  message: Entry;
+  nextTs?: number | null;
+}) {
   const { colors, type, space } = useTheme();
   const isUser = message.role === "user";
 
@@ -283,7 +306,7 @@ export function TranscriptEntry({ message }: { message: Entry }) {
     !!message.url || !!message.artifactId || message.kind === "image" || message.kind === "file";
   if (isAttachment && !message.text) return <AttachmentEntry message={message} />;
 
-  if (message.kind === "thinking") return <ThinkingEntry message={message} />;
+  if (message.kind === "thinking") return <ThinkingEntry message={message} nextTs={nextTs} />;
 
   // A result that reached here escaped the pairing pass (see the file header).
   if (message.kind === "tool_result") return <ToolEntry call={null} result={message} />;
@@ -750,7 +773,7 @@ function toolSymbol(name: string): Symbols {
  * full body weight in the same voice as the reply, which made the agent look
  * like it was answering twice.
  */
-function ThinkingEntry({ message }: { message: Entry }) {
+function ThinkingEntry({ message, nextTs }: { message: Entry; nextTs?: number | null }) {
   const { colors, type, space, motion } = useTheme();
   const [open, setOpen] = useState(false);
   const turn = useSharedValue(0);
@@ -759,6 +782,19 @@ function ThinkingEntry({ message }: { message: Entry }) {
   // The normalizer substitutes the literal "(thinking)" when the provider
   // redacted the block. There is a turn to acknowledge and nothing to open.
   const body = text === "(thinking)" ? "" : text;
+
+  /**
+   * "Thought for 12s". Only when the gap is BELIEVABLE: a block that is still
+   * the last thing in the transcript has no end yet, and a session resumed
+   * hours later would otherwise claim the agent thought all night. Under a
+   * second is not worth saying.
+   */
+  const thoughtFor = useMemo(() => {
+    if (!message.ts || !nextTs) return null;
+    const ms = nextTs - message.ts;
+    if (ms < 1000 || ms > 15 * 60_000) return null;
+    return ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60_000)}m`;
+  }, [message.ts, nextTs]);
 
   const chevron = useAnimatedStyle(() => ({
     transform: [{ rotate: `${turn.value * 90}deg` }],
@@ -772,15 +808,13 @@ function ThinkingEntry({ message }: { message: Entry }) {
   };
 
   return (
-    <View
-      style={{
-        alignSelf: "stretch",
-        paddingLeft: space.sm,
-        borderLeftWidth: 2,
-        borderLeftColor: colors.border,
-        gap: space.xs,
-      }}
-    >
+    /**
+     * NO RULE DOWN THE SIDE. The indent said "this is quoted from somewhere",
+     * which is not what a thinking block is — it is the agent's own working,
+     * and it already reads as an aside by being collapsed and muted. What was
+     * missing is the fact people actually want from it: HOW LONG it thought.
+     */
+    <View style={{ alignSelf: "stretch", gap: space.xs }}>
       <Pressable
         onPress={toggle}
         disabled={!body}
@@ -804,7 +838,9 @@ function ThinkingEntry({ message }: { message: Entry }) {
           />
         </Reanimated.View>
         <Icon ios="brain" android="psychology" size={12} color={colors.textMuted} />
-        <Text style={{ ...type.caption, color: colors.textMuted }}>Thinking</Text>
+        <Text style={{ ...type.caption, color: colors.textMuted }}>
+          {thoughtFor ? `Thought for ${thoughtFor}` : "Thinking"}
+        </Text>
         {body && !open ? (
           <Text
             numberOfLines={1}
@@ -962,7 +998,17 @@ export function UserMessage({ message }: { message: Entry }) {
           picture is the whole message, with no empty bubble under it. */}
       {text ? (
         <View
+          /**
+           * SIZED TO ITS TEXT, and on the RIGHT. A sent message stretched to
+           * the full column looked like another section of the page rather
+           * than something a person said, and with the reply directly under it
+           * in the same width there was nothing but a border to tell the two
+           * apart. Capped at 85% so a long paragraph still wraps well short of
+           * the edge instead of becoming a full-width block again.
+           */
           style={{
+            alignSelf: "flex-end",
+            maxWidth: "85%",
             backgroundColor: colors.card,
             borderRadius: radius.xl,
             borderWidth: StyleSheet.hairlineWidth,
@@ -990,9 +1036,10 @@ export function UserMessage({ message }: { message: Entry }) {
         style={{
           flexDirection: "row",
           alignItems: "center",
+          alignSelf: "flex-end",
           gap: space.sm,
           marginTop: 2,
-          marginLeft: space.sm,
+          marginRight: space.sm,
         }}
       >
         <Pressable

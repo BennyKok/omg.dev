@@ -37,7 +37,11 @@ import {
   Section,
   Toggle,
 } from "@expo/ui/swift-ui";
-import { disabled as disabledModifier, frame } from "@expo/ui/swift-ui/modifiers";
+import {
+  disabled as disabledModifier,
+  frame,
+  resizable,
+} from "@expo/ui/swift-ui/modifiers";
 import { Asset } from "expo-asset";
 import * as Haptics from "expo-haptics";
 import { type SFSymbol } from "expo-symbols";
@@ -99,6 +103,21 @@ export type MenuOption = {
  * change for the life of the process.
  */
 const imageUriCache = new Map<string, string>();
+
+/**
+ * `resizable()` FIRST, then `frame()` — and both are required.
+ *
+ * A `uiImage` is a bitmap with an intrinsic size, and the asset that resolves
+ * here is the @3x file: 96 real pixels, which `UIImage(data:)` loads at scale
+ * 1, so SwiftUI lays it out as 96 POINTS. That is why an agent mark filled a
+ * menu row and spilled over its own header.
+ *
+ * `frame` alone does not fix it. In SwiftUI a frame on a non-resizable image
+ * positions and clips it; only `.resizable()` lets the image scale to the box
+ * it is given. The `size` prop is no help either — it sets a font size, which
+ * an SF Symbol reads and a bitmap ignores.
+ */
+const MARK_SIZE = [resizable(), frame({ width: 20, height: 20 })];
 
 /**
  * Keyed by the IMAGE, never by the row's position.
@@ -239,14 +258,7 @@ export function DropdownMenu({
               <Label
                 title={option.label}
                 icon={
-                  <SwiftImage
-                    uiImage={submenuUri}
-                    // A `uiImage` has a natural size and WILL use it — the
-                    // `size` prop only sets a font, which an SF Symbol reads
-                    // and a bitmap ignores. Without a frame the mark rendered
-                    // at its own resolution and swallowed the row.
-                    modifiers={[frame({ width: 20, height: 20 })]}
-                  />
+                  <SwiftImage uiImage={submenuUri} modifiers={MARK_SIZE} />
                 }
               />
             ) : (
@@ -272,7 +284,7 @@ export function DropdownMenu({
     const content = uri ? (
       <Label
         title={option.label}
-        icon={<SwiftImage uiImage={uri} modifiers={[frame({ width: 20, height: 20 })]} />}
+        icon={<SwiftImage uiImage={uri} modifiers={MARK_SIZE} />}
       />
     ) : null;
     // A row that says which of several things is current is a Toggle; SwiftUI
