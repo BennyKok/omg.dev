@@ -1140,20 +1140,24 @@ export function HomeComposer({
                * A 32pt capsule, the pill's own height, so the caption row reads
                * as two chips rather than one chip and some loose marks.
                *
-               * THE RINGS FILL IT. They were 24pt inside 32, which spent a
-               * quarter of the chip on padding and left arcs too fine to read
-               * at arm's length — the one number this control exists to show.
-               * 30 inside 32 keeps just enough glass to separate them from
-               * whatever scrolls underneath, and gives every arc 25% more
-               * circumference to say it with.
+               * THE RINGS FILL IT, and the chip is sized to the rings rather
+               * than the other way round.
+               *
+               * They started at 24 inside 32 — a quarter of the control spent
+               * on padding, with arcs too fine to read at arm's length. Filling
+               * the chip fixed the reading and made the whole thing loud beside
+               * the folder pill, so the chip came down with them: 26 inside 28,
+               * a 2pt ring of glass, and a 3.5pt stroke that stays legible at
+               * the smaller diameter. Smaller than where this started, and
+               * still far easier to read.
                */
               <GlassSurface
                 key={provider.id}
                 variant="regular"
                 fallbackColor={colors.secondary}
                 style={{
-                  width: 32,
-                  height: 32,
+                  width: 28,
+                  height: 28,
                   borderRadius: radius.pill,
                   alignItems: "center",
                   justifyContent: "center",
@@ -1161,7 +1165,7 @@ export function HomeComposer({
                 }}
               >
                 <UsageRings
-                  size={30}
+                  size={26}
                   windows={provider.available ? orderWindows(provider.windows ?? []) : []}
                 />
               </GlassSurface>
