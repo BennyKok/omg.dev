@@ -2416,6 +2416,13 @@ export async function listSessions(): Promise<Session[]> {
     // would emit a SECOND row with the SAME visible sessionId (via
     // managedVisibleId) whose busy flag comes from the log pane (always idle),
     // clobbering the registry row's live busy state in the client.
+    //
+    // Ancestry is the primary test, mirroring the claude scan above. The tmux
+    // lookup that follows cannot see a codex-aisdk harness at all: it runs
+    // headless under `systemd-run` with no tmux session, so targetForPid()
+    // returns null and the guard silently never fires. That is how the `codex
+    // exec` child surfaced as its own root-level row.
+    if (hasAncestorPid(p.pid, harnessPids)) continue;
     {
       const t = tmux.targetForPid(p.pid);
       const rec = t ? managedByName.get(t.split(":")[0]) : undefined;
@@ -2433,6 +2440,12 @@ export async function listSessions(): Promise<Session[]> {
     } catch {}
     profile?.add("codex_proc_reads_sum_ms", performance.now() - procT0);
     let sessionId = p.cmd.match(new RegExp(`(?:resume|fork)\\s+(${UUID.source})`))?.[1] ?? null;
+    // Id backstop, for when the ancestry walk misses (harness restarted, or the
+    // engine reparented away from it). A `resume <uuid>` that names a live
+    // codex-aisdk thread or harness key IS that session, not a second one —
+    // both ids resolve to the same transcript downstream, so emitting a row
+    // here can only ever produce a duplicate.
+    if (sessionId && (claimedCodex.has(sessionId) || aisdkSessionIds.has(sessionId))) continue;
     let thread = sessionId ? codex.find((t) => t.id === sessionId) : null;
     const prompt = codexPromptFromCmd(p.cmd);
     if (!thread && cwd && prompt) {
@@ -3028,6 +3041,35 @@ function ppidOf(pid: number): number | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * True when any ancestor of `pid` (up to `maxDepth` hops) is in `pids`.
+ *
+ * A direct-ppid check covers a child the harness spawns itself, but engine
+ * processes are not always one hop away — an SDK may put a wrapper in between,
+ * and that distance is a vendored dependency's implementation detail we
+ * shouldn't encode. Walking a few levels keeps the filter correct when it
+ * changes. Bounded so a cycle or a bad /proc read can't spin.
+ *
+ * `parentOf` is injectable for tests; production always reads /proc.
+ */
+export function hasAncestorPid(
+  pid: number,
+  pids: ReadonlySet<number>,
+  maxDepth = 4,
+  parentOf: (pid: number) => number | null = ppidOf,
+): boolean {
+  let cur = pid;
+  for (let i = 0; i < maxDepth; i++) {
+    const parent = parentOf(cur);
+    // pid 1 and below is init/kernel — no harness lives there, and continuing
+    // past it would walk every session into the same shared ancestry.
+    if (parent === null || !Number.isFinite(parent) || parent <= 1) return false;
+    if (pids.has(parent)) return true;
+    cur = parent;
+  }
+  return false;
 }
 
 // A subagent launched via containedAgentCommand runs as a systemd transient
