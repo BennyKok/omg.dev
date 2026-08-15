@@ -88,9 +88,17 @@ const SCREEN_WIDTH = Dimensions.get("window").width;
  */
 export function SessionStatusDot({
   busy,
+  /**
+   * No agent is attached at all — a session that has finished and can be
+   * resumed. The idle dot is a dimmed GREEN, which on a row in Recent claims
+   * something untrue: that there is a process there, resting. A hollow grey
+   * ring says "nothing is running here" without implying a fault.
+   */
+  ended,
   size = 8,
 }: {
   busy?: boolean;
+  ended?: boolean;
   size?: number;
 }) {
   const { colors } = useTheme();
@@ -114,10 +122,19 @@ export function SessionStatusDot({
           width: size,
           height: size,
           borderRadius: size / 2,
-          backgroundColor: busy ? colors.warning : withAlpha(colors.success, 0.3),
+          backgroundColor: ended
+            ? "transparent"
+            : busy
+              ? colors.warning
+              : withAlpha(colors.success, 0.3),
           ...(busy
             ? {}
-            : { borderWidth: 1, borderColor: withAlpha(colors.success, 0.2) }),
+            : {
+                borderWidth: 1,
+                borderColor: ended
+                  ? withAlpha(colors.textMuted, 0.5)
+                  : withAlpha(colors.success, 0.2),
+              }),
         },
         pulseStyle,
       ]}
@@ -641,6 +658,7 @@ export function SessionCard({
   agent,
   busy,
   blocked,
+  ended,
   onPress,
   onArchive,
 }: {
@@ -649,6 +667,8 @@ export function SessionCard({
   agent?: string | null;
   busy?: boolean;
   blocked?: boolean;
+  /** Finished: no agent attached, resumable. See SessionStatusDot. */
+  ended?: boolean;
   onPress: () => void;
   /** Omit to make the row unswipeable — a running session has nothing to archive. */
   onArchive?: () => void;
@@ -834,7 +854,7 @@ export function SessionCard({
           {blocked ? (
             <Icon ios="pause.fill" android="pause" size={12} color={colors.warning} />
           ) : (
-            <SessionStatusDot busy={busy} />
+            <SessionStatusDot busy={busy} ended={ended} />
           )}
         </PressableScale>
       </Reanimated.View>

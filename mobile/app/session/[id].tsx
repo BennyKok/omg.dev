@@ -68,7 +68,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OmgSession, OmgSessionPrompt } from "@omg-dev/protocol";
 
 import { AgentAvatar, AttachmentStrip, Icon, IconButton } from "../../src/components";
-import { agentLabel as agentDisplayName } from "../../src/omg/agent-icons";
 import { useAttachments } from "../../src/omg/attachments";
 import { useDictation } from "../../src/omg/dictation";
 import { GlassSurface, LIQUID_GLASS } from "../../src/omg/glass";
@@ -130,6 +129,19 @@ export default function SessionScreen() {
   const [unseen, setUnseen] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
   const [sessionInfo, setSessionInfo] = useState<{ title: string; agent: string } | null>(null);
+  /**
+   * Whether an agent is attached to this session right now. `null` until the
+   * machine has answered — the composer says nothing about resuming while it
+   * does not yet know, because guessing wrong in either direction is worse
+   * than a beat of silence.
+   */
+  const [live, setLive] = useState<boolean | null>(null);
+  const [resuming, setResuming] = useState(false);
+  // A cold start is seconds, and the only thing on screen would otherwise be
+  // a message sitting there with nothing answering it.
+  useEffect(() => {
+    if (resuming) toast.show("Waking the agent…");
+  }, [resuming, toast]);
 
   const listRef = useRef<FlatList<TranscriptItem>>(null);
   /** Pinned-to-bottom is the default; reading history unpins it. */
@@ -149,6 +161,16 @@ export default function SessionScreen() {
    * prepends a page nobody asked for at the moment of opening.
    */
   const userMovedRef = useRef(false);
+  /**
+   * True from the moment a drag starts until the list has come to rest.
+   *
+   * No automatic scroll may run in that window. A `scrollToEnd` landing while
+   * someone is mid-drag near the bottom is the snap: the content jumps to the
+   * end under their thumb, the gesture continues from the new offset, and the
+   * list appears to fight them. Deceleration counts as "still theirs" — a
+   * flick that is coasting is as much a gesture as one still in contact.
+   */
+  const touchingRef = useRef(false);
 
   const firstUserText = messages.find((m) => m.role === "user" && m.text)?.text?.trim();
   const title = sessionInfo?.title ?? firstUserText ?? "Session";
@@ -161,16 +183,47 @@ export default function SessionScreen() {
     let cancelled = false;
     if (!client || !id) return;
     const apply = (list: OmgSession[] | null) => {
-      if (cancelled || !list) return;
+      if (cancelled || !list) return false;
       const found = list.find((s) => s.sessionId === id || s.nativeSessionId === id);
-      if (!found) return;
+      if (!found) return false;
       setSessionInfo({
         title: found.title?.trim() || found.lastUserText?.trim() || "Session",
         agent: found.agent?.trim() || found.agentLabel?.trim() || "omg",
       });
+      setLive(true);
+      return true;
     };
     apply(client.peekSessions());
-    client.listSessions().then(apply).catch(() => {});
+    client
+      .listSessions()
+      .then(async (list) => {
+        if (apply(list) || cancelled) return;
+        /**
+         * NOT IN THE LIVE LIST MEANS ENDED, NOT MISSING.
+         *
+         * The transcript is in the machine's store either way, so this screen
+         * opens and reads perfectly well for a session whose agent exited —
+         * which is the whole point of being able to reach one from Recent or
+         * from a shipped post. What changes is the composer: there is no
+         * process to send to, so sending has to RESUME. Both facts come from
+         * this one lookup rather than from a failed send.
+         */
+        setLive(false);
+        const resumable = await client.transport
+          .request<{ sessions?: { sessionId: string; title?: string; lastUserText?: string; agent?: string }[] }>(
+            "/api/sessions/resumable?limit=50",
+          )
+          .catch(() => ({ sessions: [] }));
+        if (cancelled) return;
+        const row = (resumable.sessions ?? []).find((s) => s.sessionId === id);
+        if (row) {
+          setSessionInfo({
+            title: row.title?.trim() || row.lastUserText?.trim() || "Session",
+            agent: row.agent?.trim() || "omg",
+          });
+        }
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -315,29 +368,44 @@ export default function SessionScreen() {
    * stops the moment the reader takes hold of the list themselves.
    */
   const pinToEnd = useCallback(() => {
-    if (!atBottomRef.current) return;
+    if (!atBottomRef.current || touchingRef.current) return;
     const attempts = [0, 60, 160, 320, 640, 1000];
     const timers = attempts.map((delay) =>
       setTimeout(() => {
-        if (atBottomRef.current) listRef.current?.scrollToEnd({ animated: false });
+        if (atBottomRef.current && !touchingRef.current) {
+          listRef.current?.scrollToEnd({ animated: false });
+        }
       }, delay),
     );
     return () => timers.forEach(clearTimeout);
   }, []);
 
   const handleContentSizeChange = useCallback(() => {
-    // Follow the stream only while the reader is already at the bottom; never
-    // yank someone who scrolled up to read history back down.
-    if (atBottomRef.current) listRef.current?.scrollToEnd({ animated: false });
+    // Follow the stream only while the reader is already at the bottom, and
+    // never while their finger is on the glass — see touchingRef.
+    if (atBottomRef.current && !touchingRef.current) {
+      listRef.current?.scrollToEnd({ animated: false });
+    }
   }, []);
 
-  // The transcript opens on the newest message. Re-run while the page count
-  // grows: the first paint is a cached peek and the machine's answer replaces
-  // it, and each of those is a new content height to land against.
+  /**
+   * THE OPENING PIN RUNS ONCE PER SESSION, NOT ONCE PER MESSAGE.
+   *
+   * Landing on the newest message is a thing that happens when you OPEN a
+   * session. Re-running it whenever `data.length` changed turned every arriving
+   * message into six scroll commands over the following second, and near the
+   * bottom — where the 48pt threshold already counts you as "at the end" —
+   * that read as the list snapping out from under your thumb while you were
+   * still scrolling. Growth is followed by onContentSizeChange, which is one
+   * scroll and defers to the finger.
+   */
+  const pinnedForRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!data.length) return;
+    if (!data.length || !id) return;
+    if (pinnedForRef.current === id) return;
+    pinnedForRef.current = id;
     return pinToEnd();
-  }, [data.length, pinToEnd]);
+  }, [data.length, id, pinToEnd]);
 
   /**
    * One path for everything that puts words into the session, so the optimistic
@@ -359,6 +427,35 @@ export default function SessionScreen() {
       setMessages((prev) => [...prev, optimistic]);
       setSending(true);
       try {
+        if (live === false) {
+          /**
+           * SENDING IS WHAT RESUMES IT — one gesture, not a Resume button
+           * followed by a composer.
+           *
+           * `/api/sessions/resume` cold-starts the agent with this prompt
+           * already queued, so the message you typed is the message it wakes
+           * up to. The machine may hand back a DIFFERENT id (a relaunched
+           * agent can be indexed under a new native session), and the reply
+           * would then stream to a screen nobody is watching — so we follow
+           * it, replacing this route rather than pushing, because going back
+           * to a dead id is not a place anyone wants to return to.
+           */
+          setResuming(true);
+          const res = await client.transport.request<{
+            sessionId?: string;
+            alreadyLive?: boolean;
+          }>("/api/sessions/resume", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sessionId: id, prompt: trimmed }),
+          });
+          setLive(true);
+          setError(null);
+          if (res.sessionId && res.sessionId !== id) {
+            router.replace(`/session/${res.sessionId}`);
+          }
+          return;
+        }
         await client.sendMessage(id, trimmed);
         setError(null);
       } catch (e) {
@@ -369,9 +466,10 @@ export default function SessionScreen() {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
         setSending(false);
+        setResuming(false);
       }
     },
-    [client, id],
+    [client, id, live, router],
   );
 
   const send = useCallback(() => {
@@ -609,19 +707,25 @@ export default function SessionScreen() {
           overflow: "hidden",
         }}
       >
-        <AgentAvatar agent={agentLabel} size={26} />
-        <View style={{ maxWidth: 190 }}>
-          <Text
-            numberOfLines={1}
-            ellipsizeMode="tail"
-            style={{ ...type.subhead, fontWeight: "600", color: colors.text }}
-          >
-            {title}
-          </Text>
-          <Text numberOfLines={1} style={{ ...type.caption, color: colors.textMuted }}>
-            {busy ? "Working…" : agentDisplayName(agentLabel)}
-          </Text>
-        </View>
+        {/* THE MARK CARRIES BOTH FACTS THE SUBTITLE WAS CARRYING.
+            It was a second line reading "Claude" — under a capsule already
+            showing Claude's mark — or "Working…", which the mark says better
+            with its spinner. Two lines of chrome in a navigation bar for one
+            piece of information, and the title got 190pt to fit in because of
+            it. One line now, and the title has the room. */}
+        <AgentAvatar agent={agentLabel} size={24} busy={busy} plain />
+        <Text
+          numberOfLines={1}
+          ellipsizeMode="tail"
+          style={{
+            ...type.subhead,
+            fontWeight: "600",
+            color: colors.text,
+            maxWidth: 210,
+          }}
+        >
+          {title}
+        </Text>
       </GlassSurface>
     ),
     [agentLabel, busy, colors, radius.pill, space, title, type],
@@ -821,8 +925,23 @@ export default function SessionScreen() {
         contentContainerStyle={{
           paddingHorizontal: space.lg,
           paddingTop: space.lg,
-          // Enough room for the last message to clear the floating composer.
-          paddingBottom: composerHeight + space.md,
+          /**
+           * ROOM FOR THE LAST MESSAGE TO CLEAR THE FLOATING COMPOSER — with a
+           * floor, because the measurement can arrive late or not at all.
+           *
+           * `composerHeight` starts at 0 and is filled in by onLayout. Any
+           * scroll-to-end that lands before that (which is all of them, on
+           * open) computes its offset against a content height missing ~100pt
+           * of padding, so the transcript stops with its last lines behind the
+           * input bar — the reader's own words, hidden by the box they typed
+           * them into. The floor is a one-line composer plus the home
+           * indicator: never smaller than the bar can actually be.
+           *
+           * The extra `space.lg` is deliberate breathing room, not slop. A
+           * sentence ending exactly at the top edge of the glass reads as
+           * clipped even when it is not.
+           */
+          paddingBottom: Math.max(composerHeight, insets.bottom + 60) + space.lg,
           // 24pt between EVERY item read as a transcript of isolated objects
           // rather than a conversation: a tool run and the sentence explaining
           // it were pushed as far apart as two separate turns. 16pt keeps the
@@ -851,6 +970,16 @@ export default function SessionScreen() {
         // Programmatic scrolls and layout settling are not.
         onScrollBeginDrag={() => {
           userMovedRef.current = true;
+          touchingRef.current = true;
+        }}
+        // Released, but possibly still coasting: only the momentum end (or an
+        // immediate stop) hands the list back.
+        onScrollEndDrag={(e) => {
+          if (e.nativeEvent.velocity && Math.abs(e.nativeEvent.velocity.y) > 0.05) return;
+          touchingRef.current = false;
+        }}
+        onMomentumScrollEnd={() => {
+          touchingRef.current = false;
         }}
         onScroll={onScroll}
         scrollEventThrottle={16}
@@ -1088,9 +1217,16 @@ export default function SessionScreen() {
           <TextInput
             value={draft}
             onChangeText={setDraft}
-            // Steering a running agent and queueing a follow-up are different
-            // intents; say which one this will be.
-            placeholder={busy ? "Queue a follow-up…" : "Message"}
+            /**
+             * Say what SENDING will do, because it is three different things.
+             * Steering a running agent, queueing a follow-up behind one that
+             * is working, and waking an agent that has exited are not the same
+             * act, and the last one costs a cold start — nobody should
+             * discover that from the spinner.
+             */
+            placeholder={
+              live === false ? "Message to resume…" : busy ? "Queue a follow-up…" : "Message"
+            }
             placeholderTextColor={colors.textMuted}
             multiline
             style={{

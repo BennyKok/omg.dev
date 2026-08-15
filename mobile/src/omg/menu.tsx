@@ -242,31 +242,28 @@ export function DropdownMenu({
     const key = `${keyPrefix}${index}`;
     const press = () => select(option);
 
-    // A row with children is a submenu, not a choice: opening it IS the
-    // action, so it gets no press handler and no checkmark of its own.
+    /**
+     * A row with children is a submenu, not a choice: opening it IS the
+     * action, so it gets no press handler and no checkmark of its own.
+     *
+     * AND NO BRAND MARK — text only, even for a row that has one.
+     *
+     * A nested SwiftUI `Menu` becomes a UIMenu, and UIKit draws the OPEN
+     * submenu's header from that menu's image at the image's own size. The
+     * `resizable().frame(20)` that keeps the closed row honest is a SwiftUI
+     * layout instruction and never reaches the header, so a 96px asset landed
+     * as an ~80pt slab hanging off the top-left corner of the open submenu,
+     * over the menu and the page both. Photographed on device, IMG_1316.
+     *
+     * The mark stays on every LEAF row, which is where it was earning its
+     * place; a submenu row is already labelled by the name of the thing it
+     * opens. If the marks are wanted back on agents, the fix is to flatten
+     * models into a second Section of the same menu rather than to make this
+     * header carry a picture it cannot size.
+     */
     if (option.submenu?.length) {
-      const submenuUri = uriFor(option);
       return (
-        <Menu
-          key={key}
-          // A string label is the simple path, but it can only carry an SF
-          // Symbol — and these rows are agents, whose whole identity is a brand
-          // mark. `label` also accepts a VIEW, so the mark survives the row
-          // becoming a submenu instead of the menu silently losing its faces.
-          label={
-            submenuUri ? (
-              <Label
-                title={option.label}
-                icon={
-                  <SwiftImage uiImage={submenuUri} modifiers={MARK_SIZE} />
-                }
-              />
-            ) : (
-              option.label
-            )
-          }
-          systemImage={submenuUri ? undefined : option.icon}
-        >
+        <Menu key={key} label={option.label} systemImage={option.icon}>
           {renderRows(option.submenu, `${key}-`)}
         </Menu>
       );

@@ -40,6 +40,7 @@ import {
 } from "../src/omg/session-tree";
 import { useComputerPicker } from "../src/omg/computer-picker";
 import { useDictation } from "../src/omg/dictation";
+import { useResumable } from "../src/omg/resumable";
 import { useUsage } from "../src/omg/usage";
 import { LucideIcon } from "../src/omg/lucide";
 import { DropdownMenu } from "../src/omg/menu";
@@ -48,7 +49,7 @@ import { useOmg } from "../src/omg/provider";
 import { useToast } from "../src/omg/toast";
 import { SessionListSkeleton } from "../src/omg/skeleton";
 import { useTheme } from "../src/omg/theme";
-import { bindingLabel } from "../src/omg/format";
+import { bindingLabel, relativeTime } from "../src/omg/format";
 import { CLOUD_BINDING_ID } from "../src/omg/config";
 
 /**
@@ -200,6 +201,45 @@ function SessionBranch({
   );
 }
 
+/**
+ * What to call an ended session.
+ *
+ * The machine's resumable list falls back to the PROJECT or the worktree
+ * folder when a session never earned a title, which on a phone produced a
+ * column reading "vibes, vibes, vibes, lfg-7e4d5d" — twenty rows naming the
+ * same repo and identifying none of them. The first thing the person actually
+ * said is a far better name for a conversation, so a title that is only the
+ * folder gets replaced by it.
+ */
+function recentTitle(session: {
+  title?: string | null;
+  lastUserText?: string | null;
+  project?: string | null;
+  cwd?: string | null;
+}): string {
+  const title = session.title?.trim();
+  const said = session.lastUserText?.trim();
+  const folder = session.cwd?.split("/").filter(Boolean).pop();
+  const isFolderName =
+    !!title && (title === session.project?.trim() || title === folder);
+  if (title && !isFolderName) return title;
+  return said || title || "Session";
+}
+
+/** Nothing said, and named after the folder it ran in. See the Recent filter. */
+function isAnonymous(session: {
+  title?: string | null;
+  lastUserText?: string | null;
+  project?: string | null;
+  cwd?: string | null;
+}): boolean {
+  if (session.lastUserText?.trim()) return false;
+  const title = session.title?.trim();
+  if (!title) return true;
+  const folder = session.cwd?.split("/").filter(Boolean).pop();
+  return title === session.project?.trim() || title === folder;
+}
+
 /** Hairlines vanish against black at this length; a point and a half reads. */
 const LINE = 1.5;
 /**
@@ -280,6 +320,7 @@ export default function SessionsScreen() {
   // now (`/api/usage/summary`), and useUsage only does it itself when talking
   // to a box too old to have that endpoint.
   const { providers: usage } = useUsage();
+  const { sessions: resumable, refresh: refreshResumable } = useResumable();
   const agentPicker = useAgentPicker();
   const projectPicker = useProjectPicker();
 
@@ -399,6 +440,36 @@ export default function SessionsScreen() {
   );
   const working = useMemo(() => roots.filter(nodeBusy), [roots]);
   const idle = useMemo(() => roots.filter((node) => !nodeBusy(node)), [roots]);
+
+  /**
+   * Ended sessions, minus anything the live list is already showing.
+   *
+   * The machine excludes live ids server-side, but the two lists are fetched
+   * separately and a session that closes (or resumes) between the two reads
+   * would otherwise appear twice — the same row under two headings, which
+   * reads as a bug in the list rather than a race.
+   */
+  const recent = useMemo(() => {
+    const live = new Set(
+      sessions.flatMap((s) => [s.sessionId, (s as { nativeSessionId?: string }).nativeSessionId])
+        .filter((v): v is string => !!v),
+    );
+    return resumable.filter(
+      (session) =>
+        !live.has(session.sessionId) &&
+        // A session with no title of its own AND nothing anyone said is not a
+        // conversation you can return to — it is an agent process that
+        // existed. The machine lists them because they are technically
+        // resumable; on a phone they arrived as eight consecutive rows all
+        // reading "vibes", which is the repo, drowning the four real ones.
+        !!recentTitle(session).trim() &&
+        !isAnonymous(session) &&
+        projectPicker.matches({
+          project: session.project ?? undefined,
+          cwd: session.cwd ?? undefined,
+        }),
+    );
+  }, [resumable, sessions, projectPicker]);
 
   const openSession = (id: string | null) => {
     if (!id) return;
@@ -665,6 +736,7 @@ export default function SessionsScreen() {
             refreshing={pulling}
             onRefresh={() => {
               setPulling(true);
+              refreshResumable();
               void Promise.all([probe(), load(true)]).finally(() => setPulling(false));
             }}
             tintColor={colors.textMuted}
@@ -806,6 +878,41 @@ export default function SessionsScreen() {
                       node={node}
                       onOpen={openSession}
                       onArchive={archiveSession}
+                    />
+                  ))}
+                </View>
+              </>
+            ) : null}
+
+            {/**
+             * WORK THAT FINISHED IS STILL WORK YOU WANT TO READ.
+             *
+             * A session that shipped and closed used to disappear from the
+             * phone entirely — the summary was in the notification centre
+             * behind the bell, and the transcript behind nothing at all. This
+             * is the web's "Recent sessions", in the place someone actually
+             * looks: under the ones still running.
+             *
+             * Tapping one READS it. Resuming costs an agent process and is
+             * asked for by sending a message, not by opening a row.
+             */}
+            {recent.length ? (
+              <>
+                <SectionHeader label="Recent" count={recent.length} dotColor={colors.textMuted} />
+                <View style={{ gap: space.sm }}>
+                  {recent.map((session) => (
+                    <SessionCard
+                      key={session.sessionId}
+                      title={recentTitle(session)}
+                      // WHEN, then what was last said. A list called Recent
+                      // that never says when is asking you to guess, and these
+                      // rows span minutes to weeks.
+                      subtitle={[relativeTime(session.lastActivityAt), session.lastUserText?.trim()]
+                        .filter(Boolean)
+                        .join(" · ")}
+                      agent={session.agent}
+                      ended
+                      onPress={() => router.push(`/session/${session.sessionId}`)}
                     />
                   ))}
                 </View>
