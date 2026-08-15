@@ -91,14 +91,26 @@ function LaunchGate() {
     return () => clearTimeout(timer);
   }, []);
 
+  /**
+   * AUTH IS PART OF SETTLING, and leaving it out is what let the very screen
+   * this exists to hide come back.
+   *
+   * `authStatus` is "loading" for the first moments of every cold start, so a
+   * condition that began with `=== "signed-in"` was FALSE exactly then — the
+   * gate decided it had nothing to wait for, played its exit into an app that
+   * knew nothing yet, and unmounted for good. By the time the account and its
+   * computers arrived, the list was on screen saying "Connecting to No
+   * computer…" with no cover left to hide it. Reported from the device twice.
+   */
   const settling =
     !expired &&
-    authStatus === "signed-in" &&
-    (!machinesLoaded ||
-      (!!bindingId &&
-        (readiness === null ||
-          readiness.status === "connecting" ||
-          readiness.status === "waking")));
+    (authStatus === "loading" ||
+      (authStatus === "signed-in" &&
+        (!machinesLoaded ||
+          (!!bindingId &&
+            (readiness === null ||
+              readiness.status === "connecting" ||
+              readiness.status === "waking")))));
 
   if (finished) return null;
 

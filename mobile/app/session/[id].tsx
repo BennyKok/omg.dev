@@ -1005,9 +1005,36 @@ export default function SessionScreen() {
    */
   useEffect(() => {
     const show = Keyboard.addListener("keyboardDidShow", () => {
-      if (atBottomRef.current) listRef.current?.scrollToEnd({ animated: true });
+      if (atBottomRef.current) listRef.current?.scrollToOffset({ offset: 10 ** 7, animated: true });
     });
     return () => show.remove();
+  }, []);
+
+  /**
+   * THE LIST HAS TO KNOW THE KEYBOARD IS THERE, not just the composer.
+   *
+   * The composer lifts itself with a transform, which moves pixels and nothing
+   * else: the list's own content is unchanged, so the last ~300pt of the
+   * transcript sat behind the keyboard with no way to scroll it into view. You
+   * could see the message you were replying to disappear as you reached for
+   * the field, and scrolling down did not bring it back because there was
+   * nothing below it to scroll to.
+   *
+   * A transform cannot fix that — only real padding can, so the keyboard's
+   * height is state. `Will` rather than `Did`, so the padding is in place
+   * before the keyboard has finished arriving; the height minus the home
+   * indicator, because the composer's own bottom padding already covers that.
+   */
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  useEffect(() => {
+    const show = Keyboard.addListener("keyboardWillShow", (e) =>
+      setKeyboardHeight(e.endCoordinates?.height ?? 0),
+    );
+    const hide = Keyboard.addListener("keyboardWillHide", () => setKeyboardHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
   }, []);
 
   return (
@@ -1035,7 +1062,10 @@ export default function SessionScreen() {
            * sentence ending exactly at the top edge of the glass reads as
            * clipped even when it is not.
            */
-          paddingBottom: Math.max(composerHeight, insets.bottom + 60) + space.lg,
+          paddingBottom:
+            Math.max(composerHeight, insets.bottom + 60) +
+            space.lg +
+            Math.max(0, keyboardHeight - insets.bottom),
           // 24pt between EVERY item read as a transcript of isolated objects
           // rather than a conversation: a tool run and the sentence explaining
           // it were pushed as far apart as two separate turns. 16pt keeps the
@@ -1401,8 +1431,21 @@ export default function SessionScreen() {
 }
 
 /** The small dark pill with animated dots shown while the agent is thinking. */
+/**
+ * THE AGENT IS WORKING — the same chip as a tool badge, because it belongs to
+ * the same row of events.
+ *
+ * It used to be a solid black-on-white lozenge, the one object in the
+ * transcript with an inverted fill: louder than the tool calls it sits among
+ * and matching nothing. It is a chip now — card fill, 1pt border, pill radius,
+ * 26pt minimum — so a turn in progress reads as the next thing in the run
+ * rather than as a notification about it.
+ *
+ * The dots stay. Three of them, breathing in sequence, is the one animation
+ * everybody already reads as "something is coming".
+ */
 function ThinkingPill() {
-  const { colors } = useTheme();
+  const { colors, type, radius } = useTheme();
   const dots = useRef([new Animated.Value(0.3), new Animated.Value(0.3), new Animated.Value(0.3)])
     .current;
 
@@ -1427,13 +1470,16 @@ function ThinkingPill() {
         alignSelf: "flex-start",
         flexDirection: "row",
         alignItems: "center",
-        gap: 5,
+        gap: 6,
         marginTop: 16,
         marginLeft: 4,
-        paddingHorizontal: 13,
-        paddingVertical: 9,
-        borderRadius: 999,
-        backgroundColor: colors.foreground,
+        minHeight: 26,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: radius.pill,
+        backgroundColor: colors.card,
+        borderWidth: 1,
+        borderColor: colors.border,
       }}
     >
       {dots.map((value, i) => (
@@ -1443,11 +1489,12 @@ function ThinkingPill() {
             width: 5,
             height: 5,
             borderRadius: 2.5,
-            backgroundColor: colors.bg,
+            backgroundColor: colors.textSecondary,
             opacity: value,
           }}
         />
       ))}
+      <Text style={{ ...type.caption, color: colors.textMuted }}>Working</Text>
     </View>
   );
 }

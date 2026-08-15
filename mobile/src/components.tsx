@@ -1144,20 +1144,19 @@ export function HomeComposer({
                * than the other way round.
                *
                * They started at 24 inside 32 — a quarter of the control spent
-               * on padding, with arcs too fine to read at arm's length. Filling
-               * the chip fixed the reading and made the whole thing loud beside
-               * the folder pill, so the chip came down with them: 26 inside 28,
-               * a 2pt ring of glass, and a 3.5pt stroke that stays legible at
-               * the smaller diameter. Smaller than where this started, and
-               * still far easier to read.
+               * on padding, and arcs too fine to read. Filling the chip fixed
+               * the reading and made the whole thing loud beside the folder
+               * pill, so the chip came down twice, to 22 inside 24: a third
+               * smaller than where this started, with the rings still doing
+               * the reading rather than the padding.
                */
               <GlassSurface
                 key={provider.id}
                 variant="regular"
                 fallbackColor={colors.secondary}
                 style={{
-                  width: 28,
-                  height: 28,
+                  width: 24,
+                  height: 24,
                   borderRadius: radius.pill,
                   alignItems: "center",
                   justifyContent: "center",
@@ -1165,7 +1164,7 @@ export function HomeComposer({
                 }}
               >
                 <UsageRings
-                  size={26}
+                  size={22}
                   windows={provider.available ? orderWindows(provider.windows ?? []) : []}
                 />
               </GlassSurface>
@@ -1374,10 +1373,10 @@ export function UsageRings({
 }) {
   const { colors } = useTheme();
   const shown = windows.slice(0, RING_COLORS.length);
-  // Thicker than the web's, because this is 30pt across on a phone held at
-  // arm's length rather than 52 on a desk. Below 3.5 the two arcs read as one
-  // fuzzy ring at a glance, which is the opposite of the point.
-  const thickness = 3.5;
+  // 3 at this diameter: the arcs have to stay distinguishable from each other
+  // at 22pt, and a 3.5 stroke on a 22pt circle leaves the inner ring almost no
+  // room to exist.
+  const thickness = 3;
   const gap = thickness + 1;
 
   return (
