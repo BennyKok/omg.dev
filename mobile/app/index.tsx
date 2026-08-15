@@ -276,6 +276,9 @@ export default function SessionsScreen() {
   // No session exists yet, so these upload to the pre-session endpoint and
   // ride along in the prompt that creates one.
   const attachments = useAttachments(null);
+  // Already one entry per agent rather than per login: the machine folds them
+  // now (`/api/usage/summary`), and useUsage only does it itself when talking
+  // to a box too old to have that endpoint.
   const { providers: usage } = useUsage();
   const agentPicker = useAgentPicker();
   const projectPicker = useProjectPicker();
@@ -692,18 +695,34 @@ export default function SessionsScreen() {
               </DropdownMenu>
             }
           />
-        ) : readiness?.status === "waking" ? (
-          // Skeleton cards, not a spinner: the sessions that were here before
-          // hibernation are coming back, not being discovered fresh, and the
-          // shape of the list underneath the copy says so without a word
-          // changing. See probe() in ../src/omg/provider.tsx for why this
-          // state exists at all.
+        ) : readiness?.status === "connecting" || readiness?.status === "waking" ? (
+          /**
+           * SAY ONLY WHAT IS KNOWN.
+           *
+           * This screen used to claim "Waking your computer… It hibernated to
+           * save resources" for both states, which was frequently untrue: the
+           * optimistic state is set BEFORE the probe, so most of the time it
+           * was saying a machine had hibernated when nobody had asked it
+           * anything yet — and a paired machine is a laptop running
+           * `omg connect`, which does not hibernate at all. Only a 425 from
+           * the proxy, on the cloud Computer, means what that sentence says.
+           *
+           * Skeleton cards rather than a spinner either way: the sessions
+           * being fetched already exist, and the shape of the list says
+           * "these are coming back" without a word changing.
+           */
           <View style={{ gap: space.lg, paddingTop: space.xl }}>
             <View style={{ alignItems: "center", gap: space.xs, paddingHorizontal: space.xl }}>
-              <Text style={{ ...type.callout, color: colors.textSecondary }}>Waking your computer…</Text>
-              <Text style={{ ...type.footnote, color: colors.textMuted, textAlign: "center" }}>
-                It hibernated to save resources. This usually takes a moment.
+              <Text style={{ ...type.callout, color: colors.textSecondary }}>
+                {readiness.status === "waking"
+                  ? "Waking your computer…"
+                  : `Connecting to ${machineName}…`}
               </Text>
+              {readiness.status === "waking" ? (
+                <Text style={{ ...type.footnote, color: colors.textMuted, textAlign: "center" }}>
+                  It hibernated to save resources. This usually takes a moment.
+                </Text>
+              ) : null}
             </View>
             <SessionListSkeleton count={2} />
           </View>

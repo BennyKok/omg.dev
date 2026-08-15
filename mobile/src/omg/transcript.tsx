@@ -37,8 +37,8 @@
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import type { AndroidSymbol, SFSymbol } from "expo-symbols";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Platform, Pressable, StyleSheet, View } from "react-native";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Modal, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import Reanimated, {
   FadeIn,
   useAnimatedStyle,
@@ -182,6 +182,86 @@ export function TranscriptRow({ item }: { item: TranscriptItem }) {
  * A lone call is NOT wrapped. Hiding one thing behind a disclosure that says
  * "1 tool call" is strictly more work than showing it.
  */
+/**
+ * The drawer every tool payload opens in — one place, so a single call and a
+ * whole run present identically. A sheet is what iOS uses for "show me this
+ * one thing without losing where I was", which is precisely the job.
+ */
+function ToolSheet({
+  visible,
+  title,
+  symbol,
+  onClose,
+  children,
+}: {
+  visible: boolean;
+  title: string;
+  symbol: Symbols;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const { colors, type, space } = useTheme();
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: space.sm,
+            paddingHorizontal: space.lg,
+            paddingVertical: space.md,
+            borderBottomWidth: StyleSheet.hairlineWidth,
+            borderBottomColor: colors.border,
+          }}
+        >
+          <Icon ios={symbol.ios} android={symbol.android} size={14} color={colors.textMuted} />
+          <Text style={{ ...type.headline, color: colors.text, flex: 1 }} numberOfLines={1}>
+            {title}
+          </Text>
+          <Pressable
+            onPress={onClose}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}
+          >
+            <Icon ios="xmark" android="close" size={15} color={colors.textSecondary} />
+          </Pressable>
+        </View>
+        <ScrollView
+          contentContainerStyle={{ padding: space.lg, gap: space.sm }}
+          contentInsetAdjustmentBehavior="never"
+        >
+          {children}
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+/** One call's arguments and result, as the blocks a reader can copy. */
+function ToolDetail({ call, result }: { call: Entry | null; result: Entry | null }) {
+  const { colors, type, space } = useTheme();
+  const parsed = useMemo(() => (call ? parseToolCall(call.text) : null), [call]);
+  const resultText = useMemo(() => (result?.text ?? "").trim(), [result]);
+  const failed = useMemo(() => looksFailed(resultText), [resultText]);
+  const summary = parsed?.summary ?? null;
+
+  return (
+    <View style={{ gap: space.sm }}>
+      {summary ? (
+        <Text style={{ ...type.caption, color: colors.textMuted }}>{summary}</Text>
+      ) : null}
+      {parsed?.fields.map((field) => (
+        <CodeBlock key={field.key} text={clip(field.value)} lang={field.key} />
+      ))}
+      {parsed?.raw ? <CodeBlock text={clip(parsed.raw)} lang={parsed.rawLabel} /> : null}
+      {resultText ? <CodeBlock text={clip(resultText)} lang={failed ? "error" : "result"} /> : null}
+    </View>
+  );
+}
+
 function ToolRun({ pairs }: { pairs: ToolPair[] }) {
   const { colors, type, space, radius, motion } = useTheme();
   const [open, setOpen] = useState(false);
@@ -217,19 +297,22 @@ function ToolRun({ pairs }: { pairs: ToolPair[] }) {
   const symbol: Symbols =
     unique.length === 1 ? toolSymbol(unique[0]) : { ios: "wrench.and.screwdriver", android: "build" };
 
-  const toggle = () => {
+  /**
+   * ONE TAP, ONE DRAWER. The run used to unfold into its badges, which meant
+   * two taps and a transcript that grew a list mid-sentence before you could
+   * read anything. Everything the run did is in the sheet, in order.
+   */
+  const openSheet = () => {
     void Haptics.selectionAsync();
-    turn.value = withTiming(open ? 0 : 1, { duration: motion.quick });
-    setOpen((value) => !value);
+    setOpen(true);
   };
 
   return (
-    <View style={{ alignSelf: "stretch", gap: space.xs }}>
+    <View style={{ alignSelf: "stretch" }}>
       <Pressable
-        onPress={toggle}
+        onPress={openSheet}
         accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
-        accessibilityLabel={`${label}. ${open ? "Hide" : "Show"} the steps`}
+        accessibilityLabel={`${label}. Open`}
         style={({ pressed }) => ({
           alignSelf: "flex-start",
           flexDirection: "row",
@@ -246,17 +329,62 @@ function ToolRun({ pairs }: { pairs: ToolPair[] }) {
       >
         <Icon ios={symbol.ios} android={symbol.android} size={12} color={colors.textMuted} />
         <Text style={{ ...type.caption, fontWeight: "500", color: colors.text }}>{label}</Text>
-        <Reanimated.View style={chevron}>
-          <Icon ios="chevron.down" android="expand_more" size={11} color={colors.textMuted} />
-        </Reanimated.View>
+        <Icon ios="chevron.right" android="chevron_right" size={10} color={colors.textMuted} />
       </Pressable>
 
-      {open ? (
-        <View style={{ alignSelf: "stretch", gap: space.xs, paddingLeft: space.sm }}>
-          {pairs.map((pair) => (
-            <ToolEntry key={pair.key} call={pair.call} result={pair.result} />
-          ))}
-        </View>
+      <ToolSheet
+        visible={open}
+        title={label}
+        symbol={symbol}
+        onClose={() => setOpen(false)}
+      >
+        {pairs.map((pair, index) => (
+          <View key={pair.key} style={{ gap: space.sm }}>
+            {/* Each step keeps its own name and outcome: a run of five shells
+                is five different commands, and a wall of blocks with no
+                headings is not a transcript of anything. */}
+            <ToolStepHeader call={pair.call} result={pair.result} index={index} />
+            <ToolDetail call={pair.call} result={pair.result} />
+          </View>
+        ))}
+      </ToolSheet>
+    </View>
+  );
+}
+
+/** The name, number and outcome of one step inside a run's sheet. */
+function ToolStepHeader({
+  call,
+  result,
+  index,
+}: {
+  call: Entry | null;
+  result: Entry | null;
+  index: number;
+}) {
+  const { colors, type, space } = useTheme();
+  const parsed = call ? parseToolCall(call.text) : null;
+  const resultText = (result?.text ?? "").trim();
+  const failed = looksFailed(resultText);
+  const symbol = parsed ? toolSymbol(parsed.name) : { ios: "checkmark.circle" as const, android: "check_circle" as const };
+
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.xs,
+        paddingTop: index === 0 ? 0 : space.md,
+      }}
+    >
+      <Icon ios={symbol.ios} android={symbol.android} size={12} color={colors.textMuted} />
+      <Text style={{ ...type.caption, fontWeight: "600", color: colors.text }}>
+        {parsed?.name ?? "Result"}
+      </Text>
+      {resultText ? (
+        <Text style={{ ...type.caption, fontSize: 10, color: failed ? colors.danger : colors.textMuted }}>
+          {failed ? "Failed" : "Done"}
+        </Text>
       ) : null}
     </View>
   );
@@ -384,9 +512,10 @@ function ToolEntry({ call, result }: { call: Entry | null; result: Entry | null 
   const toggle = () => {
     if (!expandable) return;
     void Haptics.selectionAsync();
-    turn.value = withTiming(open ? 0 : 1, { duration: motion.quick });
-    setOpen((value) => !value);
+    setOpen(true);
   };
+
+  const close = () => setOpen(false);
 
   // A result the pairing pass could not attach has no tool to name a symbol
   // after, so it wears its own outcome instead of a generic wrench.
@@ -420,10 +549,10 @@ function ToolEntry({ call, result }: { call: Entry | null; result: Entry | null 
        * and the result appear, and the badge becomes the header of that panel.
        */
       style={{
-        alignSelf: open ? "stretch" : "flex-start",
+        alignSelf: "flex-start",
         maxWidth: "100%",
         backgroundColor: colors.card,
-        borderRadius: open ? radius.sm : radius.pill,
+        borderRadius: radius.pill,
         borderWidth: 1,
         borderColor: colors.border,
         overflow: "hidden",
@@ -440,9 +569,9 @@ function ToolEntry({ call, result }: { call: Entry | null; result: Entry | null 
           flexDirection: "row",
           alignItems: "center",
           gap: 5,
-          minHeight: open ? 36 : 26,
-          paddingHorizontal: open ? space.md : space.sm,
-          paddingVertical: open ? space.sm : 3,
+          minHeight: 26,
+          paddingHorizontal: space.sm,
+          paddingVertical: 3,
           backgroundColor: pressed ? colors.cardPressed : "transparent",
         })}
       >
@@ -502,53 +631,29 @@ function ToolEntry({ call, result }: { call: Entry | null; result: Entry | null 
         {/* The summary is the first line of the CONTENT, so it waits for the
             same tap the arguments do. Collapsed, the badge says which tool —
             that is the whole point of it being a badge. */}
-        {open && summary ? (
-          <Text
-            numberOfLines={1}
-            ellipsizeMode="middle"
-            style={{ ...type.caption, color: colors.textMuted, flex: 1, minWidth: 0 }}
-          >
-            {summary}
-          </Text>
-        ) : open ? (
-          <View style={{ flex: 1 }} />
-        ) : null}
+
         {/* Chevron on the TRAILING edge, pointing down and rotating on open —
             the web's `ChevronDown ... group-data-[panel-open]/tool:rotate-180`.
             It used to lead the row, which put the least important thing first. */}
-        <Reanimated.View style={chevron}>
-          <Icon
-            ios="chevron.down"
-            android="expand_more"
-            size={11}
-            color={expandable ? colors.textMuted : "transparent"}
-          />
-        </Reanimated.View>
+        {/* A chevron that opens a SHEET points forward, not down: down means
+            "this grows in place", which is exactly what it stopped doing. */}
+        <Icon
+          ios="chevron.right"
+          android="chevron_right"
+          size={10}
+          color={expandable ? colors.textMuted : "transparent"}
+        />
       </Pressable>
 
-      {open ? (
-        <Reanimated.View
-          entering={FadeIn.duration(motion.quick)}
-          style={{
-            paddingHorizontal: space.sm,
-            paddingBottom: space.sm,
-            gap: space.sm,
-            borderTopWidth: StyleSheet.hairlineWidth,
-            borderTopColor: colors.border,
-            paddingTop: space.sm,
-          }}
-        >
-          {parsed?.fields.map((field) => (
-            <CodeBlock key={field.key} text={clip(field.value)} lang={field.key} />
-          ))}
-          {parsed?.raw ? <CodeBlock text={clip(parsed.raw)} lang={parsed.rawLabel} /> : null}
-          {resultText ? (
-            <View style={{ gap: space.xs }}>
-              <CodeBlock text={clip(resultText)} lang={failed ? "error" : "result"} />
-            </View>
-          ) : null}
-        </Reanimated.View>
-      ) : null}
+      {/**
+       * THE DETAIL OPENS AS A SHEET, not inline. A tool's arguments are
+       * frequently longer than the screen — a diff, a file, a page of JSON —
+       * and expanding that between two paragraphs pushed the conversation you
+       * were reading off the top.
+       */}
+      <ToolSheet visible={open} title={title} symbol={symbol} onClose={close}>
+        <ToolDetail call={call} result={result} />
+      </ToolSheet>
     </View>
   );
 }
@@ -829,6 +934,14 @@ function ThinkingEntry({ message, nextTs }: { message: Entry; nextTs?: number | 
           opacity: pressed ? 0.5 : 1,
         })}
       >
+        {/* The row starts with its own glyph, flush with everything else in
+            the transcript. A chevron in FRONT of it was a 14pt indent applied
+            to one kind of row, which is the padding that made this block look
+            like it had been quoted from somewhere. */}
+        <Icon ios="brain" android="psychology" size={12} color={colors.textMuted} />
+        <Text style={{ ...type.caption, color: colors.textMuted }}>
+          {thoughtFor ? `Thought for ${thoughtFor}` : "Thinking"}
+        </Text>
         <Reanimated.View style={chevron}>
           <Icon
             ios="chevron.right"
@@ -837,10 +950,6 @@ function ThinkingEntry({ message, nextTs }: { message: Entry; nextTs?: number | 
             color={body ? colors.textMuted : "transparent"}
           />
         </Reanimated.View>
-        <Icon ios="brain" android="psychology" size={12} color={colors.textMuted} />
-        <Text style={{ ...type.caption, color: colors.textMuted }}>
-          {thoughtFor ? `Thought for ${thoughtFor}` : "Thinking"}
-        </Text>
         {body && !open ? (
           <Text
             numberOfLines={1}

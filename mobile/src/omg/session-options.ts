@@ -232,8 +232,11 @@ export function useProjectPicker() {
       repos.length
         ? [
             {
+              // NO ICON. The repo rows below it have none — they are folders
+              // this box happens to have, not things with symbols — and a menu
+              // where ONE row carries an icon indents every other label to
+              // make room for a gutter nothing else uses.
               label: "All projects",
-              icon: "square.grid.2x2",
               selected: activeFilter === ALL_PROJECTS,
               onPress: () => {
                 setFilter(ALL_PROJECTS);

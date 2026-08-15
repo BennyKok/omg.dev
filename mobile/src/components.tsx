@@ -14,7 +14,7 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import * as Haptics from "expo-haptics";
 import Reanimated, {
   Easing,
@@ -35,7 +35,12 @@ import { agentIcon } from "./omg/agent-icons";
 import type { Attachment } from "./omg/attachments";
 import { GlassSurface, LIQUID_GLASS } from "./omg/glass";
 import { LucideIcon, type LucideName } from "./omg/lucide";
-import { peakPct, providerKindForAgent, type ProviderUsage } from "./omg/usage";
+import {
+  orderWindows,
+  providerKindForAgent,
+  type ProviderUsage,
+  type UsageWindow,
+} from "./omg/usage";
 import type { OmgColors } from "./omg/palette";
 import { DropdownMenu, type MenuOption } from "./omg/menu";
 import { PressableScale, useListItemMotion } from "./omg/motion";
@@ -485,7 +490,17 @@ export function AgentAvatar({
    * spinner cannot be made to hug a 32pt circle, and its grey competes with
    * the amber this state is coloured everywhere else.
    */
-  const ringSize = size + 8;
+  /**
+   * THE RING TAKES THE MARK'S FOOTPRINT, and the mark shrinks inside it.
+   *
+   * Drawing the ring OUTSIDE the mark made a working row's icon visibly bigger
+   * than an idle one, so a list with both in it looked ragged — the rows were
+   * not the same shape, and the difference read as a layout bug rather than as
+   * state. Now `size` is what the whole thing occupies either way: busy just
+   * spends 8pt of it on the ring.
+   */
+  const ringSize = size;
+  const markSize = busy ? size - 9 : size;
   return (
     <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
       {busy ? (
@@ -508,9 +523,9 @@ export function AgentAvatar({
       ) : null}
       <View
         style={{
-          width: size,
-          height: size,
-          borderRadius: size / 2,
+          width: markSize,
+          height: markSize,
+          borderRadius: markSize / 2,
           backgroundColor: plain ? "transparent" : colors.secondary,
           alignItems: "center",
           justifyContent: "center",
@@ -523,8 +538,8 @@ export function AgentAvatar({
           // to leave the disc a margin or it reads as a sticker on a coin.
           style={
             plain
-              ? { width: size, height: size }
-              : { width: Math.round(size * 0.62), height: Math.round(size * 0.62) }
+              ? { width: markSize, height: markSize }
+              : { width: Math.round(markSize * 0.62), height: Math.round(markSize * 0.62) }
           }
           resizeMode="contain"
         />
@@ -796,11 +811,18 @@ export function SessionCard({
               of that and stops competing with the session's name. */}
           <AgentAvatar agent={agent} size={22} busy={busy} plain />
           <View style={{ flex: 1, gap: 1, minWidth: 0 }}>
-            <Text numberOfLines={1} style={{ ...type.headline, color: colors.text }}>
+            {/* 15/12, down from 17/13. A session's name is a fragment of a
+                prompt, not a headline — at 17 a list of eight of them read as
+                eight headings, and the extra point bought no legibility on a
+                line that truncates anyway. */}
+            <Text
+              numberOfLines={1}
+              style={{ ...type.callout, fontWeight: "600", color: colors.text }}
+            >
               {title}
             </Text>
             {subtitle ? (
-              <Text numberOfLines={1} style={{ ...type.footnote, color: colors.textMuted }}>
+              <Text numberOfLines={1} style={{ ...type.caption, fontWeight: "400", color: colors.textMuted }}>
                 {subtitle}
               </Text>
             ) : null}
@@ -1046,27 +1068,46 @@ export function HomeComposer({
           paddingRight: space.xs,
         }}
       >
-        {/* ONLY THE AGENT THAT WILL RUN THIS. Six rings said what the whole
-            fleet had spent, which is a dashboard; the composer's question is
-            narrower — "if I send this, is there room?" — and that is one
-            agent's window. Several rings can still appear for it when the box
-            has more than one account of that kind, which is the honest answer
-            to the same question. */}
+        {/**
+         * ONE AGENT, ONE SET OF RINGS. The composer's question is narrow — "if
+         * I send this, is there room?" — and that is the agent about to run,
+         * with its accounts folded together (see `mergeByKind`) rather than
+         * one circle per login answering a question nobody asked.
+         */}
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
           {usage
             .filter((provider) => provider.kind === providerKindForAgent(agent))
             .map((provider) => (
-              <UsageRing
+              /**
+               * ON GLASS, like the folder pill opposite it.
+               *
+               * The web draws these rings bare, and copying that put them
+               * straight onto whatever session card happened to be scrolling
+               * under the floating composer — plus each ring punches an opaque
+               * hole in its middle to fake a stroke, so a black disc sat on top
+               * of a card's border. The web can be bare because its composer
+               * has an opaque surface behind it; ours does not.
+               *
+               * A 32pt capsule, the pill's own height, so the caption row reads
+               * as two chips rather than one chip and some loose marks.
+               */
+              <GlassSurface
                 key={provider.id}
-                pct={provider.available ? peakPct(provider) : null}
-                color={ringColor(provider.available ? peakPct(provider) : null, colors)}
+                variant="regular"
+                fallbackColor={colors.secondary}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: radius.pill,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  overflow: "hidden",
+                }}
               >
-                <Image
-                  source={agentIcon(provider.kind)}
-                  style={{ width: 11, height: 11 }}
-                  resizeMode="contain"
+                <UsageRings
+                  windows={provider.available ? orderWindows(provider.windows ?? []) : []}
                 />
-              </UsageRing>
+              </GlassSurface>
             ))}
         </View>
 
@@ -1084,18 +1125,7 @@ export function HomeComposer({
   );
 }
 
-/**
- * A ring runs green until the window is worth knowing about, then amber, then
- * red — the three states the rest of the app already uses for
- * fine / attention / stop. One brand colour would have made 12% and 95% look
- * equally worth reading.
- */
-function ringColor(pct: number | null, colors: OmgColors): string {
-  if (pct === null) return colors.border;
-  if (pct >= 90) return colors.danger;
-  if (pct >= 70) return colors.warning;
-  return colors.success;
-}
+
 
 /**
  * One control under the composer. The folder is the only one left — the agent
@@ -1240,6 +1270,146 @@ export function AttachmentStrip({
     </View>
   );
 }
+
+/**
+ * Apple-Watch-style rings: ONE PER LIMIT WINDOW, concentric.
+ *
+ * Claude has two (five-hour and weekly) and Codex has its own; showing only
+ * the fullest of them threw away the more interesting half of the answer,
+ * because "fine for the next few hours but nearly out for the week" and its
+ * opposite are different situations and the single arc drew them identically.
+ * Weekly sits outermost, matching the web (see `activityRingOrder`), and the
+ * colours are the web's palette so one agent's rings read the same on both
+ * surfaces.
+ *
+ * NO SVG — `react-native-svg` is a native module and this is a decoration.
+ * Each ring is a track (a bordered circle) plus an arc built from two rotated
+ * half-discs, the way CSS drew these before conic gradients, with a hole
+ * punched through so the next ring in shows.
+ */
+const RING_COLORS = ["#fb923c", "#38bdf8", "#a78bfa", "#34d399"];
+
+export function UsageRings({
+  windows,
+  size = 24,
+}: {
+  windows: UsageWindow[];
+  size?: number;
+}) {
+  const { colors } = useTheme();
+  const shown = windows.slice(0, RING_COLORS.length);
+  const thickness = 3;
+  const gap = thickness + 1;
+
+  return (
+    <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
+      {shown.map((window, index) => (
+        <Arc
+          key={window.label}
+          diameter={size - index * gap * 2}
+          thickness={thickness}
+          pct={window.pct}
+          color={RING_COLORS[index % RING_COLORS.length]}
+          holeColor={colors.bg}
+        />
+      ))}
+    </View>
+  );
+}
+
+function Arc({
+  diameter,
+  thickness,
+  pct,
+  color,
+  holeColor,
+}: {
+  diameter: number;
+  thickness: number;
+  pct: number | null;
+  color: string;
+  holeColor: string;
+}) {
+  if (diameter <= thickness * 2) return null;
+  const angle = Math.min(100, Math.max(0, pct ?? 0)) * 3.6;
+  const half = diameter / 2;
+  const hole = diameter - thickness * 2;
+
+  const Wedge = ({ rotate, side }: { rotate: number; side: "left" | "right" }) => (
+    <View
+      style={{
+        position: "absolute",
+        width: half,
+        height: diameter,
+        overflow: "hidden",
+        [side]: 0,
+      }}
+    >
+      <View
+        style={{
+          position: "absolute",
+          width: half,
+          height: diameter,
+          [side === "right" ? "left" : "right"]: 0,
+          borderTopRightRadius: side === "right" ? half : 0,
+          borderBottomRightRadius: side === "right" ? half : 0,
+          borderTopLeftRadius: side === "left" ? half : 0,
+          borderBottomLeftRadius: side === "left" ? half : 0,
+          backgroundColor: color,
+          transform: [
+            { translateX: side === "right" ? -half / 2 : half / 2 },
+            { rotate: `${rotate}deg` },
+            { translateX: side === "right" ? half / 2 : -half / 2 },
+          ],
+        }}
+      />
+    </View>
+  );
+
+  return (
+    <View
+      pointerEvents="none"
+      style={{
+        position: "absolute",
+        width: diameter,
+        height: diameter,
+        borderRadius: half,
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+      }}
+    >
+      {/* The track: the same colour, faint, so an empty window still reads as
+          a window rather than as nothing being there. */}
+      <View
+        style={{
+          position: "absolute",
+          width: diameter,
+          height: diameter,
+          borderRadius: half,
+          borderWidth: thickness,
+          borderColor: color,
+          opacity: 0.2,
+        }}
+      />
+      {pct !== null ? (
+        <>
+          <Wedge side="right" rotate={Math.min(angle, 180) - 180} />
+          {angle > 180 ? <Wedge side="left" rotate={angle - 360} /> : null}
+        </>
+      ) : null}
+      <View
+        style={{
+          width: hole,
+          height: hole,
+          borderRadius: hole / 2,
+          backgroundColor: holeColor,
+        }}
+      />
+    </View>
+  );
+}
+
 
 /**
  * One provider's rate-limit window, as a ring.

@@ -1,6 +1,14 @@
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { useEffect } from "react";
+import { StyleSheet, View } from "react-native";
+import Reanimated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from "react-native-reanimated";
 
 import { BrandMark } from "../src/omg/brand-mark";
 import { useLucideFont } from "../src/omg/lucide";
@@ -8,6 +16,50 @@ import { useLucideFont } from "../src/omg/lucide";
 import { OmgProvider, useOmg } from "../src/omg/provider";
 import { useTheme } from "../src/omg/theme";
 import { ToastProvider } from "../src/omg/toast";
+
+/**
+ * THE LAUNCH SCREEN IS THE MARK, BREATHING — not a mark with a spinner under it.
+ *
+ * A spinner says "this will take a while, and I am counting". Cold start here
+ * is a cookie read and a bundled font, and on a warm start it is gone before
+ * it can finish one rotation — so what it actually communicated was hesitation
+ * the app does not have. iOS launch screens do not have spinners for the same
+ * reason.
+ *
+ * The mark fades and swells very slightly instead: enough that the screen is
+ * clearly alive rather than stuck, slow enough (1.6s a cycle) that it reads as
+ * breathing rather than as a loading animation. Someone who never sees it —
+ * the common case — loses nothing.
+ *
+ * `Easing.inOut` on both ends, because a linear pulse has a visible corner at
+ * the turn and this is the one thing on screen.
+ */
+function Splash() {
+  const { colors, isDark } = useTheme();
+  const pulse = useSharedValue(0);
+
+  useEffect(() => {
+    pulse.value = withRepeat(
+      withTiming(1, { duration: 1600, easing: Easing.inOut(Easing.quad) }),
+      -1,
+      true,
+    );
+  }, [pulse]);
+
+  const breathe = useAnimatedStyle(() => ({
+    opacity: 0.55 + pulse.value * 0.45,
+    transform: [{ scale: 0.97 + pulse.value * 0.03 }],
+  }));
+
+  return (
+    <View style={[styles.splash, { backgroundColor: colors.bg }]}>
+      <Reanimated.View style={breathe}>
+        <BrandMark size={64} holeColor={colors.bg} />
+      </Reanimated.View>
+      <StatusBar style={isDark ? "light" : "dark"} />
+    </View>
+  );
+}
 
 function RootNavigator() {
   const { authStatus } = useOmg();
@@ -18,13 +70,7 @@ function RootNavigator() {
   const glyphsReady = useLucideFont();
 
   if (authStatus === "loading" || !glyphsReady) {
-    return (
-      <View style={[styles.splash, { backgroundColor: colors.bg }]}>
-        <BrandMark />
-        <ActivityIndicator color={colors.textMuted} style={styles.splashSpinner} />
-        <StatusBar style={isDark ? "light" : "dark"} />
-      </View>
-    );
+    return <Splash />;
   }
 
   if (authStatus === "signed-out") {
@@ -230,7 +276,5 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
   },
-  splashSpinner: {
-    marginTop: 24,
-  },
+
 });

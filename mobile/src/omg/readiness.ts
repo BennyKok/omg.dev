@@ -30,7 +30,13 @@ export type ComputerReadiness =
    * would have to be re-issued on the same events. One fetch, one owner.
    */
   | { status: "ready"; version?: string; sessions: unknown[]; roster: BootstrapRoster }
-  /** Cold sandbox resuming. Retry — do not surface an error. */
+  /**
+   * We have ASKED and not yet heard. Distinct from `waking`, which is a thing
+   * the machine told us: this is the state of knowing nothing, and claiming a
+   * computer is hibernating during it is a guess dressed as a fact.
+   */
+  | { status: "connecting" }
+  /** Cold sandbox resuming — the proxy said 425. Retry, do not show an error. */
   | { status: "waking" }
   /** Too many live agents for this plan (429) or this box's local cap. */
   | { status: "agent-limit"; message: string }

@@ -239,7 +239,14 @@ export function OmgProvider({ children }: PropsWithChildren) {
      * it. If the probe comes back unhappy, the screen changes then, on real
      * news rather than on the mere act of asking.
      */
-    setReadiness((current) => (current?.status === "ready" ? current : { status: "waking" }));
+    /**
+     * "Connecting", not "waking". The optimistic state here runs BEFORE the
+     * probe, so at this point nobody has said anything about hibernation —
+     * and for a paired machine (a laptop running `omg connect`) hibernation is
+     * not a thing that happens at all. Only a 425 from the proxy, or a cloud
+     * Computer we have just asked to start, earns the word "waking".
+     */
+    setReadiness((current) => (current?.status === "ready" ? current : { status: "connecting" }));
 
     /**
      * Ask a sleeping cloud Computer to actually wake up.

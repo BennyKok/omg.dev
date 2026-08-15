@@ -79,7 +79,6 @@ export function useComputerPicker() {
     if (cloudBlocked) {
       rows.push({
         label: "Fix this on omg.dev",
-        icon: "arrow.up.right.square",
         onPress: () => void Linking.openURL("https://app.omg.dev/"),
       });
     }
@@ -95,9 +94,14 @@ export function useComputerPicker() {
      * folder each box is bound to, and the blocked-plan reason are all the same
      * shape of problem: they need room this does not have.
      */
+    /**
+     * No icon on this row either. The machines above it are named, not
+     * symbolised, and iOS reserves an icon gutter for the WHOLE menu the
+     * moment one row asks for one — so a single gear pushed every machine's
+     * name across and left a column of empty space beside them.
+     */
     rows.push({
       label: "Manage computers…",
-      icon: "gearshape",
       onPress: () => router.push("/computers"),
     });
 

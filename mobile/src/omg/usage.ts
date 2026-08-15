@@ -30,7 +30,89 @@ export type ProviderUsage = {
   available: boolean;
   plan?: string | null;
   windows?: UsageWindow[];
+  /** Merged view only: how many of this agent's logins actually reported. */
+  accounts?: number;
+  /** Merged view only: "2 of 3 accounts", when some did not answer. */
+  note?: string | null;
 };
+
+/**
+ * ONE ENTRY PER AGENT, not per account.
+ *
+ * A box with three Claude logins reports three providers, and drawing one ring
+ * each turned the composer into a row of near-identical circles that answered
+ * a question nobody asked ("how is account 2 doing?"). The web folds them with
+ * `mergeProviderUsage`: windows are matched BY LABEL and averaged, the soonest
+ * reset wins, and an account that has not reported is left out of the mean
+ * rather than counted as zero — which would read as headroom that does not
+ * exist.
+ *
+ * THE MACHINE DOES THIS NOW (`GET /api/usage/summary`). This copy is the
+ * fallback for a box that has not been updated yet, and it is deliberately the
+ * same rule rather than a simpler one — a phone that disagreed with the web
+ * about how full an account is would be worse than a phone showing nothing.
+ * Delete it once no reachable machine 404s that endpoint.
+ */
+export function mergeByKind(providers: ProviderUsage[]): ProviderUsage[] {
+  const byKind = new Map<string, ProviderUsage[]>();
+  for (const provider of providers) {
+    const list = byKind.get(provider.kind) ?? [];
+    list.push(provider);
+    byKind.set(provider.kind, list);
+  }
+
+  return [...byKind.entries()].map(([kind, members]) => {
+    const live = members.filter((m) => m.available && (m.windows?.length ?? 0) > 0);
+    const base = members[0];
+    if (!live.length) return { ...base, id: kind, available: false, windows: [] };
+
+    const slots = new Map<string, { sum: number; n: number; resetsAt: number | null }>();
+    const order: string[] = [];
+    for (const member of live) {
+      for (const window of member.windows ?? []) {
+        let slot = slots.get(window.label);
+        if (!slot) {
+          slot = { sum: 0, n: 0, resetsAt: null };
+          slots.set(window.label, slot);
+          order.push(window.label);
+        }
+        if (typeof window.pct === "number" && Number.isFinite(window.pct)) {
+          // Clamped per account before folding, as the server ranks them: one
+          // over-100 reading must not drag the whole mean up.
+          slot.sum += Math.max(0, Math.min(100, window.pct));
+          slot.n += 1;
+        }
+        if (window.resetsAt != null && (slot.resetsAt == null || window.resetsAt < slot.resetsAt)) {
+          slot.resetsAt = window.resetsAt;
+        }
+      }
+    }
+
+    return {
+      ...base,
+      id: kind,
+      available: true,
+      windows: order.map((label) => {
+        const slot = slots.get(label)!;
+        return { label, pct: slot.n ? slot.sum / slot.n : null, resetsAt: slot.resetsAt };
+      }),
+    };
+  });
+}
+
+/**
+ * Weekly outermost, then the five-hour window, then anything else — the order
+ * the web draws them in, so the same agent's rings read the same on both.
+ */
+export function orderWindows(windows: UsageWindow[]): UsageWindow[] {
+  const rank = (label: string) => {
+    const l = label.toLowerCase();
+    if (l.includes("week") || l.includes("7 day")) return 0;
+    if (l.includes("5") && (l.includes("hr") || l.includes("hour"))) return 1;
+    return 2;
+  };
+  return [...windows].sort((a, b) => rank(a.label) - rank(b.label));
+}
 
 /** The fullest window, which is the one that will bite first. */
 export function peakPct(provider: ProviderUsage): number | null {
@@ -41,6 +123,22 @@ export function peakPct(provider: ProviderUsage): number | null {
   return Math.max(...values);
 }
 
+/**
+ * ONE REQUEST WHEN THE MACHINE CAN DO IT, N+1 ONLY WHEN IT CANNOT.
+ *
+ * The old shape was a directory read plus a request PER LOGIN, and then the
+ * phone folded them itself. Three Claude accounts meant four round trips over
+ * whatever cell connection you happen to be on, to draw two circles — and the
+ * folding rule lived in two places (here and web/src/lib/usage.ts), which is
+ * the kind of duplication that ends with two surfaces disagreeing about how
+ * full the same account is.
+ *
+ * `/api/usage/summary` is that rule, on the machine, next to the data it
+ * describes. The old path stays as a fallback because a phone updates through
+ * TestFlight and a machine updates when its owner pulls: the two are never in
+ * step, and a ring that vanishes for a week is a regression to the person
+ * looking at it.
+ */
 export function useUsage(): { providers: ProviderUsage[]; refresh: () => void } {
   const { client } = useOmg();
   const [providers, setProviders] = useState<ProviderUsage[]>([]);
@@ -54,22 +152,49 @@ export function useUsage(): { providers: ProviderUsage[]; refresh: () => void } 
 
     void (async () => {
       try {
+        const merged = await client.transport.request<{ providers?: ProviderUsage[] }>(
+          "/api/usage/summary",
+        );
+        if (cancelled) return;
+        setProviders(merged.providers ?? []);
+        return;
+      } catch {
+        // Falls through to the per-account walk below. Any failure counts:
+        // an old machine 404s, and one that is mid-restart can 502.
+      }
+
+      try {
         const directory = await client.transport.request<{
           providers?: { id: string }[];
         }>("/api/usage/providers");
         const ids = (directory.providers ?? []).map((p) => p.id);
-        // Each provider is its own request on the machine, and one slow CLI
-        // must not hold up the rest of the row.
-        const results = await Promise.all(
+        /**
+         * EACH ACCOUNT PAINTS AS IT LANDS, rather than the row waiting for the
+         * slowest of them.
+         *
+         * This was a `Promise.all` that set state once, and on a box with five
+         * providers the composer showed no rings AT ALL for the better part of
+         * a minute — every account was ready except one CLI that reports
+         * nothing and takes its time saying so. Measured on device: the row
+         * was empty long enough to read as "this feature does not work".
+         *
+         * Merging what has arrived so far is correct at every step, because
+         * the fold already excludes accounts that have not reported; a slow one
+         * joins the mean when it answers.
+         */
+        const landed: ProviderUsage[] = [];
+        await Promise.all(
           ids.map((id) =>
             client.transport
               .request<{ provider: ProviderUsage }>(`/api/usage/${encodeURIComponent(id)}`)
-              .then((payload) => payload.provider)
+              .then((payload) => {
+                if (cancelled || !payload.provider) return;
+                landed.push(payload.provider);
+                setProviders(mergeByKind(landed));
+              })
               .catch(() => null),
           ),
         );
-        if (cancelled) return;
-        setProviders(results.filter((p): p is ProviderUsage => !!p));
       } catch {
         // A machine that cannot answer leaves the row empty rather than
         // showing rings full of nothing.

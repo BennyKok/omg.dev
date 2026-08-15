@@ -355,17 +355,6 @@ export default function SessionScreen() {
   }, [client, id]);
 
   /** This session's own sent messages, newest last — the composer's history. */
-  /** Everything the transcript can be copied into, oldest first. */
-  const copyTranscript = useCallback(() => {
-    const text = messages
-      .filter((m) => m.text)
-      .map((m) => `${m.role === "user" ? "You" : "Agent"}: ${m.text}`)
-      .join("\n\n");
-    if (!text) return;
-    void Clipboard.setStringAsync(text);
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  }, [messages]);
-
   /**
    * Archive: the same request the session list's "Smart clear" sends, scoped to
    * this one session. Only offered while the agent is idle, because that is the
@@ -479,9 +468,6 @@ export default function SessionScreen() {
     options.push({ label: "Rename", icon: "pencil", onPress: rename });
     options.push({ label: "Fork", icon: "arrow.triangle.branch", onPress: fork });
     options.push({ label: "Copy reference", icon: "link", onPress: copyReference });
-    if (messages.some((m) => m.text)) {
-      options.push({ label: "Copy transcript", icon: "doc.on.doc", onPress: copyTranscript });
-    }
     if (!busy) {
       options.push({
         label: "Archive session",
@@ -491,7 +477,17 @@ export default function SessionScreen() {
       });
     }
     return options;
-  }, [busy, messages, stop, copyTranscript, archive, rename, fork, copyReference]);
+    /**
+     * NOTHING HERE DEPENDS ON `messages`, deliberately.
+     *
+     * "Copy transcript" did, through the `some(m => m.text)` guard that decided
+     * whether to offer it — so the whole option list was rebuilt on every
+     * streaming delta, and rebuilding the native menu that often is what made
+     * opening it feel like it was loading something. It was also the least
+     * used verb on the sheet: a phone is not where anyone copies a thousand
+     * lines of transcript.
+     */
+  }, [busy, stop, archive, rename, fork, copyReference]);
 
   /**
    * The native bar: system back on the left (this is a pushed screen, so the
@@ -1006,7 +1002,10 @@ export default function SessionScreen() {
             // not a surface — but not a full pill, which bulges once the field
             // grows to 120pt for a long prompt.
             borderRadius: 24,
-            minHeight: 52,
+            // The same 44 as the attach button next to it. At 52 the two
+            // controls on one row were visibly different heights, which reads
+            // as a mistake rather than a hierarchy.
+            minHeight: 44,
             paddingLeft: space.md,
             paddingRight: space.sm,
             paddingVertical: 6,
