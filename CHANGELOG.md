@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## August 15, 2026 - Cursor joins the usage page (v0.1.376)
+
+- **The Settings → Usage page now includes Cursor.** It reads included spend
+  and the on-demand spending cap from the Cursor dashboard with the CLI's
+  sign-in, and shows each as its own ring next to Claude, Codex, Grok, and
+  OpenCode. An expired token asks you to run `cursor-agent login` instead of
+  showing a raw HTTP status.
+
 ## August 14, 2026 - Jcode mark matches upstream gray (v0.1.375)
 
 - **Jcode's agent icon no longer wears an invented blue tint.** The torus
