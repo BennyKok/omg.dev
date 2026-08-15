@@ -471,6 +471,7 @@ export default function SignInScreen() {
 
         {step === "email" ? (
           <>
+            <View style={styles.spacer} />
             <View style={styles.dividerRow}>
               <View style={[styles.dividerLine, { backgroundColor: colors.borderStrong }]} />
               <Text style={[type.footnote, { color: colors.textMuted }]}>or</Text>
@@ -494,8 +495,27 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
+    /**
+     * NO `space-between` HERE.
+     *
+     * The container has three children — the form, the primary button, and
+     * the "or / iMessage" alternative — and space-between hands each GAP an
+     * equal share of whatever is left over. On a tall phone with a short form
+     * that is three arbitrary voids: the field floating a hundred points above
+     * its own Continue button, and the divider stranded in the middle of
+     * nothing. It only ever looked right on a screen whose content happened to
+     * fill it.
+     *
+     * The form stays together at the top and the alternative is pushed to the
+     * bottom by ONE deliberate spacer, so there is exactly one flexible gap
+     * and it is where a gap belongs.
+     */
     flexGrow: 1,
-    justifyContent: "space-between",
+  },
+  /** The single flexible gap: everything above it groups, everything below sits at the foot. */
+  spacer: {
+    flex: 1,
+    minHeight: 28,
   },
   top: {
     width: "100%",
@@ -531,7 +551,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     height: 50,
     justifyContent: "center",
-    marginTop: 32,
+    // Close to the field it submits. 32 was the gap that made sense when
+    // space-between was also pushing them apart; without that it is just far.
+    marginTop: 20,
     width: "100%",
   },
   dividerRow: {
