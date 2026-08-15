@@ -914,7 +914,7 @@ Environment=PATH=$HOME/.local/bin:$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bi
 Environment=LFG_HOST=127.0.0.1
 Environment=OMG_HOST=127.0.0.1
 # agent-browser defaults idle off; without this, headless Chrome orphans pile up
-# when agents forget `close`. Inherited by every managed agent spawn.
+# when agents forget to close it. Inherited by every managed agent spawn.
 Environment=AGENT_BROWSER_IDLE_TIMEOUT_MS=300000
 ExecStart=$BUN_BIN run $LFG_DIR/src/cli.ts serve
 Restart=on-failure
