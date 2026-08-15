@@ -30,14 +30,86 @@
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { marked, type Token, type Tokens } from "marked";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Linking, Platform, ScrollView, StyleSheet, View } from "react-native";
+import Reanimated, {
+  cancelAnimation,
+  Easing,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from "react-native-reanimated";
 
 import { IconButton } from "../components";
 import { Text } from "./text";
 import { useTheme } from "./theme";
 
 const MONO = Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" });
+const AnimatedText = Reanimated.createAnimatedComponent(Text);
+
+/**
+ * One inline slot marks the live edge of an answer.
+ *
+ * The node stays in the last text container after streaming ends. Only its
+ * opacity changes. Mounting and removing a glyph can move the final word to a
+ * new line, which makes the completed answer jump by one line. A transparent
+ * slot costs one narrow monospace advance, but keeps both layouts identical.
+ *
+ * This is a nested Text, not a sibling View. React Native lays nested text into
+ * the parent's attributed string, so the bar shares the final glyph's baseline
+ * and can never become a separate flex row. Reanimated changes opacity on the
+ * UI thread; token deltas do not restart the pulse.
+ */
+function StreamingCaret({ active }: { active: boolean }) {
+  const { colors } = useTheme();
+  const reducedMotion = useReducedMotion();
+  const opacity = useSharedValue(active ? 1 : 0);
+
+  useEffect(() => {
+    cancelAnimation(opacity);
+    if (!active) {
+      opacity.value = 0;
+      return;
+    }
+    if (reducedMotion) {
+      opacity.value = 1;
+      return;
+    }
+    opacity.value = withRepeat(
+      withSequence(
+        withTiming(0.25, { duration: 650, easing: Easing.inOut(Easing.quad) }),
+        withTiming(1, { duration: 650, easing: Easing.inOut(Easing.quad) }),
+      ),
+      -1,
+      false,
+    );
+    return () => cancelAnimation(opacity);
+  }, [active, opacity, reducedMotion]);
+
+  const pulse = useAnimatedStyle(() => ({ opacity: opacity.value }));
+
+  return (
+    <AnimatedText
+      aria-hidden
+      style={[
+        {
+          // The colour flips with the React commit. The pulse is on the UI
+          // thread, but it must not leave one stale visible frame on completion.
+          color: active ? colors.primary : "transparent",
+          fontFamily: MONO,
+          fontSize: 12,
+          lineHeight: 16,
+        },
+        pulse,
+      ]}
+    >
+      ▍
+    </AnimatedText>
+  );
+}
 
 /**
  * `breaks: false` matches the web. streamdown runs remark-gfm without the
@@ -79,14 +151,22 @@ export function Markdown({ text, streaming }: { text: string; streaming?: boolea
 
   return (
     <View style={{ gap: space.md }}>
-      <Blocks tokens={tokens} caret={streaming} />
+      <Blocks tokens={tokens} caret streaming={!!streaming} />
     </View>
   );
 }
 
-function Blocks({ tokens, caret }: { tokens: Token[]; caret?: boolean }) {
-  // The caret belongs to the last block that can hold text, so a stream ending
-  // inside a code fence does not park it under the fence.
+function Blocks({
+  tokens,
+  caret,
+  streaming,
+}: {
+  tokens: Token[];
+  caret: boolean;
+  streaming: boolean;
+}) {
+  // The caret belongs to the last content block. Each renderer puts the same
+  // inline slot after its own final glyph.
   const lastTextish = (() => {
     for (let i = tokens.length - 1; i >= 0; i -= 1) {
       const t = tokens[i].type;
@@ -98,13 +178,26 @@ function Blocks({ tokens, caret }: { tokens: Token[]; caret?: boolean }) {
   return (
     <>
       {tokens.map((token, i) => (
-        <Block key={i} token={token} caret={caret && i === lastTextish} />
+        <Block
+          key={i}
+          token={token}
+          caret={caret && i === lastTextish}
+          streaming={streaming}
+        />
       ))}
     </>
   );
 }
 
-function Block({ token, caret }: { token: Token; caret?: boolean }) {
+function Block({
+  token,
+  caret,
+  streaming,
+}: {
+  token: Token;
+  caret: boolean;
+  streaming: boolean;
+}) {
   const { colors, type, space, radius } = useTheme();
   const body = useBodyText();
 
@@ -127,7 +220,7 @@ function Block({ token, caret }: { token: Token; caret?: boolean }) {
           }}
         >
           <Inline tokens={t.tokens} />
-          {caret ? "▍" : ""}
+          {caret ? <StreamingCaret active={streaming} /> : null}
         </Text>
       );
     }
@@ -137,7 +230,7 @@ function Block({ token, caret }: { token: Token; caret?: boolean }) {
       return (
         <Text selectable style={body}>
           <Inline tokens={t.tokens} />
-          {caret ? "▍" : ""}
+          {caret ? <StreamingCaret active={streaming} /> : null}
         </Text>
       );
     }
@@ -147,19 +240,25 @@ function Block({ token, caret }: { token: Token; caret?: boolean }) {
       return (
         <Text selectable style={body}>
           {t.tokens ? <Inline tokens={t.tokens} /> : t.text}
-          {caret ? "▍" : ""}
+          {caret ? <StreamingCaret active={streaming} /> : null}
         </Text>
       );
     }
 
     case "code": {
       const t = token as Tokens.Code;
-      return <CodeBlock text={t.text} lang={t.lang || undefined} />;
+      return (
+        <CodeBlock
+          text={t.text}
+          lang={t.lang || undefined}
+          caret={caret ? <StreamingCaret active={streaming} /> : null}
+        />
+      );
     }
 
     case "list": {
       const t = token as Tokens.List;
-      return <MdList list={t} caret={caret} />;
+      return <MdList list={t} caret={caret} streaming={streaming} />;
     }
 
     case "blockquote": {
@@ -168,14 +267,14 @@ function Block({ token, caret }: { token: Token; caret?: boolean }) {
         <View style={{ flexDirection: "row", gap: space.md }}>
           <View style={{ width: 3, borderRadius: 2, backgroundColor: colors.border }} />
           <View style={{ flex: 1, gap: space.sm }}>
-            <Blocks tokens={t.tokens ?? []} caret={caret} />
+            <Blocks tokens={t.tokens ?? []} caret={caret} streaming={streaming} />
           </View>
         </View>
       );
     }
 
     case "table":
-      return <MdTable table={token as Tokens.Table} />;
+      return <MdTable table={token as Tokens.Table} caret={caret} streaming={streaming} />;
 
     case "hr":
       return (
@@ -196,6 +295,7 @@ function Block({ token, caret }: { token: Token; caret?: boolean }) {
       return (
         <Text selectable style={body}>
           {stripped}
+          {caret ? <StreamingCaret active={streaming} /> : null}
         </Text>
       );
     }
@@ -206,7 +306,7 @@ function Block({ token, caret }: { token: Token; caret?: boolean }) {
       return (
         <Text selectable style={body}>
           {raw}
-          {caret ? "▍" : ""}
+          {caret ? <StreamingCaret active={streaming} /> : null}
         </Text>
       );
     }
@@ -214,7 +314,15 @@ function Block({ token, caret }: { token: Token; caret?: boolean }) {
 }
 
 /** Ordered and unordered, nested to any depth. */
-function MdList({ list, caret }: { list: Tokens.List; caret?: boolean }) {
+function MdList({
+  list,
+  caret,
+  streaming,
+}: {
+  list: Tokens.List;
+  caret: boolean;
+  streaming: boolean;
+}) {
   const { colors, space } = useTheme();
   const body = useBodyText();
   const start = typeof list.start === "number" && list.start ? list.start : 1;
@@ -237,7 +345,7 @@ function MdList({ list, caret }: { list: Tokens.List; caret?: boolean }) {
               {marker}
             </Text>
             <View style={{ flex: 1, gap: 6 }}>
-              <ListItemBody item={item} caret={caret && isLast} />
+              <ListItemBody item={item} caret={caret && isLast} streaming={streaming} />
             </View>
           </View>
         );
@@ -251,7 +359,15 @@ function MdList({ list, caret }: { list: Tokens.List; caret?: boolean }) {
  * a fenced block. The common case is a single `text` token, which is rendered
  * inline so the bullet and its text share a baseline instead of stacking.
  */
-function ListItemBody({ item, caret }: { item: Tokens.ListItem; caret?: boolean }) {
+function ListItemBody({
+  item,
+  caret,
+  streaming,
+}: {
+  item: Tokens.ListItem;
+  caret: boolean;
+  streaming: boolean;
+}) {
   const body = useBodyText();
   const children = item.tokens ?? [];
 
@@ -264,12 +380,12 @@ function ListItemBody({ item, caret }: { item: Tokens.ListItem; caret?: boolean 
     return (
       <Text selectable style={body}>
         {onlyText.tokens ? <Inline tokens={onlyText.tokens} /> : onlyText.text}
-        {caret ? "▍" : ""}
+        {caret ? <StreamingCaret active={streaming} /> : null}
       </Text>
     );
   }
 
-  return <Blocks tokens={children} caret={caret} />;
+  return <Blocks tokens={children} caret={caret} streaming={streaming} />;
 }
 
 /**
@@ -277,7 +393,15 @@ function ListItemBody({ item, caret }: { item: Tokens.ListItem; caret?: boolean 
  * table an agent will produce and squeezing columns to fit makes them
  * unreadable long before it makes them fit.
  */
-function MdTable({ table }: { table: Tokens.Table }) {
+function MdTable({
+  table,
+  caret,
+  streaming,
+}: {
+  table: Tokens.Table;
+  caret: boolean;
+  streaming: boolean;
+}) {
   const { colors, type, space, radius } = useTheme();
   const widths = table.header.map(() => 148);
 
@@ -332,6 +456,11 @@ function MdTable({ table }: { table: Tokens.Table }) {
               >
                 <Text style={{ ...type.footnote, color: colors.text }}>
                   <Inline tokens={cell.tokens} />
+                  {caret &&
+                  r === table.rows.length - 1 &&
+                  c === row.length - 1 ? (
+                    <StreamingCaret active={streaming} />
+                  ) : null}
                 </Text>
               </View>
             ))}
@@ -427,10 +556,20 @@ function Inline({ tokens }: { tokens?: Token[] }) {
 }
 
 /** A fenced block with its language and a copy button, same as the web. */
-export function CodeBlock({ text, lang }: { text: string; lang?: string }) {
+export function CodeBlock({
+  text,
+  lang,
+  caret,
+}: {
+  text: string;
+  lang?: string;
+  caret?: ReactNode;
+}) {
   const { colors, type, space, radius } = useTheme();
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const trailingBreaks = caret ? text.match(/\n+$/)?.[0] ?? "" : "";
+  const visibleText = trailingBreaks ? text.slice(0, -trailingBreaks.length) : text;
 
   useEffect(
     () => () => {
@@ -476,7 +615,9 @@ export function CodeBlock({ text, lang }: { text: string; lang?: string }) {
             selectable
             style={{ fontFamily: MONO, fontSize: 13, lineHeight: 19, color: colors.text }}
           >
-            {text}
+            {visibleText}
+            {caret}
+            {trailingBreaks}
           </Text>
         </View>
       </ScrollView>
