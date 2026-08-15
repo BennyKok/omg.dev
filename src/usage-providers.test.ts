@@ -76,10 +76,81 @@ describe("usage providers", () => {
       "claude",
       "claude",
       "codex",
+      "cursor",
       "grok",
       "hermes",
       "opencode",
     ]);
+  });
+
+  test("cursor reads included spend and the on-demand cap from the dashboard", async () => {
+    root = mkdtempSync(join(tmpdir(), "lfg-usage-providers-"));
+    process.env.HOME = join(root, "home");
+    mkdirSync(join(process.env.HOME, ".config", "cursor"), { recursive: true });
+    writeFileSync(
+      join(process.env.HOME, ".config", "cursor", "auth.json"),
+      JSON.stringify({ accessToken: "cursor-token" }),
+    );
+    const calls: string[] = [];
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const url = String(input);
+      const auth = String(
+        (init?.headers as Record<string, string> | undefined)?.Authorization ?? "",
+      );
+      calls.push(url);
+      if (auth !== "Bearer cursor-token") throw new Error("missing bearer token");
+      if (url.endsWith("GetCurrentPeriodUsage")) {
+        return new Response(
+          JSON.stringify({
+            billingCycleEnd: "1789207832000",
+            planUsage: { totalSpend: 7594, limit: 40000 },
+            spendLimitUsage: { individualLimit: 20000, individualRemaining: 15000 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.endsWith("GetPlanInfo")) {
+        return new Response(JSON.stringify({ planInfo: { planName: "Ultra" } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    }) as typeof fetch;
+
+    const usage = await getProviderUsage("cursor", { force: true });
+    expect(calls).toHaveLength(2);
+    expect(usage).toMatchObject({ id: "cursor", kind: "cursor", available: true, plan: "Ultra" });
+    expect(usage?.windows?.[0]).toMatchObject({
+      label: "Included",
+      resetsAt: 1789207832000,
+    });
+    expect(usage?.windows?.[0]?.pct).toBeCloseTo(18.985);
+    expect(usage?.windows?.[1]).toMatchObject({ label: "On-demand cap", pct: 25 });
+  });
+
+  test("an expired cursor token says to sign in again", async () => {
+    root = mkdtempSync(join(tmpdir(), "lfg-usage-providers-"));
+    process.env.HOME = join(root, "home");
+    mkdirSync(join(process.env.HOME, ".config", "cursor"), { recursive: true });
+    writeFileSync(
+      join(process.env.HOME, ".config", "cursor", "auth.json"),
+      JSON.stringify({ accessToken: "cursor-token" }),
+    );
+    globalThis.fetch = (async (_input: Parameters<typeof fetch>[0]) =>
+      new Response("unauthorized", { status: 401 })) as typeof fetch;
+
+    const usage = await getProviderUsage("cursor", { force: true });
+    expect(usage).toMatchObject({ available: false });
+    expect(usage?.note).toContain("cursor-agent login");
+  });
+
+  test("cursor with no CLI sign-in reports as not signed in", async () => {
+    root = mkdtempSync(join(tmpdir(), "lfg-usage-providers-"));
+    process.env.HOME = join(root, "home");
+
+    const usage = await getProviderUsage("cursor", { force: true });
+    expect(usage).toMatchObject({ available: false, note: "Not signed in on this box" });
   });
 
   test("a single connected account keeps the plain Claude label", () => {
