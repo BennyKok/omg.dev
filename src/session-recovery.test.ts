@@ -23,7 +23,7 @@ describe("command-file session boot recovery", () => {
 
   afterEach(() => {
     delete process.env.LFG_TEST_HARNESS_CAPTURE;
-    delete process.env.LFG_COMPUTER_PLAN;
+    delete process.env.LFG_COMPUTER_ENTITLEMENT;
     resetManagedRegistryForTests();
     PATHS.data = originalData;
     rmSync(root, { recursive: true, force: true });
@@ -211,7 +211,8 @@ describe("command-file session boot recovery", () => {
   });
 
   test("does not relaunch a scheduled run after boot on a Computer", async () => {
-    process.env.LFG_COMPUTER_PLAN = "computer_5";
+    process.env.LFG_COMPUTER_ENTITLEMENT =
+      '{"plan":"computer_5","limit":5,"scheduleLimit":2}';
     const key = "88888888-8888-4888-8888-888888888888";
     addManaged({
       tmuxName: "lfg-schedule-fire",
@@ -245,12 +246,12 @@ describe("command-file session boot recovery", () => {
       expect(readEntry(key)?.recoveryClaimBootId).toBe(currentBootId());
       expect(() => readFileSync(capture, "utf8")).toThrow();
     } finally {
-      delete process.env.LFG_COMPUTER_PLAN;
+      delete process.env.LFG_COMPUTER_ENTITLEMENT;
     }
   });
 
   test("self-hosted LFG still recovers a spawnedBy=schedule session", async () => {
-    delete process.env.LFG_COMPUTER_PLAN;
+    delete process.env.LFG_COMPUTER_ENTITLEMENT;
     const key = "99999999-9999-4999-8999-999999999999";
     addManaged({
       tmuxName: "lfg-self-hosted-schedule",
