@@ -269,6 +269,11 @@ import {
   isPiAuthProviderId,
   setPiProviderApiKey,
 } from "../pi-auth.ts";
+import {
+  deleteOpencodeCredential,
+  isOpencodeAuthProviderId,
+  setOpencodeProviderApiKey,
+} from "../opencode-auth.ts";
 import { listToolConnections } from "../tool-connections.ts";
 import {
   bindClaudeSessionAccount,
@@ -3076,30 +3081,50 @@ a{color:#60a5fa}
           }
         }
       }
-      // pi's key-based providers (OpenCode Zen) have no browser flow to run —
-      // the user pastes a key and we hand it to pi's credential store.
-      if (path === "/api/coding-agents/pi/api-key" && req.method === "POST") {
-        const body = (await req.json().catch(() => null)) as {
-          provider?: unknown;
-          key?: unknown;
-        } | null;
-        if (typeof body?.provider !== "string" || !isPiAuthProviderId(body.provider)) {
-          return err(400, "unknown pi provider");
-        }
-        if (typeof body.key !== "string") return err(400, "expected { key: string }");
-        try {
-          await setPiProviderApiKey(body.provider, body.key);
-          return json({ ok: true, agents: await listCodingAgents() });
-        } catch (e) {
-          return err(400, e instanceof Error ? e.message : "could not save API key");
+      // Key-based providers (pi's OpenCode Zen; OpenCode's own Go and Zen) have
+      // no browser flow to run — the user pastes a key and we hand it to that
+      // agent's credential store. Both agents sign in per provider rather than
+      // once per kind, so the agent owns the route and the body names which.
+      //
+      // The two id namespaces overlap — `opencode` is a provider of pi's AND of
+      // OpenCode's, pointing at different credential files — so the agent in the
+      // path, never the provider id, decides which store is written.
+      {
+        const m = path.match(/^\/api\/coding-agents\/(pi|opencode)\/api-key$/);
+        if (m && req.method === "POST") {
+          const agent = m[1];
+          const body = (await req.json().catch(() => null)) as {
+            provider?: unknown;
+            key?: unknown;
+          } | null;
+          const provider = typeof body?.provider === "string" ? body.provider : "";
+          if (typeof body?.key !== "string") return err(400, "expected { key: string }");
+          try {
+            if (agent === "pi") {
+              if (!isPiAuthProviderId(provider)) return err(400, "unknown pi provider");
+              await setPiProviderApiKey(provider, body.key);
+            } else {
+              if (!isOpencodeAuthProviderId(provider)) return err(400, "unknown opencode provider");
+              setOpencodeProviderApiKey(provider, body.key);
+            }
+            return json({ ok: true, agents: await listCodingAgents() });
+          } catch (e) {
+            return err(400, e instanceof Error ? e.message : "could not save API key");
+          }
         }
       }
       {
-        const m = path.match(/^\/api\/coding-agents\/pi\/providers\/([a-z0-9-]+)$/);
+        const m = path.match(/^\/api\/coding-agents\/(pi|opencode)\/providers\/([a-z0-9-]+)$/);
         if (m && req.method === "DELETE") {
-          if (!isPiAuthProviderId(m[1])) return err(404, "unknown pi provider");
+          const [, agent, provider] = m;
           try {
-            await deletePiCredential(m[1]);
+            if (agent === "pi") {
+              if (!isPiAuthProviderId(provider)) return err(404, "unknown pi provider");
+              await deletePiCredential(provider);
+            } else {
+              if (!isOpencodeAuthProviderId(provider)) return err(404, "unknown opencode provider");
+              deleteOpencodeCredential(provider);
+            }
             return json({ ok: true, agents: await listCodingAgents() });
           } catch (e) {
             return err(500, e instanceof Error ? e.message : "could not disconnect provider");

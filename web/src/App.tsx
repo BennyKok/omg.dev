@@ -434,8 +434,10 @@ export type PiProviderInfo = {
   label: string;
   method: "oauth" | "api-key";
   connected: boolean;
-  /** Key came from the environment, so we must not offer to disconnect it. */
+  /** Key is not ours to delete, so we must not offer to disconnect it. */
   fromEnv?: boolean;
+  /** Where it came from, when "From the environment" would not be true. */
+  detail?: string;
 };
 
 export type ClaudeAccountInfo = {
@@ -7206,26 +7208,36 @@ export function App() {
     return startBrowserAuth(key, `/api/connections/${key}/auth`);
   }
 
-  // pi signs in per model provider, so the request carries which one. The
-  // browser flow past this point is identical to every other provider's.
-  async function loginPiProvider(provider: PiProviderInfo) {
-    if (provider.method === "api-key") return connectPiApiKeyProvider(provider);
+  // pi and OpenCode both sign in per model provider, so the request carries
+  // which one — and which agent, since the two id namespaces overlap and write
+  // to different credential stores. The browser flow past this point is
+  // identical to every other provider's.
+  async function loginAgentProvider(kind: AgentKind, provider: PiProviderInfo) {
+    if (provider.method === "api-key") return connectApiKeyProvider(kind, provider);
+    // Only pi has browser-flow providers today. Naming it rather than passing
+    // `kind` through keeps a future OAuth provider on another agent from
+    // silently running pi's flow against the wrong credential store.
+    if (kind !== "pi") {
+      toast.error(`Connect ${provider.label} with \`opencode auth login\` in a terminal`);
+      return;
+    }
     return startBrowserAuth("pi", "/api/coding-agents/pi/auth", undefined, {
       provider: provider.id,
     });
   }
 
-  async function connectPiApiKeyProvider(provider: PiProviderInfo) {
+  async function connectApiKeyProvider(kind: AgentKind, provider: PiProviderInfo) {
+    const store = kind === "opencode" ? "OpenCode's" : "pi's";
     const key = await appDialog.prompt({
       title: `Connect ${provider.label}`,
-      description: `Paste your ${provider.label} API key. It is stored with pi's other credentials and never leaves this machine.`,
+      description: `Paste your ${provider.label} API key. It is stored with ${store} other credentials and never leaves this machine.`,
       placeholder: "API key",
       confirmLabel: "Connect",
       password: true,
     });
     if (!key) return;
     try {
-      await api("/api/coding-agents/pi/api-key", {
+      await api(`/api/coding-agents/${kind}/api-key`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider: provider.id, key }),
@@ -7237,16 +7249,17 @@ export function App() {
     }
   }
 
-  async function disconnectPiProvider(provider: PiProviderInfo) {
+  async function disconnectAgentProvider(kind: AgentKind, provider: PiProviderInfo) {
+    const agentLabel = kind === "opencode" ? "OpenCode" : "pi";
     const confirmed = await appDialog.confirm({
       title: `Disconnect ${provider.label}?`,
-      description: "pi will stop offering this provider's models until you connect it again.",
+      description: `${agentLabel} will stop offering this provider's models until you connect it again.`,
       confirmLabel: "Disconnect",
       destructive: true,
     });
     if (!confirmed) return;
     try {
-      await api(`/api/coding-agents/pi/providers/${provider.id}`, { method: "DELETE" });
+      await api(`/api/coding-agents/${kind}/providers/${provider.id}`, { method: "DELETE" });
       await refreshCodingAgents({ refreshModels: true });
       toast.success(`${provider.label} disconnected`);
     } catch (e) {
@@ -7844,8 +7857,8 @@ export function App() {
             onLogin={(kind, accountId) => loginCodingAgent(kind, undefined, accountId)}
             onAddClaudeAccount={addClaudeAccount}
             onRemoveClaudeAccount={removeClaudeAccountFromSettings}
-            onConnectPiProvider={(provider) => void loginPiProvider(provider)}
-            onDisconnectPiProvider={(provider) => void disconnectPiProvider(provider)}
+            onConnectProvider={(kind, provider) => void loginAgentProvider(kind, provider)}
+            onDisconnectProvider={(kind, provider) => void disconnectAgentProvider(kind, provider)}
             onSetupCheck={runSetupCheck}
             onRefresh={() => void refreshCodingAgents({ refreshModels: true })}
           />

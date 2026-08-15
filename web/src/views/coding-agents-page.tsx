@@ -123,8 +123,12 @@ function ExpandableRow({
   );
 }
 
-/** One model provider pi can sign into, with its connect/disconnect control. */
-function PiProviderRow({
+/**
+ * One model provider an agent can sign into, with its connect/disconnect
+ * control. pi and OpenCode both authenticate per provider rather than once per
+ * agent, so both render through this row.
+ */
+function AgentProviderRow({
   provider,
   onConnect,
   onDisconnect,
@@ -137,9 +141,9 @@ function PiProviderRow({
     <div className="flex items-center gap-2 rounded-xl border border-border/70 bg-background/55 px-2.5 py-2">
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs font-medium">{provider.label}</span>
-        {provider.fromEnv ? (
+        {provider.detail || provider.fromEnv ? (
           <span className="block truncate text-[11px] text-muted-foreground">
-            From the environment
+            {provider.detail ?? "From the environment"}
           </span>
         ) : null}
       </span>
@@ -181,8 +185,8 @@ export default function CodingAgentsPage({
   onLogin,
   onAddClaudeAccount,
   onRemoveClaudeAccount,
-  onConnectPiProvider,
-  onDisconnectPiProvider,
+  onConnectProvider,
+  onDisconnectProvider,
   onSetupCheck,
   onRefresh,
 }: {
@@ -193,8 +197,8 @@ export default function CodingAgentsPage({
   onLogin: (kind: AgentKind, claudeAccountId?: string) => void;
   onAddClaudeAccount: () => void;
   onRemoveClaudeAccount: (account: ClaudeAccountInfo) => void;
-  onConnectPiProvider: (provider: PiProviderInfo) => void;
-  onDisconnectPiProvider: (provider: PiProviderInfo) => void;
+  onConnectProvider: (kind: AgentKind, provider: PiProviderInfo) => void;
+  onDisconnectProvider: (kind: AgentKind, provider: PiProviderInfo) => void;
   onSetupCheck: (key: string) => void;
   onRefresh: () => void | Promise<void>;
 }) {
@@ -345,11 +349,11 @@ export default function CodingAgentsPage({
               {providers.length ? (
                 <div className="space-y-1.5">
                   {providers.map((provider) => (
-                    <PiProviderRow
+                    <AgentProviderRow
                       key={provider.id}
                       provider={provider}
-                      onConnect={onConnectPiProvider}
-                      onDisconnect={onDisconnectPiProvider}
+                      onConnect={(p) => onConnectProvider(agent.key, p)}
+                      onDisconnect={(p) => onDisconnectProvider(agent.key, p)}
                     />
                   ))}
                 </div>
