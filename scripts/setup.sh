@@ -595,8 +595,12 @@ if [ "$LFG_INSTALL_MODE" = "source" ]; then
   fi
   say "Installing dependencies..."
   ( cd "$LFG_DIR" && "$BUN_BIN" install )
-  say "Building public packages..."
-  ( cd "$LFG_DIR" && "$BUN_BIN" run build:packages )
+  # The app UI imports @omg-dev/client, whose declarations import protocol.
+  # Build only that dependency chain here. The release/package workflow still
+  # builds React and web/dist-lib; a source server install does not use them.
+  say "Building web UI dependencies..."
+  ( cd "$LFG_DIR" && "$BUN_BIN" run --cwd packages/protocol build )
+  ( cd "$LFG_DIR" && "$BUN_BIN" run --cwd packages/client build )
   say "Building the web UI..."
   ( cd "$LFG_DIR" && "$BUN_BIN" run --cwd web build )
 else

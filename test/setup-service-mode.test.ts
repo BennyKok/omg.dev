@@ -54,18 +54,21 @@ describe("setup service mode", () => {
   });
 });
 
-test("source installs build packages before the web UI", () => {
+test("source installs build required packages before the web UI", () => {
   const source = readFileSync(SETUP_SH, "utf8");
   const sourceInstall = source.slice(
     source.indexOf('if [ "$LFG_INSTALL_MODE" = "source" ]'),
     source.indexOf("extract_release_archive()"),
   );
   const install = sourceInstall.indexOf('"$BUN_BIN" install');
-  const packages = sourceInstall.indexOf('"$BUN_BIN" run build:packages');
+  const protocol = sourceInstall.indexOf('"$BUN_BIN" run --cwd packages/protocol build');
+  const client = sourceInstall.indexOf('"$BUN_BIN" run --cwd packages/client build');
   const web = sourceInstall.indexOf('"$BUN_BIN" run --cwd web build');
   expect(install).toBeGreaterThanOrEqual(0);
-  expect(packages).toBeGreaterThan(install);
-  expect(web).toBeGreaterThan(packages);
+  expect(protocol).toBeGreaterThan(install);
+  expect(client).toBeGreaterThan(protocol);
+  expect(web).toBeGreaterThan(client);
+  expect(sourceInstall).not.toContain('"$BUN_BIN" run build:packages');
 });
 
 test("the interpolated systemd unit does not execute comment text", () => {
