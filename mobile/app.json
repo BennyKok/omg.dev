@@ -35,7 +35,13 @@
       "expo-router",
       "expo-font",
       "expo-asset",
-      "@siteed/audio-studio"
+      "@siteed/audio-studio",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png"
+        }
+      ]
     ],
     "scheme": "omg",
     "extra": {

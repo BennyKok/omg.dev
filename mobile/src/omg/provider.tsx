@@ -25,6 +25,7 @@ import { AppState } from "react-native";
 import { CLOUD_BINDING_ID, CONTROLPLANE_ORIGIN, STORAGE_KEYS } from "./config";
 import { getAuthToken, getSession, signOut as authSignOut, type SignedInUser } from "./auth";
 import { forgetAllTransports, getHostedTransport } from "./transport";
+import { unregisterForPushNotifications } from "./push";
 import { startCloudPresence } from "./presence";
 import { waitForReady, type ComputerReadiness } from "./readiness";
 
@@ -366,6 +367,17 @@ export function OmgProvider({ children }: PropsWithChildren) {
     // after authSignOut can only fail. stop() is idempotent, so the effect
     // cleanup below does not send a second one.
     presenceStopRef.current?.();
+    // Forget this device's push token BEFORE the auth token goes away (the
+    // unregister call needs it) and before the account's bindingId is
+    // cleared. A token left registered server-side under a signed-out
+    // account is not an abstract leak: this is a physical device, and
+    // whoever picks it up next — signed in as someone else, or nobody —
+    // would keep seeing this account's push banners on the lock screen
+    // until it expired on its own. See push-native.ts's user-scoping, which
+    // this is the other half of.
+    if (client) {
+      await unregisterForPushNotifications(client.transport).catch(() => {});
+    }
     await authSignOut();
     forgetAllTransports();
     // The presence keys stay on purpose: the server-side lease can outlive a
@@ -378,7 +390,7 @@ export function OmgProvider({ children }: PropsWithChildren) {
     setCloud(null);
     setUser(null);
     setAuthStatus("signed-out");
-  }, []);
+  }, [client]);
 
   /**
    * The roster is DERIVED from readiness, never fetched or stored separately.
