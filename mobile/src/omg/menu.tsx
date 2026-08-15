@@ -79,12 +79,21 @@ export type MenuOption = {
   /** Listed but not pickable — a computer whose plan cannot serve, say. */
   disabled?: boolean;
   /**
-   * Rows behind this one. A SwiftUI `Menu` nested in a menu is a submenu, so
-   * this is how "pick an agent, then pick its model" stays ONE control: the
-   * agent row opens sideways into its models instead of the composer growing
-   * a second picker that has to be kept in agreement with the first.
+   * Rows behind this one. A SwiftUI `Menu` nested in a menu is a submenu.
+   *
+   * PREFER `section` FOR A SET OF ALTERNATIVES. A submenu row cannot carry a
+   * bundled image (see renderRows), so anything whose identity is a brand mark
+   * — agents, above all — belongs in a section of this menu rather than behind
+   * a row of it.
    */
   submenu?: MenuOption[];
+  /**
+   * A heading this row belongs under. Consecutive rows sharing one are drawn
+   * in a SwiftUI `Section`, which is how iOS separates two different questions
+   * inside one menu ("which agent" and "which model") without a submenu and
+   * without two controls to keep in agreement.
+   */
+  section?: string;
   onPress?: () => void;
 };
 
@@ -311,7 +320,33 @@ export function DropdownMenu({
     );
   });
 
-  const rows = renderRows(options);
+  /**
+   * Consecutive rows sharing a `section` are drawn under one heading.
+   *
+   * Grouping by RUN rather than by collecting every row with the same name
+   * keeps the caller's order authoritative: the menu reads top to bottom in
+   * the order the options were given, and a section that legitimately appears
+   * twice stays twice.
+   */
+  const rows: ReactNode[] = [];
+  let cursor = 0;
+  while (cursor < options.length) {
+    const section = options[cursor].section;
+    let end = cursor;
+    while (end < options.length && options[end].section === section) end += 1;
+    const run = options.slice(cursor, end);
+    const runRows = renderRows(run, `${cursor}-`);
+    rows.push(
+      section ? (
+        <Section key={`section-${cursor}`} title={section}>
+          {runRows}
+        </Section>
+      ) : (
+        runRows
+      ),
+    );
+    cursor = end;
+  }
 
   return (
     /**
@@ -336,7 +371,14 @@ export function DropdownMenu({
           </RNHostView>
         }
       >
-        {title ? <Section title={title}>{rows}</Section> : rows}
+        {/* A caller-supplied heading wraps the whole menu — but only when the
+            rows have not brought headings of their own. A Section inside a
+            Section is not a thing SwiftUI draws. */}
+        {title && !options.some((option) => option.section) ? (
+          <Section title={title}>{rows}</Section>
+        ) : (
+          rows
+        )}
       </Menu>
     </Host>
   );

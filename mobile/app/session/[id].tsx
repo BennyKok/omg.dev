@@ -88,6 +88,21 @@ let localSeq = 0;
 /** One screenful of history, and the step every "load more" adds. */
 const PAGE = 80;
 
+/**
+ * ONE SIZE FOR EVERY ITEM IN THE NAVIGATION BAR — the back chevron, the title
+ * capsule and the overflow menu.
+ *
+ * 36 is a ceiling, not a preference. iOS 26 draws its own glass background
+ * around a bar item, and MEASURED on device that disc is ~39pt, so the ⋯ left
+ * to the system stood taller than the two discs this screen draws. Growing
+ * ours to match is not available: a custom `unstable_headerLeftItems` view
+ * above 36pt is dropped from the bar ENTIRELY — verified at both 40 and 44,
+ * where the chevron and the title vanished while the ⋯ stayed. So the ⋯ opts
+ * out of the shared background and wears this disc too, and the three of them
+ * are the same by construction rather than by coincidence.
+ */
+const BAR_ITEM = 36;
+
 export default function SessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
@@ -676,9 +691,10 @@ export default function SessionScreen() {
         variant="clear"
         fallbackColor={colors.card}
         style={{
-          width: 36,
-          height: 36,
-          borderRadius: 18,
+          // One size for every item in this bar. See BAR_ITEM.
+          width: BAR_ITEM,
+          height: BAR_ITEM,
+          borderRadius: BAR_ITEM / 2,
           alignItems: "center",
           justifyContent: "center",
           overflow: "hidden",
@@ -690,8 +706,8 @@ export default function SessionScreen() {
           accessibilityRole="button"
           accessibilityLabel="Back"
           style={({ pressed }) => ({
-            width: 36,
-            height: 36,
+            width: BAR_ITEM,
+            height: BAR_ITEM,
             alignItems: "center",
             justifyContent: "center",
             opacity: pressed ? 0.5 : 1,
@@ -702,6 +718,43 @@ export default function SessionScreen() {
       </GlassSurface>
     ),
     [colors, navigation],
+  );
+
+  /** The overflow menu on its own glass disc — the third bar item. */
+  const OverflowDisc = useCallback(
+    () => (
+      <GlassSurface
+        variant="clear"
+        fallbackColor={colors.card}
+        style={{
+          width: BAR_ITEM,
+          height: BAR_ITEM,
+          borderRadius: BAR_ITEM / 2,
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+        }}
+      >
+        <DropdownMenu options={menuOptions} style={{ width: BAR_ITEM, height: BAR_ITEM }}>
+          <View
+            accessibilityRole="button"
+            accessibilityLabel="Session actions"
+            style={{
+              width: BAR_ITEM,
+              height: BAR_ITEM,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            {/* Three dots, not `ellipsis.circle`: the circle is the disc
+                around it, and the symbol's own ring inside that made two
+                concentric circles. */}
+            <Icon ios="ellipsis" android="more_horiz" size={20} color={colors.text} />
+          </View>
+        </DropdownMenu>
+      </GlassSurface>
+    ),
+    [colors, menuOptions],
   );
 
   /** The agent and the session's name, on their own glass capsule. */
@@ -716,7 +769,8 @@ export default function SessionScreen() {
           gap: space.sm,
           borderRadius: radius.pill,
           /**
-           * 36pt — the back disc's diameter, exactly.
+           * The back disc's diameter, exactly — and the system's bar item
+           * height with it.
            *
            * They sit side by side in the bar, so any difference between them
            * reads as a mistake rather than a hierarchy. This used to be sized
@@ -725,7 +779,7 @@ export default function SessionScreen() {
            * moment it went. A fixed height and vertical centring keeps the pair
            * matched whatever the title does.
            */
-          height: 36,
+          height: BAR_ITEM,
           // The mark is a circle inside a capsule, so it needs more of a lead
           // than a square would: at 4pt it sat against the glass.
           paddingLeft: space.sm,
@@ -739,7 +793,7 @@ export default function SessionScreen() {
             with its spinner. Two lines of chrome in a navigation bar for one
             piece of information, and the title got 190pt to fit in because of
             it. One line now, and the title has the room. */}
-        <AgentAvatar agent={agentLabel} size={24} busy={busy} plain />
+        <AgentAvatar agent={agentLabel} size={26} busy={busy} plain />
         <Text
           numberOfLines={1}
           ellipsizeMode="tail"
@@ -840,17 +894,31 @@ export default function SessionScreen() {
         </View>
       ),
       headerTitle: () => null,
-      headerRight: () =>
-        menuOptions.length ? (
-          <DropdownMenu options={menuOptions}>
-            <View accessibilityRole="button" accessibilityLabel="Session actions">
-              {/* Three dots, not `ellipsis.circle`: the circle is drawn by
-                  the bar's own glass disc, and the symbol's own ring inside it
-                  made two concentric circles. */}
-              <Icon ios="ellipsis" android="more_horiz" size={20} color={colors.text} />
-            </View>
-          </DropdownMenu>
-        ) : null,
+      /**
+       * THE ⋯ WEARS OUR DISC TOO, so all three bar items are one size.
+       *
+       * Left to the system, this item got UIKit's own glass background —
+       * MEASURED at ~39pt against the 36pt discs we draw on the left, which is
+       * exactly the mismatch that reads as a mistake. The obvious fix, growing
+       * ours to match, is not available: a custom `unstable_headerLeftItems`
+       * view taller than 36pt is dropped from the bar entirely (verified on
+       * device at 40 and 44 — both left items vanished while the ⋯ stayed).
+       *
+       * So the shared background is opted out of on this side as well and the
+       * disc is drawn here, from the same constant as the other two. Same
+       * material, same diameter, no guessing at what UIKit would have done.
+       */
+      unstable_headerRightItems: () =>
+        menuOptions.length
+          ? [
+              {
+                type: "custom" as const,
+                hidesSharedBackground: true,
+                element: <OverflowDisc />,
+              },
+            ]
+          : [],
+      headerRight: () => (menuOptions.length ? <OverflowDisc /> : null),
     });
   }, [navigation, title, agentLabel, busy, menuOptions, colors, type, space, radius]);
 

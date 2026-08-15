@@ -106,33 +106,56 @@ export function useAgentPicker() {
    */
   const options = useMemo<MenuOption[]>(() => {
     if (agents.length < 2) return [];
-    return agents.map((a) => {
-      const entry = catalog.find((m) => m.key === a.key);
-      const models = entry?.models ?? [];
-      const current = a.key === agent ? (model ?? entry?.defaultModel ?? null) : null;
-      return {
-        label: labelFor(a.key, agents),
-        // The same mark the avatar and every session row already draw for this
-        // agent. A menu of nine names is a list; a menu of nine marks is the
-        // thing you were already looking at.
-        image: agentIcon(a.key),
-        selected: a.key === agent,
-        onPress: () => {
-          setChosen(a.key);
-          setModel(null);
-        },
-        submenu: models.length
-          ? models.map((m) => ({
-              label: m,
-              selected: a.key === agent && current === m,
-              onPress: () => {
-                setChosen(a.key);
-                setModel(m);
-              },
-            }))
-          : undefined,
-      };
-    });
+
+    /**
+     * TWO SECTIONS, NOT NINE SUBMENUS.
+     *
+     * The models used to hang off each agent as a submenu, which cost the
+     * agents their marks: UIKit draws an open submenu's header from the menu's
+     * image at the image's own size, so a 96px brand mark became an ~80pt slab
+     * over the menu (photographed on device). Dropping the image fixed the
+     * slab and lost the thing that made this menu readable — nine names is a
+     * list, nine marks is the thing you were already looking at.
+     *
+     * Sections keep both. Every agent is a LEAF row, so it keeps its mark and
+     * its checkmark, and the models of the one currently selected sit under a
+     * second heading in the same menu. It is still one control and one gesture
+     * for the common case; picking a different agent's model is now two taps
+     * instead of a sideways slide, which is the price, and it buys a menu you
+     * can read at a glance.
+     */
+    const rows: MenuOption[] = agents.map((a) => ({
+      label: labelFor(a.key, agents),
+      image: agentIcon(a.key),
+      selected: a.key === agent,
+      section: "Agent",
+      onPress: () => {
+        setChosen(a.key);
+        setModel(null);
+      },
+    }));
+
+    const entry = catalog.find((m) => m.key === agent);
+    const models = entry?.models ?? [];
+    const current = model ?? entry?.defaultModel ?? null;
+    if (models.length > 1) {
+      // NO ICONS on these rows. They are strings the box reported, not things
+      // with faces, and one icon in a menu indents every other label to make
+      // room for a gutter nothing else uses.
+      rows.push(
+        ...models.map((m) => ({
+          label: m,
+          selected: current === m,
+          section: labelFor(agent, agents),
+          onPress: () => {
+            setChosen(agent);
+            setModel(m);
+          },
+        })),
+      );
+    }
+
+    return rows;
   }, [agents, agent, catalog, model]);
 
   /** Null means "the box's default", which is what omitting it asks for. */
