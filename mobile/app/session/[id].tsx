@@ -74,7 +74,13 @@ import * as Clipboard from "expo-clipboard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OmgSession, OmgSessionPrompt } from "@omg-dev/protocol";
 
-import { AgentAvatar, AttachmentStrip, Icon, IconButton } from "../../src/components";
+import {
+  AgentAvatar,
+  AttachmentStrip,
+  DictationCaption,
+  Icon,
+  IconButton,
+} from "../../src/components";
 import { useAttachments } from "../../src/omg/attachments";
 import { useDictation } from "../../src/omg/dictation";
 import { GlassSurface, LIQUID_GLASS } from "../../src/omg/glass";
@@ -1332,6 +1338,12 @@ export default function SessionScreen() {
               <Text style={{ ...type.caption, fontWeight: "500", color: colors.text }}>Queued</Text>
             </GlassSurface>
           </Reanimated.View>
+        ) : null}
+
+        {/* The live tail of what is being said, above the field the committed
+            words are landing in. See DictationCaption. */}
+        {dictation.live && dictation.state === "recording" ? (
+          <DictationCaption text={dictation.partial} />
         ) : null}
 
         <AttachmentStrip items={attachments.items} onRemove={attachments.remove} />

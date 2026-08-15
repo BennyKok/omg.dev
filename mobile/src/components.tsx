@@ -925,7 +925,14 @@ export function HomeComposer({
     options: MenuOption[];
     remove: (id: string) => void;
   };
-  dictation: { state: "idle" | "recording" | "transcribing"; toggle: () => void };
+  dictation: {
+    state: "idle" | "recording" | "transcribing";
+    toggle: () => void;
+    /** 0..1 input level, and the live tail — see DictationCaption. */
+    level?: number;
+    partial?: string;
+    live?: boolean;
+  };
   /** Rate-limit windows, one ring each. Empty until the machine answers. */
   usage?: ProviderUsage[];
   /** Still asking. Draws a spinner where the rings will be. */
@@ -954,6 +961,10 @@ export function HomeComposer({
         backgroundColor: LIQUID_GLASS ? "transparent" : colors.bg,
       }}
     >
+      {dictation.live && dictation.state === "recording" ? (
+        <DictationCaption text={dictation.partial ?? ""} />
+      ) : null}
+
       {/* Liquid Glass on iOS 26+, a solid card everywhere else. */}
       <GlassSurface
         variant="regular"
@@ -1309,6 +1320,41 @@ function ComposerCaptionButton({
   );
   if (!options.length) return pill;
   return <DropdownMenu options={options}>{pill}</DropdownMenu>;
+}
+
+/**
+ * WHAT THE MACHINE HAS HEARD SO FAR, while you are still saying it.
+ *
+ * Committed chunks land in the composer as ordinary text — that is what
+ * `onText` does — so this line only ever carries the TAIL the transcriber has
+ * not committed yet. It is dimmed because it is provisional: those words can
+ * still change before they become yours, and rendering them at full strength
+ * beside text that is already final would be claiming more than the machine
+ * has.
+ *
+ * Truncated from the HEAD, which is the opposite of everywhere else in this
+ * app. A caption's newest words are the ones you are checking against what you
+ * just said; losing the start of a long sentence costs nothing, losing the end
+ * costs the whole point.
+ *
+ * Absent entirely when the take is not streaming — a box with no realtime
+ * provider transcribes at the end, and an empty caption line would be a
+ * promise of live text that is not coming.
+ */
+export function DictationCaption({ text }: { text: string }) {
+  const { colors, type, space } = useTheme();
+  if (!text.trim()) return null;
+  return (
+    <View style={{ paddingHorizontal: space.sm, paddingBottom: space.xs }}>
+      <Text
+        numberOfLines={1}
+        ellipsizeMode="head"
+        style={{ ...type.footnote, color: colors.textMuted, fontStyle: "italic" }}
+      >
+        {text}
+      </Text>
+    </View>
+  );
 }
 
 /**
