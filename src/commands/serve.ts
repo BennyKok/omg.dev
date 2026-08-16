@@ -196,7 +196,7 @@ import {
 } from "../live-ws.ts";
 import { appendCmd as appendAisdkCmd, removeEntry as removeAisdkEntry, readEntry as readAisdkEntry, findEntryByAnyId as findAisdkEntryByAnyId, isEntryBusy as isAisdkEntryBusy, isPidAlive as isAisdkPidAlive, patchEntry as patchAisdkEntry, terminateHarnessProcess, waitForHarnessExit, wakeHarnessCommandReader } from "../aisdk-registry.ts";
 import { markClosed } from "../closing.ts";
-import { assignUser, resolveSessionUserTag, rosterEmails, userAssignments, userRoster } from "../users.ts";
+import { assignUser, resolveSessionUserTag, rosterBoxAccount, rosterEmails, userAssignments, userRoster } from "../users.ts";
 import {
   addOnboardingProfile,
   getOnboarding,
@@ -4930,6 +4930,11 @@ a{color:#60a5fa}
           }
           assignedUser = cursor?.assignedUser ?? undefined;
         }
+        // Root sessions from the account-scoped relay do not carry a roster
+        // email. Use the paired box account only as a last resort. The helper
+        // returns undefined unless that account is already on this box's roster.
+        // Parent lineage stays authoritative because this runs after the walk.
+        if (!assignedUser) assignedUser = rosterBoxAccount();
         // Global pause / live-agent cap. Applies to every activation — main and
         // subagent alike. Fork reaches here via its internal POST to
         // /api/sessions/new, so it inherits this gate for free.

@@ -12,6 +12,7 @@ import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 import { PATHS } from "./config.ts";
 import { onboardingProfilesSync } from "./onboarding.ts";
+import { boxAccountEmail } from "./box-account.ts";
 
 // Roster config. Each LFG_USERS entry is `email` or `email:displayname` — the
 // optional name is what the UI shows (raw emails are hard to scan). Parse once
@@ -41,6 +42,18 @@ const NAMES: Record<string, string> = Object.fromEntries(
 // onboarding flow adds profiles at runtime.
 export function rosterEmails(): string[] {
   return [...new Set([...USERS, ...onboardingProfilesSync().map((p) => p.email)])];
+}
+
+/**
+ * Return the paired box account only when it is already a roster member.
+ * This gives an ownerless root session a safe last-resort attribution without
+ * inventing a user or assigning it to the first configured person.
+ */
+export function rosterBoxAccount(
+  roster: string[] = rosterEmails(),
+  accountEmail: string | null = boxAccountEmail(),
+): string | undefined {
+  return accountEmail && roster.includes(accountEmail) ? accountEmail : undefined;
 }
 
 export type SessionUserTag =
