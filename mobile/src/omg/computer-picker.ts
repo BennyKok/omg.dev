@@ -14,7 +14,7 @@
  * and the session proxy then answers every request with a permanent 425. If
  * that row looks pickable, the app sends you to a spinner that never ends. So
  * a blocked machine is listed disabled, with its reason folded into the label
- * and a way out to the web where billing actually lives.
+ * and, for blocks that are not about money, a way out to the web.
  */
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo } from "react";
@@ -27,6 +27,15 @@ import { useOmg } from "./provider";
 import { useToast } from "./toast";
 
 const BLOCKED_CLOUD_STATUSES = new Set(["upgrade_required", "recycled"]);
+
+/**
+ * Blocked, but NOT for a reason you would fix by paying. Mirrors the set in
+ * app/computers.tsx — see that file for why `upgrade_required` is excluded
+ * (App Review 3.1.1(a): no calls to action pointing at a purchasing mechanism
+ * other than in-app purchase, outside the US storefront) and app/settings.tsx
+ * for where the upgrade nudge went instead.
+ */
+const WEB_FIXABLE_CLOUD_STATUSES = new Set(["recycled"]);
 
 export function useComputerPicker() {
   const router = useRouter();
@@ -76,7 +85,7 @@ export function useComputerPicker() {
       onPress: () => void selectBinding(CLOUD_BINDING_ID),
     });
 
-    if (cloudBlocked) {
+    if (WEB_FIXABLE_CLOUD_STATUSES.has(cloud?.status ?? "")) {
       rows.push({
         label: "Fix this on omg.dev",
         onPress: () => void Linking.openURL("https://app.omg.dev/"),

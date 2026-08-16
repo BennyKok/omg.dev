@@ -36,11 +36,38 @@ import {
   type PushPermissionStatus,
 } from "../src/omg/push";
 
+/**
+ * Account management that lives on the web. NOT billing — see below.
+ *
+ * NO PURCHASE LINKS IN THIS APP. There used to be a "Plan & billing" row here
+ * opening `app.omg.dev/settings/billing`, and it has to stay gone until omg
+ * sells through StoreKit.
+ *
+ * App Review Guideline 3.1.1(a): "In all other storefronts, except for the
+ * United States storefront, where this prohibition does not apply, apps and
+ * their metadata may not include buttons, external links, or other calls to
+ * action that direct customers to purchasing mechanisms other than in-app
+ * purchase." omg ships outside the US, so the exception does not cover us and
+ * this row was the clearest possible example of the thing it prohibits.
+ *
+ * The rows that remain are account MANAGEMENT — which agents are connected,
+ * what is scheduled, how much disk is used. None of them is a way to pay, and
+ * 3.1.1 is aimed at purchasing, not at a companion app linking to its own
+ * dashboard.
+ *
+ * The upgrade nudge is not lost, it MOVED. 3.1.3: "Developers can send
+ * communications outside of the app to their user base about purchasing
+ * methods other than in-app purchase." So running out of included time is
+ * stated as a fact in the app and followed up by email, which is allowed in
+ * every storefront.
+ *
+ * When StoreKit lands, the honest fix is an in-app purchase here, not this
+ * link coming back.
+ */
 const WEB_PAGES: { label: string; path: string }[] = [
   { label: "Coding agents", path: "/settings/computer/coding-agents" },
   { label: "Schedules", path: "/settings/computer/auto" },
   { label: "Storage", path: "/settings/computer/storage" },
-  { label: "Plan & billing", path: "/settings/billing" },
 ];
 
 export default function SettingsScreen() {
