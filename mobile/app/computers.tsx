@@ -44,9 +44,25 @@ const BLOCKED_CLOUD_STATUSES = new Set(["upgrade_required", "recycled"]);
  *
  * The status text still tells the truth about why the machine will not serve.
  * Stating a fact is not a call to action. See app/settings.tsx for the whole
- * reasoning and for where the upgrade nudge went instead.
+ * reasoning.
+ *
+ * `upgrade_required` STILL does not belong here, and now it does not need to:
+ * it has its own way out, in-app, below.
  */
 const WEB_FIXABLE_CLOUD_STATUSES = new Set(["recycled"]);
+
+/**
+ * Blocked over money, which in-app purchase can now actually fix.
+ *
+ * This is the state the whole StoreKit feature exists for. It used to be a
+ * deliberate dead end — the machine said "Included computer time is used up"
+ * and offered nothing, because the only available exit was web checkout and
+ * 3.1.1(a) forbids pointing at it. An in-app purchase is not an external
+ * purchasing mechanism, so this row is allowed where "Fix this on omg.dev"
+ * was not, and it turns the honest statement of the problem into an honest
+ * offer to solve it.
+ */
+const PURCHASABLE_CLOUD_STATUSES = new Set(["upgrade_required"]);
 
 export default function ComputersScreen() {
   const router = useRouter();
@@ -76,6 +92,7 @@ export default function ComputersScreen() {
   // See WEB_FIXABLE_CLOUD_STATUSES: blocked is not the same question as
   // "should we offer a way out to the web".
   const cloudFixableOnWeb = WEB_FIXABLE_CLOUD_STATUSES.has(cloud?.status ?? "");
+  const cloudFixableByPurchase = PURCHASABLE_CLOUD_STATUSES.has(cloud?.status ?? "");
   const cloudSpec = machineSpec(cloud?.machine);
 
   return (
@@ -162,6 +179,18 @@ export default function ComputersScreen() {
             />
           ) : null}
         </Row>
+
+        {cloudFixableByPurchase ? (
+          <>
+            <Separator inset="text" />
+            <Row onPress={() => router.push("/plan")}>
+              <Text style={{ ...type.callout, color: colors.primary, flex: 1 }}>
+                See plans
+              </Text>
+              <Icon ios="chevron.right" android="chevron_right" size={15} color={colors.textMuted} />
+            </Row>
+          </>
+        ) : null}
 
         {cloudFixableOnWeb ? (
           <>

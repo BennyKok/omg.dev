@@ -315,6 +315,11 @@ function RootNavigator() {
             name="notifications"
             options={{ title: "Notifications", headerLargeTitle: true }}
           />
+          {/* In-app purchase. Pushed from the blocked cloud computer and from
+              Settings — the two places someone learns they need to pay. It is
+              a normal pushed screen rather than a modal so the back gesture
+              behaves the same as everywhere else. */}
+          <Stack.Screen name="plan" options={{ title: "Plan", headerLargeTitle: true }} />
         </Stack.Protected>
       </Stack>
     </>

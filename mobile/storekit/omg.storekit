@@ -1,0 +1,204 @@
+{
+  "identifier" : "F1A2B3C4",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_applicationInternalID" : "6800792515",
+    "_developerTeamID" : "",
+    "_failTransactionsEnabled" : false,
+    "_lastSynchronizedDate" : 0,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Load Products"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Purchase"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Verification"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Store Sync"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Subscription Status"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Transaction"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Manage Subscriptions Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Refund Request Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Offer Code Redeem Sheet"
+      }
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "21654321",
+      "localizations" : [
+
+      ],
+      "name" : "omg Computer",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "5.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "31000001",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "2 vCPU, 4 GB memory, 20 active hours, 3 agents at once.",
+              "displayName" : "Starter",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "dev.omg.computer.computer_s20.monthly.v1",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Starter",
+          "subscriptionGroupID" : "21654321",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "11.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "31000002",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "2 vCPU, 4 GB memory, 40 active hours, 3 agents at once.",
+              "displayName" : "Starter Plus",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "dev.omg.computer.computer_s40.monthly.v1",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Starter Plus",
+          "subscriptionGroupID" : "21654321",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "57.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "31000003",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "4 vCPU, 150 active hours, 64 GB storage, 5 agents at once.",
+              "displayName" : "Personal",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "dev.omg.computer.computer_5.monthly.v1",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Personal",
+          "subscriptionGroupID" : "21654321",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "179.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "31000004",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "8 vCPU, 300 active hours, 128 GB storage, 16 agents at once.",
+              "displayName" : "Pro",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "dev.omg.computer.computer_10.monthly.v1",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Pro",
+          "subscriptionGroupID" : "21654321",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "599.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "31000005",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Always-on 12 vCPU, 36 GB memory, 256 GB storage, 24 agents.",
+              "displayName" : "Always On",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "dev.omg.computer.computer_20.monthly.v1",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Always On",
+          "subscriptionGroupID" : "21654321",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}
