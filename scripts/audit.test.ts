@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -183,8 +183,21 @@ describe("audit gate", () => {
   test("each audit root maps to the lockfile its tool actually reads", () => {
     expect(rootLockfile({ dir: ".", tool: "bun" })).toBe("bun.lock");
     expect(rootLockfile({ dir: "mobile", tool: "npm" })).toBe("mobile/package-lock.json");
-    // The gate would silently cover nothing if a root named the wrong lockfile.
-    expect(AUDIT_ROOTS.map(rootLockfile)).toContain("mobile/package-lock.json");
+    expect(rootLockfile({ dir: "mobile", tool: "bun" })).toBe("mobile/bun.lock");
+  });
+
+  // The previous version of this test asserted the literal string
+  // "mobile/package-lock.json", which restated the config instead of checking
+  // it. When mobile moved to bun.lock the config became wrong and this test
+  // stayed green, because both sides said the same untrue thing. Assert against
+  // the filesystem instead: a root whose lockfile does not exist audits nothing,
+  // and `npm audit` fails outright ("This command requires an existing
+  // lockfile") before any of these tests get to run.
+  test("every configured root names a lockfile that is actually there", () => {
+    const missing = AUDIT_ROOTS.map(rootLockfile).filter(
+      (file) => !existsSync(new URL(`../${file}`, import.meta.url)),
+    );
+    expect(missing).toEqual([]);
   });
 
   test("ghsa ids come from the advisory url and a malformed url is loud", () => {
