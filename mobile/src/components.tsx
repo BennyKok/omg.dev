@@ -1350,10 +1350,37 @@ function ComposerCaptionButton({
   accessibilityLabel: string;
 }) {
   const { colors, radius, type, space } = useTheme();
-  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
-  // A new label is a new width. Drop the cached one so the next pass measures
-  // the pill unconstrained rather than inside the box the old label earned.
-  useEffect(() => setSize(null), [label]);
+  /**
+   * THE MEASUREMENT IS TAGGED WITH THE LABEL IT WAS TAKEN FOR.
+   *
+   * This used to be a bare `{width, height}` plus `useEffect(() => setSize(null),
+   * [label])` to invalidate it. That is one frame too late, and it is why the
+   * pill visibly clipped when a project name got LONGER:
+   *
+   *   frame N    label is the new long one, but the effect has not run yet, so
+   *              the Host is still pinned to the SHORT label's width. The pill
+   *              is `overflow: hidden` with `numberOfLines={1}`, so the new
+   *              label renders clipped inside the old box. <- the reported bug
+   *   frame N+1  the effect has now fired, size is null, the pill measures
+   *              unconstrained.
+   *   frame N+2  the new width is applied and it finally looks right.
+   *
+   * Short-to-long clipped the text; long-to-short only looked a little roomy
+   * for a frame, which is why only one direction was ever noticed.
+   *
+   * Tagging fixes it by construction rather than by timing: a measurement
+   * carries the label it describes, and the width is only applied when that
+   * tag still matches. A stale width is now *unapplicable* instead of merely
+   * scheduled for deletion, so frame N constrains nothing and the pill is
+   * drawn at its natural size immediately. No effect, and no setState during
+   * render either.
+   */
+  const [measured, setMeasured] = useState<{
+    label: string;
+    width: number;
+    height: number;
+  } | null>(null);
+  const size = measured && measured.label === label ? measured : null;
   // Glass, like the field it captions and the buttons inside it. A flat fill
   // here was the last piece of chrome on this screen made of something else.
   const pill = (
@@ -1439,13 +1466,16 @@ function ComposerCaptionButton({
         onLayout={(e) => {
           const { width, height } = e.nativeEvent.layout;
           // Only on a real change: setting state from onLayout with the same
-          // numbers is a re-render loop.
-          setSize((current) =>
+          // numbers is a re-render loop. The label is part of that comparison
+          // now, so a measurement taken for a previous label can never satisfy
+          // it and linger.
+          setMeasured((current) =>
             current &&
+            current.label === label &&
             Math.abs(current.width - width) < 0.5 &&
             Math.abs(current.height - height) < 0.5
               ? current
-              : { width, height },
+              : { label, width, height },
           );
         }}
       >
