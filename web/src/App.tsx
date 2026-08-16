@@ -33,6 +33,7 @@ import {
 } from "./lib/omg-client";
 import { cacheProjectFilter, readCachedProjectFilter } from "./lib/project-filter";
 import { resolveRosterUser } from "./lib/roster-user";
+import { sessionMatchesUserFilter } from "./lib/user-filter";
 import { uploadFile as uploadFileThroughTransport } from "./lib/upload";
 import { compressImageFile, isCompressibleImage } from "./lib/image-compress";
 import { AppCrash } from "./components/app-crash";
@@ -6194,13 +6195,10 @@ export function App() {
   // known repo. The repo-derived entries are important for persistence: a saved
   // project filter should survive app reopen even when that project has no live
   // session at load time.
-  const userScopedSessions = useMemo(() => {
-    if (userFilter === "__all") return allLiveSessions;
-    if (userFilter === "__unassigned") {
-      return allLiveSessions.filter((session) => !session.assignedUser);
-    }
-    return allLiveSessions.filter((session) => session.assignedUser === userFilter);
-  }, [allLiveSessions, userFilter]);
+  const userScopedSessions = useMemo(
+    () => allLiveSessions.filter((session) => sessionMatchesUserFilter(session, userFilter)),
+    [allLiveSessions, userFilter],
+  );
 
   const projectOptions = useMemo(
     () =>
@@ -6324,10 +6322,7 @@ export function App() {
     );
     if (!target) return; // not in the list yet — the giving-up timer below handles it
     sessionDeepLinkRef.current = null;
-    if (
-      userFilter !== "__all" &&
-      !(userFilter === "__unassigned" ? !target.assignedUser : target.assignedUser === userFilter)
-    ) {
+    if (!sessionMatchesUserFilter(target, userFilter)) {
       setUserFilter("__all");
     }
     if (projectFilter !== "__all" && target.project !== projectFilter) {
