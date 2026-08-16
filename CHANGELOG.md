@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## August 16, 2026 - App sessions get the correct owner (v0.1.383)
+
+- **A root session started from the account-scoped app is now assigned to the
+  account that paired the box.** The server uses the email claim already stored
+  in the box credential, but only when that email is an existing roster member.
+  Explicit session owners and inherited parent owners still take priority.
+- **Missing, corrupt, expired, or unknown credentials fail safely.** They leave
+  the session unassigned, and the existing web fallback keeps it visible.
+
 ## August 16, 2026 - Sessions started from the app stay visible on the web (v0.1.382)
 
 - **Filtering the live view by a person no longer hides sessions that have no
