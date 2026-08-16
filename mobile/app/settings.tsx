@@ -66,6 +66,30 @@ import {
  * link did NOT come back and must not — an in-app paywall that also offers an
  * external checkout is the same 3.1.1(a) violation with an extra step.
  */
+/**
+ * Legal documents, on omg.dev rather than app.omg.dev.
+ *
+ * Guideline 5.1.1(i): "All apps must include a link to their privacy policy in
+ * the App Store Connect metadata field AND within the app in an easily
+ * accessible manner." The metadata half was already set; the in-app half was
+ * simply absent — this app shipped with no privacy link anywhere in the binary,
+ * which applies to every app and always has, not just subscription ones.
+ *
+ * These are a separate constant from WEB_PAGES on purpose. WEB_PAGES are
+ * dashboard surfaces, sit under "These open omg.dev in your browser", and point
+ * at app.omg.dev. These point at the PUBLIC site, because a reviewer has to be
+ * able to open them while signed out — behind a dashboard login they would not
+ * be "easily accessible" and arguably not accessible at all.
+ *
+ * Not a 3.1.1(a) concern: a legal document is not a purchasing mechanism. See
+ * the account-deletion comment above for the full argument; the same reasoning
+ * covers both, and Guideline 5.1.1(i) requires this one outright.
+ */
+const LEGAL_PAGES: { label: string; path: string }[] = [
+  { label: "Privacy Policy", path: "/privacy" },
+  { label: "Terms of Use", path: "/terms" },
+];
+
 const WEB_PAGES: { label: string; path: string }[] = [
   { label: "Coding agents", path: "/settings/computer/coding-agents" },
   { label: "Schedules", path: "/settings/computer/auto" },
@@ -149,6 +173,47 @@ export default function SettingsScreen() {
       { text: "Cancel", style: "cancel" },
       { text: "Sign out", style: "destructive", onPress: () => void signOut() },
     ]);
+  };
+
+  /**
+   * Account deletion. Required by App Store Guideline 5.1.1(v): "Apps that
+   * support account creation must also offer account deletion", and it must be
+   * INITIATED IN THE APP — a support address or a buried web page does not
+   * satisfy it.
+   *
+   * ── This outbound app.omg.dev link is deliberate. Do not remove it. ──
+   *
+   * The header of this file exists because a "Plan & billing" row linking to
+   * app.omg.dev was removed for Guideline 3.1.1(a), and #116 then argued at
+   * length that an in-app paywall must not also offer an external checkout. So
+   * an outbound link on this exact screen looks, at a glance, like precisely
+   * the regression we spent two PRs eliminating. It is not.
+   *
+   * 3.1.1(a) prohibits calls to action that direct customers to PURCHASING
+   * MECHANISMS other than in-app purchase. Deleting an account is not a
+   * purchase, takes no money, and is the opposite of a conversion surface.
+   * 5.1.1(v) affirmatively REQUIRES this entry point to exist. The two rules
+   * do not conflict; one is about paying, the other about leaving.
+   *
+   * It is intentionally NOT in WEB_PAGES. Those rows are grouped under "These
+   * open omg.dev in your browser" and read as convenience links to a companion
+   * dashboard. This one is a destructive, guideline-mandated action and belongs
+   * next to Sign out, where someone looking for it will actually find it.
+   */
+  const confirmDeleteAccount = () => {
+    Alert.alert(
+      "Delete account?",
+      "This permanently deletes your omg account, your Computer, and everything on it. " +
+        "You'll finish this in your browser.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Continue",
+          style: "destructive",
+          onPress: () => void Linking.openURL("https://app.omg.dev/settings/delete-account"),
+        },
+      ],
+    );
   };
 
   const open = (path: string) => void Linking.openURL(`https://app.omg.dev${path}`);
@@ -285,8 +350,32 @@ export default function SettingsScreen() {
           <Row onPress={confirmSignOut}>
             <Text style={{ ...type.callout, color: colors.danger, flex: 1 }}>Sign out</Text>
           </Row>
+          <Row onPress={confirmDeleteAccount}>
+            <Text style={{ ...type.callout, color: colors.danger, flex: 1 }}>Delete account</Text>
+          </Row>
         </Card>
       </View>
+
+      <SectionLabel>Legal</SectionLabel>
+      <Card>
+        {LEGAL_PAGES.map((page, i) => (
+          <View key={page.path}>
+            {/* inset={space.lg}, not "text" — same reason as WEB_PAGES above:
+                no leading StatusDot/icon on these rows, and "text" mode budgets
+                for one. */}
+            {i > 0 ? <Separator inset={space.lg} /> : null}
+            <Row onPress={() => void Linking.openURL(`https://omg.dev${page.path}`)}>
+              <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>{page.label}</Text>
+              <Icon
+                ios="arrow.up.forward.app"
+                android="open_in_new"
+                size={15}
+                color={colors.textMuted}
+              />
+            </Row>
+          </View>
+        ))}
+      </Card>
 
       <Text
         style={{

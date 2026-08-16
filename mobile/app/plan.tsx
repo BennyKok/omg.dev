@@ -33,7 +33,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, ScrollView, View } from "react-native";
+import { ActivityIndicator, Linking, ScrollView, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -359,26 +359,41 @@ export default function PlanScreen() {
                   onPress={() => void buy(product)}
                 />
               ))}
-              {/* Said once, under the list, rather than as a "Sleeps between
-                  tasks: Yes" row repeated on four of five cards. The dashboard
-                  can afford that row because it shows one rung at a time; a
-                  list of five turns the same true sentence into noise, and
-                  noise is what made the old screen unreadable. Only the rung
-                  that BREAKS this rule states it, on its own card. */}
-              {products.some((product) => product.specs) ? (
-                <Text
-                  style={{
-                    ...type.caption,
-                    color: colors.textMuted,
-                    paddingHorizontal: space.lg,
-                    paddingTop: space.md,
-                    lineHeight: 16,
-                  }}
-                >
-                  Every plan pauses while idle, so time you are not using does not come out of
-                  your hours. A paused Computer keeps its files and picks up where it left off.
-                </Text>
-              ) : null}
+              {/* ── REMOVED: an idle-billing claim that is not currently true ──
+                  This said, directly above a Buy button:
+
+                    "Every plan pauses while idle, so time you are not using
+                     does not come out of your hours. A paused Computer keeps
+                     its files and picks up where it left off."
+
+                  Session d3f4e3e8 measured a cloud Computer with no sessions
+                  and nothing connected, twice, five minutes each:
+
+                    2083 micros / 302s -> 24,830 micros/hour
+
+                  Full running rate is 25,000 and hibernated is 0, so an idle
+                  Computer bills at 99.3% of full rate. The second measurement
+                  was taken AFTER an explicit pause through the lifecycle
+                  endpoint and was identical to the byte. Idle time comes out
+                  of your hours almost entirely.
+
+                  That makes this the most consequential sentence on the
+                  screen, because it is what tells someone how to read every
+                  "N hours" above it — 20 hours of USAGE and 20 hours of
+                  CALENDAR are different products at the same price. Stating it
+                  wrongly next to a purchase is worse than not explaining the
+                  hours at all, which is the same rule this file already
+                  follows for spec numbers: degrade to silence, never to a
+                  number we cannot stand behind.
+
+                  RESTORE THIS, unchanged, once idle Computers actually stop
+                  billing — the sentence is good and it is where it belongs.
+                  Do not reword it to describe the current behaviour instead:
+                  "your hours are consumed whether or not you are working" is
+                  accurate today, but it is a platform decision in flight
+                  (raised with Benny, outside this release), and a paywall is
+                  the wrong place to litigate it. Silence is honest in both
+                  states. */}
             </>
           ) : !loadError ? (
             <EmptyState
@@ -406,10 +421,57 @@ export default function PlanScreen() {
               Payment is charged to your Apple ID. Subscriptions renew monthly until cancelled in
               the App Store.
             </Text>
+            <LegalLinks />
           </View>
         </>
       )}
     </ScrollView>
+  );
+}
+
+/**
+ * Functional Privacy Policy and Terms of Use links, on the purchase surface.
+ *
+ * Required, and worth sourcing precisely because it is easy to overstate.
+ * Guideline 3.1.2(c) does not itself list link requirements — it says "Ensure
+ * you clearly communicate the requirements described in Schedule 2 of the Apple
+ * Developer Program License Agreement." Schedule 2 is where the functional
+ * privacy policy and EULA links on a subscription surface actually come from.
+ * It is one level below the guideline text, it is real, and missing links are
+ * among the most commonly cited rejections for subscription apps.
+ *
+ * The word doing the work is FUNCTIONAL. Naming the documents is not enough;
+ * these have to be tappable and they have to load. Both targets return 200.
+ *
+ * ── Not a 3.1.1(a) violation, for the same reason as settings.tsx ──────────
+ *
+ * This is the paywall, so an outbound link here looks even more alarming than
+ * the account-deletion one. It is not a purchasing mechanism: it opens a legal
+ * document, takes no money, and cannot be transacted against. 3.1.1(a) is about
+ * calls to action directing customers to OTHER WAYS TO PAY. Schedule 2 requires
+ * these on the very screen 3.1.1(a) governs, so the rules are not merely
+ * compatible — Apple expects both at once. Do not remove them to "clean up the
+ * paywall".
+ *
+ * Deliberately omg.dev, not app.omg.dev: these are public legal documents, not
+ * dashboard surfaces, and a reviewer must be able to open them signed out.
+ */
+function LegalLinks() {
+  const { colors, type, space } = useTheme();
+  const open = (path: string) => void Linking.openURL(`https://omg.dev${path}`);
+  return (
+    <View style={{ flexDirection: "row", justifyContent: "center", gap: space.lg }}>
+      <PressableScale onPress={() => open("/privacy")} hitSlop={12}>
+        <Text style={{ ...type.caption, color: colors.textMuted, textDecorationLine: "underline" }}>
+          Privacy Policy
+        </Text>
+      </PressableScale>
+      <PressableScale onPress={() => open("/terms")} hitSlop={12}>
+        <Text style={{ ...type.caption, color: colors.textMuted, textDecorationLine: "underline" }}>
+          Terms of Use
+        </Text>
+      </PressableScale>
+    </View>
   );
 }
 
