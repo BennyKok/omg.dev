@@ -98,6 +98,17 @@ import {
 /** Local id for the optimistic message, so it can be rolled back precisely. */
 let localSeq = 0;
 
+/**
+ * Is this row a local placeholder rather than something the machine sent us?
+ *
+ * The transcript used to answer that with `m.pending`, which is a different
+ * question — whether the request is still in the air — and the two only
+ * happened to coincide because the code that cleared `pending` had been
+ * misplaced into a `catch`. The id prefix is the honest test.
+ */
+const isOptimisticId = (id: unknown): boolean =>
+  typeof id === "string" && id.startsWith("local-");
+
 /** One screenful of history, and the step every "load more" adds. */
 const PAGE = 80;
 
@@ -318,14 +329,38 @@ export default function SessionScreen() {
         case "message":
           if (!atBottomRef.current) setUnseen(true);
           setMessages((prev) => {
-            // Drop the optimistic copy this message confirms, and de-dupe on id.
-            const withoutPending = prev.filter(
-              (m) => !(m.pending && m.text === event.message.text),
+            /**
+             * Drop the optimistic copy this message confirms, de-dupe on id,
+             * and CARRY `queued` ACROSS.
+             *
+             * Two things were wrong here. The optimistic row was identified by
+             * `m.pending`, which conflated "this row is a local placeholder"
+             * with "the request is still in the air" — so the moment the
+             * success path stopped setting `pending`, the row stopped matching
+             * and the message rendered twice. It is matched on the `local-`
+             * id prefix now, which is what actually makes a row optimistic.
+             *
+             * And `queued` lived only on the optimistic row, so the echo — which
+             * the machine sends as soon as it accepts the message, long before
+             * the agent gets to it — replaced the row with a plain server
+             * message and the "Queued" badge vanished almost immediately. That
+             * is why a held send looked identical to a tapped one. The flag is
+             * a local fact about how it was sent, so it is carried onto the
+             * echo rather than expected back from the server.
+             */
+            const confirmed = prev.find(
+              (m) => isOptimisticId(m.id) && m.text === event.message.text,
             );
-            if (event.message.id && withoutPending.some((m) => m.id === event.message.id)) {
-              return withoutPending.map((m) => (m.id === event.message.id ? event.message : m));
+            const incoming: Entry = confirmed?.queued
+              ? { ...event.message, queued: true }
+              : event.message;
+            const withoutOptimistic = prev.filter(
+              (m) => !(isOptimisticId(m.id) && m.text === event.message.text),
+            );
+            if (incoming.id && withoutOptimistic.some((m) => m.id === incoming.id)) {
+              return withoutOptimistic.map((m) => (m.id === incoming.id ? incoming : m));
             }
-            return [...withoutPending, event.message];
+            return [...withoutOptimistic, incoming];
           });
           // A completed message supersedes whatever was streaming.
           setStreamText("");
@@ -341,6 +376,21 @@ export default function SessionScreen() {
           break;
         case "busy":
           setBusy(event.busy);
+          /**
+           * "Queued" means WAITING BEHIND THE TURN IN FLIGHT. When that turn
+           * ends the queue drains, so the badge has to come off — otherwise
+           * carrying the flag across the echo (see the `message` case) would
+           * just trade a badge that vanished instantly for one that never
+           * left, and a message the agent answered ten minutes ago would still
+           * claim to be waiting.
+           */
+          if (!event.busy) {
+            setMessages((prev) =>
+              prev.some((m) => m.queued)
+                ? prev.map((m) => (m.queued ? { ...m, queued: false } : m))
+                : prev,
+            );
+          }
           break;
         case "prompt":
           setPrompt(event.prompt);
@@ -568,18 +618,27 @@ export default function SessionScreen() {
           await client.sendMessage(id, trimmed);
         }
         setError(null);
+        /**
+         * The request has landed. A queued message is no longer in flight, but
+         * it IS still waiting behind the current turn — so drop `pending` and
+         * keep `queued`.
+         *
+         * THIS BELONGS ON THE SUCCESS PATH. It used to sit in the `catch`
+         * below, underneath the line that removes the optimistic message
+         * entirely, which made it two bugs at once: dead code on failure (it
+         * mapped over a list the row had just been filtered out of) and
+         * missing on success, so a delivered message kept `pending: true` and
+         * stayed dimmed at 0.6 opacity for as long as it survived.
+         */
+        setMessages((prev) =>
+          prev.map((m) => (m.id === optimistic.id ? { ...m, pending: false } : m)),
+        );
       } catch (e) {
         // Roll the message back AND give the person their words back — losing
         // typed text to a failed request is the rudest thing a composer can do.
         setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
         setDraft((current) => (current ? current : trimmed));
         setError(e instanceof Error ? e.message : String(e));
-        // The request has landed. A queued message is no longer in flight, but
-        // it IS still waiting behind the current turn — so the echo drops
-        // `pending` and keeps `queued` until the real message replaces it.
-        setMessages((prev) =>
-          prev.map((m) => (m.id === optimistic.id ? { ...m, pending: false } : m)),
-        );
       } finally {
         setSending(false);
         setResuming(false);
