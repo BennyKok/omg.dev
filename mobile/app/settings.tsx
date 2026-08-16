@@ -61,8 +61,10 @@ import {
  * stated as a fact in the app and followed up by email, which is allowed in
  * every storefront.
  *
- * When StoreKit lands, the honest fix is an in-app purchase here, not this
- * link coming back.
+ * STOREKIT HAS NOW LANDED, and the honest fix arrived as predicted: the "Plan"
+ * row in the Computer card pushes app/plan.tsx, an in-app purchase. The web
+ * link did NOT come back and must not — an in-app paywall that also offers an
+ * external checkout is the same 3.1.1(a) violation with an extra step.
  */
 const WEB_PAGES: { label: string; path: string }[] = [
   { label: "Coding agents", path: "/settings/computer/coding-agents" },
@@ -181,6 +183,26 @@ export default function SettingsScreen() {
         <Row onPress={() => router.push("/computers")}>
           <StatusDot busy={current?.online ?? false} />
           <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>{machineName}</Text>
+          <Icon
+            ios="chevron.right"
+            android="chevron_right"
+            size={13}
+            weight="semibold"
+            color={colors.textMuted}
+          />
+        </Row>
+        {/* THE ROW THAT REPLACES "Plan & billing".
+            The removed one opened app.omg.dev/settings/billing, which is a call
+            to action pointing at a purchasing mechanism other than in-app
+            purchase — prohibited by 3.1.1(a) outside the US storefront. This
+            one pushes an in-app StoreKit screen, which is the mechanism the
+            guideline requires rather than one it forbids. That is the whole
+            difference, and it is why the web link must not come back alongside
+            it: a paywall with an external escape hatch is the same violation
+            with an extra step. */}
+        <Separator inset="text" />
+        <Row onPress={() => router.push("/plan")}>
+          <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>Plan</Text>
           <Icon
             ios="chevron.right"
             android="chevron_right"
