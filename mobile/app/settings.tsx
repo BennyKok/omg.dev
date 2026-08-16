@@ -151,6 +151,47 @@ export default function SettingsScreen() {
     ]);
   };
 
+  /**
+   * Account deletion. Required by App Store Guideline 5.1.1(v): "Apps that
+   * support account creation must also offer account deletion", and it must be
+   * INITIATED IN THE APP — a support address or a buried web page does not
+   * satisfy it.
+   *
+   * ── This outbound app.omg.dev link is deliberate. Do not remove it. ──
+   *
+   * The header of this file exists because a "Plan & billing" row linking to
+   * app.omg.dev was removed for Guideline 3.1.1(a), and #116 then argued at
+   * length that an in-app paywall must not also offer an external checkout. So
+   * an outbound link on this exact screen looks, at a glance, like precisely
+   * the regression we spent two PRs eliminating. It is not.
+   *
+   * 3.1.1(a) prohibits calls to action that direct customers to PURCHASING
+   * MECHANISMS other than in-app purchase. Deleting an account is not a
+   * purchase, takes no money, and is the opposite of a conversion surface.
+   * 5.1.1(v) affirmatively REQUIRES this entry point to exist. The two rules
+   * do not conflict; one is about paying, the other about leaving.
+   *
+   * It is intentionally NOT in WEB_PAGES. Those rows are grouped under "These
+   * open omg.dev in your browser" and read as convenience links to a companion
+   * dashboard. This one is a destructive, guideline-mandated action and belongs
+   * next to Sign out, where someone looking for it will actually find it.
+   */
+  const confirmDeleteAccount = () => {
+    Alert.alert(
+      "Delete account?",
+      "This permanently deletes your omg account, your Computer, and everything on it. " +
+        "You'll finish this in your browser.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Continue",
+          style: "destructive",
+          onPress: () => void Linking.openURL("https://app.omg.dev/settings/delete-account"),
+        },
+      ],
+    );
+  };
+
   const open = (path: string) => void Linking.openURL(`https://app.omg.dev${path}`);
 
   return (
@@ -284,6 +325,9 @@ export default function SettingsScreen() {
         <Card>
           <Row onPress={confirmSignOut}>
             <Text style={{ ...type.callout, color: colors.danger, flex: 1 }}>Sign out</Text>
+          </Row>
+          <Row onPress={confirmDeleteAccount}>
+            <Text style={{ ...type.callout, color: colors.danger, flex: 1 }}>Delete account</Text>
           </Row>
         </Card>
       </View>
