@@ -2,6 +2,16 @@
 
 Recent product updates and deployment notes.
 
+## August 16, 2026 - Sessions started from the app stay visible on the web (v0.1.382)
+
+- **Filtering the live view by a person no longer hides sessions that have no
+  owner.** A session started from the mobile app is created without one, so a
+  browser set to your own name silently dropped it: the agent was running and
+  visible on your phone, absent on the web, with nothing on screen saying it
+  had been filtered out. Picking a person now shows their sessions plus every
+  unclaimed one. The "Unassigned" option still isolates them, and "Everyone" is
+  unchanged.
+
 ## August 15, 2026 - One session, one row (v0.1.381)
 
 - **A delegated Codex session no longer appears twice in the session list.**
