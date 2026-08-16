@@ -38,7 +38,8 @@ import * as Haptics from "expo-haptics";
 import { useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Card, EmptyState, Icon, PrimaryButton, Row, SectionLabel, Separator } from "../src/components";
+import { EmptyState, Icon, PrimaryButton, SectionLabel, Separator } from "../src/components";
+import { PressableScale } from "../src/omg/motion";
 import { Text } from "../src/omg/text";
 import { useTheme } from "../src/omg/theme";
 import { useToast } from "../src/omg/toast";
@@ -52,6 +53,15 @@ import {
   type PurchaseAccount,
 } from "../src/omg/billing";
 import {
+  FALLBACK_TIERS,
+  formatComputeHours,
+  formatMachine,
+  formatParallelAgents,
+  labelForPlan,
+  sleepsBetweenTasks,
+  type TierSpecs,
+} from "../src/omg/plan-specs";
+import {
   connectStore,
   fetchTiers,
   finishPurchase,
@@ -61,9 +71,9 @@ import {
   restoreTiers,
   setMockScenario,
   StoreError,
-  tierForPlan,
   type StoreProduct,
   type StorePurchase,
+  type Tier,
 } from "../src/omg/store";
 
 /**
@@ -120,9 +130,20 @@ export default function PlanScreen() {
   const scenarioKey = `${params.mock ?? ""}:${params.auto ?? ""}`;
 
   /**
-   * Both sides, in parallel, because neither is useful alone: the token without
-   * products has nothing to buy, and products without the token cannot be
-   * attributed to an account.
+   * omg first, Apple second — and that order is now forced.
+   *
+   * These two used to run in parallel, because neither is useful alone: the
+   * token without products has nothing to buy, and products without the token
+   * cannot be attributed to an account. They can no longer be parallel, because
+   * omg's answer now contains the SKU LIST, and StoreKit has to be asked for
+   * specific product ids. The server owning that list is the point (see
+   * FALLBACK_TIERS) — it makes "an id the phone knows but the server doesn't"
+   * unrepresentable rather than merely commented about.
+   *
+   * The latency that costs is bought back by starting `connectStore()`
+   * alongside the omg call instead of before it. StoreKit's connection is the
+   * slow half and it depends on nothing, so it now overlaps the round trip that
+   * used to precede it.
    */
   const load = useCallback(async () => {
     setLoadError(null);
@@ -140,10 +161,15 @@ export default function PlanScreen() {
     }
 
     try {
-      await connectStore();
-      const [purchaseAccount, tiers] = await Promise.all([fetchPurchaseAccount(), fetchTiers()]);
+      const [, purchaseAccount] = await Promise.all([connectStore(), fetchPurchaseAccount()]);
       setAccount(purchaseAccount);
-      setProducts(tiers);
+      // A control plane that published no catalog leaves `tiers` null, and the
+      // bundled ids stand in so the screen can still sell something. They carry
+      // no specs, so the cards degrade to a name and Apple's price rather than
+      // to numbers this build remembers — the whole reason the facts moved to
+      // the server. Null and [] are different answers: [] means omg genuinely
+      // sells nothing right now, and is passed through as an empty list.
+      setProducts(await fetchTiers(purchaseAccount.tiers ?? FALLBACK_TIERS));
       setPhase({ kind: "ready" });
     } catch (error) {
       setLoadError(
@@ -226,7 +252,7 @@ export default function PlanScreen() {
   const restore = useCallback(async () => {
     setPhase({ kind: "restoring" });
     try {
-      const purchases = await restoreTiers();
+      const purchases = await restoreTiers(account?.tiers ?? FALLBACK_TIERS);
       if (purchases.length === 0) {
         setPhase({ kind: "ready" });
         toast.show("No purchases to restore on this Apple ID.");
@@ -251,7 +277,7 @@ export default function PlanScreen() {
         intent: "error",
       });
     }
-  }, [record, refreshMachines, toast]);
+  }, [account, record, refreshMachines, toast]);
 
   // MOCK-ONLY. See the note on `params` above.
   useEffect(() => {
@@ -264,6 +290,13 @@ export default function PlanScreen() {
 
   const busy = phase.kind === "purchasing" || phase.kind === "restoring";
   const currentPlan = phase.kind === "done" ? phase.entitlement.plan : account?.plan ?? null;
+  /**
+   * The tier list to NAME plans from. Not the same thing as `products`, which
+   * is only what Apple will sell right now: a plan the account is already on
+   * can be absent from the store (retired, or pulled from App Store Connect)
+   * and still needs a name in "You're all set" and in the Stripe notice.
+   */
+  const catalog = account?.tiers ?? FALLBACK_TIERS;
 
   return (
     <ScrollView
@@ -281,9 +314,9 @@ export default function PlanScreen() {
       ) : phase.kind === "unavailable" ? (
         <EmptyState title="Not available on this build" detail={phase.message} />
       ) : phase.kind === "done" ? (
-        <Subscribed entitlement={phase.entitlement} />
+        <Subscribed entitlement={phase.entitlement} catalog={catalog} />
       ) : phase.kind === "activating" ? (
-        <Activating plan={phase.plan} />
+        <Activating plan={phase.plan} catalog={catalog} />
       ) : (
         <>
           <Text
@@ -310,68 +343,42 @@ export default function PlanScreen() {
               not an edge case — so it gets an explanation rather than a
               disabled button someone has to guess the meaning of. */}
           {account && !account.canPurchase ? (
-            <AlreadySubscribed plan={account.plan} reason={account.reason} />
+            <AlreadySubscribed plan={account.plan} reason={account.reason} catalog={catalog} />
           ) : null}
 
           {products.length > 0 ? (
             <>
               <SectionLabel>Computer plans</SectionLabel>
-              <Card>
-                {products.map((product, i) => {
-                  const isCurrent = currentPlan === product.plan;
-                  const purchasing =
-                    phase.kind === "purchasing" && phase.productId === product.productId;
-                  return (
-                    <View key={product.productId}>
-                      {/* Plain padding, not "text" mode: these rows have no
-                          leading dot or icon, so their text is already flush
-                          with the card's padding. See Separator's note. */}
-                      {i > 0 ? <Separator inset={space.lg} /> : null}
-                      <Row
-                        disabled={busy || !account?.canPurchase || isCurrent}
-                        onPress={() => void buy(product)}
-                      >
-                        <View style={{ flex: 1, gap: 2 }}>
-                          <Text
-                            style={{ ...type.callout, color: colors.text, fontWeight: "600" }}
-                          >
-                            {product.label}
-                          </Text>
-                          <Text style={{ ...type.footnote, color: colors.textMuted, lineHeight: 18 }}>
-                            {product.detail}
-                          </Text>
-                        </View>
-                        <View style={{ alignItems: "flex-end", gap: 2, marginLeft: space.sm }}>
-                          {purchasing ? (
-                            <ActivityIndicator color={colors.textMuted} />
-                          ) : isCurrent ? (
-                            <Icon
-                              ios="checkmark"
-                              android="check"
-                              size={16}
-                              weight="semibold"
-                              color={colors.primary}
-                            />
-                          ) : (
-                            <>
-                              {/* Apple's string, verbatim. Never composed here —
-                                  it is a different currency in every storefront. */}
-                              <Text
-                                style={{ ...type.callout, color: colors.text, fontWeight: "600" }}
-                              >
-                                {product.displayPrice}
-                              </Text>
-                              <Text style={{ ...type.caption, color: colors.textMuted }}>
-                                per month
-                              </Text>
-                            </>
-                          )}
-                        </View>
-                      </Row>
-                    </View>
-                  );
-                })}
-              </Card>
+              {products.map((product) => (
+                <TierCard
+                  key={product.productId}
+                  product={product}
+                  current={currentPlan === product.plan}
+                  purchasing={phase.kind === "purchasing" && phase.productId === product.productId}
+                  disabled={busy || !account?.canPurchase || currentPlan === product.plan}
+                  onPress={() => void buy(product)}
+                />
+              ))}
+              {/* Said once, under the list, rather than as a "Sleeps between
+                  tasks: Yes" row repeated on four of five cards. The dashboard
+                  can afford that row because it shows one rung at a time; a
+                  list of five turns the same true sentence into noise, and
+                  noise is what made the old screen unreadable. Only the rung
+                  that BREAKS this rule states it, on its own card. */}
+              {products.some((product) => product.specs) ? (
+                <Text
+                  style={{
+                    ...type.caption,
+                    color: colors.textMuted,
+                    paddingHorizontal: space.lg,
+                    paddingTop: space.md,
+                    lineHeight: 16,
+                  }}
+                >
+                  Every plan pauses while idle, so time you are not using does not come out of
+                  your hours. A paused Computer keeps its files and picks up where it left off.
+                </Text>
+              ) : null}
             </>
           ) : !loadError ? (
             <EmptyState
@@ -407,20 +414,216 @@ export default function PlanScreen() {
 }
 
 /**
+ * One fact about a tier: an icon, what it is, and the number.
+ *
+ * Every row is exactly one line by construction. The value never wraps and
+ * never shrinks; the label yields first, because a wrapped value would make one
+ * card taller than its neighbours and break the column of numbers that makes
+ * five tiers comparable at a glance.
+ */
+function SpecRow({
+  label,
+  value,
+  emphasis = false,
+  ...glyph
+}: {
+  label: string;
+  value: string;
+  /** The number this tier is really sold on. */
+  emphasis?: boolean;
+} & ({ ios: "clock"; android: "schedule" } | { ios: "cpu"; android: "memory" } | { ios: "internaldrive"; android: "storage" } | { ios: "bolt.fill"; android: "bolt" })) {
+  const { colors, type, space } = useTheme();
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingVertical: 5 }}>
+      <Icon
+        {...glyph}
+        size={15}
+        weight={emphasis ? "semibold" : "regular"}
+        color={emphasis ? colors.text : colors.textMuted}
+      />
+      <Text numberOfLines={1} style={{ ...type.footnote, color: colors.textMuted, flexShrink: 1 }}>
+        {label}
+      </Text>
+      <Text
+        style={{
+          ...type.footnote,
+          color: colors.text,
+          fontWeight: emphasis ? "600" : "500",
+          marginLeft: "auto",
+          flexShrink: 0,
+        }}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * One tier, as something you can read rather than only price-compare.
+ *
+ * ── Why a list of cards and not the dashboard's slider ──────────────────────
+ *
+ * The dashboard shows ONE rung at a time and makes moving between them the
+ * whole interaction: a slider, ticks, a spring onto each detent. That works
+ * because a mouse is bad at direct selection and good at scrubbing, and because
+ * the overlay owns the entire viewport.
+ *
+ * Neither holds here. The equivalent of "move between the rungs" that a thumb
+ * already does perfectly is SCROLL — the vertical scroll IS this screen's
+ * slider, and it costs nothing to learn. Reproducing a drag control would also
+ * have meant five tiers hidden behind a gesture nobody was told about, on the
+ * one screen where hiding what someone is buying is the actual complaint.
+ *
+ * So: same vocabulary as the web ("Compute time", "Machine", "Disk", "agents in
+ * parallel", the same formatters), same facts, different control. All five are
+ * visible and comparable without touching anything, which a slider cannot do.
+ *
+ * ── The card makes no claim it was not handed ──────────────────────────────
+ *
+ * `specs` is null whenever the server did not describe this tier, and then the
+ * card is deliberately just a name and Apple's price. That is the honest
+ * degradation and it is the reason the numbers left the bundle: a stale spec
+ * would still render beautifully.
+ */
+function TierCard({
+  product,
+  current,
+  purchasing,
+  disabled,
+  onPress,
+}: {
+  product: StoreProduct;
+  current: boolean;
+  purchasing: boolean;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  const { colors, radius, type, space } = useTheme();
+  const specs: TierSpecs | null = product.specs;
+  const sleeps = specs ? sleepsBetweenTasks(specs) : null;
+
+  return (
+    <PressableScale
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      // One label for the whole card. VoiceOver reading eight separate nodes
+      // per tier, five times over, is how a screen becomes unusable while
+      // technically being accessible.
+      accessibilityLabel={[
+        product.label,
+        current ? "current plan" : product.displayPrice + " per month",
+        specs
+          ? `${formatParallelAgents(specs.parallelAgents)}, ${formatComputeHours(specs.computeHours)} of compute time, ${formatMachine(specs)}, ${specs.diskGb} GB disk${sleeps ? ", always on, never sleeps" : ""}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(". ")}
+      scale={0.98}
+      style={({ pressed }) => ({
+        backgroundColor: pressed && !disabled ? colors.cardPressed : colors.card,
+        borderRadius: radius.lg,
+        marginHorizontal: space.lg,
+        marginBottom: space.md,
+        padding: space.lg,
+        gap: specs ? space.md : 0,
+        // The current plan is outlined rather than dimmed. Dimming it would
+        // hide the specs of the machine someone actually has, which is the one
+        // tier they have the most reason to re-read.
+        borderWidth: current ? 1.5 : 0,
+        borderColor: current ? colors.primary : "transparent",
+        // Only a card you cannot buy fades, and the current plan is not one of
+        // those — it is disabled because it is already yours.
+        opacity: disabled && !current ? 0.5 : 1,
+      })}
+    >
+      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: space.md }}>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={{ ...type.headline, color: colors.text }}>{product.label}</Text>
+          {specs ? (
+            /* The dashboard's hero number, demoted to a subtitle. It is still
+               the headline fact — the thing the ladder is really sold on — but
+               five 40pt numbers down a scroll is five heroes and therefore
+               none. */
+            <Text style={{ ...type.subhead, color: colors.textSecondary }}>
+              {formatParallelAgents(specs.parallelAgents)}
+            </Text>
+          ) : null}
+        </View>
+        <View style={{ alignItems: "flex-end", gap: 1 }}>
+          {purchasing ? (
+            <ActivityIndicator color={colors.textMuted} />
+          ) : (
+            <>
+              {/* Apple's string, verbatim. Never composed here — it is a
+                  different currency in every storefront. */}
+              <Text style={{ ...type.headline, color: colors.text }}>{product.displayPrice}</Text>
+              {current ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+                  <Icon ios="checkmark" android="check" size={11} weight="semibold" color={colors.primary} />
+                  <Text style={{ ...type.caption, color: colors.primary }}>Current plan</Text>
+                </View>
+              ) : (
+                <Text style={{ ...type.caption, color: colors.textMuted }}>per month</Text>
+              )}
+            </>
+          )}
+        </View>
+      </View>
+
+      {specs ? (
+        <>
+          <Separator />
+          <View>
+            {/* Compute time carries the emphasis, matching the dashboard: it is
+                the allowance that actually runs out, and the one people are
+                surprised by. */}
+            <SpecRow
+              ios="clock"
+              android="schedule"
+              label="Compute time"
+              value={formatComputeHours(specs.computeHours)}
+              emphasis
+            />
+            <SpecRow ios="cpu" android="memory" label="Machine" value={formatMachine(specs)} />
+            <SpecRow
+              ios="internaldrive"
+              android="storage"
+              label="Disk"
+              value={`${specs.diskGb} GB`}
+            />
+            {sleeps ? (
+              <SpecRow
+                ios="bolt.fill"
+                android="bolt"
+                label="Sleeps between tasks"
+                value={sleeps}
+                emphasis
+              />
+            ) : null}
+          </View>
+        </>
+      ) : null}
+    </PressableScale>
+  );
+}
+
+/**
  * Apple has the money, omg has not confirmed yet.
  *
  * Deliberately reassuring and deliberately not an error. The transaction is
  * still in StoreKit's queue, so this resolves itself on next launch even if the
  * person kills the app right now.
  */
-function Activating({ plan }: { plan: string }) {
+function Activating({ plan, catalog }: { plan: string; catalog: readonly Tier[] }) {
   const { colors, type, space } = useTheme();
-  const tier = tierForPlan(plan);
+  const label = labelForPlan(plan, catalog);
   return (
     <View style={{ paddingTop: space.xxl }}>
       <EmptyState
         title="Purchase complete"
-        detail={`Your ${tier?.label ?? "new"} plan is being activated. This usually takes a few seconds — you can close this screen, it will finish on its own.`}
+        detail={`Your ${label ?? "new"} plan is being activated. This usually takes a few seconds — you can close this screen, it will finish on its own.`}
       />
       <View style={{ alignItems: "center", gap: space.sm }}>
         <ActivityIndicator color={colors.textMuted} />
@@ -430,14 +633,24 @@ function Activating({ plan }: { plan: string }) {
   );
 }
 
-function Subscribed({ entitlement }: { entitlement: Entitlement }) {
+function Subscribed({
+  entitlement,
+  catalog,
+}: {
+  entitlement: Entitlement;
+  catalog: readonly Tier[];
+}) {
   const { space } = useTheme();
-  const tier = tierForPlan(entitlement.plan);
+  // Falls back to the raw plan key on purpose. The server can name a plan this
+  // build has never heard of — a grandfathered rung, or one added after the
+  // binary shipped — and "computer_early" is ugly but true, where a guessed
+  // label would be neither.
+  const label = labelForPlan(entitlement.plan, catalog) ?? entitlement.plan;
   return (
     <View style={{ paddingTop: space.xxl }}>
       <EmptyState
         title={entitlement.replayed ? "Purchases restored" : "You're all set"}
-        detail={`Your cloud computer is on ${tier?.label ?? entitlement.plan}. It may take a moment to come back online.`}
+        detail={`Your cloud computer is on ${label}. It may take a moment to come back online.`}
       />
     </View>
   );
@@ -447,14 +660,35 @@ function Subscribed({ entitlement }: { entitlement: Entitlement }) {
  * Already paying, through the web.
  *
  * Buying again here would double-bill: Apple would take the money and omg would
- * owe a refund. So this states the situation plainly. It deliberately does NOT
- * link anywhere to manage the Stripe subscription — that would be a call to
- * action pointing at an external purchasing mechanism, which is the exact thing
- * 3.1.1(a) prohibits and the reason this screen exists at all.
+ * owe a refund. So this states the situation plainly.
+ *
+ * ── Every word here is load-bearing ────────────────────────────────────────
+ *
+ * It states a FACT about the account and issues no instruction. There is no
+ * link, no URL, no button, and no verb aimed at the reader — not "go to", not
+ * "manage it at", not "visit". 3.1.1(a) prohibits calls to action pointing at a
+ * purchasing mechanism other than in-app purchase outside the US storefront,
+ * and #114 removed `"Fix this on omg.dev"` for exactly that reason even though
+ * it too only opened the dashboard root. Telling someone where their existing
+ * billing already lives is not a call to action; telling them to go there is.
+ * Do not add a link to this component.
+ *
+ * The second sentence stays because the first alone does not explain why the
+ * cards below cannot be tapped, and an unexplained dead control is what #115
+ * set out to avoid. It describes this screen's own behaviour, not somewhere
+ * else's.
  */
-function AlreadySubscribed({ plan, reason }: { plan?: string | null; reason?: string | null }) {
+function AlreadySubscribed({
+  plan,
+  reason,
+  catalog,
+}: {
+  plan?: string | null;
+  reason?: string | null;
+  catalog: readonly Tier[];
+}) {
   const { colors, type, space } = useTheme();
-  const tier = tierForPlan(plan);
+  const label = labelForPlan(plan, catalog);
   const stripe = reason === "stripe_subscription_active";
   return (
     <View style={{ paddingHorizontal: space.lg, paddingTop: space.lg }}>
@@ -467,11 +701,11 @@ function AlreadySubscribed({ plan, reason }: { plan?: string | null; reason?: st
         }}
       >
         <Text style={{ ...type.callout, color: colors.text, fontWeight: "600" }}>
-          {stripe ? "You already have a subscription" : "Purchases are unavailable"}
+          {stripe ? "You're subscribed through omg.dev on the web" : "Purchases are unavailable"}
         </Text>
         <Text style={{ ...type.footnote, color: colors.textSecondary, lineHeight: 18 }}>
           {stripe
-            ? `This account is already subscribed${tier ? ` on ${tier.label}` : ""} and billed outside the App Store. Buying here would charge you twice, so it's turned off.`
+            ? `${label ? `Your ${label} plan is` : "This account is"} billed on the web, not through the App Store. Buying again here would charge you twice, so it's turned off.`
             : "This account can't purchase right now. Try again in a moment."}
         </Text>
       </View>

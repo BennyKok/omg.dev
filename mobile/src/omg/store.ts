@@ -50,75 +50,16 @@
 
 import { Platform } from "react-native";
 
-/** Products omg sells on iOS, in the order the paywall lists them. */
-export type Tier = {
-  /** App Store Connect product id. */
-  productId: string;
-  /** omg plan key the backend maps this product to. */
-  plan: string;
-  label: string;
-  /** One line of what you get. Prices are NEVER in here — see displayPrice. */
-  detail: string;
-};
+import { tierForProduct, type CatalogTier } from "./plan-specs";
 
 /**
- * The fixed computer tiers, and only those.
- *
- * StoreKit cannot charge a variable amount, so metered overage and credit
- * top-ups have no representation here and must not be implied by this UI. They
- * stay web-only. Someone who needs them is not blocked — they simply are not
- * something Apple can sell.
- *
- * Product ids are pinned by the backend (`AppStoreConfig.products`) and the two
- * lists have to agree exactly: an id present here but unmapped there is a
- * purchase the server rejects with "unmapped App Store productId" AFTER Apple
- * has taken the money.
- *
- * Labels and details mirror apps/web/src/lib/billing.ts so the two surfaces
- * describe the same product in the same words. Prices are the one thing NOT
- * mirrored — those come from StoreKit, because iOS pricing sits ~20% above web
- * to absorb Apple's commission and is set per-storefront in App Store Connect.
+ * A tier as the catalog describes it. Defined in plan-specs.ts, which has no
+ * platform imports — this module does (`Platform`), and anything importing
+ * react-native can only run inside Metro. Keeping the catalog out of here is
+ * what lets an ordinary Bun test assert that the bundle ships no spec numbers.
  */
-export const TIERS: readonly Tier[] = [
-  {
-    productId: "dev.omg.computer.computer_s20.monthly.v1",
-    plan: "computer_s20",
-    label: "Starter",
-    detail: "2 vCPU, 4 GB memory, 20 active hours, 3 agents at once.",
-  },
-  {
-    productId: "dev.omg.computer.computer_s40.monthly.v1",
-    plan: "computer_s40",
-    label: "Starter Plus",
-    detail: "2 vCPU, 4 GB memory, 40 active hours, 3 agents at once.",
-  },
-  {
-    productId: "dev.omg.computer.computer_5.monthly.v1",
-    plan: "computer_5",
-    label: "Personal",
-    detail: "4 vCPU, 150 active hours, 64 GB storage, 5 agents at once.",
-  },
-  {
-    productId: "dev.omg.computer.computer_10.monthly.v1",
-    plan: "computer_10",
-    label: "Pro",
-    detail: "8 vCPU, 300 active hours, 128 GB storage, 16 agents at once.",
-  },
-  {
-    productId: "dev.omg.computer.computer_20.monthly.v1",
-    plan: "computer_20",
-    label: "Always On",
-    detail: "Always-on 12 vCPU, 36 GB memory, 256 GB storage, 24 agents.",
-  },
-] as const;
+export type Tier = CatalogTier;
 
-export function tierForProduct(productId: string): Tier | undefined {
-  return TIERS.find((t) => t.productId === productId);
-}
-
-export function tierForPlan(plan: string | null | undefined): Tier | undefined {
-  return plan ? TIERS.find((t) => t.plan === plan) : undefined;
-}
 
 /** A tier joined with what Apple actually charges for it in this storefront. */
 export type StoreProduct = Tier & {
@@ -263,31 +204,39 @@ export async function connectStore(): Promise<void> {
 /**
  * The tiers Apple will actually sell, with Apple's prices.
  *
+ * Takes the catalog the SERVER published rather than reading a list in this
+ * bundle, so the skus asked of StoreKit are the same ids the server will accept
+ * a transaction for. Callers pass FALLBACK_TIERS when the server published
+ * none — see the note on that constant.
+ *
  * A product missing from the response is DROPPED rather than shown at a guessed
  * price. StoreKit omits unknown SKUs silently, and the usual cause is a product
  * that is not "Ready to Submit" in App Store Connect yet — showing it anyway
- * produces a row that cannot be bought.
+ * produces a row that cannot be bought. Note this drop is per-tier and
+ * independent of `specs`: Apple decides what is SELLABLE, omg decides what it
+ * CONTAINS, and neither is allowed to answer for the other.
  */
-export async function fetchTiers(): Promise<StoreProduct[]> {
+export async function fetchTiers(catalog: readonly Tier[]): Promise<StoreProduct[]> {
   if (isMockStore) {
     await mockDelay(700);
     if (MOCK === "empty") return [];
     if (MOCK === "error") throw new StoreError("The App Store didn't respond. Try again.");
     // Deliberately not USD, to prove the UI renders whatever Apple hands back
-    // rather than a dollar sign this app composed itself.
+    // rather than a dollar sign this app composed itself. These are fake HK$
+    // strings, NOT evidence that localisation works.
     const prices = ["HK$47.00", "HK$93.00", "HK$448.00", "HK$1,388.00", "HK$4,588.00"];
-    return TIERS.map((tier, i) => ({ ...tier, displayPrice: prices[i] ?? "HK$47.00" }));
+    return catalog.map((tier, i) => ({ ...tier, displayPrice: prices[i] ?? "HK$47.00" }));
   }
 
   const iap = nativeStore();
   if (!iap) throw new StoreError("In-app purchase isn't available in this build.");
   const products = (await iap.fetchProducts({
-    skus: TIERS.map((t) => t.productId),
+    skus: catalog.map((t) => t.productId),
     type: "subs",
   })) as unknown as { id?: string; displayPrice?: string }[];
 
   const byId = new Map((products ?? []).filter(Boolean).map((p) => [p.id ?? "", p]));
-  return TIERS.flatMap((tier) => {
+  return catalog.flatMap((tier) => {
     const product = byId.get(tier.productId);
     if (!product?.displayPrice) return [];
     return [{ ...tier, displayPrice: product.displayPrice }];
@@ -403,14 +352,16 @@ export async function purchaseTier(
  * the recovery route for a purchase whose submit failed, and for someone who
  * reinstalled or switched device.
  */
-export async function restoreTiers(): Promise<StorePurchase[]> {
+export async function restoreTiers(catalog: readonly Tier[]): Promise<StorePurchase[]> {
   if (isMockStore) {
     await mockDelay(1200);
     if (MOCK !== "owned") return [];
+    const restored = catalog[2] ?? catalog[0];
+    if (!restored) return [];
     return [
       {
-        productId: TIERS[2].productId,
-        signedTransaction: `mock.restore.${TIERS[2].productId}`,
+        productId: restored.productId,
+        signedTransaction: `mock.restore.${restored.productId}`,
         raw: { mock: true },
       },
     ];
@@ -423,7 +374,9 @@ export async function restoreTiers(): Promise<StorePurchase[]> {
   return (purchases ?? []).flatMap((purchase) => {
     const productId = String(purchase.productId ?? "");
     const signedTransaction = signedTransactionOf(purchase);
-    if (!signedTransaction || !tierForProduct(productId)) return [];
+    // Checked against the SERVER's catalog when there is one: a product this
+    // build has never heard of is still restorable if omg sells it today.
+    if (!signedTransaction || !tierForProduct(productId, catalog)) return [];
     return [{ productId, signedTransaction, raw: purchase }];
   });
 }
