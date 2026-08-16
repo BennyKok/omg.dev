@@ -32,7 +32,7 @@ Review.
 | Support URL | `https://omg.dev/support` → **404**. Use `https://omg.dev/contact` |
 | Waitlist gate | **OFF** (`waitlist_config.enabled = 0`) — strangers can sign up |
 | New-account plan | `free` — 2 vCPU, 4 GB, 16 GB disk, 3 concurrent agents, not always-on |
-| Purchase surface in app | ⚠️ **This row was wrong — see "The assessment that was wrong" below.** At HEAD: no purchase CTA (`#114` removed the last one). In **build 24, the binary Apple is reviewing**: a tappable "Plan & billing" row opening `app.omg.dev/settings/billing`. |
+| Purchase surface in app | ⚠️ **This row was wrong — see "The assessment that was wrong" below.** At HEAD: no purchase CTA (`#114` removed both). In **build 24, the binary Apple is reviewing**: TWO tappable external links — a "Plan & billing" settings row, and "Fix this on omg.dev" on the blocked-Computer screen. |
 | Demo account | **live**, with a cloud Computer provisioned — see below |
 
 The waitlist being off is good news: a public-link tester reaches the product
@@ -77,6 +77,45 @@ So the build under review contains it. The decision was to let build 24 run
 anyway: a beta rejection is not penalising, nothing better existed to submit,
 and pulling it would have traded a probable rejection for a certain empty queue.
 
+### The second exposure, found by the check rather than by reading
+
+There were **two**, and the doc originally recorded neither. The first was found
+by tracing the settings row. The second was found by *running the enumeration
+below* — nobody had looked at that screen — and it is the stronger case.
+
+`app/computers.tsx` at `c7774c7`:
+
+```tsx
+{cloudBlocked ? (
+  <Row onPress={() => void Linking.openURL("https://app.omg.dev/")}>
+    <Text ...>Fix this on omg.dev</Text>
+```
+
+gated on:
+
+```ts
+// mobile/src/omg/computer-picker.ts @ c7774c7
+const BLOCKED_CLOUD_STATUSES = new Set(["upgrade_required", "recycled"]);
+```
+
+`upgrade_required` is *"Included computer time is used up"*. So build 24 offers an
+external web link **at the moment the user is being asked for money** — which is
+what 3.1.1(a) is actually aimed at. The settings row was a link that happened to
+reach billing; this one is a paywall exit. It is also the screen a reviewer hits
+first on an exhausted demo account.
+
+`#114` fixed it by splitting the question in two, and the distinction is the point:
+
+```ts
+// at HEAD
+const BLOCKED_CLOUD_STATUSES   = new Set(["upgrade_required", "recycled"]); // can't select
+const WEB_FIXABLE_CLOUD_STATUSES = new Set(["recycled"]);                   // may link out
+```
+
+Blocked is not the same question as fixable-on-the-web. `recycled` is account
+management, so the link survives there; `upgrade_required` is billing, so it does
+not. Build 25 is clean on both counts.
+
 ### The method failure, which is the reusable part
 
 A survey of one screen was written up as a property of the app. It then sat here
@@ -104,11 +143,16 @@ link assembled at runtime, which is precisely how this one hid.
 What works is enumerating the call sites AND the path literals that feed them:
 
 ```bash
-# ✓ CATCHES IT. Verified against the submitted commit.
+# ✓ CATCHES BOTH. Verified against the submitted commit.
 grep -rnE 'openURL|path: "' mobile/app mobile/src
-#   mobile/app/settings.tsx:43:  { label: "Plan & billing", path: "/settings/billing" }   ← there it is
-#   mobile/app/settings.tsx:125: const open = (path) => void Linking.openURL(`https://app.omg.dev${path}`)
+#   settings.tsx:43:   { label: "Plan & billing", path: "/settings/billing" }       ← exposure 1
+#   settings.tsx:125:  const open = (path) => Linking.openURL(`https://app.omg.dev${path}`)
+#   computers.tsx:144: <Row onPress={() => Linking.openURL("https://app.omg.dev/")}> ← exposure 2
 ```
+
+Exposure 2 is the one nobody had read. It surfaced purely because the check has no
+opinion about which screen matters, which is the whole argument for running it
+instead of reviewing screens.
 
 Two rules that come with it:
 
