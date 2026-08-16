@@ -168,31 +168,6 @@
           "referenceName" : "Pro",
           "subscriptionGroupID" : "21654321",
           "type" : "RecurringSubscription"
-        },
-        {
-          "adHocOffers" : [
-
-          ],
-          "codeOffers" : [
-
-          ],
-          "displayPrice" : "599.99",
-          "familyShareable" : false,
-          "groupNumber" : 1,
-          "internalID" : "31000005",
-          "introductoryOffer" : null,
-          "localizations" : [
-            {
-              "description" : "Always-on 12 vCPU, 36 GB memory, 256 GB storage, 24 agents.",
-              "displayName" : "Always On",
-              "locale" : "en_US"
-            }
-          ],
-          "productID" : "dev.omg.computer.computer_20.monthly.v1",
-          "recurringSubscriptionPeriod" : "P1M",
-          "referenceName" : "Always On",
-          "subscriptionGroupID" : "21654321",
-          "type" : "RecurringSubscription"
         }
       ]
     }

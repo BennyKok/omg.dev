@@ -175,12 +175,9 @@ const MOCK_CATALOG: unknown = [
     label: "Pro",
     specs: { parallelAgents: 16, vcpus: 8, memoryMb: 16384, diskGb: 128, computeHours: 300, alwaysOn: false },
   },
-  {
-    productId: "dev.omg.computer.computer_20.monthly.v1",
-    plan: "computer_20",
-    label: "Always On",
-    specs: { parallelAgents: 24, vcpus: 12, memoryMb: 36864, diskGb: 256, computeHours: 750, alwaysOn: true },
-  },
+  // Always On is not sold on iOS, so the mock does not pretend it is. A mock
+  // that shows a rung production won't is a screenshot waiting to mislead
+  // someone — including whoever reviews this screen next.
 ];
 
 /** The same list with every `specs` null — a server that can sell but cannot describe. */
