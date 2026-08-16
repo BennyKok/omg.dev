@@ -18,6 +18,20 @@
  * `from` is pinned rather than Date.now() so a run at 23:59 cannot fail on a
  * date rolling over between the two calls, and so a failure reproduces.
  *
+ * WHEN IT FAILS, IT MAY FAIL SLOWLY — THAT IS NOT THE SCRIPT HANGING.
+ * A green run takes a few seconds, because every expression here matches
+ * something soon. But a break in the MATCHER (fieldMatch/cronMatches) or in
+ * isValidCron can make an expression match nothing, and nextRunAt then scans
+ * its full 400-day budget — ~576k minutes, each a formatToParts — on BOTH
+ * implementations across all five zones before it can report the difference.
+ * Measured: two such perturbations each ran past 2 minutes. So give it a
+ * generous timeout, and if you are killing it to "fix" a hang, read the
+ * partial DRIFT lines first — the answer is usually already printed.
+ * (Verified 2026-08-16 by perturbing one side four ways — an off-by-one in
+ * nextRunAt's start minute, an exclusive bound in fieldMatch's range-step, a
+ * describeCron wording change, and DEFAULT_SCHED_TZ — and confirming each was
+ * caught rather than trusting that it would be.)
+ *
  * Run: bun run scripts/check-cron-drift.ts
  */
 
