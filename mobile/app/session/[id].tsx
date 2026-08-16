@@ -592,6 +592,20 @@ export default function SessionScreen() {
   const [queuedHint, setQueuedHint] = useState(false);
 
   /**
+   * The in-progress hold on the send button — see that button for why the
+   * queue is armed while held and committed on release. `armed` deliberately
+   * outlives `onPressOut`, because `onPress` reads it afterwards.
+   */
+  type QueueHold = { armed: boolean; timer: ReturnType<typeof setTimeout> | null };
+  const queueHoldRef = useRef<QueueHold | null>(null);
+  useEffect(
+    () => () => {
+      if (queueHoldRef.current?.timer) clearTimeout(queueHoldRef.current.timer);
+    },
+    [],
+  );
+
+  /**
    * Dictation hands its finished text in directly rather than going through
    * `draft`: the state update that would carry it has not committed yet at the
    * moment the take ends, and sending an empty string is how a voice message
@@ -1486,10 +1500,56 @@ export default function SessionScreen() {
            */}
           {canSend || sending ? (
             <Pressable
-              onPress={() => send("steer")}
-              // Hold to put it behind the work in flight instead of into it.
-              onLongPress={() => send("queue")}
-              delayLongPress={320}
+              /**
+               * `key` IS LOAD-BEARING. Both branches of this ternary render a
+               * bare `Pressable` in the same slot, so without distinct keys
+               * React reconciles them as the SAME element — same instance,
+               * same native view, props swapped in place — and a gesture that
+               * is still in progress carries straight over to the other
+               * button's handlers.
+               *
+               * That is how holding this button used to start dictation. The
+               * hold queued the message, which cleared the draft, which
+               * flipped `canSend` false, which turned this into the mic —
+               * under a finger that had never lifted — and the mic's own
+               * `onPress`/`onLongPress` inherited the live press. Queueing on
+               * release (below) closes the window that made it easy to hit;
+               * these keys close the mechanism, so any future state flip
+               * mid-press kills the gesture with its view instead of handing
+               * it to a control that means something else.
+               */
+              key="composer-send"
+              /**
+               * QUEUE ON RELEASE, NOT AT THE 320ms MARK.
+               *
+               * `onLongPress` fires while the finger is still down, so the
+               * message left, the draft cleared and the button changed shape
+               * mid-gesture. The hold now only ARMS the queue (with a haptic,
+               * so the arming is something you feel rather than guess at), and
+               * the send happens on release like every other button.
+               *
+               * Deciding in `onPress` rather than `onPressOut` is deliberate:
+               * `onPress` is the one that does NOT fire if you slide off the
+               * button before letting go, so dragging away still cancels.
+               */
+              onPressIn={() => {
+                const hold: QueueHold = { armed: false, timer: null };
+                hold.timer = setTimeout(() => {
+                  hold.armed = true;
+                  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                }, 320);
+                queueHoldRef.current = hold;
+              }}
+              onPressOut={() => {
+                // Only stop the clock. `armed` has to survive into `onPress`,
+                // which Pressability calls after this.
+                const hold = queueHoldRef.current;
+                if (hold?.timer) {
+                  clearTimeout(hold.timer);
+                  hold.timer = null;
+                }
+              }}
+              onPress={() => send(queueHoldRef.current?.armed ? "queue" : "steer")}
               disabled={!canSend}
               accessibilityRole="button"
               accessibilityLabel={busy ? "Queue the message" : "Send the message"}
@@ -1530,6 +1590,10 @@ export default function SessionScreen() {
              * beside it. Same size as send, so the row is one height always.
              */
             <Pressable
+              // See the send button's `key` above: distinct keys are what stop
+              // an in-flight press on that button from being inherited by this
+              // one when `canSend` flips mid-gesture.
+              key="composer-mic"
               onPress={dictation.toggle}
               /**
                * SWIPE UP TO THROW THE TAKE AWAY, the way a voice note is
