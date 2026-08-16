@@ -6,8 +6,9 @@
  * status:"upgrade_required" / blockedReason:"plan_downgraded" — observed live —
  * and the session proxy then answers every request with a permanent 425. If
  * that row looks selectable, the app sends you to a spinner that never ends.
- * So a blocked machine is rendered as blocked, with the reason and a way out to
- * the web where billing actually lives.
+ * So a blocked machine is rendered as blocked, with the reason stated plainly.
+ * A way out to the web is offered only for blocks that are not about money —
+ * see WEB_FIXABLE_CLOUD_STATUSES below.
  */
 
 import { useRouter } from "expo-router";
@@ -25,6 +26,27 @@ import { bindingLabel, cloudStatusLabel, machineSpec, relativeTime } from "../sr
 import { CLOUD_BINDING_ID } from "../src/omg/config";
 
 const BLOCKED_CLOUD_STATUSES = new Set(["upgrade_required", "recycled"]);
+
+/**
+ * Blocked, but NOT for a reason you would fix by paying.
+ *
+ * "Fix this on omg.dev" is only offered for these. `upgrade_required` is
+ * deliberately absent: that state means "Included computer time is used up" or
+ * "Your plan no longer covers this computer", so a button next to it saying
+ * fix this on the web is, in substance, a call to action pointing at a
+ * purchasing mechanism that is not in-app purchase — which App Review
+ * Guideline 3.1.1(a) prohibits everywhere except the United States storefront.
+ * It reads more like a paywall exit than the settings row did, because it
+ * appears at exactly the moment someone is being asked for money.
+ *
+ * `recycled` stays: a removed machine is not a billing state, and getting it
+ * back is account management.
+ *
+ * The status text still tells the truth about why the machine will not serve.
+ * Stating a fact is not a call to action. See app/settings.tsx for the whole
+ * reasoning and for where the upgrade nudge went instead.
+ */
+const WEB_FIXABLE_CLOUD_STATUSES = new Set(["recycled"]);
 
 export default function ComputersScreen() {
   const router = useRouter();
@@ -51,6 +73,9 @@ export default function ComputersScreen() {
   };
 
   const cloudBlocked = BLOCKED_CLOUD_STATUSES.has(cloud?.status ?? "");
+  // See WEB_FIXABLE_CLOUD_STATUSES: blocked is not the same question as
+  // "should we offer a way out to the web".
+  const cloudFixableOnWeb = WEB_FIXABLE_CLOUD_STATUSES.has(cloud?.status ?? "");
   const cloudSpec = machineSpec(cloud?.machine);
 
   return (
@@ -138,7 +163,7 @@ export default function ComputersScreen() {
           ) : null}
         </Row>
 
-        {cloudBlocked ? (
+        {cloudFixableOnWeb ? (
           <>
             <Separator inset="text" />
             <Row onPress={() => void Linking.openURL("https://app.omg.dev/")}>
@@ -166,8 +191,7 @@ export default function ComputersScreen() {
         }}
       >
         Pair a new machine by running{" "}
-        <Text style={{ color: colors.text }}>omg connect</Text> on it. Billing and plans live on
-        the web.
+        <Text style={{ color: colors.text }}>omg connect</Text> on it.
       </Text>
     </ScrollView>
   );
