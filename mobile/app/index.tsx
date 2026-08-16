@@ -398,17 +398,17 @@ export default function SessionsScreen() {
    * one's `layout: LinearTransition` (see motion.tsx) even though not one row
    * actually moved.
    *
-   * This is the best lead on a device report of the idle list appearing to
-   * render twice, offset, with a second list's rows peeking through the
-   * gaps — a continuous, needless full-list reflow (every mounted card,
-   * every 10s, forever) is exactly the kind of repeated stress under which
-   * Reanimated's layout/exiting transitions are known to leave a view
-   * mid-transition instead of settling. It was NOT caught in the act on the
-   * simulator (see the PR description for what was and wasn't verified live)
-   * — this fix removes a real, confirmed source of needless churn regardless
-   * of whether it's the exact mechanism, and is safe on its own merits: a
-   * quiet poll that changed nothing now costs a JSON compare instead of a
-   * full-tree re-render.
+   * This is a PERFORMANCE fix and nothing more. It was originally written on
+   * the theory that the churn was also what produced the "list renders twice,
+   * offset, with a second list's rows peeking through the gaps" report; that
+   * theory was wrong, and the note that used to be here claiming it as the
+   * best lead has been removed rather than left to mislead the next reader.
+   * The real cause was the `exiting` animation on SessionCard stranding
+   * unmounted rows out of flow — found and fixed separately, see motion.tsx.
+   *
+   * Keep this anyway, on its own merits: a quiet poll that changed nothing
+   * costs a JSON compare here instead of re-rendering every mounted card and
+   * re-arming every layout transition in the list.
    */
   function sessionsSignature(list: OmgSession[]): string {
     return JSON.stringify(

@@ -755,7 +755,6 @@ export function SessionCard({
   return (
     <Reanimated.View
       entering={listMotion.entering}
-      exiting={listMotion.exiting}
       layout={listMotion.layout}
     >
       {swipeable ? (
