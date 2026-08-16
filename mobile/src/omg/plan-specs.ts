@@ -159,11 +159,15 @@ export function parseCatalogTiers(value: unknown): CatalogTier[] | null {
  *
  * `computer_20` IS mapped in `OMG_APP_STORE_CONFIG.products`, so leaving it
  * here would not have risked the money-taken-and-rejected failure above. It is
- * absent because Benny's call is that iOS sells Starter through Pro only, and
- * that decision should be true in this list rather than enforced by the
- * accident that the product does not exist in App Store Connect — StoreKit
- * silently drops ids it cannot find, so this list would have looked wrong and
- * behaved right, until the day someone created the product for a sandbox test.
+ * absent because Always On is SALES-LED: those customers come through a call
+ * and the plan is shaped around them, so what they are billed is not what a
+ * fixed App Store product id can represent. It is not a rung waiting for
+ * StoreKit to mature, and it should not be added back when it does.
+ *
+ * It is enforced here rather than left to the fact that no such product exists
+ * in App Store Connect. StoreKit silently drops ids it cannot find, so this
+ * list would have looked wrong and behaved right, until the day someone created
+ * the product for a sandbox test.
  *
  * Cost, stated rather than discovered: `labelForPlan` reads names out of this
  * same list, so an Always On subscriber on the web now reads "This account is
