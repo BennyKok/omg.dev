@@ -13,26 +13,90 @@ with no port forwarding and no VPN setup:
 ssh bennykok@bennys-macbook-pro-2 'xcrun simctl list devices booted'
 ```
 
+## `booted` IS A COIN FLIP WHEN TWO DEVICES ARE UP. PIN THE UDID.
+
+Every `simctl` example below says `booted`, and that word resolves to *a*
+booted device, not *the* one you mean. More than one simulator is routinely
+up on this Mac — agents work in parallel and each leaves its device running —
+and then `booted` silently picks one.
+
+**The failure mode is silent and it does not look like a device mix-up.** On
+2026-08-16 one agent screenshotted with bare `booted`, computed tap
+coordinates from that image, and the taps did nothing. It re-derived the
+window origin (unchanged), concluded its calibration was fine, and gave up —
+it had been reading one device and clicking the other. A second agent hit the
+same ambiguity from the other side: `get_app_container booted dev.omg.computer`
+answered for the Pro Max while it was reasoning about the Pro. Both commands
+succeed. Both return real, plausible output. They just refer to different
+screens.
+
+So resolve the UDID once and pass it explicitly to every command:
+
+```bash
+# Pick the device by NAME, then use its UDID everywhere. Never bare `booted`.
+PRO=$(ssh bennykok@bennys-macbook-pro-2 \
+  "xcrun simctl list devices booted | awk '/iPhone 17 Pro \(/{print \$NF}'" | tr -d '()')
+ssh bennykok@bennys-macbook-pro-2 "xcrun simctl io $PRO screenshot /tmp/s.png"
+```
+
+Cheap independent check: the screenshot's pixel dimensions identify the model.
+iPhone 17 Pro is **1206x2622**, 17 Pro Max is **1320x2868**. If you are unsure
+which device you just captured, measure it rather than assume.
+
+**The device is shared.** Before you point it at your tunnel, check whether
+another Metro/tunnel is live (`ss -lntp | grep 809`, and the ngrok APIs below);
+say so when you take it, and hand it back when you are done. Re-pointing a
+device someone else is mid-run on makes them screenshot *your* build.
+
 Full loop — Metro here, simulator there:
 
 ```bash
 # 1. Metro needs --tunnel: the Mac cannot reach this box's localhost.
-cd mobile && npx expo start --tunnel --port 8081 > /tmp/metro.log 2>&1 &
+#    PICK AN UNUSED PORT — 8081 is the default and is usually already taken by
+#    another agent's worktree. Check first: ss -lntp | grep 80
+cd mobile && npx expo start --tunnel --port 8095 > /tmp/metro8095.log 2>&1 &
 
 # 2. Get the tunnel URL (it is NOT printed to the log).
-curl -s localhost:4040/api/tunnels | python3 -c \
-  "import json,sys;print(json.load(sys.stdin)['tunnels'][0]['public_url'])"
+#    NOT necessarily :4040 — that is ngrok's api port for the FIRST tunnel on
+#    the box, and every later one takes 4041, 4042, ... Scan, and match on your
+#    own port number rather than taking tunnels[0] blindly.
+for p in 4040 4041 4042 4043; do
+  curl -s --max-time 3 localhost:$p/api/tunnels \
+    | python3 -c "import json,sys;[print(t['public_url']) for t in json.load(sys.stdin)['tunnels']]" 2>/dev/null
+done | grep -m1 '^https.*-8095\.'
 
 # 3. Point the dev client at it. The scheme is `omg` (app.json -> expo.scheme),
 #    NOT `omgdev` — the bundle id is dev.omg.computer and confusing the two
-#    gives a useless `OSStatus error -10814`.
-ssh bennykok@bennys-macbook-pro-2 \
-  'xcrun simctl openurl booted "omg://expo-development-client/?url=<TUNNEL_URL_ENCODED>"'
+#    gives a useless `OSStatus error -10814`. URL-ENCODE the tunnel url.
+#    Terminate the app first or the dev client refuses with "Current Endpoint".
+ssh bennykok@bennys-macbook-pro-2 "xcrun simctl terminate $PRO dev.omg.computer;
+  xcrun simctl openurl $PRO 'omg://expo-development-client/?url=<TUNNEL_URL_ENCODED>'"
 
-# 4. Wait for `iOS Bundled` in /tmp/metro.log, then LOOK.
-ssh bennykok@bennys-macbook-pro-2 'xcrun simctl io booted screenshot /tmp/s.png'
+# 4. Wait for `iOS Bundled` in the log, then LOOK.
+ssh bennykok@bennys-macbook-pro-2 "xcrun simctl io $PRO screenshot /tmp/s.png"
 scp bennykok@bennys-macbook-pro-2:/tmp/s.png /tmp/s.png
 ```
+
+## Tapping: there is no `simctl tap`. Calibrate off the accessibility tree.
+
+`simctl` cannot synthesise touches and `idb` is not installed on this Mac.
+Drive the Simulator window with CGEvent instead, and get the mapping from the
+Simulator's own accessibility tree rather than guessing the bezel inset — the
+window's `group` element is the device surface reported at **1:1 in device
+points**, so `screen = group.origin + device_point`:
+
+```bash
+# Read the group's origin/size (size should equal the device's logical points,
+# e.g. 440x956 on a 17 Pro Max — the 1320x2868 screenshot divided by scale 3).
+ssh bennykok@bennys-macbook-pro-2 'osascript -e "tell application \"System Events\"
+  to tell process \"Simulator\" to get {position, size} of (UI elements of
+  (first window whose name contains \"Pro Max\") whose role description is \"group\")"'
+```
+
+Then post `kCGEventLeftMouseDown`/`Up` at `origin + point` via Quartz. Convert
+a screenshot pixel to a device point by dividing by the scale factor (3 on
+these devices). Raise the right window first (`AXRaise`) — clicks go to
+whatever is under the coordinate, not to a device id.
 
 Fast refresh applies edits in a couple of seconds, so the probe-and-look loop
 below is cheap. Use it instead of reasoning about what UIKit "should" do.
