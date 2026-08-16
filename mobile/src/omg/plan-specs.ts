@@ -154,6 +154,21 @@ export function parseCatalogTiers(value: unknown): CatalogTier[] | null {
  * "unmapped App Store productId" AFTER Apple has taken the money. When the
  * server does send a catalog its ids win, and that mismatch stops being
  * possible rather than merely being commented about.
+ *
+ * ── Always On is not here, and that is the second kind of disagreement ─────
+ *
+ * `computer_20` IS mapped in `OMG_APP_STORE_CONFIG.products`, so leaving it
+ * here would not have risked the money-taken-and-rejected failure above. It is
+ * absent because Benny's call is that iOS sells Starter through Pro only, and
+ * that decision should be true in this list rather than enforced by the
+ * accident that the product does not exist in App Store Connect — StoreKit
+ * silently drops ids it cannot find, so this list would have looked wrong and
+ * behaved right, until the day someone created the product for a sandbox test.
+ *
+ * Cost, stated rather than discovered: `labelForPlan` reads names out of this
+ * same list, so an Always On subscriber on the web now reads "This account is
+ * billed on the web" instead of "Your Always On plan is billed on the web".
+ * Every call site already treats the label as optional for exactly this reason.
  */
 export const FALLBACK_TIERS: readonly CatalogTier[] = [
   {
@@ -178,12 +193,6 @@ export const FALLBACK_TIERS: readonly CatalogTier[] = [
     productId: "dev.omg.computer.computer_10.monthly.v1",
     plan: "computer_10",
     label: "Pro",
-    specs: null,
-  },
-  {
-    productId: "dev.omg.computer.computer_20.monthly.v1",
-    plan: "computer_20",
-    label: "Always On",
     specs: null,
   },
 ] as const;

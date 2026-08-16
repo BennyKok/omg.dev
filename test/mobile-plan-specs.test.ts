@@ -148,6 +148,27 @@ describe("the bundled fallback carries ids, never facts", () => {
     }
   });
 
+  test("iOS sells Starter through Pro, and does not offer Always On", () => {
+    // Benny's call. Enforced here rather than left to the accident that the
+    // product does not exist in App Store Connect — StoreKit silently drops
+    // ids it cannot find, so without this the list would look wrong and
+    // behave right until someone created the product for a sandbox test.
+    expect(FALLBACK_TIERS.map((tier) => tier.plan)).toEqual([
+      "computer_s20",
+      "computer_s40",
+      "computer_5",
+      "computer_10",
+    ]);
+  });
+
+  test("but a server that DOES send Always On is still rendered", () => {
+    // Not offering it is a merchandising decision, not a parser limit. If the
+    // control plane ever publishes that rung again, this screen shows it
+    // without a new build.
+    const tiers = parseCatalogTiers([{ ...PERSONAL, plan: "computer_20", label: "Always On" }]);
+    expect(tiers?.map((tier) => tier.label)).toEqual(["Always On"]);
+  });
+
   test("no price string is compiled into the bundle", () => {
     // Apple's displayPrice is the only price this screen may render. Anything
     // that looks like money here is wrong in most of the world.
