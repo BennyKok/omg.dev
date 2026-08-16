@@ -32,13 +32,93 @@ Review.
 | Support URL | `https://omg.dev/support` → **404**. Use `https://omg.dev/contact` |
 | Waitlist gate | **OFF** (`waitlist_config.enabled = 0`) — strangers can sign up |
 | New-account plan | `free` — 2 vCPU, 4 GB, 16 GB disk, 3 concurrent agents, not always-on |
-| Purchase surface in app | none. `app/computers.tsx` says "Billing and plans live on the web" as **plain text, not a link** |
+| Purchase surface in app | ⚠️ **This row was wrong — see "The assessment that was wrong" below.** At HEAD: no purchase CTA (`#114` removed the last one). In **build 24, the binary Apple is reviewing**: a tappable "Plan & billing" row opening `app.omg.dev/settings/billing`. |
 | Demo account | **live**, with a cloud Computer provisioned — see below |
 
-Two of those are quietly good news. The waitlist being off means a public-link
-tester reaches the product instead of a holding page. The billing line being
-plain text rather than a tappable outbound link keeps this clear of guideline
-3.1.1, which is what usually bites an app that sells a subscription on the web.
+The waitlist being off is good news: a public-link tester reaches the product
+instead of a holding page.
+
+The billing claim above was **false**, and it is worth understanding how, because
+the mistake is easy to repeat and this document made it look settled.
+
+## The assessment that was wrong
+
+This file used to state that the app had no purchase call to action, and
+concluded it was "clear of guideline 3.1.1". That conclusion was reached by
+surveying **one screen** — `app/computers.tsx`, where the billing sentence really
+is plain text — and generalising to the whole app. `app/settings.tsx` had a
+tappable row the entire time:
+
+```ts
+// mobile/app/settings.tsx @ c7774c7 (2026-08-15 13:17 UTC)
+const WEB_PAGES = [
+  { label: "Plan & billing", path: "/settings/billing" },   // ← rendered by
+  ...                                                        //   WEB_PAGES.map
+];                                                           //   with onPress
+const open = (path) => void Linking.openURL(`https://app.omg.dev${path}`);
+```
+
+Guideline 3.1.1(a) prohibits "buttons, external links, or other calls to action
+that direct customers to purchasing mechanisms other than in-app purchase" in
+every storefront except the United States. omg ships outside the US, so the
+exception does not cover it, and that row is the clearest possible example of
+what the rule names.
+
+**Timeline, traced to commits rather than inferred from dates:**
+
+| when (UTC) | what |
+|---|---|
+| 2026-08-13 | the "Plan & billing" row is added |
+| 2026-08-15 13:17 | `c7774c7` — last `settings.tsx` change before submission; row present and tappable |
+| 2026-08-15 18:11 | **build 24 submitted for external Beta App Review** (per the release session) |
+| 2026-08-16 09:48 | `#114` removes the row — **sixteen hours too late for that binary** |
+
+So the build under review contains it. The decision was to let build 24 run
+anyway: a beta rejection is not penalising, nothing better existed to submit,
+and pulling it would have traded a probable rejection for a certain empty queue.
+
+### The method failure, which is the reusable part
+
+A survey of one screen was written up as a property of the app. It then sat here
+for a day *actively reassuring* everyone who read it — worse than no assessment,
+because it stopped anyone looking again.
+
+If you are re-assessing 3.1.1 (or any guideline) here, **do not read a screen.
+Enumerate the binary.**
+
+The obvious way to do that DOES NOT WORK, and it is worth knowing why before you
+trust it:
+
+```bash
+# ✗ MISSES IT. At c7774c7 this prints only bare hosts.
+grep -rhoE "https://[a-zA-Z0-9./_-]+" mobile/app mobile/src | sort -u
+#   https://app.omg.dev
+#   https://auth.omg.dev
+#   https://backend.omg.dev
+```
+
+No destination appears, because the URL is composed — `https://app.omg.dev${path}`
+— with the paths in a separate constant. A grep for literal URLs cannot see a
+link assembled at runtime, which is precisely how this one hid.
+
+What works is enumerating the call sites AND the path literals that feed them:
+
+```bash
+# ✓ CATCHES IT. Verified against the submitted commit.
+grep -rnE 'openURL|path: "' mobile/app mobile/src
+#   mobile/app/settings.tsx:43:  { label: "Plan & billing", path: "/settings/billing" }   ← there it is
+#   mobile/app/settings.tsx:125: const open = (path) => void Linking.openURL(`https://app.omg.dev${path}`)
+```
+
+Two rules that come with it:
+
+1. **Run it against the commit that was submitted, not your working tree.** Use
+   `git show <sha>:<file>`, not `git checkout` — a checkout with local edits can
+   silently refuse and leave you reading HEAD while believing you are reading the
+   build. That happened while writing this section.
+2. **Test the check itself against a known-bad commit** before trusting it. The
+   first version of this advice was the grep above that misses everything; it
+   looked authoritative and would have re-certified the same false conclusion.
 
 ## The demo account (was the blocker, now shipped)
 
