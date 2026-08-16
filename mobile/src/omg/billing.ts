@@ -40,11 +40,26 @@
 
 import { getAuthToken } from "./auth";
 import { CONTROLPLANE_ORIGIN } from "./config";
+import { parseCatalogTiers, type CatalogTier } from "./plan-specs";
 
 /** What the server says about this account's ability to buy, before we ask Apple for anything. */
 export type PurchaseAccount = {
   /** Stable per-customer UUID. Pass to StoreKit verbatim. */
   appAccountToken: string;
+  /**
+   * What omg sells and what each tier contains — ids included, prices NOT.
+   *
+   * Null when this control plane published no catalog at all, which is an
+   * ordinary answer from a server older than the field. The caller falls back
+   * to the product ids in the bundle and renders no specs; it must never fall
+   * back to remembered numbers. An EMPTY array is a different answer — "nothing
+   * is on sale" — and is passed through as such.
+   *
+   * Prices are absent by contract. Apple's `displayPrice` is the only price
+   * string this app renders, because it is per-storefront and localised, and a
+   * second price from omg could only ever contradict it.
+   */
+  tiers: CatalogTier[] | null;
   /**
    * False when buying here would double-bill. The live case is an account
    * already subscribed through Stripe on the web: Apple would happily take a
@@ -121,6 +136,59 @@ export function setMockBillingScenario(scenario: string): void {
 /** A fixed UUID, so the mock exercises the real "pass it through" path. */
 const MOCK_ACCOUNT_TOKEN = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 
+/**
+ * A stand-in for the catalog the control plane sends.
+ *
+ * THIS IS NOT A COPY OF THE CATALOG. It is raw JSON in the shape the server
+ * promises, fed through the SAME `parseCatalogTiers` the network path uses, so
+ * that looking at the screen exercises the real parser rather than a shortcut
+ * around it. It exists because the endpoint is being built in another repo in
+ * parallel and the screen had to be seen before it deployed.
+ *
+ * The numbers match the vibes catalog as of writing and were agreed field by
+ * field with the control-plane side. They are still MOCK numbers: what they
+ * prove is that the screen renders whatever it is handed and computes nothing.
+ * The real payload is the one that ships.
+ */
+const MOCK_CATALOG: unknown = [
+  {
+    productId: "dev.omg.computer.computer_s20.monthly.v1",
+    plan: "computer_s20",
+    label: "Starter",
+    specs: { parallelAgents: 3, vcpus: 2, memoryMb: 4096, diskGb: 16, computeHours: 20, alwaysOn: false },
+  },
+  {
+    productId: "dev.omg.computer.computer_s40.monthly.v1",
+    plan: "computer_s40",
+    label: "Starter Plus",
+    specs: { parallelAgents: 3, vcpus: 2, memoryMb: 4096, diskGb: 16, computeHours: 40, alwaysOn: false },
+  },
+  {
+    productId: "dev.omg.computer.computer_5.monthly.v1",
+    plan: "computer_5",
+    label: "Personal",
+    specs: { parallelAgents: 5, vcpus: 4, memoryMb: 8192, diskGb: 64, computeHours: 150, alwaysOn: false },
+  },
+  {
+    productId: "dev.omg.computer.computer_10.monthly.v1",
+    plan: "computer_10",
+    label: "Pro",
+    specs: { parallelAgents: 16, vcpus: 8, memoryMb: 16384, diskGb: 128, computeHours: 300, alwaysOn: false },
+  },
+  {
+    productId: "dev.omg.computer.computer_20.monthly.v1",
+    plan: "computer_20",
+    label: "Always On",
+    specs: { parallelAgents: 24, vcpus: 12, memoryMb: 36864, diskGb: 256, computeHours: 750, alwaysOn: true },
+  },
+];
+
+/** The same list with every `specs` null — a server that can sell but cannot describe. */
+const MOCK_CATALOG_NO_SPECS: unknown = (MOCK_CATALOG as Record<string, unknown>[]).map((tier) => ({
+  ...tier,
+  specs: null,
+}));
+
 async function billingFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const token = await getAuthToken();
   if (!token) throw new BillingError("Please sign in again.", 401);
@@ -169,21 +237,42 @@ async function billingFetch<T>(path: string, init?: RequestInit): Promise<T> {
 export async function fetchPurchaseAccount(): Promise<PurchaseAccount> {
   if (isMock) {
     await new Promise((r) => setTimeout(r, 500));
+    // Every branch goes through parseCatalogTiers, exactly like the network
+    // path, so the mock cannot accidentally hand the screen a shape the real
+    // parser would have rejected.
+    //   nocatalog — a control plane older than the `tiers` field
+    //   nospecs   — sells the tiers but describes none of them
+    //   nothing   — a real, empty catalog: omg sells nothing right now
+    const raw =
+      MOCK === "nocatalog" ? undefined : MOCK === "nospecs" ? MOCK_CATALOG_NO_SPECS : MOCK === "nothing" ? [] : MOCK_CATALOG;
+    const tiers = parseCatalogTiers(raw);
     if (MOCK === "stripe") {
       return {
         appAccountToken: MOCK_ACCOUNT_TOKEN,
         canPurchase: false,
         reason: "stripe_subscription_active",
         plan: "computer_5",
+        tiers,
       };
     }
-    return { appAccountToken: MOCK_ACCOUNT_TOKEN, canPurchase: true, plan: null };
+    return { appAccountToken: MOCK_ACCOUNT_TOKEN, canPurchase: true, plan: null, tiers };
   }
-  const data = await billingFetch<PurchaseAccount>("/api/billing/app-store/account-token");
-  if (!data?.appAccountToken) {
+  const data = await billingFetch<Record<string, unknown>>(
+    "/api/billing/app-store/account-token",
+  );
+  if (typeof data?.appAccountToken !== "string" || !data.appAccountToken) {
     throw new BillingError("omg did not return a purchase token.", 500);
   }
-  return data;
+  return {
+    appAccountToken: data.appAccountToken,
+    canPurchase: data.canPurchase !== false,
+    reason: typeof data.reason === "string" ? data.reason : null,
+    plan: typeof data.plan === "string" ? data.plan : null,
+    // Validated rather than trusted. Everything this returns is drawn on a
+    // payment surface, so a malformed tier is dropped and an incomplete spec
+    // becomes null — never a half-filled card. See plan-specs.ts.
+    tiers: parseCatalogTiers(data.tiers),
+  };
 }
 
 /**
