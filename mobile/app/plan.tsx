@@ -359,26 +359,41 @@ export default function PlanScreen() {
                   onPress={() => void buy(product)}
                 />
               ))}
-              {/* Said once, under the list, rather than as a "Sleeps between
-                  tasks: Yes" row repeated on four of five cards. The dashboard
-                  can afford that row because it shows one rung at a time; a
-                  list of five turns the same true sentence into noise, and
-                  noise is what made the old screen unreadable. Only the rung
-                  that BREAKS this rule states it, on its own card. */}
-              {products.some((product) => product.specs) ? (
-                <Text
-                  style={{
-                    ...type.caption,
-                    color: colors.textMuted,
-                    paddingHorizontal: space.lg,
-                    paddingTop: space.md,
-                    lineHeight: 16,
-                  }}
-                >
-                  Every plan pauses while idle, so time you are not using does not come out of
-                  your hours. A paused Computer keeps its files and picks up where it left off.
-                </Text>
-              ) : null}
+              {/* ── REMOVED: an idle-billing claim that is not currently true ──
+                  This said, directly above a Buy button:
+
+                    "Every plan pauses while idle, so time you are not using
+                     does not come out of your hours. A paused Computer keeps
+                     its files and picks up where it left off."
+
+                  Session d3f4e3e8 measured a cloud Computer with no sessions
+                  and nothing connected, twice, five minutes each:
+
+                    2083 micros / 302s -> 24,830 micros/hour
+
+                  Full running rate is 25,000 and hibernated is 0, so an idle
+                  Computer bills at 99.3% of full rate. The second measurement
+                  was taken AFTER an explicit pause through the lifecycle
+                  endpoint and was identical to the byte. Idle time comes out
+                  of your hours almost entirely.
+
+                  That makes this the most consequential sentence on the
+                  screen, because it is what tells someone how to read every
+                  "N hours" above it — 20 hours of USAGE and 20 hours of
+                  CALENDAR are different products at the same price. Stating it
+                  wrongly next to a purchase is worse than not explaining the
+                  hours at all, which is the same rule this file already
+                  follows for spec numbers: degrade to silence, never to a
+                  number we cannot stand behind.
+
+                  RESTORE THIS, unchanged, once idle Computers actually stop
+                  billing — the sentence is good and it is where it belongs.
+                  Do not reword it to describe the current behaviour instead:
+                  "your hours are consumed whether or not you are working" is
+                  accurate today, but it is a platform decision in flight
+                  (raised with Benny, outside this release), and a paywall is
+                  the wrong place to litigate it. Silence is honest in both
+                  states. */}
             </>
           ) : !loadError ? (
             <EmptyState
