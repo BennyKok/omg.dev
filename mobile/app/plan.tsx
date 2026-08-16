@@ -33,7 +33,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, ScrollView, View } from "react-native";
+import { ActivityIndicator, Linking, ScrollView, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -406,10 +406,57 @@ export default function PlanScreen() {
               Payment is charged to your Apple ID. Subscriptions renew monthly until cancelled in
               the App Store.
             </Text>
+            <LegalLinks />
           </View>
         </>
       )}
     </ScrollView>
+  );
+}
+
+/**
+ * Functional Privacy Policy and Terms of Use links, on the purchase surface.
+ *
+ * Required, and worth sourcing precisely because it is easy to overstate.
+ * Guideline 3.1.2(c) does not itself list link requirements — it says "Ensure
+ * you clearly communicate the requirements described in Schedule 2 of the Apple
+ * Developer Program License Agreement." Schedule 2 is where the functional
+ * privacy policy and EULA links on a subscription surface actually come from.
+ * It is one level below the guideline text, it is real, and missing links are
+ * among the most commonly cited rejections for subscription apps.
+ *
+ * The word doing the work is FUNCTIONAL. Naming the documents is not enough;
+ * these have to be tappable and they have to load. Both targets return 200.
+ *
+ * ── Not a 3.1.1(a) violation, for the same reason as settings.tsx ──────────
+ *
+ * This is the paywall, so an outbound link here looks even more alarming than
+ * the account-deletion one. It is not a purchasing mechanism: it opens a legal
+ * document, takes no money, and cannot be transacted against. 3.1.1(a) is about
+ * calls to action directing customers to OTHER WAYS TO PAY. Schedule 2 requires
+ * these on the very screen 3.1.1(a) governs, so the rules are not merely
+ * compatible — Apple expects both at once. Do not remove them to "clean up the
+ * paywall".
+ *
+ * Deliberately omg.dev, not app.omg.dev: these are public legal documents, not
+ * dashboard surfaces, and a reviewer must be able to open them signed out.
+ */
+function LegalLinks() {
+  const { colors, type, space } = useTheme();
+  const open = (path: string) => void Linking.openURL(`https://omg.dev${path}`);
+  return (
+    <View style={{ flexDirection: "row", justifyContent: "center", gap: space.lg }}>
+      <PressableScale onPress={() => open("/privacy")} hitSlop={12}>
+        <Text style={{ ...type.caption, color: colors.textMuted, textDecorationLine: "underline" }}>
+          Privacy Policy
+        </Text>
+      </PressableScale>
+      <PressableScale onPress={() => open("/terms")} hitSlop={12}>
+        <Text style={{ ...type.caption, color: colors.textMuted, textDecorationLine: "underline" }}>
+          Terms of Use
+        </Text>
+      </PressableScale>
+    </View>
   );
 }
 
