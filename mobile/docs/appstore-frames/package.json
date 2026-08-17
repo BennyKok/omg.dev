@@ -1,0 +1,12 @@
+{
+  "name": "appstore-frames",
+  "private": true,
+  "type": "module",
+  "description": "Renders designed App Store screenshot frames from raw omg.dev iOS simulator captures.",
+  "scripts": {
+    "render": "node render.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.62.1"
+  }
+}
