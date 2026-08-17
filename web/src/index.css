@@ -2660,3 +2660,36 @@ html.lfg-keyboard-open {
 [data-lfg-settings-surface] [data-lfg-page-column] > section > h2 {
   padding-inline: 0.25rem;
 }
+
+/* ------------------------------------------------------------------
+ * Bot mascot avatar (see web/src/components/BotAvatar.tsx)
+ *
+ * Two things live in CSS rather than in the tick loop because the
+ * compositor can run them without JS touching a node per frame: the
+ * blink, and the small-size breathe that replaces the full path
+ * animation below ~26px, where the geometry doesn't read anyway.
+ * ------------------------------------------------------------------ */
+@keyframes lfg-bot-blink {
+  0%, 100% { transform: scaleY(0); }
+  45%, 55% { transform: scaleY(1); }
+}
+.bot-blink {
+  animation: lfg-bot-blink 0.22s ease-in-out;
+}
+
+@keyframes lfg-bot-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.055); }
+}
+.bot-breathe {
+  animation: lfg-bot-breathe 6.5s ease-in-out infinite;
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bot-blink,
+  .bot-breathe {
+    animation: none;
+  }
+}

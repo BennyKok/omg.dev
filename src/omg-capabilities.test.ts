@@ -4,6 +4,7 @@ import {
   OMG_CAPABILITIES,
   OMG_CAPABILITY_VERSION,
   OMG_MCP_INSTRUCTIONS,
+  botRuntimeContract,
   omgCapabilityAccess,
   omgRuntimeContract,
   withOmgRuntimeContract,
@@ -64,6 +65,30 @@ describe("omg.dev runtime capabilities", () => {
   test("does not duplicate the contract", () => {
     const once = withOmgRuntimeContract("Do the work")!;
     expect(withOmgRuntimeContract(once)).toBe(once);
+  });
+
+  test("keeps bot conversations persistent and outside the ship workflow", () => {
+    const contract = botRuntimeContract("Scout", "Be concise and curious.");
+    expect(contract).toContain(`capability version ${OMG_CAPABILITY_VERSION}`);
+    expect(contract).toContain("You are Scout");
+    expect(contract).toContain("Be concise and curious.");
+    expect(contract).toContain("normal assistant messages");
+    expect(contract).toContain("Do not use `omg_ship`");
+    expect(contract).toContain("Do not close this session");
+    expect(withOmgRuntimeContract(contract)).toBe(contract);
+  });
+
+  // The first "Hey Scout!" went unanswered because the launch envelope told the
+  // bot not to reply to its setup message while the greeting was bundled into
+  // that same turn. Silence is only correct when nothing is attached.
+  test("a bundled first message is answered, not treated as setup to ignore", () => {
+    const withMessage = botRuntimeContract("Scout", "Be concise.");
+    expect(withMessage).toContain("Reply to it now");
+    expect(withMessage).not.toContain("Say nothing");
+
+    const empty = botRuntimeContract("Scout", "Be concise.", { awaitingFirstMessage: true });
+    expect(empty).toContain("Say nothing");
+    expect(empty).not.toContain("Reply to it now");
   });
 
   test("does not turn an empty composer into an autonomous turn", () => {

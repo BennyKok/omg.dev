@@ -23,7 +23,7 @@ import {
 import { compressedAssetResponse, maybeCompressResponse } from "../http-compress.ts";
 import { serveOmgMcpRequest } from "../mcp-http.ts";
 import * as pwaBootLog from "../pwa-boot-log.ts";
-import { shortSessionId } from "../omg-capabilities.ts";
+import { botRuntimeContract, shortSessionId } from "../omg-capabilities.ts";
 import {
   getCachedResumableSession,
   updateResumableUser,
@@ -56,6 +56,18 @@ import {
   type FindingActionPath,
 } from "../auto/store.ts";
 import { runAutoAgent } from "../auto/runner.ts";
+import {
+  BOT_COLORWAYS,
+  BOT_SHAPES,
+  createBot,
+  deleteBot,
+  getBot,
+  listBots,
+  updateBot,
+  type Bot,
+  type BotColorway,
+  type BotShape,
+} from "../bots/store.ts";
 import { startAutoScheduler } from "../auto/scheduler.ts";
 import { handleWakeTick } from "../auto/wake-tick.ts";
 import { pushWakeHooksNow, setWakeHooksBootId } from "../auto/wake-hooks-push.ts";
@@ -578,7 +590,7 @@ function formatMemory(bytes: number): string {
 // when granted, the memory budget below still has to clear, so an override
 // can oversubscribe the setting but never the machine.
 async function activationGate(
-  options?: { overLimit?: boolean; kind?: "interactive" | "schedule" },
+  options?: { overLimit?: boolean; kind?: "interactive" | "schedule" | "bot" },
 ): Promise<Response | { release: () => void; reclaimed?: number }> {
   const settings = getGlobalSettingsSync();
   if (settings.agentsPaused) {
@@ -594,16 +606,18 @@ async function activationGate(
       : (computer?.limit ?? settings.maxLiveAgents);
   if (limit === 0) return { release: () => {} };
   const overLimit = !computer && options?.overLimit === true;
+  const exemptFromCount = options?.kind === "bot";
   const reservation = await agentAdmission.acquire(
-    overLimit ? NO_AGENT_LIMIT : limit,
+    overLimit || exemptFromCount ? NO_AGENT_LIMIT : limit,
     async () => {
       const available = hostAvailableMemory();
       const sessions = await listSessions().catch(() => []);
-      const pool = !computer
+      const pool = (!computer
         ? sessions
         : kind === "schedule"
           ? sessions.filter((session) => session.spawnedBy === "schedule")
-          : sessions.filter((session) => session.spawnedBy !== "schedule");
+          : sessions.filter((session) => session.spawnedBy !== "schedule"))
+        .filter((session) => !session.persistent);
       return {
         sessions: pool,
         // Always measured, so every launch books its share of memory even on
@@ -2084,6 +2098,187 @@ function sendPromptToLiveSession(
   };
 }
 
+/** Avatar geometry is a closed set — anything else would render as no creature at all. */
+function readBotAvatar(
+  body: { shape?: unknown; colorway?: unknown } | null,
+): { shape?: BotShape; colorway?: BotColorway } | { error: string } {
+  const shape = typeof body?.shape === "string" ? body.shape.trim() : undefined;
+  const colorway = typeof body?.colorway === "string" ? body.colorway.trim() : undefined;
+  if (shape && !BOT_SHAPES.includes(shape as BotShape))
+    return { error: `unknown bot shape "${shape}" (expected one of ${BOT_SHAPES.join(", ")})` };
+  if (colorway && !BOT_COLORWAYS.includes(colorway as BotColorway))
+    return { error: `unknown bot colorway "${colorway}" (expected one of ${BOT_COLORWAYS.join(", ")})` };
+  return { shape: shape as BotShape | undefined, colorway: colorway as BotColorway | undefined };
+}
+
+function validateBotAgent(
+  agentValue: string | undefined,
+  model: string | undefined,
+  thinkingLevel: string | undefined,
+): { agent: NonNullable<ReturnType<typeof resolveActiveSessionAgent>> } | { error: string } {
+  const agent = resolveActiveSessionAgent(agentValue || "aisdk");
+  if (!agent) return { error: `unknown coding agent "${agentValue ?? ""}"` };
+  if ((agent === "aisdk" || agent === "grok" || agent === "pi" || agent === "copilot") && model) {
+    const allowed = modelsForAgent(agent);
+    if (!allowed.includes(model))
+      return { error: `unknown model "${model}" (expected one of ${allowed.join(", ")})` };
+  }
+  if (agent === "codex-aisdk" && model && !/^[A-Za-z0-9_.:-]{1,80}$/.test(model))
+    return { error: "invalid codex model name" };
+  if ((agent === "cursor" || agent === "opencode") && model && !/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
+    return { error: `invalid ${agent} model name` };
+  if (agent === "jcode" && model && !/^[A-Za-z0-9_.:\/\-[\],=]{1,160}$/.test(model))
+    return { error: "invalid jcode model name" };
+  if (thinkingLevel) {
+    const allowed = thinkingLevelsForAgent(agent);
+    if (!allowed) return { error: `thinkingLevel is not supported for ${agent} bots` };
+    if (!allowed.includes(thinkingLevel))
+      return { error: `unknown thinking level "${thinkingLevel}" for ${agent} (expected one of ${allowed.join(", ")})` };
+  }
+  return { agent };
+}
+
+async function botContinuitySummary(sessionId: string): Promise<string | null> {
+  try {
+    const transcript = await resolveTranscript(sessionId) ?? sessionIndexKey(sessionId);
+    const page = await indexedMessagePage(transcript, sessionId, { limit: 40 });
+    const lines = page.messages
+      .filter((message) => message.role === "user" || message.role === "assistant")
+      .slice(-24)
+      .map((message) => {
+        const text = message.text.replace(/\s+/g, " ").trim().slice(0, 600);
+        return text ? `${message.role}: ${text}` : "";
+      })
+      .filter(Boolean);
+    if (!lines.length) return null;
+    return lines.join("\n").slice(-10_000);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the live backing session for a bot, launching one if it is gone.
+ *
+ * `firstMessage` is delivered *inside the launch prompt* rather than sent
+ * after it. Sending separately raced the boot: the agent batched the setup
+ * envelope and the message into one turn and answered neither. Bundling makes
+ * the first turn well-defined, and `delivered` tells the caller not to send
+ * the message a second time.
+ */
+async function ensureBotSession(
+  bot: Bot,
+  firstMessage?: string,
+): Promise<{ session: Session; delivered: boolean } | Response> {
+  const sessions = await listSessions();
+  const live = sessions.find((session) =>
+    session.botId === bot.id ||
+    (bot.sessionId && (session.sessionId === bot.sessionId || session.nativeSessionId === bot.sessionId))
+  );
+  if (live) return { session: live, delivered: false };
+
+  const config = validateBotAgent(bot.agent, bot.model, bot.thinkingLevel);
+  if ("error" in config) return err(400, config.error);
+  const repos = await listRepos();
+  const repo = bot.cwd
+    ? repos.find((item) => item.cwd === bot.cwd)
+    : (repos.find((item) => item.cwd === SELF_REPO) ?? repos[0]);
+  if (!repo) return err(400, bot.cwd ? "unknown repo" : "no repo is available");
+
+  const gate = await activationGate({ kind: "bot" });
+  if (gate instanceof Response) return gate;
+  try {
+    const agent = config.agent;
+    const selectedClaudeAccount = agent === "aisdk"
+      ? await pickClaudeAccountForNewSession({
+          readCapacity: (account) => getProviderUsage(`claude:${account.id}`),
+        })
+      : null;
+    const claudeAccountId = selectedClaudeAccount?.id;
+    const resolvedModel = resolveModelForAgent(agent, bot.model, bot.thinkingLevel);
+    const launchModel = agent === "grok"
+      ? resolvedModel ?? GROK_DEFAULT_MODEL()
+      : agent === "cursor" || agent === "jcode" || agent === "copilot"
+        ? resolvedModel ?? "auto"
+        : agent === "opencode"
+          ? resolvedModel ?? defaultModelForAgent("opencode")
+          : agent === "codex-aisdk"
+            ? resolvedModel ?? "gpt-5.5"
+            : agent === "aisdk"
+              ? resolvedModel ?? "opus"
+              : agent === "pi"
+                ? resolvedModel ?? PI_DEFAULT_MODEL
+                : resolvedModel;
+    const continuity = bot.sessionId ? await botContinuitySummary(bot.sessionId) : null;
+    const prompt = [
+      botRuntimeContract(bot.name, bot.persona, { awaitingFirstMessage: !firstMessage }),
+      continuity ? `=== PRIOR CONVERSATION SUMMARY ===\n${continuity}\n=== END PRIOR CONVERSATION SUMMARY ===` : "",
+      firstMessage ?? "",
+    ].filter(Boolean).join("\n\n");
+    for (const stale of listManaged().filter((row) => row.botId === bot.id)) {
+      removeManaged(stale.tmuxName);
+      assignUser(stale.tmuxName, null);
+    }
+    const tmuxName = `lfg-${randomBytes(3).toString("hex")}`;
+    const sessionId = crypto.randomUUID();
+    const createdAt = Date.now();
+    addManaged({
+      tmuxName,
+      cwd: repo.cwd,
+      createdAt,
+      agent,
+      runtime: CODING_AGENT_ADAPTERS[agent].transport,
+      sessionId,
+      nativeSessionId: agent === "aisdk" || agent === "opencode" ? sessionId : undefined,
+      launchState: "launching",
+      model: launchModel,
+      thinkingLevel: bot.thinkingLevel,
+      claudeAccountId,
+      title: bot.name,
+      project: repo.project,
+      spawnedBy: "bot",
+      botId: bot.id,
+      persistent: true,
+    });
+    // Tag before spawn, same as /api/sessions/new: an unassigned bot session is
+    // invisible under the rail's default per-user filter, which is exactly how
+    // the first Scout session went missing.
+    if (bot.owner) assignUser(tmuxName, bot.owner);
+    invalidateListSessionsCache();
+    const launched = launchCodingAgentSession({
+      agent,
+      name: tmuxName,
+      cwd: repo.cwd,
+      prompt,
+      model: launchModel,
+      thinkingLevel: bot.thinkingLevel,
+      sessionId,
+      omgUser: bot.owner,
+      containInAgentSlice: true,
+      claudeAccountId,
+    });
+    if (!launched.ok) {
+      removeManaged(tmuxName);
+      assignUser(tmuxName, null);
+      return err(502, launched.error || "failed to start bot session");
+    }
+    if (launched.nativeSessionId) patchManaged(tmuxName, { nativeSessionId: launched.nativeSessionId });
+    if (CODING_AGENT_ADAPTERS[agent].transport === "command-file")
+      patchManaged(tmuxName, { launchState: "running" });
+    const saved = await updateBot(bot.id, { sessionId });
+    if (!saved) return err(404, "bot not found");
+    invalidateListSessionsCache();
+    const record = listManaged().find((row) => row.tmuxName === tmuxName);
+    const row = record
+      ? managedLaunchRow(record, await readTitleOverrides(), userAssignments())
+      : null;
+    if (!row) return err(502, "bot session did not become available");
+    return { session: row, delivered: !!firstMessage };
+  } finally {
+    gate.release();
+  }
+}
+
 function liveSessionIds(sessions: Session[]): Set<string> {
   const ids = new Set<string>();
   for (const session of sessions) {
@@ -3281,6 +3476,170 @@ a{color:#60a5fa}
           const r = await readAgentReport(m[1], m[2]);
           if (!r) return err(404, "not found");
           return json(r);
+        }
+      }
+
+      // ---- persistent bots ----
+      if (path === "/api/bots") {
+        if (req.method === "GET") return json({ bots: await listBots() });
+        if (req.method === "POST") {
+          const body = (await req.json().catch(() => null)) as {
+            name?: unknown;
+            persona?: unknown;
+            emoji?: unknown;
+            agent?: unknown;
+            model?: unknown;
+            thinkingLevel?: unknown;
+            cwd?: unknown;
+            user?: unknown;
+            shape?: unknown;
+            colorway?: unknown;
+          } | null;
+          const name = typeof body?.name === "string" ? body.name.trim() : "";
+          const persona = typeof body?.persona === "string" ? body.persona.trim() : "";
+          if (!name || !persona) return err(400, "name and persona are required");
+          const agentValue = typeof body?.agent === "string" ? body.agent.trim() || undefined : undefined;
+          const model = typeof body?.model === "string" ? body.model.trim() || undefined : undefined;
+          const thinkingLevel = typeof body?.thinkingLevel === "string"
+            ? body.thinkingLevel.trim() || undefined
+            : undefined;
+          const config = validateBotAgent(agentValue, model, thinkingLevel);
+          if ("error" in config) return err(400, config.error);
+          const cwd = typeof body?.cwd === "string" ? body.cwd.trim() || undefined : undefined;
+          if (cwd && !(await listRepos()).some((repo) => repo.cwd === cwd))
+            return err(400, "unknown repo");
+          const ownerTag = resolveSessionUserTag(typeof body?.user === "string" ? body.user : undefined);
+          if (!ownerTag.ok)
+            return err(400, `unknown user "${ownerTag.unknown}" (expected one of the roster emails)`);
+          const avatar = readBotAvatar(body);
+          if ("error" in avatar) return err(400, avatar.error);
+          const bot = await createBot({
+            name,
+            persona,
+            emoji: typeof body?.emoji === "string" ? body.emoji.trim() || undefined : undefined,
+            shape: avatar.shape,
+            colorway: avatar.colorway,
+            agent: config.agent,
+            model,
+            thinkingLevel,
+            cwd,
+            owner: ownerTag.user,
+          });
+          return json({ bot });
+        }
+      }
+      {
+        const match = path.match(/^\/api\/bots\/([^/]+)\/messages$/);
+        if (match && req.method === "POST") {
+          const bot = await getBot(decodeURIComponent(match[1]));
+          if (!bot) return err(404, "bot not found");
+          if (!bot.enabled) return err(409, "bot is disabled");
+          const body = (await req.json().catch(() => null)) as { text?: unknown; user?: unknown } | null;
+          const text = typeof body?.text === "string" ? body.text.trim() : "";
+          if (!text) return err(400, "text is required");
+          const tag = resolveSessionUserTag(typeof body?.user === "string" ? body.user : undefined);
+          if (!tag.ok)
+            return err(400, `unknown user "${tag.unknown}" (expected one of the roster emails)`);
+          // Attribute before launching: when the session has to be started, this
+          // exact text rides inside the launch prompt instead of racing it.
+          const author = tag.user || bot.owner || process.env.OMG_USER?.trim() || "user";
+          const attributed = `[Message from ${author} to bot ${bot.name}]\n\n${text}`;
+          const ensured = await ensureBotSession(bot, attributed);
+          if (ensured instanceof Response) return ensured;
+          const { session, delivered } = ensured;
+          if (!delivered) {
+            const sent = sendPromptToLiveSession(session, attributed, { mode: "queue" });
+            if (!sent.ok) return err(502, sent.error || "failed to send bot message");
+          }
+          await updateBot(bot.id, {
+            sessionId: session.sessionId ?? bot.sessionId,
+            lastMessageAt: Date.now(),
+          });
+          return json({ sessionId: session.sessionId });
+        }
+      }
+      {
+        const match = path.match(/^\/api\/bots\/([^/]+)$/);
+        if (match) {
+          const id = decodeURIComponent(match[1]);
+          const current = await getBot(id);
+          if (!current) return err(404, "bot not found");
+          if (req.method === "PATCH") {
+            const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+            if (!body) return err(400, "invalid bot patch");
+            const name = body.name === undefined
+              ? current.name
+              : typeof body.name === "string" ? body.name.trim() : "";
+            const persona = body.persona === undefined
+              ? current.persona
+              : typeof body.persona === "string" ? body.persona.trim() : "";
+            if (!name || !persona) return err(400, "name and persona are required");
+            if (body.enabled !== undefined && typeof body.enabled !== "boolean")
+              return err(400, "enabled must be a boolean");
+            const agentValue = body.agent === undefined
+              ? current.agent
+              : typeof body.agent === "string" ? body.agent.trim() : "";
+            const model = body.model === undefined
+              ? current.model
+              : typeof body.model === "string" ? body.model.trim() || undefined : undefined;
+            const thinkingLevel = body.thinkingLevel === undefined
+              ? current.thinkingLevel
+              : typeof body.thinkingLevel === "string" ? body.thinkingLevel.trim() || undefined : undefined;
+            const config = validateBotAgent(agentValue, model, thinkingLevel);
+            if ("error" in config) return err(400, config.error);
+            const cwd = body.cwd === undefined
+              ? current.cwd
+              : typeof body.cwd === "string" ? body.cwd.trim() || undefined : undefined;
+            if (cwd && !(await listRepos()).some((repo) => repo.cwd === cwd))
+              return err(400, "unknown repo");
+            let owner = current.owner;
+            if (body.user !== undefined) {
+              const tag = resolveSessionUserTag(typeof body.user === "string" ? body.user : undefined);
+              if (!tag.ok)
+                return err(400, `unknown user "${tag.unknown}" (expected one of the roster emails)`);
+              owner = tag.user;
+            }
+            const avatar = readBotAvatar(body);
+            if ("error" in avatar) return err(400, avatar.error);
+            const bot = await updateBot(id, {
+              name,
+              persona,
+              shape: body.shape === undefined ? current.shape : avatar.shape,
+              colorway: body.colorway === undefined ? current.colorway : avatar.colorway,
+              emoji: body.emoji === undefined
+                ? current.emoji
+                : typeof body.emoji === "string" ? body.emoji.trim() || undefined : undefined,
+              agent: config.agent,
+              model,
+              thinkingLevel,
+              cwd,
+              owner,
+              enabled: body.enabled === undefined ? current.enabled : body.enabled,
+            });
+            return json({ bot });
+          }
+          if (req.method === "DELETE") {
+            const sessions = await listSessions();
+            const live = sessions.find((session) =>
+              session.botId === id ||
+              (current.sessionId && (session.sessionId === current.sessionId || session.nativeSessionId === current.sessionId))
+            );
+            if (live?.sessionId) {
+              const outcome = await closeLiveSession(live, live.sessionId, {
+                sessionId: live.sessionId,
+                source: "bot_delete",
+                botId: id,
+              });
+              if (!outcome.ok) return err(outcome.status, outcome.reason);
+            }
+            for (const stale of listManaged().filter((row) => row.botId === id)) {
+              removeManaged(stale.tmuxName);
+              assignUser(stale.tmuxName, null);
+            }
+            await deleteBot(id);
+            invalidateListSessionsCache();
+            return json({ ok: true });
+          }
         }
       }
 

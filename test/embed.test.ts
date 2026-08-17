@@ -275,7 +275,10 @@ describe("mobile overlay scroll contract", () => {
     const app = require("node:fs").readFileSync("web/src/App.tsx", "utf8") as string;
     const css = require("node:fs").readFileSync("web/src/index.css", "utf8") as string;
 
-    expect(app).toContain('tab === "live" || tab === "notifications" || tab === "artifacts"');
+    // Bots is a composer page too, so it reserves the same chrome as Live.
+    expect(app).toContain(
+      'tab === "live" || tab === "bots" || tab === "notifications" || tab === "artifacts"',
+    );
     expect(app).toContain(
       "pb-[var(--lfg-inline-composer-height,var(--lfg-composer-clear))]",
     );

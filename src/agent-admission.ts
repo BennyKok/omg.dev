@@ -29,6 +29,7 @@ export type AgentActivity = {
   busy?: boolean;
   launching?: boolean;
   spawnedBy?: string | null;
+  persistent?: boolean;
 };
 
 export type AgentMemoryBudget = {
@@ -182,7 +183,9 @@ export function residentAgentCount(sessions: readonly AgentActivity[]): number {
 
 /** Interactive New-session / resume / fork work. Scheduled runs are a different pool. */
 export function interactiveResidentCount(sessions: readonly AgentActivity[]): number {
-  return residentAgentCount(sessions.filter((session) => !isScheduleSpawned(session.spawnedBy)));
+  return residentAgentCount(
+    sessions.filter((session) => !isScheduleSpawned(session.spawnedBy) && !session.persistent),
+  );
 }
 
 export function scheduleResidentCount(sessions: readonly AgentActivity[]): number {

@@ -51,6 +51,10 @@ describe("idle archive policy", () => {
     expect(idleArchiveCandidates([launching], FOUR_HOURS)).toEqual([]);
   });
 
+  test("never archives a persistent bot session", () => {
+    expect(idleArchiveCandidates([session({ persistent: true })], FOUR_HOURS)).toEqual([]);
+  });
+
   test("never archives an unmanaged session", () => {
     // A human's own tmux session is not ours to close.
     expect(idleArchiveCandidates([session({ managed: false })], FOUR_HOURS)).toEqual([]);
