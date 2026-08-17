@@ -105,6 +105,25 @@ that. Confidence: high. This reasoning is now also pasted directly into the
 App Review Notes field so a reviewer doesn't have to guess and potentially
 raise it anyway.
 
+### Export compliance and app icon — local verification (ASC-side check still pending)
+
+Checked directly against `mobile/app.json` and `mobile/eas.json` at branch
+`feat/mobile-omg-foundation` tip:
+
+- **Export compliance**: `ios.infoPlist.ITSAppUsesNonExemptEncryption:
+  false` is set. Consistent with a "No" / exempt answer on ASC's export
+  compliance question — needs confirming against ASC's actual question
+  text once reachable, not assumed identical wording.
+- **App icon**: `icon: "./assets/icon.png"` → `mobile/assets/icon.png`
+  exists, 1024×1024, and its PNG `IHDR` chunk reports color type 2
+  (truecolor RGB) — **no alpha channel**, which is Apple's actual App
+  Store icon requirement (icons with transparency get bounced at
+  submission). `eas.json` has no icon override in any build profile, so
+  this is the only icon in play; it resolves into the binary automatically
+  via the Expo/EAS build, no separate ASC upload needed. Full confirmation
+  that ASC's App Information page renders it correctly still needs a live
+  ASC session.
+
 ### Account deletion / Guideline 5.1.1(v)
 
 **Not independently re-verified live this session, and its providence is
