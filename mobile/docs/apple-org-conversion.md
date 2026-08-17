@@ -23,17 +23,20 @@ Status: BODY CORPORATE
 ```
 
 The BR's "Date of Commencement" (15/06/2026) is that certificate's **annual
-renewal cycle**, not the company's incorporation date — do not use it as
-"year started." The real incorporation date comes from a free HK Companies
-Registry (ICRIS) name search, which also confirms the exact registered name
-and company number. Paid searches are not needed — the registered address
-above is already sourced from the original certificate.
+renewal cycle**, not the company's incorporation date — not that it matters
+for this doc anymore. The company number and true incorporation date would
+have come from a free HK Companies Registry (ICRIS) name search, but that
+search turned out to be **unnecessary**: it existed only to fill in a D-U-N-S
+*request* form, and D&B already had Use Effect Limited on file (see D-U-N-S
+section below), so no request was ever filed. Not pursuing it — HK's
+Companies Registry e-Services portal requires a real HKID or passport number
+to register as a searcher even for the free search, and that isn't worth
+asking Benny for on a step that no longer applies.
 
-Still needed from Benny:
-- [ ] Number of employees at Use Effect Limited
-- [ ] His exact title there (Director, expected but unconfirmed)
-- [ ] HKID or passport number, to register as a searcher on the HK Companies
-      Registry e-Services portal and run the free ICRIS name search below
+Nothing outstanding from Benny for the D-U-N-S step. His exact title at Use
+Effect Limited may still come up during the actual Convert to Organization
+request (see conversion sequence below) — ask then, if Apple's form asks
+for it.
 
 ## D-U-N-S number
 
@@ -58,13 +61,18 @@ was the "check for an existing one" branch of the tool). Apple's response:
 > been sent to the email address you provided.
 
 The number itself is **not shown on-screen** — D&B emails it to the work
-contact address used on the form (`support@omg.dev`). That inbox hadn't
-received it yet as of this update; check it and paste the number here once it
-arrives. This still removes the ~7-business-day wait entirely since no new
-request was needed — D&B already has Use Effect Limited on file at this
-address.
+contact address used on the form (`support@omg.dev`). This still removes the
+~7-business-day wait entirely since no new request was needed — D&B already
+has Use Effect Limited on file at this address.
 
-- [ ] Paste the actual D-U-N-S number here once the email lands.
+**Retrieving the email needs Benny.** `support@omg.dev` is its own mailbox on
+Google Workspace (confirmed via the domain's MX record — it points to
+Google's Workspace mail servers), separate from Benny's personal Gmail. There
+is no evidence it forwards there. Whoever is picking this doc back up should
+have Benny check `support@omg.dev` directly rather than assuming it lands
+somewhere else.
+
+- [ ] Paste the actual D-U-N-S number here once Benny finds the email.
 
 ## Conversion sequence (Individual → Organization)
 
@@ -140,15 +148,16 @@ deliberate deferral and not a dropped thread.
 - [x] Run the Apple D-U-N-S lookup — existing D&B record found for Use Effect
       Limited at the exact registered address; number emailed to
       `support@omg.dev`, not yet retrieved. See D-U-N-S section above.
-- [ ] Paste the actual D-U-N-S number into this doc once the email arrives.
-- [ ] Free ICRIS search: confirm exact registered name, company number, and
-      true incorporation date. **Blocked** — the HK Companies Registry
-      e-Services portal now requires the searcher to register with a real
-      HKID or passport number (Hong Kong's post-2023 Companies Registry
-      non-disclosure regime applies this to the free basic search, not just
-      paid particulars searches). Needs Benny's HKID or passport number to
-      proceed; not something to invent or guess.
-- [ ] Get employee count and Benny's title from Benny, needed for the D-U-N-S
-      application if one has to be filed.
+- [ ] Benny checks `support@omg.dev` (a separate Google Workspace mailbox,
+      does not forward to his personal Gmail) and pastes the actual D-U-N-S
+      number into this doc.
+- [x] ~~Free ICRIS search~~ — **not required.** It only existed to fill in a
+      D-U-N-S request form; D&B already had an existing record, so no
+      request was filed and the company number / incorporation date it would
+      have provided are no longer needed for this step.
+- [x] ~~Get employee count and Benny's title~~ — **not required for
+      D-U-N-S**, same reason as ICRIS above. His title may resurface during
+      the actual Convert to Organization request below; ask then if Apple's
+      form asks for it.
 - [ ] Benny submits the Convert to Organization request himself once the
       D-U-N-S number is confirmed (this agent prepares, does not submit).
