@@ -5,6 +5,7 @@ Usage:
   omg serve                        Run the web UI + control server (default :8766)
   omg agents [list|run|show]       Run / inspect insight agents (see 'agents help')
   omg subagent [create|models]      Spawn a managed worker session on any harness
+  omg projects [status|clean]       Audit or clean safe stale project state
   omg mcp                          Run the omg.dev MCP stdio server
   omg connect <code>               Pair this box to a remote-access relay (EXPERIMENTAL)
   omg setup                        Provision this box (Bun, tmux, service)
@@ -44,6 +45,7 @@ const COMPUTER_VERBS = new Set([
   "subagent",
   "subagents",
   "connect",
+  "projects",
 ]);
 
 function unwrapComputerNamespace(argv: string[]): string[] {
@@ -88,6 +90,10 @@ async function main() {
     case "connect": {
       const { cmdConnect } = await import("./commands/connect.ts");
       return await cmdConnect(rest);
+    }
+    case "projects": {
+      const { cmdProjects } = await import("./commands/projects.ts");
+      return await cmdProjects(rest);
     }
     case "setup": {
       const { cmdSetup } = await import("./commands/setup.ts");

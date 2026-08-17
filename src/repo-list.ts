@@ -5,11 +5,16 @@
 // unit-testable — they were previously expressed only as the order of three
 // loops in a 5000-line file, which is how the pin-vs-scan bug survived.
 
-import { readdir, stat } from "node:fs/promises";
+import { readdir, realpath, stat } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import { join } from "node:path";
-import { projectName } from "./projects.ts";
-import type { CustomRepo } from "./repos-store.ts";
+import { PATHS } from "./config.ts";
+import { projectName, reposRoot } from "./projects.ts";
+import {
+  listCustomRepos,
+  listHiddenRepos,
+  type CustomRepo,
+} from "./repos-store.ts";
 
 export type RepoListEntry = {
   name: string;
@@ -69,4 +74,29 @@ export async function buildRepoList(sources: RepoListSources): Promise<RepoListE
 
   repos.sort((a, b) => a.name.localeCompare(b.name));
   return repos;
+}
+
+/**
+ * The configured project list used by every command surface.
+ *
+ * Keep discovery here. A second scan in a CLI command can disagree with the
+ * server about pins, hidden projects, symlinks, and worktree ownership. That
+ * is especially dangerous for maintenance commands, which must act on exactly
+ * the projects the UI presents.
+ */
+export async function listConfiguredRepos(input?: {
+  reposRoot?: string;
+  selfRepo?: string;
+}): Promise<RepoListEntry[]> {
+  const configuredRoot = input?.reposRoot ?? reposRoot();
+  let root = configuredRoot;
+  try {
+    root = await realpath(configuredRoot);
+  } catch {}
+  return buildRepoList({
+    reposRoot: root,
+    selfRepo: input?.selfRepo ?? PATHS.root,
+    customRepos: await listCustomRepos(),
+    hidden: await listHiddenRepos(),
+  });
 }

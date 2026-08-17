@@ -63,6 +63,22 @@ deleted hand-made worktrees within minutes of creation (`vibes-frontdoor` and
 worktree the sweeper can never reason about at all, keep it outside
 `~/lfg-worktrees` — `~/repos/<name>` is the convention.
 
+The sweeper removes a worktree directory, but it deliberately leaves the Git
+branch behind. Use one command to inspect or clean this state across every
+project shown in omg.dev:
+
+```bash
+omg projects status
+omg projects clean
+```
+
+`status` changes nothing. `clean` removes only `session_lfg-*` branches already
+contained in each project's local `main`, worktree records whose directories
+are already gone, and ownership markers whose directories are already gone.
+It does not change working files. It keeps unmerged and checked-out branches.
+This makes `main` the source of truth for completed sessions without risking
+unfinished work.
+
 ## Settled decisions (don't re-litigate via merge)
 
 - **Avatar is unified.** The one initials-avatar is

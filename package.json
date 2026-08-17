@@ -19,6 +19,7 @@
     "mcp": "bun run src/cli.ts mcp",
     "whatsapp": "bun run src/cli.ts whatsapp",
     "connect": "bun run src/cli.ts connect",
+    "projects": "bun run src/cli.ts projects",
     "setup": "bun run src/cli.ts setup",
     "uninstall": "bun run src/cli.ts uninstall",
     "icons": "bun run scripts/generate-icons.ts",

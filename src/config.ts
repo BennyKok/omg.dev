@@ -1,4 +1,4 @@
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -12,6 +12,11 @@ export const PATHS = {
   sessionTitles: join(ROOT, "data", "session-titles.json"),
   installInfo: join(ROOT, "data", "install.json"),
 };
+
+/** Persistent root for omg.dev-managed session worktrees. */
+export const WORKTREE_ROOT = resolve(
+  process.env.LFG_WORKTREE_ROOT ?? `${homedir()}/lfg-worktrees`,
+);
 
 // LFG_HOST is the server's BIND address, but the in-box clients — `lfg mcp`,
 // `lfg subagent`, `lfg connect` — read the same variable to DIAL that server.

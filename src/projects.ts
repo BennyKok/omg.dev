@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
+import { WORKTREE_ROOT } from "./config.ts";
 
 /**
  * Where to look for projects.
@@ -59,7 +60,7 @@ function branchExists(repo: string, branch: string): boolean {
 }
 
 function sessionWorktreeOwner(absCwd: string): string | null {
-  const wtRoot = resolve(process.env.LFG_WORKTREE_ROOT ?? `${homedir()}/lfg-worktrees`);
+  const wtRoot = WORKTREE_ROOT;
   const rel = relative(wtRoot, absCwd);
   if (!rel || rel.startsWith("..") || rel === ".." || rel.startsWith("/")) return null;
   const name = rel.split(/[\\/]/).filter(Boolean)[0];
@@ -84,7 +85,7 @@ function sessionWorktreeOwner(absCwd: string): string | null {
 }
 
 function isSessionWorktreePath(absCwd: string): boolean {
-  const wtRoot = resolve(process.env.LFG_WORKTREE_ROOT ?? `${homedir()}/lfg-worktrees`);
+  const wtRoot = WORKTREE_ROOT;
   const rel = relative(wtRoot, absCwd);
   return !!rel && !rel.startsWith("..") && rel !== ".." && !rel.startsWith("/");
 }
