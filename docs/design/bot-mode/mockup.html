@@ -1,0 +1,1321 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Bot Mode — Phase 1 mockup</title>
+<style>
+  /* ────────────────────────────────────────────────────────────────────
+     Tokens lifted verbatim from web/src/index.css (:root / .dark). This
+     mockup does not use Tailwind or any build step — every utility-ish
+     class below is hand-written to match the compiled output of the
+     classes named in docs/design/bot-mode/spec.md.
+     ──────────────────────────────────────────────────────────────────── */
+  :root {
+    color-scheme: light;
+    --background: #f2f2f7;
+    --foreground: #000000;
+    --card: #ffffff;
+    --card-foreground: #000000;
+    --popover: #ffffff;
+    --primary: #007aff;
+    --primary-foreground: #ffffff;
+    --primary-tint: rgba(0, 122, 255, 0.12);
+    --primary-tint-strong: rgba(0, 122, 255, 0.20);
+    --secondary: #f9f9fb;
+    --muted: #f9f9fb;
+    --muted-foreground: rgba(60, 60, 67, 0.6);
+    --muted-foreground-70: rgba(60, 60, 67, 0.45);
+    --accent: rgba(120, 120, 128, 0.12);
+    --destructive: #ff3b30;
+    --destructive-tint: rgba(255, 59, 48, 0.1);
+    --success: #34c759;
+    --warning: #ff9500;
+    --border: rgba(60, 60, 67, 0.12);
+    --border-strong: rgba(60, 60, 67, 0.29);
+    --input: rgba(60, 60, 67, 0.12);
+    --ring: #007aff;
+    --radius: 0.75rem;
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --field-fill: #ffffff;
+    --shadow-card: 0 1px 0 var(--border), 0 8px 22px -14px rgba(0, 0, 0, 0.2);
+    --ease-ios: cubic-bezier(0.32, 0.72, 0, 1);
+    --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", system-ui, sans-serif;
+  }
+
+  html.dark {
+    color-scheme: dark;
+    --background: #000000;
+    --foreground: #ffffff;
+    --card: #1c1c1e;
+    --card-foreground: #ffffff;
+    --popover: #1c1c1e;
+    --primary: #0a84ff;
+    --primary-foreground: #ffffff;
+    --primary-tint: rgba(10, 132, 255, 0.18);
+    --primary-tint-strong: rgba(10, 132, 255, 0.28);
+    --secondary: #2c2c2e;
+    --muted: #2c2c2e;
+    --muted-foreground: rgba(235, 235, 245, 0.6);
+    --muted-foreground-70: rgba(235, 235, 245, 0.4);
+    --accent: rgba(118, 118, 128, 0.24);
+    --destructive: #ff453a;
+    --destructive-tint: rgba(255, 69, 58, 0.16);
+    --success: #30d158;
+    --warning: #ff9f0a;
+    --border: rgba(84, 84, 88, 0.35);
+    --border-strong: rgba(84, 84, 88, 0.65);
+    --input: rgba(84, 84, 88, 0.35);
+    --ring: #0a84ff;
+    --field-fill: #1c1c1e;
+    --shadow-card: 0 1px 0 var(--border), 0 8px 22px -14px rgba(0, 0, 0, 0.6);
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--background);
+    color: var(--foreground);
+  }
+  body {
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input, textarea, select {
+    font: inherit;
+    color: inherit;
+  }
+  svg { display: block; }
+
+  /* ── Shell / chrome for this mockup document (not app UI) ────────── */
+  .mock-shell { min-height: 100%; display: flex; flex-direction: column; }
+  .mock-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 16px;
+    background: color-mix(in srgb, var(--background) 88%, transparent);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border);
+  }
+  .mock-topbar-title {
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .mock-topbar-title span {
+    display: block;
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--muted-foreground);
+  }
+  .mock-tabs {
+    display: flex;
+    gap: 2px;
+    padding: 3px;
+    background: var(--muted);
+    border-radius: 999px;
+    overflow-x: auto;
+    flex: 1;
+    min-width: 0;
+  }
+  .mock-tab {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--muted-foreground);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 150ms var(--ease-ios), color 150ms var(--ease-ios);
+  }
+  .mock-tab:hover { color: var(--foreground); }
+  .mock-tab.is-active {
+    background: var(--card);
+    color: var(--foreground);
+    box-shadow: var(--shadow-card);
+  }
+  .theme-toggle {
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--card);
+    width: 48px;
+    height: 28px;
+    border-radius: 999px;
+    position: relative;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .theme-toggle-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    background: var(--primary);
+    transition: transform 200ms var(--ease-ios);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+  }
+  html.dark .theme-toggle-thumb { transform: translateX(20px); }
+  .theme-toggle-thumb::after { content: "☀️"; font-size: 11px; }
+  html.dark .theme-toggle-thumb::after { content: "🌙"; }
+
+  .mock-stage {
+    flex: 1;
+    padding: 28px 16px 64px;
+    display: flex;
+    justify-content: center;
+  }
+  .mock-panel { display: none; width: 100%; max-width: 1180px; }
+  .mock-panel.is-active { display: block; }
+  .mock-cols {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    align-items: flex-start;
+    justify-content: center;
+  }
+  .mock-caption {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted-foreground);
+    margin: 0 0 8px 2px;
+  }
+  .mock-col { display: flex; flex-direction: column; }
+
+  /* ── Device / page frames ─────────────────────────────────────────── */
+  .frame {
+    background: var(--background);
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    box-shadow: var(--shadow-card);
+    overflow: hidden;
+  }
+  .frame-app {
+    width: 380px;
+    height: 700px;
+    display: flex;
+    flex-direction: column;
+  }
+  .frame-wide {
+    width: 620px;
+    max-width: 86vw;
+    padding: 20px;
+  }
+
+  /* ── Rail header (bot roster entry point, §2.1) ───────────────────────
+     Text segmented toggle ("Sessions | Chat") stacked above the existing
+     New session + collapse row — replaces the old single icon-button nav. */
+  .rail-header {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 10px 8px;
+    border-bottom: 1px solid var(--border);
+    background: var(--background);
+  }
+  .rail-header-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .rail-toggle {
+    display: flex;
+    gap: 2px;
+    padding: 3px;
+    background: var(--muted);
+    border-radius: 999px;
+  }
+  .rail-toggle-btn {
+    appearance: none;
+    border: 0;
+    flex: 1;
+    background: transparent;
+    height: 26px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--muted-foreground);
+    cursor: pointer;
+    transition: background-color 150ms var(--ease-ios), color 150ms var(--ease-ios);
+  }
+  .rail-toggle-btn:hover { color: var(--foreground); }
+  .rail-toggle-btn.is-active {
+    background: var(--card);
+    color: var(--foreground);
+    box-shadow: var(--shadow-card);
+  }
+  .rail-toggle-btn .unread-dot-inline {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--primary);
+    flex-shrink: 0;
+  }
+  .icon-btn {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted-foreground);
+    cursor: pointer;
+    position: relative;
+    flex-shrink: 0;
+    transition: background-color 150ms var(--ease-ios), color 150ms var(--ease-ios);
+  }
+  .icon-btn:hover { background: var(--accent); color: var(--foreground); }
+  .icon-btn .unread-dot {
+    position: absolute;
+    top: -1px;
+    right: -1px;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--primary);
+    box-shadow: 0 0 0 2px var(--background);
+  }
+  .new-session-btn {
+    appearance: none;
+    border: 1px solid transparent;
+    background: color-mix(in srgb, var(--muted) 70%, transparent);
+    flex: 1;
+    min-width: 0;
+    height: 32px;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--muted-foreground);
+    cursor: pointer;
+  }
+  .new-session-btn kbd {
+    margin-left: 2px;
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--background) 70%, transparent);
+    padding: 1px 6px;
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    font-weight: 500;
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+
+  /* ── Bots roster page (§3) ────────────────────────────────────────── */
+  .page-col { padding: 16px 14px 24px; overflow-y: auto; flex: 1; }
+  .page-head { padding: 2px 2px 14px; display: flex; align-items: flex-start; gap: 10px; }
+  .page-head h1 { margin: 0; font-size: 18px; font-weight: 700; line-height: 1.25; }
+  .page-head p { margin: 2px 0 0; font-size: 13px; color: var(--muted-foreground); }
+  .btn {
+    appearance: none;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    transition: filter 150ms var(--ease-ios), background-color 150ms var(--ease-ios), opacity 150ms;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn-sm { height: 30px; padding: 0 12px; }
+  .btn-icon-sm { width: 30px; height: 30px; padding: 0; justify-content: center; }
+  .btn-brand { background: var(--primary); color: var(--primary-foreground); box-shadow: 0 6px 16px -10px color-mix(in srgb, var(--primary) 80%, transparent); }
+  .btn-brand:hover { filter: brightness(1.05); }
+  .btn-brand[disabled] { opacity: 0.45; cursor: not-allowed; }
+  .btn-tint { background: color-mix(in srgb, var(--foreground) 6%, transparent); color: color-mix(in srgb, var(--foreground) 70%, transparent); border-color: transparent; }
+  .btn-tint:hover { background: color-mix(in srgb, var(--foreground) 10%, transparent); color: var(--foreground); }
+  .btn-outline { background: color-mix(in srgb, var(--input) 30%, transparent); border-color: var(--border); color: var(--foreground); }
+  .btn-destructive { background: var(--destructive-tint); color: var(--destructive); }
+  .btn-destructive:hover { filter: brightness(1.08); }
+  .btn-ghost { background: transparent; color: var(--muted-foreground); }
+  .btn-ghost:hover { background: var(--accent); color: var(--foreground); }
+
+  .roster-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    text-align: left;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    border-radius: var(--radius-lg);
+    cursor: pointer;
+    margin-bottom: 8px;
+  }
+  .roster-row:hover { border-color: var(--border-strong); }
+  .bot-avatar {
+    position: relative;
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+    background: var(--muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    line-height: 1;
+  }
+  .bot-avatar.sm { width: 32px; height: 32px; font-size: 16px; }
+  .bot-avatar.xs { width: 22px; height: 22px; font-size: 12px; }
+  .bot-avatar .status-dot {
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    width: 12px;
+    height: 12px;
+    border-radius: 999px;
+    background: var(--warning);
+    box-shadow: 0 0 0 2px var(--card);
+    animation: bm-pulse 1.6s ease-in-out infinite;
+  }
+  .bot-avatar.dim { opacity: 0.45; filter: grayscale(0.6); }
+  @keyframes bm-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+  .roster-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
+  .roster-title-row { display: flex; align-items: baseline; gap: 6px; }
+  .roster-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .roster-name.muted { color: var(--muted-foreground); font-weight: 500; }
+  .unread-inline-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--primary); flex-shrink: 0; }
+  .roster-preview { font-size: 12px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .roster-preview.unread { color: color-mix(in srgb, var(--foreground) 80%, transparent); }
+  .roster-meta { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .roster-time { font-size: 10px; color: color-mix(in srgb, var(--muted-foreground) 80%, transparent); font-variant-numeric: tabular-nums; }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 18px;
+    padding: 0 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .chip-secondary { background: var(--secondary); color: var(--muted-foreground); }
+  .chip-tint { background: var(--primary-tint); color: var(--primary); }
+  .chevron-affordance { color: color-mix(in srgb, var(--muted-foreground) 90%, transparent); flex-shrink: 0; }
+
+  .empty-card {
+    border: 1px solid var(--border);
+    background: var(--card);
+    border-radius: var(--radius-lg);
+    padding: 30px 20px;
+    text-align: center;
+  }
+  .empty-card strong { display: block; font-size: 13.5px; font-weight: 600; margin-bottom: 4px; }
+  .empty-card span { font-size: 12.5px; color: var(--muted-foreground); line-height: 1.5; }
+  .dashed-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-xl);
+    padding: 12px;
+    color: var(--muted-foreground);
+    font-size: 13px;
+    font-weight: 600;
+    margin-top: 10px;
+    cursor: pointer;
+  }
+  .dashed-row:hover { color: var(--foreground); }
+
+  .section-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: color-mix(in srgb, var(--muted-foreground) 90%, transparent);
+    margin: 18px 2px 8px;
+  }
+
+  /* ── Bot chat screen (§4) ──────────────────────────────────────────── */
+  .chat-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--background) 88%, transparent);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    flex-shrink: 0;
+  }
+  .chat-header-title { min-width: 0; flex: 1; }
+  .chat-header-name { font-size: 15px; font-weight: 600; line-height: 1.2; }
+  .chat-header-sub { font-size: 11px; color: var(--muted-foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-stream { flex: 1; overflow-y: auto; padding: 16px 14px; display: flex; flex-direction: column; gap: 14px; }
+
+  /* Bot turns render as a left-aligned card/bubble too (not bare text on the
+     canvas) — this is the "real chat experience" delta from a normal task
+     session's plain-markdown assistant turns. See spec §4.2. */
+  .msg-row-bot { display: flex; align-items: flex-end; gap: 8px; max-width: 84%; }
+  .msg-row-bot .bot-avatar.xs { margin-bottom: 1px; }
+  .msg-avatar-spacer { width: 22px; flex-shrink: 0; }
+  .msg-bubble-bot {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 9px 13px;
+    font-size: 14.5px;
+    line-height: 1.55;
+  }
+  .msg-user {
+    align-self: flex-end;
+    max-width: 82%;
+    position: relative;
+    border: 1px solid transparent;
+    border-radius: 20px;
+    padding: 9px 13px;
+    font-size: 14.5px;
+    line-height: 1.5;
+    background:
+      linear-gradient(rgba(255,255,255,0.72), rgba(255,255,255,0.72)) padding-box,
+      linear-gradient(145deg, rgba(255,255,255,0.7), rgba(120,120,128,0.3) 38%, rgba(120,120,128,0.2) 68%, rgba(0,0,0,0.1)) border-box;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.4);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+  }
+  html.dark .msg-user {
+    background:
+      linear-gradient(color-mix(in oklab, var(--card) 94%, white), color-mix(in oklab, var(--card) 94%, white)) padding-box,
+      linear-gradient(145deg, rgba(255,255,255,0.24), rgba(255,255,255,0.18) 38%, rgba(120,120,128,0.28) 68%, rgba(255,255,255,0.12)) border-box;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+
+  /* Typing indicator now lives inside a bot bubble (spec §4.3) instead of
+     floating as a standalone pill — same three breathing dots, same
+     run-grouping rule (avatar only if this bubble starts a new run). */
+  .msg-bubble-bot.is-typing { display: inline-flex; padding: 10px 14px; }
+  .typing-dots { display: flex; align-items: center; gap: 4px; }
+  .typing-dots span {
+    width: 5px;
+    height: 5px;
+    border-radius: 999px;
+    background: var(--muted-foreground);
+    opacity: 0.4;
+    animation: bm-typing 1.15s ease-in-out infinite;
+  }
+  .typing-dots span:nth-child(2) { animation-delay: .14s; }
+  .typing-dots span:nth-child(3) { animation-delay: .28s; }
+  @keyframes bm-typing { 0%,70%,100% { opacity: .38; transform: translateY(0); } 35% { opacity: .95; transform: translateY(-2px); } }
+
+  .chat-composer-wrap { padding: 10px 12px 14px; border-top: 1px solid var(--border); flex-shrink: 0; }
+  .gfield {
+    border: 1px solid transparent;
+    border-radius: 18px;
+    background:
+      linear-gradient(var(--field-fill), var(--field-fill)) padding-box,
+      linear-gradient(160deg, color-mix(in srgb, var(--foreground) 24%, transparent), color-mix(in srgb, var(--foreground) 8%, transparent) 44%, color-mix(in srgb, var(--foreground) 4%, transparent) 72%, color-mix(in srgb, var(--foreground) 14%, transparent)) border-box;
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 8px 8px 8px 14px;
+    transition: background 180ms ease, box-shadow 180ms ease;
+  }
+  .gfield:focus-within {
+    background:
+      linear-gradient(var(--field-fill), var(--field-fill)) padding-box,
+      linear-gradient(160deg, color-mix(in srgb, var(--primary) 80%, white), color-mix(in srgb, var(--primary) 45%, transparent) 45%, color-mix(in srgb, var(--primary) 28%, transparent) 72%, color-mix(in srgb, var(--primary) 62%, white)) border-box;
+    box-shadow: 0 0 0 3px var(--primary-tint);
+  }
+  .gfield textarea, .gfield input[type="text"] {
+    flex: 1;
+    border: 0;
+    outline: none;
+    background: transparent;
+    resize: none;
+    font-size: 14.5px;
+    line-height: 1.4;
+    padding: 4px 0;
+    max-height: 120px;
+    min-height: 22px;
+  }
+  .gfield textarea::placeholder, .gfield input::placeholder { color: var(--muted-foreground); }
+  .send-btn {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: 999px;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    cursor: pointer;
+  }
+
+  .disabled-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 1px dashed var(--border);
+    background: color-mix(in srgb, var(--muted) 55%, transparent);
+    border-radius: 16px;
+    padding: 11px 14px;
+    font-size: 12.5px;
+    color: var(--muted-foreground);
+    line-height: 1.4;
+  }
+
+  /* ── New Bot sheet (§5) ───────────────────────────────────────────── */
+  .sheet {
+    width: 380px;
+    max-width: 92vw;
+    background: var(--popover);
+    border: 1px solid var(--border);
+    border-top-left-radius: 26px;
+    border-top-right-radius: 26px;
+    box-shadow: var(--shadow-card);
+    padding: 10px 18px 20px;
+  }
+  .sheet-handle { width: 36px; height: 4px; border-radius: 999px; background: var(--border-strong); margin: 2px auto 14px; }
+  .sheet-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+  .sheet-head-icon { color: var(--primary); font-size: 18px; }
+  .sheet-head-title { flex: 1; font-size: 15px; font-weight: 700; }
+  .field-label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted-foreground); margin: 0 0 6px 2px; }
+  .identity-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .avatar-picker {
+    width: 56px;
+    height: 56px;
+    border-radius: 999px;
+    background: var(--muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+    flex-shrink: 0;
+    cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .avatar-picker.empty { border: 1px dashed var(--border); background: transparent; color: var(--muted-foreground); font-size: 20px; }
+  .field-block { margin-bottom: 16px; }
+  .advanced-trigger {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 9px 12px;
+    background: transparent;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .advanced-trigger .caret { transition: transform 180ms var(--ease-ios); color: var(--muted-foreground); }
+  .advanced-trigger[aria-expanded="true"] .caret { transform: rotate(90deg); }
+  .advanced-hint { color: var(--muted-foreground); font-size: 11.5px; }
+  .advanced-body { display: none; padding-top: 10px; }
+  .advanced-body.is-open { display: block; }
+  .kv-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 9px 12px;
+    margin-bottom: 8px;
+    font-size: 13px;
+  }
+  .kv-row-label { display: flex; align-items: center; gap: 8px; color: var(--muted-foreground); }
+  .kv-row select {
+    border: 0;
+    background: transparent;
+    text-align: right;
+    font-size: 12.5px;
+    font-weight: 600;
+    max-width: 55%;
+  }
+  .pill-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pill-choice {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 5px 11px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted-foreground);
+    background: transparent;
+    cursor: pointer;
+  }
+  .pill-choice.is-selected { background: var(--foreground); color: var(--background); border-color: transparent; }
+  .sheet-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
+  /* ── Sessions list (§6) ───────────────────────────────────────────── */
+  .session-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    border-radius: var(--radius-lg);
+    padding: 10px 12px;
+    margin-bottom: 8px;
+  }
+  .session-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: var(--muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    flex-shrink: 0;
+  }
+  .session-main { flex: 1; min-width: 0; }
+  .session-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 3px; }
+  .session-metaline { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .badge-model { background: var(--secondary); color: var(--muted-foreground); border-radius: 999px; font-size: 10px; font-weight: 600; padding: 2px 8px; }
+  .badge-driven { background: var(--primary-tint); color: var(--primary); border-radius: 999px; font-size: 10px; font-weight: 600; padding: 2px 8px 2px 6px; display: inline-flex; align-items: center; gap: 3px; cursor: pointer; }
+  .session-time { font-size: 10px; color: var(--muted-foreground-70); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+
+  .rail-mini { width: 230px; border: 1px solid var(--border); border-radius: var(--radius-xl); background: var(--card); padding: 10px; }
+  .rail-mini-row { display: flex; align-items: center; gap: 8px; padding: 6px 6px; border-radius: 10px; }
+  .rail-mini-row + .rail-mini-row { margin-top: 2px; }
+  .rail-mini-row.is-active { background: var(--muted); }
+  .rail-mini-icon { position: relative; width: 24px; height: 24px; border-radius: 7px; background: var(--muted); display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+  .rail-mini-icon .rail-dot { position: absolute; right: -2px; top: -2px; width: 10px; height: 10px; border-radius: 999px; box-shadow: 0 0 0 2px var(--card); }
+  .rail-mini-icon .rail-dot.working { background: var(--warning); animation: bm-pulse 1.6s ease-in-out infinite; }
+  .rail-mini-icon .rail-dot.bot { background: var(--muted); font-size: 8px; display: flex; align-items: center; justify-content: center; }
+  .rail-mini-title { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+  .rail-mini-time { font-size: 9px; color: var(--muted-foreground-70); flex-shrink: 0; }
+
+  .note {
+    font-size: 12px;
+    color: var(--muted-foreground);
+    background: var(--muted);
+    border-radius: 12px;
+    padding: 10px 12px;
+    line-height: 1.5;
+    margin-top: 12px;
+    max-width: 620px;
+  }
+  .note code { font-family: ui-monospace, monospace; font-size: 11px; background: var(--accent); padding: 1px 4px; border-radius: 4px; }
+
+  @media (max-width: 640px) {
+    .mock-topbar-title span { display: none; }
+    .frame-app { width: 100%; max-width: 380px; }
+  }
+</style>
+</head>
+<body>
+  <div class="mock-shell">
+    <header class="mock-topbar">
+      <div class="mock-topbar-title">Bot Mode<span>Phase 1 mockup</span></div>
+      <nav class="mock-tabs" role="tablist">
+        <button class="mock-tab is-active" data-tab="roster" type="button">Bots roster</button>
+        <button class="mock-tab" data-tab="chat" type="button">Bot chat</button>
+        <button class="mock-tab" data-tab="newbot" type="button">New bot sheet</button>
+        <button class="mock-tab" data-tab="sessions" type="button">Sessions list</button>
+      </nav>
+      <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle dark mode">
+        <span class="theme-toggle-thumb"></span>
+      </button>
+    </header>
+
+    <main class="mock-stage">
+
+      <!-- ══════════════════════ Bots roster (spec §3) ══════════════════════ -->
+      <section class="mock-panel is-active" data-panel="roster">
+        <div class="mock-cols">
+          <div class="mock-col">
+            <div class="mock-caption">Bots page — populated roster</div>
+            <div class="frame frame-app">
+              <div class="rail-header">
+                <div class="rail-toggle" role="tablist" aria-label="Switch surface">
+                  <button class="rail-toggle-btn" type="button" role="tab" aria-selected="false">Sessions</button>
+                  <button class="rail-toggle-btn is-active" type="button" role="tab" aria-selected="true">Chat<span class="unread-dot-inline"></span></button>
+                </div>
+                <div class="rail-header-row">
+                  <button class="new-session-btn" type="button">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                    New session <kbd>C</kbd>
+                  </button>
+                  <button class="icon-btn" aria-label="Collapse sidebar">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="9" y1="4" x2="9" y2="20"/></svg>
+                  </button>
+                </div>
+              </div>
+
+              <div class="page-col">
+                <div class="page-head">
+                  <div style="flex:1">
+                    <h1>Bots</h1>
+                    <p>Persistent agents you talk to, not tasks you launch.</p>
+                  </div>
+                  <button class="btn btn-sm btn-brand" type="button">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                    New bot
+                  </button>
+                </div>
+
+                <!-- read row -->
+                <button class="roster-row" type="button">
+                  <span class="bot-avatar">🔭</span>
+                  <span class="roster-main">
+                    <span class="roster-title-row"><span class="roster-name">Scout</span></span>
+                    <span class="roster-preview">Found 3 repos using the old auth middleware — want the list?</span>
+                  </span>
+                  <span class="roster-meta">
+                    <span class="roster-time">2h</span>
+                    <span class="chevron-affordance">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                    </span>
+                  </span>
+                </button>
+
+                <!-- unread row -->
+                <button class="roster-row" type="button">
+                  <span class="bot-avatar">📬</span>
+                  <span class="roster-main">
+                    <span class="roster-title-row">
+                      <span class="roster-name">Inbox</span>
+                      <span class="unread-inline-dot"></span>
+                    </span>
+                    <span class="roster-preview unread">Summarized this morning's mail — 2 need a reply today.</span>
+                  </span>
+                  <span class="roster-meta">
+                    <span class="roster-time">14m</span>
+                    <span class="chevron-affordance">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                    </span>
+                  </span>
+                </button>
+
+                <!-- working row -->
+                <button class="roster-row" type="button">
+                  <span class="bot-avatar">🛠️<span class="status-dot"></span></span>
+                  <span class="roster-main">
+                    <span class="roster-title-row"><span class="roster-name">Ops</span></span>
+                    <span class="roster-preview">Working — checking the failed deploy now…</span>
+                  </span>
+                  <span class="roster-meta">
+                    <span class="roster-time">now</span>
+                    <span class="chevron-affordance">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                    </span>
+                  </span>
+                </button>
+
+                <!-- disabled row -->
+                <button class="roster-row" type="button">
+                  <span class="bot-avatar dim">🗄️</span>
+                  <span class="roster-main">
+                    <span class="roster-title-row"><span class="roster-name muted">Archivist</span></span>
+                    <span class="roster-preview" style="color:var(--muted-foreground)">Last active 3 weeks ago</span>
+                  </span>
+                  <span class="roster-meta">
+                    <span class="chip chip-secondary">Disabled</span>
+                    <span class="chevron-affordance">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                    </span>
+                  </span>
+                </button>
+
+                <!-- never-messaged row -->
+                <button class="roster-row" type="button">
+                  <span class="bot-avatar">🌱</span>
+                  <span class="roster-main">
+                    <span class="roster-title-row"><span class="roster-name">Onboarding buddy</span></span>
+                    <span class="roster-preview">Say hi to get started.</span>
+                  </span>
+                  <span class="roster-meta">
+                    <span class="chevron-affordance">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                    </span>
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="mock-col">
+            <div class="mock-caption">Bots page — empty roster</div>
+            <div class="frame frame-app">
+              <div class="rail-header">
+                <div class="rail-toggle" role="tablist" aria-label="Switch surface">
+                  <button class="rail-toggle-btn" type="button" role="tab" aria-selected="false">Sessions</button>
+                  <button class="rail-toggle-btn is-active" type="button" role="tab" aria-selected="true">Chat</button>
+                </div>
+                <div class="rail-header-row">
+                  <button class="new-session-btn" type="button">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                    New session <kbd>C</kbd>
+                  </button>
+                  <button class="icon-btn" aria-label="Collapse sidebar">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="9" y1="4" x2="9" y2="20"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="page-col">
+                <div class="page-head">
+                  <div style="flex:1">
+                    <h1>Bots</h1>
+                    <p>Persistent agents you talk to, not tasks you launch.</p>
+                  </div>
+                </div>
+                <div class="empty-card">
+                  <strong>No bots yet.</strong>
+                  <span>Give a persona a name and a memory — it'll be there next time you open this.</span>
+                </div>
+                <div class="dashed-row">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                  New bot
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="note">Rail header: the <code>Sessions | Chat</code> text toggle replaces the old single icon button — "Chat" is active here. Row anatomy: <code>rounded-full</code> emoji avatar (44px) → name + last-message preview → relative time → chevron. Working state is a pulsing <code>--warning</code> dot on the avatar, same geometry as <code>SessionStatusDot</code>'s avatar variant. See spec §2.1, §3.</div>
+      </section>
+
+      <!-- ══════════════════════ Bot chat (spec §4) ══════════════════════ -->
+      <section class="mock-panel" data-panel="chat">
+        <div class="mock-cols">
+          <div class="mock-col">
+            <div class="mock-caption">Bot chat — idle, with typing state</div>
+            <div class="frame frame-app">
+              <div class="chat-header">
+                <button class="icon-btn" aria-label="Back">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+                </button>
+                <span class="bot-avatar sm">🔭</span>
+                <span class="chat-header-title">
+                  <div class="chat-header-name">Scout</div>
+                  <div class="chat-header-sub">Watches the repo for patterns worth flagging · working</div>
+                </span>
+                <button class="icon-btn" aria-label="Bot settings">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                </button>
+              </div>
+              <div class="chat-stream">
+                <div class="msg-row-bot">
+                  <span class="bot-avatar xs">🔭</span>
+                  <div class="msg-bubble-bot">Morning. I scanned the diff queue overnight — nothing urgent, but three PRs still import the old auth middleware directly instead of the shared client.</div>
+                </div>
+                <div class="msg-user">Which three?</div>
+                <div class="msg-row-bot">
+                  <span class="bot-avatar xs">🔭</span>
+                  <div class="msg-bubble-bot">
+                    <code style="font-size:12.5px;background:var(--accent);padding:1px 5px;border-radius:4px;">billing-service</code>,
+                    <code style="font-size:12.5px;background:var(--accent);padding:1px 5px;border-radius:4px;">notify-worker</code>, and
+                    <code style="font-size:12.5px;background:var(--accent);padding:1px 5px;border-radius:4px;">admin-web</code>.
+                  </div>
+                </div>
+                <div class="msg-row-bot">
+                  <span class="msg-avatar-spacer"></span>
+                  <div class="msg-bubble-bot">Want me to open a tracking session for the migration?</div>
+                </div>
+                <div class="msg-user">Yeah, go ahead.</div>
+                <div class="msg-row-bot">
+                  <span class="bot-avatar xs">🔭</span>
+                  <div class="msg-bubble-bot is-typing">
+                    <span class="typing-dots"><span></span><span></span><span></span></span>
+                  </div>
+                </div>
+              </div>
+              <div class="chat-composer-wrap">
+                <div class="gfield">
+                  <textarea rows="1" placeholder="Message Scout…"></textarea>
+                  <button class="send-btn" type="button" aria-label="Send">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mock-col">
+            <div class="mock-caption">Bot chat — disabled bot</div>
+            <div class="frame frame-app">
+              <div class="chat-header">
+                <button class="icon-btn" aria-label="Back">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+                </button>
+                <span class="bot-avatar sm dim">🗄️</span>
+                <span class="chat-header-title">
+                  <div class="chat-header-name">Archivist</div>
+                  <div class="chat-header-sub">Files old sessions into weekly digests · disabled</div>
+                </span>
+                <button class="icon-btn" aria-label="Bot settings">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                </button>
+              </div>
+              <div class="chat-stream">
+                <div class="msg-row-bot">
+                  <span class="bot-avatar xs dim">🗄️</span>
+                  <div class="msg-bubble-bot">Filed 14 sessions into last week's digest. Nothing flagged.</div>
+                </div>
+                <div class="msg-user">Thanks — pause for now, I'll turn you back on next sprint.</div>
+                <div class="msg-row-bot">
+                  <span class="bot-avatar xs dim">🗄️</span>
+                  <div class="msg-bubble-bot">Done, disabling myself.</div>
+                </div>
+              </div>
+              <div class="chat-composer-wrap">
+                <div class="disabled-banner">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><line x1="4.9" y1="4.9" x2="19.1" y2="19.1"/></svg>
+                  <span style="flex:1">This bot is disabled. Re-enable it in settings to keep talking to it.</span>
+                  <button class="icon-btn" aria-label="Open settings" style="width:26px;height:26px;flex-shrink:0">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="note">Bot turns now render in a left-aligned, surface-colored (<code>bg-card</code>) bubble too — not bare markdown on the canvas — with the bot's avatar beside only the first bubble of a run; user turns keep the app's existing glass <code>.user-bubble</code>. The typing indicator lives inside a bot bubble instead of floating as a standalone pill. The composer is the same <code>.lfg-gfield</code> shell every session uses — no agent/model row here, those are bot-level settings. See spec §4.</div>
+      </section>
+
+      <!-- ══════════════════════ New bot sheet (spec §5) ══════════════════════ -->
+      <section class="mock-panel" data-panel="newbot">
+        <div class="mock-cols">
+          <div class="mock-col">
+            <div class="mock-caption">New bot sheet — collapsed advanced</div>
+            <div class="sheet">
+              <div class="sheet-handle"></div>
+              <div class="sheet-head">
+                <span class="sheet-head-icon">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="9" width="14" height="10" rx="2"/><path d="M9 9V6a3 3 0 0 1 6 0v3"/><circle cx="9.5" cy="14" r="1"/><circle cx="14.5" cy="14" r="1"/></svg>
+                </span>
+                <span class="sheet-head-title">New bot</span>
+                <button class="btn btn-sm btn-brand" id="createBtn1" type="button" disabled>Create</button>
+              </div>
+
+              <div class="identity-row">
+                <div class="avatar-picker" id="avatarPicker">🤖</div>
+                <div style="flex:1">
+                  <div class="field-label">Name</div>
+                  <div class="gfield" style="border-radius:14px;padding:8px 12px;">
+                    <input type="text" id="botNameInput" placeholder="Bot name" />
+                  </div>
+                </div>
+              </div>
+
+              <div class="field-block">
+                <div class="field-label">Persona</div>
+                <div class="gfield" style="border-radius:14px;align-items:stretch;">
+                  <textarea rows="4" placeholder="How this bot should think and talk…"></textarea>
+                </div>
+              </div>
+
+              <button class="advanced-trigger" id="advancedTrigger" aria-expanded="false" type="button">
+                <span style="display:flex;align-items:center;gap:6px;">
+                  <svg class="caret" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                  Advanced
+                </span>
+                <span class="advanced-hint">aisdk · sonnet-4.5</span>
+              </button>
+              <div class="advanced-body" id="advancedBody">
+                <div class="kv-row">
+                  <span class="kv-row-label">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                    Repo
+                  </span>
+                  <select><option>omg.dev</option><option>lfg</option><option>(no repos)</option></select>
+                </div>
+                <div class="field-label" style="margin-top:12px">Agent</div>
+                <div class="pill-row" style="margin-bottom:10px;">
+                  <button class="pill-choice is-selected" type="button">Claude</button>
+                  <button class="pill-choice" type="button">Codex</button>
+                  <button class="pill-choice" type="button">Grok</button>
+                </div>
+                <div class="kv-row">
+                  <span class="kv-row-label">Model</span>
+                  <select><option>sonnet-4.5</option><option>opus-4.1</option></select>
+                </div>
+                <div class="kv-row">
+                  <span class="kv-row-label">Thinking</span>
+                  <select><option>Medium</option><option>Low</option><option>High</option></select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mock-col">
+            <div class="mock-caption">Edit bot sheet — filled, advanced open</div>
+            <div class="sheet">
+              <div class="sheet-handle"></div>
+              <div class="sheet-head">
+                <span class="sheet-head-icon">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="9" width="14" height="10" rx="2"/><path d="M9 9V6a3 3 0 0 1 6 0v3"/><circle cx="9.5" cy="14" r="1"/><circle cx="14.5" cy="14" r="1"/></svg>
+                </span>
+                <span class="sheet-head-title">Edit bot</span>
+                <button class="btn btn-icon-sm btn-destructive" type="button" aria-label="Delete bot">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>
+                </button>
+                <button class="btn btn-sm btn-brand" type="button">Save</button>
+              </div>
+
+              <div class="identity-row">
+                <div class="avatar-picker">🔭</div>
+                <div style="flex:1">
+                  <div class="field-label">Name</div>
+                  <div class="gfield" style="border-radius:14px;padding:8px 12px;">
+                    <input type="text" value="Scout" />
+                  </div>
+                </div>
+              </div>
+
+              <div class="field-block">
+                <div class="field-label">Persona</div>
+                <div class="gfield" style="border-radius:14px;align-items:stretch;">
+                  <textarea rows="4">Watches the repo for drift from house patterns — old imports, duplicated helpers, config that's gone stale. Terse, cites file paths, never opens a PR without asking first.</textarea>
+                </div>
+              </div>
+
+              <button class="advanced-trigger" aria-expanded="true" type="button">
+                <span style="display:flex;align-items:center;gap:6px;">
+                  <svg class="caret" style="transform:rotate(90deg)" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                  Advanced
+                </span>
+                <span class="advanced-hint">aisdk · sonnet-4.5</span>
+              </button>
+              <div class="advanced-body is-open">
+                <div class="kv-row">
+                  <span class="kv-row-label">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                    Repo
+                  </span>
+                  <select><option>omg.dev</option><option selected>lfg</option></select>
+                </div>
+                <div class="field-label" style="margin-top:12px">Agent</div>
+                <div class="pill-row" style="margin-bottom:10px;">
+                  <button class="pill-choice is-selected" type="button">Claude</button>
+                  <button class="pill-choice" type="button">Codex</button>
+                  <button class="pill-choice" type="button">Grok</button>
+                </div>
+                <div class="kv-row">
+                  <span class="kv-row-label">Model</span>
+                  <select><option>sonnet-4.5</option></select>
+                </div>
+                <div class="kv-row" style="margin-bottom:0;">
+                  <span class="kv-row-label">Thinking</span>
+                  <select><option selected>High</option><option>Medium</option></select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="note">Same <code>BottomSheet</code> the app already uses for every "New X" flow (drawer on mobile, centered dialog on desktop ≥768px). Avatar tap focuses a hidden input to invoke the OS emoji keyboard — try the avatar circle in the left sheet, it cycles emoji for this mockup. "Advanced" is a native <code>Collapsible</code>, try it. See spec §5.</div>
+      </section>
+
+      <!-- ══════════════════════ Sessions list badge (spec §6) ══════════════════════ -->
+      <section class="mock-panel" data-panel="sessions">
+        <div class="mock-cols">
+          <div class="mock-col">
+            <div class="mock-caption">Sessions list — expanded rows</div>
+            <div class="frame frame-wide">
+              <div class="rail-header" style="margin:-20px -20px 16px;border-radius:22px 22px 0 0;">
+                <div class="rail-toggle" role="tablist" aria-label="Switch surface">
+                  <button class="rail-toggle-btn is-active" type="button" role="tab" aria-selected="true">Sessions</button>
+                  <button class="rail-toggle-btn" type="button" role="tab" aria-selected="false">Chat</button>
+                </div>
+                <div class="rail-header-row">
+                  <button class="new-session-btn" type="button">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                    New session <kbd>C</kbd>
+                  </button>
+                  <button class="icon-btn" aria-label="Collapse sidebar">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="9" y1="4" x2="9" y2="20"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="session-row">
+                <span class="session-icon">🧭</span>
+                <span class="session-main">
+                  <div class="session-title">Migrate billing-service off legacy auth middleware</div>
+                  <div class="session-metaline">
+                    <span class="badge-driven">🔭 driven by Scout</span>
+                    <span class="badge-model">claude-sonnet-4.5</span>
+                  </div>
+                </span>
+                <span class="session-time">2m</span>
+              </div>
+              <div class="session-row">
+                <span class="session-icon">📄</span>
+                <span class="session-main">
+                  <div class="session-title">Rewrite the onboarding email copy</div>
+                  <div class="session-metaline">
+                    <span class="badge-model">claude-opus-4.1</span>
+                  </div>
+                </span>
+                <span class="session-time">41m</span>
+              </div>
+              <div class="session-row">
+                <span class="session-icon">🐛</span>
+                <span class="session-main">
+                  <div class="session-title">Investigate flaky checkout test</div>
+                  <div class="session-metaline">
+                    <span class="badge-driven">📬 driven by Inbox</span>
+                    <span class="badge-model">codex</span>
+                  </div>
+                </span>
+                <span class="session-time">1h</span>
+              </div>
+              <div class="session-row">
+                <span class="session-icon">🎨</span>
+                <span class="session-main">
+                  <div class="session-title">Polish the Bots roster empty state</div>
+                  <div class="session-metaline">
+                    <span class="badge-model">claude-sonnet-4.5</span>
+                  </div>
+                </span>
+                <span class="session-time">3h</span>
+              </div>
+            </div>
+            <div class="note">Rail header: the same <code>Sessions | Chat</code> toggle from the Bots roster screen, here with "Sessions" active — one control switches both ways. The <code>driven by</code> pill borrows the "N open finding" tint (<code>bg-primary/12 text-primary</code>) rather than the neutral model-pill treatment — provenance is worth noticing. It sits before the model badge and is itself a link to the bot's chat. See spec §2.1, §6.1–6.2.</div>
+          </div>
+
+          <div class="mock-col">
+            <div class="mock-caption">Rail row — compact, bot-driven</div>
+            <div class="rail-mini">
+              <div class="rail-mini-row is-active">
+                <span class="rail-mini-icon">🧭<span class="rail-dot bot">🔭</span></span>
+                <span class="rail-mini-title">Migrate billing-service…</span>
+                <span class="rail-mini-time">2m</span>
+              </div>
+              <div class="rail-mini-row">
+                <span class="rail-mini-icon">📄</span>
+                <span class="rail-mini-title">Rewrite onboarding copy</span>
+                <span class="rail-mini-time">41m</span>
+              </div>
+              <div class="rail-mini-row">
+                <span class="rail-mini-icon">🐛<span class="rail-dot working"></span></span>
+                <span class="rail-mini-title">Investigate flaky test</span>
+                <span class="rail-mini-time">1h</span>
+              </div>
+            </div>
+            <div class="note" style="max-width:230px;">Idle + bot-driven: the tiny bot avatar takes the status-dot's corner slot. Busy/paused always wins that slot when both apply — glanceability over completeness in the narrow rail. See spec §6.3.</div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+<script>
+  (function () {
+    "use strict";
+
+    // Tabs
+    var tabs = document.querySelectorAll(".mock-tab");
+    var panels = document.querySelectorAll(".mock-panel");
+    tabs.forEach(function (tab) {
+      tab.addEventListener("click", function () {
+        tabs.forEach(function (t) { t.classList.remove("is-active"); });
+        panels.forEach(function (p) { p.classList.remove("is-active"); });
+        tab.classList.add("is-active");
+        var target = document.querySelector('.mock-panel[data-panel="' + tab.dataset.tab + '"]');
+        if (target) target.classList.add("is-active");
+      });
+    });
+
+    // Theme toggle — mirrors web/src/lib/theme.ts's class + color-scheme swap,
+    // scoped to this document only (no localStorage writes, standalone mockup).
+    var root = document.documentElement;
+    var themeToggle = document.getElementById("themeToggle");
+    var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    function applyTheme(dark) {
+      root.classList.toggle("dark", dark);
+      root.style.colorScheme = dark ? "dark" : "light";
+    }
+    applyTheme(prefersDark);
+    themeToggle.addEventListener("click", function () {
+      applyTheme(!root.classList.contains("dark"));
+    });
+
+    // New-bot sheet interactivity: name gates the Create button, advanced
+    // collapses, avatar cycles a few emoji so the picker reads as interactive.
+    var nameInput = document.getElementById("botNameInput");
+    var createBtn = document.getElementById("createBtn1");
+    if (nameInput && createBtn) {
+      nameInput.addEventListener("input", function () {
+        createBtn.disabled = nameInput.value.trim().length === 0;
+      });
+    }
+    var advTrigger = document.getElementById("advancedTrigger");
+    var advBody = document.getElementById("advancedBody");
+    if (advTrigger && advBody) {
+      advTrigger.addEventListener("click", function () {
+        var open = advBody.classList.toggle("is-open");
+        advTrigger.setAttribute("aria-expanded", open ? "true" : "false");
+      });
+    }
+    var avatarPicker = document.getElementById("avatarPicker");
+    if (avatarPicker) {
+      var emojiChoices = ["🤖", "🔭", "🛠️", "📬", "🌱", "🗄️", "🧭", "🎨"];
+      var emojiIdx = 0;
+      avatarPicker.addEventListener("click", function () {
+        emojiIdx = (emojiIdx + 1) % emojiChoices.length;
+        avatarPicker.textContent = emojiChoices[emojiIdx];
+        avatarPicker.classList.remove("empty");
+      });
+    }
+
+    // Pill-choice groups (Agent picker in the advanced section)
+    document.querySelectorAll(".pill-row").forEach(function (row) {
+      row.querySelectorAll(".pill-choice").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          row.querySelectorAll(".pill-choice").forEach(function (b) { b.classList.remove("is-selected"); });
+          btn.classList.add("is-selected");
+        });
+      });
+    });
+
+    // Rail header "Sessions | Chat" segmented toggle — each instance is
+    // independent here since this mockup doesn't actually re-render a
+    // surface underneath it; clicking just demonstrates the active state.
+    document.querySelectorAll(".rail-toggle").forEach(function (group) {
+      group.querySelectorAll(".rail-toggle-btn").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          group.querySelectorAll(".rail-toggle-btn").forEach(function (b) {
+            b.classList.remove("is-active");
+            b.setAttribute("aria-selected", "false");
+          });
+          btn.classList.add("is-active");
+          btn.setAttribute("aria-selected", "true");
+        });
+      });
+    });
+  })();
+</script>
+</body>
+</html>

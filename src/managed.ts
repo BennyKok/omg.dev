@@ -52,6 +52,8 @@ export type ManagedSession = {
   parentNativeSessionId?: string;
   parentAgent?: string;
   spawnedBy?: "subagent" | "fork" | "finding" | "voice" | string;
+  botId?: string;
+  persistent?: boolean;
   /** LFG agent capability contract/tool catalog present when this process launched. */
   capabilityVersion?: string;
   /** Main repo checkout when cwd is an auto-provisioned worktree. */

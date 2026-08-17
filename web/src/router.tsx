@@ -65,7 +65,16 @@ const tabRoute = createRoute({
   component: () => null,
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, tabRoute]);
+// Bot chats keep the Bots page selected while adding a durable bot id to the
+// path. App owns the master/detail render so this route remains component-less.
+const botRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "bots/$botId",
+  validateSearch: validateAppSearch,
+  component: () => null,
+});
+
+const routeTree = rootRoute.addChildren([indexRoute, tabRoute, botRoute]);
 
 export function createOmgRouter(history?: RouterHistory) {
   return createRouter({

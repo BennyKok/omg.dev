@@ -19,6 +19,7 @@ export type IdleArchiveCandidate = {
   managed: boolean;
   busy?: boolean;
   launching?: boolean;
+  persistent?: boolean;
   lastActivityAt: number | null;
   startedAt: number | null;
 };
@@ -69,6 +70,7 @@ export function idleArchiveCandidates<T extends IdleArchiveCandidate>(
   if (!(options.idleMs > 0)) return [];
   const eligible = sessions.filter((session) => {
     if (!session.managed || !session.sessionId) return false;
+    if (session.persistent) return false;
     if (session.busy || session.launching) return false;
     const idle = idleMsFor(session, options.now);
     return idle != null && idle >= options.idleMs;

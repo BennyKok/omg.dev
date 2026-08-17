@@ -105,6 +105,7 @@ export class OmgChatStreamOwnership {
 
 type OmgChatTransportOptions = {
   sessionId: string;
+  sendEndpoint?: string;
   apiBase?: string;
   subscribeTranscript?: OmgTranscriptSubscribe;
   fetch?: typeof globalThis.fetch;
@@ -597,14 +598,16 @@ export class OmgChatTransport implements ChatTransport<OmgChatMessage> {
   private readonly apiBase: string;
   private readonly usesConfiguredTransport: boolean;
   private readonly sessionId: string;
+  private readonly sendEndpoint: string;
   // Live emitters held by this transport. See sendMessages: at most one, ever.
   // Scoped to the instance rather than to the session id on purpose — a stream
   // that is created and then never consumed would otherwise hold a global slot
   // forever, muting the session; here it dies with the transport.
   private liveStreams = 0;
 
-  constructor({ sessionId, apiBase = "", subscribeTranscript, fetch: fetchImpl }: OmgChatTransportOptions) {
+  constructor({ sessionId, sendEndpoint, apiBase = "", subscribeTranscript, fetch: fetchImpl }: OmgChatTransportOptions) {
     this.sessionId = sessionId;
+    this.sendEndpoint = sendEndpoint ?? `/api/sessions/${encodeURIComponent(sessionId)}/send`;
     this.apiBase = apiBase;
     this.subscribeTranscript = subscribeTranscript;
     // The embedded app's host owns auth and routing through configureOmgTransport.
@@ -643,7 +646,7 @@ export class OmgChatTransport implements ChatTransport<OmgChatMessage> {
     // server, and its (empty) stream resolves immediately.
     const live = this.liveStreams === 0 ? this.createLiveStream(abortSignal) : null;
     try {
-      const response = await this.fetchImpl(this.requestTarget(`/api/sessions/${encodeURIComponent(this.sessionId)}/send`), {
+      const response = await this.fetchImpl(this.requestTarget(this.sendEndpoint), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, mode: (body as { mode?: string } | undefined)?.mode }),

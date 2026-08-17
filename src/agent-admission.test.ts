@@ -35,6 +35,12 @@ describe("Computer agent admission", () => {
     expect(isScheduleSpawned("subagent")).toBe(false);
   });
 
+  test("persistent bots stay visible but do not fill the interactive cap", () => {
+    const sessions = [{ persistent: true, spawnedBy: "bot" }, { busy: false }];
+    expect(residentAgentCount(sessions)).toBe(2);
+    expect(interactiveResidentCount(sessions)).toBe(1);
+  });
+
   test("an idle-only fleet can still fill the cap", () => {
     const controller = new AgentAdmissionController();
     const idle = [{ busy: false }, { busy: false }];

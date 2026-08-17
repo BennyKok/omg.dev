@@ -82,6 +82,37 @@ export function omgRuntimeContract(): string {
   ].join("\n");
 }
 
+/**
+ * The launch envelope for a bot's backing session.
+ *
+ * `awaitingFirstMessage` decides the closing rule, and it is not cosmetic. A
+ * bot session is launched by the first message that needs it, so that message
+ * rides along in the very same prompt. Telling the model "do not reply to this
+ * setup" unconditionally made it swallow that first message — the greeting got
+ * no answer and only the second message ever worked. So the silence rule is
+ * only correct when nothing is bundled; when a message is attached, the
+ * contract has to point at it explicitly.
+ */
+export function botRuntimeContract(
+  name: string,
+  persona: string,
+  options: { awaitingFirstMessage?: boolean } = {},
+): string {
+  return [
+    `=== omg.dev BOT RUNTIME CONTRACT (capability version ${OMG_CAPABILITY_VERSION}) ===`,
+    `- You are ${name}, a named persistent bot in an ongoing conversation.`,
+    `- Your persona is: ${persona.trim()}`,
+    "- Reply to the human through normal assistant messages.",
+    "- Do not use `omg_ship` for this conversation. Do not close this session.",
+    options.awaitingFirstMessage
+      ? "- No message has arrived yet. Say nothing until the next attributed message arrives, then reply to it."
+      : "- An attributed message follows this contract. Reply to it now, in character, as your first turn.",
+    "=== END omg.dev BOT RUNTIME CONTRACT ===",
+  ].join("\n");
+}
+
+const BOT_CONTRACT_HEADER = "=== omg.dev BOT RUNTIME CONTRACT";
+
 // The envelope was branded "LFG", then "OMG", before settling on the company
 // name "omg.dev". All three spellings have to be recognised forever:
 // transcripts, resume caches and argv of every session launched under an older
@@ -131,7 +162,7 @@ export function withOmgRuntimeContract(prompt: string | undefined): string | und
   if (!text) return prompt;
   // Already wrapped — including by a pre-rename LFG or OMG envelope, which must
   // not be double-wrapped just because the branding changed.
-  if (hasOmgRuntimeContract(text)) return text;
+  if (hasOmgRuntimeContract(text) || text.includes(BOT_CONTRACT_HEADER)) return text;
   return `${omgRuntimeContract()}\n\n${USER_TASK}\n${text}`;
 }
 

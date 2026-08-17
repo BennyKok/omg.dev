@@ -43,6 +43,7 @@ import {
   isSessionIndexKey,
 } from "./transcript-index";
 import { isProviderAuthError } from "./provider-auth-error";
+import { listBots } from "./bots/store.ts";
 
 const HOME = process.env.HOME ?? homedir();
 const PROJECTS_DIR = join(HOME, ".claude", "projects");
@@ -307,6 +308,9 @@ export type Session = {
   parentNativeSessionId?: string | null;
   parentAgent?: string | null;
   spawnedBy?: string | null;
+  botId?: string;
+  botName?: string;
+  persistent?: boolean;
   /** Capability contract/tool catalog recorded when this managed session launched. */
   capabilityVersion?: string | null;
   /** True when a long-lived managed session predates the current LFG capability contract. */
@@ -541,6 +545,8 @@ export function managedLaunchRow(
     parentNativeSessionId: m.parentNativeSessionId ?? null,
     parentAgent: m.parentAgent ?? null,
     spawnedBy: m.spawnedBy ?? null,
+    botId: m.botId,
+    persistent: m.persistent,
     capabilityVersion: m.capabilityVersion ?? null,
     capabilitiesStale: m.capabilityVersion !== OMG_CAPABILITY_VERSION,
     // Still booting counts as launching: the record says "running" but the
@@ -570,6 +576,8 @@ function managedLineage(m: ManagedSession | undefined): Pick<
   | "parentNativeSessionId"
   | "parentAgent"
   | "spawnedBy"
+  | "botId"
+  | "persistent"
   | "capabilityVersion"
   | "capabilitiesStale"
   | "claudeAccountId"
@@ -579,6 +587,8 @@ function managedLineage(m: ManagedSession | undefined): Pick<
     parentNativeSessionId: m?.parentNativeSessionId ?? null,
     parentAgent: m?.parentAgent ?? null,
     spawnedBy: m?.spawnedBy ?? null,
+    botId: m?.botId,
+    persistent: m?.persistent,
     capabilityVersion: m?.capabilityVersion ?? null,
     capabilitiesStale: !!m && m.capabilityVersion !== OMG_CAPABILITY_VERSION,
     claudeAccountId: m?.claudeAccountId ?? null,
@@ -2971,6 +2981,27 @@ export async function listSessions(): Promise<Session[]> {
     for (const key of busyCache.keys()) if (!live.has(key)) busyCache.delete(key);
     for (const s of out) s.busy = sessionBusy(s);
   });
+  const bots = await listBots();
+  const botById = new Map(bots.map((bot) => [bot.id, bot]));
+  const botBySessionId = new Map<string, (typeof bots)[number]>();
+  for (const bot of bots) {
+    if (bot.sessionId) botBySessionId.set(bot.sessionId, bot);
+  }
+  for (const session of out) {
+    const ownBot = session.botId ? botById.get(session.botId) : undefined;
+    if (ownBot) {
+      session.botName = ownBot.name;
+      if (session.sessionId) botBySessionId.set(session.sessionId, ownBot);
+      if (session.nativeSessionId) botBySessionId.set(session.nativeSessionId, ownBot);
+      continue;
+    }
+    const parentId = session.parentSessionId ?? session.parentNativeSessionId;
+    const parentBot = parentId ? botBySessionId.get(parentId) : undefined;
+    if (parentBot) {
+      session.botId = parentBot.id;
+      session.botName = parentBot.name;
+    }
+  }
   profile?.end(out.length);
   return out;
 }

@@ -141,7 +141,7 @@ export async function getAutoAgent(id: string): Promise<AutoAgent | null> {
  */
 export function sanitizeThinkingLevel(
   level: string | undefined,
-  backend: AutoAgentBackend | undefined,
+  backend: string | undefined,
 ): string | undefined {
   if (!level) return undefined;
   const allowed = thinkingLevelsForAgent(backend ?? "aisdk");

@@ -1,0 +1,928 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>omg.dev — Mascot Motion Prototype (Direction G)</title>
+<style>
+  :root[data-theme="light"] {
+    --bg: #f2f2f7;
+    --card: #ffffff;
+    --fg: #000000;
+    --muted: #f9f9fb;
+    --muted-fg: rgba(60,60,67,.6);
+    --border: rgba(60,60,67,.14);
+    --primary: #007aff;
+    --shadow: 0 1px 2px rgba(0,0,0,.06);
+    --warn-bg: #fff4e5;
+    --warn-fg: #7a4a00;
+  }
+  :root[data-theme="dark"] {
+    --bg: #000000;
+    --card: #1c1c1e;
+    --fg: #ffffff;
+    --muted: #2c2c2e;
+    --muted-fg: rgba(235,235,245,.6);
+    --border: rgba(84,84,88,.4);
+    --primary: #0a84ff;
+    --shadow: 0 1px 2px rgba(0,0,0,.4);
+    --warn-bg: #3a2c12;
+    --warn-fg: #ffcf8a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", system-ui, sans-serif;
+    margin: 0;
+    padding: 0;
+  }
+  body { padding: 24px 20px 80px; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+
+  header.page {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  header.page h1 { font-size: 22px; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.02em; }
+  header.page p { font-size: 13px; color: var(--muted-fg); margin: 0; max-width: 68ch; line-height: 1.5; }
+
+  #toggle {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--fg);
+    border-radius: 999px;
+    padding: 7px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #toggle:hover { background: var(--muted); }
+
+  .rm-banner {
+    background: var(--warn-bg);
+    color: var(--warn-fg);
+    border-radius: 12px;
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 20px;
+  }
+
+  section.panel {
+    border: 1px solid var(--border);
+    background: var(--card);
+    border-radius: 20px;
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: var(--shadow);
+  }
+  section.panel h2 {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--primary);
+    margin: 0 0 8px;
+  }
+  .cap-lead { font-size: 13px; color: var(--muted-fg); margin: 0 0 18px; max-width: 68ch; line-height: 1.5; }
+
+  .row { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-end; }
+
+  .creature-slot {
+    width: 108px;
+    height: 108px;
+    flex-shrink: 0;
+  }
+  .creature-slot svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  .creature-slot.big { width: 220px; height: 220px; }
+
+  /* Warm gradient tile: same brand backdrop as omg-icon.png / concepts.html
+     (dark warm-brown diagonal gradient, #7a4127 -> #150b08, ~23%-of-width
+     corner radius). Fixed colors regardless of theme — that's what carries
+     contrast for the cream body against either a white or near-black card,
+     so unlike the previous fix round there's no light-theme-only override
+     needed here. The tile is a static backdrop rect, never animated; sized
+     to the SVG's full padded viewBox (not just the nominal 0-200 body box)
+     so spring-overshoot extremes (error's spike, the teardrop point) stay
+     comfortably inside it instead of grazing the edge. */
+  .c-tile { fill: url(#motionTileGrad); }
+
+  .c-body { fill: #f7f2e9; }
+  .c-pupil { fill: #241811; }
+  .c-lid { fill: #f7f2e9; transform-box: fill-box; transform-origin: 50% 50%; transform: scaleY(0); }
+  .c-lid.blink { animation: blinkKf .22s ease-in-out; }
+  .c-lid.closed { transform: scaleY(1); transition: transform .7s cubic-bezier(.34,1.56,.64,1); }
+
+  /* Colorway overrides — tile gradient + body/pupil/lid fill per identity.
+     Applied via a cw-* class on a creature's root <svg> (Creature's
+     `colorway` option, or later via Creature#setColorway()). Only fill
+     changes; the body's `d` attribute (shape morph) is driven entirely by
+     Blob and never touches these classes, so recoloring never interacts
+     with the running animation. Body/lid share a fill (the lid is a
+     body-colored ellipse that scales shut over the pupil), matching the
+     base .c-body/.c-lid pairing above. Only the home-shapes row and the
+     morph-demo creature ever receive a cw-* class — state theater, pupil
+     life, and the size row are untouched and keep the base warm fills. */
+  .cw-warm .c-tile { fill: url(#motionTileGrad); }
+  .cw-warm .c-body, .cw-warm .c-lid { fill: #f7f2e9; }
+  .cw-warm .c-pupil { fill: #241811; }
+
+  .cw-brand .c-tile { fill: url(#motionTileGradBrand); }
+  .cw-brand .c-body, .cw-brand .c-lid { fill: #eef6ff; }
+  .cw-brand .c-pupil { fill: #123a6b; }
+
+  .cw-violet .c-tile { fill: url(#motionTileGradViolet); }
+  .cw-violet .c-body, .cw-violet .c-lid { fill: #faf1fb; }
+  .cw-violet .c-pupil { fill: #3b0764; }
+
+  .cw-forest .c-tile { fill: url(#motionTileGradForest); }
+  .cw-forest .c-body, .cw-forest .c-lid { fill: #f2fbe8; }
+  .cw-forest .c-pupil { fill: #14432a; }
+
+  .cw-midnight .c-tile { fill: url(#motionTileGradMidnight); }
+  .cw-midnight .c-body, .cw-midnight .c-lid { fill: #dffbf9; }
+  .cw-midnight .c-pupil { fill: #083344; }
+
+  .plain16-tile {
+    width: 32px;
+    height: 32px;
+    border-radius: 7px;
+    background: linear-gradient(135deg, #7a4127 0%, #150b08 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  @keyframes blinkKf {
+    0% { transform: scaleY(0); }
+    45% { transform: scaleY(1); }
+    100% { transform: scaleY(0); }
+  }
+  .c-group { transform-box: fill-box; transform-origin: 50% 50%; transition: transform .55s cubic-bezier(.34,1.56,.64,1); }
+
+  .home-cell, .size-item { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .cap { font-size: 10.5px; font-weight: 600; color: var(--muted-fg); text-align: center; }
+
+  .swatch-row { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 0; }
+  .cw-swatch {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    padding: 0;
+    cursor: pointer;
+    box-shadow: var(--shadow);
+  }
+  .cw-swatch.active { border-color: var(--primary); box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--primary); }
+  .cw-swatch:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+  .swatch-label { font-size: 10.5px; font-weight: 600; color: var(--muted-fg); margin: 8px 0 0; }
+
+  .theater { display: flex; flex-wrap: wrap; gap: 28px; align-items: center; }
+  .theater-controls { flex: 1; min-width: 240px; }
+  .btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .state-btn, .ghost-btn {
+    border: 1px solid var(--border);
+    background: var(--muted);
+    color: var(--fg);
+    border-radius: 999px;
+    padding: 7px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .state-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .ghost-btn { margin-bottom: 12px; }
+  .state-desc { font-size: 12.5px; color: var(--muted-fg); line-height: 1.5; margin: 0; min-height: 34px; }
+
+  .size-row { align-items: flex-end; gap: 28px; }
+  .size-item span { font-size: 10.5px; color: var(--muted-fg); font-weight: 600; }
+  .plain16-body {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #f7f2e9; position: relative;
+    animation: breathe16 7s ease-in-out infinite;
+  }
+  .plain16-pupil {
+    position: absolute; width: 5px; height: 5px; border-radius: 50%;
+    background: #241811; top: 3px; right: 2px;
+  }
+  @keyframes breathe16 { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+
+  footer.credits { font-size: 11px; color: var(--muted-fg); margin-top: 4px; line-height: 1.6; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .001ms !important;
+    }
+  }
+</style>
+</head>
+<body>
+<!-- Shared warm-tile gradient def, referenced by every creature's <rect class="c-tile">
+     via url(#motionTileGrad) — one definition, not duplicated per creature instance.
+     Colors/angle match concepts.html's A_WARM (omg-icon.png's dark warm-brown gradient). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="motionTileGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7a4127"/>
+      <stop offset="100%" stop-color="#150b08"/>
+    </linearGradient>
+    <!-- Colorway tile gradients, same diagonal angle as motionTileGrad.
+         Stops mirror concepts.html precedents: Brand is Direction D's
+         blue->cyan brand gradient, Violet/Forest are D's per-bot hue
+         rotations (violet->pink, teal->lime), Midnight is Direction C's
+         bezel gradient (near-black), each paired with a phosphor-cyan-
+         tinted body/pupil per the JS COLORWAYS table. -->
+    <linearGradient id="motionTileGradBrand" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3b5bf6"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="motionTileGradViolet" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#ec4899"/>
+    </linearGradient>
+    <linearGradient id="motionTileGradForest" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0d9488"/>
+      <stop offset="100%" stop-color="#a3e635"/>
+    </linearGradient>
+    <linearGradient id="motionTileGradMidnight" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2c2c2e"/>
+      <stop offset="100%" stop-color="#0a0a0b"/>
+    </linearGradient>
+  </defs>
+</svg>
+<div class="wrap">
+  <header class="page">
+    <div>
+      <h1>omg.dev mascot — motion prototype · Direction G, morphing pure eye</h1>
+      <p>Direction B's anatomy (cream orb, one dark pupil, no body parts) taken into motion: the eye stays constant, the body's silhouette is each bot's identity, and the silhouette continuously, organically morphs. Everything below is live — inline SVG paths re-computed every frame, no video, no image assets.</p>
+    </div>
+    <button id="toggle" type="button">🌙 Dark</button>
+  </header>
+
+  <div class="rm-banner" id="rmBanner" hidden>Reduced motion is enabled in your OS/browser — breathing, blinking, mouse parallax and auto-cycling are paused and every creature is shown in a static idle pose. State-theater buttons still work but snap instantly instead of springing.</div>
+
+  <section class="panel" id="home-shapes">
+    <h2>1 · Home shapes</h2>
+    <p class="cap-lead">Same eye, five silhouettes — circle, squircle, teardrop, pebble, hexagon. Each idles on its own 6–9s breathing loop with its own phase offset, so the row never falls into lockstep, and each blinks on its own randomized timer. Each also carries its own colorway (circle keeps the warm default; squircle, teardrop, pebble and hexagon sample Brand, Violet, Forest and Midnight) — shape and color compose into one identity, the way a bot roster would show it.</p>
+    <div class="row" id="homeRow"></div>
+  </section>
+
+  <section class="panel" id="state-theater">
+    <h2>2 · State theater</h2>
+    <p class="cap-lead">One creature, five states, expressed entirely as deformation of the same body — no icon ever swaps. Every transition uses a spring-style overshoot easing (squash past the target, then settle).</p>
+    <div class="theater">
+      <div class="creature-slot big" id="theaterSlot"></div>
+      <div class="theater-controls">
+        <div class="btn-row" id="stateButtons">
+          <button data-state="idle" class="state-btn active" type="button">Idle</button>
+          <button data-state="thinking" class="state-btn" type="button">Thinking</button>
+          <button data-state="working" class="state-btn" type="button">Working</button>
+          <button data-state="error" class="state-btn" type="button">Error</button>
+          <button data-state="sleeping" class="state-btn" type="button">Sleeping</button>
+        </div>
+        <button id="autoCycleBtn" class="ghost-btn" type="button">▶ Auto-cycle</button>
+        <p class="state-desc" id="stateDesc">Idle — slow organic breathing, pupil resting upper-right.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="morph-demo">
+    <h2>3 · Morph demo</h2>
+    <p class="cap-lead">One creature, auto-cycling through all five home shapes in sequence. Each shape is expressed on the same 12-point silhouette, so the interpolation reads as one body changing pose rather than an icon swap. Pick a colorway below to recolor the tile, body and pupil live — the shape morph keeps running underneath, uninterrupted.</p>
+    <div class="creature-slot big" id="morphSlot"></div>
+    <p class="state-desc" id="morphLabel">Circle</p>
+    <div class="swatch-row" id="morphSwatches" role="group" aria-label="Colorway"></div>
+    <p class="swatch-label" id="morphColorLabel">Color: Warm</p>
+  </section>
+
+  <section class="panel" id="pupil-life">
+    <h2>4 · Pupil life</h2>
+    <p class="cap-lead">Move the cursor anywhere on this page — every creature above and below drifts its pupil toward it with soft parallax (distance-clamped, gently lerped, never a snap). Blinks are a lid ellipse scaling shut over the pupil, not an opacity fade.</p>
+    <div class="creature-slot big" id="pupilSlot"></div>
+  </section>
+
+  <section class="panel" id="size-row">
+    <h2>5 · Survives small</h2>
+    <p class="cap-lead">Circle home-shape at 64 / 32 / 16px. Breathing survives all three sizes. Below ~24px, pupil parallax, independent per-creature blink timers and full path-wobble are dropped in favor of one cheap CSS scale-breathe — at 16px that geometric detail doesn't read anyway, so paying for it is wasted work.</p>
+    <div class="row size-row">
+      <div class="size-item"><div class="creature-slot" id="size64" style="width:64px;height:64px"></div><span>64px</span></div>
+      <div class="size-item"><div class="creature-slot" id="size32" style="width:32px;height:32px"></div><span>32px</span></div>
+      <div class="size-item"><div class="plain16-tile"><div class="plain16-body"><div class="plain16-pupil"></div></div></div><span>16px (CSS-only breathe)</span></div>
+    </div>
+  </section>
+
+  <footer class="credits">
+    Direction G prototype for Bot Mode. Body morph: 12-point Catmull-Rom blob, radii re-sampled every frame (idle wobble, state targets, spring overshoot via easeOutBack) and written to a single SVG path <code>d</code> attribute. Pupil/lid: a single <code>translate()</code> on one group per creature plus a lid-ellipse <code>scaleY</code> — both compositor-cheap, no filters, no layout reads in the animation loop (bounding-box centers for mouse parallax are cached on load/resize, not read per frame). Each <code>Creature</code> exposes a <code>destroy()</code> that clears its blink timer and unregisters it from the tick loop — groundwork for porting this into a reusable component.
+  </footer>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  /* ---------------------------------------------------------------- */
+  /* Theme toggle                                                      */
+  /* ---------------------------------------------------------------- */
+  (function themeInit(){
+    var root = document.documentElement;
+    var btn = document.getElementById('toggle');
+    var saved = null;
+    try { saved = localStorage.getItem('omg-motion-theme'); } catch (e) {}
+    var theme = saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    root.setAttribute('data-theme', theme);
+    update();
+    btn.addEventListener('click', function(){
+      theme = theme === 'dark' ? 'light' : 'dark';
+      root.setAttribute('data-theme', theme);
+      try { localStorage.setItem('omg-motion-theme', theme); } catch (e) {}
+      update();
+    });
+    function update(){ btn.textContent = theme === 'dark' ? '🌙 Dark' : '☀️ Light'; }
+  })();
+
+  var REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (REDUCED) document.getElementById('rmBanner').hidden = false;
+
+  /* ---------------------------------------------------------------- */
+  /* Blob geometry: 12-point radial silhouette -> smooth closed path   */
+  /* ---------------------------------------------------------------- */
+  var N = 12;
+  var ANGLES = [];
+  for (var ai = 0; ai < N; ai++) ANGLES.push(-90 + ai * (360 / N));
+  function deg2rad(d) { return d * Math.PI / 180; }
+  function angDiff(a, b) { return ((a - b + 540) % 360) - 180; }
+
+  function radiiToPoints(radii, cx, cy) {
+    var pts = [];
+    for (var i = 0; i < radii.length; i++) {
+      var a = deg2rad(ANGLES[i]);
+      pts.push([cx + radii[i] * Math.cos(a), cy + radii[i] * Math.sin(a)]);
+    }
+    return pts;
+  }
+  function smoothPath(pts) {
+    var n = pts.length;
+    // Catmull-Rom tension divisor: 6 is the standard "full round" cardinal
+    // spline factor, but at only 12 points it swamps shape signal (hexagon
+    // vertices, the teardrop's point) into soft, near-interchangeable blobs.
+    // 8 pulls the control points closer to the polyline, keeping corners
+    // readable while still rendering a continuous organic outline.
+    var TENSION = 8;
+    var d = 'M ' + pts[0][0].toFixed(2) + ' ' + pts[0][1].toFixed(2) + ' ';
+    for (var i = 0; i < n; i++) {
+      var p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n], p3 = pts[(i + 2) % n];
+      var c1x = p1[0] + (p2[0] - p0[0]) / TENSION, c1y = p1[1] + (p2[1] - p0[1]) / TENSION;
+      var c2x = p2[0] - (p3[0] - p1[0]) / TENSION, c2y = p2[1] - (p3[1] - p1[1]) / TENSION;
+      d += 'C ' + c1x.toFixed(2) + ' ' + c1y.toFixed(2) + ' ' + c2x.toFixed(2) + ' ' + c2y.toFixed(2) + ' ' + p2[0].toFixed(2) + ' ' + p2[1].toFixed(2) + ' ';
+    }
+    return d + 'Z';
+  }
+  function sharpPath(pts) {
+    var d = 'M ' + pts[0][0].toFixed(2) + ' ' + pts[0][1].toFixed(2) + ' ';
+    for (var i = 1; i < pts.length; i++) d += 'L ' + pts[i][0].toFixed(2) + ' ' + pts[i][1].toFixed(2) + ' ';
+    return d + 'Z';
+  }
+  function pathFor(radii, cx, cy, sharp) {
+    var pts = radiiToPoints(radii, cx, cy);
+    return sharp ? sharpPath(pts) : smoothPath(pts);
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Shape presets — all built on the same 12-point structure so any   */
+  /* shape can morph into any other by lerping the radii arrays.       */
+  /* ---------------------------------------------------------------- */
+  var R = 70;
+  var SHAPES = {};
+
+  SHAPES.circle = ANGLES.map(function () { return R; });
+
+  SHAPES.squircle = ANGLES.map(function (a) {
+    var t = deg2rad(a), c = Math.abs(Math.cos(t)), s = Math.abs(Math.sin(t));
+    return R / Math.pow(Math.pow(c, 4) + Math.pow(s, 4), 0.25);
+  });
+
+  // SPIKE sits exactly on sample index 11 (240deg) so the point reaches its
+  // full amplitude instead of being split across two neighboring samples,
+  // and a narrower Gaussian (18deg vs the old 28deg) keeps the falloff
+  // steep so the tip survives Catmull-Rom smoothing as a real point instead
+  // of a rounded bump ("egg").
+  SHAPES.teardrop = (function () {
+    var SPIKE = 240, BUMP = 0.36, DENT = 0.16;
+    return ANGLES.map(function (a) {
+      var d = angDiff(a, SPIKE);
+      var bump = BUMP * Math.exp(-(d * d) / (2 * 18 * 18));
+      var od = angDiff(a, SPIKE + 180);
+      var dent = DENT * Math.exp(-(od * od) / (2 * 40 * 40));
+      return R * (1 + bump - dent);
+    });
+  })();
+
+  // Irregular, non-alternating radii — deliberately not a repeating pattern
+  // (unlike hexagon's strict alternation) so it reads as a lumpy, asymmetric
+  // pebble rather than a soft hexagon.
+  SHAPES.pebble = [0.92, 0.95, 1.20, 1.06, 0.84, 0.80, 0.90, 1.14, 1.24, 0.98, 0.86, 0.88].map(function (f) { return R * f; });
+
+  SHAPES.hexagon = (function () {
+    var period = Math.PI / 3;
+    return ANGLES.map(function (a) {
+      var t = deg2rad(a);
+      var m = ((t % period) + period) % period;
+      var raw = Math.cos(Math.PI / 6) / Math.cos(m - Math.PI / 6); // in [0.866, 1]
+      var norm = (raw - 0.866) / (1 - 0.866); // 0 at edge midpoint, 1 at vertex
+      // Wider vertex/edge-midpoint swing than the original 0.82-1.10 so the
+      // alternation survives Catmull-Rom smoothing as crisp vertices instead
+      // of blurring into a 6-petal flower.
+      return R * (0.75 + 0.35 * norm);
+    });
+  })();
+
+  SHAPES.perk = ANGLES.map(function () { return R * 1.08; });
+  SHAPES.tight = ANGLES.map(function () { return R * 0.86; });
+  // Bottom-heavy resting mound: because the sample points are mirrored
+  // left/right, the top pole always sits between two equal neighbors — if
+  // that pole value drops much below them, the mirrored dip reads instantly
+  // as a cleft between two humps (this is exactly what "mitosis" looked
+  // like: the old formula pinched to ~0.18R at BOTH poles, ~74% below the
+  // sides). The fix isn't to make the pole the single lowest point of the
+  // whole shape (an earlier attempt at that still left a faint notch) — it's
+  // to keep the pole close in value to its immediate neighbors (a gentle,
+  // sub-6% step) so the taper down from the wide equator to the narrower
+  // top happens gradually over several points and the top reads as one
+  // smoothly rounded dome. The bottom neighbors are kept even closer
+  // together for a near-flat resting edge.
+  SHAPES.puddle = [0.70, 0.74, 0.92, 1.08, 1.02, 0.90, 0.88, 0.90, 1.02, 1.08, 0.92, 0.74].map(function (f) { return R * f; });
+  SHAPES.spike = (function () {
+    var base = ANGLES.map(function () { return R; });
+    [1, 5, 8].forEach(function (i) { base[i] *= 1.3; });
+    [2, 6, 9].forEach(function (i) { base[i] *= 0.62; });
+    return base;
+  })();
+  // Error's sustained holding pose: a mildly irregular outline (not the
+  // clean spike, not a clean circle) that, combined with an elevated
+  // wobbleAmp/wobbleSpeed on the theater blob, reads as a persistent tremble
+  // rather than a one-shot flinch.
+  SHAPES.distressed = [1.04, 0.94, 1.06, 0.90, 1.08, 0.92, 1.03, 0.95, 1.07, 0.91, 1.05, 0.93].map(function (f) { return R * f; });
+
+  var SHAPE_ORDER = ['circle', 'squircle', 'teardrop', 'pebble', 'hexagon'];
+  var SHAPE_LABELS = { circle: 'Circle', squircle: 'Squircle', teardrop: 'Teardrop', pebble: 'Pebble', hexagon: 'Hexagon' };
+
+  /* ---------------------------------------------------------------- */
+  /* Colorways — tile gradient + body/pupil fill, bundled per identity */
+  /* ---------------------------------------------------------------- */
+  // `stops` duplicates the hex values already in the SVG gradient defs
+  // above (motionTileGrad / motionTileGradBrand / ...) — the defs supply
+  // url(#...) fills for the actual creatures via the .cw-* CSS classes,
+  // this copy is what draws the flat CSS linear-gradient() swatch chips in
+  // the morph demo, which can't reference an SVG gradient by id.
+  var COLORWAYS = {
+    warm:     { name: 'Warm',     cls: 'cw-warm',     stops: ['#7a4127', '#150b08'], body: '#f7f2e9', pupil: '#241811' },
+    brand:    { name: 'Brand',    cls: 'cw-brand',    stops: ['#3b5bf6', '#06b6d4'], body: '#eef6ff', pupil: '#123a6b' },
+    violet:   { name: 'Violet',   cls: 'cw-violet',   stops: ['#7c3aed', '#ec4899'], body: '#faf1fb', pupil: '#3b0764' },
+    forest:   { name: 'Forest',   cls: 'cw-forest',   stops: ['#0d9488', '#a3e635'], body: '#f2fbe8', pupil: '#14432a' },
+    midnight: { name: 'Midnight', cls: 'cw-midnight', stops: ['#2c2c2e', '#0a0a0b'], body: '#dffbf9', pupil: '#083344' }
+  };
+  var COLORWAY_ORDER = ['warm', 'brand', 'violet', 'forest', 'midnight'];
+
+  function easeOutBack(x) {
+    var c1 = 1.70158, c3 = c1 + 1;
+    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+  }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+
+  /* ---------------------------------------------------------------- */
+  /* Blob: owns one <path> and animates its `d` every frame            */
+  /* ---------------------------------------------------------------- */
+  function Blob(pathEl, radii, opts) {
+    opts = opts || {};
+    this.path = pathEl;
+    this.cx = opts.cx || 100; this.cy = opts.cy || 100;
+    this.to = radii.slice();
+    this.from = radii.slice();
+    this.lastRadii = radii.slice();
+    this.dur = 0; this.t0 = 0;
+    this.sharp = false; this.sharpUntil = 0;
+    this.phase = opts.phase || 0;
+    this.wobbleAmp = opts.wobbleAmp != null ? opts.wobbleAmp : 0.05;
+    this.wobbleSpeed = opts.wobbleSpeed != null ? opts.wobbleSpeed : (2 * Math.PI / 7);
+    this._render(radii);
+  }
+  Blob.prototype.setTarget = function (radii, dur, sharpMs) {
+    this.from = this.lastRadii.slice();
+    this.to = radii.slice();
+    this.t0 = performance.now();
+    this.dur = dur || 0;
+    if (sharpMs) { this.sharp = true; this.sharpUntil = this.t0 + sharpMs; }
+  };
+  Blob.prototype.tick = function (tSec, now) {
+    var radii;
+    if (this.dur > 0) {
+      var p = Math.min(1, (now - this.t0) / this.dur);
+      var eased = easeOutBack(p);
+      radii = this.from.map(function (v, i) { return v + (this.to[i] - v) * eased; }, this);
+      if (p >= 1) this.dur = 0;
+    } else {
+      radii = this.to.slice();
+    }
+    if (!REDUCED && this.wobbleAmp > 0) {
+      radii = radii.map(function (v, i) {
+        return v * (1 + this.wobbleAmp * Math.sin(tSec * this.wobbleSpeed + this.phase + i * 0.55));
+      }, this);
+    }
+    this.lastRadii = radii;
+    if (this.sharp && now > this.sharpUntil) this.sharp = false;
+    this._render(radii);
+  };
+  Blob.prototype._render = function (radii) {
+    this.path.setAttribute('d', pathFor(radii, this.cx, this.cy, this.sharp));
+  };
+
+  /* ---------------------------------------------------------------- */
+  /* Creature: body blob + eye (pupil/lid) + optional blink/parallax   */
+  /* ---------------------------------------------------------------- */
+  var registry = [];
+
+  function creatureMarkup() {
+    // Static warm-gradient backdrop tile, sized to the full padded viewBox
+    // (not the nominal 0-200 body box) so the tile has margin to spare even
+    // when a spring-overshoot transition or the error spike pushes the body
+    // silhouette past its resting radius. Only .c-group (the path/eye) is
+    // ever animated; the tile rect's own attributes never change per frame.
+    return '<svg viewBox="-20 -20 240 240" class="creature-svg" aria-hidden="true">' +
+      '<rect class="c-tile" x="-20" y="-20" width="240" height="240" rx="55"></rect>' +
+      '<g class="c-group">' +
+        '<path class="c-body"></path>' +
+        '<g class="c-eye" transform="translate(16,-12)">' +
+          '<circle class="c-pupil" cx="100" cy="100" r="16"></circle>' +
+          '<ellipse class="c-lid" cx="100" cy="100" rx="30" ry="32"></ellipse>' +
+        '</g>' +
+      '</g>' +
+    '</svg>';
+  }
+
+  function Creature(root, shapeKey, opts) {
+    opts = opts || {};
+    root.innerHTML = creatureMarkup();
+    this.root = root;
+    this.svg = root.querySelector('svg');
+    this.group = root.querySelector('.c-group');
+    this.eye = root.querySelector('.c-eye');
+    this.bodyPath = root.querySelector('.c-body');
+    this.pupil = root.querySelector('.c-pupil');
+    this.lid = root.querySelector('.c-lid');
+
+    this.blob = new Blob(this.bodyPath, SHAPES[shapeKey], {
+      phase: opts.phase || 0,
+      wobbleAmp: opts.wobbleAmp != null ? opts.wobbleAmp : 0.05,
+      wobbleSpeed: opts.wobbleSpeed != null ? opts.wobbleSpeed : (2 * Math.PI / (6 + Math.random() * 3))
+    });
+
+    this.basePupil = opts.pupil || { x: 16, y: -12 };
+    this.curPupil = { x: this.basePupil.x, y: this.basePupil.y };
+    this.parallax = { x: 0, y: 0 };
+    this.enableParallax = opts.parallax !== false;
+    this.center = null;
+
+    this.blinkPaused = false;
+    this._blinkTimer = null;
+    if (opts.blink !== false) this._scheduleBlink();
+
+    // Colorway is opt-in per instance: only creatures given an explicit
+    // `colorway` option (home row, morph demo) ever get a cw-* class.
+    // Everything else (state theater, pupil life, size row) is left with
+    // no cw-* class at all, so it keeps rendering via the base .c-tile/
+    // .c-body/.c-pupil/.c-lid rules exactly as before this feature.
+    this.colorwayKey = null;
+    this.colorwayCfg = null;
+    if (opts.colorway) this.setColorway(opts.colorway);
+
+    this._applyEye();
+    registry.push(this);
+  }
+  Creature.prototype.setPupilTarget = function (p) { this.basePupil = p; };
+  // Swaps the cw-* class on the root <svg>, which repaints .c-tile/.c-body/
+  // .c-lid/.c-pupil via CSS fill. Deliberately touches nothing else: the
+  // body's `d` attribute (shape) lives on Blob and is never read or written
+  // here, so recoloring mid-morph can't restart or desync the animation.
+  Creature.prototype.setColorway = function (key) {
+    var cw = COLORWAYS[key] || COLORWAYS.warm;
+    var resolvedKey = COLORWAYS[key] ? key : 'warm';
+    if (this.colorwayCfg) this.svg.classList.remove(this.colorwayCfg.cls);
+    this.svg.classList.add(cw.cls);
+    this.colorwayKey = resolvedKey;
+    this.colorwayCfg = cw;
+  };
+  Creature.prototype.setTilt = function (deg) { this.group.style.transform = 'rotate(' + deg + 'deg)'; };
+  Creature.prototype.pauseBlink = function () {
+    this.blinkPaused = true;
+    if (this._blinkTimer) clearTimeout(this._blinkTimer);
+  };
+  Creature.prototype.resumeBlink = function () {
+    if (this.blinkPaused) { this.blinkPaused = false; this._scheduleBlink(); }
+  };
+  Creature.prototype._scheduleBlink = function () {
+    var self = this;
+    var delay = 2200 + Math.random() * 4200;
+    this._blinkTimer = setTimeout(function () {
+      if (!REDUCED && !self.blinkPaused && !self.lid.classList.contains('closed')) {
+        self.lid.classList.remove('blink');
+        void self.lid.offsetWidth;
+        self.lid.classList.add('blink');
+      }
+      if (!self.blinkPaused) self._scheduleBlink();
+    }, delay);
+  };
+  Creature.prototype._applyEye = function () {
+    var x = this.curPupil.x + (this.enableParallax ? this.parallax.x : 0);
+    var y = this.curPupil.y + (this.enableParallax ? this.parallax.y : 0);
+    this.eye.setAttribute('transform', 'translate(' + x.toFixed(2) + ',' + y.toFixed(2) + ')');
+  };
+  Creature.prototype.tick = function (tSec, now) {
+    var lerpFactor = REDUCED ? 1 : 0.12;
+    this.curPupil.x = lerp(this.curPupil.x, this.basePupil.x, lerpFactor);
+    this.curPupil.y = lerp(this.curPupil.y, this.basePupil.y, lerpFactor);
+    this.blob.tick(tSec, now);
+    this._applyEye();
+  };
+  // Groundwork for porting Creature into a reusable component: stops the
+  // blink timer and drops this instance out of the tick/parallax registry
+  // so a removed creature doesn't keep a setTimeout alive or get ticked
+  // after its DOM node is gone.
+  Creature.prototype.destroy = function () {
+    if (this._blinkTimer) clearTimeout(this._blinkTimer);
+    this._blinkTimer = null;
+    this.blinkPaused = true;
+    var idx = registry.indexOf(this);
+    if (idx !== -1) registry.splice(idx, 1);
+  };
+
+  /* ---------------------------------------------------------------- */
+  /* 1 · Home shapes row                                                */
+  /* ---------------------------------------------------------------- */
+  var homeConfigs = [
+    { key: 'circle',   period: 6.4, phase: 0.0, colorway: 'warm' },
+    { key: 'squircle', period: 7.8, phase: 1.4, colorway: 'brand' },
+    { key: 'teardrop', period: 8.6, phase: 2.6, colorway: 'violet' },
+    { key: 'pebble',   period: 6.9, phase: 3.7, colorway: 'forest' },
+    { key: 'hexagon',  period: 8.1, phase: 4.8, colorway: 'midnight' }
+  ];
+  var homeRow = document.getElementById('homeRow');
+  homeConfigs.forEach(function (cfg) {
+    var cell = document.createElement('div');
+    cell.className = 'home-cell';
+    var slot = document.createElement('div');
+    slot.className = 'creature-slot';
+    cell.appendChild(slot);
+    var cap = document.createElement('div');
+    cap.className = 'cap';
+    cap.textContent = SHAPE_LABELS[cfg.key];
+    cell.appendChild(cap);
+    homeRow.appendChild(cell);
+    new Creature(slot, cfg.key, {
+      phase: cfg.phase,
+      wobbleSpeed: 2 * Math.PI / cfg.period,
+      // Dropped from 0.05: at 5% the idle wobble was swamping the shape
+      // signal that's supposed to carry per-bot identity on this row.
+      wobbleAmp: 0.03,
+      colorway: cfg.colorway
+    });
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* 2 · State theater                                                  */
+  /* ---------------------------------------------------------------- */
+  var theater = new Creature(document.getElementById('theaterSlot'), 'circle', { wobbleAmp: 0.05, wobbleSpeed: 2 * Math.PI / 7 });
+
+  var STATES = {
+    idle: { radii: SHAPES.circle, pupil: { x: 16, y: -12 }, tilt: 0, wobbleAmp: 0.05, wobbleSpeed: 2 * Math.PI / 7, dur: 650, closed: false, desc: 'Idle — slow organic breathing, pupil resting upper-right.' },
+    thinking: { radii: SHAPES.perk, pupil: { x: 2, y: -30 }, tilt: -6, wobbleAmp: 0.03, wobbleSpeed: 2 * Math.PI / 3.4, dur: 600, closed: false, desc: 'Thinking — body perks rounder, pupil drifts up, slight tilt.' },
+    working: { radii: SHAPES.tight, pupil: { x: 4, y: 20 }, tilt: 0, wobbleAmp: 0.08, wobbleSpeed: 2 * Math.PI / 0.85, dur: 500, closed: false, desc: 'Working — shape tightens, fast micro-wobble, pupil focused down.' },
+    sleeping: { radii: SHAPES.puddle, pupil: { x: 0, y: -2 }, tilt: 0, wobbleAmp: 0.02, wobbleSpeed: 2 * Math.PI / 10, dur: 800, closed: true, desc: 'Sleeping — flattens into a puddle, lid closes, slow long breaths.' }
+  };
+  var ERROR_DESC = 'Error — spikes in fast, then holds a trembling, unsettled pose until another state is picked.';
+
+  var currentState = 'idle';
+  // Tracks goError's pending spike->settle timeout so a state change mid-spike
+  // can cancel it instead of letting it fire later and stomp whatever state
+  // the user picked in the meantime.
+  var errorTimer = null;
+  function clearErrorTimer() {
+    if (errorTimer) { clearTimeout(errorTimer); errorTimer = null; }
+  }
+  // Reduced motion has no running rAF loop (see the main loop below), so
+  // nothing re-renders the body path or pupil on its own. Every state-change
+  // entry point below performs one immediate, on-demand frame so the change
+  // is actually visible instead of only updating lid/tilt (which move via
+  // CSS class/style and so repaint on their own).
+  function renderNowIfReduced() {
+    if (REDUCED) frame(performance.now());
+  }
+  function setState(name) {
+    if (name === 'error') { goError(); return; }
+    clearErrorTimer();
+    var cfg = STATES[name];
+    currentState = name;
+    if (theater.blinkPaused && name !== 'sleeping') theater.resumeBlink();
+    theater.blob.setTarget(cfg.radii, REDUCED ? 0 : cfg.dur);
+    theater.blob.wobbleAmp = cfg.wobbleAmp;
+    theater.blob.wobbleSpeed = cfg.wobbleSpeed;
+    theater.setPupilTarget(cfg.pupil);
+    theater.setTilt(cfg.tilt);
+    theater.lid.classList.toggle('closed', cfg.closed);
+    if (cfg.closed) theater.pauseBlink();
+    document.getElementById('stateDesc').textContent = cfg.desc;
+    updateStateButtons(name);
+    renderNowIfReduced();
+  }
+  function goError() {
+    clearErrorTimer();
+    currentState = 'error';
+    updateStateButtons('error');
+    document.getElementById('stateDesc').textContent = ERROR_DESC;
+    if (theater.blinkPaused) theater.resumeBlink();
+    theater.lid.classList.remove('closed');
+    theater.blob.wobbleAmp = 0.015;
+    theater.setPupilTarget({ x: -10, y: 6 });
+    theater.setTilt(5);
+    theater.blob.setTarget(SHAPES.spike, REDUCED ? 0 : 100, REDUCED ? 0 : 100);
+    renderNowIfReduced();
+    errorTimer = setTimeout(function () {
+      errorTimer = null;
+      // Settle into a sustained "distressed" hold instead of auto-recovering
+      // to idle: a mildly irregular shape plus an elevated, ongoing wobble
+      // reads as a persistent tremble, and it stays until setState() (a
+      // button click or the next auto-cycle tick) replaces it.
+      theater.blob.setTarget(SHAPES.distressed, REDUCED ? 0 : 260);
+      theater.blob.wobbleAmp = 0.09;
+      theater.blob.wobbleSpeed = 2 * Math.PI / 0.5;
+      theater.setPupilTarget({ x: -12, y: 9 });
+      renderNowIfReduced();
+    }, REDUCED ? 0 : 100);
+  }
+  function updateStateButtons(name) {
+    var btns = document.querySelectorAll('.state-btn');
+    for (var i = 0; i < btns.length; i++) btns[i].classList.toggle('active', btns[i].getAttribute('data-state') === name);
+  }
+  document.getElementById('stateButtons').addEventListener('click', function (e) {
+    var btn = e.target.closest ? e.target.closest('.state-btn') : null;
+    if (!btn) return;
+    setState(btn.getAttribute('data-state'));
+  });
+
+  var autoTimer = null;
+  var cycleOrder = ['idle', 'thinking', 'working', 'error', 'sleeping'];
+  var cycleIdx = 0;
+  var autoBtn = document.getElementById('autoCycleBtn');
+  if (REDUCED) {
+    autoBtn.disabled = true;
+    autoBtn.textContent = 'Auto-cycle disabled (reduced motion)';
+  } else {
+    autoBtn.addEventListener('click', function () {
+      if (autoTimer) {
+        clearInterval(autoTimer);
+        autoTimer = null;
+        autoBtn.textContent = '▶ Auto-cycle';
+        return;
+      }
+      autoBtn.textContent = '■ Stop auto-cycle';
+      cycleIdx = 0;
+      setState(cycleOrder[cycleIdx]);
+      autoTimer = setInterval(function () {
+        cycleIdx = (cycleIdx + 1) % cycleOrder.length;
+        setState(cycleOrder[cycleIdx]);
+      }, 3400);
+    });
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* 3 · Morph demo                                                     */
+  /* ---------------------------------------------------------------- */
+  var morph = new Creature(document.getElementById('morphSlot'), 'circle', { wobbleAmp: 0.025, wobbleSpeed: 2 * Math.PI / 9, colorway: 'warm' });
+  var morphLabel = document.getElementById('morphLabel');
+  var morphIdx = 0;
+  morphLabel.textContent = SHAPE_LABELS[SHAPE_ORDER[0]];
+  if (!REDUCED) {
+    setInterval(function () {
+      morphIdx = (morphIdx + 1) % SHAPE_ORDER.length;
+      var key = SHAPE_ORDER[morphIdx];
+      morph.blob.setTarget(SHAPES[key], 900);
+      morphLabel.textContent = SHAPE_LABELS[key];
+    }, 2400);
+  } else {
+    morphLabel.textContent = SHAPE_LABELS[SHAPE_ORDER[0]] + ' (sequence paused — reduced motion)';
+  }
+
+  // Colorway swatches: recolor the morph creature live. Swap is a pure CSS
+  // class change (Creature#setColorway) — it never touches the Blob driving
+  // the shape's `d` attribute, so the running morph/wobble is unaffected.
+  (function morphSwatchesInit() {
+    var wrap = document.getElementById('morphSwatches');
+    var colorLabel = document.getElementById('morphColorLabel');
+    var buttons = {};
+    COLORWAY_ORDER.forEach(function (key) {
+      var cw = COLORWAYS[key];
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'cw-swatch' + (key === morph.colorwayKey ? ' active' : '');
+      btn.style.background = 'linear-gradient(135deg, ' + cw.stops[0] + ' 0%, ' + cw.stops[1] + ' 100%)';
+      btn.setAttribute('aria-pressed', key === morph.colorwayKey ? 'true' : 'false');
+      btn.setAttribute('aria-label', cw.name + ' colorway');
+      btn.title = cw.name;
+      btn.dataset.colorway = key;
+      buttons[key] = btn;
+      wrap.appendChild(btn);
+    });
+    function activate(key) {
+      morph.setColorway(key);
+      COLORWAY_ORDER.forEach(function (k) {
+        var isActive = k === morph.colorwayKey;
+        buttons[k].classList.toggle('active', isActive);
+        buttons[k].setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      });
+      colorLabel.textContent = 'Color: ' + COLORWAYS[morph.colorwayKey].name;
+    }
+    wrap.addEventListener('click', function (e) {
+      var btn = e.target.closest ? e.target.closest('.cw-swatch') : null;
+      if (!btn) return;
+      activate(btn.getAttribute('data-colorway'));
+    });
+  })();
+
+  /* ---------------------------------------------------------------- */
+  /* 4 · Pupil life demo creature                                      */
+  /* ---------------------------------------------------------------- */
+  var pupilDemo = new Creature(document.getElementById('pupilSlot'), 'circle', { wobbleAmp: 0.04, wobbleSpeed: 2 * Math.PI / 7.5 });
+
+  /* ---------------------------------------------------------------- */
+  /* 5 · Size row (64 / 32px use the real Blob; 16px is CSS-only)      */
+  /* ---------------------------------------------------------------- */
+  new Creature(document.getElementById('size64'), 'circle', { wobbleAmp: 0.05, wobbleSpeed: 2 * Math.PI / 7.2, pupil: { x: 16, y: -12 } });
+  new Creature(document.getElementById('size32'), 'circle', { wobbleAmp: 0.05, wobbleSpeed: 2 * Math.PI / 7.6, pupil: { x: 16, y: -12 }, blink: false });
+
+  /* ---------------------------------------------------------------- */
+  /* Mouse parallax — centers cached on load/resize, never read inside */
+  /* the animation loop (avoids per-frame layout thrash). Centers are   */
+  /* stored in page coordinates (+ window.scrollX/Y), which are scroll- */
+  /* invariant, so there is no scroll listener here — refreshing on     */
+  /* scroll would just be the same getBoundingClientRect layout thrash  */
+  /* this comment claims to avoid, for coordinates that don't change.   */
+  /* ---------------------------------------------------------------- */
+  var mouseX = window.innerWidth / 2, mouseY = window.innerHeight / 2;
+  function refreshCenters() {
+    for (var i = 0; i < registry.length; i++) {
+      var c = registry[i];
+      var r = c.svg.getBoundingClientRect();
+      c.center = { x: r.left + r.width / 2 + window.scrollX, y: r.top + r.height / 2 + window.scrollY };
+    }
+  }
+  if (!REDUCED) {
+    window.addEventListener('mousemove', function (e) { mouseX = e.pageX; mouseY = e.pageY; }, { passive: true });
+    var resizeTimer = null;
+    window.addEventListener('resize', function () {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(refreshCenters, 120);
+    });
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Main loop                                                          */
+  /* ---------------------------------------------------------------- */
+  function frame(now) {
+    var tSec = now / 1000;
+    if (!REDUCED) {
+      for (var i = 0; i < registry.length; i++) {
+        var c = registry[i];
+        if (c.enableParallax && c.center) {
+          var dx = mouseX - c.center.x, dy = mouseY - c.center.y;
+          var dist = Math.hypot(dx, dy) || 1;
+          var mag = Math.min(9, dist * 0.05);
+          c.parallax.x = dx / dist * mag;
+          c.parallax.y = dy / dist * mag;
+        }
+      }
+    }
+    for (var j = 0; j < registry.length; j++) registry[j].tick(tSec, now);
+    if (!REDUCED) requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(function () {
+    refreshCenters();
+    if (REDUCED) {
+      frame(performance.now());
+    } else {
+      requestAnimationFrame(frame);
+    }
+  });
+})();
+</script>
+</body>
+</html>

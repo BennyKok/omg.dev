@@ -37,6 +37,16 @@ import { sessionMatchesUserFilter } from "./lib/user-filter";
 import { uploadFile as uploadFileThroughTransport } from "./lib/upload";
 import { compressImageFile, isCompressibleImage } from "./lib/image-compress";
 import { AppCrash } from "./components/app-crash";
+import {
+  BOT_COLORWAYS,
+  BOT_SHAPES,
+  BotAvatar as BotMascot,
+  COLORWAYS,
+  SHAPE_LABELS,
+  type BotColorway,
+  type BotMotionState,
+  type BotShape,
+} from "./components/BotAvatar";
 import { EmbeddedConnectGate } from "./components/embedded-connect-gate";
 import {
   AuthenticatedArtifactImage,
@@ -297,6 +307,11 @@ import { LazySessionFilesPanel } from "@/components/session-files/lazy-panel";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Popover } from "@base-ui/react/popover";
 import { Drawer as VaulDrawer } from "vaul";
 import {
@@ -542,6 +557,8 @@ export type Session = {
   parentNativeSessionId?: string | null;
   parentAgent?: string | null;
   spawnedBy?: string | null;
+  botId?: string | null;
+  botName?: string | null;
   capabilityVersion?: string | null;
   capabilitiesStale?: boolean;
   /** Claude account this session is pinned to, when it launched on a numbered one. */
@@ -590,6 +607,26 @@ type AutoAgent = {
   // editor must refetch GET /api/auto/agents/:id before editing it.
   promptTruncated?: boolean;
 };
+
+type PersistentBot = {
+  id: string;
+  name: string;
+  emoji?: string;
+  shape?: BotShape;
+  colorway?: BotColorway;
+  persona: string;
+  agent: string;
+  model?: string;
+  thinkingLevel?: string;
+  cwd?: string;
+  enabled: boolean;
+  sessionId?: string;
+  createdAt: number;
+  lastMessageAt?: number;
+};
+
+const BotDirectoryContext = createContext<Map<string, PersistentBot>>(new Map());
+const OpenBotContext = createContext<(id: string) => void>(() => {});
 
 type AutoFinding = {
   id: string;
@@ -5408,6 +5445,9 @@ export function App() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const tab: string = pathnameToTab(pathname);
+  const selectedBotId = tab === "bots"
+    ? pathname.split("/").filter(Boolean)[1] ?? null
+    : null;
   // A terminal is on screen — as the Terminal tab, or pulled up over any tab.
   // Both need the same soft-keyboard treatment: the shell pinned to the visible
   // band and translated past the scroll iOS applies to reveal the focused field.
@@ -5437,6 +5477,31 @@ export function App() {
     },
     [navigate],
   );
+  const openBot = useCallback(
+    (botId: string) => {
+      const keepHostMode = (prev: AppSearch): AppSearch => ({
+        ...(prev.embed ? { embed: prev.embed } : {}),
+        ...(prev.embedOrigin ? { embedOrigin: prev.embedOrigin } : {}),
+      });
+      void navigate({
+        to: "/bots/$botId",
+        params: { botId },
+        search: keepHostMode,
+      });
+    },
+    [navigate],
+  );
+  const closeBot = useCallback(() => {
+    const keepHostMode = (prev: AppSearch): AppSearch => ({
+      ...(prev.embed ? { embed: prev.embed } : {}),
+      ...(prev.embedOrigin ? { embedOrigin: prev.embedOrigin } : {}),
+    });
+    void navigate({
+      to: "/$tab",
+      params: { tab: "bots" },
+      search: keepHostMode,
+    });
+  }, [navigate]);
   const extNavTabs = useExtensionNavTabs();
   const openShipped = useCallback(() => setTab("notifications"), [setTab]);
   // Keep the session list + Shipped/Artifacts mounted after first visit so
@@ -5493,6 +5558,12 @@ export function App() {
     return () => window.clearTimeout(t);
   }, [loading]);
   const [autoAgents, setAutoAgents] = useState<AutoAgent[]>([]);
+  const [bots, setBots] = useState<PersistentBot[]>([]);
+  const [editingBot, setEditingBot] = useState<PersistentBot | "new" | null>(null);
+  const botDirectory = useMemo(
+    () => new Map(bots.map((bot) => [bot.id, bot])),
+    [bots],
+  );
   const [managedComputer, setManagedComputer] = useState(false);
   const [settings, setSettings] = useState<GlobalSettings>({
     timeZone: DEFAULT_SCHED_TZ,
@@ -5747,8 +5818,16 @@ export function App() {
     };
   }, [bare, isMobile, loading, tab, terminalSurface]);
 
+  const refreshBots = useCallback(async () => {
+    const payload = await api<{ bots: PersistentBot[] }>("/api/bots", { cache: "no-store" });
+    setBots(payload.bots ?? []);
+  }, []);
+
   const loadCore = useCallback(async () => {
-    const payload = await fetchBootstrap<BootstrapPayload>();
+    const [payload, botPayload] = await Promise.all([
+      fetchBootstrap<BootstrapPayload>(),
+      api<{ bots: PersistentBot[] }>("/api/bots", { cache: "no-store" }),
+    ]);
     setOmgVersion(payload.version || "unknown");
     setOnboarding(payload.onboarding ?? null);
     // First-run gate: a brand-new install has no roster (env or stored
@@ -5782,6 +5861,7 @@ export function App() {
     setUsers(payload.users ?? []);
     setRepos(payload.repos ?? []);
     setAutoAgents(payload.auto?.agents ?? []);
+    setBots(botPayload.bots ?? []);
     setSchedTz(payload.settings?.timeZone ?? payload.auto?.tz ?? DEFAULT_SCHED_TZ);
     const findingList = payload.auto?.findings ?? [];
     setFindings(findingList);
@@ -6067,6 +6147,7 @@ export function App() {
     const tick = () => {
       refreshSessions().catch(() => {});
       refreshAuto().catch(() => {});
+      refreshBots().catch(() => {});
     };
     const start = () => {
       if (id === null) id = window.setInterval(tick, 5000);
@@ -6091,7 +6172,7 @@ export function App() {
       stop();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [refreshSessions, refreshAuto]);
+  }, [refreshSessions, refreshAuto, refreshBots]);
 
   // Refresh the user roster when the tab regains focus. The roster rarely
   // changes, so it isn't worth the 5s poll above — but avatars carry a
@@ -6758,6 +6839,55 @@ export function App() {
       await api(`/api/auto/agents/${id}`, { method: "DELETE" });
       setEditingAgent(null);
       await refreshAuto();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function saveBot(input: {
+    id?: string;
+    name: string;
+    emoji?: string;
+    shape?: BotShape;
+    colorway?: BotColorway;
+    persona: string;
+    agent: AgentKind;
+    model?: string;
+    thinkingLevel?: string;
+    cwd?: string;
+    enabled: boolean;
+  }) {
+    try {
+      const endpoint = input.id ? `/api/bots/${encodeURIComponent(input.id)}` : "/api/bots";
+      const { id, ...body } = input;
+      // A new bot's backing session inherits its creator, so it lands under the
+      // rail's per-user filter instead of in "unassigned".
+      const owner = resolveRosterUser(
+        userFilter !== "__all" && userFilter !== "__unassigned"
+          ? userFilter
+          : localStorage.getItem("lfg_user"),
+        users,
+      );
+      await api(endpoint, {
+        method: id ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(id ? body : { ...body, user: owner || undefined }),
+      });
+      setEditingBot(null);
+      await refreshBots();
+      toast.success(id ? "Bot saved" : "Bot created");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function deletePersistentBot(id: string) {
+    try {
+      await api(`/api/bots/${encodeURIComponent(id)}`, { method: "DELETE" });
+      setEditingBot(null);
+      setTab("bots");
+      await Promise.all([refreshBots(), refreshSessions()]);
+      toast.success("Bot deleted");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     }
@@ -7506,6 +7636,8 @@ export function App() {
     <ArtifactViewerContext.Provider value={openArtifactViewer}>
     <SessionTerminalContext.Provider value={setTerminalSid}>
     <OpenSettingsPageContext.Provider value={setTab}>
+    <BotDirectoryContext.Provider value={botDirectory}>
+    <OpenBotContext.Provider value={openBot}>
     <div
       ref={rootRef}
       inert={loading}
@@ -7625,7 +7757,7 @@ export function App() {
                 <ChevronLeft className="size-[18px]" />
                 <span>Live</span>
               </button>
-            ) : tab === "live" || tab === "notifications" || tab === "artifacts" ? (
+            ) : tab === "live" || tab === "bots" || tab === "notifications" || tab === "artifacts" ? (
               <button
                 type="button"
                 onClick={() => setTab("live")}
@@ -7658,7 +7790,7 @@ export function App() {
 
         <NavIsland className="shrink-0">
           <div className="glass-island flex h-11 items-center gap-1.5 rounded-full px-2">
-            {tab === "live" || tab === "notifications" || tab === "artifacts" ? (
+            {tab === "live" || tab === "bots" || tab === "notifications" || tab === "artifacts" ? (
               // Page destinations live in PagesMenu. Desktop also keeps its
               // project scope control here; mobile project scope lives in the
               // Live composer and never impersonates a page destination.
@@ -7790,6 +7922,7 @@ export function App() {
               onUserChange={embedded ? undefined : changeUserFilter}
               onOpenSettings={embedded ? undefined : () => setTab("settings")}
               onOpenAsk={embedded ? undefined : () => setTab("ask")}
+              onOpenBots={() => setTab("bots")}
               onOpenShipped={openShipped}
               // Built here rather than inside RailStage: the shell owns the tab
               // state and the extension registry, and the rail should not have to
@@ -7827,6 +7960,22 @@ export function App() {
               focus={liveFocus}
             />
           </div>
+        ) : null}
+        {tab === "bots" ? (
+          <BotsView
+            bots={bots}
+            sessions={sessions}
+            selectedBotId={selectedBotId}
+            busyBySid={liveStream.busyBySid}
+            onSubscribeTranscript={useWsLive ? wsLiveStream.subscribeTranscript : undefined}
+            onOpen={openBot}
+            onBack={closeBot}
+            onOpenSessions={() => setTab("live")}
+            onNew={() => setEditingBot("new")}
+            onEdit={(bot) => setEditingBot(bot)}
+            onRefreshBots={refreshBots}
+            onRefreshSessions={refreshSessions}
+          />
         ) : null}
         {tab === "auto" ? (
           <AutoManageView
@@ -7936,6 +8085,7 @@ export function App() {
         tab !== "artifacts" &&
         tab !== "changelog" &&
         tab !== "term" &&
+        tab !== "bots" &&
         tab !== "storage" &&
         tab !== "more" &&
         !extNavTabs.some((t) => t.id === tab) ? (
@@ -8030,6 +8180,17 @@ export function App() {
         />
       ) : null}
 
+      {editingBot ? (
+        <BotEditorSheet
+          bot={editingBot}
+          repos={repos}
+          codingAgents={codingAgents}
+          onClose={() => setEditingBot(null)}
+          onSave={saveBot}
+          onDelete={deletePersistentBot}
+        />
+      ) : null}
+
       <NewSessionDialog
         open={newOpen}
         agentRequest={agentRequest}
@@ -8118,6 +8279,8 @@ export function App() {
         onClose={() => setTerminalSid(null)}
       />
     ) : null}
+    </OpenBotContext.Provider>
+    </BotDirectoryContext.Provider>
     </OpenSettingsPageContext.Provider>
     </SessionTerminalContext.Provider>
     </ArtifactViewerContext.Provider>
@@ -8804,6 +8967,7 @@ function PagesMenu({
   // Artifacts render no title chrome of their own in the rail layout.
   const known =
     tab === "live" ||
+    tab === "bots" ||
     tab === "notifications" ||
     tab === "artifacts" ||
     (showSettings && tab === "settings");
@@ -8843,6 +9007,10 @@ function PagesMenu({
           <DropdownMenuRadioItem value="live">
             <Radio className="size-5 shrink-0 text-muted-foreground" />
             Live
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="bots">
+            <Bot className="size-5 shrink-0 text-muted-foreground" />
+            Bots
           </DropdownMenuRadioItem>
           <DropdownMenuRadioItem value="notifications">
             <Bell className="size-5 shrink-0 text-muted-foreground" />
@@ -10042,6 +10210,7 @@ function LiveView({
   onUserChange,
   onOpenSettings,
   onOpenAsk,
+  onOpenBots,
   onOpenShipped,
   pagesMenu,
   onOpenRecentShipped,
@@ -10063,6 +10232,7 @@ function LiveView({
   onUserChange?: (v: string) => void;
   onOpenSettings?: () => void;
   onOpenAsk?: () => void;
+  onOpenBots: () => void;
   onOpenShipped?: (post?: ShipPost) => void;
   /** Rail overflow menu, built by the shell so RailStage stays unaware of tabs. */
   pagesMenu?: ReactNode;
@@ -10343,6 +10513,7 @@ function LiveView({
         onUserChange={onUserChange}
         onOpenSettings={onOpenSettings}
         onOpenAsk={onOpenAsk}
+        onOpenBots={onOpenBots}
         pagesMenu={pagesMenu}
         onOpenRecentShipped={onOpenRecentShipped}
         onManageSessions={onManageSessions}
@@ -10522,6 +10693,7 @@ function RailStage({
   onUserChange,
   onOpenSettings,
   onOpenAsk,
+  onOpenBots,
   pagesMenu,
   onOpenRecentShipped,
   onManageSessions,
@@ -10544,6 +10716,7 @@ function RailStage({
   onUserChange?: (v: string) => void;
   onOpenSettings?: () => void;
   onOpenAsk?: () => void;
+  onOpenBots: () => void;
   /** Rail overflow menu, built by the shell so RailStage stays unaware of tabs. */
   pagesMenu?: ReactNode;
   onOpenRecentShipped?: (post: ShipPost) => void;
@@ -11518,6 +11691,7 @@ function RailStage({
           </div>
         ) : (
           <div className="flex shrink-0 flex-col gap-2 border-b border-border px-2 py-2">
+            <SurfaceToggle active="sessions" onOpenSessions={() => {}} onOpenBots={onOpenBots} />
             {/* Hosted replaces the LFG mark with omg.dev and moves project
                 scope to the action row so the lockup always has room. */}
             <div className="flex items-center gap-1.5">
@@ -11873,6 +12047,8 @@ const RailItem = memo(function RailItem({
   onActivate: (shiftKey: boolean) => void;
   onTogglePin: () => void;
 }) {
+  const botDirectory = useContext(BotDirectoryContext);
+  const drivingBot = session.botId ? botDirectory.get(session.botId) : undefined;
   // Touch swipe: drag right to pin, left to unpin. The foreground row slides
   // and a pin glyph is revealed behind it; past ~52px on release it commits.
   // A horizontal drag suppresses the tap-to-open; vertical is left to scroll.
@@ -11988,6 +12164,21 @@ const RailItem = memo(function RailItem({
             paused={session.status === "blocked"}
             variant="avatar"
           />
+          {drivingBot && !busy && session.status !== "blocked" ? (
+            <span
+              className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center overflow-hidden rounded-full ring-2 ring-card"
+              title={`Driven by ${drivingBot.name}`}
+              aria-label={`Driven by ${drivingBot.name}`}
+            >
+              <BotMascot
+                shape={drivingBot.shape}
+                colorway={drivingBot.colorway}
+                size={14}
+                state="idle"
+                seed={drivingBot.id.length}
+              />
+            </span>
+          ) : null}
           {topPinned && collapsed ? (
             <Pin
               aria-label="Pinned to top"
@@ -12806,6 +12997,7 @@ async function loadTranscriptPage(sid: string) {
 
 type SessionChatProps = {
   session: Session;
+  bot?: PersistentBot;
   busy: boolean;
   prompt: SessionPrompt | null;
   error: string | null;
@@ -12831,13 +13023,20 @@ type SessionChatProps = {
  */
 function SessionChat(props: SessionChatProps) {
   const sid = props.session.sessionId;
+  const botId = props.bot?.id;
   const { onError, onSubscribeTranscript } = props;
   const chatTransport = useMemo(
     () =>
       sid
-        ? new OmgChatTransport({ sessionId: sid, subscribeTranscript: onSubscribeTranscript })
+        ? new OmgChatTransport({
+            sessionId: sid,
+            sendEndpoint: botId
+              ? `/api/bots/${encodeURIComponent(botId)}/messages`
+              : undefined,
+            subscribeTranscript: onSubscribeTranscript,
+          })
         : undefined,
-    [sid, onSubscribeTranscript],
+    [sid, onSubscribeTranscript, botId],
   );
   const reportError = useCallback((message: string) => onError(message), [onError]);
   return (
@@ -12863,6 +13062,7 @@ function SessionChatSkeleton() {
 
 function SessionChatBody({
   session,
+  bot,
   busy,
   prompt,
   error,
@@ -13208,6 +13408,7 @@ function SessionChatBody({
         loading={historyLoading}
         onLoadOlderMessages={loadOlderMessages}
         onRetryQueued={retryQueued}
+        bot={bot}
       />
 
       <SessionQuestionPanel sessionIds={[session.sessionId, session.nativeSessionId]} />
@@ -13218,7 +13419,15 @@ function SessionChatBody({
         <div className="border-t border-border/70 px-3 py-1.5 text-xs text-destructive">{error}</div>
       ) : null}
 
-      {canDriveSession(session) || reviewingShipped ? (
+      {bot && !bot.enabled ? (
+        <div className="px-2 pb-[calc(0.5rem+var(--lfg-safe-bottom))] pt-2">
+          <div className="flex items-center gap-3 rounded-2xl border border-dashed border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+            <span className="min-w-0 flex-1">
+              This bot is disabled. Re-enable it in settings to keep talking to it.
+            </span>
+          </div>
+        </div>
+      ) : canDriveSession(session) || reviewingShipped ? (
         <form
           onSubmit={sendMessage}
           {...files.dropZoneProps}
@@ -13287,7 +13496,9 @@ function SessionChatBody({
                 placeholder={
                   attachments.length
                     ? "Add a note"
-                    : reviewingShipped
+                    : bot
+                      ? `Message ${bot.name}…`
+                      : reviewingShipped
                       ? "Message to resume"
                       : "Message"
                 }
@@ -15330,6 +15541,9 @@ const onTouchStart = (e: ReactTouchEvent) => {
             <Pin className="size-3.5" fill="currentColor" />
           </span>
         ) : null}
+        {!collapsedView && session.botId && session.botName ? (
+          <DrivenByBotBadge session={session} />
+        ) : null}
         {!collapsedView && (
           (session.agent === "claude" || session.agent === "opencode") &&
           (session.tmuxTarget || session.agent === "opencode") &&
@@ -15430,6 +15644,7 @@ const ChatStream = memo(function ChatStream({
   loading,
   onLoadOlderMessages,
   onRetryQueued,
+  bot,
 }: {
   sid: string | null;
   messages: Message[];
@@ -15437,6 +15652,7 @@ const ChatStream = memo(function ChatStream({
   loading: boolean;
   onLoadOlderMessages: LoadOlderMessages;
   onRetryQueued?: (message: Message) => void;
+  bot?: PersistentBot;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const transcriptView = useContext(TranscriptViewContext);
@@ -15446,8 +15662,29 @@ const ChatStream = memo(function ChatStream({
   const [diffBarVisible, setDiffBarVisible] = useState(false);
   const preserveScrollRef = useRef<{ height: number; top: number } | null>(null);
   const transcriptMessages = useMemo(
-    () => messages.filter((message) => !message.seed),
-    [messages],
+    () => {
+      const filtered = messages.filter(
+        (message) =>
+          !message.seed &&
+          (!bot || !isBotRuntimeContractMessage(message)),
+      );
+      if (!bot) return filtered;
+      const delivered = new Set(
+        filtered
+          .filter((message) => message.role === "user" && !message.pending)
+          .map((message) => botVisibleUserText(message.text ?? "", bot).trim())
+          .filter(Boolean),
+      );
+      return filtered.filter(
+        (message) =>
+          !(
+            message.role === "user" &&
+            message.pending &&
+            delivered.has(botVisibleUserText(message.text ?? "", bot).trim())
+          ),
+      );
+    },
+    [messages, bot],
   );
   const visibleMessages = useMemo(
     () => messagesForTranscriptView(transcriptMessages, transcriptView.value),
@@ -15586,6 +15823,7 @@ const ChatStream = memo(function ChatStream({
                 live={busy && index === items.length - 1}
                 entering={!!item.message.id && enteringIdsRef.current.has(item.message.id)}
                 onRetryQueued={onRetryQueued}
+                bot={bot}
               />
             ),
           )}
@@ -15594,7 +15832,12 @@ const ChatStream = memo(function ChatStream({
               then what it will read next. */}
           {queuedItems.map((item) =>
             item.type === "msg" ? (
-              <MessageBubble key={item.key} message={item.message} onRetryQueued={onRetryQueued} />
+              <MessageBubble
+                key={item.key}
+                message={item.message}
+                onRetryQueued={onRetryQueued}
+                bot={bot}
+              />
             ) : null,
           )}
         </ConversationContent>
@@ -16331,6 +16574,7 @@ function MessageBubble({
   live = false,
   entering = false,
   onRetryQueued,
+  bot,
 }: {
   message: Message;
   // Whether the session is actively working on THIS turn — drives the thinking
@@ -16341,6 +16585,7 @@ function MessageBubble({
   entering?: boolean;
   // Retry a failed queue send through the server queue's retry endpoint.
   onRetryQueued?: (message: Message) => void;
+  bot?: PersistentBot;
 }) {
   const openArtifact = useContext(ArtifactViewerContext);
   // Must run before the early returns below — hooks can't be conditional. The
@@ -16358,11 +16603,11 @@ function MessageBubble({
     () =>
       message.role === "user"
         ? renderableUserContent(
-            omgEnvelope?.task ?? message.text ?? "",
-            omgEnvelope ? undefined : message.html,
+            botVisibleUserText(omgEnvelope?.task ?? message.text ?? "", bot),
+            omgEnvelope || bot ? undefined : message.html,
           )
         : { html: "", attachments: [] as MessageAttachment[] },
-    [message.role, message.text, message.html, omgEnvelope],
+    [message.role, message.text, message.html, omgEnvelope, bot],
   );
   if (isRequestInterruptedMessage(message)) {
     return (
@@ -16551,7 +16796,7 @@ function MessageBubble({
           {/* A caption is optional: attach an image with nothing typed and the
               picture is the whole message, with no empty bubble under it. */}
           {userContent.html ? (
-            <MessageActions text={omgEnvelope?.task ?? message.text ?? ""} isUser>
+            <MessageActions text={botVisibleUserText(omgEnvelope?.task ?? message.text ?? "", bot)} isUser>
               <UserBubble html={userContent.html} pending={message.pending} queued={queued} failed={failed} />
             </MessageActions>
           ) : null}
@@ -16592,6 +16837,18 @@ function MessageBubble({
         </MessageContent>
       </MessageActions>
     </AiMessage>
+  );
+}
+
+function botVisibleUserText(text: string, bot?: PersistentBot): string {
+  if (!bot) return text;
+  return text.replace(/^\s*\[Message from [^\]]+ to bot [^\]]+\]\s*/i, "");
+}
+
+function isBotRuntimeContractMessage(message: Message): boolean {
+  return (
+    (message.role === "user" || message.role === "system") &&
+    (message.text ?? "").trimStart().startsWith("=== omg.dev BOT RUNTIME CONTRACT")
   );
 }
 
@@ -22972,6 +23229,673 @@ function MoreView({
         </div>
       </section>
     </div>
+  );
+}
+
+function SurfaceToggle({
+  active,
+  onOpenSessions,
+  onOpenBots,
+}: {
+  active: "sessions" | "chat";
+  onOpenSessions: () => void;
+  onOpenBots: () => void;
+}) {
+  // Desktop-only affordance: on narrow/mobile layouts the switch bar is
+  // dropped entirely and the Bots surface is reached via PagesMenu instead
+  // (docs/design/bot-mode/spec.md §2.1).
+  const isMobile = useIsMobile();
+  if (isMobile) return null;
+  return (
+    <div
+      className="flex gap-0.5 rounded-full bg-muted p-[3px]"
+      role="tablist"
+      aria-label="Switch surface"
+    >
+      {([
+        ["sessions", "Chat", onOpenSessions],
+        ["chat", "Bot", onOpenBots],
+      ] as const).map(([value, label, onClick]) => (
+        <button
+          key={value}
+          type="button"
+          role="tab"
+          aria-selected={active === value}
+          onClick={onClick}
+          className={cn(
+            "flex h-[26px] flex-1 items-center justify-center rounded-full px-3 text-xs font-semibold transition-[background-color,color,box-shadow] duration-150",
+            active === value
+              ? "bg-card text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Stable per-bot phase offset, so a roster breathes out of lockstep. */
+function botSeed(id: string): number {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
+  return Math.abs(hash);
+}
+
+function BotAvatar({
+  bot,
+  size = 44,
+  className,
+  working = false,
+}: {
+  bot: PersistentBot;
+  size?: number;
+  className?: string;
+  working?: boolean;
+}) {
+  // The creature carries the bot's state: it works when the session works,
+  // and a disabled bot is asleep rather than merely greyed out.
+  const state: BotMotionState = !bot.enabled ? "sleeping" : working ? "working" : "idle";
+  return (
+    <span
+      className={cn(
+        "relative flex shrink-0 items-center justify-center leading-none",
+        !bot.enabled && "opacity-60",
+        className,
+      )}
+      style={{ width: size, height: size }}
+    >
+      <BotMascot
+        shape={bot.shape}
+        colorway={bot.colorway}
+        size={size}
+        state={state}
+        seed={botSeed(bot.id)}
+        className="rounded-[28%]"
+        title={bot.name}
+      />
+      {bot.emoji ? (
+        <span
+          className="pointer-events-none absolute -bottom-1 -right-1 rounded-full bg-card px-[3px] leading-none shadow-sm ring-1 ring-border"
+          style={{ fontSize: Math.max(9, Math.round(size * 0.3)) }}
+          aria-hidden
+        >
+          {bot.emoji}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function DrivenByBotBadge({ session }: { session: Session }) {
+  const directory = useContext(BotDirectoryContext);
+  const openBot = useContext(OpenBotContext);
+  if (!session.botId || !session.botName) return null;
+  const bot = directory.get(session.botId);
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        openBot(session.botId!);
+      }}
+      className="flex max-w-36 shrink-0 items-center gap-1 rounded-full bg-primary/12 px-2 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20"
+      title={`Open ${session.botName}`}
+    >
+      <BotMascot
+        shape={bot?.shape}
+        colorway={bot?.colorway}
+        size={14}
+        state="idle"
+        seed={session.botId.length}
+        className="rounded-[30%]"
+      />
+      <span className="truncate">driven by {session.botName}</span>
+    </button>
+  );
+}
+
+function FirstBotMessageComposer({
+  bot,
+  onStarted,
+}: {
+  bot: PersistentBot;
+  onStarted: (sessionId: string) => void | Promise<void>;
+}) {
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  async function send(event: FormEvent) {
+    event.preventDefault();
+    const message = text.trim();
+    if (!message || sending) return;
+    setSending(true);
+    try {
+      const result = await api<{ sessionId: string }>(
+        `/api/bots/${encodeURIComponent(bot.id)}/messages`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: message }),
+        },
+      );
+      setText("");
+      await onStarted(result.sessionId);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSending(false);
+    }
+  }
+  return (
+    <form
+      onSubmit={send}
+      className="bg-background px-2 pb-[calc(0.5rem+var(--lfg-safe-bottom))] pt-1.5"
+    >
+      <div className="flex items-center gap-2">
+        <ComposerTextarea
+          value={text}
+          onValueChange={setText}
+          rows={1}
+          autoFocus
+          placeholder={`Message ${bot.name}…`}
+          className="lfg-gfield min-h-11 rounded-2xl border-transparent px-4 py-3 text-base md:min-h-9 md:py-2 md:text-sm"
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              event.currentTarget.form?.requestSubmit();
+            }
+          }}
+        />
+        <Button
+          type="submit"
+          variant="brand"
+          size="icon"
+          className="size-11 rounded-full md:size-9"
+          disabled={sending || !text.trim()}
+          aria-label="Send"
+        >
+          {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function reportBotChatError(message: string | null) {
+  if (message) toast.error(message);
+}
+
+function BotsView({
+  bots,
+  sessions,
+  selectedBotId,
+  busyBySid,
+  onSubscribeTranscript,
+  onOpen,
+  onBack,
+  onOpenSessions,
+  onNew,
+  onEdit,
+  onRefreshBots,
+  onRefreshSessions,
+}: {
+  bots: PersistentBot[];
+  sessions: Session[];
+  selectedBotId: string | null;
+  busyBySid: Record<string, boolean>;
+  onSubscribeTranscript?: OmgTranscriptSubscribe;
+  onOpen: (id: string) => void;
+  onBack: () => void;
+  onOpenSessions: () => void;
+  onNew: () => void;
+  onEdit: (bot: PersistentBot) => void;
+  onRefreshBots: () => Promise<void>;
+  onRefreshSessions: () => Promise<void>;
+}) {
+  const isMobile = useIsMobile();
+  const bot = selectedBotId ? bots.find((item) => item.id === selectedBotId) ?? null : null;
+  useEffect(() => {
+    if (!isMobile || !bot) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [bot, isMobile]);
+
+  if (bot) {
+    const backingSession = sessions.find(
+      (session) => session.botId === bot.id || (!!bot.sessionId && session.sessionId === bot.sessionId),
+    );
+    const sid = backingSession?.sessionId ?? bot.sessionId ?? null;
+    const session: Session | null = sid
+      ? backingSession ?? {
+          sessionId: sid,
+          title: bot.name,
+          agent: bot.agent,
+          model: bot.model,
+          thinkingLevel: bot.thinkingLevel,
+          cwd: bot.cwd,
+          botId: bot.id,
+          botName: bot.name,
+          managed: true,
+        }
+      : null;
+    const busy = !!(sid && busyBySid[sid]);
+    const chat = session ? (
+      <SessionChat
+        session={session}
+        bot={bot}
+        busy={busy}
+        prompt={null}
+        error={null}
+        onError={reportBotChatError}
+        onSubscribeTranscript={onSubscribeTranscript}
+        onRefresh={async () => {
+          await Promise.all([onRefreshBots(), onRefreshSessions()]);
+        }}
+      />
+    ) : bot.enabled ? (
+      <>
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-6 text-center text-sm text-muted-foreground">
+          {/* Full size, full expressiveness: this is the one screen with room
+              for the creature to actually be a character. */}
+          <BotAvatar bot={bot} size={96} />
+          <span>Say hi to start your conversation with {bot.name}.</span>
+        </div>
+        <FirstBotMessageComposer
+          bot={bot}
+          onStarted={async () => {
+            await Promise.all([onRefreshBots(), onRefreshSessions()]);
+          }}
+        />
+      </>
+    ) : (
+      <div className="flex min-h-0 flex-1 items-end p-3 pb-[calc(0.75rem+var(--lfg-safe-bottom))]">
+        <div className="w-full rounded-2xl border border-dashed border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+          This bot is disabled. Re-enable it in settings to keep talking to it.
+        </div>
+      </div>
+    );
+
+    if (isMobile) {
+      return createPortal(
+        <div
+          className="fixed inset-x-0 z-[90]"
+          style={{
+            top: "var(--lfg-visual-offset-top, 0px)",
+            height: "var(--lfg-visual-height, var(--lfg-app-height, 100dvh))",
+          }}
+        >
+          <section className="absolute inset-0 flex flex-col overflow-hidden bg-background text-foreground">
+            <header
+              className="flex items-center gap-2 border-b border-border px-4 pb-3"
+              style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.75rem)" }}
+            >
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={onBack}
+                aria-label="Back to bots"
+                className="shrink-0"
+              >
+                <ChevronLeft className="size-5" />
+              </Button>
+              <BotAvatar bot={bot} working={busy} size={28} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[15px] font-semibold leading-tight">{bot.name}</span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {bot.enabled ? (busy ? "working" : "idle") : "disabled"}
+                </span>
+              </span>
+              <Button
+                variant="tint"
+                size="icon-sm"
+                onClick={() => onEdit(bot)}
+                aria-label="Bot settings"
+                className="size-9 shrink-0"
+              >
+                <Settings className="size-4" />
+              </Button>
+            </header>
+            <div className="flex min-h-0 flex-1 flex-col">{chat}</div>
+          </section>
+        </div>,
+        document.body,
+      );
+    }
+
+    return (
+      <section className="mx-auto flex h-[calc(100dvh-6rem)] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border bg-card md:h-[calc(100dvh-7rem)]" data-lfg-page-column>
+        <header className="flex min-h-[3.75rem] items-center gap-2 border-b border-border px-3 py-2">
+          <Button variant="ghost" size="icon-sm" onClick={onBack} aria-label="Back to bots">
+            <ChevronLeft className="size-5" />
+          </Button>
+          <BotAvatar bot={bot} working={busy} size={32} />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[15px] font-semibold leading-tight">{bot.name}</span>
+            <span className="block truncate text-xs text-muted-foreground">
+              {bot.persona.slice(0, 60)} · {bot.enabled ? (busy ? "working" : "idle") : "disabled"}
+            </span>
+          </span>
+          <Button variant="tint" size="icon-sm" onClick={() => onEdit(bot)} aria-label="Bot settings">
+            <Settings className="size-4" />
+          </Button>
+        </header>
+        {chat}
+      </section>
+    );
+  }
+
+  return (
+    <div className="mx-auto flex max-w-3xl flex-col gap-2" data-lfg-page-column>
+      <SurfaceToggle active="chat" onOpenSessions={onOpenSessions} onOpenBots={() => {}} />
+      <div className="flex items-start gap-3 px-1 pb-2 pt-2">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-lg font-semibold leading-tight">Bots</h1>
+          <p className="text-sm text-muted-foreground">Persistent agents you talk to, not tasks you launch.</p>
+        </div>
+        <Button variant="brand" size="sm" onClick={onNew}>
+          <Plus className="size-3.5" /> New bot
+        </Button>
+      </div>
+      {bots.length ? bots.map((item) => {
+        const session = sessions.find(
+          (candidate) => candidate.botId === item.id || (!!item.sessionId && candidate.sessionId === item.sessionId),
+        );
+        const working = !!(session?.sessionId && busyBySid[session.sessionId]);
+        const rawPreview = session?.last?.text || session?.lastUserText || "";
+        const preview = rawPreview
+          ? plainPreviewText(botVisibleUserText(rawPreview, item))
+          : "Say hi to get started.";
+        return (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => onOpen(item.id)}
+            className="flex w-full items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5 text-left transition-colors hover:border-foreground/20"
+          >
+            <BotAvatar bot={item} working={working} size={44} />
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className={cn("truncate text-[13px] font-semibold", !item.enabled && "text-muted-foreground")}>{item.name}</span>
+              <span className="truncate text-xs text-muted-foreground">{working ? `Working — ${preview}` : preview}</span>
+            </span>
+            {item.lastMessageAt ? (
+              <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/70">{relTime(item.lastMessageAt)}</span>
+            ) : null}
+            {!item.enabled ? <Badge variant="secondary">Disabled</Badge> : null}
+            <ChevronRight className="size-4 shrink-0 text-muted-foreground/60" />
+          </button>
+        );
+      }) : (
+        <>
+          <div className="flex flex-col items-center rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+            {/* One creature, asleep, waiting to be woken by the first bot. */}
+            <BotMascot
+              shape="circle"
+              colorway="warm"
+              size={72}
+              state="sleeping"
+              className="mb-3 rounded-[28%]"
+              title="No bots yet"
+            />
+            <span className="block font-medium text-foreground">No bots yet.</span>
+            <span>Give a persona a name and a memory — it will be there next time you open this.</span>
+          </div>
+          <button
+            type="button"
+            onClick={onNew}
+            className="flex items-center justify-center gap-2 rounded-2xl border border-dashed border-border py-3 text-sm font-medium text-muted-foreground hover:text-foreground"
+          >
+            <Plus className="size-4" /> New bot
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function BotEditorSheet({
+  bot,
+  repos,
+  codingAgents,
+  onClose,
+  onSave,
+  onDelete,
+}: {
+  bot: PersistentBot | "new";
+  repos: Repo[];
+  codingAgents: CodingAgentInfo[];
+  onClose: () => void;
+  onSave: (input: {
+    id?: string;
+    name: string;
+    emoji?: string;
+    shape?: BotShape;
+    colorway?: BotColorway;
+    persona: string;
+    agent: AgentKind;
+    model?: string;
+    thinkingLevel?: string;
+    cwd?: string;
+    enabled: boolean;
+  }) => void | Promise<void>;
+  onDelete: (id: string) => void | Promise<void>;
+}) {
+  const editing = bot !== "new";
+  const initialAgent = editing && AGENT_MODELS[bot.agent as AgentKind]
+    ? bot.agent as AgentKind
+    : "aisdk";
+  const defaultModel = useAgentDefaultModel(initialAgent);
+  const [name, setName] = useState(editing ? bot.name : "");
+  const [emoji, setEmoji] = useState(editing ? bot.emoji ?? "🤖" : "🤖");
+  const [persona, setPersona] = useState(editing ? bot.persona : "");
+  const [enabled, setEnabled] = useState(editing ? bot.enabled : true);
+  // A new bot defaults to the repo you last launched into, the same as the
+  // session composer. Falling straight to repos[0] picked whatever sorted
+  // first (app-blocker here), which is a surprising home for a bot.
+  const [cwd, setCwd] = useState(() => {
+    if (editing) return bot.cwd ?? repos[0]?.cwd ?? "";
+    const remembered = localStorage.getItem("lfg_v2_repo");
+    return repos.some((repo) => repo.cwd === remembered)
+      ? remembered!
+      : repos[0]?.cwd ?? "";
+  });
+  // Avatar identity. A new bot opens on a random shape/colorway pair rather
+  // than always the warm circle, so the first thing you see is a creature that
+  // already looks like somebody — and picking is a nudge, not a chore.
+  const [shape, setShape] = useState<BotShape>(
+    editing ? bot.shape ?? "circle" : BOT_SHAPES[Math.floor(Math.random() * BOT_SHAPES.length)],
+  );
+  const [colorway, setColorway] = useState<BotColorway>(
+    editing
+      ? bot.colorway ?? "warm"
+      : BOT_COLORWAYS[Math.floor(Math.random() * BOT_COLORWAYS.length)],
+  );
+  const [backend, setBackend] = useState<AgentKind>(initialAgent);
+  const [model, setModel] = useState(editing ? bot.model ?? defaultModel : defaultModel);
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(editing ? bot.thinkingLevel ?? savedThinkingLevel() : savedThinkingLevel());
+  const [advanced, setAdvanced] = useState(false);
+  const models = useAgentModels(backend);
+  const backendDefault = useAgentDefaultModel(backend);
+  useEffect(() => {
+    if (!models.includes(model)) setModel(backendDefault);
+  }, [backendDefault, model, models]);
+
+  const submit = () => {
+    if (!name.trim() || !persona.trim()) return;
+    void onSave({
+      id: editing ? bot.id : undefined,
+      name: name.trim(),
+      emoji: emoji.trim() || undefined,
+      shape,
+      colorway,
+      persona: persona.trim(),
+      agent: backend,
+      model: model || undefined,
+      thinkingLevel: agentSupportsThinking(backend) ? thinkingLevel : undefined,
+      cwd: cwd || undefined,
+      enabled,
+    });
+  };
+
+  return (
+    <BottomSheet onClose={onClose} title={editing ? "Edit bot" : "New bot"}>
+      <div className="px-2 pb-4 pt-1">
+        <div className="flex items-center gap-2">
+          <Bot className="size-5 text-primary" />
+          <span className="min-w-0 flex-1 text-[15px] font-semibold">{editing ? "Edit bot" : "New bot"}</span>
+          {editing ? (
+            <DoubleConfirmAction
+              resetKey={bot.id}
+              label="Delete"
+              confirmLabel="Confirm delete"
+              icon={<Trash2 className="size-3.5" />}
+              confirmIcon={<Trash2 className="size-3.5" />}
+              render={<Button type="button" variant="destructive" size="sm" />}
+              onConfirm={() => onDelete(bot.id)}
+            />
+          ) : null}
+          <Button size="sm" variant="brand" disabled={!name.trim() || !persona.trim()} onClick={submit}>
+            {editing ? "Save" : "Create"}
+          </Button>
+        </div>
+
+        <div className="mt-4 flex items-center gap-3">
+          {/* The live creature is the preview: it breathes and blinks while you
+              pick, so you meet the bot before you create it. */}
+          <BotMascot
+            shape={shape}
+            colorway={colorway}
+            size={56}
+            state="idle"
+            seed={shape.length * 7 + colorway.length}
+            className="rounded-[28%]"
+            title="Bot avatar preview"
+          />
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            autoFocus
+            placeholder="Bot name"
+            className="lfg-gfield min-w-0 flex-1 rounded-2xl px-3 py-2 text-[15px] font-medium outline-none"
+          />
+          <input
+            value={emoji}
+            onChange={(event) => setEmoji(event.target.value)}
+            aria-label="Bot emoji"
+            title="Bot emoji badge"
+            className="size-11 shrink-0 rounded-full border border-dashed border-border bg-muted text-center text-xl outline-none focus:border-primary"
+          />
+        </div>
+
+        <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Shape
+        </label>
+        <div className="mt-1.5 flex items-center gap-2">
+          {BOT_SHAPES.map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => setShape(option)}
+              aria-pressed={shape === option}
+              title={SHAPE_LABELS[option]}
+              className={cn(
+                "rounded-2xl border p-1 transition",
+                shape === option
+                  ? "border-primary bg-primary/10"
+                  : "border-transparent hover:bg-muted",
+              )}
+            >
+              <BotMascot
+                shape={option}
+                colorway={colorway}
+                size={38}
+                state="idle"
+                seed={option.length * 3}
+                className="rounded-[28%]"
+              />
+            </button>
+          ))}
+        </div>
+
+        <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Color
+        </label>
+        <div className="mt-1.5 flex items-center gap-2">
+          {BOT_COLORWAYS.map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => setColorway(option)}
+              aria-pressed={colorway === option}
+              title={COLORWAYS[option].name}
+              className={cn(
+                "size-9 rounded-full border-2 transition",
+                colorway === option
+                  ? "border-primary scale-110"
+                  : "border-transparent hover:scale-105",
+              )}
+              style={{
+                backgroundImage: `linear-gradient(135deg, ${COLORWAYS[option].stops[0]}, ${COLORWAYS[option].stops[1]})`,
+              }}
+            >
+              <span className="sr-only">{COLORWAYS[option].name}</span>
+            </button>
+          ))}
+        </div>
+
+        <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Persona</label>
+        <textarea
+          value={persona}
+          onChange={(event) => setPersona(event.target.value)}
+          rows={4}
+          placeholder="How this bot should think and talk…"
+          className="lfg-gfield mt-1 w-full resize-none rounded-2xl px-3 py-2 text-sm outline-none"
+        />
+
+        {editing ? (
+          <div className="mt-3 flex items-center justify-between rounded-xl border border-border px-3 py-2">
+            <span className="text-sm">Enabled</span>
+            <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Enable bot" />
+          </div>
+        ) : null}
+
+        <Collapsible open={advanced} onOpenChange={setAdvanced} className="mt-3">
+          <CollapsibleTrigger className="flex w-full items-center justify-between rounded-xl border border-border px-3 py-2 text-sm">
+            <span className="flex items-center gap-1.5">
+              <ChevronRight className={cn("size-3.5 transition-transform duration-150", advanced && "rotate-90")} />
+              Advanced
+            </span>
+            <span className="max-w-[55%] truncate text-xs text-muted-foreground">{backend} · {model}</span>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-2">
+            <div className="flex items-center justify-between rounded-xl border border-border px-3 py-2">
+              <span className="flex items-center gap-2 text-sm"><Folder className="size-4 text-muted-foreground" /> Repo</span>
+              <select
+                value={cwd}
+                onChange={(event) => setCwd(event.target.value)}
+                className="max-w-44 appearance-none truncate bg-transparent text-right text-[13px] font-medium outline-none"
+              >
+                {!repos.length ? <option value="">(no repos)</option> : null}
+                {repos.map((repo) => <option key={repo.cwd} value={repo.cwd}>{repo.name}</option>)}
+              </select>
+            </div>
+            <AgentModelRow
+              backend={backend}
+              setBackend={setBackend}
+              model={model}
+              setModel={setModel}
+              thinkingLevel={thinkingLevel}
+              setThinkingLevel={setThinkingLevel}
+              codingAgents={codingAgents}
+              scheduledOnly={false}
+            />
+          </CollapsibleContent>
+        </Collapsible>
+      </div>
+    </BottomSheet>
   );
 }
 

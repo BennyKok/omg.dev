@@ -51,7 +51,9 @@ describe("session lifecycle actions", () => {
     );
 
     expect(actions).not.toContain("appDialog.confirm");
-    expect(app.match(/<DoubleConfirmAction/g)?.length).toBe(2);
+    // Two session archive actions plus the bot sheet's delete. Every
+    // destructive action arms inline through this one primitive; no dialogs.
+    expect(app.match(/<DoubleConfirmAction/g)?.length).toBe(3);
     expect(app.match(/confirmLabel="Confirm archive"/g)?.length).toBe(2);
     expect(doubleConfirm).toContain("closeOnClick: armed && !pending");
     expect(doubleConfirm).toContain("setTimeout(() => setArmed(false), timeoutMs)");
