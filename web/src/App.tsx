@@ -33,6 +33,10 @@ import {
 } from "./lib/omg-client";
 import { cacheProjectFilter, readCachedProjectFilter } from "./lib/project-filter";
 import { resolveRosterUser } from "./lib/roster-user";
+import {
+  botVisibleUserText as botVisibleUserTextFor,
+  isBotLaunchOnlyText,
+} from "./lib/bot-transcript";
 import { sessionMatchesUserFilter } from "./lib/user-filter";
 import { uploadFile as uploadFileThroughTransport } from "./lib/upload";
 import { compressImageFile, isCompressibleImage } from "./lib/image-compress";
@@ -16841,14 +16845,13 @@ function MessageBubble({
 }
 
 function botVisibleUserText(text: string, bot?: PersistentBot): string {
-  if (!bot) return text;
-  return text.replace(/^\s*\[Message from [^\]]+ to bot [^\]]+\]\s*/i, "");
+  return botVisibleUserTextFor(text, !!bot);
 }
 
 function isBotRuntimeContractMessage(message: Message): boolean {
   return (
     (message.role === "user" || message.role === "system") &&
-    (message.text ?? "").trimStart().startsWith("=== omg.dev BOT RUNTIME CONTRACT")
+    isBotLaunchOnlyText(message.text ?? "")
   );
 }
 
