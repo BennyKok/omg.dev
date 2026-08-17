@@ -16,6 +16,7 @@ import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, View } from "react-native";
 import Reanimated, { useAnimatedKeyboard, useAnimatedStyle } from "react-native-reanimated";
+import { LinearGradient } from "expo-linear-gradient";
 import { Text } from "../src/omg/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OmgSession } from "@omg-dev/protocol";
@@ -29,6 +30,7 @@ import {
   SectionHeader,
   SessionCard,
   StatusDot,
+  withAlpha,
 } from "../src/components";
 import { useAttachments } from "../src/omg/attachments";
 import {
@@ -262,6 +264,42 @@ const ELBOW_RADIUS = 9;
  * instead of letting a row sit under the glass.
  */
 const MIN_COMPOSER_HEIGHT = 96;
+
+/**
+ * How far above the composer the scroll content starts dissolving.
+ *
+ * Borrowed from Claude's iOS app: the transcript doesn't stop at a hard edge
+ * above the input bar, it fades into the page background first, so scrolling
+ * text never collides with the glass. 120pt is roughly two lines of body text
+ * plus breathing room — enough to read as a dissolve, not so much that the
+ * last visible row looks half-erased.
+ */
+const COMPOSER_FADE_HEIGHT = 120;
+
+/**
+ * Gradient stops for the composer fade, eased rather than linear.
+ *
+ * A straight transparent-to-opaque ramp reads as a flat grey smudge sliding
+ * over the content — the eye is very sensitive to linear alpha ramps. These
+ * stops follow an ease-in curve (roughly t^2, sampled at six points) so the
+ * fade starts almost imperceptibly at the top and only does most of its work
+ * in the last third, near the composer itself. `hex` is always `colors.bg` —
+ * a plain hex token, never an rgba string — so `withAlpha` can parse it.
+ */
+function composerFadeStops(hex: string): { colors: [string, string, ...string[]]; locations: [number, number, ...number[]] } {
+  const steps: Array<[number, number]> = [
+    [0, 0],
+    [0.15, 0.02],
+    [0.35, 0.12],
+    [0.55, 0.3],
+    [0.75, 0.56],
+    [1, 1],
+  ];
+  return {
+    locations: steps.map(([location]) => location) as [number, number, ...number[]],
+    colors: steps.map(([, alpha]) => withAlpha(hex, alpha)) as [string, string, ...string[]],
+  };
+}
 
 /**
  * The greeting the web Live view carries, in the bar slot the removed
@@ -1210,6 +1248,31 @@ export default function SessionsScreen() {
           at a hard edge above it. `bottom: 0` is the parent's PADDING box, so
           the keyboard lift above still carries the composer up. */}
       {ready ? (
+        <>
+          {/* THE FADE, behind the glass rather than part of it.
+              A gradient scrim in the page's own background colour, not a grey
+              overlay — it has no colour of its own, it just erases toward
+              `colors.bg` — so a scrolling card dissolves into the page
+              instead of visibly darkening under a tint. `pointerEvents="none"`
+              because it is paint, not surface: taps must reach the list
+              underneath right up to the composer's own hit area. Sized off
+              `composerHeight` (not a fixed guess) and carried by the same
+              `composerLift` as the composer, so the dissolve always ends
+              exactly at the glass, keyboard up or down. */}
+          <Reanimated.View
+            pointerEvents="none"
+            style={[
+              { position: "absolute", left: 0, right: 0, bottom: 0, height: composerHeight + COMPOSER_FADE_HEIGHT },
+              composerLift,
+            ]}
+          >
+            <LinearGradient
+              {...composerFadeStops(colors.bg)}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={{ flex: 1 }}
+            />
+          </Reanimated.View>
         <Reanimated.View
           style={[{ position: "absolute", left: 0, right: 0, bottom: 0 }, composerLift]}
           /**
@@ -1257,6 +1320,7 @@ export default function SessionsScreen() {
           bottomInset={insets.bottom}
         />
         </Reanimated.View>
+        </>
       ) : null}
     </Reanimated.View>
   );
