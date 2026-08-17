@@ -43,7 +43,22 @@ gracefully. Current native modules: `expo-updates`, `expo-clipboard`,
 `expo-symbols`, `expo-haptics`, `expo-router`, `react-native-screens`,
 `react-native-safe-area-context`, `@siteed/audio-studio` (added 2026-08-15
 for streaming dictation, replacing `expo-audio` — see
-`mobile/docs/DICTATION.md`).
+`mobile/docs/DICTATION.md`), `expo-iap` (added 2026-08-16 for StoreKit,
+`#115`).
+
+**`expo-iap` landing is why the OTA channel stalled at `#114`.** Verified
+2026-08-17: the last `eas update` ever published to `production` is group
+`7c6c1c91` (2026-08-16 09:50 UTC, `gitCommitHash 9367263` — exactly `#114`).
+Everything from `#115` onward (StoreKit, the new paywall, the auto-agents
+home section, account deletion/privacy/terms) is merged but was never
+published, and — once `#115` added `expo-iap` — **can no longer be
+OTA-published to any build-24 install at all**: every build-24 binary was
+compiled before `expo-iap` existed, so shipping that JS to it would crash on
+launch per the rule above. This is not a `runtimeVersion`/`appVersion`
+mismatch (`build 25` kept `appVersion` at `1.0.2`, matching build 24's), it's
+the native graph. `#115`+ only becomes live once a build containing
+`expo-iap` (25 or later) actually reaches a device — from then on, a fresh
+`eas update` is deliverable again under the same runtime version.
 
 `runtimeVersion` is `{"policy":"appVersion"}`, so an update only reaches builds
 sharing that app version. Bumping the version in app.json deliberately cuts old
