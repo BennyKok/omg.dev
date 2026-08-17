@@ -110,8 +110,22 @@ let localSeq = 0;
 const isOptimisticId = (id: unknown): boolean =>
   typeof id === "string" && id.startsWith("local-");
 
-/** One screenful of history, and the step every "load more" adds. */
-const PAGE = 80;
+/**
+ * One screenful of history, and the step every "load more" adds.
+ *
+ * Was 80. Opening a session means the FIRST page renders synchronously (see
+ * `initialNumToRender` below) so the reader never sees rows pop in — and 80
+ * of them is enough markdown and tool badges to make that synchronous layout
+ * pass itself visible as a beat of nothing happening. 40 is still several
+ * screens of scrollback before "load more" has to fire, and cuts the initial
+ * layout cost roughly in half. `packages/client/src/index.ts`'s `getMessages`
+ * default is deliberately left at 80: that is a general SDK fallback for
+ * callers who don't pass a limit, not a mirror of this screen's tuning, and
+ * this screen always passes its own `limit` explicitly, so the two were never
+ * actually coupled — collapsing them would conflate a phone-screen sizing
+ * decision with a library-wide default.
+ */
+const PAGE = 40;
 
 /**
  * ONE SIZE FOR EVERY ITEM IN THE BAR — the back chevron, the title capsule and
@@ -188,6 +202,23 @@ export default function SessionScreen() {
   }, [dictation.error, toast]);
   const [loading, setLoading] = useState(true);
   /**
+   * THE TRANSCRIPT STAYS INVISIBLE UNTIL IT HAS SOMETHING SETTLED TO SHOW.
+   *
+   * Rows used to mount as soon as they existed, which on a fresh 80-message
+   * (now 40) page meant FlatList's default batching painted maybe ten of them,
+   * then more, then more, while `pinToEnd` corrected the scroll position each
+   * time the content height changed under it — a visible pop-in followed by a
+   * jump to a different chunk of the conversation. Holding this false keeps
+   * the spinner up (see the overlay near the FlatList below) while the first
+   * page renders and gets pinned to the bottom off-screen; the reader's first
+   * paint of the list is already-settled, not settling.
+   *
+   * This is NOT a replacement for `loading` — `loading` covers "the fetch
+   * hasn't returned"; this covers "the fetch returned but the list hasn't
+   * finished laying out and scrolling". Both gate the same spinner.
+   */
+  const [contentReady, setContentReady] = useState(false);
+  /**
    * HOW MUCH HISTORY IS ON SCREEN. The SDK's `getMessages` takes a limit and
    * returns the tail, so "load more" is the same request with a bigger number
    * rather than a cursor — the messages already rendered stay rendered and
@@ -215,6 +246,19 @@ export default function SessionScreen() {
   }, [resuming, toast]);
 
   const listRef = useRef<FlatList<TranscriptItem>>(null);
+  /**
+   * WHICH ROWS GET `TranscriptRow`'s ENTRANCE ANIMATION.
+   *
+   * Keyed on message id, filled ONLY at the two places a row is genuinely new
+   * to the reader — a live "message" socket event and this reader's own
+   * optimistic send — never by the initial page fetch or a "load more" page
+   * of older history, both of which populate `messages` without ever adding
+   * a key here. `renderItem` below then animates a row only when its key is
+   * both in this set AND the screen has already settled (`contentReady`):
+   * the doc comment on `TranscriptRow` describes exactly this intent, but
+   * nothing here used to set `fresh` to true — the animation was dead code.
+   */
+  const liveKeysRef = useRef<Set<string>>(new Set());
   /** Pinned-to-bottom is the default; reading history unpins it. */
   const atBottomRef = useRef(true);
   /**
@@ -363,6 +407,7 @@ export default function SessionScreen() {
             const withoutOptimistic = prev.filter(
               (m) => !(isOptimisticId(m.id) && m.text === event.message.text),
             );
+            if (incoming.id) liveKeysRef.current.add(incoming.id);
             if (incoming.id && withoutOptimistic.some((m) => m.id === incoming.id)) {
               return withoutOptimistic.map((m) => (m.id === incoming.id ? incoming : m));
             }
@@ -551,7 +596,31 @@ export default function SessionScreen() {
     if (!data.length || !id) return;
     if (pinnedForRef.current === id) return;
     pinnedForRef.current = id;
-    return pinToEnd();
+    setContentReady(false);
+    // A session switch (this screen instance gets reused across ids — see
+    // pinnedForRef itself) starts a fresh "which rows are new" clock too, so
+    // an old session's live arrivals don't paint the new one's opening page
+    // as freshly-arrived.
+    liveKeysRef.current.clear();
+    const stopRetries = pinToEnd();
+    /**
+     * ONE FRAME, NOT ZERO.
+     *
+     * `pinToEnd`'s first correction runs synchronously off this same effect,
+     * so by the NEXT frame the list should already be laid out and scrolled
+     * to the true bottom — the reader's first paint is the settled
+     * transcript, not the settling of it. The later retries in `pinToEnd`
+     * keep running after this in the background, as a safety net for
+     * pathological tall content; with the whole first page now rendered in
+     * one batch (see `initialNumToRender` on the FlatList) they are expected
+     * to be no-ops almost always, which is what makes revealing this early
+     * safe rather than a race.
+     */
+    const raf = requestAnimationFrame(() => setContentReady(true));
+    return () => {
+      stopRetries?.();
+      cancelAnimationFrame(raf);
+    };
   }, [data.length, id, pinToEnd]);
 
   /**
@@ -564,8 +633,9 @@ export default function SessionScreen() {
       const trimmed = text.trim();
       if (!trimmed || !client || !id) return;
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      const optimisticId = `local-${++localSeq}`;
       const optimistic: Entry = {
-        id: `local-${++localSeq}`,
+        id: optimisticId,
         role: "user",
         text: trimmed,
         ts: Date.now(),
@@ -574,6 +644,9 @@ export default function SessionScreen() {
         // as sending — see Entry.queued.
         queued: mode === "queue",
       };
+      // The reader's own send is exactly as "new" as an incoming live
+      // message — see liveKeysRef's doc comment.
+      liveKeysRef.current.add(optimisticId);
       setMessages((prev) => [...prev, optimistic]);
       setSending(true);
       try {
@@ -1217,6 +1290,27 @@ export default function SessionScreen() {
         ref={listRef}
         data={data}
         keyExtractor={(item) => item.key}
+        /**
+         * THE WHOLE FIRST PAGE, IN ONE BATCH — not RN's default of 10.
+         *
+         * Batching the initial page across several frames is the pop-in
+         * itself: a reader opening a session used to watch maybe ten rows
+         * appear, then more, then more, each arrival nudging the ones already
+         * on screen. Rendering all of `PAGE` synchronously on mount means
+         * there is nothing to batch — the first paint (which stays hidden
+         * behind the spinner until `contentReady`; see below) already has the
+         * full page laid out, so `pinToEnd`'s correction lands once instead
+         * of visibly chasing a moving content height.
+         */
+        initialNumToRender={PAGE}
+        maxToRenderPerBatch={PAGE}
+        // Laid out and measured normally either way — opacity does not
+        // affect layout — so this hides the pop-in/jump without adding a
+        // second "is it ready" code path for the FlatList itself. See
+        // `contentReady`'s doc comment for why this beat exists at all, and
+        // the overlay spinner below for what the reader sees during it.
+        style={{ opacity: contentReady ? 1 : 0 }}
+        pointerEvents={contentReady ? "auto" : "none"}
         contentContainerStyle={{
           paddingHorizontal: space.lg,
           /**
@@ -1289,12 +1383,17 @@ export default function SessionScreen() {
         onScroll={onScroll}
         scrollEventThrottle={16}
         onContentSizeChange={handleContentSizeChange}
-        renderItem={({ item }) => <TranscriptRow item={item} />}
+        renderItem={({ item }) => (
+          <TranscriptRow item={item} fresh={contentReady && liveKeysRef.current.has(item.key)} />
+        )}
         ListFooterComponent={thinking ? <ThinkingPill /> : null}
         ListEmptyComponent={
           // The spinner lives INSIDE the list so it inherits the content
           // inset; a plain View above the list would start under the
           // transparent bar and paint its first row behind the title.
+          // (Invisible along with the rest of the list until `contentReady`
+          // — see the overlay spinner just below, which covers this same
+          // beat without a hand-off between two different spinners.)
           loading ? (
             <ActivityIndicator color={colors.textMuted} style={{ paddingVertical: space.xl }} />
           ) : (
@@ -1304,6 +1403,26 @@ export default function SessionScreen() {
           )
         }
       />
+
+      {/**
+       * ONE SPINNER FOR THE WHOLE OPENING BEAT — from "no fetch yet" through
+       * "laid out but not yet pinned" — so there is no flash between "loading"
+       * ending and the transcript itself appearing behind it. Absolutely
+       * positioned over the (still measuring, `opacity: 0`) FlatList rather
+       * than swapped in its place, so nothing about the list's own mount
+       * timing changes.
+       */}
+      {!contentReady ? (
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            { alignItems: "center", justifyContent: "center", paddingTop: insets.top + BAR_ITEM },
+          ]}
+        >
+          <ActivityIndicator color={colors.textMuted} />
+        </View>
+      ) : null}
 
       {/**
        * THE BAR, over the transcript rather than above it.
