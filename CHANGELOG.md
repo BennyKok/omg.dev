@@ -2,6 +2,32 @@
 
 Recent product updates and deployment notes.
 
+## August 17, 2026 - Bot Mode: agents you talk to (v0.1.384)
+
+- **Bots are persistent agents you keep a conversation with**, beside the
+  sessions you launch and close. A bot has a name, a persona, one long-lived
+  chat and a face. You don't launch it, you talk to it. Create one from the
+  rail's Bot list; it picks a repo, an agent and a model like a session does.
+- **A bot lives in the rail, next to your sessions.** The Chat/Bot switch sits
+  under "New session" and changes which list the rail shows. Picking a bot
+  opens its chat in the main pane exactly like opening a session, with the same
+  composer and the same chrome — because it *is* a session underneath, one that
+  never ships and never closes.
+- **The mascot is the bot's face, and it carries state.** One eye, a home shape
+  and a colorway make each bot recognisable at a glance; it works while its
+  session works and sleeps when the bot is disabled. While you wait for a
+  reply, the creature itself is the wait indicator rather than three anonymous
+  dots. The avatar is the shape alone — no card behind it.
+- **A session driven by a bot says so wherever you meet it**, and opening one
+  from the session list now shows the bot's face and name in the header, with
+  its settings a click away.
+- **Bot sessions survive idle cleanup.** They are exempt from idle archiving and
+  from the live-agent cap, so a bot you have not spoken to in a week is still
+  there when you come back.
+- **Fixed: the first message to a new bot was swallowed.** The greeting rode in
+  the same turn as the launch envelope, so it went unanswered and only your
+  second message worked.
+
 ## August 16, 2026 - App sessions get the correct owner (v0.1.383)
 
 - **A root session started from the account-scoped app is now assigned to the
