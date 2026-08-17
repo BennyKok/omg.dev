@@ -64,6 +64,7 @@ import {
   parseMessageAttachments,
   type MessageAttachment,
 } from "./message-attachments";
+import { parseOmgPromptEnvelope } from "./omg-prompt-envelope";
 import { AuthenticatedImage } from "./remote-image";
 import { Text } from "./text";
 import { useTheme } from "./theme";
@@ -1207,11 +1208,70 @@ function FallbackEntry({ message }: { message: Entry }) {
   );
 }
 
+/**
+ * omg.dev's launch contract travels inside the first user turn — several
+ * agent CLIs have no separate system-prompt channel for it — so without this,
+ * opening a session's first message meant reading past the whole runtime
+ * contract to find the one line the user actually typed. Web solves it with
+ * an inline disclosure; the phone already has an idiom for "auxiliary text
+ * that isn't the conversation" (`ToolRun`'s pill -> sheet), so this reuses
+ * that instead of an inline expand fighting the list's layout animation.
+ */
+function OmgInstructionsChip({ instructions, version }: { instructions: string; version: string | null }) {
+  const { colors, type, space, radius } = useTheme();
+  const [open, setOpen] = useState(false);
+  const symbol: Symbols = { ios: "scroll", android: "description" };
+
+  return (
+    <>
+      <Pressable
+        onPress={() => {
+          void Haptics.selectionAsync();
+          setOpen(true);
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={`omg.dev instructions${version ? `, version ${version}` : ""}. Open`}
+        style={({ pressed }) => ({
+          alignSelf: "flex-end",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 5,
+          minHeight: 26,
+          paddingHorizontal: space.sm,
+          paddingVertical: 3,
+          borderRadius: radius.pill,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: pressed ? colors.cardPressed : colors.card,
+        })}
+      >
+        <Icon ios={symbol.ios} android={symbol.android} size={12} color={colors.textMuted} />
+        <Text style={{ ...type.caption, fontWeight: "500", color: colors.text }}>
+          omg.dev instructions
+        </Text>
+        {version ? (
+          <Text style={{ ...type.caption, fontFamily: MONO, color: colors.textMuted }}>
+            {version}
+          </Text>
+        ) : null}
+        <Icon ios="chevron.right" android="chevron_right" size={10} color={colors.textMuted} />
+      </Pressable>
+
+      <ToolSheet visible={open} title="omg.dev instructions" symbol={symbol} onClose={() => setOpen(false)}>
+        <Text selectable style={{ fontFamily: MONO, fontSize: 13, lineHeight: 19, color: colors.text }}>
+          {instructions}
+        </Text>
+      </ToolSheet>
+    </>
+  );
+}
+
 export function UserMessage({ message }: { message: Entry }) {
   const { colors, type, space, radius } = useTheme();
   const body = useBodyText();
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const envelope = useMemo(() => parseOmgPromptEnvelope(message.text ?? ""), [message.text]);
 
   useEffect(
     () => () => {
@@ -1220,13 +1280,19 @@ export function UserMessage({ message }: { message: Entry }) {
     [],
   );
 
+  // When this turn carries the omg.dev launch envelope, everything below —
+  // copy, attachment-splitting, the bubble itself — works from the user's
+  // actual task text, not the full contract. The raw `message.text` still
+  // goes to the agent; this is presentation only (see omg-prompt-envelope.ts).
+  const rawText = envelope?.task ?? message.text ?? "";
+
   const copy = () => {
-    if (!message.text) return;
+    if (!rawText) return;
     void Haptics.selectionAsync();
     // expo-clipboard, not RN's core Clipboard — the core one is deprecated and
     // slated for removal, and expo-clipboard is already a dependency (the
     // iMessage sign-in flow uses it to copy the code).
-    void Clipboard.setStringAsync(message.text);
+    void Clipboard.setStringAsync(rawText);
     setCopied(true);
     if (copyTimer.current) clearTimeout(copyTimer.current);
     copyTimer.current = setTimeout(() => setCopied(false), 1500);
@@ -1241,13 +1307,16 @@ export function UserMessage({ message }: { message: Entry }) {
   // line. COPY STILL TAKES THE RAW TEXT: what the agent saw is what gets
   // copied, exactly as on the web.
   const { body: text, attachments } = useMemo(
-    () => parseMessageAttachments(message.text ?? ""),
-    [message.text],
+    () => parseMessageAttachments(rawText),
+    [rawText],
   );
   const isLong = text.length > LONG_MESSAGE_CHARS;
 
   return (
     <View style={{ alignSelf: "stretch", gap: space.xs }}>
+      {envelope ? (
+        <OmgInstructionsChip instructions={envelope.instructions} version={envelope.version} />
+      ) : null}
       {attachments.length ? (
         <UserAttachments attachments={attachments} pending={message.pending} />
       ) : null}
