@@ -201,9 +201,17 @@ export function PressableScale({
  * nothing owns the view any more — React is done with it and Reanimated has
  * stopped animating it — so it is stranded on screen at the coordinates it
  * had when it left. The rows still in flow then reflow past it (the list
- * polls every 10s and sections resize constantly), and the stranded frame is
- * left painting over whatever now occupies that space. Ghosts of the Recent
- * section on top of the live Idle rows is exactly what that looks like.
+ * polls every 10s and a busy/idle session can flip sections — Working to Idle
+ * and back — inside a single poll window), and the stranded frame is left
+ * painting over whatever now occupies that space. That stranded native view is
+ * held by the UI thread, not by React state, so it outlives whatever
+ * re-renders come after it and survives for as long as the app process does —
+ * which on iOS is however long the app sits suspended in the background, not
+ * merely until the next JS-level refresh. A session that flaps busy/idle
+ * repeatedly (an auto-reply persona firing on each inbound message, for
+ * instance) can strand several identical-looking copies of its own card, one
+ * per interrupted exit — indistinguishable rows piled on screen, which is
+ * exactly the "six identical cards" shape this bug was reported with.
  *
  * Reproduced on the simulator by dropping and restoring the Recent rows every
  * 120ms — inside `motion.fast` — which piled up stranded cards under a

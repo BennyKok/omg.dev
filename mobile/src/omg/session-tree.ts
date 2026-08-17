@@ -23,8 +23,50 @@ import type { OmgSession } from "@omg-dev/protocol";
 
 export type SessionNode = { session: OmgSession; children: SessionNode[] };
 
+/**
+ * A stable, non-empty React key for one session, even when the machine sends
+ * one with none of the three real identifiers.
+ *
+ * The three real ids come first and are preferred whenever any of them
+ * exists. When NONE do, this used to return `""` and every call site fell
+ * back to `|| index` — which is a key by POSITION, not by identity. Two
+ * id-less sessions then keyed as `0`, `1`, … by array order, so a poll that
+ * changed nothing but the order (or dropped a session earlier in the list)
+ * made React reconcile row N's old content into row N's new session, which
+ * reads as one row's card refusing to update, or two different sessions
+ * sharing a single animated row that flickers between their content.
+ *
+ * The fallback is a hash of whatever the session DOES carry — title, agent,
+ * cwd, last words said, parent — prefixed so it can never collide with a real
+ * id. It is not guaranteed unique (two genuinely identical, id-less sessions
+ * still collide), but it is deterministic across re-renders of the same
+ * underlying data, which `index` never was, and collisions now require two
+ * sessions to agree on every one of those fields rather than merely occupying
+ * the same array slot.
+ */
 export function sessionStableId(session: OmgSession): string {
-  return session.sessionId || session.nativeSessionId || session.tmuxName || "";
+  const real = session.sessionId || session.nativeSessionId || session.tmuxName;
+  if (real) return real;
+  return `anon:${hashFields([
+    session.title,
+    session.lastUserText,
+    session.agent,
+    session.agentLabel,
+    session.cwd,
+    session.project,
+    session.parentSessionId,
+    session.parentNativeSessionId,
+  ])}`;
+}
+
+/** A short, deterministic, non-cryptographic hash — good enough for a key. */
+function hashFields(fields: Array<string | null | undefined>): string {
+  let hash = 0;
+  const joined = fields.map((f) => f ?? "").join(" ");
+  for (let i = 0; i < joined.length; i++) {
+    hash = (Math.imul(31, hash) + joined.charCodeAt(i)) | 0;
+  }
+  return (hash >>> 0).toString(36);
 }
 
 export function buildSessionTree(sessions: OmgSession[]): SessionNode[] {
