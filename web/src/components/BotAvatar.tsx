@@ -10,6 +10,12 @@ import { cn } from "@/lib/utils";
  * any other by lerping its radii, and the whole creature is one SVG path plus a
  * translated eye group. No filters, no per-frame layout reads.
  *
+ * The creature is the colour: the silhouette itself carries the colorway
+ * gradient and sits on whatever is behind it. There is no card, no plate, no
+ * rounded background — the shape is the only thing drawn, so the same avatar
+ * drops into a roster row, a chat header or a message gutter without bringing
+ * a competing surface with it.
+ *
  * Sizing is deliberately tiered. Above `DETAIL_MIN_PX` the full path animation
  * runs; below it the geometric detail does not read on screen anyway, so the
  * creature falls back to a cheap CSS scale-breathe and skips the tick loop
@@ -31,15 +37,22 @@ export const SHAPE_LABELS: Record<BotShape, string> = {
   hexagon: "Hexagon",
 };
 
+/**
+ * Colorways paint the silhouette, not a card behind it, so every gradient has
+ * to hold up as a small solid shape on both the light and the dark shell. The
+ * near-black ends the card versions used would read as a hole punched in a
+ * dark background, so each ramp keeps its identity but stays in mid-tone.
+ * `eye` is the cutout colour, light against its own body.
+ */
 export const COLORWAYS: Record<
   BotColorway,
-  { name: string; stops: [string, string]; body: string; pupil: string }
+  { name: string; stops: [string, string]; eye: string }
 > = {
-  warm: { name: "Warm", stops: ["#7a4127", "#150b08"], body: "#f7f2e9", pupil: "#241811" },
-  brand: { name: "Brand", stops: ["#3b5bf6", "#06b6d4"], body: "#eef6ff", pupil: "#123a6b" },
-  violet: { name: "Violet", stops: ["#7c3aed", "#ec4899"], body: "#faf1fb", pupil: "#3b0764" },
-  forest: { name: "Forest", stops: ["#0d9488", "#a3e635"], body: "#f2fbe8", pupil: "#14432a" },
-  midnight: { name: "Midnight", stops: ["#2c2c2e", "#0a0a0b"], body: "#dffbf9", pupil: "#083344" },
+  warm: { name: "Warm", stops: ["#f0a04b", "#b4451f"], eye: "#fff5e8" },
+  brand: { name: "Brand", stops: ["#4d7cff", "#06b6d4"], eye: "#f0f8ff" },
+  violet: { name: "Violet", stops: ["#8b5cf6", "#ec4899"], eye: "#fdf2fb" },
+  forest: { name: "Forest", stops: ["#14b8a6", "#84cc16"], eye: "#f4fce9" },
+  midnight: { name: "Midnight", stops: ["#7b8ba6", "#2b3446"], eye: "#e2f5fb" },
 };
 
 /* ---------------- geometry: 12-point radial silhouette ---------------- */
@@ -88,12 +101,14 @@ const pebble = [0.92, 0.95, 1.2, 1.06, 0.84, 0.8, 0.9, 1.14, 1.24, 0.98, 0.86, 0
   (f) => R * f,
 );
 
-// A true hexagon swings vertex-to-edge-midpoint by 1/cos(30deg) ~ 1.155.
-// Catmull-Rom rounds that off, so the swing is widened a little to keep the
-// vertices legible — but only a little: the prototype's 0.75-1.10 (a ratio of
-// 1.47, well past a real hexagon) reads as a six-pointed star at avatar size,
-// which is what this actually renders at. 0.84-1.06 keeps corners visible at
-// 38px while still reading hexagonal rather than spiky.
+// A true hexagon swings vertex-to-edge-midpoint by 1/cos(30deg) ~ 1.155, and
+// that is very close to what this uses: 0.90-1.04 is a ratio of 1.16.
+// Widening the swing to "help" the corners survive Catmull-Rom backfires —
+// samples land exactly on alternating vertices and edge midpoints, so the
+// spline turns any extra amplitude into six spikes. The earlier 0.84-1.06
+// (ratio 1.26) read as a six-pointed star, which mattered little behind a
+// gradient card and matters a lot now that the silhouette is the whole
+// identity.
 const hexagon = (() => {
   const period = Math.PI / 3;
   return ANGLES.map((a) => {
@@ -101,7 +116,7 @@ const hexagon = (() => {
     const m = ((t % period) + period) % period;
     const raw = Math.cos(Math.PI / 6) / Math.cos(m - Math.PI / 6);
     const norm = (raw - 0.866) / (1 - 0.866);
-    return R * (0.84 + 0.22 * norm);
+    return R * (0.9 + 0.14 * norm);
   });
 })();
 
@@ -232,6 +247,15 @@ const prefersReducedMotion = () =>
 /** Below this, path detail doesn't read — a CSS breathe is the honest trade. */
 const DETAIL_MIN_PX = 26;
 
+/**
+ * The eye is now a hole in the body rather than a dot under a body-coloured
+ * lid, so closing it means squashing the eye itself. Not to zero: a sleeping
+ * creature with no eye at all just looks like a bean, whereas a flat sliver
+ * reads as a shut lid.
+ */
+const EYE_SHUT = "scaleY(0.14)";
+const EYE_OPEN = "scaleY(1)";
+
 export function BotAvatar({
   shape = "circle",
   colorway = "warm",
@@ -254,7 +278,7 @@ export function BotAvatar({
   const pathRef = useRef<SVGPathElement>(null);
   const eyeRef = useRef<SVGGElement>(null);
   const groupRef = useRef<SVGGElement>(null);
-  const lidRef = useRef<SVGEllipseElement>(null);
+  const pupilRef = useRef<SVGCircleElement>(null);
   const stateRef = useRef(state);
   const shapeRef = useRef(shape);
 
@@ -271,8 +295,8 @@ export function BotAvatar({
     const path = pathRef.current;
     const eye = eyeRef.current;
     const group = groupRef.current;
-    const lid = lidRef.current;
-    if (!path || !eye || !group || !lid) return;
+    const pupil = pupilRef.current;
+    if (!path || !eye || !group || !pupil) return;
 
     const reduced = prefersReducedMotion();
     const phase = (seed % 10) * 0.7;
@@ -287,7 +311,7 @@ export function BotAvatar({
     let dur = 0;
     let appliedState: BotMotionState | null = null;
     let appliedShape: BotShape | null = null;
-    const pupil = { ...STATES[stateRef.current].pupil };
+    const gaze = { ...STATES[stateRef.current].pupil };
 
     if (reduced) {
       // Static idle pose: no wobble, no blink, no spring — but still the right
@@ -298,7 +322,7 @@ export function BotAvatar({
       );
       path.setAttribute("d", pathFor(radii));
       eye.setAttribute("transform", `translate(${spec.pupil.x},${spec.pupil.y})`);
-      lid.style.transform = spec.closed ? "scaleY(1)" : "scaleY(0)";
+      pupil.style.transform = spec.closed ? EYE_SHUT : EYE_OPEN;
       return;
     }
 
@@ -306,9 +330,9 @@ export function BotAvatar({
     const scheduleBlink = () => {
       blinkTimer = setTimeout(() => {
         if (!STATES[stateRef.current].closed) {
-          lid.classList.remove("bot-blink");
-          void lid.getBoundingClientRect();
-          lid.classList.add("bot-blink");
+          pupil.classList.remove("bot-blink");
+          void pupil.getBoundingClientRect();
+          pupil.classList.add("bot-blink");
         }
         scheduleBlink();
       }, 2200 + Math.random() * 4200);
@@ -331,7 +355,7 @@ export function BotAvatar({
         appliedState = stateRef.current;
         appliedShape = shapeRef.current;
         group.style.transform = `rotate(${spec.tilt}deg)`;
-        lid.style.transform = spec.closed ? "scaleY(1)" : "scaleY(0)";
+        pupil.style.transform = spec.closed ? EYE_SHUT : EYE_OPEN;
       } else if (dur === 0) {
         to = target;
       }
@@ -352,9 +376,9 @@ export function BotAvatar({
       last = radii;
       path.setAttribute("d", pathFor(radii));
 
-      pupil.x = lerp(pupil.x, spec.pupil.x, 0.12);
-      pupil.y = lerp(pupil.y, spec.pupil.y, 0.12);
-      eye.setAttribute("transform", `translate(${pupil.x.toFixed(2)},${pupil.y.toFixed(2)})`);
+      gaze.x = lerp(gaze.x, spec.pupil.x, 0.12);
+      gaze.y = lerp(gaze.y, spec.pupil.y, 0.12);
+      eye.setAttribute("transform", `translate(${gaze.x.toFixed(2)},${gaze.y.toFixed(2)})`);
     });
 
     // Breathing period varies per creature via the wobble phase seed above;
@@ -369,7 +393,11 @@ export function BotAvatar({
 
   return (
     <svg
-      viewBox="-20 -20 240 240"
+      // Tight to the silhouette. With the card gone there is nothing to pad
+      // out to, so the creature gets the whole box and keeps the visual weight
+      // the plate used to carry. The margin is what the widest pose needs:
+      // the teardrop's spike, perked and mid-wobble.
+      viewBox="-8 -8 216 216"
       width={size}
       height={size}
       className={cn("shrink-0", !detailed && "bot-breathe", className)}
@@ -379,24 +407,35 @@ export function BotAvatar({
       style={{ animationDelay: `${(seed % 7) * 0.4}s` }}
     >
       <defs>
-        <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
+        {/* userSpaceOnUse, not the default bounding box: the silhouette
+            changes size every frame, and a bbox gradient would slide its
+            ramp around as the creature breathes. */}
+        <linearGradient
+          id={gradientId}
+          gradientUnits="userSpaceOnUse"
+          x1="18"
+          y1="18"
+          x2="182"
+          y2="182"
+        >
           <stop offset="0%" stopColor={cw.stops[0]} />
           <stop offset="100%" stopColor={cw.stops[1]} />
         </linearGradient>
       </defs>
-      <rect x="-20" y="-20" width="240" height="240" rx="55" fill={`url(#${gradientId})`} />
       <g ref={groupRef} style={{ transformOrigin: "50% 50%", transition: "transform .5s ease" }}>
-        <path ref={pathRef} d={pathFor(restRadii)} fill={cw.body} />
+        <path ref={pathRef} d={pathFor(restRadii)} fill={`url(#${gradientId})`} />
         <g ref={eyeRef} transform="translate(16,-12)">
-          <circle cx="100" cy="100" r="16" fill={cw.pupil} />
-          <ellipse
-            ref={lidRef}
+          <circle
+            ref={pupilRef}
             cx="100"
             cy="100"
-            rx="30"
-            ry="32"
-            fill={cw.body}
-            style={{ transformBox: "fill-box", transformOrigin: "50% 50%", transform: "scaleY(0)" }}
+            r="22"
+            fill={cw.eye}
+            style={{
+              transformBox: "fill-box",
+              transformOrigin: "50% 50%",
+              transform: EYE_OPEN,
+            }}
           />
         </g>
       </g>

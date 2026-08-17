@@ -3486,7 +3486,6 @@ a{color:#60a5fa}
           const body = (await req.json().catch(() => null)) as {
             name?: unknown;
             persona?: unknown;
-            emoji?: unknown;
             agent?: unknown;
             model?: unknown;
             thinkingLevel?: unknown;
@@ -3516,7 +3515,6 @@ a{color:#60a5fa}
           const bot = await createBot({
             name,
             persona,
-            emoji: typeof body?.emoji === "string" ? body.emoji.trim() || undefined : undefined,
             shape: avatar.shape,
             colorway: avatar.colorway,
             agent: config.agent,
@@ -3606,9 +3604,6 @@ a{color:#60a5fa}
               persona,
               shape: body.shape === undefined ? current.shape : avatar.shape,
               colorway: body.colorway === undefined ? current.colorway : avatar.colorway,
-              emoji: body.emoji === undefined
-                ? current.emoji
-                : typeof body.emoji === "string" ? body.emoji.trim() || undefined : undefined,
               agent: config.agent,
               model,
               thinkingLevel,

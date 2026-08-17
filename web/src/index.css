@@ -1826,9 +1826,19 @@ html.lfg-keyboard-open {
     transform: translateY(0);
   }
 
-  .typing-indicator-slot > .typing-indicator {
+  .typing-indicator-slot > .typing-indicator,
+  .typing-indicator-slot > .typing-mascot {
     min-height: 0;
     overflow: hidden;
+  }
+
+  /* Bot chat wait state: the creature carries it, so there is no pill —
+     no border, no plate, nothing behind the shape. */
+  .typing-mascot {
+    display: flex;
+    width: fit-content;
+    align-items: center;
+    padding: 1px 0;
   }
 
   .typing-indicator {
@@ -2669,9 +2679,12 @@ html.lfg-keyboard-open {
  * blink, and the small-size breathe that replaces the full path
  * animation below ~26px, where the geometry doesn't read anyway.
  * ------------------------------------------------------------------ */
+/* The eye is a cutout in the body, so a blink squashes the eye itself
+   rather than dropping a lid over it. It stops just short of zero: a
+   sliver reads as a closed lid, nothing reads as a missing eye. */
 @keyframes lfg-bot-blink {
-  0%, 100% { transform: scaleY(0); }
-  45%, 55% { transform: scaleY(1); }
+  0%, 100% { transform: scaleY(1); }
+  45%, 55% { transform: scaleY(0.14); }
 }
 .bot-blink {
   animation: lfg-bot-blink 0.22s ease-in-out;
