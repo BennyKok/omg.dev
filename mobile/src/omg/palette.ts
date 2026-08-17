@@ -41,16 +41,47 @@ export type Palette = {
   fieldFill: string;
 };
 
-/** Dark tokens — from `.dark` in web/src/index.css. */
+/**
+ * Dark tokens — from `.dark` in web/src/index.css.
+ *
+ * Softened off the original near-black/pure-white extremes at Benny's
+ * request (2026-08-17), grounded in pixel samples off Claude's iOS app —
+ * see the inline notes on background/foreground/card/mutedForeground below
+ * for the measurements and reasoning. web/src/index.css's `.dark` block was
+ * updated to match in the same change; scripts/check-theme-drift.ts is green.
+ */
 export const darkColors: Palette = {
-  background: "#000000",
-  foreground: "#ffffff",
-  card: "#1c1c1e",
+  // Softened off near-black. Measured from Benny's Claude-iOS reference
+  // screenshots (ImageMagick pixel sample, averaged over several clean
+  // patches): background ~#141414, card fill ~#1F1F1F. See the note on
+  // `card` below for how that measured card value ended up not being the
+  // final one.
+  background: "#141414",
+  // Off-white, not pure white. Reference chat titles and assistant body text
+  // both measured ~#F8F8F6-#F9F9F7 (warm: R/G a few points above B).
+  // #F2F2ED sits a little further back from white than the raw measurement,
+  // as safety margin, while keeping the same warm R=G>B relationship.
+  foreground: "#F2F2ED",
+  // Bumped from #1c1c1e per Benny — the card itself (SessionCard, message
+  // bubbles, everything using `colors.card`) needed to sit further above the
+  // new lighter bg, not just gain a border (that's PR #132's borderStrong,
+  // a different fix for a different surface). #242428: delta from bg goes
+  // from 8 to 16-20 — a real, visible raise, still short of the old
+  // 28-level jump off pure black so it doesn't blow past the reference's
+  // own bg->card gap (~11). `popover` moves with it (same surface family);
+  // `fieldFill` is left at the old #1c1c1e — untouched by this request, and
+  // only used on the sign-in screen.
+  card: "#242428",
   cardPressed: "#2c2c2e",
-  popover: "#1c1c1e",
+  popover: "#242428",
   secondary: "#2c2c2e",
   muted: "#2c2c2e",
-  mutedForeground: "rgba(235, 235, 245, 0.6)",
+  // Same alpha-over-background formula as before (0.6), but the base tint
+  // moves from a cool white (235,235,245) to a warm one (235,230,220) so the
+  // composited result lands on the measured reference grey — "last mo." in
+  // the chats-list reference sampled at #96948D (150,148,141), a clearly
+  // warm grey (R notably above B). Composited here: ~(149,146,140).
+  mutedForeground: "rgba(235, 230, 220, 0.6)",
   accent: "rgba(118, 118, 128, 0.24)",
   primary: "#0a84ff",
   primaryForeground: "#ffffff",
@@ -60,7 +91,12 @@ export const darkColors: Palette = {
   info: "#0a84ff",
   border: "rgba(84, 84, 88, 0.35)",
   borderStrong: "rgba(84, 84, 88, 0.65)",
-  text2: "rgba(235, 235, 245, 0.78)",
+  // Same warm base as mutedForeground, same relative alpha step (0.78,
+  // unchanged from before) — one tier up from mutedForeground, same as it
+  // always was. No reference sample exists for this exact tier (the refs
+  // only show a title/timestamp pair), so this moves with the rest of the
+  // system rather than being independently measured.
+  text2: "rgba(235, 230, 220, 0.78)",
   codeBg: "rgba(118, 118, 128, 0.16)",
   /** Elevated fill for a field sitting on `card`. */
   fieldFill: "#1c1c1e",
