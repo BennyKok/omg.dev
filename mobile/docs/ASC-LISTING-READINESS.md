@@ -258,10 +258,10 @@ entity clause is gone, only the signature clause remains), and the
 "Edit Legal Entity" affordance is no longer shown next to the entity name —
 Apple only removes that once entity info is accepted.
 
-### "Machine Thinking Company" — context only, NOT the Apple entity
+### "Machine Thinking Company" — CONFIRMED BY BENNY NOT his company. Do not act on it, or its address, for any purpose.
 
 A predecessor session found HK Business Registration documents in Benny's
-Dropbox under a name different from the original "Use Effect Limited"
+Dropbox under a name different from an earlier "Use Effect Limited"
 assumption (which does not exist anywhere in Dropbox — zero filename or
 content matches):
 
@@ -270,15 +270,25 @@ content matches):
 | Name found | Machine Thinking Company | `Documents/20250401-BR-Machine Thinking Company.pdf` (HK BR Certificate) + `Documents/20250401-Form 1a-Machine Thinking Company.pdf` (the application) |
 | Entity type | Individual/sole-proprietorship registration (Form 1(a)), proprietor Kok Chun Hung | same |
 | BR Certificate No. | `57966774-000-04-25-9` | same |
-| Registered address | 16 Sam Dip Tam, House 57, Lo Wai Village, Tsuen Wan, N.T., Hong Kong | same |
+| Registered address | **16** Sam Dip Tam, House 57, Lo Wai Village, Tsuen Wan, N.T., Hong Kong | same |
 | Validity | Commenced 01/04/2025, **expired 31/03/2026** (lapsed as of today, 2026-08-17) | same |
 
-**This is not the Apple entity and must not be entered into ASC's legal
-entity form or referenced as the account holder.** It's kept here purely as
-context on what exists in Benny's Dropbox, independent of Apple — the
-individual Apple Developer account confirmation above supersedes it for
-every ASC purpose. Do not renew this BR on Apple's behalf; it has no
-bearing on the Apple side.
+**Benny has now explicitly confirmed: Machine Thinking Company is NOT his
+company, has no relationship to this app or this Apple account, and is not
+the entity referenced anywhere in this doc.** His actual active company —
+relevant only to the future Organization-conversion path discussed below,
+not to anything filed so far — is **Use Effect Limited**.
+
+**Address disambiguation, since the two look similar and it matters:** the
+Apple legal entity / W-8BEN address on file is **`40` Sam Dip Tam Hse 57 Lo
+Wai Village Tsuen Wan N.T.** (confirmed live in ASC, split across Address
+1/2, and pre-filled correctly onto the W-8BEN tax form). The Machine
+Thinking Company BR document above says **`16`** Sam Dip Tam — a different
+house number, same village. **The `16` address belongs to Machine Thinking
+Company and has never been entered anywhere in ASC.** Nobody reading this
+doc later should treat the `16` BR document, its address, or its expired
+certificate as relevant to Apple, this app, or any tax/bank filing — it is
+retained here solely as a record of what one Dropbox search turned up, nothing more.
 
 Not reported here: the proprietor's HKID/passport number visible on the Form
 1(a) — irrelevant to Apple's requirements and not something to propagate.
