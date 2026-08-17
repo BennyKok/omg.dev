@@ -29,9 +29,11 @@ Registry (ICRIS) name search, which also confirms the exact registered name
 and company number. Paid searches are not needed — the registered address
 above is already sourced from the original certificate.
 
-Still needed from Benny before the D-U-N-S request can be filed:
+Still needed from Benny:
 - [ ] Number of employees at Use Effect Limited
 - [ ] His exact title there (Director, expected but unconfirmed)
+- [ ] HKID or passport number, to register as a searcher on the HK Companies
+      Registry e-Services portal and run the free ICRIS name search below
 
 ## D-U-N-S number
 
@@ -44,11 +46,25 @@ speed**:
 | Apple's own lookup/request tool (`developer.apple.com/enroll/duns-lookup/`) | ~7 business days total (D&B issues in ≤5 business days, syncs to Apple in ≤2 more) | Free. Checks for an existing number first; if none exists, submits a new request on this fast track. **Use this path.** |
 | D&B Hong Kong direct (email `enquiryhk@dnb.com`, mail back a form) | ~30 working days (~6 weeks) | Free, but far slower. Only fall back to this if the Apple-tool path stalls past 2 weeks — Apple's own guidance in that case is to escalate via `support.dnb.com/?CUST=APPLEDEV`. |
 
-**Status: TBD** — pending browser access to run the lookup. This section
-gets updated with either the existing number (if D&B already has one on file
-for Use Effect Limited) or the fast-track request details the moment that
-lookup runs. An existing number would remove the ~7-business-day wait
-entirely.
+**Status: Existing D&B record found — number in transit by email.** Ran
+Apple's lookup tool on 2026-08-17 (Region: Hong Kong, Legal Entity Name:
+`USE EFFECT LIMITED`, Headquarters Address: `RM 29-33 5/F BEVERLEY COMM CTR,
+87-105 CHATHAM RD`, Tsim Sha Tsui). D&B returned one matching record with the
+exact legal entity name and exact headquarters address already on file.
+Selected/confirmed that match (did not submit a *new* D-U-N-S request — this
+was the "check for an existing one" branch of the tool). Apple's response:
+
+> We've received your information. Your organization's D-U-N-S Number has
+> been sent to the email address you provided.
+
+The number itself is **not shown on-screen** — D&B emails it to the work
+contact address used on the form (`support@omg.dev`). That inbox hadn't
+received it yet as of this update; check it and paste the number here once it
+arrives. This still removes the ~7-business-day wait entirely since no new
+request was needed — D&B already has Use Effect Limited on file at this
+address.
+
+- [ ] Paste the actual D-U-N-S number here once the email lands.
 
 ## Conversion sequence (Individual → Organization)
 
@@ -121,11 +137,18 @@ deliberate deferral and not a dropped thread.
 
 ## Open items
 
-- [ ] Run the Apple D-U-N-S lookup / fast-track request, record the result
-      above.
+- [x] Run the Apple D-U-N-S lookup — existing D&B record found for Use Effect
+      Limited at the exact registered address; number emailed to
+      `support@omg.dev`, not yet retrieved. See D-U-N-S section above.
+- [ ] Paste the actual D-U-N-S number into this doc once the email arrives.
 - [ ] Free ICRIS search: confirm exact registered name, company number, and
-      true incorporation date.
+      true incorporation date. **Blocked** — the HK Companies Registry
+      e-Services portal now requires the searcher to register with a real
+      HKID or passport number (Hong Kong's post-2023 Companies Registry
+      non-disclosure regime applies this to the free basic search, not just
+      paid particulars searches). Needs Benny's HKID or passport number to
+      proceed; not something to invent or guess.
 - [ ] Get employee count and Benny's title from Benny, needed for the D-U-N-S
       application if one has to be filed.
 - [ ] Benny submits the Convert to Organization request himself once the
-      D-U-N-S exists (this agent prepares, does not submit).
+      D-U-N-S number is confirmed (this agent prepares, does not submit).
