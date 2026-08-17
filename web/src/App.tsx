@@ -24046,7 +24046,12 @@ function BotEditorSheet({
   };
 
   return (
-    <BottomSheet onClose={onClose} title={editing ? "Edit bot" : "New bot"}>
+    // page: making a bot is a form, not a confirmation — name, persona, shape,
+    // color and an advanced section, with the name field autofocused so the
+    // keyboard is up immediately. A content-sized card had to morph mid-open
+    // and left the shape/color rows crowded against the keyboard. Full height
+    // from the start on mobile; desktop keeps the centred 85dvh dialog.
+    <BottomSheet page onClose={onClose} title={editing ? "Edit bot" : "New bot"}>
       <div className="px-2 pb-4 pt-1">
         <div className="flex items-center gap-2">
           <Bot className="size-5 text-primary" />
