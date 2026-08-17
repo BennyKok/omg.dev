@@ -5,12 +5,13 @@
  * It is NOT a session on its own: it has no transcript, nothing to resume.
  * What it produces is a FINDING — one notification, at most, per run,
  * carrying its reasoning and a lifecycle (open, dismissed, or graduated into
- * a real session — acting on that lifecycle from the phone is a follow-up;
- * this file only reads and shapes the open list for now). That distinction is
- * the whole reason these get their own section on the home screen rather than
- * being folded into Working/Idle, where tapping a row opens a transcript and
- * swiping one archives a session — both would be lies here. See
- * selectHomeAutoFindings below.
+ * a real session). That distinction is the whole reason these get their own
+ * section on the home screen rather than being folded into Working/Idle,
+ * where tapping a row opens a transcript and swiping one archives a session —
+ * here tapping (then "Start session") launches a NEW session seeded from the
+ * finding, and swiping dismisses the finding, not a session that never
+ * existed. See selectHomeAutoFindings and setFindingStatus below, and
+ * startSessionFromFinding in app/index.tsx.
  *
  * WHAT THE HOME SCREEN IS FOR, AND WHY THIS LIST IS A FINDINGS LIST.
  *
@@ -83,6 +84,16 @@ export type AutoAgentsState = {
   tz: string;
   loading: boolean;
   refresh: () => void;
+  /**
+   * Move a finding off the open list — dismissed (the user doesn't want to
+   * act on it) or session (they graduated it into a real agent session; see
+   * `startSessionFromFinding` in index.tsx). Optimistic: the row leaves the
+   * screen immediately, matching `archiveSession`'s swipe. On failure the
+   * optimistic removal is undone by a real refetch rather than by re-inserting
+   * the stale object, so the phone never shows a finding the server has
+   * already resolved a different way (from another device, or the web).
+   */
+  setFindingStatus: (id: string, status: "dismissed" | "session") => Promise<void>;
 };
 
 /**
@@ -164,7 +175,29 @@ export function useAutoAgents(): AutoAgentsState {
     }, []),
   );
 
-  return { agents, findings, tz, loading, refresh };
+  // Optimistic: the row leaves `findings` the instant the user acts, the same
+  // beat archiveSession drops a session out of its list. If the request
+  // fails, don't splice the stale object back in — bump `tick` and let a real
+  // refetch decide, which is also correct if the finding was independently
+  // resolved elsewhere (another device, the web) in the meantime.
+  const setFindingStatus = useCallback(
+    async (id: string, status: "dismissed" | "session") => {
+      if (!client) return;
+      setFindings((prev) => prev.filter((f) => f.id !== id));
+      try {
+        await client.transport.request(`/api/auto/findings/${id}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        });
+      } catch {
+        setTick((n) => n + 1);
+      }
+    },
+    [client],
+  );
+
+  return { agents, findings, tz, loading, refresh, setFindingStatus };
 }
 
 const SEVERITY_RANK: Record<string, number> = { high: 0, med: 1, low: 2 };

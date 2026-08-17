@@ -39,7 +39,7 @@ import {
   type SessionNode,
 } from "../src/omg/session-tree";
 import { AutoFindingCard } from "../src/omg/auto-agent-card";
-import { selectHomeAutoFindings, useAutoAgents } from "../src/omg/auto-agents";
+import { selectHomeAutoFindings, useAutoAgents, type AutoFindingRow } from "../src/omg/auto-agents";
 import { useComputerPicker } from "../src/omg/computer-picker";
 import { useDictation } from "../src/omg/dictation";
 import { PressableScale } from "../src/omg/motion";
@@ -333,7 +333,12 @@ export default function SessionsScreen() {
   // to a box too old to have that endpoint.
   const { providers: usage, loading: usageLoading } = useUsage();
   const { sessions: resumable, refresh: refreshResumable } = useResumable();
-  const { agents: autoAgents, findings: autoFindings, refresh: refreshAuto } = useAutoAgents();
+  const {
+    agents: autoAgents,
+    findings: autoFindings,
+    refresh: refreshAuto,
+    setFindingStatus: setAutoFindingStatus,
+  } = useAutoAgents();
   const agentPicker = useAgentPicker();
   const projectPicker = useProjectPicker();
 
@@ -692,6 +697,83 @@ export default function SessionsScreen() {
     [client, load],
   );
 
+  /**
+   * DISMISS. The finding said its piece; the user doesn't want to act on it.
+   *
+   * Delegates to `setFindingStatus`, which owns the optimistic removal and
+   * the real request (POST /api/auto/findings/{id} {status:"dismissed"}) —
+   * the same status change the web's Dismiss button sends. There is
+   * deliberately no local-only hide: a dismiss that reappears on next launch
+   * because it never reached the server is worse than no dismiss at all.
+   */
+  const dismissFinding = useCallback(
+    (findingId: string) => {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void setAutoFindingStatus(findingId, "dismissed");
+    },
+    [setAutoFindingStatus],
+  );
+
+  /**
+   * Which finding is graduating into a session right now. ONE at a time — a
+   * finding launches into the composer's own /api/sessions/new call, and the
+   * button that fired it is the only one that should show a spinner.
+   */
+  const [startingFindingId, setStartingFindingId] = useState<string | null>(null);
+
+  /**
+   * START SESSION. The one-tap path web calls "Make the change": no typed
+   * instruction, just "go implement the suggested fix" — a phone has no room
+   * for the web sheet's launch-settings picker, so this launches on the
+   * finding's OWN agent's backend/model/cwd, the same defaults the web falls
+   * back to when nothing is overridden.
+   *
+   * Composes the same reference text `replyToFinding` sends in
+   * web/src/App.tsx (agent name, title, reasoning, suggestion, then the
+   * instruction) so a session graduated from mobile reads identically to one
+   * graduated from the web. Marks the finding `session` — not `dismissed` —
+   * so its lifecycle in src/auto/store.ts correctly says WHY it left the open
+   * list, and navigates to the new session the same way the composer's own
+   * Start button does.
+   */
+  const startSessionFromFinding = useCallback(
+    async (row: AutoFindingRow) => {
+      if (!client || startingFindingId) return;
+      const { finding, agent } = row;
+      setStartingFindingId(finding.id);
+      const prompt = [
+        `An automated watch agent ("${agent?.name ?? "Auto agent"}") flagged this:`,
+        "",
+        finding.title,
+        ...(finding.reasoning?.length ? ["", "Reasoning:", ...finding.reasoning.map((r) => `- ${r}`)] : []),
+        ...(finding.suggest ? ["", `Suggested fix: ${finding.suggest}`] : []),
+        "",
+        "Now do this: Go ahead and implement this fix now.",
+      ].join("\n");
+      try {
+        const res = await client.transport.request<{ sessionId?: string }>("/api/sessions/new", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt,
+            title: finding.title.trim().slice(0, 200),
+            agent: agent?.agent ?? undefined,
+            model: agent?.model ?? undefined,
+            cwd: agent?.cwd ?? undefined,
+          }),
+        });
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        await setAutoFindingStatus(finding.id, "session");
+        await load();
+        if (res?.sessionId) router.push(`/session/${res.sessionId}`);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setStartingFindingId(null);
+      }
+    },
+    [client, startingFindingId, setAutoFindingStatus, load, router],
+  );
 
   /**
    * The bar is the system's, not ours.
@@ -1030,9 +1112,12 @@ export default function SessionsScreen() {
              *
              * Auto agents run on a timer and report findings; a finding is
              * not a session, so it does not belong in Working or Idle, where
-             * a tap opens a transcript and a swipe archives — see
-             * auto-agents.ts. Its own section, ADDED rather than
-             * substituted: the three above are untouched.
+             * a tap opens a transcript. A swipe here still dismisses, same
+             * gesture as archive, different target — see the long note atop
+             * auto-agent-card.tsx for why dismiss gets both that swipe and a
+             * visible button, and why "start session" only gets the button.
+             * Its own section, ADDED rather than substituted: the three above
+             * are untouched.
              *
              * ONE ROW PER OPEN FINDING, matching the web's own live view
              * (the "Auto" section in web/src/App.tsx) rather than a roster of
@@ -1066,6 +1151,9 @@ export default function SessionsScreen() {
                           current === row.finding.id ? null : row.finding.id,
                         )
                       }
+                      onDismiss={() => dismissFinding(row.finding.id)}
+                      onStartSession={() => void startSessionFromFinding(row)}
+                      busy={startingFindingId === row.finding.id}
                     />
                   ))}
                 </View>
