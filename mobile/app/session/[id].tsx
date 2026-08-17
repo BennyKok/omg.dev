@@ -85,6 +85,7 @@ import { useAttachments } from "../../src/omg/attachments";
 import { useDictation } from "../../src/omg/dictation";
 import { GlassSurface, LIQUID_GLASS } from "../../src/omg/glass";
 import { DropdownMenu, type MenuOption } from "../../src/omg/menu";
+import { agentIcon, agentLabel as agentDisplayName } from "../../src/omg/agent-icons";
 import { useOmg } from "../../src/omg/provider";
 import { useTheme } from "../../src/omg/theme";
 import { useToast } from "../../src/omg/toast";
@@ -130,7 +131,7 @@ export default function SessionScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors, type, space, radius } = useTheme();
-  const { client } = useOmg();
+  const { client, agents } = useOmg();
 
   const attachments = useAttachments(id ?? null);
   const dictation = useDictation(
@@ -815,6 +816,39 @@ export default function SessionScreen() {
     })();
   }, [client, id, router]);
 
+  /**
+   * Continue: open a replacement session from this transcript, then archive
+   * the source. Unlike resume, this can deliberately switch agent backends.
+   */
+  const continueWithAgent = useCallback(
+    (agent?: string) => {
+      if (!client || !id) return;
+      void (async () => {
+        try {
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          const res = await client.transport.request<{
+            sessionId?: string;
+            sourceArchived?: boolean;
+          }>(`/api/sessions/${id}/fork`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              archiveSource: true,
+              agent: agent || undefined,
+            }),
+          });
+          if (res?.sourceArchived === false) {
+            toast.show("New session opened, but the old session was not archived.");
+          }
+          if (res?.sessionId) router.replace(`/session/${res.sessionId}`);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      })();
+    },
+    [client, id, router, toast],
+  );
+
   /** The id, for pasting into another agent — what the web's "Copy reference" does. */
   const copyReference = useCallback(() => {
     if (!id) return;
@@ -834,6 +868,42 @@ export default function SessionScreen() {
       options.push({ label: "Stop the agent", icon: "stop.fill", onPress: () => void stop() });
     }
     options.push({ label: "Rename", icon: "pencil", onPress: rename });
+    if (!busy) {
+      const launchableAgents = agents.length
+        ? agents
+        : sessionInfo?.agent
+          ? [{ key: sessionInfo.agent, label: agentDisplayName(sessionInfo.agent) }]
+          : [];
+      if (launchableAgents.length > 1) {
+        /**
+         * A flat section, not a submenu row — see the `submenu` doc on
+         * `MenuOption` in menu.tsx. A submenu's own trigger row is a UIMenu
+         * header, and UIKit draws a header's image at the image's own pixel
+         * size rather than scaling it, so a bundled agent mark on a submenu
+         * row lands as an oversized slab hanging off the menu (photographed
+         * on device, IMG_1316 — the incident this file's convention exists
+         * to prevent). Agents are exactly the brand-marked case the doc calls
+         * out by name, so each one is its own row here, grouped by `section`
+         * instead of nested behind one.
+         */
+        for (const agent of launchableAgents) {
+          options.push({
+            label: agent.label || agentDisplayName(agent.key),
+            image: agentIcon(agent.key),
+            section: "Continue with",
+            onPress: () => continueWithAgent(agent.key),
+          });
+        }
+      } else {
+        options.push({
+          label: launchableAgents[0]?.label
+            ? `Continue with ${launchableAgents[0].label}`
+            : "Continue",
+          icon: "arrow.forward.circle",
+          onPress: () => continueWithAgent(launchableAgents[0]?.key),
+        });
+      }
+    }
     options.push({ label: "Fork", icon: "arrow.triangle.branch", onPress: fork });
     options.push({ label: "Copy reference", icon: "link", onPress: copyReference });
     if (!busy) {
@@ -855,7 +925,7 @@ export default function SessionScreen() {
      * used verb on the sheet: a phone is not where anyone copies a thousand
      * lines of transcript.
      */
-  }, [busy, stop, archive, rename, fork, copyReference]);
+  }, [agents, busy, stop, archive, rename, continueWithAgent, fork, copyReference, sessionInfo]);
 
   /**
    * The native bar: system back on the left (this is a pushed screen, so the
@@ -1785,4 +1855,3 @@ function ThinkingPill() {
     </View>
   );
 }
-
