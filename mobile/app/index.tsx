@@ -394,6 +394,11 @@ export default function SessionsScreen() {
       });
     },
   );
+  // A take that definitively failed (no working STT provider, not just
+  // silence) — say so instead of leaving the mic looking like it forgot.
+  useEffect(() => {
+    if (dictation.error) toast.show(dictation.error, { intent: "error" });
+  }, [dictation.error, toast]);
   /** `startSession` is declared below the hook that has to call it. */
   const startRef = useRef<((prompt: string) => void) | null>(null);
 

@@ -64,6 +64,13 @@ type SttProvider = {
   accountUrl: string;
   available: () => boolean;
   transcribe: (audio: ArrayBuffer) => Promise<Response>;
+  // Whether `transcribe` can ever actually produce a transcript, as opposed to
+  // existing only to satisfy the interface. The omg hosted relay is
+  // realtime-only and its `transcribe` unconditionally 503s — it still has to
+  // define the method (every provider does), so a capability check that tests
+  // for the method's mere presence can't tell those two cases apart. Defaults
+  // to true; only a provider whose `transcribe` can never succeed sets this.
+  batchCapable?: boolean;
   // Optional realtime path: open a streaming bridge for /api/voice/stt-stream.
   // Providers without realtime STT omit this and the proxy closes the socket.
   openStream?: (handlers: SttStreamHandlers) => SttStreamBridge | null;
@@ -329,6 +336,11 @@ const sttOmg: SttProvider = {
   envVar: "OMG_MEDIA_URL",
   accountUrl: "https://omg.dev",
   available: () => !!process.env.OMG_MEDIA_URL,
+  // Never actually transcribes a batch clip — see `transcribe` below. Without
+  // this, `firstAvailable`'s old `!!c.transcribe` check picked this provider
+  // for the batch fallback on every hosted workspace, because the method
+  // exists; it just always fails.
+  batchCapable: false,
   openStream: (handlers) => omgRelayStream(handlers),
   async transcribe() {
     // The relay is realtime-only: the platform's batch job API takes a public
@@ -538,10 +550,29 @@ export function voiceSetupInfo() {
 
 // ------------------------------------------------------------ dispatch
 
-function pickStt(id: string): SttProvider {
+// Exported for tests: which provider `transcribeStt` actually resolves to,
+// without needing a real network call to observe the (previously wrong) pick.
+export function pickStt(id: string): SttProvider {
   const p = STT[id];
+  // The configured provider is the right answer for batch only if it can
+  // actually do batch.
+  if (p && p.available() && p.batchCapable !== false) return p;
+  // It can't (or isn't configured) — prefer any OTHER available provider that
+  // genuinely can. This is the fix: `!!c.transcribe` used to pass for every
+  // provider, including the omg relay, whose `transcribe` unconditionally
+  // 503s — so a real batch-capable provider configured alongside the relay
+  // (e.g. an ElevenLabs key on a box that also has OMG_MEDIA_URL) was never
+  // reached.
+  const capable = firstAvailable((c) => c.batchCapable !== false);
+  if (capable) return capable;
+  // Nothing can actually do batch. If the configured provider is at least
+  // available, return IT rather than an unrelated, equally-unconfigured
+  // default — its own `transcribe()` gives the specific, accurate reason
+  // (e.g. the relay's "realtime-only; batch transcription is unavailable"),
+  // which is more useful than a generic "not configured" for a provider the
+  // caller never chose.
   if (p && p.available()) return p;
-  return firstAvailable((c) => !!c.transcribe) ?? sttElevenLabs;
+  return sttElevenLabs;
 }
 
 // The configured provider is not always the usable one (a hosted workspace has

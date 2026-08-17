@@ -157,6 +157,10 @@ export function useDictation(
   // caller can tell "live" from "will transcribe after you stop" without
   // guessing from `state` alone.
   const [live, setLive] = useState(false);
+  // A take that definitively failed — the provider rejected it, not "you said
+  // nothing." Distinct from silence: an empty take is normal and stays quiet,
+  // same as before. Cleared on every new take.
+  const [error, setError] = useState<string | null>(null);
 
   const socketRef = useRef<OmgSocket | null>(null);
   const socketBrokenRef = useRef(false);
@@ -199,6 +203,7 @@ export function useDictation(
     setPartial("");
     setLevel(0);
     setLive(false);
+    setError(null);
     committedRef.current = "";
     socketBrokenRef.current = false;
     pendingRef.current = [];
@@ -320,6 +325,7 @@ export function useDictation(
       }
       closeSocket();
 
+      let providerError: string | null = null;
       if (text == null) {
         // Streaming was never live, broke, or came back empty — the file
         // this same recording wrote is a complete, independent take.
@@ -331,16 +337,30 @@ export function useDictation(
             headers: { "Content-Type": "application/octet-stream" },
             body: audio,
           });
-          const body = (await response.json()) as { text?: string };
+          const body = (await response.json().catch(() => ({}))) as {
+            text?: string;
+            error?: string;
+          };
+          if (!response.ok) {
+            // A real provider failure — this machine has no working STT, not
+            // "you didn't say anything." That is worth a word; an empty take
+            // from actual silence still stays quiet below.
+            providerError = body?.error?.includes("not configured")
+              ? "Dictation isn't available on this computer"
+              : body?.error || "Dictation failed";
+          }
           text = body?.text?.trim() || null;
         }
       }
 
       if (text && !cancelledRef.current) onText(text, { final: true });
+      else if (providerError && !cancelledRef.current) setError(providerError);
     } catch {
       // Silent: a failed take leaves the draft exactly as it was, which is
-      // the state the user can retry from. The composer is not the place to
-      // explain a provider outage.
+      // the state the user can retry from. This covers the unexpected cases
+      // (network exception, a response that wasn't JSON at all) where there
+      // is no good message to show — the provider-not-configured case above
+      // has one and says so.
     } finally {
       closeSocket();
       setPartial("");
@@ -412,5 +432,5 @@ export function useDictation(
     else void start();
   }, [start, state, stop]);
 
-  return { state, level, partial, live, toggle, cancel };
+  return { state, level, partial, live, error, toggle, cancel };
 }

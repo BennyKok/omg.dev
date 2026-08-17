@@ -181,6 +181,11 @@ export default function SessionScreen() {
   useEffect(() => {
     if (error) toast.show(error, { intent: "error" });
   }, [error, toast]);
+  // A take that definitively failed (no working STT provider, not just
+  // silence) — say so instead of leaving the mic looking like it forgot.
+  useEffect(() => {
+    if (dictation.error) toast.show(dictation.error, { intent: "error" });
+  }, [dictation.error, toast]);
   const [loading, setLoading] = useState(true);
   /**
    * HOW MUCH HISTORY IS ON SCREEN. The SDK's `getMessages` takes a limit and
