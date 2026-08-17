@@ -2,6 +2,18 @@
 
 Recent product updates and deployment notes.
 
+## August 17, 2026 - Short replies read like sentences again (v0.1.385)
+
+- **Fixed: a short assistant reply wrapped its last word onto its own line.**
+  "Hi Benny!" rendered as "Hi" / "Benny!". The bubble was capped at 92% twice
+  over, and the inner cap resolved against the text's own width, so any reply
+  that fit on one line was forced onto two. Long replies were quietly losing
+  8% of the pane to the same bug. Most visible in bot chats, because that is
+  where one-line answers are normal.
+- **Making or editing a bot opens full height on mobile.** It is a form with an
+  autofocused name field, so it no longer starts as a short card that the
+  keyboard shoves around before it grows. Desktop keeps the centred dialog.
+
 ## August 17, 2026 - Bot Mode: agents you talk to (v0.1.384)
 
 - **Bots are persistent agents you keep a conversation with**, beside the
