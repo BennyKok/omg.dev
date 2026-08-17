@@ -52,8 +52,12 @@ import { useTheme } from "./omg/theme";
  * expresses these indicator colours as alpha over a token, and the token is
  * a hex string here, so the two stay comparable rather than becoming two
  * hand-picked colours that drift.
+ *
+ * Exported: the home composer's bottom fade (app/index.tsx) needs the same
+ * hex-to-rgba conversion to build its gradient stops from `colors.bg`, and a
+ * second hand-rolled copy is how these two quietly diverge.
  */
-function withAlpha(hex: string, alpha: number): string {
+export function withAlpha(hex: string, alpha: number): string {
   const value = hex.replace("#", "");
   const full = value.length === 3 ? value.split("").map((c) => c + c).join("") : value;
   const r = parseInt(full.slice(0, 2), 16);
