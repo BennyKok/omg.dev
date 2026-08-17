@@ -1347,7 +1347,12 @@ export default function SessionScreen() {
             backgroundColor: colors.card,
             borderRadius: radius.lg,
             borderWidth: StyleSheet.hairlineWidth,
-            borderColor: colors.border,
+            // borderStrong: this is a card the transcript can hand you at any
+            // moment, asking for a tap that unblocks the agent — it needs to
+            // read as a distinct surface immediately, not the .35-alpha
+            // border that "reads as a rumour against black" everywhere else
+            // it was tried (see SessionCard's own note on the home screen).
+            borderColor: colors.borderStrong,
             gap: space.sm,
           }}
         >
@@ -1368,7 +1373,7 @@ export default function SessionScreen() {
                   borderRadius: radius.pill,
                   backgroundColor: pressed ? colors.cardPressed : colors.secondary,
                   borderWidth: StyleSheet.hairlineWidth,
-                  borderColor: colors.border,
+                  borderColor: colors.borderStrong,
                 })}
               >
                 <Text style={{ ...type.footnote, color: colors.text }}>{opt.label}</Text>

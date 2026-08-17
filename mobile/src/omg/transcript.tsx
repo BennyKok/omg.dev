@@ -1144,7 +1144,12 @@ export function AttachmentEntry({ message }: { message: Entry }) {
         backgroundColor: colors.card,
         borderRadius: radius.lg,
         borderWidth: StyleSheet.hairlineWidth,
-        borderColor: colors.border,
+        // borderStrong, not border: this chip is a card sitting directly on
+        // the transcript's near-black background, same as SessionCard on the
+        // home screen — the .35-alpha `border` "reads as a rumour against
+        // black" there (see that component's own note), and the rumour is
+        // just as true here.
+        borderColor: colors.borderStrong,
       }}
     >
       <Icon
@@ -1189,7 +1194,9 @@ function FallbackEntry({ message }: { message: Entry }) {
         backgroundColor: colors.card,
         borderRadius: radius.md,
         borderWidth: StyleSheet.hairlineWidth,
-        borderColor: colors.border,
+        // Same reasoning as AttachmentEntry just above: a card on black earns
+        // the stronger border, not the .35-alpha one.
+        borderColor: colors.borderStrong,
       }}
     >
       <Icon ios="questionmark.circle" android="help" size={14} color={colors.textMuted} />
@@ -1262,7 +1269,13 @@ export function UserMessage({ message }: { message: Entry }) {
             backgroundColor: colors.card,
             borderRadius: radius.xl,
             borderWidth: StyleSheet.hairlineWidth,
-            borderColor: colors.border,
+            // borderStrong. The comment above says it plainly: this border is
+            // the ONLY thing telling a sent message apart from the reply
+            // under it. `border` at .35 alpha is SessionCard's old "rumour
+            // against black" mistake, and here it is load-bearing rather than
+            // decorative — the one card in the whole app that most needs the
+            // edge you can actually see.
+            borderColor: colors.borderStrong,
             paddingHorizontal: space.lg,
             paddingVertical: space.md,
             // Both states are "not acted on yet", so both sit back a little.
@@ -1443,7 +1456,8 @@ function AttachmentChip({ name }: { name: string }) {
         paddingVertical: 6,
         borderRadius: radius.lg,
         borderWidth: StyleSheet.hairlineWidth,
-        borderColor: colors.border,
+        // Same card-on-black reasoning as AttachmentEntry/UserMessage.
+        borderColor: colors.borderStrong,
         backgroundColor: colors.card,
       }}
     >
