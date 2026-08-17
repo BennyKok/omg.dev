@@ -283,72 +283,174 @@ bearing on the Apple side.
 Not reported here: the proprietor's HKID/passport number visible on the Form
 1(a) — irrelevant to Apple's requirements and not something to propagate.
 
-## Paid Apps Agreement — now the only remaining gate, walked right up to the signature and stopped
+## Paid Apps Agreement — SIGNED by Benny. Not yet Active — banking and tax are the new gate.
 
-`Business → Agreements` shows:
+Before signing, this session walked right up to the signature and stopped:
+`Business → Agreements` showed *"To offer apps or other in-app purchases,
+you must **sign** the Paid Apps Agreement,"* and opening "View and Agree to
+Terms" (viewed, read, closed via Cancel — nothing agreed to that pass)
+showed the full Schedule 2 text of an amendment to the Apple Developer
+Program License Agreement — *"By clicking to agree to this Schedule 2, ...
+You agree with Apple to amend..."* — Section 1, "Appointment of Agent and
+Commissionaire," appoints Apple as Benny's agent for marketing and
+delivering paid apps/IAP to end users in listed territories. Reported that
+exact commitment to Benny before he clicked anything.
 
-- **Free Apps Agreement: Active** (26 Jul 2026 – 26 Jul 2027) — free
-  distribution itself is not blocked.
-- **Paid Apps Agreement: New** (i.e. not signed). Now gated only behind:
-  *"To offer apps or other in-app purchases, you must **sign** the Paid
-  Apps Agreement."* — the legal-entity clause is resolved (see above); this
-  is the only remaining requirement, and it is Benny's alone to execute.
+**Benny then signed it himself.** Independently re-verified with a fresh
+page reload (not taking his word or the reporting session's word for it):
 
-**What clicking "View and Agree to Terms" opens** (viewed, read, and closed
-via Cancel — nothing agreed to): a modal titled "Paid Apps Agreement"
-containing the full Schedule 2 text of an amendment to the Apple Developer
-Program License Agreement — starting *"By clicking to agree to this
-Schedule 2, ... You agree with Apple to amend that certain Apple Developer
-Program License Agreement currently in effect between You and Apple..."*,
-then Section 1, "Appointment of Agent and Commissionaire," appointing Apple
-(and Apple Subsidiaries) as Benny's agent for marketing and delivering paid
-apps/IAP to end users in listed territories. An expandable "Attachments"
-section holds the exhibits (pricing/territory schedules). Below the terms:
+| Agreement | Status | Effective Date |
+|---|---|---|
+| Paid Apps Agreement | **`Pending User Info`** (was `New`) | `16 Aug 2026 - 26 Jul 2027` |
+| Free Apps Agreement | `Active`, unchanged | `26 Jul 2026 - 26 Jul 2027` |
 
-- A checkbox: **"I have read and agree to the terms and conditions
-  above."** — confirmed unchecked.
-- An **"Agree"** button — confirmed **disabled** while the checkbox is
-  unchecked.
+`Pending User Info` confirms the signature landed — Apple only assigns an
+effective date and moves the status once a signature is recorded — but it
+is **not** `Active` yet. Signing unlocked two new, separate requirements
+that block it from becoming Active:
 
-**What the next click actually commits him to**: checking that box enables
-"Agree"; clicking "Agree" is the binding signature — Benny personally
-(individual account) enters into Schedule 2 of the Apple Developer Program
-License Agreement, appointing Apple as commissionaire/agent to sell the 4
-subscription tiers on his behalf across the listed territories. This is
-what unlocks selling IAP/subscriptions; it is irreversible in the sense
-that it's a real contract execution, not a form save. **No session touched
-the checkbox or the Agree button.** Confirmed still "New" / unsigned after
-closing the dialog.
+### Bank Accounts — not started
 
-A separate Tax/Banking status page was not located as a distinct page this
-pass — the entity dialog itself has no tax ID field, so if ASC asks for a
-tax form (individual non-US → likely W-8BEN, per the resolution above) it
-most likely surfaces as part of, or immediately after, this same agreement
-flow. **Not touched, not filled** — this is Benny's identity to execute,
-and nothing here indicated banking/tax fields would need touching before
-the signature step itself.
+New "Bank Accounts" section, empty. Banner: *"To receive payments from
+Apple, you must add a bank account."* **Not touched** — real banking
+details, entirely Benny's.
+
+### Tax Forms — questionnaire done, actual forms not submitted
+
+Answering ASC's initial "U.S. Tax Questionnaire" (that's the one Benny
+finished) resolved into two specific named filings, both still outstanding:
+
+| Tax form | Status | Date submitted |
+|---|---|---|
+| U.S. Certificate of Foreign Status of Beneficial Owner | **Missing Tax Info** | `-` |
+| U.S. Form W-8BEN | **Missing Tax Info** | `-` |
+
+(These read as two labels/artifacts of the same underlying W-8BEN filing —
+an individual non-US developer's standard form, as anticipated earlier in
+this doc — not two unrelated documents. Both independently still show
+not-submitted, so both are being treated as outstanding.) Clicked "Add Tax
+Info" once to see the form's shape; control passed back to Benny before
+anything rendered, so **no content from that form was seen, and nothing was
+filled in or submitted.**
+
+### Can the 4 tiers sell yet? No.
+
+The agreement is signed, but `Pending User Info` — explicitly gated on the
+bank account (not started) and the W-8BEN/Certificate filing (questionnaire
+done, forms not submitted) above — means Apple cannot process payments yet.
+**None of the 4 subscription tiers can take money until both are
+complete.** This is expected next-step friction, not a problem with the
+signature itself, but it needs to be said plainly: signing was necessary,
+not sufficient.
+
+### Subscription tiers — re-verified, unchanged
+
+All 4 tiers under group "omg.dev Cloud Computer" (`22312997`) still show
+**"Prepare for Submission"**, same as before the agreement was signed —
+Pro, Personal, Starter Plus, Starter, same product IDs, same 1-month
+duration. Group-level banner unchanged: *"Your first subscription group
+must be submitted with a new app version."* Confirms the agreement/banking
+status has no bearing on submission-readiness configuration — that part
+was already done and remains done; only actual *selling* is blocked by
+the banking/tax gate above.
+
+## App transfer to an organization later — verified against Apple's live documentation, not assumed
+
+Benny shipped as an individual on the plan that moving to "Use Effect
+Limited" later stays possible. That claim was previously unsourced. Checked
+directly against `developer.apple.com` — and it turns out there are **two
+different paths**, not one, with materially different requirements:
+
+### Path A: Convert this same account to an Organization (no app transfer at all)
+
+Per [Apple's own account-membership documentation](https://developer.apple.com/help/account/membership/updating-your-account-information/):
+submitted via `Membership Details → Convert to Organization` (a form at
+`/contact/request/migrate-individual-account`), only the Account Holder can
+submit it. Requires: being the founder/cofounder of the organization, the
+organization's **D-U-N-S Number**, and business verification documents.
+Third-party integrator docs describing the same Apple flow report that
+**the Apple ID, Team ID, certificates, and existing apps stay intact — only
+the seller name changes** (not independently confirmed on an
+apple.com page, flagged as such). Apple's own docs carry one real, sourced
+warning: **changing the organization name resets `identifierForVendor`
+(IDFV) for existing users on their next update**, can make existing users
+read as new installs to a Mobile Measurement Partner, and **this cannot be
+undone**.
+
+**This path has no released-version prerequisite** — it converts the
+account in place rather than moving the app anywhere.
+
+### Path B: Transfer the app to a separate Organization account
+
+Per [Apple's App Transfer Criteria](https://developer.apple.com/help/app-store-connect/transfer-an-app/app-transfer-criteria)
+and [App Transfer Overview](https://developer.apple.com/help/app-store-connect/transfer-an-app/overview-of-app-transfer)
+— this is the path if "Use Effect Limited" is (or becomes) its own,
+separate Apple Developer enrollment, distinct from Benny's individual one:
+
+- **The app must have at least one version released to the App Store.**
+  This is the assumption Benny shipped on — **confirmed correct for this
+  path specifically**, sourced from Apple's own criteria page.
+- App can't be in `Processing for Distribution`, `Waiting for Review`, `In
+  Review`, `Accepted`, `Pending Developer Release`, or `Pending Apple
+  Release` at transfer time; can't be available for pre-order.
+- **TestFlight must be fully wiped before initiating transfer**: all builds
+  removed, all testers removed, all Test Information cleared for every
+  localization. Given the app currently has live TE + PB TestFlight groups
+  with real testers, this is a real, non-trivial prerequisite step, not a
+  formality.
+- Xcode Cloud project/settings must be removed first.
+- In-App Purchase product IDs on the app can't collide with product IDs
+  already in the recipient account.
+- Auto-renewable subscriptions need an app-specific shared secret generated
+  and shared with the recipient before transfer, then rotated after
+  acceptance so the old secret stops working.
+- Both accounts must have accepted current paid/free agreements and be in a
+  non-pending state — directly relevant here, since Benny's own account is
+  *currently* `Pending User Info` on the Paid Apps Agreement, which would
+  itself need to resolve to `Active` before any transfer could proceed.
+- **Apple's documentation does not explicitly state whether an Individual
+  account can transfer an app to an Organization account** (or vice
+  versa) — it describes the mechanics generically by "Account Holder" role
+  without addressing account-type combinations. This is a real gap, not an
+  oversight in this research: if Path B turns out to be the intended route,
+  that specific question needs Apple Developer Support to confirm, not an
+  assumption either way.
+
+### Bottom line for Benny
+
+The original claim ("transfer to the company later is a possibility") is
+**directionally correct but was incomplete**: Path A (convert this account)
+needs no released version at all and is likely the simpler, intended route
+if the goal is just to sell under the company's name later — but it
+requires Use Effect Limited to have its own D-U-N-S and verifiable business
+documents (the only HK BR document found so far, for "Machine Thinking
+Company," is expired and is a different name anyway — see above). Path B
+(transfer to a separate account) does need the released version Benny was
+told about, but adds real, non-trivial TestFlight-wipe and subscription
+-secret-rotation work, and has an open question about individual→org
+eligibility that isn't answered by Apple's own docs. Neither path is
+blocked today, but neither is a light lift either.
 
 ## NEEDS BENNY
 
-Everything reachable without his personal signature or a live account is
-now done. What's left needs him specifically:
+Everything reachable without his personal signature, banking/tax identity,
+or a live demo-account test is now done. What's left needs him specifically:
 
-1. **Sign the Paid Apps Agreement** — the only remaining gate on selling all
-   4 subscription tiers. Walked right up to it (see above): legal entity is
-   resolved, the checkbox is unchecked and Agree is disabled, nothing was
-   touched. This is his to execute — see the exact commitment described
-   above before he clicks.
-2. **5.1.1(v) account deletion, live** — see the dedicated section above. No
+1. **Add a bank account** — Business → Agreements → Bank Accounts. Not
+   started. Blocks the agreement from reaching `Active`.
+2. **Submit the W-8BEN / Certificate of Foreign Status tax filing** —
+   Business → Agreements → Tax Forms. The routing questionnaire is done;
+   the actual form(s) are not. Also blocks `Active`.
+3. **5.1.1(v) account deletion, live** — see the dedicated section above. No
    code change needed (verified by reading the guard + its wired test,
    which already covers the real reviewer-facing behavior end to end); the
    open item is procedural — no session in this chain has personally
    exercised the live flow, since the only browser access available
-   resolves to Benny's own real account, not the demo one. If he wants this
-   independently re-run live, it needs either him doing it himself or an
-   explicitly sanctioned safe method.
-3. If ASC asks for a tax form when he does sign (likely **W-8BEN** for an
-   individual, non-US) — that's his to fill, not ours; nothing indicated it
-   would appear before the signature step itself in this pass.
+   resolves to Benny's own real account, not the demo one.
+4. **Decide which transfer path he actually wants**, now that both are
+   documented above with real requirements — that decision drives whether
+   TestFlight needs to stay pristine (Path B) or whether he just needs a
+   D-U-N-S for Use Effect Limited (Path A).
 
 ## Already resolved this session — no longer needs Benny
 
