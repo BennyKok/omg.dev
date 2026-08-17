@@ -107,20 +107,63 @@ raise it anyway.
 
 ### Account deletion / Guideline 5.1.1(v)
 
-Not re-verified live in *this* session — re-stating the prior sessions'
-live-verified result rather than re-testing, since ASC's own login was the
-constrained resource here, not the production account-deletion path:
+**Not independently re-verified live this session, and its providence is
+unconfirmed** — stated plainly rather than re-asserted with confidence
+nobody in this session chain actually checked:
 
-- Shipped in PR #120 (mobile Settings row) + `vibes` PR #1433 (backend hard
-  delete cascade, web confirmation page, emailed confirmation).
-- Live-verified against production: a real `403 DEMO_ACCOUNT_DELETION_DISABLED`
-  response for the App Review demo account, after fixing a bug where the
-  guard's exception was silently swallowed (so a reviewer would otherwise
-  have seen a false "check your email" success instead of the intended
-  guard).
-- Lives at **Settings → Delete Account** in the app. Worth pointing App
-  Review notes at this location explicitly if not already covered by the
-  in-app copy itself.
+- Attempted a live re-check via `app.omg.dev` (the deep-link target from
+  `mobile/app/settings.tsx`). It resolved to **Benny's own real, logged-in
+  session** (this very platform) rather than an isolated demo-account
+  context — ego-browser reuses his login state by design, and there is no
+  way to authenticate as the demo account without signing him out, which is
+  off the table. Stopped before navigating to `/settings/delete-account` or
+  clicking anything; zero state touched.
+- The `403 DEMO_ACCOUNT_DELETION_DISABLED` live-verification claim (PR #120
+  mobile Settings row + `vibes` PR #1433 backend cascade) predates every
+  session transcript available to this one — carried forward as recovered
+  context, not something any session in this chain personally re-ran.
+- Lives at **Settings → Delete Account** in the app.
+
+**Code-read analysis (read-only, no live account touched), done in place of
+the live test above**, at `vibes` tip (`bd571983`,
+`apps/auth/src/account-deletion.ts` +
+`apps/web/src/components/settings/delete-account-screen.tsx`):
+
+1. **What the demo account actually sees**: not a crash and not a generic
+   error. The reviewer reaches the full "Permanently delete your account"
+   screen, taps "Delete my account," confirms in the dialog, taps "Send
+   confirmation email" — the request goes out normally. The server rejects
+   it with HTTP 403 `DEMO_ACCOUNT_DELETION_DISABLED`, and the client
+   pattern-matches that message and renders it verbatim as a visible inline
+   error (`role="alert"`) under the button: **"This is a shared demo
+   account, so it cannot be deleted."** Any other failure falls back to a
+   generic "try again" message — only the demo-account case gets this copy.
+2. **Server-side only, UI does not pre-gate**: the client never hides or
+   disables the delete flow for the demo account ahead of time — it looks
+   identical to a real account's flow right up until the confirmation
+   request, which is the safer shape for a reviewer (reaching the button
+   and being told why beats not finding the button at all).
+3. **Is a human-readable message enough?** Already shipped, and close to
+   word-for-word what would otherwise be recommended. No code change
+   needed here.
+4. **End-to-end test coverage, not just a unit claim**:
+   `apps/auth/src/account-deletion-wired.test.ts` drives a real better-auth
+   instance through its real router with a real session cookie — its own
+   doc-comment explains this exists *because* an earlier unit-only test
+   passed while the deployed endpoint still silently returned `200`
+   (background-task-swallow bug, since fixed) — and asserts HTTP 403, `code:
+   DEMO_ACCOUNT_DELETION_DISABLED`, the exact message text, and that no
+   verification email was ever scheduled. A second test confirms a normal
+   account's deletion still proceeds.
+
+**Conclusion: the reviewer-rejection risk (5.1.1(v) failing because the demo
+account can't complete deletion) does not require a code change.** The guard
+protects the one shared account App Review depends on, it doesn't block the
+reviewer from reaching or using the delete UI, and it explains itself in
+plain language at the point of failure. The remaining gap is procedural, not
+code: no session in this chain has personally exercised this live, for the
+safety reasons above — that's a "needs Benny, or a safer test method" item,
+not a "needs a fix" item.
 
 ### In-app purchases / subscriptions
 
@@ -141,32 +184,45 @@ first auto-renewable subscription must be submitted with a new app
 version"* — they finalize together with the actual version submission, not
 before it.
 
-## Legal entity documents found in Dropbox — name mismatch flagged, NOT entered anywhere
+## Legal entity — RESOLVED: individual/personal Apple Developer account
 
-Searched `~/Dropbox` on the Mac (filenames + text-file contents) for the
-assumed entity name "Use Effect" / "Use Effect Limited": **zero matches**,
-anywhere, filename or content. The only business-registration documents that
-exist in Dropbox are for a different name:
+**Benny confirmed directly: the Apple Developer account is his personal,
+individual account.** The legal entity is Benny Kok personally, not any
+company. This resolves the open question below:
+
+- **No D-U-N-S number is required or being looked for.** D-U-N-S is an
+  organization-account requirement only; an individual account has no
+  D-U-N-S and needs none.
+- The "update your legal entity information" banner blocking the Paid Apps
+  Agreement means completing **Benny's own personal legal name and
+  address** in ASC's legal-entity form — not a company's.
+- The individual non-US tax form ASC is expected to present is typically
+  **W-8BEN** (individual — not W-8BEN-E, which is for entities). This needs
+  to be confirmed against what ASC's flow actually asks for once reachable,
+  not assumed in advance. **Never fill in tax or banking details** — that
+  stays Benny's regardless of which form appears.
+
+### "Machine Thinking Company" — context only, NOT the Apple entity
+
+A predecessor session found HK Business Registration documents in Benny's
+Dropbox under a name different from the original "Use Effect Limited"
+assumption (which does not exist anywhere in Dropbox — zero filename or
+content matches):
 
 | Field | Value | Source |
 |---|---|---|
-| Legal entity name | **Machine Thinking Company** | `Documents/20250401-BR-Machine Thinking Company.pdf` (HK Business Registration Certificate, Form 2) and `Documents/20250401-Form 1a-Machine Thinking Company.pdf` (the application) |
-| Entity type | **Individual / sole proprietorship** (香港《商業登記條例》Form 1(a) — "Application by an individual for registration of business carried on by him in Hong Kong"), proprietor Kok Chun Hung | same |
+| Name found | Machine Thinking Company | `Documents/20250401-BR-Machine Thinking Company.pdf` (HK BR Certificate) + `Documents/20250401-Form 1a-Machine Thinking Company.pdf` (the application) |
+| Entity type | Individual/sole-proprietorship registration (Form 1(a)), proprietor Kok Chun Hung | same |
 | BR Certificate No. | `57966774-000-04-25-9` | same |
-| Registered / business address | 16 Sam Dip Tam, House 57, Lo Wai Village, Tsuen Wan, N.T., Hong Kong | same |
-| Nature of business | IT | same |
-| Certificate validity | Commenced 01/04/2025, **expired 31/03/2026** — i.e. already lapsed as of today (2026-08-17). A renewed certificate, if one exists, was not found in Dropbox. | same |
-| D-U-N-S number | Not found — no D-U-N-S document anywhere in Dropbox | — |
+| Registered address | 16 Sam Dip Tam, House 57, Lo Wai Village, Tsuen Wan, N.T., Hong Kong | same |
+| Validity | Commenced 01/04/2025, **expired 31/03/2026** (lapsed as of today, 2026-08-17) | same |
 
-**This does not match the "Use Effect Limited" assumption** and it is a sole
-proprietorship, not a limited company. Apple requires the legal name/address
-to match official records exactly, so **do not enter either name into ASC's
-legal entity form without Benny confirming which entity is actually intended
-for the Apple Developer / Paid Apps Agreement** — it's possible "Use Effect"
-is a trade name that was never registered as a HK company, or the intended
-entity is on paper somewhere outside Dropbox (email, a different cloud
-folder, or simply not yet incorporated). Nothing was typed into ASC based on
-this.
+**This is not the Apple entity and must not be entered into ASC's legal
+entity form or referenced as the account holder.** It's kept here purely as
+context on what exists in Benny's Dropbox, independent of Apple — the
+individual Apple Developer account confirmation above supersedes it for
+every ASC purpose. Do not renew this BR on Apple's behalf; it has no
+bearing on the Apple side.
 
 Not reported here: the proprietor's HKID/passport number visible on the Form
 1(a) — irrelevant to Apple's requirements and not something to propagate.
@@ -189,23 +245,33 @@ out of scope for this session by design.
 
 ## NEEDS BENNY
 
-1. **Phone number** for App Review → Contact Information. This block
-   (First/Last/Phone/Email) validates as all-or-nothing — it accepted fully
-   empty earlier in the session, then started requiring all four fields on
-   a later save attempt (observed, not fully explained — possibly an ASC
-   client-side validation quirk tied to some other field state). Whatever
-   the cause, a real phone number unblocks it. First/Last/Email were filled
-   with verified values (Benny / Kok / `support@omg.dev`, from the ASC
-   account holder name and the site's real support inbox) but were cleared
-   back out once Phone number became required, to avoid a half-fabricated
-   contact block reaching Apple.
-2. **Legal entity info + Paid Apps Agreement signature** — blocks selling
-   all 4 subscription tiers regardless of their configuration state.
-3. A few fields could not be completed or re-verified because the ASC
-   login died mid-session (twice) — see the parent session thread for the
-   live blow-by-blow of what was saved before each drop. Re-check "Manually
-   release this version" and the Guideline 4.8 addition to App Review Notes
-   are actually persisted, not just typed.
+1. **ASC login.** Confirmed dead account-wide as of this session (2026-08-17,
+   later pass) — not a mac-chrome-vs-real-Chrome cookie conflict. Re-checked
+   with `ego-browser` (his actual authenticated profile — confirmed via his
+   live 1Password extension responding), and both
+   `appstoreconnect.apple.com/apps/6800792515/appstore` and
+   `developer.apple.com/account` redirect straight to Apple's sign-in page.
+   This needs Benny to sign back into Apple; no tool-side workaround exists.
+2. **Phone number** for App Review → Contact Information — now provided:
+   `+852 67762685`. First `Benny` / Last `Kok` / Email `support@omg.dev` are
+   ready to re-enter alongside it the moment ASC is reachable; this block
+   validates all-or-nothing so all four go in together.
+3. **Legal entity info + Paid Apps Agreement signature.** Now unblocked to
+   proceed on the legal-entity side per the resolution above (individual
+   account, Benny's own personal details, no D-U-N-S). Blocks selling all 4
+   subscription tiers until resolved. **The agreement itself is not to be
+   signed by any session** — binding contract, Benny's to execute personally.
+4. Re-save **"Manually release this version"** and the **Guideline 4.8
+   addition to App Review Notes** — both were typed in a prior session but
+   the Save click failed because Contact Information (item 2) was empty and
+   had just become a hard gate on saving anything else on that page; neither
+   change persisted. Needs a full re-type once ASC + Contact Info are both
+   in place.
+5. **5.1.1(v) account deletion** — see the dedicated section above. No code
+   change needed (verified by reading the guard + its wired test); the open
+   item is procedural — no session in this chain has personally exercised
+   the live flow, and the obvious way to do so (this session's browser
+   access) resolves to Benny's own real account, not the demo one.
 
 ## What deliberately was not touched
 
