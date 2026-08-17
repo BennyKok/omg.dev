@@ -2073,6 +2073,11 @@ export async function cmdServe() {
             },
           });
           if (!bridge) {
+            // Documented fallback (see openSttStream): no realtime-capable
+            // provider is configured on this machine. This used to close with
+            // zero trace anywhere — the exact condition a dictation bug report
+            // like "the mic just disconnects" needs a breadcrumb for.
+            console.log("[voice] stt-stream: no realtime provider configured, closing");
             try {
               ws.close();
             } catch {}
