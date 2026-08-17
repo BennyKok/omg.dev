@@ -41,7 +41,9 @@ plugins, permissions), or an Expo SDK bump:
 missing from the installed binary crashes on launch — it does not degrade
 gracefully. Current native modules: `expo-updates`, `expo-clipboard`,
 `expo-symbols`, `expo-haptics`, `expo-router`, `react-native-screens`,
-`react-native-safe-area-context`.
+`react-native-safe-area-context`, `@siteed/audio-studio` (added 2026-08-15
+for streaming dictation, replacing `expo-audio` — see
+`mobile/docs/DICTATION.md`).
 
 `runtimeVersion` is `{"policy":"appVersion"}`, so an update only reaches builds
 sharing that app version. Bumping the version in app.json deliberately cuts old
