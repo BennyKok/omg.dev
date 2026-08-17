@@ -27,16 +27,14 @@ renewal cycle**, not the company's incorporation date — not that it matters
 for this doc anymore. The company number and true incorporation date would
 have come from a free HK Companies Registry (ICRIS) name search, but that
 search turned out to be **unnecessary**: it existed only to fill in a D-U-N-S
-*request* form, and D&B already had Use Effect Limited on file (see D-U-N-S
-section below), so no request was ever filed. Not pursuing it — HK's
-Companies Registry e-Services portal requires a real HKID or passport number
-to register as a searcher even for the free search, and that isn't worth
-asking Benny for on a step that no longer applies.
+*request* form, and D&B already had Use Effect Limited on file (D-U-N-S
+**374273777**, see below), so no request was ever filed and the ICRIS search
+was dropped.
 
-Nothing outstanding from Benny for the D-U-N-S step. His exact title at Use
-Effect Limited may still come up during the actual Convert to Organization
-request (see conversion sequence below) — ask then, if Apple's form asks
-for it.
+Nothing outstanding from Benny before he can run the Convert to Organization
+request himself. His exact title at Use Effect Limited may still come up
+during that request (see conversion sequence below) — ask then, if Apple's
+form asks for it.
 
 ## D-U-N-S number
 
@@ -49,8 +47,14 @@ speed**:
 | Apple's own lookup/request tool (`developer.apple.com/enroll/duns-lookup/`) | ~7 business days total (D&B issues in ≤5 business days, syncs to Apple in ≤2 more) | Free. Checks for an existing number first; if none exists, submits a new request on this fast track. **Use this path.** |
 | D&B Hong Kong direct (email `enquiryhk@dnb.com`, mail back a form) | ~30 working days (~6 weeks) | Free, but far slower. Only fall back to this if the Apple-tool path stalls past 2 weeks — Apple's own guidance in that case is to escalate via `support.dnb.com/?CUST=APPLEDEV`. |
 
-**Status: Existing D&B record found — number in transit by email.** Ran
-Apple's lookup tool on 2026-08-17 (Region: Hong Kong, Legal Entity Name:
+### Status: confirmed
+
+```
+D-U-N-S Number: 374273777
+Legal entity:   Use Effect Limited
+```
+
+Ran Apple's lookup tool on 2026-08-17 (Region: Hong Kong, Legal Entity Name:
 `USE EFFECT LIMITED`, Headquarters Address: `RM 29-33 5/F BEVERLEY COMM CTR,
 87-105 CHATHAM RD`, Tsim Sha Tsui). D&B returned one matching record with the
 exact legal entity name and exact headquarters address already on file.
@@ -60,29 +64,37 @@ was the "check for an existing one" branch of the tool). Apple's response:
 > We've received your information. Your organization's D-U-N-S Number has
 > been sent to the email address you provided.
 
-The number itself is **not shown on-screen** — D&B emails it to the work
-contact address used on the form (`support@omg.dev`). This still removes the
-~7-business-day wait entirely since no new request was needed — D&B already
-has Use Effect Limited on file at this address.
+The number wasn't shown on-screen — D&B emailed it to the work contact
+address used on the form (`support@omg.dev`). This skipped the
+~7-business-day wait entirely: no new D-U-N-S request had to be filed, D&B
+already had Use Effect Limited on file at this address.
 
-**Retrieving the email needs Benny.** `support@omg.dev` is its own mailbox on
-Google Workspace (confirmed via the domain's MX record — it points to
-Google's Workspace mail servers), separate from Benny's personal Gmail. There
-is no evidence it forwards there. Whoever is picking this doc back up should
-have Benny check `support@omg.dev` directly rather than assuming it lands
-somewhere else.
+Retrieved the email (read-only — opened, read, did not reply/archive/delete)
+from Apple Developer (`developer@email.apple.com`), subject "Your D-U-N-S
+Number is enclosed," addressed to "support":
 
-- [ ] Paste the actual D-U-N-S number here once Benny finds the email.
+> Dear Chun Hung Kok, The D-U-N-S Number for Use Effect Limited is
+> 374273777. If you have the legal authority to bind your company to Apple
+> Developer Program agreements, you can use this number to enroll for your
+> company. Before enrolling, please ensure that Use Effect Limited is a
+> legal entity.
+
+`support@omg.dev` turned out to be reachable after all: it's not a separate,
+unreachable mailbox — it's an alias that delivers into `benny@omg.dev`,
+which is logged in as a secondary Google Workspace account in Benny's
+browser profile (Gmail's account switcher, `mail.google.com/mail/u/1/`).
+Correcting the earlier note in this doc that assumed no path in.
 
 ## Conversion sequence (Individual → Organization)
 
-Once the D-U-N-S number is in hand:
+The D-U-N-S number is in hand (`374273777`) — this is now unblocked and
+walkable end to end:
 
 1. **Benny**, as Account Holder, signs in at `developer.apple.com/account`.
 2. Open **Membership Details** in the left sidebar.
 3. Click **"Submit a request"** next to *Convert to Organization*.
-4. The request requires the **D-U-N-S number**. The requester must be the
-   organization's **founder or co-founder** — Benny qualifies.
+4. The request requires the **D-U-N-S number** (`374273777`). The requester
+   must be the organization's **founder or co-founder** — Benny qualifies.
 5. Apple immediately sends a confirmation email with a **case number**.
 6. **Apple calls to verify the enrollment** — expect a call to
    `+852 6776 2685`. This is a real step, not a formality; have the BR
@@ -93,6 +105,26 @@ Apple explicitly **rejects** DBAs, fictitious businesses, trade names, and
 branches — sole proprietorships must stay Individual. Use Effect Limited is a
 Hong Kong private company limited by shares (BODY CORPORATE per the BR), so
 it qualifies as a recognized legal entity.
+
+**Do this before the public App Store release, not after.** See
+"Irreversible catch" below — the cost of converting only goes up the longer
+the app runs under the personal account first, and it goes up sharply once
+the app is publicly live and accumulating installs. There's no version of
+this that gets cheaper by waiting.
+
+### The two loose ends this closes
+
+- **Bank account mismatch.** Benny added a bank account registered to Use
+  Effect Limited on his *personal* Apple Developer account — a
+  beneficiary-name mismatch he accepted because this conversion was coming.
+  Converting the account to the entity resolves that mismatch properly
+  instead of leaving it as an accepted risk.
+- **W-8BEN line 9 treaty error.** The individual W-8BEN filed today
+  incorrectly checked the treaty-residency box (Hong Kong has no US tax
+  treaty — see note below). It couldn't be corrected in App Store Connect
+  once submitted. The **W-8BEN-E filed under Use Effect Limited** after
+  conversion supersedes it entirely, since withholding then runs against the
+  company's tax status, not Benny's personal one.
 
 ## What has to be redone under the company, after conversion
 
@@ -108,14 +140,28 @@ new, separate actions once the account is an Organization:
 
 ## Irreversible catch: `identifierForVendor` resets on org name change
 
+**Converting before the public App Store release is cheap. Converting after
+is not — do this now.**
+
 Converting to an Organization and setting the org's display name changes the
 value iOS computes for `identifierForVendor` for every existing install.
 Anything keyed off that identifier (analytics, entitlements, local
 de-duplication, etc.) will see existing users as brand-new installs after the
-switch. This is **not reversible** and gets worse the longer the app runs
-under the personal account first — more installs accumulate that identity
-before the reset. Worth converting sooner rather than later once the
-D-U-N-S/paperwork is ready, specifically because of this.
+switch. This is **not reversible**, and the cost scales directly with how
+many installs exist at the moment of conversion:
+
+- **Pre-release / low install count (now):** the reset touches almost no
+  real users. This is the cheap window.
+- **Post-release, with the app publicly live:** every install accumulated
+  between launch and conversion gets treated as a new user the moment the
+  org name changes — broken analytics history, entitlement/purchase
+  re-linking issues, de-duplication gaps, for everyone who installed before
+  the switch. The longer the gap between "app is public" and "conversion
+  happens," the larger and more painful this list gets.
+
+With the D-U-N-S number now in hand, there's no remaining reason to delay —
+this is the argument for running the conversion sequence above before
+shipping publicly, not after.
 
 ## Timing: conversion is not retroactive
 
@@ -146,11 +192,9 @@ deliberate deferral and not a dropped thread.
 ## Open items
 
 - [x] Run the Apple D-U-N-S lookup — existing D&B record found for Use Effect
-      Limited at the exact registered address; number emailed to
-      `support@omg.dev`, not yet retrieved. See D-U-N-S section above.
-- [ ] Benny checks `support@omg.dev` (a separate Google Workspace mailbox,
-      does not forward to his personal Gmail) and pastes the actual D-U-N-S
-      number into this doc.
+      Limited at the exact registered address.
+- [x] Retrieve the actual D-U-N-S number — **374273777**, read from the D&B
+      email in `benny@omg.dev` (the `support@` alias's real destination).
 - [x] ~~Free ICRIS search~~ — **not required.** It only existed to fill in a
       D-U-N-S request form; D&B already had an existing record, so no
       request was filed and the company number / incorporation date it would
@@ -159,5 +203,8 @@ deliberate deferral and not a dropped thread.
       D-U-N-S**, same reason as ICRIS above. His title may resurface during
       the actual Convert to Organization request below; ask then if Apple's
       form asks for it.
-- [ ] Benny submits the Convert to Organization request himself once the
-      D-U-N-S number is confirmed (this agent prepares, does not submit).
+- [ ] **Benny submits the Convert to Organization request himself** —
+      D-U-N-S number `374273777` is ready to enter, this agent prepares but
+      does not submit. Do this before the public App Store release (see
+      `identifierForVendor` section above) — the bank-account mismatch and
+      the W-8BEN treaty error both wait on this too.
