@@ -27,7 +27,6 @@ export type BotColorway = (typeof BOT_COLORWAYS)[number];
 export type Bot = {
   id: string;
   name: string;
-  emoji?: string;
   shape?: BotShape;
   colorway?: BotColorway;
   persona: string;
@@ -94,7 +93,6 @@ export async function getBot(id: string): Promise<Bot | null> {
 export async function createBot(input: {
   name: string;
   persona: string;
-  emoji?: string;
   agent?: string;
   model?: string;
   thinkingLevel?: string;
@@ -116,7 +114,6 @@ export async function createBot(input: {
   const bot: Bot = {
     id,
     name: input.name,
-    emoji: input.emoji,
     shape,
     colorway,
     persona: input.persona,
@@ -134,7 +131,7 @@ export async function createBot(input: {
 
 export async function updateBot(
   id: string,
-  patch: Partial<Pick<Bot, "name" | "emoji" | "shape" | "colorway" | "persona" | "agent" | "model" | "thinkingLevel" | "cwd" | "owner" | "enabled" | "sessionId" | "lastMessageAt">>,
+  patch: Partial<Pick<Bot, "name" | "shape" | "colorway" | "persona" | "agent" | "model" | "thinkingLevel" | "cwd" | "owner" | "enabled" | "sessionId" | "lastMessageAt">>,
 ): Promise<Bot | null> {
   const bots = await listBots();
   const current = bots.find((bot) => bot.id === id);

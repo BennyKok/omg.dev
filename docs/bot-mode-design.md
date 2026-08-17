@@ -43,7 +43,7 @@ membership, and a session that is allowed to live forever.
 `AutoAgent` minus `schedule`, plus:
 
 - `profileDir` — persona directory per `src/agent-profile.ts`
-- `avatar` — emoji or artifact ref
+- `avatar` — the mascot: shape x colorway (see `web/src/components/BotAvatar.tsx`)
 - `sessionId` — the durable managed session backing the bot's home chat
 - `channels` — bindings: `{ channelId, policy: "mention" | "always" | "proactive" }`
 - `routineIds` — auto agents owned by this bot (Hermes: routines are namespaced
@@ -160,7 +160,8 @@ adapter seam; nothing here may preclude that.
 type Bot = {
   id: string            // "bot_" + short random id
   name: string
-  emoji?: string        // avatar, single emoji for phase 1
+  shape?: BotShape      // mascot silhouette, the individual
+  colorway?: BotColorway // mascot gradient, painted on the silhouette itself
   persona: string       // freeform persona / system prompt text
   agent: string         // harness key, default "aisdk"
   model?: string
@@ -179,7 +180,7 @@ Follow `src/auto/store.ts` patterns (atomic write, validation via
 ### HTTP routes (in `src/commands/serve.ts`, near the auto-agent block)
 
 - `GET  /api/bots` → `{ bots: Bot[] }`
-- `POST /api/bots` `{ name, persona, emoji?, agent?, model?, thinkingLevel?, cwd? }` → `{ bot }`
+- `POST /api/bots` `{ name, persona, shape?, colorway?, agent?, model?, thinkingLevel?, cwd? }` → `{ bot }`
 - `PATCH /api/bots/:id` (partial) → `{ bot }`
 - `DELETE /api/bots/:id` → closes the backing session if live, removes the bot
 - `POST /api/bots/:id/messages` `{ text }` → `{ sessionId }` — ensures the
@@ -213,11 +214,11 @@ children are enough for phase 1). The web sessions list renders a
 
 ### Web UI (all in `web/`)
 
-- **Bots tab** beside Sessions: roster rows (emoji avatar, name, last-message
+- **Bots tab** beside Sessions: roster rows (mascot avatar, name, last-message
   preview from the backing session transcript, relative timestamp), tap → chat.
 - **Bot chat**: existing transcript view + composer, wired to
   `POST /api/bots/:id/messages`; live updates via the existing WS channel.
-- **New bot sheet**: name, emoji, persona textarea, advanced (agent, model,
+- **New bot sheet**: name, mascot (shape + colorway), persona textarea, advanced (agent, model,
   thinking, repo). Editing via the same sheet.
 - **Sessions list**: the driven-by-bot badge.
 

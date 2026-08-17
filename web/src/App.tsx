@@ -615,7 +615,6 @@ type AutoAgent = {
 type PersistentBot = {
   id: string;
   name: string;
-  emoji?: string;
   shape?: BotShape;
   colorway?: BotColorway;
   persona: string;
@@ -6851,7 +6850,6 @@ export function App() {
   async function saveBot(input: {
     id?: string;
     name: string;
-    emoji?: string;
     shape?: BotShape;
     colorway?: BotColorway;
     persona: string;
@@ -12170,7 +12168,9 @@ const RailItem = memo(function RailItem({
           />
           {drivingBot && !busy && session.status !== "blocked" ? (
             <span
-              className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center overflow-hidden rounded-full ring-2 ring-card"
+              // No plate to ring, so the creature separates from the agent
+              // icon underneath it with a halo in the surface colour instead.
+              className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center [filter:drop-shadow(0_0_1px_var(--card))_drop-shadow(0_0_1px_var(--card))]"
               title={`Driven by ${drivingBot.name}`}
               aria-label={`Driven by ${drivingBot.name}`}
             >
@@ -15831,7 +15831,7 @@ const ChatStream = memo(function ChatStream({
               />
             ),
           )}
-          <TypingIndicator visible={showTypingIndicator} />
+          <TypingIndicator visible={showTypingIndicator} bot={bot} />
           {/* Pinned below the working indicator: what the agent is doing now,
               then what it will read next. */}
           {queuedItems.map((item) =>
@@ -16163,17 +16163,31 @@ function ToolGroup({ items, live }: { items: Message[]; live: boolean }) {
   );
 }
 
-function TypingIndicator({ visible = true }: { visible?: boolean }) {
+/**
+ * The wait state.
+ *
+ * In a session chat this is the usual three dots. In a bot chat it is the bot
+ * itself: a named creature you are talking to already has a face and a working
+ * pose, so an anonymous pill standing in for it is a worse answer to "what is
+ * happening" than just showing it at work.
+ */
+function TypingIndicator({ visible = true, bot }: { visible?: boolean; bot?: PersistentBot }) {
   return (
     <div
       className={cn("typing-indicator-slot", visible && "is-visible")}
       aria-hidden={!visible}
     >
-      <div className="typing-indicator" role="status" aria-label="Assistant is typing">
-        <span aria-hidden="true" />
-        <span aria-hidden="true" />
-        <span aria-hidden="true" />
-      </div>
+      {bot ? (
+        <div className="typing-mascot" role="status" aria-label={`${bot.name} is working`}>
+          <BotAvatar bot={bot} working size={30} />
+        </div>
+      ) : (
+        <div className="typing-indicator" role="status" aria-label="Assistant is typing">
+          <span aria-hidden="true" />
+          <span aria-hidden="true" />
+          <span aria-hidden="true" />
+        </div>
+      )}
     </div>
   );
 }
@@ -16836,7 +16850,7 @@ function MessageBubble({
               {message.text}
             </MessageResponse>
           ) : (
-            <TypingIndicator />
+            <TypingIndicator bot={bot} />
           )}
         </MessageContent>
       </MessageActions>
@@ -23315,18 +23329,8 @@ function BotAvatar({
         size={size}
         state={state}
         seed={botSeed(bot.id)}
-        className="rounded-[28%]"
         title={bot.name}
       />
-      {bot.emoji ? (
-        <span
-          className="pointer-events-none absolute -bottom-1 -right-1 rounded-full bg-card px-[3px] leading-none shadow-sm ring-1 ring-border"
-          style={{ fontSize: Math.max(9, Math.round(size * 0.3)) }}
-          aria-hidden
-        >
-          {bot.emoji}
-        </span>
-      ) : null}
     </span>
   );
 }
@@ -23352,7 +23356,6 @@ function DrivenByBotBadge({ session }: { session: Session }) {
         size={14}
         state="idle"
         seed={session.botId.length}
-        className="rounded-[30%]"
       />
       <span className="truncate">driven by {session.botName}</span>
     </button>
@@ -23640,7 +23643,7 @@ function BotsView({
               colorway="warm"
               size={72}
               state="sleeping"
-              className="mb-3 rounded-[28%]"
+              className="mb-3"
               title="No bots yet"
             />
             <span className="block font-medium text-foreground">No bots yet.</span>
@@ -23674,7 +23677,6 @@ function BotEditorSheet({
   onSave: (input: {
     id?: string;
     name: string;
-    emoji?: string;
     shape?: BotShape;
     colorway?: BotColorway;
     persona: string;
@@ -23692,7 +23694,6 @@ function BotEditorSheet({
     : "aisdk";
   const defaultModel = useAgentDefaultModel(initialAgent);
   const [name, setName] = useState(editing ? bot.name : "");
-  const [emoji, setEmoji] = useState(editing ? bot.emoji ?? "🤖" : "🤖");
   const [persona, setPersona] = useState(editing ? bot.persona : "");
   const [enabled, setEnabled] = useState(editing ? bot.enabled : true);
   // A new bot defaults to the repo you last launched into, the same as the
@@ -23731,7 +23732,6 @@ function BotEditorSheet({
     void onSave({
       id: editing ? bot.id : undefined,
       name: name.trim(),
-      emoji: emoji.trim() || undefined,
       shape,
       colorway,
       persona: persona.trim(),
@@ -23774,7 +23774,6 @@ function BotEditorSheet({
             size={56}
             state="idle"
             seed={shape.length * 7 + colorway.length}
-            className="rounded-[28%]"
             title="Bot avatar preview"
           />
           <input
@@ -23783,13 +23782,6 @@ function BotEditorSheet({
             autoFocus
             placeholder="Bot name"
             className="lfg-gfield min-w-0 flex-1 rounded-2xl px-3 py-2 text-[15px] font-medium outline-none"
-          />
-          <input
-            value={emoji}
-            onChange={(event) => setEmoji(event.target.value)}
-            aria-label="Bot emoji"
-            title="Bot emoji badge"
-            className="size-11 shrink-0 rounded-full border border-dashed border-border bg-muted text-center text-xl outline-none focus:border-primary"
           />
         </div>
 
@@ -23817,7 +23809,6 @@ function BotEditorSheet({
                 size={38}
                 state="idle"
                 seed={option.length * 3}
-                className="rounded-[28%]"
               />
             </button>
           ))}
