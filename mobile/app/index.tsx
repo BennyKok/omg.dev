@@ -97,7 +97,7 @@ function SessionFamily({
         <View style={{ marginLeft: space.xl, marginTop: space.sm, gap: space.sm }}>
           {node.children.map((child, index) => (
             <SessionBranch
-              key={sessionStableId(child.session) || index}
+              key={sessionStableId(child.session)}
               node={child}
               depth={depth + 1}
               last={index === node.children.length - 1}
@@ -1081,9 +1081,9 @@ export default function SessionsScreen() {
                 {/* Each session is its own card now, so the rows need air
                     between them — see SessionCard. */}
                 <View style={{ gap: space.sm }}>
-                  {working.map((node, i) => (
+                  {working.map((node) => (
                     <SessionFamily
-                      key={sessionStableId(node.session) || i}
+                      key={sessionStableId(node.session)}
                       node={node}
                       onOpen={openSession}
                     />
@@ -1100,9 +1100,9 @@ export default function SessionsScreen() {
                   dotColor={colors.success}
                 />
                 <View style={{ gap: space.sm }}>
-                  {idle.map((node, i) => (
+                  {idle.map((node) => (
                     <SessionFamily
-                      key={sessionStableId(node.session) || i}
+                      key={sessionStableId(node.session)}
                       node={node}
                       onOpen={openSession}
                       onArchive={archiveSession}
