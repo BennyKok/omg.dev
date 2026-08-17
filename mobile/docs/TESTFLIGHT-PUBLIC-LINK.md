@@ -233,6 +233,29 @@ the reviewer's first open may take a few seconds. **Check `getCloudComputer`
 still reports `live` before each review round**, and re-provision if the
 instance has been recycled.
 
+## Blocker for full App Store submission: production Privacy Policy URL is empty
+
+Verified 2026-08-17 in App Store Connect, logged in as Benny. There are **two
+separate Privacy Policy URL fields** and they are in different states — do not
+assume checking one tells you about the other:
+
+| Field | Location | State |
+|---|---|---|
+| TestFlight Privacy Policy URL | TestFlight → Test Information → Beta App Information | `https://omg.dev/privacy`, set, resolves 200 |
+| App Store Privacy Policy URL | Distribution (App Store) → App Privacy | **empty** (`–`) |
+
+The TestFlight one is what governs Beta App Review — including build 24's —
+and it is correct, which is why this has not blocked anything so far. The
+second one belongs to `iOS App Version 1.0`, the app's full App Store
+listing, which has never been submitted (still "Prepare for Submission",
+no screenshots, no description — an untouched shell separate from the
+TestFlight track this app actually ships on).
+
+**It will not surface again until someone starts a real App Store
+submission**, at which point it blocks — Apple requires it in the metadata
+field, not just in-app. Fill it in (`https://omg.dev/privacy`, same as the
+TestFlight field) before that submission, not after Apple rejects for it.
+
 ## Test Information to fill in
 
 Required once for external testing, in App Store Connect → TestFlight → Test
