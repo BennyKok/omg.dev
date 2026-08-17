@@ -141,6 +141,36 @@ first auto-renewable subscription must be submitted with a new app
 version"* — they finalize together with the actual version submission, not
 before it.
 
+## Legal entity documents found in Dropbox — name mismatch flagged, NOT entered anywhere
+
+Searched `~/Dropbox` on the Mac (filenames + text-file contents) for the
+assumed entity name "Use Effect" / "Use Effect Limited": **zero matches**,
+anywhere, filename or content. The only business-registration documents that
+exist in Dropbox are for a different name:
+
+| Field | Value | Source |
+|---|---|---|
+| Legal entity name | **Machine Thinking Company** | `Documents/20250401-BR-Machine Thinking Company.pdf` (HK Business Registration Certificate, Form 2) and `Documents/20250401-Form 1a-Machine Thinking Company.pdf` (the application) |
+| Entity type | **Individual / sole proprietorship** (香港《商業登記條例》Form 1(a) — "Application by an individual for registration of business carried on by him in Hong Kong"), proprietor Kok Chun Hung | same |
+| BR Certificate No. | `57966774-000-04-25-9` | same |
+| Registered / business address | 16 Sam Dip Tam, House 57, Lo Wai Village, Tsuen Wan, N.T., Hong Kong | same |
+| Nature of business | IT | same |
+| Certificate validity | Commenced 01/04/2025, **expired 31/03/2026** — i.e. already lapsed as of today (2026-08-17). A renewed certificate, if one exists, was not found in Dropbox. | same |
+| D-U-N-S number | Not found — no D-U-N-S document anywhere in Dropbox | — |
+
+**This does not match the "Use Effect Limited" assumption** and it is a sole
+proprietorship, not a limited company. Apple requires the legal name/address
+to match official records exactly, so **do not enter either name into ASC's
+legal entity form without Benny confirming which entity is actually intended
+for the Apple Developer / Paid Apps Agreement** — it's possible "Use Effect"
+is a trade name that was never registered as a HK company, or the intended
+entity is on paper somewhere outside Dropbox (email, a different cloud
+folder, or simply not yet incorporated). Nothing was typed into ASC based on
+this.
+
+Not reported here: the proprietor's HKID/passport number visible on the Form
+1(a) — irrelevant to Apple's requirements and not something to propagate.
+
 ## Real blocker found: Paid Apps Agreement
 
 `Business → Agreements, Tax, and Banking` shows:
