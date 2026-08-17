@@ -630,6 +630,12 @@ type PersistentBot = {
 
 const BotDirectoryContext = createContext<Map<string, PersistentBot>>(new Map());
 const OpenBotContext = createContext<(id: string) => void>(() => {});
+/**
+ * Editing a bot from wherever its chat is open. The bot chat is a session card
+ * now, not a page with its own header, so the settings gear has to reach the
+ * shell's editor sheet from inside a component that knows nothing about tabs.
+ */
+const EditBotContext = createContext<((bot: PersistentBot) => void) | null>(null);
 
 type AutoFinding = {
   id: string;
@@ -7623,7 +7629,16 @@ export function App() {
         ? "pb-[calc(var(--lfg-inline-composer-height,var(--lfg-composer-clear))+0.75rem)] md:pb-3"
         : "pb-[var(--lfg-above-orb)] md:pb-3"
       : "pb-3";
-  const liveDesktopWorkspace = tab === "live" && isWide;
+  /**
+   * Bots are not a separate page on desktop — they are the same workspace with
+   * the rail switched to a different list. `/bots` renders the rail + stage,
+   * with bots as rail items, so opening one lands in a stage column exactly
+   * like opening a session. Narrow layouts have no rail to switch, so they
+   * keep the standalone BotsView page.
+   */
+  const botsInWorkspace = tab === "bots" && isWide;
+  const workspaceVisible = tab === "live" || botsInWorkspace;
+  const liveDesktopWorkspace = workspaceVisible && isWide;
 
   return (
     <AgentAccessModeContext.Provider
@@ -7640,6 +7655,7 @@ export function App() {
     <OpenSettingsPageContext.Provider value={setTab}>
     <BotDirectoryContext.Provider value={botDirectory}>
     <OpenBotContext.Provider value={openBot}>
+    <EditBotContext.Provider value={setEditingBot}>
     <div
       ref={rootRef}
       inert={loading}
@@ -7895,15 +7911,15 @@ export function App() {
             is chrome the host doesn't render. Show the page's shape instead,
             and let the real values replace it. */}
         {bare && loading ? <BareSurfaceSkeleton /> : <>
-        {keepLive || tab === "live" ? (
+        {keepLive || workspaceVisible ? (
           <div
             className={cn(
               // Desktop RailStage fills main via h-full; keep that chain intact
               // when live is active. Mobile scrolls inside main, so no height
               // lock there. Hidden when another tab is up.
-              tab !== "live" ? "hidden" : liveDesktopWorkspace ? "h-full min-h-0" : undefined,
+              !workspaceVisible ? "hidden" : liveDesktopWorkspace ? "h-full min-h-0" : undefined,
             )}
-            aria-hidden={tab !== "live"}
+            aria-hidden={!workspaceVisible}
           >
             <LiveView
               sessions={liveSessions}
@@ -7925,6 +7941,14 @@ export function App() {
               onOpenSettings={embedded ? undefined : () => setTab("settings")}
               onOpenAsk={embedded ? undefined : () => setTab("ask")}
               onOpenBots={() => setTab("bots")}
+              onOpenSessions={() => setTab("live")}
+              railSurface={tab === "bots" ? "chat" : "sessions"}
+              bots={bots}
+              selectedBotId={selectedBotId}
+              onOpenBot={openBot}
+              onNewBot={() => setEditingBot("new")}
+              onEditBot={(bot) => setEditingBot(bot)}
+              onRefreshBots={refreshBots}
               onOpenShipped={openShipped}
               // Built here rather than inside RailStage: the shell owns the tab
               // state and the extension registry, and the rail should not have to
@@ -7963,7 +7987,7 @@ export function App() {
             />
           </div>
         ) : null}
-        {tab === "bots" ? (
+        {tab === "bots" && !botsInWorkspace ? (
           <BotsView
             bots={bots}
             sessions={sessions}
@@ -8281,6 +8305,7 @@ export function App() {
         onClose={() => setTerminalSid(null)}
       />
     ) : null}
+    </EditBotContext.Provider>
     </OpenBotContext.Provider>
     </BotDirectoryContext.Provider>
     </OpenSettingsPageContext.Provider>
@@ -10213,6 +10238,14 @@ function LiveView({
   onOpenSettings,
   onOpenAsk,
   onOpenBots,
+  onOpenSessions,
+  railSurface = "sessions",
+  bots = [],
+  selectedBotId = null,
+  onOpenBot,
+  onNewBot,
+  onEditBot,
+  onRefreshBots,
   onOpenShipped,
   pagesMenu,
   onOpenRecentShipped,
@@ -10235,6 +10268,15 @@ function LiveView({
   onOpenSettings?: () => void;
   onOpenAsk?: () => void;
   onOpenBots: () => void;
+  onOpenSessions?: () => void;
+  /** Which list the rail is showing. Bots ride the same rail as sessions. */
+  railSurface?: "sessions" | "chat";
+  bots?: PersistentBot[];
+  selectedBotId?: string | null;
+  onOpenBot?: (id: string) => void;
+  onNewBot?: () => void;
+  onEditBot?: (bot: PersistentBot) => void;
+  onRefreshBots?: () => Promise<void>;
   onOpenShipped?: (post?: ShipPost) => void;
   /** Rail overflow menu, built by the shell so RailStage stays unaware of tabs. */
   pagesMenu?: ReactNode;
@@ -10516,6 +10558,14 @@ function LiveView({
         onOpenSettings={onOpenSettings}
         onOpenAsk={onOpenAsk}
         onOpenBots={onOpenBots}
+        onOpenSessions={onOpenSessions}
+        railSurface={railSurface}
+        bots={bots}
+        selectedBotId={selectedBotId}
+        onOpenBot={onOpenBot}
+        onNewBot={onNewBot}
+        onEditBot={onEditBot}
+        onRefreshBots={onRefreshBots}
         pagesMenu={pagesMenu}
         onOpenRecentShipped={onOpenRecentShipped}
         onManageSessions={onManageSessions}
@@ -10696,6 +10746,14 @@ function RailStage({
   onOpenSettings,
   onOpenAsk,
   onOpenBots,
+  onOpenSessions = () => {},
+  railSurface = "sessions",
+  bots = [],
+  selectedBotId = null,
+  onOpenBot,
+  onNewBot,
+  onEditBot,
+  onRefreshBots,
   pagesMenu,
   onOpenRecentShipped,
   onManageSessions,
@@ -10719,6 +10777,14 @@ function RailStage({
   onOpenSettings?: () => void;
   onOpenAsk?: () => void;
   onOpenBots: () => void;
+  onOpenSessions?: () => void;
+  railSurface?: "sessions" | "chat";
+  bots?: PersistentBot[];
+  selectedBotId?: string | null;
+  onOpenBot?: (id: string) => void;
+  onNewBot?: () => void;
+  onEditBot?: (bot: PersistentBot) => void;
+  onRefreshBots?: () => Promise<void>;
   /** Rail overflow menu, built by the shell so RailStage stays unaware of tabs. */
   pagesMenu?: ReactNode;
   onOpenRecentShipped?: (post: ShipPost) => void;
@@ -11082,6 +11148,46 @@ function RailStage({
     setPinned((prev) => prev.filter((x) => x !== sid));
     setPreview((p) => (p === sid ? null : p));
   }, []);
+
+  /**
+   * A bot's chat IS its backing session, so the rail does not need a second
+   * kind of stage column: opening a bot previews that session and the normal
+   * SessionCard renders it. Bots that have never been messaged have no session
+   * yet — those get the one bespoke pane, just long enough to say hi.
+   */
+  const botsBySid = useMemo(() => {
+    const map = new Map<string, PersistentBot>();
+    for (const bot of bots) {
+      const backing = sessions.find(
+        (session) =>
+          session.botId === bot.id || (!!bot.sessionId && session.sessionId === bot.sessionId),
+      );
+      const sid = backing?.sessionId ?? bot.sessionId ?? null;
+      if (sid) map.set(sid, bot);
+    }
+    return map;
+  }, [bots, sessions]);
+  const sidForBot = useCallback(
+    (botId: string) => {
+      for (const [sid, bot] of botsBySid) if (bot.id === botId) return sid;
+      return null;
+    },
+    [botsBySid],
+  );
+  const selectedBot = useMemo(
+    () => (selectedBotId ? bots.find((bot) => bot.id === selectedBotId) ?? null : null),
+    [bots, selectedBotId],
+  );
+  const selectedBotSid = selectedBotId ? sidForBot(selectedBotId) : null;
+
+  // Selecting a bot in the rail is selecting its session on the stage. Runs on
+  // the sid too, not just the id: a brand-new bot's session appears only after
+  // its first message lands, and this is what swaps the say-hi pane for it.
+  useEffect(() => {
+    if (railSurface !== "chat" || !selectedBotSid) return;
+    setPreview((prev) => (prev === selectedBotSid ? prev : selectedBotSid));
+    setCursor(selectedBotSid);
+  }, [railSurface, selectedBotSid]);
 
   const railTree = useMemo(
     () => buildSessionTree(sessions, (s) => !!busyBySid[s.sessionId ?? ""]),
@@ -11659,6 +11765,91 @@ function RailStage({
       </RailGroup>
     ) : null;
 
+  // On the bot surface the stage shows exactly one column — the bot you picked.
+  // Stage pins belong to the session surface; carrying them over would answer
+  // "open this bot" with someone else's session sitting next to it.
+  const botStageColumns = useMemo(() => {
+    if (railSurface !== "chat" || !selectedBotSid) return [];
+    const node = railTree.nodeForSessionId(selectedBotSid);
+    const session =
+      node?.session ?? sessions.find((item) => item.sessionId === selectedBotSid) ?? null;
+    return session ? [{ sid: selectedBotSid, session }] : [];
+  }, [railSurface, selectedBotSid, railTree, sessions]);
+  const activeStageColumns = railSurface === "chat" ? botStageColumns : stageColumns;
+
+  // The bot list is the session list's sibling, not a page: same rail, same
+  // rows, same click-to-open-a-column behaviour. A bot row IS a session row —
+  // it just knows its own name and face before the session exists.
+  const botRailList = (
+    <div className="flex flex-col gap-0.5">
+      {!railCollapsed && onNewBot ? (
+        <button
+          type="button"
+          onClick={onNewBot}
+          className="mb-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
+            <Plus className="size-3.5" />
+          </span>
+          <span className="truncate">New bot</span>
+        </button>
+      ) : null}
+      {bots.map((bot) => {
+        const sid = sidForBot(bot.id);
+        const session = sid ? sessions.find((item) => item.sessionId === sid) : undefined;
+        const busy = !!(sid && busyBySid[sid]);
+        const active = selectedBotId === bot.id;
+        const rawPreview = session?.last?.text || session?.lastUserText || "";
+        const line = rawPreview
+          ? plainPreviewText(botVisibleUserText(rawPreview, bot))
+          : "Say hi to get started.";
+        return (
+          <button
+            key={bot.id}
+            type="button"
+            title={railCollapsed ? bot.name : undefined}
+            onClick={() => {
+              onOpenBot?.(bot.id);
+              if (sid) activate(sid, false);
+            }}
+            className={cn(
+              "flex w-full items-center rounded-lg text-left transition-colors",
+              railCollapsed ? "justify-center px-1 py-1.5" : "gap-2 px-2 py-1.5",
+              active ? "bg-muted" : "hover:bg-muted/60",
+            )}
+          >
+            <BotAvatar bot={bot} working={busy} size={railCollapsed ? 24 : 28} />
+            {!railCollapsed ? (
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span
+                  className={cn(
+                    "truncate text-[13px] font-medium leading-tight",
+                    !bot.enabled && "text-muted-foreground",
+                  )}
+                >
+                  {bot.name}
+                </span>
+                <span className="truncate text-[11px] leading-tight text-muted-foreground">
+                  {busy ? "Working…" : line}
+                </span>
+              </span>
+            ) : null}
+            {!railCollapsed && bot.lastMessageAt ? (
+              <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/70">
+                {relTime(bot.lastMessageAt)}
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
+      {!bots.length && !railCollapsed ? (
+        <div className="px-2 py-6 text-center text-xs text-muted-foreground">
+          No bots yet. A bot is a persistent agent you talk to, not a task you launch.
+        </div>
+      ) : null}
+    </div>
+  );
+
   return (
     <div ref={workspaceRef} className="flex h-full min-h-0 gap-3">
       <aside
@@ -11693,7 +11884,6 @@ function RailStage({
           </div>
         ) : (
           <div className="flex shrink-0 flex-col gap-2 border-b border-border px-2 py-2">
-            <SurfaceToggle active="sessions" onOpenSessions={() => {}} onOpenBots={onOpenBots} />
             {/* Hosted replaces the LFG mark with omg.dev and moves project
                 scope to the action row so the lockup always has room. */}
             <div className="flex items-center gap-1.5">
@@ -11775,9 +11965,14 @@ function RailStage({
                 <PanelLeftClose className="size-4" />
               </button>
             </div>
+            {/* Sits below the actions, directly above the list it switches.
+                Above the brand row it read as app-level navigation; what it
+                actually does is change which list the rail is showing. */}
+            <SurfaceToggle active={railSurface} onOpenSessions={onOpenSessions} onOpenBots={onOpenBots} />
           </div>
         )}
         <div className="session-list-scroll min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
+          {railSurface === "chat" ? botRailList : <>
           {topPinnedSessions.length ? (
             <RailGroup
               label="Pinned"
@@ -11831,6 +12026,7 @@ function RailStage({
               ))}
             </RailGroup>
           ) : null}
+          </>}
         </div>
         {/* Host-owned footer. A host embedding LFG as its whole desktop surface
             (omg) has nowhere to put its own top-level navigation: this layout
@@ -11855,15 +12051,15 @@ function RailStage({
         className={cn(
           "grid h-full min-h-0 min-w-0 flex-1 gap-3",
           // 1 pane → full; 2 → side by side; 3-4 → 2×2 (panes 1&2 top, 3&4 bottom).
-          stageColumns.length <= 1
+          activeStageColumns.length <= 1
             ? "grid-cols-1 grid-rows-1"
-            : stageColumns.length === 2
+            : activeStageColumns.length === 2
               ? "grid-cols-2 grid-rows-1"
               : "grid-cols-2 grid-rows-2",
         )}
       >
-        {stageColumns.length ? (
-          stageColumns.map(({ sid, session }) => {
+        {activeStageColumns.length ? (
+          activeStageColumns.map(({ sid, session }) => {
             return (
               <div
                 key={sid}
@@ -11874,13 +12070,21 @@ function RailStage({
                     until a second column exists. */}
                 {renderStageCard(
                   session,
-                  stageColumns.length > 1 || session.shippedReview
+                  railSurface !== "chat" && (stageColumns.length > 1 || session.shippedReview)
                     ? () => closeColumn(sid)
                     : undefined,
                 )}
               </div>
             );
           })
+        ) : railSurface === "chat" ? (
+          <BotStagePlaceholder
+            bot={selectedBot}
+            onNewBot={onNewBot}
+            onStarted={async () => {
+              await Promise.all([onRefreshBots?.(), onRefresh()]);
+            }}
+          />
         ) : (
           <div className="flex h-full flex-1 flex-col items-center justify-center">
             <div className="lfg-gborder flex flex-col items-center gap-3 rounded-3xl border border-transparent bg-card px-8 py-10 text-center shadow-[0_12px_40px_-24px_rgba(0,0,0,0.5)]">
@@ -13025,7 +13229,15 @@ type SessionChatProps = {
  * practice it is already cached by the time a session is opened and the
  * fallback never renders.
  */
-function SessionChat(props: SessionChatProps) {
+function SessionChat(rawProps: SessionChatProps) {
+  // A bot-backed session is a bot chat wherever it is opened — the rail, a
+  // stage column, the mobile sheet — not only inside the Bots surface that
+  // used to hand the bot down by prop. Without this, opening the same session
+  // from the session list would show the launch contract as a real message
+  // and wait on anonymous dots instead of the creature.
+  const directory = useContext(BotDirectoryContext);
+  const contextBot = rawProps.session.botId ? directory.get(rawProps.session.botId) : undefined;
+  const props = rawProps.bot ? rawProps : { ...rawProps, bot: contextBot };
   const sid = props.session.sessionId;
   const botId = props.bot?.id;
   const { onError, onSubscribeTranscript } = props;
@@ -15192,6 +15404,13 @@ const SessionCard = memo(function SessionCard({
   // Desktop double-click and the actions menu on every viewport edit in place.
   const [renamingInline, setRenamingInline] = useState(false);
 
+  // A session driven by a bot is that bot's chat. It gets the bot's face and
+  // name in the header rather than a generated session title, wherever it is
+  // opened from.
+  const botDirectory = useContext(BotDirectoryContext);
+  const headerBot = session.botId ? botDirectory.get(session.botId) ?? null : null;
+  const editBot = useContext(EditBotContext);
+
   const sid = session.sessionId;
 
   const startRename = useCallback(() => {
@@ -15469,7 +15688,15 @@ const onTouchStart = (e: ReactTouchEvent) => {
         >
           {/* Agent identity + busy indicator. This used to double as a hidden
               "speak the session summary" button, which read as an avatar and
-              was removed with the TTS feature. */}
+              was removed with the TTS feature. A bot-backed session wears the
+              bot's face instead of the harness mark: the creature already says
+              which agent it is, and it carries busy in its own posture, so the
+              spinner would be saying it twice. */}
+          {headerBot ? (
+            <div className="flex size-7 shrink-0 items-center justify-center">
+              <BotAvatar bot={headerBot} working={busy} size={28} />
+            </div>
+          ) : (
           <div className="relative flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground">
             {busy ? (
               <Loader2
@@ -15491,6 +15718,7 @@ const onTouchStart = (e: ReactTouchEvent) => {
               size={busy ? "sm" : "md"}
             />
           </div>
+          )}
           {renamingInline ? (
             <SessionTitleInlineEditor
               initial={session.title?.trim() || titleForSession(session)}
@@ -15526,7 +15754,7 @@ const onTouchStart = (e: ReactTouchEvent) => {
             >
               <div className="flex min-w-0 flex-1 flex-col">
                 <div className="truncate text-[15px] font-semibold leading-tight">
-                  {titleForSession(session)}
+                  {headerBot ? headerBot.name : titleForSession(session)}
                 </div>
                 {isMobile && latest ? (
                   <div className="truncate text-[11px] leading-tight text-muted-foreground">
@@ -15545,7 +15773,22 @@ const onTouchStart = (e: ReactTouchEvent) => {
             <Pin className="size-3.5" fill="currentColor" />
           </span>
         ) : null}
-        {!collapsedView && session.botId && session.botName ? (
+        {/* The badge is a way back to a bot you are not looking at. Once the
+            header wears the bot's own face, it would only link here — so it
+            becomes the way into that bot's settings instead. */}
+        {!collapsedView && headerBot && editBot ? (
+          <Button
+            variant="tint"
+            size="icon-sm"
+            onClick={() => editBot(headerBot)}
+            aria-label={`${headerBot.name} settings`}
+            title={`${headerBot.name} settings`}
+            className="shrink-0"
+          >
+            <Settings className="size-4" />
+          </Button>
+        ) : null}
+        {!collapsedView && !headerBot && session.botId && session.botName ? (
           <DrivenByBotBadge session={session} />
         ) : null}
         {!collapsedView && (
@@ -23245,6 +23488,57 @@ function MoreView({
           </button>
         </div>
       </section>
+    </div>
+  );
+}
+
+/**
+ * The stage when the bot surface has no session to show: either nothing is
+ * picked, or the picked bot has never been messaged and so has no backing
+ * session yet. The say-hi composer is what creates one — after which the
+ * normal SessionCard takes over and this is never seen again for that bot.
+ */
+function BotStagePlaceholder({
+  bot,
+  onNewBot,
+  onStarted,
+}: {
+  bot: PersistentBot | null;
+  onNewBot?: () => void;
+  onStarted: () => Promise<void>;
+}) {
+  if (bot && bot.enabled) {
+    return (
+      <section className="lfg-gborder flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-transparent bg-card">
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-6 text-center text-sm text-muted-foreground">
+          {/* Full size, full expressiveness: this is the one screen with room
+              for the creature to actually be a character. */}
+          <BotAvatar bot={bot} size={96} />
+          <span>Say hi to start your conversation with {bot.name}.</span>
+        </div>
+        <FirstBotMessageComposer bot={bot} onStarted={onStarted} />
+      </section>
+    );
+  }
+  return (
+    <div className="flex h-full flex-1 flex-col items-center justify-center">
+      <div className="lfg-gborder flex flex-col items-center gap-3 rounded-3xl border border-transparent bg-card px-8 py-10 text-center shadow-[0_12px_40px_-24px_rgba(0,0,0,0.5)]">
+        <BotMascot shape="circle" colorway="warm" size={72} state="sleeping" title="No bot open" />
+        <div>
+          <div className="font-semibold">{bot ? `${bot.name} is disabled` : "No bot open"}</div>
+          <div className="mt-1 text-sm text-muted-foreground">
+            {bot
+              ? "Re-enable it in its settings to keep talking to it."
+              : "Pick one from the rail. A bot is a persistent agent you talk to, not a task you launch."}
+          </div>
+        </div>
+        {!bot && onNewBot ? (
+          <Button variant="brand" className="lfg-gborder lfg-gborder--brand" onClick={onNewBot}>
+            <Plus className="size-4" />
+            New bot
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 }
