@@ -14,7 +14,7 @@
 import { useFocusEffect, useNavigation, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Linking, Pressable, RefreshControl, ScrollView, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, View } from "react-native";
 import Reanimated, { useAnimatedKeyboard, useAnimatedStyle } from "react-native-reanimated";
 import { Text } from "../src/omg/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -38,8 +38,8 @@ import {
   sessionStableId,
   type SessionNode,
 } from "../src/omg/session-tree";
-import { AutoAgentCard } from "../src/omg/auto-agent-card";
-import { selectHomeAutoAgents, useAutoAgents } from "../src/omg/auto-agents";
+import { AutoFindingCard } from "../src/omg/auto-agent-card";
+import { selectHomeAutoFindings, useAutoAgents } from "../src/omg/auto-agents";
 import { useComputerPicker } from "../src/omg/computer-picker";
 import { useDictation } from "../src/omg/dictation";
 import { PressableScale } from "../src/omg/motion";
@@ -333,12 +333,7 @@ export default function SessionsScreen() {
   // to a box too old to have that endpoint.
   const { providers: usage, loading: usageLoading } = useUsage();
   const { sessions: resumable, refresh: refreshResumable } = useResumable();
-  const {
-    agents: autoAgents,
-    findings: autoFindings,
-    tz: autoTz,
-    refresh: refreshAuto,
-  } = useAutoAgents();
+  const { agents: autoAgents, findings: autoFindings, refresh: refreshAuto } = useAutoAgents();
   const agentPicker = useAgentPicker();
   const projectPicker = useProjectPicker();
 
@@ -354,9 +349,9 @@ export default function SessionsScreen() {
    */
   const [pulling, setPulling] = useState(false);
   /**
-   * Which auto agent is opened out to show its findings. ONE at a time: a
-   * finding carries four reasoning bullets and a suggestion, so two open at
-   * once push the Recent section off the bottom of a phone.
+   * Which open finding is expanded to show its full reasoning. ONE at a
+   * time: a finding carries several reasoning bullets and a suggestion, so
+   * two open at once push the Recent section off the bottom of a phone.
    */
   const [expandedAuto, setExpandedAuto] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -567,31 +562,26 @@ export default function SessionsScreen() {
   }, [resumable, sessions, projectPicker]);
 
   /**
-   * THE SCHEDULED FLEET, FILTERED DOWN TO THE PART THAT IS NEWS.
+   * OPEN FINDINGS, FILTERED DOWN TO THIS PROJECT.
    *
-   * Auto agents obey the project filter like everything else on this screen —
-   * the machine already resolves each one's owning repo (worktree cwds
-   * collapse; see withAutoAgentMeta), so the chip that hides another repo's
-   * sessions has to hide its schedules too, or the filter half-works.
-   *
-   * `selectHomeAutoAgents` then keeps only the ones with an open finding or a
-   * run in flight; `autoQuiet` is how many were left out. That number is
-   * printed rather than swallowed: this box has 34 auto agents and shows a
-   * handful, and a section that silently drops 26 rows teaches you not to
-   * trust the ones it kept.
+   * Findings obey the project filter like everything else on this screen —
+   * scoped through the OWNING AGENT's repo (the machine already resolves
+   * worktree cwds to it; see withAutoAgentMeta), because a finding carries no
+   * project of its own. `selectHomeAutoFindings` then lays the scoped
+   * findings out one row each, worst severity first — see auto-agents.ts for
+   * why there is no roster here to filter down from.
    */
-  const autoScoped = useMemo(
-    () =>
-      autoAgents.filter((agent) =>
-        projectPicker.matches({ project: agent.project ?? undefined, cwd: agent.cwd ?? undefined }),
-      ),
-    [autoAgents, projectPicker],
-  );
-  const autoRows = useMemo(
-    () => selectHomeAutoAgents(autoScoped, autoFindings),
-    [autoScoped, autoFindings],
-  );
-  const autoQuiet = autoScoped.length - autoRows.length;
+  const autoRows = useMemo(() => {
+    const byAgentId = new Map(autoAgents.map((agent) => [agent.id, agent]));
+    const scoped = autoFindings.filter((finding) => {
+      const agent = byAgentId.get(finding.agentId);
+      return projectPicker.matches({
+        project: agent?.project ?? undefined,
+        cwd: agent?.cwd ?? undefined,
+      });
+    });
+    return selectHomeAutoFindings(autoAgents, scoped);
+  }, [autoAgents, autoFindings, projectPicker]);
 
   const openSession = (id: string | null) => {
     if (!id) return;
@@ -1036,13 +1026,20 @@ export default function SessionsScreen() {
             ) : null}
 
             {/**
-             * THE WORK NOBODY ASKED FOR TODAY.
+             * WHAT NEEDS A DECISION TODAY.
              *
-             * Auto agents run on a timer and report findings; they are not
-             * sessions, so they do not belong in Working or Idle, where a tap
-             * opens a transcript and a swipe archives — see auto-agents.ts.
-             * Their own section, ADDED rather than substituted: the three
-             * above are untouched.
+             * Auto agents run on a timer and report findings; a finding is
+             * not a session, so it does not belong in Working or Idle, where
+             * a tap opens a transcript and a swipe archives — see
+             * auto-agents.ts. Its own section, ADDED rather than
+             * substituted: the three above are untouched.
+             *
+             * ONE ROW PER OPEN FINDING, matching the web's own live view
+             * (the "Auto" section in web/src/App.tsx) rather than a roster of
+             * every scheduled agent — most of which have nothing to say right
+             * now, which is exactly why the web doesn't list them here either
+             * (see selectHomeAutoFindings). Nothing hands off to a "manage
+             * schedules" page: there is nothing left unsaid to hand off.
              *
              * BETWEEN Idle AND Recent, and that position is the argument.
              * Working and Idle are happening now. Recent is finished and
@@ -1057,52 +1054,20 @@ export default function SessionsScreen() {
              */}
             {autoRows.length ? (
               <>
-                <SectionHeader
-                  label="Auto agents"
-                  count={autoRows.length}
-                  dotColor={colors.primary}
-                />
+                <SectionHeader label="Auto" count={autoRows.length} dotColor={colors.primary} />
                 <View style={{ gap: space.sm }}>
                   {autoRows.map((row) => (
-                    <AutoAgentCard
-                      key={row.agent.id}
+                    <AutoFindingCard
+                      key={row.finding.id}
                       row={row}
-                      tz={autoTz}
-                      expanded={expandedAuto === row.agent.id}
+                      expanded={expandedAuto === row.finding.id}
                       onToggle={() =>
                         setExpandedAuto((current) =>
-                          current === row.agent.id ? null : row.agent.id,
+                          current === row.finding.id ? null : row.finding.id,
                         )
                       }
                     />
                   ))}
-                  {/* SAY WHAT IS NOT HERE, AND OPEN IT.
-                      The count is the difference between "these are your auto
-                      agents" (a lie) and "these are the ones with something to
-                      say". As dead text it would still be a cul-de-sac — 26
-                      agents named and no way to reach them — so it hands off
-                      to the web the way the rest of the app does when it runs
-                      out of road (settings.tsx, computers.tsx). The phone has
-                      no editor for a prompt-and-cron; the web page it opens is
-                      the same one this section mirrors. */}
-                  {autoQuiet > 0 ? (
-                    <PressableScale
-                      onPress={() =>
-                        void Linking.openURL("https://app.omg.dev/settings/computer/auto")
-                      }
-                      scale={0.98}
-                      accessibilityRole="link"
-                      style={{ paddingHorizontal: space.lg, paddingTop: space.xs }}
-                    >
-                      <Text style={{ ...type.caption, color: colors.textMuted }}>
-                        {autoQuiet} more {autoQuiet === 1 ? "agent is" : "agents are"} on a
-                        schedule with nothing open ·{" "}
-                        <Text style={{ ...type.caption, color: colors.primary }}>
-                          Manage schedules
-                        </Text>
-                      </Text>
-                    </PressableScale>
-                  ) : null}
                 </View>
               </>
             ) : null}

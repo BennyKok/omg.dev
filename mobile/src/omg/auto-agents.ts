@@ -2,29 +2,35 @@
  * Auto agents — the ones that run on a timer instead of because you asked.
  *
  * An auto agent is JUST a prompt plus a cron schedule (see src/auto/store.ts).
- * It is NOT a session: it has no transcript, nothing to resume, and nothing to
- * archive. What it produces is a FINDING — one notification, at most, per run,
- * carrying its reasoning and a lifecycle. That distinction is the whole reason
- * these get their own section on the home screen rather than being folded into
- * Working/Idle, where tapping a row opens a transcript and swiping one
- * archives a session; both of those would be lies here.
+ * It is NOT a session on its own: it has no transcript, nothing to resume.
+ * What it produces is a FINDING — one notification, at most, per run,
+ * carrying its reasoning and a lifecycle (open, dismissed, or graduated into
+ * a real session — acting on that lifecycle from the phone is a follow-up;
+ * this file only reads and shapes the open list for now). That distinction is
+ * the whole reason these get their own section on the home screen rather than
+ * being folded into Working/Idle, where tapping a row opens a transcript and
+ * swiping one archives a session — both would be lies here. See
+ * selectHomeAutoFindings below.
  *
- * WHAT THE HOME SCREEN IS FOR, AND WHY THIS LIST IS FILTERED.
+ * WHAT THE HOME SCREEN IS FOR, AND WHY THIS LIST IS A FINDINGS LIST.
  *
- * This box has 34 auto agents. Rendering all of them would put ~2000pt of
- * configuration under the three sections that show live work, which is the
- * opposite of what the screen is for — and it is not what the web does either:
- * the web keeps the full roster on a MANAGEMENT page (/settings/computer/auto,
- * titled "Schedules") and surfaces findings on the live view. The phone has no
- * management page, so the home section shows the agents that have something to
- * say right now — an open finding, or a run in progress — and index.tsx says
- * out loud how many quiet ones were left out. See selectHomeAutoAgents.
+ * This box can have dozens of auto agents. Rendering that roster would put
+ * a wall of configuration under the three sections that show live work,
+ * which is the opposite of what the screen is for — and it is not what the
+ * web does either: the web keeps the full roster on a MANAGEMENT page
+ * (/settings/computer/auto, titled "Schedules") and its live view shows only
+ * open findings, one row each, agent-grouping and all (see the "Auto"
+ * section in web/src/App.tsx). The phone has no management page, so this
+ * mirrors the live view exactly rather than inventing a phone-only shape: the
+ * home section shows one row per open finding, nothing about the quiet
+ * agents that produced none. See selectHomeAutoFindings.
  *
  * Both reads degrade to nothing rather than to an error, the same way
  * resumable.ts does: an older machine has no /api/auto/* at all, and someone
- * who opened this screen to see what is running should not be told about it.
- * They degrade INDEPENDENTLY, too — a machine that can list agents but not
- * findings still owes you the running ones.
+ * who opened this screen to see what needs attention should not be told
+ * about it. They degrade INDEPENDENTLY, too — a machine that can list
+ * findings but not agents still owes you the findings, with a generic mark
+ * where the agent's name and avatar would be (see AutoFindingRow).
  */
 
 import { useFocusEffect } from "expo-router";
@@ -80,15 +86,15 @@ export type AutoAgentsState = {
 };
 
 /**
- * 30s. The rows make LIVE claims — "running", "next in 56m" — so this cannot
- * be resumable.ts's fetch-once, which would leave an agent advertising a run
- * that finished ten minutes ago and a countdown that never counts. It is
- * slower than the session list's 10s on purpose: cron granularity is a whole
- * minute, so nothing here can change faster than that, and this pulls the
+ * 30s. A finding is a live fact — dismissed on another device, or graduated
+ * into a session from the web — so this cannot be resumable.ts's fetch-once,
+ * which would leave a row on screen the server has already closed out. It is
+ * slower than the session list's 10s on purpose: these are cron-scheduled
+ * writes, nothing here changes faster than a minute, and this pulls the
  * entire roster plus every open finding rather than a delta.
  *
- * Re-fetching is also what keeps the relative labels honest — the card derives
- * "next in …" at render time, so a poll that re-renders is the clock. See
+ * Re-fetching is also what keeps each row's relative time honest — the card
+ * derives it at render time, so a poll that re-renders is the clock. See
  * auto-agent-card.tsx.
  */
 const AUTO_POLL_MS = 30_000;
@@ -163,58 +169,44 @@ export function useAutoAgents(): AutoAgentsState {
 
 const SEVERITY_RANK: Record<string, number> = { high: 0, med: 1, low: 2 };
 
-export type AutoAgentRow = {
-  agent: AutoAgent;
-  /** This agent's open findings, newest first. */
-  findings: AutoFinding[];
+export type AutoFindingRow = {
+  finding: AutoFinding;
+  /**
+   * Undefined only in the gap between a finding arriving and its agent
+   * roster catching up (they are two independent fetches; see
+   * `useAutoAgents`). The row still renders — see auto-agent-card.tsx — with
+   * a generic mark rather than being dropped, because an open finding is
+   * never the thing to hide.
+   */
+  agent: AutoAgent | undefined;
 };
 
 /**
- * The agents worth a row on the home screen, in the order they deserve one.
+ * The open findings worth a row on the home screen, in the order they most
+ * want a decision.
  *
- * An agent qualifies by having an open finding or by running right now.
- * Everything else is a schedule that is behaving — real, but not news, and the
- * home screen is a news surface. A disabled agent with a stale finding still
- * qualifies: the finding is open regardless of whether the agent will ever run
- * again, and hiding it would strand it where nothing else on the phone lists
- * findings at all.
+ * ONE ROW PER FINDING, not per agent. This box can have dozens of auto
+ * agents; almost none of that is news. What is news is a finding, and the
+ * web's own live view (the "Auto" section in web/src/App.tsx) already proved
+ * the right grain: a flat, chronological-by-severity list of findings, not a
+ * roster of the agents that produced them. An agent with nothing open —
+ * including one running right now — earns no row here; "running" is a
+ * schedule-management fact (web's AutoManageView), not news.
  *
- * Order: running first (it is about to change), then by worst severity, then
- * by most findings, then by most recent — so the row at the top is the one
- * that most wants a decision.
+ * Order: worst severity first, then most recently seen — so the row at the
+ * top is the one that most wants a decision, matching selectHomeAutoAgents's
+ * old ordering minus the "running" tiebreaker that no longer applies.
  */
-export function selectHomeAutoAgents(
+export function selectHomeAutoFindings(
   agents: AutoAgent[],
   findings: AutoFinding[],
-): AutoAgentRow[] {
-  const byAgent = new Map<string, AutoFinding[]>();
-  for (const finding of findings) {
-    const list = byAgent.get(finding.agentId);
-    if (list) list.push(finding);
-    else byAgent.set(finding.agentId, [finding]);
-  }
-  for (const list of byAgent.values()) {
-    list.sort((a, b) => (b.lastSeenAt ?? b.createdAt ?? 0) - (a.lastSeenAt ?? a.createdAt ?? 0));
-  }
+): AutoFindingRow[] {
+  const byId = new Map(agents.map((agent) => [agent.id, agent]));
+  const rows = findings.map((finding) => ({ finding, agent: byId.get(finding.agentId) }));
 
-  const rows: AutoAgentRow[] = [];
-  for (const agent of agents) {
-    const own = byAgent.get(agent.id) ?? [];
-    if (!own.length && !agent.running) continue;
-    rows.push({ agent, findings: own });
-  }
+  const sev = (row: AutoFindingRow) => SEVERITY_RANK[row.finding.severity ?? "low"] ?? 2;
+  const seen = (row: AutoFindingRow) => row.finding.lastSeenAt ?? row.finding.createdAt ?? 0;
 
-  const worst = (row: AutoAgentRow) =>
-    row.findings.reduce((acc, f) => Math.min(acc, SEVERITY_RANK[f.severity ?? "low"] ?? 2), 3);
-  const newest = (row: AutoAgentRow) =>
-    row.findings.reduce((acc, f) => Math.max(acc, f.lastSeenAt ?? f.createdAt ?? 0), 0);
-
-  rows.sort(
-    (a, b) =>
-      Number(!!b.agent.running) - Number(!!a.agent.running) ||
-      worst(a) - worst(b) ||
-      b.findings.length - a.findings.length ||
-      newest(b) - newest(a),
-  );
+  rows.sort((a, b) => sev(a) - sev(b) || seen(b) - seen(a));
   return rows;
 }
