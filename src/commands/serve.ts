@@ -233,7 +233,7 @@ import {
   useProjectFolder,
 } from "../repos-store.ts";
 import { projectName, reposRoot } from "../projects.ts";
-import { buildRepoList } from "../repo-list.ts";
+import { listConfiguredRepos } from "../repo-list.ts";
 import {
   cwdIsWithin,
   repoContainingCwd,
@@ -829,18 +829,7 @@ function renderReportHtml(raw: string): string {
 // ---------- legacy: pre-agents flat reports ----------
 
 async function listRepos() {
-  let root: string;
-  try {
-    root = await realpath(REPOS_ROOT);
-  } catch {
-    root = REPOS_ROOT;
-  }
-  return buildRepoList({
-    reposRoot: root,
-    selfRepo: SELF_REPO,
-    customRepos: await listCustomRepos(),
-    hidden: await listHiddenRepos(),
-  });
+  return listConfiguredRepos({ reposRoot: REPOS_ROOT, selfRepo: SELF_REPO });
 }
 
 type RepoEntry = Awaited<ReturnType<typeof listRepos>>[number];
