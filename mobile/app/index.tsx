@@ -94,7 +94,7 @@ function SessionFamily({
         <View style={{ marginLeft: space.xl, marginTop: space.sm, gap: space.sm }}>
           {node.children.map((child, index) => (
             <SessionBranch
-              key={sessionStableId(child.session) || index}
+              key={sessionStableId(child.session)}
               node={child}
               depth={depth + 1}
               last={index === node.children.length - 1}
@@ -252,6 +252,15 @@ const SPINE_INSET = 7;
 const ELBOW_RADIUS = 9;
 
 /**
+ * A conservative floor for the composer's height, before it has been
+ * measured — see `composerHeight` below. The real composer is at least the
+ * 44pt field row plus the agent/model/thinking pill row plus their spacing;
+ * this rounds up rather than down so a stale estimate over-clears the list
+ * instead of letting a row sit under the glass.
+ */
+const MIN_COMPOSER_HEIGHT = 96;
+
+/**
  * The greeting the web Live view carries, in the bar slot the removed
  * "Sessions" title left empty.
  *
@@ -376,6 +385,48 @@ export default function SessionsScreen() {
   const ready = readiness?.status === "ready";
 
   /**
+   * WHAT THE LIST ACTUALLY DEPENDS ON, not the whole payload.
+   *
+   * The 10s poll below re-fetches even when nothing a person would notice has
+   * changed, and the machine bumps heartbeat-y fields (`lastActivityAt`,
+   * `last.ts`) on a live-but-idle session just by having it open. Every field
+   * in the response therefore changes on a schedule that has nothing to do
+   * with what's on screen, and a naive `setSessions(freshArray)` would hand
+   * `roots`/`working`/`idle`/`recent` (all `useMemo`d off `sessions` by
+   * reference) a brand-new array every single poll regardless — which
+   * re-renders every mounted `SessionFamily`/`SessionCard` and re-arms each
+   * one's `layout: LinearTransition` (see motion.tsx) even though not one row
+   * actually moved.
+   *
+   * Fewer needless re-renders means fewer chances for a session that flaps
+   * busy/idle between polls to have its section-move exit animation
+   * interrupted by the next one — see the note on `exiting` in motion.tsx for
+   * why an interrupted exit, not a needless reflow, is the actual mechanism
+   * behind a ghost card. This is a real, independent win on its own merits
+   * regardless: a quiet poll that changed nothing now costs a JSON compare
+   * instead of a full-tree re-render.
+   */
+  function sessionsSignature(list: OmgSession[]): string {
+    return JSON.stringify(
+      list.map((s) => [
+        s.sessionId,
+        s.nativeSessionId,
+        s.tmuxName,
+        s.title,
+        s.lastUserText,
+        s.agent,
+        s.agentLabel,
+        s.busy,
+        s.status,
+        s.parentSessionId,
+        s.parentNativeSessionId,
+        s.model,
+      ]),
+    );
+  }
+  const sessionsSignatureRef = useRef<string | null>(null);
+
+  /**
    * @param quiet Skip the loading flag. A background refresh must not light up
    * the pull-to-refresh spinner — the list would appear to be reloading every
    * few seconds while nobody asked it to.
@@ -385,7 +436,15 @@ export default function SessionsScreen() {
       if (!client || !ready) return;
       if (!quiet) setLoading(true);
       try {
-        setSessions(await client.listSessions());
+        const fresh = await client.listSessions();
+        const signature = sessionsSignature(fresh);
+        // Same rows, same order, same everything that renders: keep the
+        // existing array identity so nothing downstream re-renders or
+        // re-animates for a poll that changed nothing on screen.
+        if (signature !== sessionsSignatureRef.current) {
+          sessionsSignatureRef.current = signature;
+          setSessions(fresh);
+        }
         setError(null);
       } catch (e) {
         // A failed background poll keeps the list it already has. Only a
@@ -722,7 +781,20 @@ export default function SessionsScreen() {
   // The composer floats over the list rather than sitting under it, so the
   // list has to know how tall it is. Measured rather than assumed: it grows
   // with the draft.
-  const [composerHeight, setComposerHeight] = useState(0);
+  //
+  // The measurement is real but not instant — `onLayout` only fires once the
+  // composer (gated on `ready`, itself gated on the machine answering) has
+  // actually laid out, and every one of those is a render after this state's
+  // initial value ships. A `0` initial value meant every cold open, and every
+  // return from a state where the composer was unmounted, drew the list with
+  // NO clearance for a frame or more: the bottom padding read `space.md`
+  // alone, and the last row (plus the "opus / Thinking / All projects" pill
+  // row and the safe-area home indicator) sat under the glass until the real
+  // measurement landed. `MIN_COMPOSER_HEIGHT` is a deliberately conservative
+  // floor — the field's own 44pt row plus the pill row plus breathing room —
+  // so the worst case is "slightly too much clearance for one frame" instead
+  // of "a card and the toolbar overlap."
+  const [composerHeight, setComposerHeight] = useState(() => MIN_COMPOSER_HEIGHT + insets.bottom);
 
   // Same UI-thread keyboard tracking as the session screen; see the note there
   // for why KeyboardAvoidingView cannot be made to feel right.
@@ -885,9 +957,9 @@ export default function SessionsScreen() {
                 {/* Each session is its own card now, so the rows need air
                     between them — see SessionCard. */}
                 <View style={{ gap: space.sm }}>
-                  {working.map((node, i) => (
+                  {working.map((node) => (
                     <SessionFamily
-                      key={sessionStableId(node.session) || i}
+                      key={sessionStableId(node.session)}
                       node={node}
                       onOpen={openSession}
                     />
@@ -904,9 +976,9 @@ export default function SessionsScreen() {
                   dotColor={colors.success}
                 />
                 <View style={{ gap: space.sm }}>
-                  {idle.map((node, i) => (
+                  {idle.map((node) => (
                     <SessionFamily
-                      key={sessionStableId(node.session) || i}
+                      key={sessionStableId(node.session)}
                       node={node}
                       onOpen={openSession}
                       onArchive={archiveSession}
@@ -963,7 +1035,23 @@ export default function SessionsScreen() {
       {ready ? (
         <Reanimated.View
           style={[{ position: "absolute", left: 0, right: 0, bottom: 0 }, composerLift]}
-          onLayout={(e) => setComposerHeight(e.nativeEvent.layout.height)}
+          /**
+           * NEVER SHRINK THE RESERVATION, only grow it.
+           *
+           * The composer's own first layout pass can land BEFORE the things
+           * that widen its pill row — `agentPicker`/`projectPicker` options
+           * resolve from the machine, `usage` rings arrive from a separate
+           * fetch (see `usageLoading` above) — so an early `onLayout` can
+           * measure a shorter composer than the one actually on screen a
+           * moment later, once those pills populate. Taking the max instead
+           * means a later, taller measurement still wins, and an earlier,
+           * larger one only costs a little unused clearance rather than
+           * risking a covered row.
+           */
+          onLayout={(e) => {
+            const measured = e.nativeEvent.layout.height;
+            setComposerHeight((current) => Math.max(current, measured));
+          }}
         >
         <HomeComposer
           value={draft}

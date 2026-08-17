@@ -755,7 +755,6 @@ export function SessionCard({
   return (
     <Reanimated.View
       entering={listMotion.entering}
-      exiting={listMotion.exiting}
       layout={listMotion.layout}
     >
       {swipeable ? (
@@ -960,7 +959,38 @@ export function HomeComposer({
     borderColor: colors.borderSoft,
   };
   return (
-    <View
+    <GlassSurface
+      /**
+       * THE WHOLE COMPOSER IS THE GLASS NOW, not a transparent box with two
+       * glazed pills floating inside it.
+       *
+       * This used to be a plain `View` with `backgroundColor: "transparent"`
+       * under Liquid Glass — deliberately, so the two pills inside (the
+       * field, the caption row's buttons) had real content behind them for
+       * their OWN blur to sample. But the padding AROUND those pills — 8pt
+       * here, more at the safe-area edge, the full gap between the field row
+       * and the caption row — was never drawn at all: no blur, no fill,
+       * genuinely see-through. Scrolled under a tall list, a card's title
+       * landing in that gap read in full contrast, which is what "the
+       * composer is painted over cards" turned out to mean: not that a card
+       * sat on top of the composer, but that the composer had unglazed holes
+       * in it exactly the shape of its own padding.
+       *
+       * A `variant="clear"` sibling sized with `StyleSheet.absoluteFillObject`
+       * was tried first, to keep the pills as independent glass shapes on
+       * top of a full-bleed backing. It measured the composer's OWN first
+       * layout pass and then stayed that size — the same Host-sizing lag
+       * `ComposerCaptionButton` already has to work around for its menu (see
+       * that component) — so the backing covered the field row but fell
+       * short of the caption row a moment later, once the pills below it
+       * populated and the composer grew. Making the container itself the
+       * glass sidesteps that class of bug entirely: there is no second
+       * element trying to track this one's size after the fact, because
+       * there is only one, and Yoga sizes it the ordinary way — from its own
+       * children, including the pills nested inside it.
+       */
+      variant="clear"
+      fallbackColor={colors.bg}
       style={{
         paddingHorizontal: space.lg,
         paddingTop: space.sm,
@@ -970,9 +1000,6 @@ export function HomeComposer({
         // session composer — which adds them — floated correctly. Two
         // composers, two heights, on screens you swap between constantly.
         paddingBottom: bottomInset + space.sm,
-        // Transparent under glass so the blur has content to sample; opaque
-        // otherwise so list rows do not show through the composer.
-        backgroundColor: LIQUID_GLASS ? "transparent" : colors.bg,
       }}
     >
       {/* Liquid Glass on iOS 26+, a solid card everywhere else. */}
@@ -1312,7 +1339,7 @@ export function HomeComposer({
           ) : null}
         </ScrollView>
       </View>
-    </View>
+    </GlassSurface>
   );
 }
 

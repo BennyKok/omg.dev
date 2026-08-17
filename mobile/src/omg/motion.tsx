@@ -47,7 +47,6 @@ import {
 import Reanimated, {
   Easing,
   FadeInDown,
-  FadeOut,
   LinearTransition,
   ReduceMotion,
   useAnimatedStyle,
@@ -180,15 +179,52 @@ export function PressableScale({
 }
 
 /**
- * Entering/exiting/reflow for the session list — a card sliding in from a
- * `POST /api/sessions/new`, one dropping out on archive, and the rest
- * resettling either way. `app/index.tsx` owns the list (see that file for the
- * one-line change this is meant to be spread onto); this lives here because
- * `SessionCard` needs the identical config for its own mount/unmount.
+ * Entering/reflow for the session list — a card sliding in from a
+ * `POST /api/sessions/new`, and the rest resettling around it. `app/index.tsx`
+ * owns the list; this lives here because `SessionCard` needs the identical
+ * config for its own mount.
  *
  * Each builder gets an explicit `.reduceMotion()` recomputed from the live
  * flag rather than relying on the `ReduceMotion.System` default, for the same
  * reason `usePressFeedback` doesn't either — see the file header.
+ *
+ * THERE IS DELIBERATELY NO `exiting` HERE. DO NOT ADD ONE.
+ *
+ * This was `FadeOut.duration(motion.fast)`, and it is what produced the
+ * long-standing "the session list renders twice, offset, with a second list's
+ * rows peeking through the gaps" report.
+ *
+ * An exiting animation is the only one of the three that keeps a view alive
+ * AFTER React has unmounted it: Reanimated pulls it out of the layout flow,
+ * holds it at an absolute frame, and drops it when the animation ends. If a
+ * re-render lands inside that 250ms window the animation is interrupted, and
+ * nothing owns the view any more — React is done with it and Reanimated has
+ * stopped animating it — so it is stranded on screen at the coordinates it
+ * had when it left. The rows still in flow then reflow past it (the list
+ * polls every 10s and a busy/idle session can flip sections — Working to Idle
+ * and back — inside a single poll window), and the stranded frame is left
+ * painting over whatever now occupies that space. That stranded native view is
+ * held by the UI thread, not by React state, so it outlives whatever
+ * re-renders come after it and survives for as long as the app process does —
+ * which on iOS is however long the app sits suspended in the background, not
+ * merely until the next JS-level refresh. A session that flaps busy/idle
+ * repeatedly (an auto-reply persona firing on each inbound message, for
+ * instance) can strand several identical-looking copies of its own card, one
+ * per interrupted exit — indistinguishable rows piled on screen, which is
+ * exactly the "six identical cards" shape this bug was reported with.
+ *
+ * Reproduced on the simulator by dropping and restoring the Recent rows every
+ * 120ms — inside `motion.fast` — which piled up stranded cards under a
+ * section header that had already gone; removing `exiting` made the same
+ * probe completely clean. `entering` and `layout` were hammered by that same
+ * probe and stranded nothing, because both END with the view in its correct
+ * flow position, so an interruption is self-correcting. An interrupted exit
+ * is not, and no amount of care at the call site can make it so.
+ *
+ * The cost is small and mostly theoretical: the one row-removal a person
+ * actually initiates is swipe-to-archive, and that already animates itself
+ * off-screen on its own `translateX` before the data drops it (see
+ * SessionCard) — it never depended on this.
  */
 export function useListItemMotion() {
   const reducedMotion = useReduceMotionEnabled();
@@ -199,8 +235,6 @@ export function useListItemMotion() {
         .easing(easeSmoothOut)
         .withInitialValues({ translateY: 8 })
         .reduceMotion(mode),
-      // Quicker out than in — an iOS list row leaves faster than it arrives.
-      exiting: FadeOut.duration(motion.fast).easing(easeSmoothOut).reduceMotion(mode),
       layout: LinearTransition.duration(motion.medium).easing(easeSmoothOut).reduceMotion(mode),
     };
   }, [reducedMotion]);
