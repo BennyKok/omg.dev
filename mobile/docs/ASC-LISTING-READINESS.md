@@ -10,15 +10,17 @@ This picks up from a session that died mid-task (`c9f1c9c1`) after it had
 already verified Build 24/25 state and set two fields (Content Rights,
 Subtitle). That state was independently re-verified here, not re-done.
 
-## Build 24 / Build 25 — re-verified, unchanged
+## Build 24 / Build 25 — re-verified
 
-- **Build 24**: `Waiting for Review`, groups TE + PB. Untouched.
+- **Build 24**: now **`Approved`** (was `Waiting for Review` earlier the same
+  day) — Apple's own review team moved this state; no session in this chain
+  touched build status, groups, or submission on either build. Groups still
+  TE + PB, unchanged.
 - **Build 25**: `Ready to Submit`, group TE only, no PB, not submitted for
-  external Beta App Review. Matches Benny's instruction exactly.
+  external Beta App Review. Matches Benny's instruction exactly, unchanged.
 
-Confirmed live on the TestFlight → iOS Builds screen and independently
-cross-checked against the App Review submissions log (`Yesterday at 2:11 AM,
-iOS 1.0.2 (24), Beta Build, Waiting for Review`).
+Confirmed live on the TestFlight → iOS Builds screen (screenshot taken this
+session) in a later pass the same day as the initial re-verification below.
 
 ## Done and saved (read back after every save)
 
@@ -33,6 +35,9 @@ iOS 1.0.2 (24), Beta Build, Waiting for Review`).
 | App Review Information — Notes | Passwordless sign-in explanation + pre-emptive Guideline 4.8 reasoning | See below |
 | Pricing | Free ($0.00), all 175 countries/regions | |
 | App Availability | All 175 countries/regions, "Available on App Release" | Does not go live until app status is Ready for Sale |
+| App Review Information — Contact Information | First `Benny`, Last `Kok`, Phone `+852 67762685`, Email `support@omg.dev` | The block that gated saving anything else on the page, twice, across two prior sessions. Filled, saved, and confirmed by a **hard page reload** reading the same four values back from the server, not just client state |
+| App Store Version Release | "Manually release this version" | Radio confirmed checked after the same hard reload |
+| App Review Information — Notes, 4.8 addition | Appended: "iMessage sign-in is a first-party phone-number OTP delivered over iMessage — the user texts a code to omg's own number, approved by omg's own gateway. The app integrates no third-party or social login." | Confirmed present, verbatim, after the same hard reload. (One in-flight mistake caught before saving: a first attempt via the wrong input helper typed the literal string "@1425" into the field instead of the note text — caught via a value read-back, fixed with a direct DOM value-set + `input`/`change` events, re-verified, then saved.) |
 
 ### App Privacy — derivation from source
 
@@ -105,24 +110,26 @@ that. Confidence: high. This reasoning is now also pasted directly into the
 App Review Notes field so a reviewer doesn't have to guess and potentially
 raise it anyway.
 
-### Export compliance and app icon — local verification (ASC-side check still pending)
+### Export compliance and app icon — confirmed live in ASC, not just locally
 
-Checked directly against `mobile/app.json` and `mobile/eas.json` at branch
-`feat/mobile-omg-foundation` tip:
+Local check against `mobile/app.json` / `mobile/eas.json` at branch
+`feat/mobile-omg-foundation` tip, then cross-checked live once ASC was
+reachable again:
 
 - **Export compliance**: `ios.infoPlist.ITSAppUsesNonExemptEncryption:
-  false` is set. Consistent with a "No" / exempt answer on ASC's export
-  compliance question — needs confirming against ASC's actual question
-  text once reachable, not assumed identical wording.
+  false` is set locally. **Live-confirmed**: Build 25's own Build Metadata
+  page in ASC (TestFlight → Build 25 → Build Metadata) shows **"App Uses
+  Non-Exempt Encryption: No"** — Apple parsed this straight out of the
+  binary's `Info.plist`, exact match. No manual export-compliance question
+  is being asked because the binary already declares the answer.
 - **App icon**: `icon: "./assets/icon.png"` → `mobile/assets/icon.png`
-  exists, 1024×1024, and its PNG `IHDR` chunk reports color type 2
-  (truecolor RGB) — **no alpha channel**, which is Apple's actual App
-  Store icon requirement (icons with transparency get bounced at
-  submission). `eas.json` has no icon override in any build profile, so
-  this is the only icon in play; it resolves into the binary automatically
-  via the Expo/EAS build, no separate ASC upload needed. Full confirmation
-  that ASC's App Information page renders it correctly still needs a live
-  ASC session.
+  exists, 1024×1024, PNG color type 2 (truecolor RGB, **no alpha
+  channel** — Apple bounces icons with transparency at submission).
+  `eas.json` has no icon override in any build profile. **Live-confirmed**:
+  screenshotted the TestFlight → iOS Builds list — the real black/white
+  circular omg icon renders correctly next to Builds 25, 24, and 21, not a
+  broken-image placeholder. Resolves into the binary automatically via the
+  Expo/EAS build; no separate ASC upload needed.
 
 ### Account deletion / Guideline 5.1.1(v)
 
@@ -221,6 +228,36 @@ company. This resolves the open question below:
   not assumed in advance. **Never fill in tax or banking details** — that
   stays Benny's regardless of which form appears.
 
+### Live in ASC: entity was already on file, one validation error was the actual blocker
+
+Opened `Business → Agreements → Edit Legal Entity` once ASC was reachable.
+Benny's personal legal entity was **already on file**, not empty:
+
+| Field | Value |
+|---|---|
+| Name | `Chun Hung Kok` |
+| Type | `Individual` (already correctly set — independently confirms the individual-account fact above) |
+| Address | `40 Sam Dip Tam Hse 57 Lo Wai Village Tsuen Wan N.T.` / `Tsuen Wan` / `0000` / `Hong Kong` |
+| Phone | `89143220` (account-level phone — distinct from the `+852 67762685` used for App Review Contact Information; not touched) |
+| Territories | 175 countries/regions |
+
+No tax ID field appears anywhere in this dialog — just Name, Type, Address.
+**The entire "update your legal entity information" gate was one field
+validation error: Address 1 read "This value is too long."** Split the
+existing address text across Address 1 / Address 2 — identical content, line
+break only, nothing invented — and the error cleared.
+
+Saving triggered Apple's own account-level 2FA ("a message with a
+verification code has been sent to your devices"), which only Benny could
+see or enter. Rather than guess, retry, or attempt any workaround, the task
+space was handed back to him directly (`handOffTaskSpace`) so he could type
+the code himself. **Confirmed saved and accepted** on the next pass: the
+banner text changed from *"you must update your legal entity information
+prior to signing..."* to *"you must sign the Paid Apps Agreement"* (the
+entity clause is gone, only the signature clause remains), and the
+"Edit Legal Entity" affordance is no longer shown next to the entity name —
+Apple only removes that once entity info is accepted.
+
 ### "Machine Thinking Company" — context only, NOT the Apple entity
 
 A predecessor session found HK Business Registration documents in Benny's
@@ -246,51 +283,89 @@ bearing on the Apple side.
 Not reported here: the proprietor's HKID/passport number visible on the Form
 1(a) — irrelevant to Apple's requirements and not something to propagate.
 
-## Real blocker found: Paid Apps Agreement
+## Paid Apps Agreement — now the only remaining gate, walked right up to the signature and stopped
 
-`Business → Agreements, Tax, and Banking` shows:
+`Business → Agreements` shows:
 
 - **Free Apps Agreement: Active** (26 Jul 2026 – 26 Jul 2027) — free
   distribution itself is not blocked.
-- **Paid Apps Agreement: New** (i.e. not signed), gated behind: *"To offer
-  apps or other in-app purchases, you must update your legal entity
-  information prior to signing the Paid Apps Agreement."*
+- **Paid Apps Agreement: New** (i.e. not signed). Now gated only behind:
+  *"To offer apps or other in-app purchases, you must **sign** the Paid
+  Apps Agreement."* — the legal-entity clause is resolved (see above); this
+  is the only remaining requirement, and it is Benny's alone to execute.
 
-This is independent of how well the 4 subscription tiers are configured —
-they cannot be sold until this is resolved. A separate Tax/Banking status
-page was not reachable; it appears to sit behind the same "Edit Legal
-Entity" step. **Not touched** — this is Benny's legal/business identity,
-out of scope for this session by design.
+**What clicking "View and Agree to Terms" opens** (viewed, read, and closed
+via Cancel — nothing agreed to): a modal titled "Paid Apps Agreement"
+containing the full Schedule 2 text of an amendment to the Apple Developer
+Program License Agreement — starting *"By clicking to agree to this
+Schedule 2, ... You agree with Apple to amend that certain Apple Developer
+Program License Agreement currently in effect between You and Apple..."*,
+then Section 1, "Appointment of Agent and Commissionaire," appointing Apple
+(and Apple Subsidiaries) as Benny's agent for marketing and delivering paid
+apps/IAP to end users in listed territories. An expandable "Attachments"
+section holds the exhibits (pricing/territory schedules). Below the terms:
+
+- A checkbox: **"I have read and agree to the terms and conditions
+  above."** — confirmed unchecked.
+- An **"Agree"** button — confirmed **disabled** while the checkbox is
+  unchecked.
+
+**What the next click actually commits him to**: checking that box enables
+"Agree"; clicking "Agree" is the binding signature — Benny personally
+(individual account) enters into Schedule 2 of the Apple Developer Program
+License Agreement, appointing Apple as commissionaire/agent to sell the 4
+subscription tiers on his behalf across the listed territories. This is
+what unlocks selling IAP/subscriptions; it is irreversible in the sense
+that it's a real contract execution, not a form save. **No session touched
+the checkbox or the Agree button.** Confirmed still "New" / unsigned after
+closing the dialog.
+
+A separate Tax/Banking status page was not located as a distinct page this
+pass — the entity dialog itself has no tax ID field, so if ASC asks for a
+tax form (individual non-US → likely W-8BEN, per the resolution above) it
+most likely surfaces as part of, or immediately after, this same agreement
+flow. **Not touched, not filled** — this is Benny's identity to execute,
+and nothing here indicated banking/tax fields would need touching before
+the signature step itself.
 
 ## NEEDS BENNY
 
-1. **ASC login.** Confirmed dead account-wide as of this session (2026-08-17,
-   later pass) — not a mac-chrome-vs-real-Chrome cookie conflict. Re-checked
-   with `ego-browser` (his actual authenticated profile — confirmed via his
-   live 1Password extension responding), and both
-   `appstoreconnect.apple.com/apps/6800792515/appstore` and
-   `developer.apple.com/account` redirect straight to Apple's sign-in page.
-   This needs Benny to sign back into Apple; no tool-side workaround exists.
-2. **Phone number** for App Review → Contact Information — now provided:
-   `+852 67762685`. First `Benny` / Last `Kok` / Email `support@omg.dev` are
-   ready to re-enter alongside it the moment ASC is reachable; this block
-   validates all-or-nothing so all four go in together.
-3. **Legal entity info + Paid Apps Agreement signature.** Now unblocked to
-   proceed on the legal-entity side per the resolution above (individual
-   account, Benny's own personal details, no D-U-N-S). Blocks selling all 4
-   subscription tiers until resolved. **The agreement itself is not to be
-   signed by any session** — binding contract, Benny's to execute personally.
-4. Re-save **"Manually release this version"** and the **Guideline 4.8
-   addition to App Review Notes** — both were typed in a prior session but
-   the Save click failed because Contact Information (item 2) was empty and
-   had just become a hard gate on saving anything else on that page; neither
-   change persisted. Needs a full re-type once ASC + Contact Info are both
-   in place.
-5. **5.1.1(v) account deletion** — see the dedicated section above. No code
-   change needed (verified by reading the guard + its wired test); the open
-   item is procedural — no session in this chain has personally exercised
-   the live flow, and the obvious way to do so (this session's browser
-   access) resolves to Benny's own real account, not the demo one.
+Everything reachable without his personal signature or a live account is
+now done. What's left needs him specifically:
+
+1. **Sign the Paid Apps Agreement** — the only remaining gate on selling all
+   4 subscription tiers. Walked right up to it (see above): legal entity is
+   resolved, the checkbox is unchecked and Agree is disabled, nothing was
+   touched. This is his to execute — see the exact commitment described
+   above before he clicks.
+2. **5.1.1(v) account deletion, live** — see the dedicated section above. No
+   code change needed (verified by reading the guard + its wired test,
+   which already covers the real reviewer-facing behavior end to end); the
+   open item is procedural — no session in this chain has personally
+   exercised the live flow, since the only browser access available
+   resolves to Benny's own real account, not the demo one. If he wants this
+   independently re-run live, it needs either him doing it himself or an
+   explicitly sanctioned safe method.
+3. If ASC asks for a tax form when he does sign (likely **W-8BEN** for an
+   individual, non-US) — that's his to fill, not ours; nothing indicated it
+   would appear before the signature step itself in this pass.
+
+## Already resolved this session — no longer needs Benny
+
+- ~~ASC login~~ — was confirmed dead account-wide via `ego-browser` (his
+  actual profile, not a mac-chrome artifact), then he signed back in and it
+  was independently re-verified live (account name rendering in the ASC
+  header, full nav present).
+- ~~Contact Information~~ — First `Benny` / Last `Kok` / Phone
+  `+852 67762685` / Email `support@omg.dev`, saved and confirmed via a hard
+  page reload.
+- ~~"Manually release this version" + the Guideline 4.8 App Review Notes
+  addition~~ — both saved and confirmed via the same reload, after two
+  prior sessions lost them to the Contact Information gate.
+- ~~Legal entity info~~ — was already on file under his personal name; the
+  actual blocker was an address-field length validation error, now split
+  and saved (2FA-confirmed, verified via the banner text changing and the
+  Edit-entity affordance disappearing).
 
 ## What deliberately was not touched
 
