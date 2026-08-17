@@ -17083,7 +17083,15 @@ function MessageBubble({
       <MessageActions text={message.text || ""} isUser={false}>
         {/* Assistant turns render markdown from the raw source via Streamdown,
             which tolerates half-finished markdown mid-stream (no html injection). */}
-        <MessageContent>
+        {/* max-w-full, not MessageContent's default 92%: the cap already lives
+            on MessageActions, whose content div is content-sized (flex-col +
+            items-start). A second 92% here resolves against that shrink-to-fit
+            width, i.e. 92% of the text's own max-content width, so any reply
+            that would fit on one line gets its last word pushed onto a second
+            line ("Hi Benny!" wraps to "Hi" / "Benny!"). Long replies hit the
+            available width first and hid this until bots started replying in
+            one-liners. */}
+        <MessageContent className="max-w-full">
           {message.text ? (
             <MessageResponse
               animated={STREAMING_RESPONSE_ANIMATION}
