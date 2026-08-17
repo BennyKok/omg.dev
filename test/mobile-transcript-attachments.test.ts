@@ -89,7 +89,11 @@ describe("the transcript renders a user turn the way the web does", () => {
   );
 
   test("the bubble paints the split body, never the raw message text", () => {
-    expect(userMessage).toContain("parseMessageAttachments(message.text");
+    // Parsed from `rawText` (= the omg.dev envelope's task when the turn
+    // carries one, else message.text — see omg-prompt-envelope.ts), not the
+    // literal message.text, so a launch contract's attachments still split
+    // out correctly instead of being searched for in the un-stripped text.
+    expect(userMessage).toContain("parseMessageAttachments(rawText");
     expect(userMessage).toContain("{text}");
     expect(userMessage).not.toContain("{message.text}");
   });
@@ -102,7 +106,16 @@ describe("the transcript renders a user turn the way the web does", () => {
   });
 
   test("copy still yields the raw text the agent received", () => {
-    expect(userMessage).toContain("Clipboard.setStringAsync(message.text)");
+    // Except when the turn carries the omg.dev launch envelope: copy then
+    // yields just the user's task (rawText = envelope?.task ?? message.text),
+    // matching web's MessageActions — not the full runtime contract.
+    expect(userMessage).toContain("Clipboard.setStringAsync(rawText)");
+  });
+
+  test("an omg.dev launch envelope is detected and stripped to its task", () => {
+    expect(userMessage).toContain("parseOmgPromptEnvelope(message.text");
+    expect(userMessage).toContain("envelope?.task ?? message.text");
+    expect(userMessage).toContain("<OmgInstructionsChip");
   });
 
   test("an attachment with no caption draws no empty bubble", () => {
