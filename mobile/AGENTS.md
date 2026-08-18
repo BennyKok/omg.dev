@@ -98,8 +98,63 @@ a screenshot pixel to a device point by dividing by the scale factor (3 on
 these devices). Raise the right window first (`AXRaise`) — clicks go to
 whatever is under the coordinate, not to a device id.
 
+**AXRaise before EVERY interaction, not once at the start.** This Mac runs
+several agents' simulators in parallel, and window focus (which window is
+*key*, not just which is visually on top) drifts between your taps as other
+agents' sessions raise their own windows. Calibrating the `group` origin once
+is fine — that geometry doesn't move — but skipping the `AXRaise` before a
+later tap is how a perfectly-computed coordinate lands on nothing: the tap
+event still posts, the screenshot still looks like your app, and there is no
+error, because your window is still visible, just not key. Re-raise
+immediately before every tap/drag/keystroke:
+
+```bash
+osascript -e '
+tell application "Simulator" to activate
+delay 0.15
+tell application "System Events" to tell process "Simulator"
+  perform action "AXRaise" of (first window whose name contains "YOUR_SIM_NAME")
+end tell
+' && python3 /tmp/tap.py $X $Y
+```
+
+**Typing text: `System Events`' `keystroke` silently no-ops over SSH.** It is
+the third variant of this trap (alongside `booted` and stale `AXRaise`) found
+in one session: `osascript -e 'tell application "System Events" to keystroke
+"..."'` returns success and produces no error, but nothing appears in the
+focused field — most likely missing Automation/TCC permission for the process
+running osascript over SSH (a separate permission bucket from Accessibility,
+which mouse clicks already have). Mouse taps via raw `CGEventPost` work fine
+because they never go through System Events at all. Use the same technique
+for keyboard input — `CGEventCreateKeyboardEvent` +
+`CGEventKeyboardSetUnicodeString` lets you post arbitrary Unicode text
+without needing a keycode table:
+
+```python
+import sys, Quartz
+text = sys.argv[1]
+down = Quartz.CGEventCreateKeyboardEvent(None, 0, True)
+Quartz.CGEventKeyboardSetUnicodeString(down, len(text), text)
+Quartz.CGEventPost(Quartz.kCGHIDEventTap, down)
+up = Quartz.CGEventCreateKeyboardEvent(None, 0, False)
+Quartz.CGEventKeyboardSetUnicodeString(up, len(text), text)
+Quartz.CGEventPost(Quartz.kCGHIDEventTap, up)
+```
+
+Tap the field (with a fresh `AXRaise` first) before sending text — this posts
+keys to whatever's focused, it doesn't focus anything itself.
+
 Fast refresh applies edits in a couple of seconds, so the probe-and-look loop
 below is cheap. Use it instead of reasoning about what UIKit "should" do.
+
+**Changes to `app/_layout.tsx` are the one place NOT to trust Fast Refresh
+for verification.** It restructures the root navigator, and edits there (a
+`key` prop, a new top-level effect) can silently fail to apply through
+incremental HMR while every other screen-level edit in the same session
+applies instantly and correctly — nothing errors, the old behavior just
+keeps running. If you're testing a `_layout.tsx` change and the result looks
+unchanged, do a full `simctl terminate` + `simctl launch` before concluding
+the fix doesn't work.
 
 ## Probe with colour when a layout is a mystery
 
