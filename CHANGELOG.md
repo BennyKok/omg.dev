@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## August 18, 2026 - Making a bot takes the whole screen (v0.1.394)
+
+- **Creating or editing a bot now fills the phone screen edge to edge.** It was
+  already full height, but still drawn as a rounded card inset from every edge
+  with a drag handle on top, so it read as a sheet sitting on the app rather
+  than a screen of its own. Desktop keeps the centred dialog.
+
 ## August 18, 2026 - Settings goes where Settings went (v0.1.393)
 
 - **Fixed: Settings in the hosted "⋮" menu opened the machine's settings**, a
