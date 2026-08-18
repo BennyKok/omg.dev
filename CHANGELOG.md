@@ -2,6 +2,18 @@
 
 Recent product updates and deployment notes.
 
+## August 18, 2026 - Bots stay recognizable everywhere, even before they load (v0.1.387)
+
+- **Fixed: a bot's chat header briefly showed the generic Claude mark instead
+  of its own face.** If the bot directory hadn't finished loading yet, the
+  header fell all the way back to the default harness icon even though the
+  session was clearly bot-driven. It now shows a neutral creature placeholder
+  instead of a mark that names the wrong agent.
+- **Fixed: no way to create a bot from mobile web when embedded.** The Pages
+  menu that leads to Bots was fully hidden on embedded mobile, with no
+  substitute, so there was no path to a "New bot" button at all. A trimmed
+  Pages menu is back in the embedded mobile header.
+
 ## August 18, 2026 - Bots look like bots in the list (v0.1.386)
 
 - **A bot-backed row now wears the bot's face.** It used to show the harness
