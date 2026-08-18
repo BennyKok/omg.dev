@@ -267,6 +267,7 @@ import {
   getCodingAgentAuth,
   getCodingAgentSetupLog,
   loginCommandFor,
+  pendingCodingAgentLogins,
   registerClaudeMcpForAccount,
   runCodingAgentSetup,
   runCodingAgentSetups,
@@ -4445,7 +4446,21 @@ a{color:#60a5fa}
         // sessionListRow for why the default leaves it out. The one caller
         // that wants it is omg_list_sessions with verbose:true.
         const full = url.searchParams.get("full") === "1";
-        return json({ sessions: full ? sessions : sessions.map(sessionListRow) });
+        // `pendingLogins` is how a HOST learns this box is mid-login.
+        //
+        // The control plane polls this route to decide whether the machine is
+        // idle enough to hibernate, and it only ever counted agent sessions. A
+        // browser login is real work that lives entirely in this process, so a
+        // box with a half-finished Claude sign-in answered "not busy" and was
+        // hibernated under the user (2026-08-17, a paying customer).
+        //
+        // ADDITIVE ON PURPOSE. An older host ignores the extra field, and a
+        // newer host reading an older box sees `undefined` and falls back to
+        // exactly today's behaviour. Neither side needs to ship first.
+        return json({
+          sessions: full ? sessions : sessions.map(sessionListRow),
+          pendingLogins: pendingCodingAgentLogins(),
+        });
       }
 
       if (path === "/api/install") {

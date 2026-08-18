@@ -1071,6 +1071,50 @@ export function cancelCodingAgentAuth(id: string): void {
   authSessions.delete(id);
 }
 
+/**
+ * Is this login still one a person could come back and finish?
+ *
+ * Pure, and exported, so the rule can be tested without spawning a real CLI
+ * login. "complete" and "error" are over; an expired one is an abandoned tab,
+ * not work.
+ */
+export function isLoginPending(
+  session: { status: string; expiresAt: number },
+  now: number,
+): boolean {
+  if (session.status !== "starting" && session.status !== "waiting") return false;
+  return now <= session.expiresAt;
+}
+
+/**
+ * How many browser logins are still live and waiting for the user right now.
+ *
+ * WHY THIS EXISTS. A login is real work, but until now it was invisible from
+ * outside this process. The host asks this box "are you busy?" every ~45s and
+ * reads only agent sessions, so a box with a half-finished Claude login
+ * truthfully answered "no" and was hibernated mid-login. A paying customer hit
+ * exactly that on 2026-08-17: he clicked Login, his machine slept underneath
+ * him, and he never ran an agent at all.
+ *
+ * This REPORTS, it does not decide. The host owns the idle policy — how long a
+ * machine is held, and whether a pending login extends that — because a number
+ * baked into this process could never be tuned for boxes already in the field.
+ * All this box owes the host is the truth about what it is doing.
+ *
+ * Bounded regardless: AUTH_SESSION_TTL_MS already ends an abandoned login, so
+ * this cannot report "busy" forever even if a host chose to trust it forever.
+ *
+ * Counted, not a boolean, so a host can say "2 logins waiting" rather than just
+ * "busy", and so one stuck login is distinguishable from several.
+ */
+export function pendingCodingAgentLogins(now: number = Date.now()): number {
+  let count = 0;
+  for (const session of authSessions.values()) {
+    if (isLoginPending(session, now)) count += 1;
+  }
+  return count;
+}
+
 export function loginCommandFor(kind: CodingAgentKind): string | null {
   const parts = loginCommandPartsFor(kind);
   return parts ? parts.map(shellQuote).join(" ") : null;

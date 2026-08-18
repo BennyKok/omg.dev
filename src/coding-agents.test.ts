@@ -6,8 +6,10 @@ import {
   claudeConfigDirs,
   cleanAuthOutput,
   getCodingAgentAuth,
+  isLoginPending,
   listCodingAgents,
   parseAuthOutput,
+  pendingCodingAgentLogins,
   startCodingAgentAuth,
   startToolAuth,
   withCursorOmgMcp,
@@ -547,5 +549,53 @@ describe("pi provider sign-in", () => {
 
   test("agents with no browser login still say so", async () => {
     expect(startCodingAgentAuth("cursor")).rejects.toThrow(/does not support browser login/i);
+  });
+});
+
+/**
+ * A login is real work, and this box is the only thing that can see it.
+ *
+ * The host polls GET /api/sessions to decide whether this machine is idle
+ * enough to hibernate, and that answer used to describe agent sessions only. So
+ * a box with a half-finished Claude sign-in reported nothing to hold it up and
+ * was hibernated under the user. That is what happened to a paying customer on
+ * 2026-08-17: he clicked Login, his machine slept, and he never ran an agent.
+ *
+ * This box REPORTS; the host DECIDES. These tests pin the reporting contract,
+ * because it is the input every host-side idle rule is built on.
+ */
+describe("pending login reporting", () => {
+  const TTL = 15 * 60 * 1000;
+  const now = 1_000_000;
+  const live = { status: "waiting", expiresAt: now + TTL };
+
+  test("a login a user could still finish counts as work", () => {
+    expect(isLoginPending(live, now)).toBe(true);
+    // "starting" is the window before the authorization URL has been scraped.
+    // The customer's machine slept while he was mid-flow, so this window must
+    // count exactly as much as "waiting" does.
+    expect(isLoginPending({ status: "starting", expiresAt: now + TTL }, now)).toBe(true);
+  });
+
+  test("a finished login is not work", () => {
+    // Neither ending leaves anything for the user to come back to.
+    expect(isLoginPending({ status: "complete", expiresAt: now + TTL }, now)).toBe(false);
+    expect(isLoginPending({ status: "error", expiresAt: now + TTL }, now)).toBe(false);
+  });
+
+  test("an expired login is an abandoned tab, not work", () => {
+    // The self-limit. Without it a walked-away user could pin a machine awake
+    // indefinitely, which is the cost regression that makes any host-side
+    // policy unsafe to trust.
+    expect(isLoginPending({ ...live, expiresAt: now - 1 }, now)).toBe(false);
+
+    // Exactly at the deadline still counts: the boundary belongs to the user.
+    expect(isLoginPending({ ...live, expiresAt: now }, now)).toBe(true);
+  });
+
+  test("a quiet box reports no pending logins", () => {
+    // The default answer for the overwhelming majority of polls. If this were
+    // ever non-zero at rest, every machine would stop hibernating at all.
+    expect(pendingCodingAgentLogins(now)).toBe(0);
   });
 });
