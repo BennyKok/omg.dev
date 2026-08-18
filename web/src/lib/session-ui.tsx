@@ -89,15 +89,29 @@ export function titleForSession(session: Session): string {
   );
 }
 
-/** Agent kinds whose CLI login can be driven from the browser (see
- *  authProviderFor in src/coding-agents.ts). Everything else is terminal-only. */
-export const BROWSER_AUTH_KINDS = new Set<string>([
-  "claude",
-  "aisdk",
-  "codex",
-  "codex-aisdk",
-  "grok",
-]);
+/**
+ * Agent kinds whose CLI login can be driven from the browser, and the account
+ * each one signs into (see authProviderFor in src/coding-agents.ts). Everything
+ * else is terminal-only.
+ *
+ * The provider name lives HERE, beside the kind, because the sign-in tab has to
+ * name it BEFORE the server answers — the tab opens inside the click, the
+ * server's `provider` arrives a round trip later, and a tab that cannot say
+ * what it is opening is the blank tab this map exists to prevent. Keeping it in
+ * one table means a new browser-loginable agent cannot be added to the login
+ * path while leaving its tab unlabelled.
+ */
+export const BROWSER_AUTH_PROVIDER_LABELS: Record<string, string> = {
+  claude: "Claude",
+  aisdk: "Claude",
+  codex: "Codex",
+  "codex-aisdk": "Codex",
+  grok: "Grok",
+};
+
+export const BROWSER_AUTH_KINDS = new Set<string>(
+  Object.keys(BROWSER_AUTH_PROVIDER_LABELS),
+);
 
 export const CodingAgentsContext = createContext<CodingAgentInfo[] | undefined>(undefined);
 
