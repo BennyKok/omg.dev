@@ -7,6 +7,7 @@ import { currentBootId, readEntry, writeEntry } from "./aisdk-registry.ts";
 import { addManaged, listManaged, resetManagedRegistryForTests } from "./managed.ts";
 import { reconcileCommandFileSessions } from "./session-recovery.ts";
 import { managedLaunchRow } from "./sessions.ts";
+import { indexSessionMessagesDirect } from "./transcript-index.ts";
 
 describe("command-file session boot recovery", () => {
   const originalData = PATHS.data;
@@ -208,6 +209,47 @@ describe("command-file session boot recovery", () => {
     };
 
     expect(managedLaunchRow(managed, {}, {})).toBeNull();
+  });
+
+  // The counterpart to the drop above, and the second half of a real report: a
+  // user on a fresh install sent "hi", watched the thinking dots for the boot
+  // grace window, and then the session VANISHED from the list. Its agent could
+  // not start, so no harness ever registered — but it had written the reason to
+  // its transcript on the way out, and dropping the row threw that away. The
+  // user was left with no session and no explanation.
+  //
+  // A dead harness with something to say stays listed, is not "launching", and
+  // reports blocked with its own words.
+  test("keeps a dead command-file session that recorded why it died", () => {
+    const key = "88888888-8888-4888-8888-888888888888";
+    const managed = {
+      tmuxName: "lfg-died-explaining",
+      cwd: root,
+      createdAt: Date.now() - 5 * 60_000,
+      agent: "aisdk" as const,
+      sessionId: key,
+      nativeSessionId: key,
+      model: "sonnet",
+      launchState: "running" as const,
+    };
+
+    // Exactly what the harness now writes before exiting.
+    indexSessionMessagesDirect(key, [{
+      id: "explain-1",
+      role: "assistant",
+      kind: "text",
+      text: "Claude could not start: the Claude CLI is not installed and no Claude account is connected. Open Settings → Coding agents to install it and sign in.",
+      ts: Date.now(),
+    }]);
+
+    const row = managedLaunchRow(managed, {}, {});
+    expect(row).not.toBeNull();
+    // The spinner is the bug. A dead session is not launching.
+    expect(row?.launching).toBe(false);
+    expect(row?.status).toBe("blocked");
+    expect(row?.statusDetail).toContain("Claude could not start");
+    // The reason has to reach the card, not just the row.
+    expect(row?.last?.text).toContain("Coding agents");
   });
 
   test("does not relaunch a scheduled run after boot on a Computer", async () => {

@@ -1020,6 +1020,38 @@ export function sessionHasIndexedMessages(sessionId: string): boolean {
     .get(key);
 }
 
+/**
+ * The last indexed assistant line for a session, read synchronously.
+ *
+ * `indexedMessagePage` is the general reader, but it is async and pulls a whole
+ * page. The session LIST needs one line, on a synchronous path, for a case that
+ * has no live harness left to ask: a session whose agent died. Without it the
+ * row carried `last: null`, so computeStatus saw no error text and reported a
+ * healthy session — which is how a session whose agent never started kept
+ * showing the thinking dots.
+ */
+export function lastIndexedAssistantMessage(sessionId: string): SessionMsg | null {
+  init();
+  const key = sessionIndexKey(sessionId);
+  const row = database()
+    .query<{ id: string; message_id: string | null; role: string; kind: string; ts: number | null; text: string }, [string]>(
+      `SELECT id, message_id, role, kind, ts, text
+         FROM transcript_messages
+        WHERE path = ? AND role = 'assistant'
+        ORDER BY order_seq DESC, rowid DESC
+        LIMIT 1`,
+    )
+    .get(key);
+  if (!row) return null;
+  return {
+    id: row.message_id ?? row.id,
+    role: "assistant",
+    kind: row.kind as SessionMsg["kind"],
+    text: row.text,
+    ts: row.ts ?? null,
+  };
+}
+
 // Seed the synthetic per-session read model (`lfg://session/<id>`) from history
 // that was indexed under a real FILE path. Two cases:
 //   - claude: legacy sessions indexed by their native ~/.claude JSONL before the
