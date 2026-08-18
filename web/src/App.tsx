@@ -5514,17 +5514,15 @@ export function App() {
     });
   }, [navigate]);
   const extNavTabs = useExtensionNavTabs();
-  // The host's own settings, offered from OUR menu. Read the callback directly
-  // rather than through useOpenSettingsPage: that one falls back to LFG's own
-  // Settings tab, and the whole point here is to know whether a HOST is
-  // mounting those pages. Unset (standalone, or a host that doesn't) leaves
-  // the item out entirely instead of adding a dead row.
-  const { onOpenSettingsPage: hostOpenSettingsPage } = useEmbeddedHostOptions();
-  const hostSettingsInMenu = embedded && !!hostOpenSettingsPage;
-  const openHostSettings = useCallback(
-    (page: HostSettingsPage) => hostOpenSettingsPage?.(page),
-    [hostOpenSettingsPage],
-  );
+  // The host's own settings, offered from OUR menu.
+  //
+  // NOT onOpenSettingsPage: that one addresses the MACHINE's settings pages,
+  // and omg routes it to /settings/computer. Wiring this entry to it replaced
+  // a general Settings control with a per-computer page behind a machine
+  // selector — a back tap away from what the gear used to do. Unset leaves the
+  // item out entirely rather than guessing a destination.
+  const { onOpenHostSettings } = useEmbeddedHostOptions();
+  const hostSettingsInMenu = embedded && !!onOpenHostSettings;
   const openShipped = useCallback(() => setTab("notifications"), [setTab]);
   // Keep the session list + Shipped/Artifacts mounted after first visit so
   // tab switches don't remount, re-fetch, or reboot gallery iframes. Hidden
@@ -7771,15 +7769,12 @@ export function App() {
             // identity surface while still giving Live a way out.
             <NavIsland className="shrink-0">
               <div className="glass-island flex h-11 items-center gap-1.5 rounded-full px-2">
-                <PagesMenu
-                  tab={tab}
-                  onOpenTab={setTab}
-                  extraTabs={extNavTabs}
-                  showSettings={false}
-                  onOpenHostSettings={
-                    hostSettingsInMenu ? () => openHostSettings("settings") : undefined
-                  }
-                />
+                {/* Host actions first, our overflow menu last. The host's
+                    Computer control is the switcher people reach for; a "⋮" is
+                    an overflow, and an overflow that sits ahead of the primary
+                    control reads as the main event. Ours also stays adjacent
+                    to the screen edge, which is where a menu wants to open
+                    from. */}
                 {/* Host-owned actions, in OUR island instead of beside it.
                     The host used to float its own island in this corner and we
                     slid left by --lfg-host-top-inset to make room, which meant a
@@ -7800,6 +7795,13 @@ export function App() {
                      ends up with no way to settings at all. */
                   data-lfg-host-settings={hostSettingsInMenu ? "menu" : undefined}
                   className="flex items-center gap-1.5"
+                />
+                <PagesMenu
+                  tab={tab}
+                  onOpenTab={setTab}
+                  extraTabs={extNavTabs}
+                  showSettings={false}
+                  onOpenHostSettings={hostSettingsInMenu ? onOpenHostSettings : undefined}
                 />
               </div>
             </NavIsland>
