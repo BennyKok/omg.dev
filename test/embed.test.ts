@@ -219,6 +219,30 @@ describe("host bottom inset contract", () => {
     );
   });
 
+  test("embedded Pages menu carries the host's Settings so the island needn't", () => {
+    const app = require("node:fs").readFileSync("web/src/App.tsx", "utf8") as string;
+    // Embedded has no Settings tab of its own — the host mounts those pages —
+    // so the host kept a second control beside our menu just for it: three
+    // chips in one island for two destinations. The menu can carry it, since
+    // the host already hands us onOpenSettingsPage.
+    expect(app).toContain("onOpenHostSettings");
+    // A plain item, never a radio item: choosing it leaves LFG, so marking it
+    // current in a group describing which LFG page you are on would be false
+    // as soon as you came back.
+    expect(app).toMatch(
+      /onOpenHostSettings\(\);[\s\S]{0,120}<Settings className="size-5 shrink-0 text-muted-foreground" \/>/,
+    );
+    // Only when a host actually supplied the callback. Standalone must not
+    // grow a dead row, and `embedded` alone does not prove the host mounts
+    // settings pages.
+    expect(app).toContain("const hostSettingsInMenu = embedded && !!hostOpenSettingsPage;");
+    // Advertised on the slot so the host drops its gear on capability, not on
+    // an assumed version: docking into an older build that has no such item
+    // must leave the host's own control in place, or the surface has no route
+    // to settings at all.
+    expect(app).toContain('data-lfg-host-settings={hostSettingsInMenu ? "menu" : undefined}');
+  });
+
   test("desktop embed zeroes host-bottom-inset (omg nav is top-middle)", () => {
     const css = require("node:fs").readFileSync("web/src/index.css", "utf8") as string;
     // Match omg useIsDesktop (lg = 1024). Mobile keeps the 2.75rem bottom pill.

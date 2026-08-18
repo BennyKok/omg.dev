@@ -58,7 +58,7 @@ host portals into them:
 | Slot | Where | Extra attributes |
 | --- | --- | --- |
 | `rail-footer` | Bottom of the desktop rail | `data-lfg-rail-collapsed="true"` when the rail is at 56px, so the host can stack vertically |
-| `header-actions` | Inside the mobile header island, after the Pages menu | — |
+| `header-actions` | Inside the mobile header island, after the Pages menu | `data-lfg-host-settings="menu"` when the Pages menu is already offering your Settings, so your own control there is redundant |
 
 ```tsx
 const slot = document.querySelector('[data-lfg-host-slot="header-actions"]');
