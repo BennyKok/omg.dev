@@ -111,6 +111,24 @@ export interface OmgAppSurfaceProps {
    */
   onOpenSettingsPage?: (page: OmgSettingsPage) => void;
   /**
+   * Open the HOST's own settings root — your account chrome, not this
+   * machine's pages.
+   *
+   * Set this and the embedded surface carries a Settings entry in its Pages
+   * menu that calls straight back to you, and it marks its header slot
+   * `data-lfg-host-settings="menu"` so a host drawing its own Settings control
+   * beside that menu knows it is now redundant and can drop it. Omit it and
+   * the surface renders no host-settings entry at all rather than guessing a
+   * destination — so a host that omits it must keep drawing its own control.
+   *
+   * NOT interchangeable with `onOpenSettingsPage`, which addresses the
+   * MACHINE's settings pages and which a host routes per page (omg sends it to
+   * /settings/computer). Wiring this general entry to that callback lands
+   * people on a per-computer page behind a machine selector, one back tap from
+   * where they meant to go.
+   */
+  onOpenHostSettings?: () => void;
+  /**
    * The box refused an action because of the plan YOU sold, not because of
    * anything the person did — e.g. starting one more agent than their tier
    * allows.
@@ -311,6 +329,7 @@ export function OmgAppSurface({
   hostedTranscription,
   hostedPush,
   onOpenSettingsPage,
+  onOpenHostSettings,
   onPlanLimit,
   errorSink,
 }: OmgAppSurfaceProps) {
@@ -340,6 +359,13 @@ export function OmgAppSurface({
           viewer,
           hostedTranscription,
           onOpenSettingsPage,
+          // Forwarding this is what makes the Pages-menu Settings entry
+          // reachable at all: App.tsx gates both the entry and the
+          // `data-lfg-host-settings="menu"` flag on the callback being present
+          // in this context, and until it was plumbed through here no host
+          // could ever supply one. The feature read as shipped from inside the
+          // surface while being dead from the outside.
+          onOpenHostSettings,
           onPlanLimit,
         }}
       >

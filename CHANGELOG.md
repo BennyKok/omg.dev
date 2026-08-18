@@ -2,6 +2,17 @@
 
 Recent product updates and deployment notes.
 
+## August 18, 2026 - The hosted "⋮" menu actually gets its Settings entry (v0.1.395)
+
+- **Fixed: the Settings entry added to the hosted "⋮" menu in v0.1.393 never
+  appeared.** The menu item, and the flag that tells a host its own Settings
+  gear is now redundant, were both gated on an `onOpenHostSettings` callback —
+  but `OmgAppSurface` never accepted that prop, so no host could supply one. It
+  was reachable from inside the surface and unreachable from outside it. The
+  surface now takes the callback and passes it down, so hosted mobile shows
+  Settings in the menu and hosts can drop their own control instead of sitting
+  at three chips in one island for two destinations.
+
 ## August 18, 2026 - Making a bot takes the whole screen (v0.1.394)
 
 - **Creating or editing a bot now fills the phone screen edge to edge.** It was
