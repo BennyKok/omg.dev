@@ -7766,6 +7766,21 @@ export function App() {
                   extraTabs={extNavTabs}
                   showSettings={false}
                 />
+                {/* Host-owned actions, in OUR island instead of beside it.
+                    The host used to float its own island in this corner and we
+                    slid left by --lfg-host-top-inset to make room, which meant a
+                    width constant in the host's stylesheet had to stay equal to
+                    the real box of a component in the host's tree, across two
+                    independently versioned repos. It drifted, and the two
+                    islands overlapped on a phone. A node the host portals into
+                    cannot drift: there is one island, so there is no gap to
+                    maintain. Same trade the desktop rail-footer slot already
+                    made. Collapses to nothing while unfilled, so an older host
+                    that still floats keeps working exactly as before. */}
+                <span
+                  data-lfg-host-slot="header-actions"
+                  className="flex items-center gap-1.5"
+                />
               </div>
             </NavIsland>
           ) : (
@@ -7791,7 +7806,7 @@ export function App() {
            keeps its own right-side island; LFG supplies the page-level back
            action in the space where the Live welcome normally sits. */
         <header className="z-40 flex shrink-0 items-center pb-3 pl-3 pr-[calc(0.75rem+var(--lfg-host-top-inset))] pt-[calc(0.5rem+env(safe-area-inset-top))]">
-          <NavIsland className="shrink-0">
+          <NavIsland className="shrink-0 flex items-center gap-1.5">
             <button
               type="button"
               onClick={() => setTab("live")}
@@ -7801,6 +7816,15 @@ export function App() {
               <ChevronLeft className="size-[18px]" />
               <span>Live</span>
             </button>
+            {/* The secondary pages carry the slot too. Without it the host's
+                chrome would have to fall back to floating the moment you left
+                Live, so its actions would jump corner-to-corner between tabs —
+                and the reservation it collapses would have to come back with
+                it, mid-navigation. */}
+            <span
+              data-lfg-host-slot="header-actions"
+              className="glass-island flex h-11 items-center gap-1.5 rounded-full px-2"
+            />
           </NavIsland>
         </header>
       ) : liveDesktopWorkspace ? null : (

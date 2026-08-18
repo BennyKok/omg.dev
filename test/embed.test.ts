@@ -188,6 +188,28 @@ describe("host bottom inset contract", () => {
     expect(css).toMatch(/\[data-lfg-host-slot\]:empty\s*\{\s*display:\s*none/);
   });
 
+  test("hosted mobile headers expose a header-actions slot instead of ceding the corner", () => {
+    const app = require("node:fs").readFileSync("web/src/App.tsx", "utf8") as string;
+    const css = require("node:fs").readFileSync("web/src/index.css", "utf8") as string;
+    // Two islands in one corner were held apart by --lfg-host-top-inset, whose
+    // value is a width constant in the HOST's stylesheet that has to equal the
+    // real box of a component in the HOST's tree. Two independently versioned
+    // repos, one hand-maintained number: it drifted ~1rem and the islands
+    // overlapped on a phone. One island cannot overlap itself.
+    expect(app).toContain('data-lfg-host-slot="header-actions"');
+    // Both embedded mobile headers carry it. If only Live did, the host's
+    // chrome would jump back to floating the moment you opened Notifications.
+    expect(app.match(/data-lfg-host-slot="header-actions"/g)?.length).toBe(2);
+    // Backward compatibility is the whole design: an older host that still
+    // floats its own island must see no change. The slot is inert until the
+    // host portals into it, and :empty is what makes that continuous.
+    expect(css).toMatch(/\[data-lfg-host-slot\]:empty\s*\{\s*display:\s*none/);
+    // The reservation stays. LFG must not guess that the host has adopted the
+    // slot: an old host floating over a zeroed inset is the same overlap
+    // again, from the other side. Zeroing belongs to whoever fills the slot.
+    expect(app).toContain('pr-[calc(0.75rem+var(--lfg-host-top-inset))]');
+  });
+
   test("desktop embed zeroes host-bottom-inset (omg nav is top-middle)", () => {
     const css = require("node:fs").readFileSync("web/src/index.css", "utf8") as string;
     // Match omg useIsDesktop (lg = 1024). Mobile keeps the 2.75rem bottom pill.
