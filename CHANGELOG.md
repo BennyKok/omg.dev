@@ -2,6 +2,27 @@
 
 Recent product updates and deployment notes.
 
+## August 18, 2026 - A new install could not start a session, and never said why (v0.1.392)
+
+- **Fixed: on a fresh install, sending a message showed the thinking dots
+  forever.** The session was not slow — it was already dead. The agent harness
+  could not start and exited having printed nothing at all: no output, no
+  transcript, no error. A session with no agent connected now says so, and
+  points at Settings → Coding agents instead of spinning.
+- **Fixed: a session whose agent died then vanished from the list entirely**,
+  taking the explanation with it. A dead session that recorded a reason stays
+  visible and reports what happened.
+- **New: `omg doctor`.** One command that prints a pasteable summary of this
+  install — version, which agent CLIs exist, which accounts are connected,
+  whether the server answers, and recent errors — for bug reports. It runs
+  even when omg.dev is broken, and strips keys, tokens, and your home
+  directory so the output is safe to post in public.
+- **New: the documented quick start is tested on a genuinely clean machine.**
+  `scripts/test-install-clean-vm.sh` runs the README's install on a fresh VM
+  and checks the UI actually serves. It found a real break: the published CLI
+  needed Node, which the documented `bun install` never installs, so
+  `omg computer setup` died on the first command a new user runs.
+
 ## August 18, 2026 - Two controls in the corner, not three (v0.1.391)
 
 - **The hosted mobile menu is tidier.** Settings now lives inside the "⋮" menu
