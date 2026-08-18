@@ -5456,9 +5456,17 @@ export function App() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const tab: string = pathnameToTab(pathname);
-  const selectedBotId = tab === "bots"
-    ? pathname.split("/").filter(Boolean)[1] ?? null
-    : null;
+  // `/bots/<id>` is a chat. `/bots/new` and `/bots/<id>/edit` are the editor,
+  // which is a PAGE and not a sheet over the list: a form with a name, a
+  // persona, a face, a colour, a repo and a model is a place you go to, so it
+  // needs a URL that back — the browser's, the phone's gesture, ours — can
+  // leave. "new" can never collide with a bot id: the static route outranks
+  // the param one, and the id read below skips it.
+  const botPathSegments = tab === "bots" ? pathname.split("/").filter(Boolean) : [];
+  const botPathId = botPathSegments[1] ?? null;
+  const botEditorTarget: string | null =
+    botPathId === "new" ? "new" : botPathSegments[2] === "edit" ? botPathId : null;
+  const selectedBotId = botPathId && botPathId !== "new" ? botPathId : null;
   // A terminal is on screen — as the Terminal tab, or pulled up over any tab.
   // Both need the same soft-keyboard treatment: the shell pinned to the visible
   // band and translated past the scroll iOS applies to reveal the focused field.
@@ -5513,6 +5521,24 @@ export function App() {
       search: keepHostMode,
     });
   }, [navigate]);
+  const openBotEditor = useCallback(
+    (target: PersistentBot | "new") => {
+      const keepHostMode = (prev: AppSearch): AppSearch => ({
+        ...(prev.embed ? { embed: prev.embed } : {}),
+        ...(prev.embedOrigin ? { embedOrigin: prev.embedOrigin } : {}),
+      });
+      if (target === "new") {
+        void navigate({ to: "/bots/new", search: keepHostMode });
+        return;
+      }
+      void navigate({
+        to: "/bots/$botId/edit",
+        params: { botId: target.id },
+        search: keepHostMode,
+      });
+    },
+    [navigate],
+  );
   const extNavTabs = useExtensionNavTabs();
   // The host's own settings, offered from OUR menu.
   //
@@ -5579,7 +5605,6 @@ export function App() {
   }, [loading]);
   const [autoAgents, setAutoAgents] = useState<AutoAgent[]>([]);
   const [bots, setBots] = useState<PersistentBot[]>([]);
-  const [editingBot, setEditingBot] = useState<PersistentBot | "new" | null>(null);
   const botDirectory = useMemo(
     () => new Map(bots.map((bot) => [bot.id, bot])),
     [bots],
@@ -6892,7 +6917,10 @@ export function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(id ? body : { ...body, user: owner || undefined }),
       });
-      setEditingBot(null);
+      // Leaving the editor is a navigation now, not a state reset: saving an
+      // existing bot lands back in its chat, creating one lands on the list.
+      if (id) openBot(id);
+      else closeBot();
       await refreshBots();
       toast.success(id ? "Bot saved" : "Bot created");
     } catch (e) {
@@ -6903,8 +6931,10 @@ export function App() {
   async function deletePersistentBot(id: string) {
     try {
       await api(`/api/bots/${encodeURIComponent(id)}`, { method: "DELETE" });
-      setEditingBot(null);
-      setTab("bots");
+      // NOT setTab("bots"): the tab already IS "bots" on /bots/<id>/edit, so
+      // that call short-circuits and leaves you on the editor for a bot that
+      // no longer exists.
+      closeBot();
       await Promise.all([refreshBots(), refreshSessions()]);
       toast.success("Bot deleted");
     } catch (e) {
@@ -7674,8 +7704,20 @@ export function App() {
    * like opening a session. Narrow layouts have no rail to switch, so they
    * keep the standalone BotsView page.
    */
+  // Resolved only when the bot really exists: a deep link that arrives before
+  // /api/bots has answered, or that names a deleted bot, falls through to the
+  // list instead of to a dead page.
+  const botEditor: PersistentBot | "new" | null =
+    botEditorTarget === "new"
+      ? "new"
+      : botEditorTarget
+        ? bots.find((item) => item.id === botEditorTarget) ?? null
+        : null;
   const botsInWorkspace = tab === "bots" && isWide;
-  const workspaceVisible = tab === "live" || botsInWorkspace;
+  // The editor is the page while it is open, so the desktop workspace steps
+  // aside for it. It stays MOUNTED (just hidden) — its sessions, streams and
+  // scroll survive the trip into the editor and back.
+  const workspaceVisible = (tab === "live" || botsInWorkspace) && !botEditor;
   const liveDesktopWorkspace = workspaceVisible && isWide;
 
   return (
@@ -7693,7 +7735,7 @@ export function App() {
     <OpenSettingsPageContext.Provider value={setTab}>
     <BotDirectoryContext.Provider value={botDirectory}>
     <OpenBotContext.Provider value={openBot}>
-    <EditBotContext.Provider value={setEditingBot}>
+    <EditBotContext.Provider value={openBotEditor}>
     <div
       ref={rootRef}
       inert={loading}
@@ -8045,8 +8087,8 @@ export function App() {
               bots={bots}
               selectedBotId={selectedBotId}
               onOpenBot={openBot}
-              onNewBot={() => setEditingBot("new")}
-              onEditBot={(bot) => setEditingBot(bot)}
+              onNewBot={() => openBotEditor("new")}
+              onEditBot={(bot) => openBotEditor(bot)}
               onRefreshBots={refreshBots}
               onOpenShipped={openShipped}
               // Built here rather than inside RailStage: the shell owns the tab
@@ -8086,7 +8128,11 @@ export function App() {
             />
           </div>
         ) : null}
-        {tab === "bots" && !botsInWorkspace ? (
+        {/* On a phone the editor is a portal over everything, so the list (and
+            the open chat under it) stays mounted and comes back untouched. In
+            the tablet band there is no workspace to step aside, so the list
+            itself yields to the editor. */}
+        {tab === "bots" && !botsInWorkspace && (!botEditor || isMobile) ? (
           <BotsView
             bots={bots}
             sessions={sessions}
@@ -8096,10 +8142,26 @@ export function App() {
             onOpen={openBot}
             onBack={closeBot}
             onOpenSessions={() => setTab("live")}
-            onNew={() => setEditingBot("new")}
-            onEdit={(bot) => setEditingBot(bot)}
+            onNew={() => openBotEditor("new")}
+            onEdit={(bot) => openBotEditor(bot)}
             onRefreshBots={refreshBots}
             onRefreshSessions={refreshSessions}
+          />
+        ) : null}
+        {botEditor ? (
+          <BotEditorPage
+            // Keyed: switching straight from one bot's editor to another has to
+            // reload the fields, not keep the first bot's name in them.
+            key={botEditor === "new" ? "new" : botEditor.id}
+            bot={botEditor}
+            repos={repos}
+            codingAgents={codingAgents}
+            onClose={() => {
+              if (botEditor === "new") closeBot();
+              else openBot(botEditor.id);
+            }}
+            onSave={saveBot}
+            onDelete={deletePersistentBot}
           />
         ) : null}
         {tab === "auto" ? (
@@ -8302,17 +8364,6 @@ export function App() {
           onSave={saveAutoAgent}
           onDelete={deleteAutoAgent}
           onRunNow={runAutoNow}
-        />
-      ) : null}
-
-      {editingBot ? (
-        <BotEditorSheet
-          bot={editingBot}
-          repos={repos}
-          codingAgents={codingAgents}
-          onClose={() => setEditingBot(null)}
-          onSave={saveBot}
-          onDelete={deletePersistentBot}
         />
       ) : null}
 
@@ -20679,16 +20730,12 @@ function BottomSheet({
   onClose,
   title,
   page = false,
-  bleed = false,
   expandOnFocus = true,
   footer,
   children,
 }: {
   onClose: () => void;
   title: string;
-  /** With `page`, fill the phone screen edge to edge instead of staying a
-   *  rounded card with a handle. See DrawerContent's `bleed`. */
-  bleed?: boolean;
   /** Morph from a content-sized card into a full-height page. See the
    *  `.lfg-sheet-page` rule in index.css for what that means geometrically —
    *  the short version is that the sheet claims the band above the keyboard so
@@ -20729,7 +20776,6 @@ function BottomSheet({
         // it. `page` still lets a caller force it; `expandOnFocus` is kept as
         // an explicit opt-out for sheets with no fields.
         page={page}
-        bleed={bleed}
         expandOnFocus={expandOnFocus}
       >
         <DrawerTitle className="sr-only">{title}</DrawerTitle>
@@ -24155,7 +24201,7 @@ function BotsView({
   );
 }
 
-function BotEditorSheet({
+function BotEditorPage({
   bot,
   repos,
   codingAgents,
@@ -24181,6 +24227,7 @@ function BotEditorSheet({
   }) => void | Promise<void>;
   onDelete: (id: string) => void | Promise<void>;
 }) {
+  const isMobile = useIsMobile();
   const editing = bot !== "new";
   const initialAgent = editing && AGENT_MODELS[bot.agent as AgentKind]
     ? bot.agent as AgentKind
@@ -24219,9 +24266,20 @@ function BotEditorSheet({
   useEffect(() => {
     if (!models.includes(model)) setModel(backendDefault);
   }, [backendDefault, model, models]);
+  // On a phone this page covers the app, so the list behind it must not scroll
+  // under it — the same lock the bot chat takes when it goes full screen.
+  useEffect(() => {
+    if (!isMobile) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isMobile]);
 
+  const canSubmit = !!name.trim() && !!persona.trim();
   const submit = () => {
-    if (!name.trim() || !persona.trim()) return;
+    if (!canSubmit) return;
     void onSave({
       id: editing ? bot.id : undefined,
       name: name.trim(),
@@ -24236,160 +24294,214 @@ function BotEditorSheet({
     });
   };
 
-  return (
-    // page: making a bot is a form, not a confirmation — name, persona, shape,
-    // color and an advanced section, with the name field autofocused so the
-    // keyboard is up immediately. A content-sized card had to morph mid-open
-    // and left the shape/color rows crowded against the keyboard. Full height
-    // from the start on mobile; desktop keeps the centred 85dvh dialog.
-    <BottomSheet page bleed onClose={onClose} title={editing ? "Edit bot" : "New bot"}>
-      {/* Edge to edge means this content owns the status-bar strip now, so it
-          pads for it itself rather than inheriting the card's inset. */}
-      <div className="px-4 pb-4 pt-[calc(0.5rem+env(safe-area-inset-top))] md:px-2 md:pt-1">
-        <div className="flex items-center gap-2">
-          <Bot className="size-5 text-primary" />
-          <span className="min-w-0 flex-1 text-[15px] font-semibold">{editing ? "Edit bot" : "New bot"}</span>
-          {editing ? (
-            <DoubleConfirmAction
-              resetKey={bot.id}
-              label="Delete"
-              confirmLabel="Confirm delete"
-              icon={<Trash2 className="size-3.5" />}
-              confirmIcon={<Trash2 className="size-3.5" />}
-              render={<Button type="button" variant="destructive" size="sm" />}
-              onConfirm={() => onDelete(bot.id)}
-            />
-          ) : null}
-          <Button size="sm" variant="brand" disabled={!name.trim() || !persona.trim()} onClick={submit}>
-            {editing ? "Save" : "Create"}
-          </Button>
-        </div>
+  // Back, title, commit — the header every other full-screen surface in the app
+  // wears. The drag handle and the dimmed strip a sheet leans on are gone with
+  // the sheet; the way out of a page is Back.
+  const header = (
+    <>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={onClose}
+        aria-label={editing ? "Back to chat" : "Back to bots"}
+        className="shrink-0"
+      >
+        <ChevronLeft className="size-5" />
+      </Button>
+      <span className="min-w-0 flex-1 truncate text-[15px] font-semibold">
+        {editing ? "Edit bot" : "New bot"}
+      </span>
+      <Button size="sm" variant="brand" disabled={!canSubmit} onClick={submit}>
+        {editing ? "Save" : "Create"}
+      </Button>
+    </>
+  );
 
-        <div className="mt-4 flex items-center gap-3">
-          {/* The live creature is the preview: it breathes and blinks while you
-              pick, so you meet the bot before you create it. */}
-          <BotMascot
-            shape={shape}
-            colorway={colorway}
-            size={56}
-            state="idle"
-            seed={shape.length * 7 + colorway.length}
-            title="Bot avatar preview"
-          />
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            autoFocus
-            placeholder="Bot name"
-            className="lfg-gfield min-w-0 flex-1 rounded-2xl px-3 py-2 text-[15px] font-medium outline-none"
-          />
-        </div>
-
-        <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Shape
-        </label>
-        <div className="mt-1.5 flex items-center gap-2">
-          {BOT_SHAPES.map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => setShape(option)}
-              aria-pressed={shape === option}
-              title={SHAPE_LABELS[option]}
-              className={cn(
-                "rounded-2xl border p-1 transition",
-                shape === option
-                  ? "border-primary bg-primary/10"
-                  : "border-transparent hover:bg-muted",
-              )}
-            >
-              <BotMascot
-                shape={option}
-                colorway={colorway}
-                size={38}
-                state="idle"
-                seed={option.length * 3}
-              />
-            </button>
-          ))}
-        </div>
-
-        <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Color
-        </label>
-        <div className="mt-1.5 flex items-center gap-2">
-          {BOT_COLORWAYS.map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => setColorway(option)}
-              aria-pressed={colorway === option}
-              title={COLORWAYS[option].name}
-              className={cn(
-                "size-9 rounded-full border-2 transition",
-                colorway === option
-                  ? "border-primary scale-110"
-                  : "border-transparent hover:scale-105",
-              )}
-              style={{
-                backgroundImage: `linear-gradient(135deg, ${COLORWAYS[option].stops[0]}, ${COLORWAYS[option].stops[1]})`,
-              }}
-            >
-              <span className="sr-only">{COLORWAYS[option].name}</span>
-            </button>
-          ))}
-        </div>
-
-        <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Persona</label>
-        <textarea
-          value={persona}
-          onChange={(event) => setPersona(event.target.value)}
-          rows={4}
-          placeholder="How this bot should think and talk…"
-          className="lfg-gfield mt-1 w-full resize-none rounded-2xl px-3 py-2 text-sm outline-none"
+  const fields = (
+    <>
+      <div className="flex items-center gap-3">
+        {/* The live creature is the preview: it breathes and blinks while you
+            pick, so you meet the bot before you create it. */}
+        <BotMascot
+          shape={shape}
+          colorway={colorway}
+          size={56}
+          state="idle"
+          seed={shape.length * 7 + colorway.length}
+          title="Bot avatar preview"
         />
-
-        {editing ? (
-          <div className="mt-3 flex items-center justify-between rounded-xl border border-border px-3 py-2">
-            <span className="text-sm">Enabled</span>
-            <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Enable bot" />
-          </div>
-        ) : null}
-
-        <Collapsible open={advanced} onOpenChange={setAdvanced} className="mt-3">
-          <CollapsibleTrigger className="flex w-full items-center justify-between rounded-xl border border-border px-3 py-2 text-sm">
-            <span className="flex items-center gap-1.5">
-              <ChevronRight className={cn("size-3.5 transition-transform duration-150", advanced && "rotate-90")} />
-              Advanced
-            </span>
-            <span className="max-w-[55%] truncate text-xs text-muted-foreground">{backend} · {model}</span>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pt-2">
-            <div className="flex items-center justify-between rounded-xl border border-border px-3 py-2">
-              <span className="flex items-center gap-2 text-sm"><Folder className="size-4 text-muted-foreground" /> Repo</span>
-              <select
-                value={cwd}
-                onChange={(event) => setCwd(event.target.value)}
-                className="max-w-44 appearance-none truncate bg-transparent text-right text-[13px] font-medium outline-none"
-              >
-                {!repos.length ? <option value="">(no repos)</option> : null}
-                {repos.map((repo) => <option key={repo.cwd} value={repo.cwd}>{repo.name}</option>)}
-              </select>
-            </div>
-            <AgentModelRow
-              backend={backend}
-              setBackend={setBackend}
-              model={model}
-              setModel={setModel}
-              thinkingLevel={thinkingLevel}
-              setThinkingLevel={setThinkingLevel}
-              codingAgents={codingAgents}
-              scheduledOnly={false}
-            />
-          </CollapsibleContent>
-        </Collapsible>
+        <input
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          autoFocus
+          placeholder="Bot name"
+          className="lfg-gfield min-w-0 flex-1 rounded-2xl px-3 py-2 text-[15px] font-medium outline-none"
+        />
       </div>
-    </BottomSheet>
+
+      <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Shape
+      </label>
+      <div className="mt-1.5 flex items-center gap-2">
+        {BOT_SHAPES.map((option) => (
+          <button
+            key={option}
+            type="button"
+            onClick={() => setShape(option)}
+            aria-pressed={shape === option}
+            title={SHAPE_LABELS[option]}
+            className={cn(
+              "rounded-2xl border p-1 transition",
+              shape === option
+                ? "border-primary bg-primary/10"
+                : "border-transparent hover:bg-muted",
+            )}
+          >
+            <BotMascot
+              shape={option}
+              colorway={colorway}
+              size={38}
+              state="idle"
+              seed={option.length * 3}
+            />
+          </button>
+        ))}
+      </div>
+
+      <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Color
+      </label>
+      <div className="mt-1.5 flex items-center gap-2">
+        {BOT_COLORWAYS.map((option) => (
+          <button
+            key={option}
+            type="button"
+            onClick={() => setColorway(option)}
+            aria-pressed={colorway === option}
+            title={COLORWAYS[option].name}
+            className={cn(
+              "size-9 rounded-full border-2 transition",
+              colorway === option
+                ? "border-primary scale-110"
+                : "border-transparent hover:scale-105",
+            )}
+            style={{
+              backgroundImage: `linear-gradient(135deg, ${COLORWAYS[option].stops[0]}, ${COLORWAYS[option].stops[1]})`,
+            }}
+          >
+            <span className="sr-only">{COLORWAYS[option].name}</span>
+          </button>
+        ))}
+      </div>
+
+      <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Persona</label>
+      <textarea
+        value={persona}
+        onChange={(event) => setPersona(event.target.value)}
+        rows={4}
+        placeholder="How this bot should think and talk…"
+        className="lfg-gfield mt-1 w-full resize-none rounded-2xl px-3 py-2 text-sm outline-none"
+      />
+
+      {editing ? (
+        <div className="mt-3 flex items-center justify-between rounded-xl border border-border px-3 py-2">
+          <span className="text-sm">Enabled</span>
+          <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Enable bot" />
+        </div>
+      ) : null}
+
+      <Collapsible open={advanced} onOpenChange={setAdvanced} className="mt-3">
+        <CollapsibleTrigger className="flex w-full items-center justify-between rounded-xl border border-border px-3 py-2 text-sm">
+          <span className="flex items-center gap-1.5">
+            <ChevronRight className={cn("size-3.5 transition-transform duration-150", advanced && "rotate-90")} />
+            Advanced
+          </span>
+          <span className="max-w-[55%] truncate text-xs text-muted-foreground">{backend} · {model}</span>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="pt-2">
+          <div className="flex items-center justify-between rounded-xl border border-border px-3 py-2">
+            <span className="flex items-center gap-2 text-sm"><Folder className="size-4 text-muted-foreground" /> Repo</span>
+            <select
+              value={cwd}
+              onChange={(event) => setCwd(event.target.value)}
+              className="max-w-44 appearance-none truncate bg-transparent text-right text-[13px] font-medium outline-none"
+            >
+              {!repos.length ? <option value="">(no repos)</option> : null}
+              {repos.map((repo) => <option key={repo.cwd} value={repo.cwd}>{repo.name}</option>)}
+            </select>
+          </div>
+          <AgentModelRow
+            backend={backend}
+            setBackend={setBackend}
+            model={model}
+            setModel={setModel}
+            thinkingLevel={thinkingLevel}
+            setThinkingLevel={setThinkingLevel}
+            codingAgents={codingAgents}
+            scheduledOnly={false}
+          />
+        </CollapsibleContent>
+      </Collapsible>
+
+      {/* Delete moved off the header row and down here. On a phone header space
+          is for Back and the one action you came to take; a destructive button
+          sitting a thumb-width from Save was the wrong neighbour. */}
+      {editing ? (
+        <div className="mt-6 flex items-center justify-between gap-3 rounded-xl border border-destructive/30 px-3 py-2.5">
+          <span className="min-w-0 text-sm text-muted-foreground">
+            Delete this bot and the chat that belongs to it.
+          </span>
+          <DoubleConfirmAction
+            resetKey={bot.id}
+            label="Delete"
+            confirmLabel="Confirm delete"
+            icon={<Trash2 className="size-3.5" />}
+            confirmIcon={<Trash2 className="size-3.5" />}
+            render={<Button type="button" variant="destructive" size="sm" className="shrink-0" />}
+            onConfirm={() => onDelete(bot.id)}
+          />
+        </div>
+      ) : null}
+    </>
+  );
+
+  // Phone: the screen, edge to edge, above the app's own chrome — the same
+  // portal geometry the bot chat uses, so the two full-screen bot surfaces sit
+  // in exactly the same box and track the keyboard the same way.
+  if (isMobile) {
+    return createPortal(
+      <div
+        className="fixed inset-x-0 z-[95]"
+        style={{
+          top: "var(--lfg-visual-offset-top, 0px)",
+          height: "var(--lfg-visual-height, var(--lfg-app-height, 100dvh))",
+        }}
+      >
+        <section className="absolute inset-0 flex flex-col overflow-hidden bg-background text-foreground">
+          <header
+            className="flex items-center gap-2 border-b border-border px-3 pb-3"
+            style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.75rem)" }}
+          >
+            {header}
+          </header>
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(1.5rem+var(--lfg-safe-bottom))] pt-4">
+            {fields}
+          </div>
+        </section>
+      </div>,
+      document.body,
+    );
+  }
+
+  // Desktop: a page in the app's own column, keeping the header and nav that
+  // every other page keeps. A centred dialog was the old answer here, and a
+  // dialog is what made this feel like something hovering over the bots list
+  // rather than somewhere you went.
+  return (
+    <section className="mx-auto flex w-full max-w-3xl flex-col" data-lfg-page-column>
+      <header className="flex items-center gap-2 border-b border-border pb-3 pt-1">{header}</header>
+      <div className="pt-4">{fields}</div>
+    </section>
   );
 }
 
