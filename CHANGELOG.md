@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## August 18, 2026 - Host chrome stays in its corner (v0.1.390)
+
+- **Fixed: on a hosted phone, Bots/Notifications/Artifacts moved the app's
+  Computer and Settings buttons to the top-left**, fused onto the end of the
+  "Live" back button. Yesterday's island merge landed them correctly on Live
+  and incorrectly everywhere else; they now stay in the top-right corner on
+  every page.
+
 ## August 18, 2026 - One island in the corner, not two (v0.1.389)
 
 - **Fixed: on a hosted phone, the app's own chrome overlapped ours** in the
