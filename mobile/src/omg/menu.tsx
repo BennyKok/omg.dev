@@ -81,10 +81,13 @@ export type MenuOption = {
   /**
    * Rows behind this one. A SwiftUI `Menu` nested in a menu is a submenu.
    *
-   * PREFER `section` FOR A SET OF ALTERNATIVES. A submenu row cannot carry a
-   * bundled image (see renderRows), so anything whose identity is a brand mark
-   * — agents, above all — belongs in a section of this menu rather than behind
-   * a row of it.
+   * THIS OPTION'S OWN `image` IS IGNORED (see renderRows) — a submenu
+   * TRIGGER cannot carry a bundled image, confirmed still true as of
+   * 2026-08-17 (see renderRows for the retest). The rows BEHIND it are
+   * unaffected: give them `image` freely, same as any leaf row. A `section`
+   * is still the simpler choice for a short, flat set of alternatives; reach
+   * for `submenu` when the list is long enough that collapsing it behind one
+   * row earns its extra tap (see "Continue with" in session/[id].tsx).
    */
   submenu?: MenuOption[];
   /**
@@ -266,9 +269,27 @@ export function DropdownMenu({
      *
      * The mark stays on every LEAF row, which is where it was earning its
      * place; a submenu row is already labelled by the name of the thing it
-     * opens. If the marks are wanted back on agents, the fix is to flatten
-     * models into a second Section of the same menu rather than to make this
-     * header carry a picture it cannot size.
+     * opens. The image-sizing bug below is specific to the TRIGGER's own
+     * label — a `submenu` whose trigger carries no image is otherwise
+     * unrestricted here. (Separately, `session-options.ts` avoided nesting
+     * models behind agents for a DIFFERENT reason — press-and-drag-to-select
+     * not surviving a sideways step into a second layer — which this file
+     * has not retested and does not claim to have resolved.)
+     *
+     * RETESTED 2026-08-17, iPhone 17 Pro Simulator, iOS 26.0, Expo SDK 57,
+     * @expo/ui 57.0.10: still reproduces, unchanged from the original
+     * report. Forced `option.image` onto this trigger's label (bypassing
+     * this guard) with the full 6-row agent roster open behind it — the
+     * mark rendered natively at its asset's own pixel size, a slab several
+     * hundred points wide overlapping the header text, the row list below
+     * it, and the page underneath the menu. The SAME roster behind a
+     * text-only trigger (this code, unmodified) renders clean in both
+     * light and dark mode (tap-to-select only — drag was not tested). So:
+     * still true, still enforced here, not a one-time incident. See
+     * `mobile/app/session/[id].tsx`'s "Continue with" for a submenu built
+     * the safe way — trigger unmarked, leaves marked — which is the
+     * pattern to copy, not the flat `section` that shipped before this
+     * retest.
      */
     if (option.submenu?.length) {
       return (

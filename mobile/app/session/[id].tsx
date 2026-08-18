@@ -954,24 +954,28 @@ export default function SessionScreen() {
           : [];
       if (launchableAgents.length > 1) {
         /**
-         * A flat section, not a submenu row — see the `submenu` doc on
-         * `MenuOption` in menu.tsx. A submenu's own trigger row is a UIMenu
-         * header, and UIKit draws a header's image at the image's own pixel
-         * size rather than scaling it, so a bundled agent mark on a submenu
-         * row lands as an oversized slab hanging off the menu (photographed
-         * on device, IMG_1316 — the incident this file's convention exists
-         * to prevent). Agents are exactly the brand-marked case the doc calls
-         * out by name, so each one is its own row here, grouped by `section`
-         * instead of nested behind one.
+         * A submenu, not a flat section — build 26 feedback: with the
+         * account's full roster this flattened into 6+ rows sharing one
+         * overflow menu with Rename/Fork/Copy/Archive, which read as too
+         * long. `menu.tsx`'s own doc on `MenuOption.submenu` says a
+         * submenu's TRIGGER row cannot carry a bundled image (confirmed
+         * still true 2026-08-17 on iPhone 17 Pro Simulator / iOS 26.0 —
+         * see the retest note in renderRows, IMG_1316) — but says nothing
+         * against the rows behind it. So the trigger here is text + an SF
+         * Symbol only, never `image`, and each agent keeps its own mark on
+         * its own leaf row inside the submenu, same as the flat version
+         * carried. Verified clean with the full 6-agent roster, light and
+         * dark mode, before shipping this.
          */
-        for (const agent of launchableAgents) {
-          options.push({
+        options.push({
+          label: "Continue with",
+          icon: "arrow.forward.circle",
+          submenu: launchableAgents.map((agent) => ({
             label: agent.label || agentDisplayName(agent.key),
             image: agentIcon(agent.key),
-            section: "Continue with",
             onPress: () => continueWithAgent(agent.key),
-          });
-        }
+          })),
+        });
       } else {
         options.push({
           label: launchableAgents[0]?.label
