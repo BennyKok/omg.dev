@@ -2,6 +2,19 @@
 
 Recent product updates and deployment notes.
 
+## August 18, 2026 - Bots look like bots in the list (v0.1.386)
+
+- **A bot-backed row now wears the bot's face.** It used to show the harness
+  mark at full size with the creature shrunk to a 14px corner badge, so a row
+  named "Scout" was a Claude mark with a dot on it and looked like every other
+  session. The creature is the avatar now, slightly larger than a harness mark
+  so the two weigh the same, and it carries working in its own posture instead
+  of wearing a busy dot on top.
+- **Bots are their own category**, above the fleet in the rail and on mobile,
+  and out of the project groups. They are not part of the working/idle split:
+  that describes work in flight, and a bot you have not spoken to in a week is
+  not idle in that sense.
+
 ## August 17, 2026 - Short replies read like sentences again (v0.1.385)
 
 - **Fixed: a short assistant reply wrapped its last word onto its own line.**
