@@ -7722,7 +7722,24 @@ export function App() {
             ).length}
             onOpenNotifications={() => setTab("notifications")}
           />
-          {embedded ? null : (
+          {embedded ? (
+            // The host owns identity/settings chrome here, but Pages (Bots,
+            // Notifications, Artifacts) has no other entry point on mobile —
+            // losing this island entirely left embedded mobile with no way to
+            // reach Bots, and so no way to create one. A trimmed island (no
+            // user filter, no Settings) keeps the host's chrome the only
+            // identity surface while still giving Live a way out.
+            <NavIsland className="shrink-0">
+              <div className="glass-island flex h-11 items-center gap-1.5 rounded-full px-2">
+                <PagesMenu
+                  tab={tab}
+                  onOpenTab={setTab}
+                  extraTabs={extNavTabs}
+                  showSettings={false}
+                />
+              </div>
+            </NavIsland>
+          ) : (
             <NavIsland className="shrink-0">
               <div className="glass-island flex h-11 items-center gap-1.5 rounded-full px-2">
                 <UserFilterMenu
@@ -15735,6 +15752,15 @@ const onTouchStart = (e: ReactTouchEvent) => {
           {headerBot ? (
             <div className="flex size-7 shrink-0 items-center justify-center">
               <BotAvatar bot={headerBot} working={busy} size={28} />
+            </div>
+          ) : session.botId ? (
+            // The bot directory hasn't resolved this bot yet (fetch in flight,
+            // race on mount, etc). The session is still bot-driven — the title
+            // already says so — so a neutral creature is the honest "loading"
+            // state, not the generic Claude mark, which would claim a harness
+            // that isn't actually running this session.
+            <div className="flex size-7 shrink-0 items-center justify-center">
+              <BotMascot state={busy ? "working" : "idle"} size={28} />
             </div>
           ) : (
           <div className="relative flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground">
