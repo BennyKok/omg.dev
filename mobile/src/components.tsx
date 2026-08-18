@@ -963,38 +963,28 @@ export function HomeComposer({
     borderColor: colors.borderSoft,
   };
   return (
-    <GlassSurface
+    <View
       /**
-       * THE WHOLE COMPOSER IS THE GLASS NOW, not a transparent box with two
-       * glazed pills floating inside it.
+       * SOLID, NOT GLASS — deliberately, unlike the pills inside it.
        *
-       * This used to be a plain `View` with `backgroundColor: "transparent"`
-       * under Liquid Glass — deliberately, so the two pills inside (the
-       * field, the caption row's buttons) had real content behind them for
-       * their OWN blur to sample. But the padding AROUND those pills — 8pt
-       * here, more at the safe-area edge, the full gap between the field row
-       * and the caption row — was never drawn at all: no blur, no fill,
-       * genuinely see-through. Scrolled under a tall list, a card's title
-       * landing in that gap read in full contrast, which is what "the
-       * composer is painted over cards" turned out to mean: not that a card
-       * sat on top of the composer, but that the composer had unglazed holes
-       * in it exactly the shape of its own padding.
+       * This was `GlassSurface variant="clear"` for one release: the plain
+       * `View` before it left the padding AROUND the two pills (8pt here,
+       * more at the safe-area edge, the full gap between the field row and
+       * the caption row) genuinely see-through under Liquid Glass, and a
+       * card scrolled under that gap read in full contrast — "the composer
+       * is painted over cards." Making the whole container glass fixed that
+       * gap, but it also meant the home list's own bottom fade — a flat
+       * scrim toward `colors.bg`, see COMPOSER_FADE_HEIGHT in app/index.tsx —
+       * dissolved into a blurred, frosted surface instead of the plain dim
+       * layer it draws everywhere else. Benny: "it shouldn't be having the
+       * glass effects... what I really want is just like a plain fade in."
        *
-       * A `variant="clear"` sibling sized with `StyleSheet.absoluteFillObject`
-       * was tried first, to keep the pills as independent glass shapes on
-       * top of a full-bleed backing. It measured the composer's OWN first
-       * layout pass and then stayed that size — the same Host-sizing lag
-       * `ComposerCaptionButton` already has to work around for its menu (see
-       * that component) — so the backing covered the field row but fell
-       * short of the caption row a moment later, once the pills below it
-       * populated and the composer grew. Making the container itself the
-       * glass sidesteps that class of bug entirely: there is no second
-       * element trying to track this one's size after the fact, because
-       * there is only one, and Yoga sizes it the ordinary way — from its own
-       * children, including the pills nested inside it.
+       * A solid fill closes the SAME gap a different way: opaque paint has
+       * no holes to begin with, glazed or not, so the bug #137 fixed doesn't
+       * apply here regardless of Liquid Glass availability. The fade above
+       * this bar now dissolves into one plain, unblurred colour the whole
+       * way down, which is the point.
        */
-      variant="clear"
-      fallbackColor={colors.bg}
       style={{
         paddingHorizontal: space.lg,
         paddingTop: space.sm,
@@ -1004,6 +994,7 @@ export function HomeComposer({
         // session composer — which adds them — floated correctly. Two
         // composers, two heights, on screens you swap between constantly.
         paddingBottom: bottomInset + space.sm,
+        backgroundColor: colors.bg,
       }}
     >
       {/* Liquid Glass on iOS 26+, a solid card everywhere else. */}
@@ -1343,7 +1334,7 @@ export function HomeComposer({
           ) : null}
         </ScrollView>
       </View>
-    </GlassSurface>
+    </View>
   );
 }
 
