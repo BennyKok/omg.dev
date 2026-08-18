@@ -2,6 +2,20 @@
 
 Recent product updates and deployment notes.
 
+## August 18, 2026 - Making a bot is a page now (v0.1.396)
+
+- **Creating or editing a bot is a real page with its own URL** (`/bots/new`,
+  `/bots/<id>/edit`) instead of a sheet drawn over the bots list. It was made
+  full height, then edge to edge, but it was still a drawer the browser had
+  never heard of: the phone's back gesture skipped past it to whatever page
+  came before the list, and the form could not be linked to or reloaded. Back
+  now leaves the editor, forward returns to it, and saving a bot's settings
+  drops you back into that bot's chat rather than on the list.
+- **Delete moved off the header row** to the bottom of the form, out from
+  under the thumb that reaches for Save.
+- Fixed: deleting a bot from its settings left you sitting on the editor for a
+  bot that no longer existed.
+
 ## August 18, 2026 - The hosted "⋮" menu actually gets its Settings entry (v0.1.395)
 
 - **Fixed: the Settings entry added to the hosted "⋮" menu in v0.1.393 never
