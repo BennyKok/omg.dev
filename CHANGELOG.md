@@ -2,6 +2,19 @@
 
 Recent product updates and deployment notes.
 
+## August 18, 2026 - One island in the corner, not two (v0.1.389)
+
+- **Fixed: on a hosted phone, the app's own chrome overlapped ours** in the
+  top-right corner. The two were kept apart by a hand-maintained width
+  constant shared across two repos; it drifted, and they collided. The header
+  now offers the host a slot to render into, so there is one island and no gap
+  to keep in sync. Hosts that still float their own chrome are unaffected.
+- **Fixed: a bot card on mobile no longer wears an idle dot.** The creature
+  already shows what the bot is doing; the dot said it again, and said "idle"
+  for every bot you simply were not talking to.
+- **A host can see when this box is waiting on a browser login**, so it can say
+  so instead of looking stuck.
+
 ## August 18, 2026 - Connecting a coding agent no longer opens a blank page (v0.1.388)
 
 - **Fixed: "Connect Claude" during Computer first-run opened a blank tab.**
