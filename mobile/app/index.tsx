@@ -75,11 +75,14 @@ function SessionFamily({
   depth = 0,
   onOpen,
   onArchive,
+  animateEntry = true,
 }: {
   node: SessionNode;
   depth?: number;
   onOpen: (id: string | null) => void;
   onArchive?: (id: string | null) => void;
+  /** See the identical prop on SessionCard/AutoFindingCard for why. */
+  animateEntry?: boolean;
 }) {
   const { colors, space } = useTheme();
   const session = node.session;
@@ -94,6 +97,7 @@ function SessionFamily({
         blocked={session.status === "blocked"}
         onPress={() => onOpen(session.sessionId)}
         onArchive={depth === 0 && onArchive ? () => onArchive(session.sessionId) : undefined}
+        animateEntry={animateEntry}
       />
 
       {node.children.length ? (
@@ -105,6 +109,7 @@ function SessionFamily({
               depth={depth + 1}
               last={index === node.children.length - 1}
               onOpen={onOpen}
+              animateEntry={animateEntry}
             />
           ))}
         </View>
@@ -132,11 +137,14 @@ function SessionBranch({
   depth,
   last,
   onOpen,
+  animateEntry = true,
 }: {
   node: SessionNode;
   depth: number;
   last: boolean;
   onOpen: (id: string | null) => void;
+  /** See the identical prop on SessionCard/AutoFindingCard for why. */
+  animateEntry?: boolean;
 }) {
   const { colors, space } = useTheme();
   const [cardHeight, setCardHeight] = useState(0);
@@ -202,7 +210,7 @@ function SessionBranch({
           />
         </>
       )}
-      <SessionFamily node={node} depth={depth} onOpen={onOpen} />
+      <SessionFamily node={node} depth={depth} onOpen={onOpen} animateEntry={animateEntry} />
     </View>
   );
 }
@@ -424,6 +432,54 @@ export default function SessionsScreen() {
    */
   const notifyUserOfOverlap = __DEV__ || user?.email === "itechbenny@gmail.com";
   const { Row: OverlapRow } = useOverlapWatch(toast, notifyUserOfOverlap);
+  /**
+   * THE FIX, once list-overlap-watch.tsx had a mechanism to point at:
+   * suppress BOTH `entering` and `layout` for a fixed window after this
+   * screen mounts, then never again.
+   *
+   * Both caught overlaps were on cold load, and both are consistent with the
+   * same race: Working/Idle rows come from `sessions` (client.listSessions())
+   * while Auto rows come from a SEPARATE fetch (useAutoAgents(), see above) —
+   * two independent sources that do not resolve on the same tick. Cold load
+   * is the one moment potentially dozens of rows across BOTH sources mount
+   * and start their own `entering: FadeInDown` within the same beat; the
+   * measured cross-row position corruption showed up between rows in
+   * DIFFERENT sections (idle vs. auto) and rows in the SAME section
+   * (recent vs. recent), which is what an entering-animation race predicts
+   * and a single stranded-view bug would not.
+   *
+   * `layout` ALSO SUPPRESSED, not just `entering` — first attempt left
+   * `layout: LinearTransition` live and still measured 1 overlap in 5 cold
+   * loads. Either source can straggle in across more than one wave (a
+   * session's subagent children resolving after its own row, a finding's
+   * `occurrences` bumping mid-load), and a `layout` reflow racing a sibling
+   * that is itself still settling is the same class of race `entering` is —
+   * animating FROM or TO a frame that is about to move again is exactly how
+   * a transiently-wrong position gets painted. During the window a row
+   * SNAPS directly to its current correct position with no animation,
+   * rather than risk animating relative to one.
+   *
+   * A FIXED WINDOW since mount, not an "is any section still empty" check,
+   * deliberately — the two sources resolving at different times is exactly
+   * the thing being raced, so gating on either one individually reintroduces
+   * the same asymmetry. A wall-clock window since this screen first rendered
+   * covers both regardless of which arrives first, second, or late (a
+   * source that lands after the window animates in on its own, by which
+   * point everything else has already settled — nothing left to race). Wide
+   * enough to cover a slow fetch or a multi-wave subagent tree resolving,
+   * short enough that it's not what a person notices as "the list is slow."
+   *
+   * 3500ms IS A GUESS, NOT A MEASUREMENT — tunable, not sacred. It's sized
+   * off simulator fetch timing on a fast Mac; a real device on real
+   * cellular could easily need longer, or a fast wifi connection could get
+   * away with less. list-overlap-watch.tsx is what would tell you which:
+   * if it starts firing again on real devices with this window in place,
+   * that's a signal to widen it before reaching for a different mechanism
+   * entirely, not a sign the whole approach is wrong.
+   */
+  const mountedAtRef = useRef(Date.now());
+  const COLD_LOAD_WINDOW_MS = 3500;
+  const animateEntry = Date.now() - mountedAtRef.current >= COLD_LOAD_WINDOW_MS;
   /**
    * Live-socket health. The SDK's statuses are connecting | live | reconnecting
    * | offline — there is no "connected", and comparing against that string made
@@ -1145,7 +1201,7 @@ export default function SessionsScreen() {
                     const id = sessionStableId(node.session);
                     return (
                       <OverlapRow key={id} id={`working:${id}`}>
-                        <SessionFamily node={node} onOpen={openSession} />
+                        <SessionFamily node={node} onOpen={openSession} animateEntry={animateEntry} />
                       </OverlapRow>
                     );
                   })}
@@ -1165,7 +1221,12 @@ export default function SessionsScreen() {
                     const id = sessionStableId(node.session);
                     return (
                       <OverlapRow key={id} id={`idle:${id}`}>
-                        <SessionFamily node={node} onOpen={openSession} onArchive={archiveSession} />
+                        <SessionFamily
+                          node={node}
+                          onOpen={openSession}
+                          onArchive={archiveSession}
+                          animateEntry={animateEntry}
+                        />
                       </OverlapRow>
                     );
                   })}
@@ -1220,6 +1281,7 @@ export default function SessionsScreen() {
                         onDismiss={() => dismissFinding(row.finding.id)}
                         onStartSession={() => void startSessionFromFinding(row)}
                         busy={startingFindingId === row.finding.id}
+                        animateEntry={animateEntry}
                       />
                     </OverlapRow>
                   ))}
@@ -1256,6 +1318,7 @@ export default function SessionsScreen() {
                         agent={session.agent}
                         ended
                         onPress={() => router.push(`/session/${session.sessionId}`)}
+                        animateEntry={animateEntry}
                       />
                     </OverlapRow>
                   ))}
