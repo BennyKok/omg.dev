@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## August 18, 2026 - Two controls in the corner, not three (v0.1.391)
+
+- **The hosted mobile menu is tidier.** Settings now lives inside the "⋮" menu
+  instead of taking its own chip beside it, so the island carries two controls
+  for two destinations. On a hosted surface the item opens the host's own
+  settings, and it only appears when the host actually mounts those pages.
+
 ## August 18, 2026 - Host chrome stays in its corner (v0.1.390)
 
 - **Fixed: on a hosted phone, Bots/Notifications/Artifacts moved the app's
