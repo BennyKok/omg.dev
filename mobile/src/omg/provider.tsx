@@ -378,6 +378,13 @@ export function OmgProvider({ children }: PropsWithChildren) {
     if (client) {
       await unregisterForPushNotifications(client.transport).catch(() => {});
     }
+    // authSignOut throws SignOutFailedError if the server did not confirm
+    // the session was revoked (see auth.ts) — on purpose, this propagates
+    // and everything below does NOT run. Clearing local state here anyway
+    // would recreate the exact bug being fixed: showing "signed out" while
+    // the account is still live server-side. Let it throw; the caller
+    // (Settings' confirmSignOut) is responsible for telling the person it
+    // failed and that they should retry.
     await authSignOut();
     forgetAllTransports();
     // The presence keys stay on purpose: the server-side lease can outlive a
