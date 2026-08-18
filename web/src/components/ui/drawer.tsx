@@ -127,7 +127,6 @@ function DrawerContent({
   children,
   expandOnFocus = true,
   page = false,
-  bleed = false,
   onPointerDownCapture,
   onFocusCapture,
   onBlurCapture,
@@ -140,19 +139,6 @@ function DrawerContent({
   expandOnFocus?: boolean
   /** Force page mode regardless of focus, for callers that drive it. */
   page?: boolean
-  /**
-   * In page mode, go edge to edge instead of staying a card.
-   *
-   * Page mode only ever changed the HEIGHT: the content is still a rounded
-   * panel inset 8px on every side with its own padding and a drag handle, so a
-   * form that fills the screen still reads as a sheet resting on top of one.
-   * For a surface that IS the screen for as long as it is open — creating a
-   * bot — the card edge is a frame around nothing.
-   *
-   * Phone only. Above 768px `.lfg-sheet-page` is a centred 85dvh dialog and the
-   * card edge is exactly what makes it one.
-   */
-  bleed?: boolean
 }) {
   const isDesktop = React.useContext(DrawerDesktopContext)
   // Desktop is a centered dialog with its own height cap and no soft keyboard,
@@ -193,9 +179,6 @@ function DrawerContent({
         className={cn(
           "group/drawer-content fixed z-[70] flex h-auto flex-col bg-transparent p-4 text-sm before:absolute before:inset-2 before:-z-10 before:rounded-4xl before:border before:border-border before:bg-background data-[vaul-drawer-direction=bottom]:inset-x-0 data-[vaul-drawer-direction=bottom]:bottom-0 data-[vaul-drawer-direction=bottom]:mt-24 data-[vaul-drawer-direction=bottom]:max-h-[80vh] data-[vaul-drawer-direction=left]:inset-y-0 data-[vaul-drawer-direction=left]:left-0 data-[vaul-drawer-direction=left]:w-3/4 data-[vaul-drawer-direction=right]:inset-y-0 data-[vaul-drawer-direction=right]:right-0 data-[vaul-drawer-direction=right]:w-3/4 data-[vaul-drawer-direction=top]:inset-x-0 data-[vaul-drawer-direction=top]:top-0 data-[vaul-drawer-direction=top]:mb-24 data-[vaul-drawer-direction=top]:max-h-[80vh] data-[vaul-drawer-direction=left]:sm:max-w-sm data-[vaul-drawer-direction=right]:sm:max-w-sm",
           paged && "lfg-sheet-page",
-          paged &&
-            bleed &&
-            "max-md:p-0 max-md:before:inset-0 max-md:before:rounded-none max-md:before:border-0",
           className
         )}
         // All three handlers, always: a missing one breaks fold-back. Caller
@@ -214,16 +197,7 @@ function DrawerContent({
         }}
         {...props}
       >
-        {/* The handle says "drag me down"; a full-screen surface has no
-            in-between position to drag to, and on desktop this drawer is a
-            dialog. Keep it everywhere else — it is the affordance that makes a
-            card dismissable without hunting for a close button. */}
-        <div
-          className={cn(
-            "mx-auto mt-4 hidden h-1.5 w-[100px] shrink-0 rounded-full bg-muted group-data-[vaul-drawer-direction=bottom]/drawer-content:block",
-            paged && bleed && "max-md:!hidden",
-          )}
-        />
+        <div className="mx-auto mt-4 hidden h-1.5 w-[100px] shrink-0 rounded-full bg-muted group-data-[vaul-drawer-direction=bottom]/drawer-content:block" />
         {children}
       </DrawerPrimitive.Content>
     </DrawerPortal>
