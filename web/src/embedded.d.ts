@@ -141,6 +141,21 @@ export interface OmgAppSurfaceProps {
    */
   onOpenSettingsPage?: (page: OmgSettingsPage) => void;
   /**
+   * Open the HOST's own settings root — your account chrome, not this
+   * machine's pages.
+   *
+   * Set this and the surface carries a Settings entry in its Pages menu that
+   * calls back to you, and marks its `header-actions` slot
+   * `data-lfg-host-settings="menu"` so a host drawing its own Settings control
+   * next to that menu can drop it. Omit it and the surface renders no
+   * host-settings entry at all, so the host must keep drawing its own.
+   *
+   * NOT interchangeable with `onOpenSettingsPage`: that one addresses the
+   * MACHINE's pages and is routed per page, so wiring this general entry to it
+   * lands on a per-computer page behind a machine selector.
+   */
+  onOpenHostSettings?: () => void;
+  /**
    * The machine refused an action because of the plan YOU sold — e.g. starting
    * one more agent than the tier allows.
    *

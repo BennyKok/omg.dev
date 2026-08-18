@@ -253,6 +253,39 @@ describe("host bottom inset contract", () => {
     );
   });
 
+  test("OmgAppSurface plumbs onOpenHostSettings through to the host options", () => {
+    // The gap this closes: every assertion above passes against a build where
+    // the entry can never appear. App.tsx reads onOpenHostSettings off the
+    // context, and the context type declares it — but OmgAppSurface, the only
+    // public way in, neither accepted the prop nor forwarded it. So
+    // `hostSettingsInMenu` was false for every host that ever existed: no
+    // Settings item in the Pages menu, and no data-lfg-host-settings flag, so
+    // omg's island kept its own gear and sat at three chips for two
+    // destinations — the exact crowding the menu entry was built to end.
+    //
+    // Assert the whole chain here rather than trusting the props type: a prop
+    // that is declared and destructured but dropped before the provider is the
+    // same dead feature with a green typecheck.
+    const embedded = require("node:fs").readFileSync(
+      "web/src/embedded.tsx",
+      "utf8",
+    ) as string;
+    expect(embedded).toContain("onOpenHostSettings?: () => void;");
+    expect(embedded).toMatch(
+      /export function OmgAppSurface\(\{[\s\S]*?onOpenHostSettings,[\s\S]*?\}: OmgAppSurfaceProps\)/,
+    );
+    expect(embedded).toMatch(
+      /<EmbeddedHostOptionsProvider\s*\n\s*value=\{\{[\s\S]*?onOpenHostSettings,[\s\S]*?\}\}/,
+    );
+    // Shipped types are hand-written here, so a host on the published package
+    // would get a type error for a prop the runtime honours.
+    const dts = require("node:fs").readFileSync(
+      "web/src/embedded.d.ts",
+      "utf8",
+    ) as string;
+    expect(dts).toContain("onOpenHostSettings?: () => void;");
+  });
+
   test("desktop embed zeroes host-bottom-inset (omg nav is top-middle)", () => {
     const css = require("node:fs").readFileSync("web/src/index.css", "utf8") as string;
     // Match omg useIsDesktop (lg = 1024). Mobile keeps the 2.75rem bottom pill.
