@@ -10395,19 +10395,24 @@ function LiveView({
   const pinnedNodes = tree.roots.filter(nodeContainsPin);
   // Remaining roots keep the familiar working → idle grouping. A parent is
   // considered working if any child is working.
+  // Bots are their own category here too — see the rail's note: a bot you have
+  // not spoken to in a week is not "idle" the way a finished session is.
+  const nodeIsBot = (node: SessionTreeNode): boolean => !!node.session.botId;
+  const botNodes = tree.roots.filter((node) => !nodeContainsPin(node) && nodeIsBot(node));
   const workingNodes = tree.roots.filter(
-    (node) => !nodeContainsPin(node) && tree.effectiveBusy(node),
+    (node) => !nodeContainsPin(node) && !nodeIsBot(node) && tree.effectiveBusy(node),
   );
   const idleNodes = tree.roots.filter(
-    (node) => !nodeContainsPin(node) && !tree.effectiveBusy(node),
+    (node) => !nodeContainsPin(node) && !nodeIsBot(node) && !tree.effectiveBusy(node),
   );
   const pinned = tree.flatten(pinnedNodes);
+  const botSessions = tree.flatten(botNodes);
   const working = tree.flatten(workingNodes);
   const idle = tree.flatten(idleNodes);
 
-  // On-screen order: pinned, then working, then idle. Drives both sheet
+  // On-screen order: pinned, bots, then working, then idle. Drives both sheet
   // navigation and which transcripts we warm ahead of the user opening them.
-  const screenOrder = [...pinned, ...working, ...idle]
+  const screenOrder = [...pinned, ...botSessions, ...working, ...idle]
     .map((s) => s.sessionId)
     .filter((id): id is string => !!id);
   const prefetchKey = screenOrder.slice(0, 8).join(",");
@@ -10599,6 +10604,14 @@ function LiveView({
           <CategoryHeader label="Pinned" count={pinned.length} dotClass="bg-primary" />
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-2">
             {pinnedNodes.flatMap((node) => renderNode(node))}
+          </div>
+        </section>
+      ) : null}
+      {botSessions.length ? (
+        <section>
+          <CategoryHeader label="Bots" count={botSessions.length} dotClass="bg-primary" />
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-2">
+            {botNodes.flatMap((node) => renderNode(node))}
           </div>
         </section>
       ) : null}
@@ -11198,20 +11211,34 @@ function RailStage({
     topPinnedSet.has(sessionStableId(node.session)) ||
     node.children.some(railNodeContainsTopPin);
   const topPinnedNodes = railTree.roots.filter(railNodeContainsTopPin);
+  // A bot is someone you keep, not a job you started, so it does not belong in
+  // the working/idle split that describes work in flight — a bot you have not
+  // spoken to since Tuesday is not "idle" in the sense the rest of that group
+  // means. Bots get their own category above the fleet, and are held out of
+  // the project groups for the same reason.
+  const railNodeIsBot = (node: SessionTreeNode): boolean => !!node.session.botId;
+  const botNodes = railTree.roots.filter(
+    (node) => !railNodeContainsTopPin(node) && railNodeIsBot(node),
+  );
   const workingNodes = railTree.roots.filter(
-    (node) => !railNodeContainsTopPin(node) && railTree.effectiveBusy(node),
+    (node) =>
+      !railNodeContainsTopPin(node) && !railNodeIsBot(node) && railTree.effectiveBusy(node),
   );
   const idleNodes = railTree.roots.filter(
-    (node) => !railNodeContainsTopPin(node) && !railTree.effectiveBusy(node),
+    (node) =>
+      !railNodeContainsTopPin(node) && !railNodeIsBot(node) && !railTree.effectiveBusy(node),
   );
   const topPinnedSessions = railTree.flatten(topPinnedNodes);
+  const botSessions = railTree.flatten(botNodes);
   const working = railTree.flatten(workingNodes);
   const idle = railTree.flatten(idleNodes);
 
   const projectRailGroups = useMemo(() => {
     if (projectFilter !== "__all") return [];
     const groups = new Map<string, { label: string; nodes: SessionTreeNode[]; count: number }>();
-    for (const node of railTree.roots.filter((item) => !railNodeContainsTopPin(item))) {
+    for (const node of railTree.roots.filter(
+      (item) => !railNodeContainsTopPin(item) && !railNodeIsBot(item),
+    )) {
       const project = node.session.project || "";
       const key = project || "__no_project";
       const label = project ? shortProject(project) : "No project";
@@ -11233,9 +11260,10 @@ function RailStage({
     projectFilter === "__all"
       ? [
           ...topPinnedSessions,
+          ...botSessions,
           ...projectRailGroups.flatMap((group) => railTree.flatten(group.nodes)),
         ]
-      : [...topPinnedSessions, ...working, ...idle];
+      : [...topPinnedSessions, ...botSessions, ...working, ...idle];
 
   // Flat rail order the keyboard cursor walks (matching the visible rail;
   // findings are not navigable). Keep the cursor pointing at a live session.
@@ -11982,6 +12010,13 @@ function RailStage({
               {topPinnedNodes.map((node) => renderRailNode(node))}
             </RailGroup>
           ) : null}
+          {/* Above the fleet either way: with a project filter on or off, the
+              people you talk to sit at the top of the list you live in. */}
+          {botSessions.length ? (
+            <RailGroup label="Bots" count={botSessions.length} collapsed={railCollapsed}>
+              {botNodes.map((node) => renderRailNode(node))}
+            </RailGroup>
+          ) : null}
           {projectFilter === "__all" ? (
             <>
               {projectRailGroups.map((group) => (
@@ -12363,30 +12398,35 @@ const RailItem = memo(function RailItem({
               : "border-transparent hover:bg-muted/70",
         )}
       >
-        <span className="relative flex size-6 shrink-0 items-center justify-center">
-          <SessionAgentIcon session={session} className="size-6 rounded-md" />
+        <span
+          className={cn(
+            "relative flex shrink-0 items-center justify-center",
+            // The creature is a silhouette with no plate behind it, so it reads
+            // smaller than a square harness mark at the same box size. Giving
+            // the bot rows a slightly larger slot makes the two weigh the same
+            // on screen, and the group is homogeneous so nothing is left ragged.
+            drivingBot ? "size-7" : "size-6",
+          )}
+        >
+          {/* A bot-backed row wears the bot's face, the same rule the chat
+              header already follows: the creature says which agent is driving,
+              so the harness mark next to it would be saying it twice.
+              This was inverted — Claude's mark at full size with the creature
+              shrunk to a 14px corner badge — which made the row you know as
+              "Scout" look like every other Claude session in the list. */}
+          {drivingBot ? (
+            <BotAvatar bot={drivingBot} working={busy} size={28} />
+          ) : (
+            <SessionAgentIcon session={session} className="size-6 rounded-md" />
+          )}
+          {/* The creature carries busy in its own posture, so a busy dot on top
+              of it is the same doubling; blocked has no pose, so it keeps its
+              mark on every row. */}
           <SessionStatusDot
-            busy={busy}
+            busy={busy && !drivingBot}
             paused={session.status === "blocked"}
             variant="avatar"
           />
-          {drivingBot && !busy && session.status !== "blocked" ? (
-            <span
-              // No plate to ring, so the creature separates from the agent
-              // icon underneath it with a halo in the surface colour instead.
-              className="absolute -right-0.5 -top-0.5 flex size-3.5 items-center justify-center [filter:drop-shadow(0_0_1px_var(--card))_drop-shadow(0_0_1px_var(--card))]"
-              title={`Driven by ${drivingBot.name}`}
-              aria-label={`Driven by ${drivingBot.name}`}
-            >
-              <BotMascot
-                shape={drivingBot.shape}
-                colorway={drivingBot.colorway}
-                size={14}
-                state="idle"
-                seed={drivingBot.id.length}
-              />
-            </span>
-          ) : null}
           {topPinned && collapsed ? (
             <Pin
               aria-label="Pinned to top"
