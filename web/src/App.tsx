@@ -20679,12 +20679,16 @@ function BottomSheet({
   onClose,
   title,
   page = false,
+  bleed = false,
   expandOnFocus = true,
   footer,
   children,
 }: {
   onClose: () => void;
   title: string;
+  /** With `page`, fill the phone screen edge to edge instead of staying a
+   *  rounded card with a handle. See DrawerContent's `bleed`. */
+  bleed?: boolean;
   /** Morph from a content-sized card into a full-height page. See the
    *  `.lfg-sheet-page` rule in index.css for what that means geometrically —
    *  the short version is that the sheet claims the band above the keyboard so
@@ -20725,6 +20729,7 @@ function BottomSheet({
         // it. `page` still lets a caller force it; `expandOnFocus` is kept as
         // an explicit opt-out for sheets with no fields.
         page={page}
+        bleed={bleed}
         expandOnFocus={expandOnFocus}
       >
         <DrawerTitle className="sr-only">{title}</DrawerTitle>
@@ -24237,8 +24242,10 @@ function BotEditorSheet({
     // keyboard is up immediately. A content-sized card had to morph mid-open
     // and left the shape/color rows crowded against the keyboard. Full height
     // from the start on mobile; desktop keeps the centred 85dvh dialog.
-    <BottomSheet page onClose={onClose} title={editing ? "Edit bot" : "New bot"}>
-      <div className="px-2 pb-4 pt-1">
+    <BottomSheet page bleed onClose={onClose} title={editing ? "Edit bot" : "New bot"}>
+      {/* Edge to edge means this content owns the status-bar strip now, so it
+          pads for it itself rather than inheriting the card's inset. */}
+      <div className="px-4 pb-4 pt-[calc(0.5rem+env(safe-area-inset-top))] md:px-2 md:pt-1">
         <div className="flex items-center gap-2">
           <Bot className="size-5 text-primary" />
           <span className="min-w-0 flex-1 text-[15px] font-semibold">{editing ? "Edit bot" : "New bot"}</span>
