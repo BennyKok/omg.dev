@@ -2,6 +2,23 @@
 
 Recent product updates and deployment notes.
 
+## August 18, 2026 - Connecting a coding agent shows you a dialog, not a browser tab (v0.1.397)
+
+- **Fixed: the sign-in tab still opened on `about:blank` before redirecting.**
+  The previous release stopped that tab from being empty, but the address bar
+  still read `about:blank` for the whole wait, because writing a page into a
+  tab does not change its URL. Pressing Connect now opens a **dialog** instead,
+  right on the click, with its own "Preparing your sign-in link…" state while
+  your Computer starts the provider CLI. When the link is ready the dialog
+  offers a button, and that button opens the provider directly — the correct
+  address from the first frame, with no redirect.
+- **The sign-in can no longer be eaten by a pop-up blocker.** The tab is now
+  opened by your own click on that button, instead of by code running after a
+  network round trip, which is the case browsers block.
+- **Instructions are where you are looking.** The one-time code, the paste
+  field and the approval spinner all live in the dialog, so a login that fails
+  says so on the screen you are on rather than behind a window that took focus.
+
 ## August 18, 2026 - Making a bot is a page now (v0.1.396)
 
 - **Creating or editing a bot is a real page with its own URL** (`/bots/new`,
