@@ -396,6 +396,12 @@ export function OmgProvider({ children }: PropsWithChildren) {
     setBindings([]);
     setCloud(null);
     setUser(null);
+    // The redirect to sign-in lives centrally in RootNavigator
+    // (app/_layout.tsx), keyed on this flip to "signed-out" — not here —
+    // so every path to signed-out lands on sign-in, not just this one.
+    // See that file for why a redirect is needed at all (Stack.Protected
+    // changing which screens are registered doesn't navigate anywhere by
+    // itself).
     setAuthStatus("signed-out");
   }, [client]);
 

@@ -1,6 +1,6 @@
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
+import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import Reanimated, {
   Easing,
@@ -149,6 +149,38 @@ function RootNavigator() {
    * exist yet.
    */
   useNotificationTapRouting(authStatus === "signed-in");
+  /**
+   * Land on sign-in the moment ANY path sets authStatus to "signed-out" —
+   * an explicit Sign out, a session that expired underneath the app, a
+   * future 401 handler, all of it. Centralized here instead of next to one
+   * call site (e.g. inside provider.tsx's signOut()) on purpose: a fix that
+   * only fires for the Settings sign-out button leaves every OTHER path to
+   * signed-out re-creating the exact bug this exists to close.
+   *
+   * Why this is needed at all, confirmed on-device: `Stack.Protected`
+   * changes which screens are REGISTERED per authStatus (see the
+   * signed-out Stack below — "settings" isn't declared there), but that is
+   * not the same as telling expo-router to NAVIGATE anywhere. Without this,
+   * a confirmed sign-out from Settings left Settings on screen rendering
+   * the now-cleared (signed-out) provider state — right values, wrong
+   * screen. `dismissTo` pops through whatever was pushed (Settings,
+   * Computers, a session, ...) back to sign-in in one step regardless of
+   * stack depth.
+   *
+   * Gated on the TRANSITION (previous render was "signed-in"), not just
+   * "authStatus is currently signed-out" — a cold start that resolves
+   * straight to signed-out already mounts the signed-out Stack fresh with
+   * sign-in as its only screen; there is no stale signed-in screen to
+   * escape from, so nothing here should run.
+   */
+  const previousAuthStatusRef = useRef(authStatus);
+  useEffect(() => {
+    const wasSignedIn = previousAuthStatusRef.current === "signed-in";
+    previousAuthStatusRef.current = authStatus;
+    if (wasSignedIn && authStatus === "signed-out") {
+      router.dismissTo("/sign-in");
+    }
+  }, [authStatus]);
   const { colors, isDark } = useTheme();
   // Shares the splash with auth, rather than flashing an icon-less bar for a
   // frame: the font resolves from a bundled asset, so this is never a wait
@@ -163,7 +195,32 @@ function RootNavigator() {
     return (
       <>
         <StatusBar style={isDark ? "light" : "dark"} />
-        <Stack screenOptions={{ contentStyle: { backgroundColor: colors.bg } }}>
+        {/*
+         * `key="signed-out"` — belt, not the actual buckle.
+         *
+         * This Stack and the signed-in one below declare two DIFFERENT sets
+         * of screens — "settings", "computers", etc. exist only in the
+         * signed-in tree. Without a key, React sees the same element type
+         * (Stack) in the same position across a signed-in -> signed-out
+         * render and reconciles it as an UPDATE to the existing navigator
+         * rather than a fresh mount: the native stack's navigation STATE
+         * can survive, including "the current route is settings", even
+         * though "settings" is no longer among this tree's declared
+         * screens.
+         *
+         * TESTED ALONE, ON-DEVICE, AND IT WAS NOT ENOUGH: adding just this
+         * key still left a real sign-out showing Settings with nulled-out
+         * data (account row fell back to "Signed in", computer to "None
+         * selected") instead of landing on sign-in — changing which screens
+         * are registered is still not the same as telling expo-router to
+         * navigate anywhere, key or no key. The actual fix is the
+         * `router.dismissTo("/sign-in")` effect above, which acts on
+         * expo-router's own href tracking directly. This key is kept as
+         * cheap, correct-anyway hygiene — it makes the signed-in/signed-out
+         * boundary an honest fresh mount instead of an in-place screen-list
+         * swap — not because it redirects anything by itself.
+         */}
+        <Stack key="signed-out" screenOptions={{ contentStyle: { backgroundColor: colors.bg } }}>
           <Stack.Protected guard>
             <Stack.Screen name="sign-in" options={{ headerShown: false }} />
           </Stack.Protected>
@@ -180,6 +237,7 @@ function RootNavigator() {
     <>
       <StatusBar style={isDark ? "light" : "dark"} />
       <Stack
+        key="signed-in"
         screenOptions={{
           /**
            * The nav bar is left to the system material.
