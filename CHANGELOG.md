@@ -23,6 +23,17 @@ Recent product updates and deployment notes.
   needed Node, which the documented `bun install` never installs, so
   `omg computer setup` died on the first command a new user runs.
 
+## August 18, 2026 - Settings goes where Settings went (v0.1.392)
+
+- **Fixed: Settings in the hosted "⋮" menu opened the machine's settings**, a
+  per-computer page with a machine picker, instead of the app settings the
+  gear used to open. The menu now uses a separate host callback for the
+  settings root; the machine pages keep their own, for deep links like the
+  coding-agent picker.
+- **The machine switcher now sits before the "⋮" menu** in the hosted island.
+  An overflow menu ahead of the control people actually reach for read as the
+  main event.
+
 ## August 18, 2026 - Two controls in the corner, not three (v0.1.391)
 
 - **The hosted mobile menu is tidier.** Settings now lives inside the "⋮" menu
