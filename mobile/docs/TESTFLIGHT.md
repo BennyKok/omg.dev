@@ -15,8 +15,8 @@ read off the EAS docs.
 | App Store Connect app | `6800792515`, listing name `omg.dev` |
 | iOS credentials | distribution certificate + provisioning profile, on EAS |
 | ASC API key | `P37PJ5VSHN`, issuer `8e538491-9c7f-4ddf-88ba-4bf3e4f81fa6`, ADMIN |
-| Latest TestFlight build | `1.0.0 (3)` — internal: in beta testing |
-| EAS Update | live, branch `production`, runtimeVersion policy `appVersion` |
+| Latest TestFlight build | `1.0.2 (29)` — submitted, Waiting for Review |
+| EAS Update | live, branch `production`, runtimeVersion policy `appVersion`; last group `b6c8a104` (2026-08-18, `gitCommitHash b5dcde4`, `#149`+`#150`) |
 
 ## Which change needs which pipeline
 
@@ -37,32 +37,122 @@ plugins, permissions), or an Expo SDK bump:
     npx eas-cli build --platform ios --profile production --non-interactive
     npx eas-cli submit --platform ios --profile production --id <build-id> --non-interactive
 
-**OTA cannot deliver native code.** Publishing JS that imports a native module
-missing from the installed binary crashes on launch — it does not degrade
-gracefully. Current native modules: `expo-updates`, `expo-clipboard`,
-`expo-symbols`, `expo-haptics`, `expo-router`, `react-native-screens`,
-`react-native-safe-area-context`, `@siteed/audio-studio` (added 2026-08-15
-for streaming dictation, replacing `expo-audio` — see
-`mobile/docs/DICTATION.md`), `expo-iap` (added 2026-08-16 for StoreKit,
-`#115`).
+**OTA cannot deliver native code — as a rule of thumb, not a law.** Publishing
+JS that imports a native module missing from the installed binary crashes on
+launch — it does not degrade gracefully — UNLESS the JS side loads that module
+defensively (see the `expo-iap` correction below, which is the one exception
+that exists in this app today). Current native modules: `expo-updates`,
+`expo-clipboard`, `expo-symbols`, `expo-haptics`, `expo-router`,
+`react-native-screens`, `react-native-safe-area-context`,
+`@siteed/audio-studio` (added 2026-08-15 for streaming dictation, replacing
+`expo-audio` — see `mobile/docs/DICTATION.md`), `expo-linear-gradient`
+(present since early builds, build 24 included — see below), `expo-iap`
+(added 2026-08-16 for StoreKit, `#115`).
 
-**`expo-iap` landing is why the OTA channel stalled at `#114`.** Verified
-2026-08-17: the last `eas update` ever published to `production` is group
-`7c6c1c91` (2026-08-16 09:50 UTC, `gitCommitHash 9367263` — exactly `#114`).
-Everything from `#115` onward (StoreKit, the new paywall, the auto-agents
-home section, account deletion/privacy/terms) is merged but was never
-published, and — once `#115` added `expo-iap` — **can no longer be
-OTA-published to any build-24 install at all**: every build-24 binary was
-compiled before `expo-iap` existed, so shipping that JS to it would crash on
-launch per the rule above. This is not a `runtimeVersion`/`appVersion`
-mismatch (`build 25` kept `appVersion` at `1.0.2`, matching build 24's), it's
-the native graph. `#115`+ only becomes live once a build containing
-`expo-iap` (25 or later) actually reaches a device — from then on, a fresh
-`eas update` is deliverable again under the same runtime version.
+**`expo-iap` landing is why the OTA channel stalled at `#114` — and why, as of
+2026-08-18, it doesn't have to anymore.** The last `eas update` published to
+`production` before that stall was group `7c6c1c91` (2026-08-16 09:50 UTC,
+`gitCommitHash 9367263` — exactly `#114`). Everything from `#115` onward was
+merged but held back, on the reasoning (recorded here 2026-08-17) that
+`expo-iap` made a fresh publish unsafe for any build-24 install until a build
+containing the native module reached a device.
+
+That reasoning was correct about the risk and wrong about there being no fix:
+`#115` (`2ad8033`) shipped `mobile/src/omg/store.ts` in the same commit that
+added the dependency, and that file loads the module through
+`requireOptionalNativeModule("ExpoIap")` (from `expo-modules-core`), which
+returns `null` instead of throwing when the module isn't linked into the
+binary — see the comments at the top of `store.ts` for the full reasoning.
+There is no top-level `import` of `expo-iap` anywhere in the app; every
+caller goes through the guarded `nativeStore()` accessor and every screen
+handles `isStoreAvailable() === false`. **A missing native module degrades
+instead of crashing, for this one dependency, by construction.**
+
+Verified 2026-08-18 by downloading build 24's actual IPA
+(`eas build:view <build-id> --json` → `artifacts.applicationArchiveUrl`,
+`unzip`, `strings -a Payload/omg.app/omg`): `ExpoIapModule` is genuinely
+absent from the build-24 binary, confirming the module really isn't linked —
+and group `b6c8a104` (`#149` + `#150`, JS carrying the `expo-iap` dependency
+right along with it) published clean to build 24 regardless, with no crash
+reports. **`expo-iap` no longer blocks OTA to build 24, or to any build.**
+The general lesson: a native-module gap is a reason to make the JS side
+defensive, not automatically a reason to hold every future OTA hostage to a
+fresh build reaching every device.
+
+`expo-linear-gradient` was the other suspect raised for the same publish (it
+backs the `#131` composer fade, which merged after build 24 was cut) but
+turned out to be a non-issue on inspection: the dependency itself has been in
+`package.json` since before build 24, so autolinking compiled the native
+module into build 24 whether or not any JS used it yet. Confirmed the same
+way — `strings` on build 24's binary shows `LinearGradientModule` present.
+The distinction that matters: a dependency present in `package.json` when a
+build was cut is in that binary regardless of when app code starts importing
+it; a dependency added to `package.json` after a build was cut is not, no
+matter how old the feature that will eventually use it feels. Check the
+dependency's own history against the build's commit, not the feature's.
 
 `runtimeVersion` is `{"policy":"appVersion"}`, so an update only reaches builds
 sharing that app version. Bumping the version in app.json deliberately cuts old
 builds off rather than handing them JS their native side cannot run.
+
+## Clearing the native-compatibility gate before an OTA publish
+
+Do this whenever a publish will reach a build that predates it — which, under
+`runtimeVersion: appVersion`, is every publish, since one runtime version
+typically covers several builds at once. This took two agent sessions and
+most of a day to arrive at on 2026-08-18; it should not take that long again.
+
+1. **Map every currently-installed build to a commit.** Don't infer this from
+   `CHANGELOG.md` dates or PR numbers — read it off EAS:
+
+       npx eas-cli build:list --platform ios --json
+
+   Pull `buildVersion`/`appVersion`/`gitCommitHash`/`distribution` for every
+   build that's still on a device anywhere: internal TestFlight, external
+   TestFlight, and the current App Store submission. External testers are
+   usually on the OLDEST build still installed — that's the one that matters
+   most, not the newest.
+
+2. **Diff `mobile/package.json` from each installed build's commit to the
+   commit being published**, one build at a time:
+
+       git diff <build-commit> <publish-commit> -- mobile/package.json
+
+   List every added or version-bumped dependency that ships native iOS code
+   (an Expo module, anything with an `ios/` folder and a `.podspec`).
+   Pure-JS additions (a `bun.lock` `overrides` pin, a JS-only utility) don't
+   count.
+
+3. **For each candidate, place it against the build cut, not the feature's
+   merge date.** A dependency already in `package.json` when a build was
+   compiled is autolinked into that binary regardless of whether app code
+   imports it yet (`expo-linear-gradient` above). A dependency added to
+   `package.json` after a build was cut is not in that binary, even if the
+   code that will use it merged separately and later (`expo-iap` above,
+   before the guard). Read the dependency's own git history
+   (`git log -S'"the-package-name"' -- mobile/package.json`), not the PR
+   that visibly uses it.
+
+4. **When it's a real gap, verify against the binary, not the graph.**
+   `package.json` says what should be linked; only the compiled binary says
+   what is:
+
+       npx eas-cli build:view <build-id> --json   # → artifacts.applicationArchiveUrl
+       curl -sL <applicationArchiveUrl> -o build.ipa
+       unzip build.ipa -d extracted
+       strings -a extracted/Payload/*.app/<binary-name> | grep -i <ModuleName>
+
+   Static Expo modules on iOS are usually compiled straight into the main
+   app binary, not a separate `.framework` — search the main executable
+   first.
+
+5. **If a genuine gap survives all of the above, the fix is a defensive
+   guard, not a delay.** Load the module through
+   `requireOptionalNativeModule` (see `store.ts`) and never write a
+   top-level `import` of a package that isn't in every installed binary.
+   That turns "wait for every device to update" into "ship the JS now, the
+   feature activates itself once the native side catches up" — which is
+   what makes the next `#115`-shaped PR not cost another stalled channel.
 
 ## Traps that have already cost time here
 
