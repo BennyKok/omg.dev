@@ -2,6 +2,21 @@
 
 Recent product updates and deployment notes.
 
+## August 18, 2026 - Connecting a coding agent no longer opens a blank page (v0.1.388)
+
+- **Fixed: "Connect Claude" during Computer first-run opened a blank tab.**
+  The sign-in tab has to be opened inside the click (browsers only trust it
+  there), but the sign-in link itself takes a server round trip — starting the
+  provider CLI and reading the link out of its output. The tab was parked on
+  `about:blank` for that entire wait, which is several seconds on a Computer
+  that just booted. The tab now opens with its own page, showing a spinner and
+  "Opening Claude sign in…", and turns into the provider's page the moment the
+  link arrives. Same fix for Codex, Grok, GitHub and pi's providers.
+- **A login that cannot start now says so where you are looking.** It used to
+  close the tab and put the reason on the page behind it — behind the popup
+  that had just taken focus — so a failure was indistinguishable from a blank
+  tab that vanished. The reason is now printed in the tab itself.
+
 ## August 18, 2026 - Bots stay recognizable everywhere, even before they load (v0.1.387)
 
 - **Fixed: a bot's chat header briefly showed the generic Claude mark instead
