@@ -145,6 +145,7 @@ export function AutoFindingCard({
   onDismiss,
   onStartSession,
   busy,
+  animateEntry = true,
 }: {
   row: AutoFindingRow;
   expanded: boolean;
@@ -155,6 +156,18 @@ export function AutoFindingCard({
   onStartSession: () => void;
   /** True while a session is being started FROM THIS finding. */
   busy?: boolean;
+  /**
+   * Skip BOTH the mount-in slide/fade AND the resettle-on-reflow transition
+   * — see the identical flag on `SessionCard` for why. Suppressing only
+   * `entering` and leaving `layout` live still measured a residual overlap
+   * (1/5 cold loads in testing): the two independently-fetched sections
+   * (`listSessions()` vs this hook's own `useAutoAgents()` fetch) can
+   * straggle in more than one wave each, and a `layout` reflow racing a
+   * still-settling sibling is the same class of transient position
+   * corruption `entering` was. `app/index.tsx` passes `false` only for a
+   * fixed window after the home screen mounts.
+   */
+  animateEntry?: boolean;
 }) {
   const { colors, radius, type, space, motion } = useTheme();
   const listMotion = useListItemMotion();
@@ -175,7 +188,10 @@ export function AutoFindingCard({
   });
 
   return (
-    <Reanimated.View entering={listMotion.entering} layout={listMotion.layout}>
+    <Reanimated.View
+      entering={animateEntry ? listMotion.entering : undefined}
+      layout={animateEntry ? listMotion.layout : undefined}
+    >
       <Reanimated.View
         pointerEvents="none"
         style={[

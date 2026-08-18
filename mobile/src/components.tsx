@@ -657,6 +657,7 @@ export function SessionCard({
   ended,
   onPress,
   onArchive,
+  animateEntry = true,
 }: {
   title: string;
   subtitle?: string | null;
@@ -668,6 +669,20 @@ export function SessionCard({
   onPress: () => void;
   /** Omit to make the row unswipeable — a running session has nothing to archive. */
   onArchive?: () => void;
+  /**
+   * Skip BOTH the mount-in slide/fade AND the resettle-on-reflow transition
+   * — see the identical flag on `AutoFindingCard` for why. Suppressing only
+   * `entering` and leaving `layout` live still measured a residual overlap
+   * (1/5 cold loads in testing): the two independently-fetched sections
+   * (`listSessions()` vs `useAutoAgents()`) can straggle in more than one
+   * wave each, and a `layout` reflow racing a still-settling sibling is the
+   * same class of transient position corruption `entering` was. During the
+   * cold-load window this makes a row snap directly to its correct position
+   * with no animation at all rather than risk animating from/to a frame that
+   * is itself about to move. `app/index.tsx` passes `false` only for a fixed
+   * window after the home screen mounts.
+   */
+  animateEntry?: boolean;
 }) {
   const { colors, radius, type, space, motion } = useTheme();
   // Entering/exiting/layout live on this outer, style-less view rather than
@@ -695,8 +710,8 @@ export function SessionCard({
 
   return (
     <Reanimated.View
-      entering={listMotion.entering}
-      layout={listMotion.layout}
+      entering={animateEntry ? listMotion.entering : undefined}
+      layout={animateEntry ? listMotion.layout : undefined}
     >
       {swipeable ? (
         <Reanimated.View
