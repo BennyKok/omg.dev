@@ -235,12 +235,22 @@ describe("host bottom inset contract", () => {
     // Only when a host actually supplied the callback. Standalone must not
     // grow a dead row, and `embedded` alone does not prove the host mounts
     // settings pages.
-    expect(app).toContain("const hostSettingsInMenu = embedded && !!hostOpenSettingsPage;");
+    // The host's settings ROOT, never onOpenSettingsPage — that one addresses
+    // the MACHINE's pages (omg routes it to /settings/computer), so wiring
+    // this entry to it swapped a general Settings control for a per-computer
+    // page behind a machine selector.
+    expect(app).toContain("const { onOpenHostSettings } = useEmbeddedHostOptions();");
+    expect(app).toContain("const hostSettingsInMenu = embedded && !!onOpenHostSettings;");
     // Advertised on the slot so the host drops its gear on capability, not on
     // an assumed version: docking into an older build that has no such item
     // must leave the host's own control in place, or the surface has no route
     // to settings at all.
     expect(app).toContain('data-lfg-host-settings={hostSettingsInMenu ? "menu" : undefined}');
+    // Switcher first, overflow last: the host's Computer control is what people
+    // reach for, and a "⋮" sitting ahead of it reads as the main event.
+    expect(app).toMatch(
+      /data-lfg-host-slot="header-actions"[\s\S]*?<PagesMenu\s*\n\s*tab=\{tab\}/,
+    );
   });
 
   test("desktop embed zeroes host-bottom-inset (omg nav is top-middle)", () => {

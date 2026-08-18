@@ -58,7 +58,18 @@ host portals into them:
 | Slot | Where | Extra attributes |
 | --- | --- | --- |
 | `rail-footer` | Bottom of the desktop rail | `data-lfg-rail-collapsed="true"` when the rail is at 56px, so the host can stack vertically |
-| `header-actions` | Inside the mobile header island, after the Pages menu | `data-lfg-host-settings="menu"` when the Pages menu is already offering your Settings, so your own control there is redundant |
+| `header-actions` | Inside the mobile header island, before the Pages menu | `data-lfg-host-settings="menu"` when the Pages menu is already offering your Settings, so your own control there is redundant |
+
+Two host callbacks address settings, and they are not interchangeable:
+
+- `onOpenSettingsPage(page)` — the **machine's** settings pages, for deep links
+  like the coding-agent picker.
+- `onOpenHostSettings()` — **your own** settings root. This is what the Pages
+  menu offers, and supplying it is what sets `data-lfg-host-settings="menu"`.
+
+Wiring the general entry to the machine callback is how it ends up on a
+per-computer page behind a machine selector, one back tap from where the person
+meant to go.
 
 ```tsx
 const slot = document.querySelector('[data-lfg-host-slot="header-actions"]');

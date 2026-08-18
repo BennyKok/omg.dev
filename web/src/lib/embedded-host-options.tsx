@@ -46,6 +46,22 @@ export interface EmbeddedHostOptions {
    */
   onOpenSettingsPage?: (page: HostSettingsPage) => void;
   /**
+   * Open the host's OWN settings root — its account chrome, not this machine's.
+   *
+   * Deliberately separate from `onOpenSettingsPage`, which addresses the
+   * MACHINE's settings pages and which a host routes accordingly (omg sends it
+   * to /settings/computer). The two read alike and are not interchangeable:
+   * wiring the surface's general "Settings" entry to the machine callback
+   * landed people on a per-computer page with a machine selector, one back tap
+   * from where they meant to go.
+   *
+   * Unset, the surface renders no host-settings entry at all rather than
+   * guessing a destination — and a host that is still drawing its own settings
+   * control keeps drawing it, because the flag that tells it to stop is only
+   * set when this callback exists.
+   */
+  onOpenHostSettings?: () => void;
+  /**
    * The box refused an action because of the plan the HOST sold, not because
    * of anything the person did.
    *
