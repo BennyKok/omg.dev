@@ -32,6 +32,27 @@ import { useToast } from "../src/omg/toast";
 const RESEND_DELAY_SECONDS = 60;
 const IMESSAGE_POLL_MS = 2_500;
 
+/**
+ * Geometry for the field-embedded submit button (email step and code step
+ * both use it). Named so the button's position is DERIVED from the same
+ * numbers the field itself uses, instead of two places agreeing by
+ * coincidence.
+ *
+ * `top: 0, bottom: 0, margin: "auto"` used to be how this button was
+ * centered, and it does not actually center here: with an explicit `height`
+ * on an absolutely positioned view, Yoga resolves the auto margins to 0
+ * rather than splitting the leftover space, so the button sat flush against
+ * the field's top edge with all the slack dumped below it — nearly touching
+ * the top of the rounded corner while floating well clear of the bottom.
+ * That is the "crowding the corner" look, on every field regardless of
+ * content, keyboard state, or color scheme, because it's a layout bug, not a
+ * spacing-in-this-one-screenshot bug. An explicit computed `top` sidesteps
+ * the auto-margin behavior entirely instead of depending on it.
+ */
+const FIELD_HEIGHT = 54;
+const FIELD_ACTION_SIZE = 36;
+const FIELD_ACTION_INSET = 8;
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Something went wrong. Try again.";
 }
@@ -367,7 +388,15 @@ export default function SignInScreen() {
               "chipped coin" BrandMark's geometry notes warn about. */}
           <BrandMark size={54} />
 
-          <Text style={[type.largeTitle, styles.title, { color: colors.text }]}>Welcome to omg</Text>
+          {/*
+           * "omg.dev", not "omg" — the brand name wherever it's spelled out.
+           * The web app's hosted brand chip (App.tsx's ProductBrand) renders
+           * "omg.dev" as one uniformly-styled string: no distinct weight,
+           * colour, or opacity split for ".dev". So this is wording only —
+           * keep the existing largeTitle/colors.text treatment rather than
+           * inventing a two-tone style nothing else here uses.
+           */}
+          <Text style={[type.largeTitle, styles.title, { color: colors.text }]}>Welcome to omg.dev</Text>
           <Text style={[type.footnote, styles.helper, { color: colors.textMuted }]}>
             {step === "email"
               ? "Sign in to reach your Computer from anywhere."
@@ -568,15 +597,15 @@ const styles = StyleSheet.create({
   },
   fieldAction: {
     alignItems: "center",
-    borderRadius: 16,
-    bottom: 0,
-    height: 36,
+    borderRadius: FIELD_ACTION_SIZE / 2,
+    height: FIELD_ACTION_SIZE,
     justifyContent: "center",
-    margin: "auto",
     position: "absolute",
-    right: 8,
-    top: 0,
-    width: 36,
+    right: FIELD_ACTION_INSET,
+    // Explicit, not `top: 0, bottom: 0, margin: "auto"` — see FIELD_HEIGHT's
+    // comment. This is the number that actually centers it.
+    top: (FIELD_HEIGHT - FIELD_ACTION_SIZE) / 2,
+    width: FIELD_ACTION_SIZE,
   },
   /** The single flexible gap: everything above it groups, everything below sits at the foot. */
   spacer: {
@@ -596,13 +625,13 @@ const styles = StyleSheet.create({
   },
   field: {
     borderWidth: StyleSheet.hairlineWidth,
-    height: 54,
+    height: FIELD_HEIGHT,
     // The margin belongs to the wrapper now, or the absolutely positioned
     // button inside it would be offset by it too.
     paddingHorizontal: 16,
-    // Room for the arrow that sits at the trailing edge: 36 for the button,
-    // 8 either side of it.
-    paddingRight: 52,
+    // Room for the arrow that sits at the trailing edge: FIELD_ACTION_SIZE
+    // for the button, FIELD_ACTION_INSET on either side of it.
+    paddingRight: FIELD_ACTION_SIZE + FIELD_ACTION_INSET * 2,
   },
   codeField: {
     letterSpacing: 8,
