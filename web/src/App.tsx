@@ -22,7 +22,7 @@ import {
   type ToolConnectOption,
 } from "./lib/embedded-connect";
 import { emitSessionCreatedToHost } from "./lib/embed-host-signal";
-import { isAuthorizationUrl, openAuthTab } from "./lib/auth-popup";
+import { isAuthorizationUrl } from "./lib/auth-popup";
 import { LFG_SMALL_ICON_PATH } from "./lib/icon-assets";
 import {
   api,
@@ -5367,6 +5367,21 @@ export function App() {
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [codingAgents, setCodingAgents] = useState<CodingAgentInfo[]>([]);
   const [codingAgentAuth, setCodingAgentAuth] = useState<CodingAgentAuthSession | null>(null);
+  // The provider whose login is being PREPARED — set on click, before the
+  // server has answered.
+  //
+  // The dialog used to be gated on the session alone, so it could not exist
+  // until the round trip finished. That round trip spawns a provider CLI and
+  // scrapes a sign-in URL out of its stdout, which takes seconds on a cold
+  // Computer — and for that whole time the click had produced no visible UI at
+  // all. The old code filled the gap by opening a browser tab up front, which
+  // is what put people on `about:blank`.
+  //
+  // Naming the pending provider is what lets the dialog open on the CLICK and
+  // carry its own loading state. The tab is then opened by a real click on the
+  // dialog's own button, from a fresh user gesture, straight at the provider:
+  // no placeholder document, no redirect, and nothing a popup blocker can eat.
+  const [codingAgentAuthPending, setCodingAgentAuthPending] = useState<string | null>(null);
   // Auth started from a blocked session stays inside that session's transcript
   // instead of opening the global settings dialog. completedSid lets the
   // banner acknowledge success while the failed turn remains the transcript
@@ -7308,18 +7323,20 @@ export function App() {
     );
   }
 
-  // The tab is opened through openAuthTab, which paints it in the same
-  // statement — see web/src/lib/auth-popup.ts. This function then has exactly
-  // three ways to leave it, and none of them is blank:
+  // Preparing a login NEVER opens a browser tab. The dialog does, from its own
+  // button, on a second real click.
   //
-  //   settle()  the provider's sign-in page (the whole point)
-  //   fail()    the reason no page is coming, in the tab holding focus
-  //   close()   only when the HOST surface owns what happens next
+  // This function used to open a tab up front and await the round trip inside
+  // it, because `window.open` is only trusted during the synchronous part of a
+  // click and the sign-in URL does not exist until a provider CLI has been
+  // spawned and its stdout scraped. That bought a working popup at the cost of
+  // parking the user on a blank tab for the length of the trip — the
+  // "connect Claude opens about:blank" report.
   //
-  // The old code opened `about:blank` and awaited a round trip that spawns a
-  // provider CLI and scrapes its stdout for a URL. The user watched a blank
-  // page for however long that took, and every failure path closed the tab and
-  // toasted behind the popup that had just stolen focus.
+  // Opening the DIALOG on the click instead satisfies the same "show something
+  // immediately" requirement without needing the tab to exist yet, and the tab
+  // it eventually opens is a direct open on the real URL from a fresh gesture:
+  // correct address bar, no placeholder, and impossible to popup-block.
   async function startBrowserAuth(
     kind: AgentKind | "github",
     path: string,
@@ -7329,7 +7346,8 @@ export function App() {
   ) {
     setCodingAgentAuthInlineSid(inlineSid ?? null);
     if (inlineSid) setCodingAgentAuthCompletedSid(null);
-    const authTab = openAuthTab(providerLabel);
+    // Before the await, so the surface is on screen for the whole round trip.
+    setCodingAgentAuthPending(providerLabel);
     try {
       const session = await api<CodingAgentAuthSession>(path, {
         method: "POST",
@@ -7338,8 +7356,9 @@ export function App() {
       });
       if (session.status === "error") throw new Error(session.error || "Couldn't start login");
       if (session.status === "complete") {
-        // Already connected — nothing left to sign into, and the host says so.
-        authTab.close();
+        // Already connected — there is nothing to sign into, so the dialog has
+        // nothing to say and the toast carries it.
+        setCodingAgentAuthPending(null);
         toast.success(`${authProviderLabel(session.provider)} connected`);
         setCodingAgentAuthInlineSid(null);
         if (inlineSid) setCodingAgentAuthCompletedSid(inlineSid);
@@ -7349,23 +7368,13 @@ export function App() {
         ]);
         return;
       }
+      // The session replaces the pending placeholder in the SAME dialog, so
+      // the loading state becomes the sign-in button without a remount.
       setCodingAgentAuth(session);
-      if (authTab.settle(session.authorizationUrl)) return;
-      if (isAuthorizationUrl(session.authorizationUrl)) {
-        // The popup was blocked, so the host panel's own "Open sign in" button
-        // is the way through. It is already on screen with this session.
-        toast.message(`Allow pop-ups, or use “Open ${authProviderLabel(session.provider)} sign in”.`);
-        return;
-      }
-      // A waiting session with no usable URL means the CLI never printed one.
-      // The host panel keeps polling, so say so in the tab rather than closing
-      // it and leaving a toast behind the popup.
-      authTab.fail(
-        `${authProviderLabel(session.provider)} has not returned a sign-in link yet. Check the omg.dev tab.`,
-      );
+      setCodingAgentAuthPending(null);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Couldn't start login";
-      authTab.fail(message);
+      setCodingAgentAuthPending(null);
       setCodingAgentAuthInlineSid(null);
       toast.error(message);
     }
@@ -7617,6 +7626,7 @@ export function App() {
         />
         <CodingAgentAuthDialog
           session={codingAgentAuth}
+          pendingLabel={codingAgentAuthPending}
           onSessionChange={setCodingAgentAuth}
           onComplete={completeConnectionAuth}
         />
@@ -8390,6 +8400,10 @@ export function App() {
 
       <CodingAgentAuthDialog
         session={codingAgentAuthInlineSid ? null : codingAgentAuth}
+        // Inline auth renders its own panel inside the transcript, so the
+        // global dialog must stay shut for it — pending included, or a
+        // reconnect from a blocked session would raise both surfaces at once.
+        pendingLabel={codingAgentAuthInlineSid ? null : codingAgentAuthPending}
         onSessionChange={setCodingAgentAuth}
         onComplete={completeConnectionAuth}
       />
@@ -23121,14 +23135,20 @@ function CodingAgentAuthPanel({
 
 function CodingAgentAuthDialog({
   session,
+  pendingLabel,
   onSessionChange,
   onComplete,
 }: {
   session: CodingAgentAuthSession | null;
+  /** Provider name while the login is still being prepared, before a session. */
+  pendingLabel?: string | null;
   onSessionChange: (session: CodingAgentAuthSession | null) => void;
   onComplete: () => void | Promise<void>;
 }) {
-  const providerLabel = authProviderLabel(session?.provider);
+  // Pending and session are the same dialog at two moments, so the title comes
+  // from whichever is current rather than from the session alone — otherwise
+  // the loading state would be headed "Connect Account".
+  const providerLabel = session ? authProviderLabel(session.provider) : (pendingLabel ?? "your account");
   async function close() {
     if (session && session.status !== "complete") {
       await api(`/api/coding-agents/auth/${session.id}`, { method: "DELETE" }).catch(() => {});
@@ -23136,12 +23156,23 @@ function CodingAgentAuthDialog({
     onSessionChange(null);
   }
   return (
-    <Dialog open={!!session} onOpenChange={(open) => { if (!open) void close(); }}>
+    <Dialog
+      // Open on the CLICK. The pending flag is set before the round trip, so
+      // this surface exists for the whole wait instead of appearing after it.
+      open={!!session || !!pendingLabel}
+      onOpenChange={(open) => {
+        // Not dismissible while preparing: there is no session to cancel yet,
+        // and closing would strand the CLI the server just spawned.
+        if (!open && !pendingLabel) void close();
+      }}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Connect {providerLabel}</DialogTitle>
           <DialogDescription>
-            Finish signing in in the browser. omg.dev will detect approval automatically.
+            {session
+              ? "Finish signing in in the browser. omg.dev will detect approval automatically."
+              : `Starting the ${providerLabel} sign-in on your Computer.`}
           </DialogDescription>
         </DialogHeader>
         {session ? (
@@ -23151,7 +23182,21 @@ function CodingAgentAuthDialog({
             onComplete={onComplete}
             onDismiss={() => void close()}
           />
-        ) : null}
+        ) : (
+          // The wait, given a shape. This is the state the browser tab used to
+          // stand in for — same seconds, but spent on a surface that says what
+          // is happening and keeps the user where the next control appears.
+          <div className="space-y-3 py-2">
+            <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              Preparing your sign-in link…
+            </div>
+            <p className="text-center text-xs text-muted-foreground/70">
+              Your Computer is starting the {providerLabel} CLI. The sign-in
+              button appears here when it is ready.
+            </p>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
