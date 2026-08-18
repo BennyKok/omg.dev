@@ -1,0 +1,46 @@
+name: Bug report
+description: Something in omg.dev does not work
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. The single most useful thing you can include is
+        the output of `omg doctor` — it answers most of the questions we would
+        otherwise have to ask one at a time.
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `omg doctor`
+      description: |
+        Run `omg doctor` and paste the whole block. API keys, tokens, and your
+        home directory are removed before it prints, so it is safe to post here.
+
+        If `omg doctor` itself does not run, say so here and tell us how omg.dev
+        was installed instead — that is a useful bug on its own.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+      placeholder: |
+        I sent a message on a new install and the session showed the thinking
+        dots forever. I expected it to reply or tell me what was wrong.
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: |
+        Screenshots, a session id, or anything else that helps. If a session is
+        involved, its id (from the URL) lets us line your report up with the
+        logs you pasted above.
+    validations:
+      required: false

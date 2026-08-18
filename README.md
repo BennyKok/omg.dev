@@ -269,6 +269,7 @@ omg uninstall --purge --yes   # also permanently delete sessions and config
 
 ```bash
 omg serve                      # web UI + control server
+omg doctor                     # shareable diagnostic to paste into a bug report
 omg setup                      # rerun provisioning/update flow
 omg uninstall                  # remove omg.dev while preserving sessions and config
 omg connect <code>             # reach this box through a relay (see docs/remote-access.md)
@@ -281,6 +282,27 @@ omg subagent create --prompt "..." --agent codex-aisdk
 
 From a source checkout, use `bun run <command>` (e.g. `bun run serve`) — the
 surface is identical.
+
+## Something is wrong
+
+Run `omg doctor` and paste what it prints.
+
+```bash
+omg doctor          # a fenced block: versions, agents, accounts, server, recent errors
+omg doctor --json   # the same facts, machine-readable
+```
+
+It answers the questions a bug report otherwise takes several rounds to
+establish: which version, which agent CLIs exist, whether any account is
+connected, whether the server is up, and the recent log lines that look like
+failures. It works when omg.dev is broken — it does not need the server, and a
+probe that fails is reported rather than aborting the rest.
+
+API keys, tokens, and your home directory are removed before it prints, so the
+output is safe to paste into a public issue or Discord.
+
+If a session never starts, `doctor` usually names the cause outright: no coding
+agent installed, or none signed in.
 
 ## MCP tools
 

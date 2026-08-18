@@ -9,6 +9,7 @@ Usage:
   omg connect <code>               Pair this box to a remote-access relay (EXPERIMENTAL)
   omg setup                        Provision this box (Bun, tmux, service)
   omg update [--check]             Update to the latest release and restart
+  omg doctor [--json]              Print a shareable diagnostic for bug reports
   omg uninstall [--purge --yes]    Remove omg.dev (preserves sessions/config by default)
 
 Env (read from process env / .env, see .env.example):
@@ -37,6 +38,7 @@ const COMPUTER_VERBS = new Set([
   "update",
   "uninstall",
   "status",
+  "doctor",
   "mcp",
   "agents",
   "subagent",
@@ -94,6 +96,10 @@ async function main() {
     case "update": {
       const { cmdUpdate } = await import("./commands/update.ts");
       return await cmdUpdate(rest);
+    }
+    case "doctor": {
+      const { cmdDoctor } = await import("./commands/doctor.ts");
+      return await cmdDoctor(rest);
     }
     case "uninstall": {
       const { cmdUninstall } = await import("./commands/uninstall.ts");

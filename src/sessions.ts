@@ -39,6 +39,7 @@ import {
   indexSessionMessagesDirect,
   searchTranscriptIndex,
   sessionHasIndexedMessages,
+  lastIndexedAssistantMessage,
   sessionIndexKey,
   isSessionIndexKey,
 } from "./transcript-index";
@@ -496,7 +497,16 @@ export function managedLaunchRow(
   // Keep showing it through a bounded boot window, then let it go so a harness
   // that died on startup does not linger forever.
   const booting = commandFile && !directEntry && Date.now() - m.createdAt < MANAGED_BOOT_GRACE_MS;
-  if (commandFile && m.launchState !== "launching" && !directEntry && !booting) return null;
+  // A harness that died still belongs in the list IF it managed to say why.
+  // Dropping it was the second half of the "stuck on thinking dots" report: a
+  // session whose agent could not start showed the spinner for the boot grace
+  // window and then disappeared from the list entirely, so the reason it had
+  // written to its transcript was never rendered and the user was left with a
+  // vanished session and no explanation at all. Anything with indexed messages
+  // has something to show; only a genuinely empty dead session is dropped.
+  const explained = commandFile && !directEntry && !booting && sessionHasIndexedMessages(sessionId);
+  if (commandFile && m.launchState !== "launching" && !directEntry && !booting && !explained)
+    return null;
   const pid = commandFile ? (directEntry?.harnessPid ?? 0) : (tmux.panePid(m.tmuxName) ?? 0);
   if (pid && isClosing(pid)) return null;
   const tmuxTarget = commandFile
@@ -552,11 +562,13 @@ export function managedLaunchRow(
     // Still booting counts as launching: the record says "running" but the
     // harness has not come up yet, and the card should say so rather than
     // present an agent that cannot take a message yet as ready.
-    launching: m.launchState === "launching" || booting,
+    // A harness that has already died is NOT launching, whatever the record
+    // says — claiming otherwise is what rendered the endless thinking dots.
+    launching: !explained && (m.launchState === "launching" || booting),
     startedAt: m.createdAt,
     transcriptPath,
     lastActivityAt: m.createdAt,
-    last: null,
+    last: explained ? lastIndexedAssistantMessage(sessionId) : null,
     tmuxTarget,
     tmuxName: m.tmuxName,
     managed: true,
@@ -566,7 +578,19 @@ export function managedLaunchRow(
         ? model
         : modelAlias(model),
     thinkingLevel: m.thinkingLevel ?? null,
-    ...computeStatus(null, null),
+    // The harness is gone, so there is nobody left to retry: a dead session
+    // with a recorded reason is blocked, and says so. computeStatus cannot
+    // reach this conclusion on its own — it keys off `apiError`, which lives on
+    // the live SDK envelope and is not carried by the transcript index.
+    ...(explained
+      ? {
+          status: "blocked" as const,
+          statusReason: "provider_error" as const,
+          statusDetail:
+            lastIndexedAssistantMessage(sessionId)?.text?.replace(/\s+/g, " ").trim().slice(0, 180) ||
+            "The coding agent stopped before it could start.",
+        }
+      : computeStatus(null, null)),
   };
 }
 

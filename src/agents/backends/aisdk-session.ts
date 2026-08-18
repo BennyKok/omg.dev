@@ -104,6 +104,54 @@ function userTextMessage(text: string): SessionMsg {
 }
 
 /**
+ * Why the SDK stream ended, phrased for the person looking at the session.
+ *
+ * The bad case is a stream that ends *without* throwing. `for await` simply
+ * finishes, `catch` never runs, and the harness exits 1 having printed nothing
+ * at all — no stdout, no stderr, no transcript row. That is what a box with no
+ * authenticated Claude does: the Agent SDK's subprocess cannot start, and the
+ * iterator closes empty. On a fresh install the session then sat on the
+ * thinking dots forever, because a UI can only report what it was told, and it
+ * was told nothing.
+ *
+ * `turns` distinguishes the two shapes. Zero turns means nothing ever ran, so
+ * the cause is upstream of the conversation — almost always that no agent is
+ * connected yet, which is the state every new install starts in. After at
+ * least one turn the runtime existed and died later, which is a different
+ * problem and must not be described as missing auth.
+ */
+export function describeAisdkStreamEnd(input: {
+  turns: number;
+  error?: unknown;
+  claudePath?: string | null;
+  accountConnected?: boolean;
+}): string {
+  const cause =
+    input.error instanceof Error ? input.error.message : input.error ? String(input.error) : "";
+  if (input.turns > 0) {
+    return cause
+      ? `The coding agent stopped unexpectedly: ${cause}`
+      : "The coding agent stopped unexpectedly after the session had started.";
+  }
+  // Nothing ran. Name the missing piece, because on a new install it is the
+  // only thing standing between the user and a working session.
+  const missing: string[] = [];
+  if (!input.claudePath) missing.push("the Claude CLI is not installed");
+  if (!input.accountConnected) missing.push("no Claude account is connected");
+  const detail = cause ? ` (${cause})` : "";
+  if (missing.length) {
+    return (
+      `Claude could not start: ${missing.join(" and ")}. ` +
+      `Open Settings → Coding agents to install it and sign in.${detail}`
+    );
+  }
+  return (
+    `Claude could not start, and it stopped before running a single turn.${detail} ` +
+    `Check Settings → Coding agents.`
+  );
+}
+
+/**
  * Human-readable detail for a non-success Agent SDK `result` message.
  *
  * This used to be `String(msg.result ?? msg.subtype)`, which reported nothing
@@ -330,6 +378,7 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
   let busy = false;
   let restartRequested = false;
   let lastSdkEventAt = Date.now();
+  let sdkMessagesSeen = 0;
   const previousUsage = readStoredSessionTokenUsage(sessionId);
   let sessionTotals = previousUsage?.totals ?? {
     input: 0,
@@ -444,6 +493,10 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
 
   function handleMessage(msg: Record<string, unknown>): void {
     lastSdkEventAt = Date.now();
+    // Proof the runtime actually spoke. A stream that ends having produced
+    // nothing at all never started, which is a different failure from one that
+    // started and later died — and only the first is explained by missing auth.
+    sdkMessagesSeen++;
     const type = msg.type as string;
     if (type === "stream_event") {
       setBusy(true);
@@ -613,9 +666,30 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
   // channel closes (shutdown) or the subprocess dies.
   let runtimeGeneration = 0;
   let unexpectedExit = false;
+  // What killed it, in the user's words. Written to the transcript on the way
+  // out so the session shows a reason instead of thinking dots forever.
+  let exitExplanation: string | null = null;
   try {
     while (!closing) {
-      q = startQuery(resuming || runtimeGeneration > 0);
+      // startQuery can throw SYNCHRONOUSLY, before any stream exists — the SDK
+      // resolves its native binary here, so a bundle without one dies on this
+      // line. That throw used to escape the inner try (which only wraps the
+      // `for await`) and land in the outer `finally`, whose process.exit()
+      // discarded it: exit 1, no stdout, no stderr, no transcript. The session
+      // showed thinking dots forever because nothing was ever told otherwise.
+      try {
+        q = startQuery(resuming || runtimeGeneration > 0);
+      } catch (error) {
+        exitExplanation = describeAisdkStreamEnd({
+          turns: sdkMessagesSeen,
+          error,
+          claudePath,
+          accountConnected: !!account,
+        });
+        console.error(`aisdk-session: ${exitExplanation}`);
+        unexpectedExit = true;
+        break;
+      }
       restartRequested = false;
       try {
         for await (const msg of q) {
@@ -625,6 +699,12 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
         if (closing) break;
         if (!restartRequested) {
           console.error(`aisdk-session: query loop failed: ${error instanceof Error ? error.message : error}`);
+          exitExplanation = describeAisdkStreamEnd({
+            turns: sdkMessagesSeen,
+            error,
+            claudePath,
+            accountConnected: !!account,
+          });
           unexpectedExit = true;
           break;
         }
@@ -635,12 +715,35 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
         lastSdkEventAt = Date.now();
         continue;
       }
+      // The stream ended without throwing. Nothing above has said anything, so
+      // this is the branch that used to exit 1 in total silence.
+      exitExplanation = describeAisdkStreamEnd({
+        turns: sdkMessagesSeen,
+        claudePath,
+        accountConnected: !!account,
+      });
+      console.error(`aisdk-session: ${exitExplanation}`);
       unexpectedExit = true;
       break;
     }
   } finally {
     clearInterval(poll);
     clearInterval(watchdog);
+    // A transcript row is the only channel the web UI actually reads. Stamp it
+    // as an api error so computeStatus turns the session "blocked" with a
+    // reason, rather than leaving it to spin.
+    if (exitExplanation) {
+      try {
+        indexSessionMessagesDirect(sessionId, [{
+          id: crypto.randomUUID(),
+          role: "assistant",
+          kind: "text",
+          text: exitExplanation,
+          ts: Date.now(),
+          apiError: true,
+        }]);
+      } catch {}
+    }
     removeEntry(sessionId);
     process.exit(closing && !unexpectedExit ? 0 : 1);
   }
