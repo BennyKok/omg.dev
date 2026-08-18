@@ -41,6 +41,7 @@ import {
   type SessionNode,
 } from "../src/omg/session-tree";
 import { AutoFindingCard } from "../src/omg/auto-agent-card";
+import { useOverlapWatch } from "../src/omg/list-overlap-watch";
 import { selectHomeAutoFindings, useAutoAgents, type AutoFindingRow } from "../src/omg/auto-agents";
 import { useComputerPicker } from "../src/omg/computer-picker";
 import { useDictation } from "../src/omg/dictation";
@@ -402,6 +403,27 @@ export default function SessionsScreen() {
   useEffect(() => {
     if (error) toast.show(error, { intent: "error" });
   }, [error, toast]);
+  /**
+   * DIAGNOSTIC, NOT A FIX — see list-overlap-watch.tsx.
+   *
+   * Benny has seen cards drawn on top of each other on his real device; it
+   * has not reproduced on a simulator despite real testing against his own
+   * large, actively-churning account. Rather than guess at a mechanism
+   * nobody has caught in the act, `OverlapRow` measures every top-level
+   * row's actual on-screen frame and flags it the moment two rows'
+   * positions genuinely intersect — turning "cannot reproduce" into "will
+   * know the instant it happens," with the exact pixel offsets, wherever it
+   * happens next.
+   *
+   * The toast is gated to Benny's own account (or a dev build) — this is a
+   * one-report diagnostic, not a feature, and firing a red "internal error"
+   * toast for some unrelated user's transient, self-correcting layout race
+   * would be a worse experience than the bug it exists to catch. Everyone
+   * still gets the console.error, which costs nothing with no debugger
+   * attached and is free evidence the moment one is.
+   */
+  const notifyUserOfOverlap = __DEV__ || user?.email === "itechbenny@gmail.com";
+  const { Row: OverlapRow } = useOverlapWatch(toast, notifyUserOfOverlap);
   /**
    * Live-socket health. The SDK's statuses are connecting | live | reconnecting
    * | offline — there is no "connected", and comparing against that string made
@@ -1119,13 +1141,14 @@ export default function SessionsScreen() {
                 {/* Each session is its own card now, so the rows need air
                     between them — see SessionCard. */}
                 <View style={{ gap: space.sm }}>
-                  {working.map((node) => (
-                    <SessionFamily
-                      key={sessionStableId(node.session)}
-                      node={node}
-                      onOpen={openSession}
-                    />
-                  ))}
+                  {working.map((node) => {
+                    const id = sessionStableId(node.session);
+                    return (
+                      <OverlapRow key={id} id={`working:${id}`}>
+                        <SessionFamily node={node} onOpen={openSession} />
+                      </OverlapRow>
+                    );
+                  })}
                 </View>
               </>
             ) : null}
@@ -1138,14 +1161,14 @@ export default function SessionsScreen() {
                   dotColor={colors.success}
                 />
                 <View style={{ gap: space.sm }}>
-                  {idle.map((node) => (
-                    <SessionFamily
-                      key={sessionStableId(node.session)}
-                      node={node}
-                      onOpen={openSession}
-                      onArchive={archiveSession}
-                    />
-                  ))}
+                  {idle.map((node) => {
+                    const id = sessionStableId(node.session);
+                    return (
+                      <OverlapRow key={id} id={`idle:${id}`}>
+                        <SessionFamily node={node} onOpen={openSession} onArchive={archiveSession} />
+                      </OverlapRow>
+                    );
+                  })}
                 </View>
               </>
             ) : null}
@@ -1185,19 +1208,20 @@ export default function SessionsScreen() {
                 <SectionHeader label="Auto" count={autoRows.length} dotColor={colors.primary} />
                 <View style={{ gap: space.sm }}>
                   {autoRows.map((row) => (
-                    <AutoFindingCard
-                      key={row.finding.id}
-                      row={row}
-                      expanded={expandedAuto === row.finding.id}
-                      onToggle={() =>
-                        setExpandedAuto((current) =>
-                          current === row.finding.id ? null : row.finding.id,
-                        )
-                      }
-                      onDismiss={() => dismissFinding(row.finding.id)}
-                      onStartSession={() => void startSessionFromFinding(row)}
-                      busy={startingFindingId === row.finding.id}
-                    />
+                    <OverlapRow key={row.finding.id} id={`auto:${row.finding.id}`}>
+                      <AutoFindingCard
+                        row={row}
+                        expanded={expandedAuto === row.finding.id}
+                        onToggle={() =>
+                          setExpandedAuto((current) =>
+                            current === row.finding.id ? null : row.finding.id,
+                          )
+                        }
+                        onDismiss={() => dismissFinding(row.finding.id)}
+                        onStartSession={() => void startSessionFromFinding(row)}
+                        busy={startingFindingId === row.finding.id}
+                      />
+                    </OverlapRow>
                   ))}
                 </View>
               </>
@@ -1220,19 +1244,20 @@ export default function SessionsScreen() {
                 <SectionHeader label="Recent" count={recent.length} dotColor={colors.textMuted} />
                 <View style={{ gap: space.sm }}>
                   {recent.map((session) => (
-                    <SessionCard
-                      key={session.sessionId}
-                      title={recentTitle(session)}
-                      // WHEN, then what was last said. A list called Recent
-                      // that never says when is asking you to guess, and these
-                      // rows span minutes to weeks.
-                      subtitle={[relativeTime(session.lastActivityAt), session.lastUserText?.trim()]
-                        .filter(Boolean)
-                        .join(" · ")}
-                      agent={session.agent}
-                      ended
-                      onPress={() => router.push(`/session/${session.sessionId}`)}
-                    />
+                    <OverlapRow key={session.sessionId} id={`recent:${session.sessionId}`}>
+                      <SessionCard
+                        title={recentTitle(session)}
+                        // WHEN, then what was last said. A list called Recent
+                        // that never says when is asking you to guess, and these
+                        // rows span minutes to weeks.
+                        subtitle={[relativeTime(session.lastActivityAt), session.lastUserText?.trim()]
+                          .filter(Boolean)
+                          .join(" · ")}
+                        agent={session.agent}
+                        ended
+                        onPress={() => router.push(`/session/${session.sessionId}`)}
+                      />
+                    </OverlapRow>
                   ))}
                 </View>
               </>
