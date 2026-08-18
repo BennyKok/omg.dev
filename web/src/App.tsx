@@ -15955,10 +15955,17 @@ const onTouchStart = (e: ReactTouchEvent) => {
             {session.reviewLabel || "Shipped"}
           </span>
         ) : (
+          /* A bot-backed card is exempt from the idle/busy dot for the same
+             reason the header drops the spinner and the rail row drops its
+             dot: the creature carries state in its own posture, so the dot is
+             the same fact said twice — and "idle" is the resting state of a
+             bot you are simply not talking to right now, which is not news.
+             Blocked still shows, because there is no pose for it. */
           <SessionStatusDot
-            busy={busy}
+            busy={busy && !headerBot}
             paused={session.status === "blocked"}
             className="lg:hidden"
+            variant={headerBot ? "avatar" : "inline"}
           />
         )}
         {!collapsedView && (
