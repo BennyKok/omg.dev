@@ -22,6 +22,7 @@ import {
   type ToolConnectOption,
 } from "./lib/embedded-connect";
 import { emitSessionCreatedToHost } from "./lib/embed-host-signal";
+import { isAuthorizationUrl, openAuthTab } from "./lib/auth-popup";
 import { LFG_SMALL_ICON_PATH } from "./lib/icon-assets";
 import {
   api,
@@ -71,6 +72,7 @@ import {
   AGENT_ICON_VERSION,
   ArtifactViewerContext,
   BROWSER_AUTH_KINDS,
+  BROWSER_AUTH_PROVIDER_LABELS,
   ClaudeAccountBadge,
   CodingAgentsContext,
   SessionAgentIcon,
@@ -7267,15 +7269,28 @@ export function App() {
     );
   }
 
+  // The tab is opened through openAuthTab, which paints it in the same
+  // statement — see web/src/lib/auth-popup.ts. This function then has exactly
+  // three ways to leave it, and none of them is blank:
+  //
+  //   settle()  the provider's sign-in page (the whole point)
+  //   fail()    the reason no page is coming, in the tab holding focus
+  //   close()   only when the HOST surface owns what happens next
+  //
+  // The old code opened `about:blank` and awaited a round trip that spawns a
+  // provider CLI and scrapes its stdout for a URL. The user watched a blank
+  // page for however long that took, and every failure path closed the tab and
+  // toasted behind the popup that had just stolen focus.
   async function startBrowserAuth(
     kind: AgentKind | "github",
     path: string,
     inlineSid?: string,
     body: Record<string, unknown> = {},
+    providerLabel = "the provider",
   ) {
     setCodingAgentAuthInlineSid(inlineSid ?? null);
     if (inlineSid) setCodingAgentAuthCompletedSid(null);
-    const authWindow = window.open("about:blank", "_blank");
+    const authTab = openAuthTab(providerLabel);
     try {
       const session = await api<CodingAgentAuthSession>(path, {
         method: "POST",
@@ -7284,7 +7299,8 @@ export function App() {
       });
       if (session.status === "error") throw new Error(session.error || "Couldn't start login");
       if (session.status === "complete") {
-        authWindow?.close();
+        // Already connected — nothing left to sign into, and the host says so.
+        authTab.close();
         toast.success(`${authProviderLabel(session.provider)} connected`);
         setCodingAgentAuthInlineSid(null);
         if (inlineSid) setCodingAgentAuthCompletedSid(inlineSid);
@@ -7295,16 +7311,24 @@ export function App() {
         return;
       }
       setCodingAgentAuth(session);
-      if (session.authorizationUrl && authWindow) {
-        authWindow.location.replace(session.authorizationUrl);
-        authWindow.focus();
-      } else if (!session.authorizationUrl) {
-        authWindow?.close();
+      if (authTab.settle(session.authorizationUrl)) return;
+      if (isAuthorizationUrl(session.authorizationUrl)) {
+        // The popup was blocked, so the host panel's own "Open sign in" button
+        // is the way through. It is already on screen with this session.
+        toast.message(`Allow pop-ups, or use “Open ${authProviderLabel(session.provider)} sign in”.`);
+        return;
       }
+      // A waiting session with no usable URL means the CLI never printed one.
+      // The host panel keeps polling, so say so in the tab rather than closing
+      // it and leaving a toast behind the popup.
+      authTab.fail(
+        `${authProviderLabel(session.provider)} has not returned a sign-in link yet. Check the omg.dev tab.`,
+      );
     } catch (e) {
-      authWindow?.close();
+      const message = e instanceof Error ? e.message : "Couldn't start login";
+      authTab.fail(message);
       setCodingAgentAuthInlineSid(null);
-      toast.error(e instanceof Error ? e.message : "Couldn't start login");
+      toast.error(message);
     }
   }
 
@@ -7334,11 +7358,12 @@ export function App() {
       `/api/coding-agents/${kind}/auth`,
       inlineSid,
       { claudeAccountId },
+      BROWSER_AUTH_PROVIDER_LABELS[kind],
     );
   }
 
   async function loginTool(key: ToolConnectOption["key"]) {
-    return startBrowserAuth(key, `/api/connections/${key}/auth`);
+    return startBrowserAuth(key, `/api/connections/${key}/auth`, undefined, {}, "GitHub");
   }
 
   // pi and OpenCode both sign in per model provider, so the request carries
@@ -7354,9 +7379,13 @@ export function App() {
       toast.error(`Connect ${provider.label} with \`opencode auth login\` in a terminal`);
       return;
     }
-    return startBrowserAuth("pi", "/api/coding-agents/pi/auth", undefined, {
-      provider: provider.id,
-    });
+    return startBrowserAuth(
+      "pi",
+      "/api/coding-agents/pi/auth",
+      undefined,
+      { provider: provider.id },
+      provider.label,
+    );
   }
 
   async function connectApiKeyProvider(kind: AgentKind, provider: PiProviderInfo) {
@@ -22902,7 +22931,12 @@ function CodingAgentAuthPanel({
             </div>
           ) : null}
 
-          {session.authorizationUrl ? (
+          {/* The URL is already in hand here, so this opens straight at the
+              provider — no placeholder step. It is gated on the URL being a
+              real http(s) one for the same reason the popup carrier is: the
+              CLI's URL is scraped from its stdout, and a button that opens
+              nowhere is the blank tab wearing a different hat. */}
+          {isAuthorizationUrl(session.authorizationUrl) ? (
             <Button
               variant="brand"
               className="w-full"
