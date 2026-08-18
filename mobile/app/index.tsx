@@ -468,6 +468,14 @@ export default function SessionsScreen() {
    * point everything else has already settled — nothing left to race). Wide
    * enough to cover a slow fetch or a multi-wave subagent tree resolving,
    * short enough that it's not what a person notices as "the list is slow."
+   *
+   * 3500ms IS A GUESS, NOT A MEASUREMENT — tunable, not sacred. It's sized
+   * off simulator fetch timing on a fast Mac; a real device on real
+   * cellular could easily need longer, or a fast wifi connection could get
+   * away with less. list-overlap-watch.tsx is what would tell you which:
+   * if it starts firing again on real devices with this window in place,
+   * that's a signal to widen it before reaching for a different mechanism
+   * entirely, not a sign the whole approach is wrong.
    */
   const mountedAtRef = useRef(Date.now());
   const COLD_LOAD_WINDOW_MS = 3500;
