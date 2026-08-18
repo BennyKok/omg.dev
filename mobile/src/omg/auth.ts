@@ -22,7 +22,7 @@
  * OTP flow simply runs again.
  */
 
-import { AUTH_APP_ID, AUTH_ORIGIN } from "./config";
+import { AUTH_APP_ID, AUTH_ORIGIN, AUTH_REQUEST_ORIGIN } from "./config";
 
 export class OmgAuthError extends Error {
   readonly status: number;
@@ -30,6 +30,19 @@ export class OmgAuthError extends Error {
     super(message);
     this.name = "OmgAuthError";
     this.status = status;
+  }
+}
+
+/**
+ * Thrown when the server did not confirm the session was revoked. Distinct
+ * from OmgAuthError so callers can tell "sign-out failed, the account may
+ * still be signed in server-side" apart from an ordinary sign-in failure —
+ * the caller must NOT treat this the same as a successful sign-out.
+ */
+export class SignOutFailedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SignOutFailedError";
   }
 }
 
@@ -45,7 +58,7 @@ async function authFetch(path: string, body: unknown): Promise<unknown> {
   try {
     response = await fetch(`${AUTH_ORIGIN}${BETTER_AUTH_BASE}${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Origin: AUTH_REQUEST_ORIGIN },
       body: JSON.stringify(body),
     });
   } catch {
@@ -103,7 +116,7 @@ export async function verifySignInCode(
 export async function getSession(): Promise<SignedInUser | null> {
   try {
     const response = await fetch(`${AUTH_ORIGIN}${BETTER_AUTH_BASE}/get-session`, {
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Origin: AUTH_REQUEST_ORIGIN },
     });
     if (!response.ok) return null;
     const data = (await response.json().catch(() => null)) as {
@@ -115,10 +128,47 @@ export async function getSession(): Promise<SignedInUser | null> {
   }
 }
 
+/**
+ * Ask the server to revoke the session, and throw SignOutFailedError if it
+ * did not confirm that. Every prior version of this function did
+ * `fetch(...).catch(() => {})` and cleared local state unconditionally — a
+ * missing Origin header (see AUTH_REQUEST_ORIGIN) made the server 403 this
+ * on every single call, and the swallowed rejection meant the app declared
+ * "signed out" while the session, and its cookie, stayed valid for up to 30
+ * days. That is worse than an error the caller has to handle: it is a false
+ * claim about account state. So this throws instead of swallowing, and the
+ * caller (provider.tsx) is required to leave local state untouched when it
+ * does — showing "signed out" is only correct once the server agrees.
+ *
+ * Fails closed on purpose: a network-unreachable sign-out attempt throws the
+ * same as a server rejection, rather than clearing local state as a
+ * fallback. The alternative — clear locally whenever the server can't be
+ * reached — reopens exactly this bug for anyone offline at the moment they
+ * sign out (bad wifi, airplane mode, a lost device with connectivity cut).
+ * Being stuck showing "signed in" while offline is a recoverable annoyance;
+ * being shown "signed out" while a token is still live is not.
+ */
 export async function signOut(): Promise<void> {
-  await fetch(`${AUTH_ORIGIN}${BETTER_AUTH_BASE}/sign-out`, {
-    method: "POST",
-  }).catch(() => {});
+  let response: Response;
+  try {
+    response = await fetch(`${AUTH_ORIGIN}${BETTER_AUTH_BASE}/sign-out`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: AUTH_REQUEST_ORIGIN },
+    });
+  } catch {
+    throw new SignOutFailedError(
+      "Couldn't reach omg to sign out. Check your connection and try again.",
+    );
+  }
+  // 401 means better-auth already considers this session gone (expired,
+  // already revoked elsewhere) — nothing left to revoke, so this is a
+  // success, not a failure: the goal state ("this device holds no valid
+  // session") already holds.
+  if (!response.ok && response.status !== 401) {
+    throw new SignOutFailedError(
+      `Sign-out was rejected (${response.status}). Your session may still be active — try again.`,
+    );
+  }
   cachedToken = null;
   inFlight = null;
 }

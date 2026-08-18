@@ -168,10 +168,37 @@ export default function SettingsScreen() {
     [client, pushBusy, user?.email],
   );
 
+  /**
+   * signOut() now throws SignOutFailedError instead of silently no-oping
+   * when the server didn't confirm the session was revoked (see auth.ts) —
+   * `void signOut()` would have turned that into an unhandled rejection
+   * with nothing shown on screen, which is its own version of the original
+   * bug: the person taps Sign out, nothing visibly happens, and they have
+   * no idea whether they're still signed in. signingOutRef guards against a
+   * second tap firing a second request while the first is in flight.
+   */
+  const [signingOut, setSigningOut] = useState(false);
   const confirmSignOut = () => {
     Alert.alert("Sign out?", "You'll need a new sign-in code to get back in.", [
       { text: "Cancel", style: "cancel" },
-      { text: "Sign out", style: "destructive", onPress: () => void signOut() },
+      {
+        text: "Sign out",
+        style: "destructive",
+        onPress: () => {
+          if (signingOut) return;
+          setSigningOut(true);
+          void signOut()
+            .catch((err) => {
+              Alert.alert(
+                "Couldn't sign out",
+                err instanceof Error
+                  ? err.message
+                  : "Something went wrong. Try again.",
+              );
+            })
+            .finally(() => setSigningOut(false));
+        },
+      },
     ]);
   };
 
@@ -348,7 +375,9 @@ export default function SettingsScreen() {
       <View style={{ marginTop: space.xl }}>
         <Card>
           <Row onPress={confirmSignOut}>
-            <Text style={{ ...type.callout, color: colors.danger, flex: 1 }}>Sign out</Text>
+            <Text style={{ ...type.callout, color: colors.danger, flex: 1 }}>
+              {signingOut ? "Signing out…" : "Sign out"}
+            </Text>
           </Row>
           <Row onPress={confirmDeleteAccount}>
             <Text style={{ ...type.callout, color: colors.danger, flex: 1 }}>Delete account</Text>

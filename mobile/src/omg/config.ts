@@ -20,6 +20,21 @@
 export const AUTH_ORIGIN =
   process.env.EXPO_PUBLIC_OMG_AUTH_URL ?? "https://auth.omg.dev";
 
+/**
+ * Origin header sent on every request to AUTH_ORIGIN.
+ *
+ * better-auth's origin-check middleware (trustedOrigins in
+ * apps/auth/src/auth.ts) rejects state-changing requests that arrive with no
+ * Origin header at all — a browser always sends one on a cross-origin fetch,
+ * but React Native's fetch never does, native apps have no origin. Without
+ * this, POST /api/auth/sign-out 403s with MISSING_OR_NULL_ORIGIN on every
+ * call: the session is never revoked, sign-out silently no-ops server-side,
+ * and the app has no way to know because the error is swallowed. The value
+ * just needs to be one of the server's fixed trustedOrigins entries — it
+ * does not need to describe this app.
+ */
+export const AUTH_REQUEST_ORIGIN = "https://omg.dev";
+
 /** Control plane: account, machine bindings, cloud Computer lifecycle. */
 export const CONTROLPLANE_ORIGIN =
   process.env.EXPO_PUBLIC_OMG_CONTROLPLANE_URL ?? "https://backend.omg.dev";
