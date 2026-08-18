@@ -43,27 +43,17 @@
  * documents for archive.
  */
 
-import { useMemo, useRef } from "react";
-import Reanimated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from "react-native-reanimated";
-import * as Haptics from "expo-haptics";
+import Reanimated from "react-native-reanimated";
 import { type AndroidSymbol, type SFSymbol } from "expo-symbols";
-import { Dimensions, PanResponder, View } from "react-native";
+import { View } from "react-native";
 
 import { AgentAvatar, Icon } from "../components";
 import { Text } from "./text";
 import { useListItemMotion, PressableScale } from "./motion";
+import { useSwipeToCommit } from "./swipe-row";
 import { useTheme } from "./theme";
 import { relativeTime } from "./format";
 import type { AutoFindingRow, AutoFindingSeverity } from "./auto-agents";
-
-const SWIPE_DISMISS_PX = 96;
-const SWIPE_DISMISS_VELOCITY = 0.5;
-const REVEAL_WIDTH = 96;
-const SCREEN_WIDTH = Dimensions.get("window").width;
 
 function severityColor(
   severity: AutoFindingSeverity | undefined,
@@ -173,47 +163,16 @@ export function AutoFindingCard({
 
   const corners = { borderRadius: radius.xl };
 
-  /**
-   * Swipe-to-dismiss, on PanResponder rather than react-native-gesture-handler
-   * — Swipeable's native module is not in this app's binary; see the identical
-   * note on SessionCard's swipe-to-archive in components.tsx. Same constants,
-   * same feel, on purpose: this is the second place in the app a horizontal
-   * swipe means "make this row go away."
-   */
-  const translateX = useSharedValue(0);
-  const dismissRef = useRef(onDismiss);
-  dismissRef.current = onDismiss;
-
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponderCapture: (_evt, gesture) =>
-          gesture.dx < -8 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5,
-        onPanResponderMove: (_evt, gesture) => {
-          if (gesture.dx < 0) translateX.value = Math.max(gesture.dx, -REVEAL_WIDTH * 1.4);
-        },
-        onPanResponderRelease: (_evt, gesture) => {
-          const committed =
-            gesture.dx < -SWIPE_DISMISS_PX || gesture.vx < -SWIPE_DISMISS_VELOCITY;
-          if (committed) {
-            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            translateX.value = withTiming(-SCREEN_WIDTH, { duration: motion.fast });
-            dismissRef.current();
-          } else {
-            translateX.value = withTiming(0, { duration: motion.quick });
-          }
-        },
-        onPanResponderTerminate: () => {
-          translateX.value = withTiming(0, { duration: motion.quick });
-        },
-      }),
-    [translateX, motion.fast, motion.quick],
-  );
-
-  const cardStyle = useAnimatedStyle(() => ({ transform: [{ translateX: translateX.value }] }));
-  const revealStyle = useAnimatedStyle(() => ({
-    opacity: Math.min(1, Math.abs(translateX.value) / REVEAL_WIDTH),
-  }));
+  // Swipe-to-dismiss — see useSwipeToCommit (swipe-row.ts) for the gesture
+  // and arbitration reasoning. Same hook backs SessionCard's swipe-to-archive
+  // in components.tsx: this used to be a second, byte-identical copy of the
+  // PanResponder below, which is how the two drifted before this got
+  // extracted.
+  const { panResponder, cardStyle, revealStyle } = useSwipeToCommit({
+    onCommit: onDismiss,
+    fastDuration: motion.fast,
+    quickDuration: motion.quick,
+  });
 
   return (
     <Reanimated.View entering={listMotion.entering} layout={listMotion.layout}>

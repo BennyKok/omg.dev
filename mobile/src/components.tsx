@@ -6,17 +6,14 @@
 
 import {
   ActivityIndicator,
-  Dimensions,
   Image,
-  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
   View,
   type ViewStyle,
 } from "react-native";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import * as Haptics from "expo-haptics";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Reanimated, {
   Easing,
   useAnimatedStyle,
@@ -45,6 +42,7 @@ import {
 import type { OmgColors } from "./omg/palette";
 import { DropdownMenu, type MenuOption } from "./omg/menu";
 import { PressableScale, useListItemMotion } from "./omg/motion";
+import { useSwipeToCommit } from "./omg/swipe-row";
 import { useTheme } from "./omg/theme";
 
 /**
@@ -65,13 +63,6 @@ export function withAlpha(hex: string, alpha: number): string {
   const b = parseInt(full.slice(4, 6), 16);
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
-
-/** Leftward drag past this, or a fast enough flick, archives the row. */
-const SWIPE_ARCHIVE_PX = 96;
-const SWIPE_ARCHIVE_VELOCITY = 0.5;
-/** How far the card travels before the red behind it is at full strength. */
-const REVEAL_WIDTH = 96;
-const SCREEN_WIDTH = Dimensions.get("window").width;
 
 /**
  * THE session indicator, matched to the web surface exactly.
@@ -690,71 +681,17 @@ export function SessionCard({
   // shows past the corners as four sharp ears.
   const corners = { borderRadius: radius.xl };
 
-  /**
-   * Swipe-to-archive, on PanResponder rather than react-native-gesture-handler.
-   *
-   * GH resolves in node_modules as a transitive dependency of
-   * expo-router/react-native-screens, but its native module is NOT in this
-   * app's binary — checked with `nm` against the installed .app — so importing
-   * Swipeable would throw at runtime and could only be fixed by a new
-   * TestFlight build. PanResponder is React Native core and rides along in the
-   * JS bundle, so this reaches the phone in an over-the-air update. Same
-   * reasoning, and the same shape, as the toast's swipe-to-dismiss.
-   */
-  const translateX = useSharedValue(0);
-  const archiveRef = useRef(onArchive);
-  archiveRef.current = onArchive;
+  // Swipe-to-archive — see useSwipeToCommit (swipe-row.ts) for the gesture
+  // and arbitration-against-the-ScrollView reasoning. Same hook backs
+  // AutoFindingCard's swipe-to-dismiss; this used to be a second copy of all
+  // of the below, which is how the two drifted before this got extracted.
   const swipeable = !!onArchive;
-
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        // Only claim a gesture that is clearly HORIZONTAL and leftward. The
-        // card sits in a vertical ScrollView, so a responder that took every
-        // touch would eat scrolling; requiring dx to beat dy leaves the list
-        // scrollable and makes the two gestures unambiguous rather than
-        // racing.
-        //
-        // This MUST be the capture variant. The card's own PressableScale
-        // becomes the responder on touch-start, and a responder is only
-        // dislodged by an ancestor asking during the CAPTURE phase — the
-        // bubbling `onMoveShouldSetPanResponder` is never even consulted once
-        // a child holds the gesture. With the bubbling version the swipe was
-        // silently dead: every drag was delivered to the Pressable, which does
-        // nothing with movement, so the card neither moved nor opened.
-        onMoveShouldSetPanResponderCapture: (_evt, gesture) =>
-          swipeable && gesture.dx < -8 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5,
-        onPanResponderMove: (_evt, gesture) => {
-          if (gesture.dx < 0) translateX.value = Math.max(gesture.dx, -REVEAL_WIDTH * 1.4);
-        },
-        onPanResponderRelease: (_evt, gesture) => {
-          const committed =
-            gesture.dx < -SWIPE_ARCHIVE_PX || gesture.vx < -SWIPE_ARCHIVE_VELOCITY;
-          if (committed) {
-            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            // Slide the card out under its own exit rather than snapping back
-            // and letting the row vanish from a list update: the motion is the
-            // confirmation that the swipe did something.
-            translateX.value = withTiming(-SCREEN_WIDTH, { duration: motion.fast });
-            archiveRef.current?.();
-          } else {
-            translateX.value = withTiming(0, { duration: motion.quick });
-          }
-        },
-        onPanResponderTerminate: () => {
-          translateX.value = withTiming(0, { duration: motion.quick });
-        },
-      }),
-    [swipeable, translateX, motion.fast, motion.quick],
-  );
-
-  const cardStyle = useAnimatedStyle(() => ({ transform: [{ translateX: translateX.value }] }));
-  // The red behind the card only earns its pixels once the card has moved off
-  // them. Tied to travel rather than faded on a timer so it cannot appear
-  // under a stationary row.
-  const revealStyle = useAnimatedStyle(() => ({
-    opacity: Math.min(1, Math.abs(translateX.value) / REVEAL_WIDTH),
-  }));
+  const { panResponder, cardStyle, revealStyle } = useSwipeToCommit({
+    enabled: swipeable,
+    onCommit: () => onArchive?.(),
+    fastDuration: motion.fast,
+    quickDuration: motion.quick,
+  });
 
   return (
     <Reanimated.View
