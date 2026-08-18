@@ -5514,6 +5514,17 @@ export function App() {
     });
   }, [navigate]);
   const extNavTabs = useExtensionNavTabs();
+  // The host's own settings, offered from OUR menu. Read the callback directly
+  // rather than through useOpenSettingsPage: that one falls back to LFG's own
+  // Settings tab, and the whole point here is to know whether a HOST is
+  // mounting those pages. Unset (standalone, or a host that doesn't) leaves
+  // the item out entirely instead of adding a dead row.
+  const { onOpenSettingsPage: hostOpenSettingsPage } = useEmbeddedHostOptions();
+  const hostSettingsInMenu = embedded && !!hostOpenSettingsPage;
+  const openHostSettings = useCallback(
+    (page: HostSettingsPage) => hostOpenSettingsPage?.(page),
+    [hostOpenSettingsPage],
+  );
   const openShipped = useCallback(() => setTab("notifications"), [setTab]);
   // Keep the session list + Shipped/Artifacts mounted after first visit so
   // tab switches don't remount, re-fetch, or reboot gallery iframes. Hidden
@@ -7765,6 +7776,9 @@ export function App() {
                   onOpenTab={setTab}
                   extraTabs={extNavTabs}
                   showSettings={false}
+                  onOpenHostSettings={
+                    hostSettingsInMenu ? () => openHostSettings("settings") : undefined
+                  }
                 />
                 {/* Host-owned actions, in OUR island instead of beside it.
                     The host used to float its own island in this corner and we
@@ -7779,6 +7793,12 @@ export function App() {
                     that still floats keeps working exactly as before. */}
                 <span
                   data-lfg-host-slot="header-actions"
+                  /* Tells the host its own Settings control is redundant here:
+                     our menu is carrying one that calls back into it. A flag
+                     on the slot, not an assumed version — a host that docks
+                     into an older build must keep its gear, or the surface
+                     ends up with no way to settings at all. */
+                  data-lfg-host-settings={hostSettingsInMenu ? "menu" : undefined}
                   className="flex items-center gap-1.5"
                 />
               </div>
@@ -9058,12 +9078,24 @@ function PagesMenu({
   onOpenTab,
   extraTabs,
   showSettings = true,
+  onOpenHostSettings,
   className,
 }: {
   tab: string;
   onOpenTab: (tab: string) => void;
   extraTabs: ExtensionNavTab[];
   showSettings?: boolean;
+  /**
+   * Open the HOST's settings, for a surface where the host mounts those pages
+   * itself. Embedded has no Settings tab of its own, so the host had to keep a
+   * second control beside this menu for it — three chips in one island for two
+   * destinations. Given this, the menu carries it and the host's own can go.
+   *
+   * Deliberately not a radio item: choosing it leaves LFG entirely, so
+   * marking it "current" in a group that describes which LFG page you are on
+   * would be a lie the moment you came back.
+   */
+  onOpenHostSettings?: () => void;
   className?: string;
 }) {
   // Pages are one radio group so exactly one item reads as current. That marker
@@ -9131,6 +9163,20 @@ function PagesMenu({
                 <Settings className="size-5 shrink-0 text-muted-foreground" />
                 Settings
               </DropdownMenuRadioItem>
+            </>
+          ) : null}
+          {!showSettings && onOpenHostSettings ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => {
+                  setOpen(false);
+                  onOpenHostSettings();
+                }}
+              >
+                <Settings className="size-5 shrink-0 text-muted-foreground" />
+                Settings
+              </DropdownMenuItem>
             </>
           ) : null}
           {extraTabs.length ? <DropdownMenuSeparator /> : null}
