@@ -7805,8 +7805,8 @@ export function App() {
         /* Secondary pages sit below Live in the mobile hierarchy. The host
            keeps its own right-side island; LFG supplies the page-level back
            action in the space where the Live welcome normally sits. */
-        <header className="z-40 flex shrink-0 items-center pb-3 pl-3 pr-[calc(0.75rem+var(--lfg-host-top-inset))] pt-[calc(0.5rem+env(safe-area-inset-top))]">
-          <NavIsland className="shrink-0 flex items-center gap-1.5">
+        <header className="z-40 flex shrink-0 items-center justify-between gap-2 pb-3 pl-3 pr-[calc(0.75rem+var(--lfg-host-top-inset))] pt-[calc(0.5rem+env(safe-area-inset-top))]">
+          <NavIsland className="shrink-0">
             <button
               type="button"
               onClick={() => setTab("live")}
@@ -7816,16 +7816,23 @@ export function App() {
               <ChevronLeft className="size-[18px]" />
               <span>Live</span>
             </button>
-            {/* The secondary pages carry the slot too. Without it the host's
-                chrome would have to fall back to floating the moment you left
-                Live, so its actions would jump corner-to-corner between tabs —
-                and the reservation it collapses would have to come back with
-                it, mid-navigation. */}
-            <span
-              data-lfg-host-slot="header-actions"
-              className="glass-island flex h-11 items-center gap-1.5 rounded-full px-2"
-            />
           </NavIsland>
+          {/* The secondary pages carry the slot too. Without it the host's
+              chrome would fall back to floating the moment you left Live, so
+              its actions would jump corner-to-corner between tabs, and the
+              reservation it collapses would have to come back mid-navigation.
+
+              Its own island on the RIGHT, not appended to the back button:
+              the host's chrome has always lived in that corner, and the first
+              version of this docked it beside "Live" on the left, which moved
+              somebody's Computer button across the screen as a side effect of
+              a layout fix. justify-between keeps the two apart; the slot
+              collapses to nothing when unfilled, so an unhosted or older-host
+              header is still just the back button. */}
+          <span
+            data-lfg-host-slot="header-actions"
+            className="glass-island flex h-11 shrink-0 items-center gap-1.5 rounded-full px-2"
+          />
         </header>
       ) : liveDesktopWorkspace ? null : (
       /* Embedded used to be suppressed here too, which left Shipped and

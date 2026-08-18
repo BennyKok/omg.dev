@@ -208,6 +208,15 @@ describe("host bottom inset contract", () => {
     // slot: an old host floating over a zeroed inset is the same overlap
     // again, from the other side. Zeroing belongs to whoever fills the slot.
     expect(app).toContain('pr-[calc(0.75rem+var(--lfg-host-top-inset))]');
+    // Right corner, not appended to the back button. Docking is a layout fix
+    // and must not relocate the host's controls: the first cut of this put
+    // Computer and Settings beside "Live" on the LEFT, which moved a button
+    // across the screen as a side effect. justify-between + a slot that is a
+    // SIBLING of the back island, never a child of it, is what keeps the
+    // corner the corner.
+    expect(app).toMatch(
+      /<header className="z-40 flex shrink-0 items-center justify-between gap-2 pb-3 pl-3 pr-\[calc\(0\.75rem\+var\(--lfg-host-top-inset\)\)\][\s\S]*?<\/NavIsland>\s*\{\/\*[\s\S]*?\*\/\}\s*<span\s*\n\s*data-lfg-host-slot="header-actions"/,
+    );
   });
 
   test("desktop embed zeroes host-bottom-inset (omg nav is top-middle)", () => {
