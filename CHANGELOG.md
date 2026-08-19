@@ -22,6 +22,16 @@ Recent product updates and deployment notes.
   tool it happens to call.
 - **Deleting a bot now cleans up after itself**, removing any routines it
   owned instead of leaving them behind with nothing to deliver to.
+- **Fixed: a bot's reply could show up twice.** If a turn was still streaming
+  when the tab went to the background, the half-written bubble stuck around
+  next to the finished one when you came back.
+- **Bot chats are tighter to read.** Messages from the same speaker now sit
+  close together, with breathing room only when the speaker changes, instead
+  of the same wide gap everywhere.
+- **Fixed: a short message could break mid-word.** A one-word reply like
+  "Waiting." was squeezed into a bubble narrower than the word itself.
+- **Fixed: paused-session guidance now matches the agent you are actually
+  running**, instead of showing instructions for a different provider.
 
 ## August 19, 2026 - Bots can send secure messages to each other (v0.1.411)
 
