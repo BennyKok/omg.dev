@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - The bot's face leads its own editor (v0.1.398)
+
+- **The avatar preview on the bot page is now the size of the thing you are
+  choosing.** It was a 56px thumbnail beside the name field, with shape and
+  colour rows underneath picking details too small to actually see. It now
+  leads the page at 112px, centred, with the name field full width below it.
+
 ## August 18, 2026 - Connecting a coding agent shows you a dialog, not a browser tab (v0.1.397)
 
 - **Fixed: the sign-in tab still opened on `about:blank` before redirecting.**
