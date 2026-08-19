@@ -631,6 +631,14 @@ type PersistentBot = {
   sessionId?: string;
   createdAt: number;
   lastMessageAt?: number;
+  /**
+   * Last thing the bot said, read from the transcript index by the server. A
+   * bot is idle between turns and its harness may not be running at all, so the
+   * roster line cannot come from the live fleet — that showed "Say hi to get
+   * started" to bots with months of history.
+   */
+  lastMessagePreview?: string;
+  lastMessageTs?: number | null;
 };
 
 const BotDirectoryContext = createContext<Map<string, PersistentBot>>(new Map());
@@ -12038,7 +12046,7 @@ function RailStage({
         const session = sid ? sessions.find((item) => item.sessionId === sid) : undefined;
         const busy = !!(sid && busyBySid[sid]);
         const active = selectedBotId === bot.id;
-        const rawPreview = session?.last?.text || session?.lastUserText || "";
+        const rawPreview = session?.last?.text || session?.lastUserText || bot.lastMessagePreview || "";
         // A background task's report is machinery, not conversation: it is
         // hidden inside the chat, so it must not surface as the roster preview
         // either — the row would read `[subagent complete] …`.
@@ -13899,7 +13907,13 @@ function SessionChatBody({
             </span>
           </div>
         </div>
-      ) : canDriveSession(session) || reviewingShipped ? (
+      ) : /* A bot chat is a conversation, not a control surface for a process.
+             canDriveSession asks whether this harness can be driven right now,
+             which is the wrong question here: a bot whose session has died is
+             re-launched by the very message you are trying to type, so gating
+             the composer on liveness made an enabled bot unreachable until
+             somebody restarted something for it. */
+        bot || canDriveSession(session) || reviewingShipped ? (
         <form
           onSubmit={sendMessage}
           {...files.dropZoneProps}
@@ -24284,7 +24298,7 @@ function BotsView({
           (candidate) => candidate.botId === item.id || (!!item.sessionId && candidate.sessionId === item.sessionId),
         );
         const working = !!(session?.sessionId && busyBySid[session.sessionId]);
-        const rawPreview = session?.last?.text || session?.lastUserText || "";
+        const rawPreview = session?.last?.text || session?.lastUserText || item.lastMessagePreview || "";
         // See the rail roster: a `[subagent …]` report is not preview material.
         const preview = !rawPreview
           ? "Say hi to get started."

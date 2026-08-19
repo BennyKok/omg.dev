@@ -46,6 +46,26 @@ export type Bot = {
   lastMessageAt?: number;
 };
 
+/**
+ * The conversation a bot's next process attaches to.
+ *
+ * A bot's id is its identity; this id is its *conversation*, and the two
+ * outlive any process. The transcript read model is keyed on it
+ * (`lfg://session/<id>`), so minting a new one on relaunch did not start a new
+ * process against the same chat — it started a new chat, which is why a bot
+ * that died came back with nothing to show. A bot mints exactly once, the first
+ * time anyone talks to it.
+ *
+ * Named `sessionId` on the record for now because that is what every read path
+ * still calls it; the concept is a conversation id.
+ */
+export function botConversationId(
+  bot: Pick<Bot, "sessionId">,
+  mintId: () => string,
+): string {
+  return bot.sessionId?.trim() || mintId();
+}
+
 const botsPath = () => join(PATHS.data, "bots", "bots.json");
 
 function writeBots(bots: Bot[]): void {
