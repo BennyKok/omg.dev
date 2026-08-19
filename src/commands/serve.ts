@@ -49,13 +49,18 @@ import {
   getAutoAgent,
   saveAutoAgent,
   deleteAutoAgent,
+  deleteAutoAgentsOwnedByBot,
+  countAutoAgentsOwnedByBot,
   isRunning,
   listFindings,
   updateFinding,
   logFindingAction,
+  type AutoAgent,
+  type AutoAgentOwner,
   type FindingActionPath,
 } from "../auto/store.ts";
 import { runAutoAgent } from "../auto/runner.ts";
+import { routineNudgeText, exceedsMaxFrequency } from "../auto/bot-routine.ts";
 import {
   BOT_COLORWAYS,
   BOT_OWNER_QUOTA,
@@ -89,7 +94,7 @@ import {
   releaseBotPeerMessage,
   reserveBotPeerMessage,
 } from "../bots/messaging.ts";
-import { startAutoScheduler } from "../auto/scheduler.ts";
+import { startAutoScheduler, setBotRoutineDelivery } from "../auto/scheduler.ts";
 import { handleWakeTick } from "../auto/wake-tick.ts";
 import { pushWakeHooksNow, setWakeHooksBootId } from "../auto/wake-hooks-push.ts";
 import {
@@ -336,6 +341,7 @@ import {
   startModelDiscoveryScheduler,
 } from "../model-discovery.ts";
 import {
+  BOT_SCHEDULE_LIMIT,
   DEFAULT_TIME_ZONE,
   getGlobalSettings,
   getGlobalSettingsSync,
@@ -2321,6 +2327,7 @@ async function ensureBotSession(
         awaitingFirstMessage: !firstMessage,
         description: bot.description,
         capabilities: bot.capabilities,
+        maxBotSchedules: getGlobalSettingsSync().maxBotSchedules,
       }),
       continuity ? `=== PRIOR CONVERSATION SUMMARY ===\n${continuity}\n=== END PRIOR CONVERSATION SUMMARY ===` : "",
       firstMessage ?? "",
@@ -2386,6 +2393,98 @@ async function ensureBotSession(
   } finally {
     gate.release();
   }
+}
+
+/** Pure half of callerBotId, split out so the id-matching logic is testable
+ *  without standing up the full session-listing machinery. */
+export function resolveCallerBotId(
+  sessions: Pick<Session, "sessionId" | "nativeSessionId" | "botId">[],
+  sid: string | null,
+): string | null {
+  if (!sid) return null;
+  const row = sessions.find((s) => s.sessionId === sid || s.nativeSessionId === sid);
+  return row?.botId ?? null;
+}
+
+/**
+ * Which bot (if any) is calling this request, from the caller-identity header
+ * `mcp.ts`'s own `api()` sets on every outgoing call
+ * (`X-Omg-Caller-Session-Id`). Purely ambient — never accepts a client-
+ * supplied override — so a bot cannot claim to be a different bot.
+ *
+ * `null` means "no header" == the human/browser caller, which stays
+ * unrestricted (see assertCanModifyAutoAgent): the human is always the
+ * backstop over every automation, bot-owned included.
+ *
+ * This header is trusted at the same trust boundary as everything else on
+ * this local API (no auth token anywhere on /api/* today) — not a new hole,
+ * just worth naming.
+ */
+async function callerBotId(req: Request): Promise<string | null> {
+  const sid = req.headers.get("x-omg-caller-session-id")?.trim() || null;
+  if (!sid) return null;
+  return resolveCallerBotId(await listSessions(), sid);
+}
+
+/**
+ * The single authorization policy for touching an existing automation.
+ *
+ * A human/browser caller (callerBotId === null) is always admin. A bot may
+ * only touch its own rows — guessing another automation's id gets a 403, not
+ * a silent no-op or a content leak, because this checks the row's *actual*
+ * owner, never anything the request claims.
+ */
+export async function assertCanModifyAutoAgent(
+  agent: AutoAgent,
+  callerBot: string | null,
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  if (callerBot === null) return { ok: true };
+  if (agent.owner.kind === "bot" && agent.owner.botId === callerBot) return { ok: true };
+  return { ok: false, status: 403, error: "not your automation" };
+}
+
+/**
+ * Deliver `text` into a bot's own conversation, cold-starting its session if
+ * needed. The single primitive every path that puts a message into a bot's
+ * conversation goes through — a human's `/api/bots/:id/messages` POST, a
+ * fired bot-owned routine, and a peer-to-peer delivery from another bot — one
+ * owner of "how a message reaches a bot," not two or three.
+ *
+ * `mode: "queue"` (not "steer") is load-bearing here: it is what makes it safe
+ * for a routine nudge or a peer message to arrive while the bot is mid-turn on
+ * something else — it waits its turn instead of interrupting.
+ *
+ * `asFirstMessage` (default true) controls whether `text` is allowed to ride
+ * along inside the launch prompt itself when the session is cold-starting.
+ * Peer messages pass `false`: the envelope has to go through the durable send
+ * queue every time so the caller gets back the queued message's id (needed to
+ * record `queueMessageId` for the peer-message ledger), never silently folded
+ * into the launch prompt where no message id exists to hand back.
+ */
+async function deliverBotMessage(
+  bot: Bot,
+  text: string,
+  opts: { asFirstMessage?: boolean } = {},
+): Promise<{ sessionId: string; queueMessageId?: string } | { error: string; status: number }> {
+  const asFirstMessage = opts.asFirstMessage ?? true;
+  const ensured = await ensureBotSession(bot, asFirstMessage ? text : undefined);
+  if (ensured instanceof Response) {
+    const body = (await ensured.json().catch(() => null)) as { error?: string } | null;
+    return { error: body?.error ?? "failed to start bot session", status: ensured.status };
+  }
+  const { session, delivered } = ensured;
+  let queueMessageId: string | undefined;
+  if (!delivered) {
+    const sent = sendPromptToLiveSession(session, text, { mode: "queue" });
+    if (!sent.ok) return { error: sent.error || "failed to send bot message", status: 502 };
+    const id = (sent.msg as { id?: unknown } | undefined)?.id;
+    if (typeof id === "string") queueMessageId = id;
+  }
+  await updateBot(bot.id, {
+    sessionId: session.sessionId ?? bot.sessionId,
+    lastMessageAt: Date.now(),
+  });
+  return { sessionId: session.sessionId!, queueMessageId };
 }
 
 /**
@@ -3223,6 +3322,12 @@ a{color:#60a5fa}
               return err(400, `maxLiveAgents must be an integer from 0 to ${MAX_LIVE_AGENTS_LIMIT} (0 = unlimited)`);
             patch.maxLiveAgents = max;
           }
+          if (b?.maxBotSchedules !== undefined) {
+            const max = Number(b.maxBotSchedules);
+            if (!Number.isInteger(max) || max < 1 || max > BOT_SCHEDULE_LIMIT)
+              return err(400, `maxBotSchedules must be an integer from 1 to ${BOT_SCHEDULE_LIMIT}`);
+            patch.maxBotSchedules = max;
+          }
           if (b?.agentsPaused !== undefined) {
             if (typeof b.agentsPaused !== "boolean")
               return err(400, "agentsPaused must be a boolean");
@@ -3691,30 +3796,27 @@ a{color:#60a5fa}
                 target = refreshed;
               }
 
-              // Start or revive the persistent conversation first. The peer
-              // turn itself always enters the existing durable send queue; it
-              // is never hidden only inside a process launch prompt.
-              const ensured = await ensureBotSession(target);
-              if (ensured instanceof Response) {
-                const data = await ensured.clone().json().catch(() => ({})) as { error?: string };
-                throw new BotPeerMessageError(ensured.status, data.error || "failed to start target bot");
-              }
+              // Start or revive the persistent conversation, then hand the
+              // envelope to deliverBotMessage — the same primitive a human
+              // message and a fired routine go through. `asFirstMessage:
+              // false` keeps a peer turn out of the launch prompt so it
+              // always enters the durable send queue, which is where
+              // queueMessageId (recorded on the peer-message ledger below)
+              // comes from.
               const envelope = formatBotPeerMessage(message, actor.bot, target);
-              const sent = sendPromptToLiveSession(ensured.session, envelope, { mode: "queue" });
-              const queueMessageId = (sent.msg as { id?: unknown } | undefined)?.id;
-              if (!sent.ok || typeof queueMessageId !== "string") {
-                throw new BotPeerMessageError(502, sent.error || "failed to durably enqueue peer message");
+              const delivery = await deliverBotMessage(target, envelope, { asFirstMessage: false });
+              if ("error" in delivery) {
+                throw new BotPeerMessageError(delivery.status, delivery.error || "failed to start target bot");
+              }
+              if (!delivery.queueMessageId) {
+                throw new BotPeerMessageError(502, "failed to durably enqueue peer message");
               }
               const accepted = markBotPeerMessageEnqueued(
                 message.id,
-                ensured.session.sessionId!,
-                queueMessageId,
+                delivery.sessionId,
+                delivery.queueMessageId,
               );
               enqueued = true;
-              await updateBot(target.id, {
-                sessionId: ensured.session.sessionId ?? target.sessionId,
-                lastMessageAt: Date.now(),
-              });
               evlog("bot_peer_message_enqueued", {
                 messageId: accepted.id,
                 correlationId: accepted.correlationId,
@@ -3724,7 +3826,7 @@ a{color:#60a5fa}
                 owner: actor.user,
                 depth: accepted.depth,
                 chars: accepted.text.length,
-                queueMessageId,
+                queueMessageId: delivery.queueMessageId,
               });
               return json({
                 message: {
@@ -3975,18 +4077,9 @@ a{color:#60a5fa}
           // exact text rides inside the launch prompt instead of racing it.
           const author = tag.user || bot.owner || process.env.OMG_USER?.trim() || "user";
           const attributed = `[Message from ${author} to bot ${bot.name}]\n\n${text}`;
-          const ensured = await ensureBotSession(bot, attributed);
-          if (ensured instanceof Response) return ensured;
-          const { session, delivered } = ensured;
-          if (!delivered) {
-            const sent = sendPromptToLiveSession(session, attributed, { mode: "queue" });
-            if (!sent.ok) return err(502, sent.error || "failed to send bot message");
-          }
-          await updateBot(bot.id, {
-            sessionId: session.sessionId ?? bot.sessionId,
-            lastMessageAt: Date.now(),
-          });
-          return json({ sessionId: session.sessionId });
+          const delivery = await deliverBotMessage(bot, attributed);
+          if ("error" in delivery) return err(delivery.status, delivery.error);
+          return json({ sessionId: delivery.sessionId });
         }
       }
       {
@@ -4067,25 +4160,38 @@ a{color:#60a5fa}
               removeManaged(stale.tmuxName);
               assignUser(stale.tmuxName, null);
             }
+            // A deleted bot can never receive its own routine nudges again —
+            // leaving its rows behind would otherwise make "deleted bot with
+            // live routines" the steady state instead of the rare transient
+            // window the scheduler already tolerates (missing/disabled bot:
+            // skip, log, stamp lastRunAt so it doesn't retry every tick).
+            const removedRoutines = await deleteAutoAgentsOwnedByBot(id);
             await deleteBot(id);
             invalidateListSessionsCache();
-            return json({ ok: true });
+            return json({ ok: true, removedRoutines });
           }
         }
       }
 
       // ---- auto agents (streamlined: prompt + schedule → findings) ----
       if (path === "/api/auto/agents") {
+        const callerBot = await callerBotId(req);
         if (req.method === "GET") {
           const agents = await listAutoAgents();
           const settings = await getGlobalSettings();
+          // A bot caller only ever sees its own rows — this is the query
+          // surface omg_list_my_routines relies on. The human/browser view
+          // (no caller header) stays unfiltered admin, unchanged.
+          const scoped = callerBot
+            ? agents.filter((a) => a.owner.kind === "bot" && a.owner.botId === callerBot)
+            : agents;
           // `?full=1` opts back into whole prompts for a caller that genuinely
           // needs them. The default is truncated because the two hot callers —
           // the list poll and the MCP listing tool — both only want enough to
           // identify a row, and the MCP one is feeding an LLM context window.
           const full = url.searchParams.get("full") === "1";
           return json({
-            agents: agents.map(full ? withAutoAgentMeta : withAutoAgentListMeta),
+            agents: scoped.map(full ? withAutoAgentMeta : withAutoAgentListMeta),
             tz: settings.timeZone,
           });
         }
@@ -4105,6 +4211,40 @@ a{color:#60a5fa}
           } | null;
           if (!b?.name || !b?.prompt || !b?.schedule) {
             return err(400, "name, prompt and schedule are required");
+          }
+          // Editing an existing row: look up its CURRENT owner and guard
+          // before saving — the row's actual owner decides this, never
+          // anything the request body claims.
+          let existingForEdit: AutoAgent | null = null;
+          if (b.id) {
+            existingForEdit = await getAutoAgent(b.id);
+            if (!existingForEdit) return err(404, "unknown auto agent");
+            const allowed = await assertCanModifyAutoAgent(existingForEdit, callerBot);
+            if (!allowed.ok) return err(allowed.status, allowed.error);
+          }
+          // A bot caller can never mint or move a row to a different owner —
+          // creating (or editing) from a bot conversation is always forced to
+          // `owner: { kind: "bot", botId: callerBot }` server-side, regardless
+          // of any `owner` the request body claims. A human/browser caller's
+          // request is honored as-is (defaults to "user" via saveAutoAgent).
+          const owner: AutoAgentOwner | undefined = callerBot
+            ? { kind: "bot", botId: callerBot }
+            : undefined;
+          if (callerBot && !b.id) {
+            const settings = await getGlobalSettings();
+            const current = await countAutoAgentsOwnedByBot(callerBot);
+            if (current >= settings.maxBotSchedules) {
+              return err(
+                409,
+                `you already have ${current}/${settings.maxBotSchedules} scheduled routines — delete one with omg_unschedule_routine before creating another`,
+              );
+            }
+          }
+          if (callerBot && exceedsMaxFrequency(b.schedule, (await getGlobalSettings()).timeZone)) {
+            return err(
+              400,
+              "that schedule fires too often for a bot-owned routine — the box rejects anything past a fixed frequency ceiling (about every 30 minutes)",
+            );
           }
           const autoAgent = b.agent?.trim() || undefined;
           if (autoAgent && !AUTO_AGENT_BACKENDS.includes(autoAgent as any)) {
@@ -4162,6 +4302,7 @@ a{color:#60a5fa}
             prompt: b.prompt,
             schedule: b.schedule,
             enabled: b.enabled !== false,
+            owner,
             cwd: b.cwd,
             agent: autoAgent as any,
             claudeAccountId,
@@ -4230,6 +4371,10 @@ a{color:#60a5fa}
           return json({ agent: withAutoAgentMeta(agent) });
         }
         if (m && req.method === "DELETE") {
+          const agent = await getAutoAgent(m[1]);
+          if (!agent) return err(404, "unknown auto agent");
+          const allowed = await assertCanModifyAutoAgent(agent, await callerBotId(req));
+          if (!allowed.ok) return err(allowed.status, allowed.error);
           await deleteAutoAgent(m[1]);
           return json({ ok: true });
         }
@@ -4239,6 +4384,19 @@ a{color:#60a5fa}
         if (m && req.method === "POST") {
           const agent = await getAutoAgent(m[1]);
           if (!agent) return err(404, "unknown auto agent");
+          const allowed = await assertCanModifyAutoAgent(agent, await callerBotId(req));
+          if (!allowed.ok) return err(allowed.status, allowed.error);
+          if (agent.owner.kind === "bot") {
+            // A bot-owned row was never meant to run standalone — "run now"
+            // delivers the same nudge the schedule would, immediately,
+            // instead of calling the headless runner against it.
+            const bot = await getBot(agent.owner.botId);
+            if (!bot || !bot.enabled) return err(409, "the owning bot is gone or disabled");
+            void deliverBotMessage(bot, routineNudgeText(agent)).then((result) => {
+              if ("error" in result) console.error(`[auto] manual bot-routine run failed: ${result.error}`);
+            });
+            return json({ ok: true });
+          }
           // fire-and-forget; the finding surfaces via the findings poll
           void runAutoAgent(agent, (l) => console.log(l)).catch((e) =>
             console.error("[auto] manual run failed:", e),
@@ -7778,6 +7936,22 @@ a{color:#60a5fa}
   // Probe the coding agents once at boot so the first dashboard open reads a
   // warm cache instead of paying ~1.5 s of CLI spawns in the foreground.
   warmCodingAgentsCache();
+  // Bot-owned routines fire as a nudge into the owning bot's own conversation
+  // instead of running headless — deliverBotMessage is the same primitive
+  // POST /api/bots/:id/messages uses for a human's message, so both converge
+  // on one "how a message reaches a bot" code path.
+  setBotRoutineDelivery(async (agent) => {
+    if (agent.owner.kind !== "bot") return;
+    const bot = await getBot(agent.owner.botId);
+    if (!bot || !bot.enabled) {
+      console.error(`[auto-sched] routine ${agent.id} owner bot ${agent.owner.botId} is gone or disabled — skipping`);
+      return;
+    }
+    const result = await deliverBotMessage(bot, routineNudgeText(agent));
+    if ("error" in result) {
+      console.error(`[auto-sched] routine ${agent.id} delivery failed: ${result.error}`);
+    }
+  });
   startAutoScheduler((l) => console.log(l));
   setWakeHooksBootId(SERVER_INSTANCE_ID);
   void pushWakeHooksNow();

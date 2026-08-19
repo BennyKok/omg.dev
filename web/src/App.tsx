@@ -602,12 +602,18 @@ type Repo = { name: string; cwd: string; project?: string; custom?: boolean };
 
 // Auto agents: a streamlined agent is JUST a prompt + a schedule. It emits
 // findings (notifications), not reports.
+type AutoAgentOwner = { kind: "user" } | { kind: "bot"; botId: string };
+
 type AutoAgent = {
   id: string;
   name: string;
   prompt: string;
   schedule: string;
   enabled: boolean;
+  // Absent on a response the server hasn't normalized yet (shouldn't happen
+  // once the migration lands, but the UI treats a missing owner as "user"
+  // rather than crashing — see AutoAgentOwnerBadge/ownRoutines filters).
+  owner?: AutoAgentOwner;
   cwd?: string;
   project?: string; // server-computed, worktree-aware (cwd in a git worktree collapses to the owning repo)
   agent?: AutoAgentBackend;
@@ -808,6 +814,9 @@ type GlobalSettings = {
   // Cap on total LIVE agents, idle included (0 = unlimited) + a manual drain
   // switch, plus the idle window after which an agent is archived (0 = off).
   maxLiveAgents: number;
+  // Per-bot cap on self-scheduled routines. Always >= 1 — unlike
+  // maxLiveAgents, 0-as-unlimited is not offered here.
+  maxBotSchedules: number;
   agentsPaused: boolean;
   idleAgentArchiveMinutes: number;
   transcriptView: TranscriptView;
@@ -5665,6 +5674,7 @@ export function App() {
   const [settings, setSettings] = useState<GlobalSettings>({
     timeZone: DEFAULT_SCHED_TZ,
     maxLiveAgents: 16,
+    maxBotSchedules: 5,
     agentsPaused: false,
     idleAgentArchiveMinutes: 0,
     transcriptView: "full",
@@ -5946,6 +5956,7 @@ export function App() {
     setSettings(payload.settings ?? {
       timeZone: payload.auto?.tz ?? DEFAULT_SCHED_TZ,
       maxLiveAgents: 16,
+      maxBotSchedules: 5,
       agentsPaused: false,
       idleAgentArchiveMinutes: 0,
       transcriptView: "full",
@@ -8224,6 +8235,10 @@ export function App() {
             bot={botEditor}
             repos={repos}
             codingAgents={codingAgents}
+            autoAgents={autoAgents}
+            maxBotSchedules={settings.maxBotSchedules}
+            tz={schedTz}
+            onEditRoutine={setEditingAgent}
             onClose={() => {
               if (botEditor === "new") closeBot();
               else openBot(botEditor.id);
@@ -21507,6 +21522,22 @@ function NewAutoAgentComposer({
   );
 }
 
+function ManagedByBotNote({ botId }: { botId: string }) {
+  const directory = useContext(BotDirectoryContext);
+  const openBot = useContext(OpenBotContext);
+  const bot = directory.get(botId);
+  return (
+    <button
+      type="button"
+      onClick={() => openBot(botId)}
+      className="mt-2 flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+    >
+      <BotMascot shape={bot?.shape} colorway={bot?.colorway} size={14} state="idle" seed={botId.length} />
+      Managed by {bot?.name ?? "a deleted bot"}
+    </button>
+  );
+}
+
 function AgentEditorSheet({
   agent,
   repos,
@@ -21692,6 +21723,11 @@ function AgentEditorSheet({
             Save
           </Button>
         </div>
+
+        {/* Editing here stays fully allowed — a human is always admin over
+            every automation, bot-owned included — but the row is also
+            self-managed from inside the bot's own chat, so say so. */}
+        {existing?.owner?.kind === "bot" ? <ManagedByBotNote botId={existing.owner.botId} /> : null}
 
         {(() => {
           const locale = typeof navigator !== "undefined" ? navigator.language : undefined;
@@ -22263,6 +22299,9 @@ function useSessionUsage(active: boolean, intervalMs = 15000): SessionUsage | nu
 
 const LIVE_AGENT_LIMIT_OPTIONS = [0, 4, 8, 10, 12, 16, 24, 32];
 
+// No 0/unlimited option here on purpose — see GlobalSettings.maxBotSchedules.
+const BOT_SCHEDULE_LIMIT_OPTIONS = [1, 2, 3, 5, 8, 10, 15, 20];
+
 // Idle windows, in minutes. Nothing below 15 is offered: an agent pausing
 // between turns must never look abandoned.
 const IDLE_ARCHIVE_OPTIONS = [0, 30, 60, 120, 240, 480, 1440];
@@ -22281,6 +22320,7 @@ function AgentConcurrencySettingsSection({
   onChange: (patch: Partial<GlobalSettings>) => Promise<void>;
 }) {
   const [saving, setSaving] = useState(false);
+  const [savingBotCap, setSavingBotCap] = useState(false);
   const [pausing, setPausing] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const stats = useServerStats(true);
@@ -22316,6 +22356,19 @@ function AgentConcurrencySettingsSection({
       toast.error(e instanceof Error ? e.message : "Could not update agent limit");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveBotCap(maxBotSchedules: number) {
+    if (maxBotSchedules === settings.maxBotSchedules || savingBotCap) return;
+    setSavingBotCap(true);
+    try {
+      await onChange({ maxBotSchedules });
+      toast.success(`Per-bot schedule limit set to ${maxBotSchedules}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update the bot schedule limit");
+    } finally {
+      setSavingBotCap(false);
     }
   }
 
@@ -22380,6 +22433,36 @@ function AgentConcurrencySettingsSection({
                 <option key={count} value={count}>
                   {count === 0 ? "Unlimited" : count}
                 </option>
+              ))}
+            </select>
+            <ChevronDown className="size-3 text-muted-foreground/70" />
+          </label>
+        </div>
+        {/* Per-bot cap on self-scheduled routines (omg_schedule_routine). A
+            separate knob from live-agent capacity above: this bounds how many
+            concerns any one bot is tracking at once, not concurrency. */}
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-foreground/70 text-white">
+              <CalendarClock className="size-4" />
+            </span>
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Bot schedule limit</div>
+              <div className="text-xs text-muted-foreground">
+                Max routines a bot can schedule on itself
+              </div>
+            </div>
+          </div>
+          <label className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-3 py-1.5">
+            <select
+              value={settings.maxBotSchedules}
+              onChange={(event) => void saveBotCap(Number(event.target.value))}
+              disabled={savingBotCap}
+              aria-label="Maximum schedules per bot"
+              className="appearance-none bg-transparent text-right text-xs font-medium outline-none"
+            >
+              {BOT_SCHEDULE_LIMIT_OPTIONS.map((count) => (
+                <option key={count} value={count}>{count}</option>
               ))}
             </select>
             <ChevronDown className="size-3 text-muted-foreground/70" />
@@ -24110,6 +24193,47 @@ function DrivenByBotBadge({ session }: { session: Session }) {
   );
 }
 
+/** Ownership pill for a bot-owned automation row — same visual language and
+ *  context as DrivenByBotBadge, generalized rather than duplicated. Renders
+ *  nothing for a user-owned row (the common case stays unmarked).
+ *
+ *  A `<span role="button">`, not a `<button>`: every call site so far sits
+ *  inside the row's own onEdit button, and a nested <button> is invalid HTML
+ *  (and fights the parent for the click). Keyboard-operable via Enter/Space
+ *  to keep it a real control despite the element choice. */
+function AutoAgentOwnerBadge({ owner }: { owner: AutoAgentOwner | undefined }) {
+  const directory = useContext(BotDirectoryContext);
+  const openBot = useContext(OpenBotContext);
+  if (!owner || owner.kind !== "bot") return null;
+  const bot = directory.get(owner.botId);
+  const open = (event: { stopPropagation: () => void; preventDefault: () => void }) => {
+    event.stopPropagation();
+    event.preventDefault();
+    openBot(owner.botId);
+  };
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      onClick={open}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") open(event);
+      }}
+      className="flex shrink-0 items-center gap-1 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20"
+      title={bot ? `Owned by ${bot.name}` : "Owned by a deleted bot"}
+    >
+      <BotMascot
+        shape={bot?.shape}
+        colorway={bot?.colorway}
+        size={12}
+        state="idle"
+        seed={owner.botId.length}
+      />
+      <span className="max-w-20 truncate">{bot?.name ?? "deleted bot"}</span>
+    </span>
+  );
+}
+
 function FirstBotMessageComposer({
   bot,
   onStarted,
@@ -24427,13 +24551,20 @@ function BotEditorPage({
   bot,
   repos,
   codingAgents,
+  autoAgents = [],
+  maxBotSchedules,
+  tz,
   onClose,
   onSave,
   onDelete,
+  onEditRoutine,
 }: {
   bot: PersistentBot | "new";
   repos: Repo[];
   codingAgents: CodingAgentInfo[];
+  autoAgents?: AutoAgent[];
+  maxBotSchedules?: number;
+  tz?: string;
   onClose: () => void;
   onSave: (input: {
     id?: string;
@@ -24448,9 +24579,13 @@ function BotEditorPage({
     enabled: boolean;
   }) => void | Promise<void>;
   onDelete: (id: string) => void | Promise<void>;
+  onEditRoutine?: (agent: AutoAgent) => void;
 }) {
   const isMobile = useIsMobile();
   const editing = bot !== "new";
+  const ownRoutines = editing
+    ? autoAgents.filter((a) => a.owner?.kind === "bot" && a.owner.botId === bot.id)
+    : [];
   const initialAgent = editing && AGENT_MODELS[bot.agent as AgentKind]
     ? bot.agent as AgentKind
     : "aisdk";
@@ -24672,13 +24807,55 @@ function BotEditorPage({
         </CollapsibleContent>
       </Collapsible>
 
+      {/* Self-scheduled routines this bot owns — created and removed by the
+          bot itself, mid-conversation, via omg_schedule_routine /
+          omg_unschedule_routine. A human can still edit or delete any of
+          these (always admin), which opens the same AgentEditorSheet the
+          Schedules page uses. */}
+      {editing ? (
+        <div className="mt-6 rounded-xl border border-border">
+          <div className="flex items-center justify-between px-3 py-2.5">
+            <span className="flex items-center gap-2 text-sm font-medium">
+              <CalendarClock className="size-4 text-muted-foreground" />
+              Schedules
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {ownRoutines.length}{maxBotSchedules != null ? `/${maxBotSchedules}` : ""}
+            </span>
+          </div>
+          {ownRoutines.length ? (
+            <div className="divide-y divide-border border-t border-border">
+              {ownRoutines.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => onEditRoutine?.(a)}
+                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-muted/50"
+                >
+                  <span className="min-w-0 truncate text-sm">{a.name}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    <ScheduleSummary expr={a.schedule} tz={tz ?? "UTC"} />
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="border-t border-border px-3 py-2.5 text-xs text-muted-foreground">
+              This bot has not scheduled anything for itself yet.
+            </div>
+          )}
+        </div>
+      ) : null}
+
       {/* Delete moved off the header row and down here. On a phone header space
           is for Back and the one action you came to take; a destructive button
           sitting a thumb-width from Save was the wrong neighbour. */}
       {editing ? (
         <div className="mt-6 flex items-center justify-between gap-3 rounded-xl border border-destructive/30 px-3 py-2.5">
           <span className="min-w-0 text-sm text-muted-foreground">
-            Delete this bot and the chat that belongs to it.
+            {ownRoutines.length
+              ? `Delete this bot, its chat, and ${ownRoutines.length} scheduled routine${ownRoutines.length === 1 ? "" : "s"} it owns.`
+              : "Delete this bot and the chat that belongs to it."}
           </span>
           <DoubleConfirmAction
             resetKey={bot.id}
@@ -24808,6 +24985,7 @@ function AutoManageView({
             >
               <div className="flex items-center gap-2">
                 <span className="truncate text-sm font-semibold">{a.name}</span>
+                <AutoAgentOwnerBadge owner={a.owner} />
                 {openByAgent(a.id) ? (
                   <span className="shrink-0 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
                     {openByAgent(a.id)} open

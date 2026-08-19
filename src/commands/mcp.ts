@@ -37,6 +37,7 @@ type SessionRow = {
   status?: string | null;
   assignedUser?: string | null;
   lastActivityAt?: number | null;
+  botId?: string | null;
   // Only present on /api/sessions?full=1 (the verbose listing); the default
   // list response drops the spawn command line.
   cmd?: string;
@@ -93,8 +94,18 @@ type OriginDeliveryResponse = {
 
 const VERSION = "0.1.21";
 
+// Header name the server reads to resolve "which bot is calling" for the
+// auto-agent ownership guard (assertCanModifyAutoAgent in serve.ts). Only ever
+// set here, from the ambient/request-scoped caller session id — never
+// client-supplied, so a tool argument can't spoof it.
+const CALLER_SESSION_HEADER = "X-Omg-Caller-Session-Id";
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${localServeBaseUrl()}${path}`, init);
+  const sid = callerSessionId();
+  const headers = sid
+    ? { ...(init?.headers ?? {}), [CALLER_SESSION_HEADER]: sid }
+    : init?.headers;
+  const res = await fetch(`${localServeBaseUrl()}${path}`, { ...init, headers });
   const data = (await res.json().catch(() => ({}))) as { error?: string };
   if (!res.ok) throw new Error(data.error || `${res.status} ${res.statusText}`);
   return data as T;
@@ -294,6 +305,22 @@ async function questionUser(explicit: string | undefined, sessionId: string): Pr
     (row) => row.sessionId === sessionId || row.nativeSessionId === sessionId,
   );
   return session?.assignedUser?.trim() || null;
+}
+
+/**
+ * Which bot (if any) this tool call is running as, resolved from the calling
+ * session's own row. Purely ambient — this never accepts a client-supplied
+ * override, so a bot cannot claim to be a different bot by passing an
+ * argument. Used by the bot-scoped routine tools below to both gate
+ * "only available inside a bot conversation" and to force the owner they mint
+ * to their own id.
+ */
+async function callerBotId(): Promise<string | null> {
+  const sid = callerSessionId();
+  if (!sid) return null;
+  const { sessions } = await api<{ sessions: SessionRow[] }>("/api/sessions");
+  const row = sessions.find((s) => s.sessionId === sid || s.nativeSessionId === sid);
+  return row?.botId ?? null;
 }
 
 export async function closeOmgSession(sessionIdInput: string) {
@@ -1427,6 +1454,86 @@ export function buildOmgMcpServer(): McpServer {
     },
     async ({ id }) => {
       await api<{ ok?: boolean }>(`/api/auto/agents/${encodeURIComponent(id)}`, { method: "DELETE" });
+      return result({ ok: true, deleted: id });
+    },
+  );
+
+  // ---- Bot-scoped routine tools ---------------------------------------------
+  // Purpose-built self-service surface for a bot's OWN schedules — no
+  // id-guessing, no cross-owner visibility by construction (the server scopes
+  // /api/auto/agents to the caller's own rows once it sees the bot's caller
+  // header). These are additive: omg_list_auto_agents / omg_save_auto_agent /
+  // omg_run_auto_agent / omg_delete_auto_agent above still work for a bot —
+  // they simply enforce the same ownership guard underneath now, so a bot
+  // can't bypass these by using the older, generic names instead.
+  server.registerTool(
+    "omg_list_my_routines",
+    {
+      title: "List My Scheduled Routines",
+      description:
+        "List the scheduled routines this bot owns — name, cron schedule, enabled state, last fired. " +
+        "Only available inside a bot conversation. Call this before creating a new one so you know how " +
+        "close you are to the cap.",
+      inputSchema: {},
+    },
+    async () => {
+      const botId = await callerBotId();
+      if (!botId) throw new Error("omg_list_my_routines is only available inside a bot conversation.");
+      const [agents, settings] = await Promise.all([
+        api<{ agents: unknown[] }>("/api/auto/agents"),
+        api<{ settings: { maxBotSchedules?: number } }>("/api/settings"),
+      ]);
+      return result({ routines: agents.agents, cap: settings.settings.maxBotSchedules ?? null });
+    },
+  );
+
+  server.registerTool(
+    "omg_schedule_routine",
+    {
+      title: "Schedule A Routine For Myself",
+      description:
+        "Create a recurring check that nudges you, in this same conversation, on a cron schedule. " +
+        "It does NOT run headless — when it fires, you get an attributed message here and do the " +
+        "checking yourself, then reply normally. Only available inside a bot conversation. Capped per " +
+        "bot; call omg_list_my_routines first if unsure how many you already have.",
+      inputSchema: {
+        name: z.string().min(1).describe("Short human-readable name."),
+        prompt: z
+          .string()
+          .min(1)
+          .describe("What you should check when this fires — written to yourself."),
+        schedule: z
+          .string()
+          .min(1)
+          .describe("5-field cron expression (minute hour day month weekday), box time zone."),
+        enabled: z.boolean().optional().describe("Whether the schedule is live. Defaults to true."),
+      },
+    },
+    async (input) => {
+      const botId = await callerBotId();
+      if (!botId) throw new Error("omg_schedule_routine is only available inside a bot conversation.");
+      // owner is forced server-side regardless of what's sent, but the intent
+      // is stated here too for clarity when reading a request log.
+      const data = await api<{ agent: { id?: string } }>("/api/auto/agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...input, owner: { kind: "bot", botId } }),
+      });
+      return result({ routine: data.agent });
+    },
+  );
+
+  server.registerTool(
+    "omg_unschedule_routine",
+    {
+      title: "Delete A Routine Of Mine",
+      description: "Permanently delete one of your own scheduled routines. Only available inside a bot conversation.",
+      inputSchema: { id: z.string().min(1) },
+    },
+    async ({ id }) => {
+      const botId = await callerBotId();
+      if (!botId) throw new Error("omg_unschedule_routine is only available inside a bot conversation.");
+      await api(`/api/auto/agents/${encodeURIComponent(id)}`, { method: "DELETE" }); // 403s server-side if not caller's
       return result({ ok: true, deleted: id });
     },
   );
