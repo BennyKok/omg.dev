@@ -46,6 +46,8 @@ import {
   BOT_UNREAD_DOT_CLASS,
   botConversationRows,
   botUnreadActionForTranscript,
+  botConversationSubscriptionIds,
+  clearBotConversationUnread,
   hasUnreadBotConversation,
   type BotConversationUnread,
 } from "./lib/bot-unread";
@@ -6770,14 +6772,20 @@ export function App() {
 
   const selectedConversationSid = selectedBotConversationId ??
     (selectedBotId ? bots.find((bot) => bot.id === selectedBotId)?.sessionId ?? null : null);
+  // Clearing a dot must not sit in front of the conversation the human just
+  // opened. This used to await the POST and then await a full `/api/bots`
+  // refetch, so every bot open queued a roster rebuild behind a write on the
+  // same server before the transcript request could be served. The row state
+  // is the only thing the POST changes, so it is applied locally first and the
+  // write goes out behind the paint.
   const markBotConversationVisible = useCallback(async (sessionId: string) => {
+    setBotConversations((prev) => clearBotConversationUnread(prev, sessionId));
     await api(`/api/bot-conversations/${encodeURIComponent(sessionId)}/read`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ user: botUnreadIdentity }),
     });
-    await refreshBots();
-  }, [botUnreadIdentity, refreshBots]);
+  }, [botUnreadIdentity]);
 
   // Selection is committed before this effect runs, so a route preload or a
   // tap that never revealed the conversation cannot clear its watermark.
@@ -6789,24 +6797,39 @@ export function App() {
   // Reuse the transcript websocket. Every committed assistant row refreshes
   // the server-owned watermark view. The open conversation advances its own
   // watermark; background conversations only gain an unread dot.
+  // Which conversations to watch, as a value that only changes when the set
+  // does. `botConversations` is a fresh array on every roster refresh, and a
+  // refresh happens on every assistant message, so keying the effect on the
+  // payload tore down and re-established every bot transcript channel each
+  // time — on the same socket the open chat streams its own transcript over.
+  const botConversationSidKey = botConversationSubscriptionIds(botConversations).join(",");
+  const botConversationSids = useMemo(
+    () => (botConversationSidKey ? botConversationSidKey.split(",") : []),
+    [botConversationSidKey],
+  );
+  // Read through a ref so changing the open conversation re-targets the
+  // existing subscriptions instead of replacing all of them.
+  const botUnreadViewRef = useRef({ selectedConversationSid, tab });
+  botUnreadViewRef.current = { selectedConversationSid, tab };
   useEffect(() => {
     if (!useWsLive) return;
-    const unsubs = botConversations.map((conversation) =>
-      wsLiveStream.subscribeTranscript(conversation.sessionId, (event) => {
+    const unsubs = botConversationSids.map((sessionId) =>
+      wsLiveStream.subscribeTranscript(sessionId, (event) => {
         if (event.type !== "message") return;
+        const view = botUnreadViewRef.current;
         const action = botUnreadActionForTranscript({
           role: event.message.role,
           text: event.message.text,
-          conversationId: conversation.sessionId,
-          selectedConversationId: selectedConversationSid,
-          botsVisible: tab === "bots" && document.visibilityState === "visible",
+          conversationId: sessionId,
+          selectedConversationId: view.selectedConversationSid,
+          botsVisible: view.tab === "bots" && document.visibilityState === "visible",
         });
-        if (action === "mark-read") void markBotConversationVisible(conversation.sessionId).catch(() => {});
+        if (action === "mark-read") void markBotConversationVisible(sessionId).catch(() => {});
         if (action === "refresh") void refreshBots().catch(() => {});
       })
     );
     return () => unsubs.forEach((unsubscribe) => unsubscribe());
-  }, [botConversations, markBotConversationVisible, refreshBots, selectedConversationSid, tab, useWsLive, wsLiveStream.subscribeTranscript]);
+  }, [botConversationSids, markBotConversationVisible, refreshBots, useWsLive, wsLiveStream.subscribeTranscript]);
 
   function toggleTheme() {
     setThemePreference(!document.documentElement.classList.contains("dark"));

@@ -141,3 +141,56 @@ export function botConversationRef(
   }
   return {};
 }
+
+/**
+ * The single conversation a bot's roster row is backed by.
+ *
+ * The roster invariant is one row per persistent bot. Getting there needs more
+ * than "pick a session with this botId", because child sessions inherit
+ * `botId` (see the note at the top of this file). A bot that delegated three
+ * subagents matched four sessions, and both the API and the list view turned
+ * each one into its own row — the roster showed "Bot Improver" twice, "iOS
+ * Manager" twice, and so on, each duplicate carrying a subagent's last line as
+ * if the bot had said it.
+ *
+ * Resolution order, and why:
+ *
+ * 1. The configured primary, when it names a real conversation that is not
+ *    delegated. This is the binding the bot's own record owns.
+ * 2. A configured primary that names a delegated child is a corrupt binding,
+ *    so it is repaired to that child's root ancestor rather than trusted.
+ *    `botConversationRef` owns that walk.
+ * 3. Otherwise the bot's own top-level sessions, lowest id first. Sorting
+ *    matters: `find` returns whatever the session list happened to order
+ *    first, so two stale top-level sessions could alternate between refreshes
+ *    and read as a moving duplicate. A stable key makes the choice the same on
+ *    every request and on every client.
+ * 4. Otherwise the saved id even though nothing live matches it. The
+ *    transcript is filed on disk under that id, so it still names the right
+ *    history.
+ *
+ * Returns null only for a bot that has never held a conversation, which the
+ * roster renders as a single "say hi" row.
+ */
+export function botCanonicalSessionId(
+  bot: BotSessionRef,
+  sessions: readonly BotSessionCandidate[],
+): string | null {
+  const saved = bot.sessionId?.trim();
+  if (saved) {
+    const exact = findById(sessions, saved);
+    if (exact && !isDelegatedSession(exact)) return exact.sessionId ?? saved;
+    // Present but delegated: repair rather than adopt the child.
+    if (exact) {
+      const repaired = botConversationRef(bot, sessions).sessionId;
+      if (repaired) return repaired;
+    }
+  }
+  const own = sessions
+    .filter((session) => session.botId === bot.id && !isDelegatedSession(session))
+    .map((session) => session.sessionId)
+    .filter((id): id is string => !!id)
+    .sort();
+  if (own.length) return own[0];
+  return saved || null;
+}
