@@ -41,6 +41,20 @@
  * a fast Mac. It means don't trust a raw "overlap found" line from before
  * this fix, on this device or his, as a confirmed finding on its own.
  *
+ * A VERIFIED hit is real, but on its own it still can't tell apart the two
+ * live theories for WHY: (a) one section mounted a large batch of new rows
+ * in one commit and an early row measured before the batch finished, or (b)
+ * two independently-timed data sources (sessions vs. auto findings vs.
+ * resumable) changed close enough together to race each other. Both predict
+ * a verified overlap; they don't predict the same SHAPE of one. So a
+ * confirmed hit's payload also carries `diagnostics`: which sections had any
+ * row report in the `ACTIVITY_WINDOW_MS` before the hit, how many rows in
+ * each were mounting for the first time, and how long the screen had been up
+ * — a big new-mount count in ONE section supports (a); meaningful activity
+ * in TWO sections at once supports (b); and time-since-mount says whether
+ * this is cold-load-adjacent or recurs well into a session. This turns the
+ * next real hit into a tiebreaker instead of just more confirmation.
+ *
  * On a hit: a console.error, unconditionally — harmless in a production
  * build with nobody attached to Metro, and free evidence the moment anyone
  * ever is. The TOAST is separate and deliberately gated: this is a
@@ -71,10 +85,28 @@ import type { useToast } from "./toast";
 
 type RowMeasurement = { id: string; top: number; bottom: number };
 
+/**
+ * `id` is always `"<section>:<key>"` (see app/index.tsx's four call sites —
+ * `working:`, `idle:`, `auto:`, `recent:`). Splitting it back out is what
+ * lets a hit's diagnostic answer "was this cross-section or one section
+ * mounting a big batch" without adding a second prop just to carry it.
+ */
+function sectionOf(id: string): string {
+  return id.split(":", 1)[0] ?? id;
+}
+
 /** How much intersection counts as a real overlap, not float/rounding noise. */
 const OVERLAP_THRESHOLD = 6;
 /** Let a burst of layout passes settle before judging the result. */
 const CHECK_DEBOUNCE_MS = 400;
+/**
+ * How far back to look, from the moment a candidate is found, when building
+ * "what else was mounting or reporting around the same time" context. Wide
+ * enough to catch a batch that mounted over several of this file's own
+ * CHECK_DEBOUNCE_MS-spaced passes, not so wide it drags in unrelated churn
+ * from a different poll cycle entirely.
+ */
+const ACTIVITY_WINDOW_MS = 1500;
 /**
  * `measureInWindow` is itself async — its callback resolves on a later tick,
  * not synchronously with the `onLayout` that requested it. Under a burst of
@@ -96,6 +128,49 @@ export function useOverlapWatch(toast: ReturnType<typeof useToast>, notifyUser: 
   const rowRefs = useRef(new Map<string, React.RefObject<View | null>>());
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firedRef = useRef(false);
+  /** When this hook itself first ran — a proxy for "screen mounted." */
+  const hookMountedAt = useRef(Date.now());
+  /** First time EACH id was ever reported — answers "is this row new." */
+  const firstSeenAt = useRef(new Map<string, number>());
+  /**
+   * Every report, kept for `ACTIVITY_WINDOW_MS` and no longer — this is what
+   * lets a hit's diagnostic say which sections were active and how many rows
+   * newly mounted in the run-up to it, discriminating "one section mounted a
+   * big batch" from "two sections changed close together" without needing a
+   * second catch to guess between them.
+   */
+  const activityLog = useRef<{ id: string; section: string; at: number; isNewMount: boolean }[]>(
+    [],
+  );
+
+  /**
+   * What was happening in the `ACTIVITY_WINDOW_MS` before `now` — the
+   * tiebreaker data. Answers, for a confirmed hit: which section(s) had
+   * ANY row report during the run-up (cross-section activity, or just the
+   * two offending rows' own section), how many rows in each section were
+   * mounting for the FIRST time (a large count in one section supports
+   * "big single-section mount batch"; a small count across two sections
+   * supports "cross-source coalescing"; neither points at growth from row
+   * height changes, e.g. an expanding finding), and how long the screen had
+   * been up (cold-load-adjacent vs. happens well into a session too).
+   */
+  const buildDiagnostics = useCallback((now: number) => {
+    const cutoff = now - ACTIVITY_WINDOW_MS;
+    const recent = activityLog.current.filter((r) => r.at >= cutoff);
+    const newMountsBySection: Record<string, number> = {};
+    const reportsBySection: Record<string, number> = {};
+    for (const r of recent) {
+      reportsBySection[r.section] = (reportsBySection[r.section] ?? 0) + 1;
+      if (r.isNewMount) newMountsBySection[r.section] = (newMountsBySection[r.section] ?? 0) + 1;
+    }
+    return {
+      timeSinceScreenMountMs: now - hookMountedAt.current,
+      activityWindowMs: ACTIVITY_WINDOW_MS,
+      sectionsActiveInWindow: Object.keys(reportsBySection).sort(),
+      reportsBySectionInWindow: reportsBySection,
+      newMountsBySectionInWindow: newMountsBySection,
+    };
+  }, []);
 
   const measureNow = useCallback(
     (id: string): Promise<RowMeasurement | null> =>
@@ -139,21 +214,28 @@ export function useOverlapWatch(toast: ReturnType<typeof useToast>, notifyUser: 
           // of which one ended up on top the second time.
           const freshOverlap =
             Math.min(freshPrev.bottom, freshCur.bottom) - Math.max(freshPrev.top, freshCur.top);
+          const diagnostics = buildDiagnostics(Date.now());
           if (freshOverlap <= OVERLAP_THRESHOLD) {
             // eslint-disable-next-line no-console
             console.warn("[list-overlap-watch] candidate did not survive verification — measurement race, not a real overlap", {
               candidate: { prev, cur, overlap },
               reverified: { freshPrev, freshCur, freshOverlap },
+              diagnostics,
             });
             return;
           }
           if (firedRef.current) return;
           firedRef.current = true;
+          const prevSection = sectionOf(prev.id);
+          const curSection = sectionOf(cur.id);
           const message = `List rows overlap: "${prev.id}" over "${cur.id}" by ${Math.round(
             freshOverlap,
-          )}pt (${rows.length} rows on screen) — VERIFIED twice`;
+          )}pt (${rows.length} rows on screen, ${
+            prevSection === curSection ? `same section: ${prevSection}` : `${prevSection} x ${curSection}`
+          }, ${diagnostics.timeSinceScreenMountMs}ms since mount) — VERIFIED twice`;
           // eslint-disable-next-line no-console
           console.error("[list-overlap-watch]", message, {
+            diagnostics,
             firstMeasurement: { prev, cur, overlap },
             reverified: { freshPrev, freshCur, freshOverlap },
             allRows: rows,
@@ -167,6 +249,17 @@ export function useOverlapWatch(toast: ReturnType<typeof useToast>, notifyUser: 
 
   const report = useCallback(
     (id: string, top: number, bottom: number) => {
+      const now = Date.now();
+      const isNewMount = !firstSeenAt.current.has(id);
+      if (isNewMount) firstSeenAt.current.set(id, now);
+      activityLog.current.push({ id, section: sectionOf(id), at: now, isNewMount });
+      // Trim from the front — entries are pushed in chronological order, so
+      // this is the oldest-first end, and this can't grow unbounded over a
+      // long-running screen.
+      const cutoff = now - ACTIVITY_WINDOW_MS;
+      while (activityLog.current.length && activityLog.current[0].at < cutoff) {
+        activityLog.current.shift();
+      }
       measurements.current.set(id, { id, top, bottom });
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(runCheck, CHECK_DEBOUNCE_MS);
