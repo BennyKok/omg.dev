@@ -24364,13 +24364,20 @@ function BotEditorPage({
 
   const fields = (
     <>
-      <div className="flex items-center gap-3">
-        {/* The live creature is the preview: it breathes and blinks while you
-            pick, so you meet the bot before you create it. */}
+      {/* The live creature is the preview: it breathes and blinks while you
+          pick, so you meet the bot before you create it. It leads the page at
+          the size it will never otherwise be seen at — 56px in a row beside the
+          name field was a thumbnail of the thing you are here to choose, and
+          the shape and colour rows below it are picking details you could not
+          make out. The chat's own empty state already gives the creature 96px
+          for expressiveness; the screen where you DESIGN it should not go
+          smaller. Centred, because a hero that big beside a text field reads as
+          a mistake rather than a subject. */}
+      <div className="flex flex-col items-center gap-3">
         <BotMascot
           shape={shape}
           colorway={colorway}
-          size={56}
+          size={112}
           state="idle"
           seed={shape.length * 7 + colorway.length}
           title="Bot avatar preview"
@@ -24380,7 +24387,7 @@ function BotEditorPage({
           onChange={(event) => setName(event.target.value)}
           autoFocus
           placeholder="Bot name"
-          className="lfg-gfield min-w-0 flex-1 rounded-2xl px-3 py-2 text-[15px] font-medium outline-none"
+          className="lfg-gfield w-full rounded-2xl px-3 py-2.5 text-center text-[17px] font-semibold outline-none"
         />
       </div>
 
