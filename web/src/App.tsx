@@ -84,6 +84,7 @@ import {
   CodingAgentsContext,
   SessionAgentIcon,
   GALLERY_PAGE,
+  resolveSessionHeaderIdentity,
   titleForSession,
   useClaudeAccountNumber,
   useNumberedClaudeAccounts,
@@ -622,7 +623,7 @@ type AutoAgent = {
   promptTruncated?: boolean;
 };
 
-type PersistentBot = {
+export type PersistentBot = {
   id: string;
   name: string;
   shape?: BotShape;
@@ -15309,11 +15310,11 @@ function SessionTitleSheet({
           >
             <ChevronDown />
           </Button>
-          <SessionAgentIcon
-            session={session}
-            className="size-7 shrink-0 rounded-lg"
-            wrapperClassName="shrink-0"
-          />
+          {/* Mobile's full-screen session sheet: same bot-aware identity mark
+              as the session card header (see SessionHeaderIdentity), so a
+              bot-driven conversation wears its own avatar here too instead of
+              always falling back to the harness's agent icon. */}
+          <SessionHeaderIdentity session={session} busy={busy} size={28} />
           {renamingInline ? (
             <SessionTitleInlineEditor
               initial={session.title?.trim() || title}
@@ -15988,43 +15989,8 @@ const onTouchStart = (e: ReactTouchEvent) => {
               was removed with the TTS feature. A bot-backed session wears the
               bot's face instead of the harness mark: the creature already says
               which agent it is, and it carries busy in its own posture, so the
-              spinner would be saying it twice. */}
-          {headerBot ? (
-            <div className="flex size-7 shrink-0 items-center justify-center">
-              <BotAvatar bot={headerBot} working={busy} size={28} />
-            </div>
-          ) : session.botId ? (
-            // The bot directory hasn't resolved this bot yet (fetch in flight,
-            // race on mount, etc). The session is still bot-driven — the title
-            // already says so — so a neutral creature is the honest "loading"
-            // state, not the generic Claude mark, which would claim a harness
-            // that isn't actually running this session.
-            <div className="flex size-7 shrink-0 items-center justify-center">
-              <BotMascot state={busy ? "working" : "idle"} size={28} />
-            </div>
-          ) : (
-          <div className="relative flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground">
-            {busy ? (
-              <Loader2
-                className="absolute inset-0 m-auto size-6 animate-spin text-warning"
-                strokeWidth={1.75}
-              />
-            ) : null}
-            {/* "aisdk" is Claude Code under the hood (driven via the AI SDK), so
-                it wears the same Claude mark as a tmux claude session; only the
-                new-session picker keeps a distinct label to tell them apart. */}
-            <SessionAgentIcon
-              session={session}
-              className={cn(
-                "rounded-lg transition-all duration-300 ease-ios",
-                busy ? "size-4" : "size-6",
-              )}
-              // The spinner takes over the icon's box while working, so the
-              // number shrinks with it rather than floating off the artwork.
-              size={busy ? "sm" : "md"}
-            />
-          </div>
-          )}
+              spinner would be saying it twice. See SessionHeaderIdentity. */}
+          <SessionHeaderIdentity session={session} busy={busy} size={28} />
           {renamingInline ? (
             <SessionTitleInlineEditor
               initial={session.title?.trim() || titleForSession(session)}
@@ -24046,6 +24012,73 @@ function BotAvatar({
         title={bot.name}
       />
     </span>
+  );
+}
+
+/**
+ * A session's identity mark in a header: the bot's own avatar when the
+ * session is bot-driven and the bot directory has resolved it, a neutral
+ * loading creature while it hasn't, and the harness's agent icon (the safe
+ * fallback) for a session with no bot at all. See resolveSessionHeaderIdentity
+ * for the branch logic — shared, so the session card header and the mobile
+ * session sheet header render the same way instead of each keeping its own
+ * copy of the bot lookup.
+ */
+function SessionHeaderIdentity({
+  session,
+  busy,
+  size = 28,
+}: {
+  session: Session;
+  busy: boolean;
+  size?: number;
+}) {
+  const botDirectory = useContext(BotDirectoryContext);
+  const identity = resolveSessionHeaderIdentity(session, botDirectory);
+
+  if (identity.kind === "bot") {
+    return (
+      <div
+        className="flex shrink-0 items-center justify-center"
+        style={{ width: size, height: size }}
+      >
+        <BotAvatar bot={identity.bot} working={busy} size={size} />
+      </div>
+    );
+  }
+  if (identity.kind === "bot-loading") {
+    return (
+      <div
+        className="flex shrink-0 items-center justify-center"
+        style={{ width: size, height: size }}
+      >
+        <BotMascot state={busy ? "working" : "idle"} size={size} />
+      </div>
+    );
+  }
+  return (
+    <div
+      className="relative flex shrink-0 items-center justify-center rounded-lg text-muted-foreground"
+      style={{ width: size, height: size }}
+    >
+      {busy ? (
+        <Loader2
+          className="absolute inset-0 m-auto size-6 animate-spin text-warning"
+          strokeWidth={1.75}
+        />
+      ) : null}
+      {/* "aisdk" is Claude Code under the hood (driven via the AI SDK), so it
+          wears the same Claude mark as a tmux claude session; only the
+          new-session picker keeps a distinct label to tell them apart. */}
+      <SessionAgentIcon
+        session={session}
+        className={cn(
+          "rounded-lg transition-all duration-300 ease-ios",
+          busy ? "size-4" : "size-6",
+        )}
+        size={busy ? "sm" : "md"}
+      />
+    </div>
   );
 }
 

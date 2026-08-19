@@ -670,9 +670,14 @@ html.lfg-keyboard-open {
     font-size: 11px;
   }
 
-  /* Message copy stays discoverable on touch screens and steps out of the way
-     until hover/focus on pointer-precise devices. Long press is owned by the
-     message action menu on mobile; "Select text" opts back into native handles. */
+  /* The visible copy button steps out of the way until hover/focus on
+     pointer-precise (mouse/trackpad) devices, which have no other way to
+     reach it. Long press already owns copy on touch: the pointer-coarse
+     block below used to force this button to full opacity too, which put a
+     second, always-visible copy control next to every mobile bubble and
+     duplicated that gesture on screen. Leaving it at opacity 0 (still
+     reachable via focus-within, e.g. an external keyboard) keeps touch on
+     just the one, intended interaction. */
   .message-copy-button {
     opacity: 0;
   }
@@ -710,10 +715,6 @@ html.lfg-keyboard-open {
       overflow: visible;
       backdrop-filter: none;
       -webkit-backdrop-filter: none;
-    }
-
-    .message-copy-button {
-      opacity: 1;
     }
   }
 
