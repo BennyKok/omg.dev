@@ -29,11 +29,29 @@ describe("settings rendering", () => {
   });
 
   test("mobile secondary chrome leaves clearance above page content", () => {
-    expect(app).toContain(
-      'className="z-40 flex shrink-0 items-center pb-3 pl-3 pr-[calc(0.75rem+var(--lfg-host-top-inset))]',
-    );
-    expect(app).toContain(
-      'className="relative z-40 flex shrink-0 items-center justify-between gap-2 px-2 pb-3 pt-[calc(0.5rem+env(safe-area-inset-top))] md:px-3 md:pb-1"',
-    );
+    // Anchor on the header's own explanatory comment rather than its full
+    // className string: the comment identifies *which* header this is, and
+    // the class-token checks below survive unrelated layout classes
+    // (justify-between, gap-2, ordering) getting added around the padding
+    // that actually creates the clearance.
+    function headerTagAfter(comment: string): string {
+      const commentIdx = app.indexOf(comment);
+      expect(commentIdx, `comment "${comment}" not found`).toBeGreaterThanOrEqual(0);
+      const tagStart = app.indexOf("<header", commentIdx);
+      const tagEnd = app.indexOf(">", tagStart);
+      expect(tagStart, `<header> after "${comment}" not found`).toBeGreaterThanOrEqual(0);
+      return app.slice(tagStart, tagEnd);
+    }
+
+    const secondaryHeader = headerTagAfter("Secondary pages sit below Live in the mobile hierarchy");
+    expect(secondaryHeader).toContain("pb-3");
+    expect(secondaryHeader).toContain("pl-3");
+    expect(secondaryHeader).toContain("pr-[calc(0.75rem+var(--lfg-host-top-inset))]");
+    expect(secondaryHeader).toContain("pt-[calc(0.5rem+env(safe-area-inset-top))]");
+
+    const pageHeader = headerTagAfter("Embedded used to be suppressed here too");
+    expect(pageHeader).toContain("pb-3");
+    expect(pageHeader).toContain("pt-[calc(0.5rem+env(safe-area-inset-top))]");
+    expect(pageHeader).toContain("md:pb-1");
   });
 });
