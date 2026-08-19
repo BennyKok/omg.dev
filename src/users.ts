@@ -164,37 +164,6 @@ export function iconIdentityKey(
   return { ok: false, reason: "no identity available on this box" };
 }
 
-/**
- * Who is "on this machine" for display purposes — the facepile, a "who's on
- * this machine" settings row, anywhere that wants people rather than session
- * tags. Deliberately NOT userRoster()/rosterEmails(): those feed the
- * onboarding "fresh install" gate and session-tag validation, both of which
- * read an empty roster as a specific, meaningful signal that a synthesized
- * entry here must never disturb (see the giant caller-facing comment on
- * resolveSessionUserTag).
- *
- * So this composes rather than replaces: the roster when one is configured
- * (a real box may be shared by several people), else the single omg account
- * the box is paired to — a roster-less hosted Computer is never actually
- * empty of people, it just has exactly one and no roster to name them with —
- * else nobody (a bare, unpaired local checkout).
- */
-export function machineMembers(
-  roster: { email: string; name: string; avatar: string }[] = userRoster(),
-  accountEmail: string | null = boxAccountEmail(),
-): { email: string; name: string; avatar: string }[] {
-  if (roster.length) return roster;
-  if (!accountEmail) return [];
-  const icons = userIconsSync();
-  return [
-    {
-      email: accountEmail,
-      name: displayName(accountEmail),
-      avatar: iconUrl(icons, accountEmail) ?? gravatar(accountEmail),
-    },
-  ];
-}
-
 const FILE = `${PATHS.data}/session-users.json`;
 
 function readAll(): Record<string, string> {
