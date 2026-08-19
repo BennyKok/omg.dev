@@ -13,7 +13,7 @@ import { cn } from "./utils";
 // Bump whenever an agent mark in web/public changes: versioned icon URLs are
 // served `immutable, max-age=1y`, so a redrawn SVG at the same `?v=` keeps
 // serving the old art out of the browser cache forever.
-export const AGENT_ICON_VERSION = "20260814b";
+export const AGENT_ICON_VERSION = "20260819a";
 
 /**
  * The session-card / picker icon for an agent kind. Codex variants share the
@@ -24,6 +24,7 @@ export function agentIconSrc(agent?: string): string {
   if (agent === "codex" || agent === "codex-aisdk") return omgAssetUrl(`/agent-codex.svg${v}`);
   if (agent === "grok") return omgAssetUrl(`/agent-grok.svg${v}`);
   if (agent === "cursor") return omgAssetUrl(`/agent-cursor.svg${v}`);
+  if (agent === "fx") return omgAssetUrl(`/agent-fx.svg${v}`);
   if (agent === "hermes") return omgAssetUrl(`/agent-hermes.svg${v}`);
   if (agent === "opencode") return omgAssetUrl(`/agent-opencode.svg${v}`);
   if (agent === "jcode") return omgAssetUrl(`/agent-jcode.svg${v}`);
@@ -36,6 +37,7 @@ export function agentIconAlt(agent?: string): string {
   if (agent === "codex" || agent === "codex-aisdk") return "Codex";
   if (agent === "grok") return "Grok";
   if (agent === "cursor") return "Cursor";
+  if (agent === "fx") return "fx";
   if (agent === "hermes") return "Hermes";
   if (agent === "opencode") return "OpenCode";
   if (agent === "jcode") return "Jcode";
@@ -107,6 +109,9 @@ export const BROWSER_AUTH_PROVIDER_LABELS: Record<string, string> = {
   codex: "Codex",
   "codex-aisdk": "Codex",
   grok: "Grok",
+  // `fx login` is itself the Vercel device flow — there is no --device-auth
+  // variant to pick, so the browser path is the only sensible one.
+  fx: "Vercel",
 };
 
 export const BROWSER_AUTH_KINDS = new Set<string>(

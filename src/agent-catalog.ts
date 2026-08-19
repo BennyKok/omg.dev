@@ -52,6 +52,20 @@ export const CURSOR_MODELS: string[] = [
   "gemini-3.1-pro",
   "cursor-grok-4.6",
 ];
+// fx routes every model through Vercel AI Gateway, so its ids are the
+// gateway's `provider/model` strings, not a private vocabulary. The list is a
+// curated slice of `session/new` -> configOptions.model; "auto" keeps whatever
+// model the user configured in ~/.fx/settings.json.
+export const FX_MODELS: string[] = [
+  "auto",
+  "anthropic/claude-opus-5",
+  "anthropic/claude-sonnet-5",
+  "openai/gpt-5.6-sol",
+  "openai/gpt-5.5",
+  "xai/grok-4.6",
+  "moonshotai/kimi-k3",
+  "zai/glm-5.2",
+];
 export const HERMES_MODELS: string[] = [
   "nousresearch/hermes-4-405b",
   "nousresearch/hermes-4-70b",
@@ -120,6 +134,7 @@ export const AUTO_AGENT_BACKENDS = [
   "codex-aisdk",
   "grok",
   "cursor",
+  "fx",
   "opencode",
 ] as const;
 export type AutoAgentBackend = (typeof AUTO_AGENT_BACKENDS)[number];
@@ -130,6 +145,7 @@ const MODEL_CATALOG_KEYS: CodingAgentKind[] = [
   "codex-aisdk",
   "grok",
   "cursor",
+  "fx",
   "opencode",
   "jcode",
   "pi",
@@ -179,6 +195,7 @@ const LABELS: Record<CodingAgentKind, string> = {
   jcode: "jcode",
   grok: "grok",
   cursor: "cursor",
+  fx: "fx",
   hermes: "hermes",
   pi: "pi",
   copilot: "copilot",
@@ -191,6 +208,7 @@ export const MODEL_OPTIONS: Record<CodingAgentKind, { defaultModel: string; mode
   "codex-aisdk": { defaultModel: "gpt-5.6-sol", models: CODEX_AISDK_MODELS },
   grok: { defaultModel: "grok-4.6", models: GROK_MODELS },
   cursor: { defaultModel: "auto", models: CURSOR_MODELS },
+  fx: { defaultModel: "auto", models: FX_MODELS },
   hermes: { defaultModel: "nousresearch/hermes-4-405b", models: HERMES_MODELS },
   opencode: { defaultModel: "opencode/deepseek-v4-flash-free", models: OPENCODE_MODELS },
   jcode: { defaultModel: "auto", models: JCODE_MODELS },
@@ -427,11 +445,29 @@ function curateGrokModels(models: string[]): string[] {
   return out.length ? out : models;
 }
 
+/**
+ * `fx models --json` returns the whole AI Gateway catalog — 228 ids on a plain
+ * account, most of them non-coding models. Dumping that into a picker is worse
+ * than useless, so lead with the curated slice, then keep the rest reachable
+ * behind it in the order the gateway listed them.
+ */
+function curateFxModels(models: string[]): string[] {
+  const out: string[] = [];
+  const add = (model: string) => {
+    if (models.includes(model) && !out.includes(model)) out.push(model);
+  };
+
+  for (const model of FX_MODELS) add(model);
+  for (const model of models) add(model);
+  return out.length ? out : models;
+}
+
 function curateModels(agent: CodingAgentKind, models: string[]): string[] {
   if (agent === "cursor") return curateCursorModels(models);
   if (agent === "opencode") return curateOpenCodeModels(models);
   if (agent === "codex" || agent === "codex-aisdk") return curateCodexModels(models);
   if (agent === "grok") return curateGrokModels(models);
+  if (agent === "fx") return curateFxModels(models);
   return models;
 }
 

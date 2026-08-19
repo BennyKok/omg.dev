@@ -108,6 +108,7 @@ LFG_INSTALL_OPENCODE="${LFG_INSTALL_OPENCODE:-0}"
 LFG_INSTALL_JCODE="${LFG_INSTALL_JCODE:-0}"
 LFG_INSTALL_GROK="${LFG_INSTALL_GROK:-0}"
 LFG_INSTALL_CURSOR="${LFG_INSTALL_CURSOR:-0}"
+LFG_INSTALL_FX="${LFG_INSTALL_FX:-0}"
 LFG_INSTALL_COPILOT="${LFG_INSTALL_COPILOT:-0}"
 # pi is not bundled any more: its provider layer pulls eleven SDKs (Anthropic,
 # OpenAI, Google GenAI, Mistral, Bedrock) totalling ~115MB, for one optional
@@ -522,6 +523,7 @@ run_agent_installer() {
     jcode)    curl -fsSL https://jcode.sh/install | bash ;;
     grok)     curl -fsSL https://x.ai/cli/install.sh | bash ;;
     cursor)   curl -fsSL https://cursor.com/install | bash ;;
+    fx)       curl -fsSL https://fx.sh/setup.sh | bash ;;
     pi)
       # Installed into the install directory, which is where the harness and
       # detection both look for it.
@@ -575,6 +577,7 @@ ensure_agent opencode "$LFG_INSTALL_OPENCODE" command -v opencode
 ensure_agent jcode    "$LFG_INSTALL_JCODE"    command -v jcode
 ensure_agent grok     "$LFG_INSTALL_GROK"     command -v grok
 ensure_agent cursor   "$LFG_INSTALL_CURSOR"   has_cursor_cli
+ensure_agent fx       "$LFG_INSTALL_FX"       command -v fx
 ensure_agent copilot  "$LFG_INSTALL_COPILOT"  command -v copilot
 ensure_agent pi       "$LFG_INSTALL_PI"       test -f "$LFG_DIR/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"
 

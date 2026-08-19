@@ -18,6 +18,7 @@ export type AutoAgentBackend =
   | "codex-aisdk"
   | "grok"
   | "cursor"
+  | "fx"
   | "opencode"
   | "hermes";
 

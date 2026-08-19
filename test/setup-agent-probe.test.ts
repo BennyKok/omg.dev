@@ -37,6 +37,7 @@ function probeAgents(present: string[]): { ready: string[]; missing: string[] } 
     'LFG_INSTALL_CLAUDE=0 LFG_INSTALL_CODEX=0 LFG_INSTALL_OPENCODE=0',
     'LFG_INSTALL_JCODE=0',
     'LFG_INSTALL_GROK=0 LFG_INSTALL_CURSOR=0 LFG_INSTALL_COPILOT=0',
+    'LFG_INSTALL_FX=0',
     'LFG_INSTALL_PI=0',
     'LFG_COPILOT_VERSION=latest',
     // pi is probed by file path rather than by PATH lookup, so the block needs
@@ -76,7 +77,7 @@ describe("agent detection", () => {
   });
 
   test("a machine with every agent reports them all ready", () => {
-    const result = probeAgents(["claude", "codex", "opencode", "jcode", "grok", "cursor-agent", "copilot"]);
+    const result = probeAgents(["claude", "codex", "opencode", "jcode", "grok", "cursor-agent", "fx", "copilot"]);
     expect(result).not.toBeNull();
     expect(result!.ready).toContain("claude");
     expect(result!.ready).toContain("codex");

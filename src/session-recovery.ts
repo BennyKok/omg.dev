@@ -13,6 +13,7 @@ import {
   spawnManagedCodexAisdkSession,
   spawnManagedCopilotSdkSession,
   spawnManagedCursorAcpSession,
+  spawnManagedFxAcpSession,
   spawnManagedGrokAcpSession,
   spawnManagedJcodeSession,
   spawnManagedJcodeSdkSession,
@@ -144,6 +145,10 @@ function launchRecovered(
   if (entry.agent === "cursor") {
     if (!entry.threadId) return { ok: false, error: "cursor recovery handle missing" };
     return spawnManagedCursorAcpSession({ ...common, key: entry.sessionId, resume: entry.threadId });
+  }
+  if (entry.agent === "fx") {
+    if (!entry.threadId) return { ok: false, error: "fx recovery handle missing" };
+    return spawnManagedFxAcpSession({ ...common, key: entry.sessionId, resume: entry.threadId });
   }
   if (entry.agent === "copilot") {
     if (!entry.threadId) return { ok: false, error: "copilot recovery handle missing" };

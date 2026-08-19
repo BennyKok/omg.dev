@@ -10,6 +10,7 @@ import {
   spawnManagedCodexAisdkSession,
   spawnManagedCopilotSdkSession,
   spawnManagedCursorAcpSession,
+  spawnManagedFxAcpSession,
   spawnManagedGrokAcpSession,
   spawnManagedJcodeSdkSession,
   spawnManagedOpencodeAisdkSession,
@@ -134,6 +135,18 @@ export const ACTIVE_CODING_AGENT_PROVIDERS = {
     })),
   cursor: provider("cursor", (request) =>
     spawnManagedCursorAcpSession({
+      name: request.name,
+      cwd: request.cwd,
+      prompt: request.prompt,
+      model: request.model ?? "auto",
+      key: request.sessionId,
+      omgSessionId: request.sessionId,
+      omgUser: request.omgUser,
+      containInAgentSlice: request.containInAgentSlice,
+      resume: request.resume,
+    })),
+  fx: provider("fx", (request) =>
+    spawnManagedFxAcpSession({
       name: request.name,
       cwd: request.cwd,
       prompt: request.prompt,

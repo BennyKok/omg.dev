@@ -51,6 +51,7 @@ describe("session recovery integration", () => {
       "codex-aisdk",
       "copilot",
       "cursor",
+      "fx",
       "grok",
       "jcode",
       "opencode",
