@@ -265,6 +265,60 @@ function upsertOmgUIMessage(current: OmgChatMessage[], incoming: OmgChatMessage)
   return out;
 }
 
+function isStreamingAssistantText(message: OmgChatMessage): boolean {
+  return (
+    message.role === "assistant" &&
+    message.parts.some((part) => part.type === "text" && part.state === "streaming")
+  );
+}
+
+/**
+ * Merge a freshly-fetched history page (the authoritative persisted read
+ * model) with whatever the chat's local state already holds, on session
+ * mount / re-entry.
+ *
+ * `current` can hold a streaming-draft assistant bubble left over from an
+ * earlier visit to this same session id (useChat's state is keyed by id and
+ * survives navigating away and back — see SessionChat). Normally that draft
+ * is cleared the instant the turn's real "message" event arrives, via
+ * upsertOmgUIMessage's own drop-stale-draft rule below. But if the app was
+ * backgrounded (or the live subscription otherwise missed a beat) while the
+ * turn finished, that clearing event never reached this client, so the stale
+ * draft is still sitting in `current` when this history page lands — and the
+ * page's `history` now contains the SAME turn, fully finalized, under its own
+ * real id. Without this drop, both rendered: the finalized bubble from
+ * `history` and the untouched streaming duplicate from `current`, back to
+ * back, with identical text — this was bug 1's actual cause on iPad, where
+ * Safari suspends a backgrounded tab's JS mid-turn.
+ *
+ * Dropping every local streaming draft here (not just ones matched to a
+ * specific history row) mirrors upsertOmgUIMessage's own rule and is safe:
+ * if a turn is still genuinely in progress, the live subscription's next
+ * `ai_part` delta recreates the draft within moments — a brief gap beats a
+ * permanent duplicate.
+ */
+export function mergeHistoryPage(
+  current: OmgChatMessage[],
+  history: OmgChatMessage[],
+  olderKept: OmgChatMessage[],
+  cachedIds: Set<string>,
+): OmgChatMessage[] {
+  const historyIds = new Set(history.map((message) => message.id));
+  const keptIds = new Set(olderKept.map((message) => message.id));
+  // Messages that landed live while this fetch was in flight and aren't in
+  // the page yet — they're newest, so they belong at the end. A stale
+  // streaming draft is never "newest": either its turn is already reflected
+  // in `history` (duplicate) or the live subscription will repaint it.
+  const liveOnly = current.filter(
+    (message) =>
+      !historyIds.has(message.id) &&
+      !keptIds.has(message.id) &&
+      !isStreamingAssistantText(message),
+  );
+  const trailing = liveOnly.filter((message) => !cachedIds.has(message.id));
+  return [...olderKept, ...history, ...trailing];
+}
+
 function omgQueueReconcileRow(message: OmgChatMessage): QueueReconcileMessage {
   return { id: message.id, role: message.role, ...message.metadata?.omgMessage };
 }

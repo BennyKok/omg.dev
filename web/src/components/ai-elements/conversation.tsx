@@ -23,7 +23,13 @@ Conversation.displayName = "Conversation";
 export type ConversationContentProps = ComponentProps<"div">;
 
 export function ConversationContent({ className, ...props }: ConversationContentProps) {
-  return <div className={cn("flex flex-col gap-3", className)} {...props} />;
+  // Tight base gap between every row. The visible breathing room between a
+  // speaker change and a same-speaker follow-up comes from each row's own
+  // top margin (see the chat-render loop's speaker-change spacing), not from
+  // this container gap — a flat gap-3 here made every row equally far apart
+  // regardless of who was talking, which read as mostly empty screen on a
+  // tall/narrow viewport like an iPad.
+  return <div className={cn("flex flex-col gap-1", className)} {...props} />;
 }
 
 export type ConversationEmptyStateProps = ComponentProps<"div"> & {

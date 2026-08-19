@@ -124,6 +124,7 @@ import {
   OmgChatStreamOwnership,
   OmgChatTransport,
   appendOmgTranscriptEvent,
+  mergeHistoryPage,
   omgMessagesToUIMessages,
   omgUIMessagesToMessages,
   type OmgChatMessage,
@@ -263,7 +264,12 @@ import { useProjectListPrefs, setProjectListPrefs } from "@/lib/project-list-pre
 import { useSendMorph } from "@/lib/use-send-morph";
 import { reportError } from "./lib/report-error";
 import { lazyWithReload } from "./lib/lazy-with-reload";
-import { buildChatRenderItems, splitQueuedRenderItems, toolGroupLabel } from "./lib/chat-render-items";
+import {
+  buildChatRenderItems,
+  splitQueuedRenderItems,
+  toolGroupLabel,
+  type ChatRenderItem,
+} from "./lib/chat-render-items";
 import {
   parseMessageAttachments,
   type MessageAttachment,
@@ -2532,6 +2538,14 @@ function autoAgentProject(agent: AutoAgent, repos: Repo[]): string {
 
 function sessionReference(sessionId: string): string {
   return `LFG session reference: ${sessionId}`;
+}
+
+// Which "speaker" a chat row reads as, for grouping consecutive same-speaker
+// rows closer together than a change of speaker (see the transcript render
+// loop). Tool calls/results and any non-user message all read as the
+// assistant talking, same as MessageBubble's own user/assistant split.
+function chatRenderItemSpeaker(item: ChatRenderItem<Message>): "user" | "assistant" {
+  return item.type === "msg" && item.message.role === "user" ? "user" : "assistant";
 }
 
 // The most recent activity condensed to one line — used as the collapsed-card
@@ -13722,17 +13736,10 @@ function SessionChatBody({
               Math.max(0, cached.messages.findIndex((message) => historyIds.has(message.id))),
             )
           : [];
-        const keptIds = new Set(olderKept.map((message) => message.id));
         let settled: OmgChatMessage[] = history;
         setMessages((current) => {
-          // Messages that landed live while this fetch was in flight and aren't
-          // in the page yet — they're newest, so they belong at the end.
-          const liveOnly = current.filter(
-            (message) => !historyIds.has(message.id) && !keptIds.has(message.id),
-          );
           const cachedIds = new Set(cached?.messages.map((message) => message.id) ?? []);
-          const trailing = liveOnly.filter((message) => !cachedIds.has(message.id));
-          return (settled = [...olderKept, ...history, ...trailing]);
+          return (settled = mergeHistoryPage(current, history, olderKept, cachedIds));
         });
         // Keep the deeper cursor when we preserved paged-in history above.
         const settledBefore = olderKept.length
@@ -16364,24 +16371,29 @@ const ChatStream = memo(function ChatStream({
               Loading older messages
             </div>
           ) : null}
-          {items.map((item, index) =>
-            item.type === "tools" ? (
-              <ToolGroup
-                key={item.key}
-                items={item.items}
-                live={busy && index === items.length - 1}
-              />
-            ) : (
-              <MessageBubble
-                key={item.key}
-                message={item.message}
-                live={busy && index === items.length - 1}
-                entering={!!item.message.id && enteringIdsRef.current.has(item.message.id)}
-                onRetryQueued={onRetryQueued}
-                bot={bot}
-              />
-            ),
-          )}
+          {items.map((item, index) => {
+            // A speaker change gets visible breathing room; a same-speaker
+            // follow-up sits close to the turn before it, the way a real chat
+            // reads. ConversationContent's own gap is the tight same-speaker
+            // baseline — this only adds the extra space on top of it.
+            const speakerChanged =
+              index > 0 && chatRenderItemSpeaker(items[index - 1]) !== chatRenderItemSpeaker(item);
+            return (
+              <div key={item.key} className={speakerChanged ? "pt-2.5" : undefined}>
+                {item.type === "tools" ? (
+                  <ToolGroup items={item.items} live={busy && index === items.length - 1} />
+                ) : (
+                  <MessageBubble
+                    message={item.message}
+                    live={busy && index === items.length - 1}
+                    entering={!!item.message.id && enteringIdsRef.current.has(item.message.id)}
+                    onRetryQueued={onRetryQueued}
+                    bot={bot}
+                  />
+                )}
+              </div>
+            );
+          })}
           <TypingIndicator visible={showTypingIndicator} bot={bot} />
           {/* Pinned below the working indicator: what the agent is doing now,
               then what it will read next. */}
@@ -17390,20 +17402,25 @@ function MessageBubble({
     <MessageActions text={message.text || ""} isUser={false}>
         {/* Assistant turns render markdown from the raw source via Streamdown,
             which tolerates half-finished markdown mid-stream (no html injection). */}
-        {/* max-w-full, not MessageContent's default 92%: the cap already lives
-            on MessageActions, whose content div is content-sized (flex-col +
-            items-start). A second 92% here resolves against that shrink-to-fit
-            width, i.e. 92% of the text's own max-content width, so any reply
-            that would fit on one line gets its last word pushed onto a second
-            line ("Hi Benny!" wraps to "Hi" / "Benny!"). Long replies hit the
-            available width first and hid this until bots started replying in
-            one-liners. */}
+        {/* max-w-full, not MessageContent's default 92% (or a second, tighter
+            percentage for the bot bubble): the cap already lives on
+            MessageActions, whose content div is content-sized (flex-col +
+            items-start). A second percentage here resolves against that
+            shrink-to-fit width, i.e. N% of the text's own max-content width,
+            so any reply that would fit on one line gets pushed onto a second
+            line — "Hi Benny!" wrapped to "Hi" / "Benny!", and a single short
+            word like "Waiting." wrapped mid-word ("Waiti" / "ng."). Long
+            replies hit the available width first and hid this until bots
+            started replying in one-liners. A bot bubble still reads narrower
+            than a full-width row because MessageActions already caps
+            non-user turns at 92% — this doesn't need its own tighter cap on
+            top of that one. */}
       <MessageContent
         className={cn(
           "max-w-full",
           // The card row shell every surface in the app uses, with a taller
           // corner so it reads as a chat bubble rather than a list row.
-          botBubble && "max-w-[84%] rounded-[18px] border border-border bg-card px-3.5 py-2.5 text-[14.5px] leading-[1.55]",
+          botBubble && "rounded-[18px] border border-border bg-card px-3.5 py-2.5 text-[14.5px] leading-[1.55]",
         )}
       >
         {message.text ? (

@@ -40,7 +40,18 @@ export function MessageContent({ className, ...props }: MessageContentProps) {
         // Default cap for assistant content that is a direct Message child.
         // User turns cap width on MessageActions instead (so the percentage
         // resolves against Message's definite width and stays right-aligned).
-        "min-w-0 max-w-[92%] text-sm leading-relaxed",
+        //
+        // min-w-0 (not min-w-auto, the flex-item default) is needed so long
+        // unbroken text can still shrink to the max-width cap above — without
+        // it a min-content-sized item can refuse to shrink below one long
+        // word. A small min-width floor guards the other direction: a caller
+        // that ends up shrink-constrained for any reason (a stacked
+        // percentage max-width resolving against an unexpectedly narrow
+        // ancestor is the shape that hit bot chat — see MessageBubble's
+        // bot-bubble className comment for the actual "Waiting." -> "Waiti" /
+        // "ng." bug) shouldn't be able to squeeze a bubble narrower than a
+        // single short word can fit in.
+        "min-w-[3.5rem] max-w-[92%] text-sm leading-relaxed",
         className,
       )}
       {...props}
