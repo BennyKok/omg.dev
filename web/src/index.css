@@ -682,9 +682,14 @@ html.lfg-keyboard-open {
     opacity: 0;
   }
 
-  .group\/message:hover .message-copy-button,
   .group\/message:focus-within .message-copy-button {
     opacity: 1;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .group\/message:hover .message-copy-button {
+      opacity: 1;
+    }
   }
 
   @media (pointer: coarse) {

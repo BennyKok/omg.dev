@@ -34,6 +34,7 @@ import {
 } from "./lib/omg-client";
 import { cacheProjectFilter, readCachedProjectFilter } from "./lib/project-filter";
 import {
+  MOBILE_BOT_ROSTER_ROW_CLASS,
   mobileSurfaceToggleActive,
   shouldShowInlineBotsSurfaceToggle,
   shouldShowMobileSurfaceToggle,
@@ -24385,7 +24386,7 @@ function BotsView({
             key={item.id}
             type="button"
             onClick={() => onOpen(item.id)}
-            className="flex w-full items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5 text-left transition-colors hover:border-foreground/20"
+            className={MOBILE_BOT_ROSTER_ROW_CLASS}
           >
             <BotAvatar bot={item} working={working} size={44} />
             <span className="flex min-w-0 flex-1 flex-col">

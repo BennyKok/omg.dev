@@ -1,9 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import {
+  MOBILE_BOT_ROSTER_ROW_CLASS,
   mobileSurfaceToggleActive,
   shouldShowInlineBotsSurfaceToggle,
   shouldShowMobileSurfaceToggle,
 } from "./mobile-bots-nav";
+
+test("the mobile bot roster uses a flat rail-style row", () => {
+  expect(MOBILE_BOT_ROSTER_ROW_CLASS).toContain("hover:bg-muted");
+  expect(MOBILE_BOT_ROSTER_ROW_CLASS).not.toContain("border-border");
+  expect(MOBILE_BOT_ROSTER_ROW_CLASS).not.toContain("bg-card");
+});
 
 describe("shouldShowMobileSurfaceToggle", () => {
   test("shows on the Live tab at mobile widths", () => {
