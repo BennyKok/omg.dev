@@ -76,6 +76,7 @@ import {
   type BotColorway,
   type BotShape,
 } from "../bots/store.ts";
+import { botConversationRef, findBotMainSession } from "../bots/session.ts";
 import {
   BOT_SELF_CREATE_FIELDS,
   BOT_SELF_UPDATE_FIELDS,
@@ -2276,11 +2277,15 @@ async function ensureBotSession(
   firstMessage?: string,
 ): Promise<{ session: Session; delivered: boolean } | Response> {
   const sessions = await listSessions();
-  const live = sessions.find((session) =>
-    session.botId === bot.id ||
-    (bot.sessionId && (session.sessionId === bot.sessionId || session.nativeSessionId === bot.sessionId))
-  );
-  if (live) return { session: live, delivered: false };
+  const live = findBotMainSession(bot, sessions);
+  if (live) {
+    // Heal a record an older broad `botId` match rebound to a delegated child,
+    // so the corrupt id stops being handed to the next reader.
+    if (live.sessionId && live.sessionId !== bot.sessionId) {
+      await updateBot(bot.id, { sessionId: live.sessionId });
+    }
+    return { session: live, delivered: false };
+  }
 
   const config = validateBotAgent(bot.agent, bot.model, bot.thinkingLevel);
   if ("error" in config) return err(400, config.error);
@@ -2321,7 +2326,11 @@ async function ensureBotSession(
     // turns append to the history that is already there — no change to the
     // transcript API, the live socket, or the client, because none of them ever
     // cared which process produced a turn.
-    const sessionId = botConversationId(bot, () => crypto.randomUUID());
+    // botConversationRef repairs a saved id that names one of this bot's own
+    // subagents, recovering the conversation the human has actually been
+    // talking to instead of resuming a delegated task's thread.
+    const conversation = botConversationRef(bot, sessions);
+    const sessionId = botConversationId(conversation, () => crypto.randomUUID());
     // aisdk decides resume-vs-fresh by asking the index itself
     // (sessionHasIndexedMessages, aisdk-session.ts), so reusing the id restores
     // the model's own thread too and a summary would only repeat what it can
@@ -2336,8 +2345,11 @@ async function ensureBotSession(
         ensureConversationVisibleFrom(repo.cwd, sessionId);
       } catch {}
     }
-    const continuity = !resumesOwnThread && bot.sessionId
-      ? await botContinuitySummary(bot.sessionId)
+    // Summarize the repaired conversation, never the corrupt id: a bot rebound
+    // to its own subagent would otherwise be reintroduced to that task's
+    // transcript as if it were its own history.
+    const continuity = !resumesOwnThread && conversation.sessionId
+      ? await botContinuitySummary(conversation.sessionId)
       : null;
     const prompt = [
       botRuntimeContract(bot.name, bot.persona, {
@@ -3839,12 +3851,10 @@ a{color:#60a5fa}
             try {
               let target = reservedTarget;
               if (target.runtimeRefreshPending) {
-                const live = sessions.find((session) =>
-                  session.botId === target.id ||
-                  (target.sessionId && (
-                    session.sessionId === target.sessionId || session.nativeSessionId === target.sessionId
-                  ))
-                );
+                // Only the bot's own conversation may be closed for a profile
+                // refresh. A delegated child matches on inherited `botId` and
+                // would be killed mid-task.
+                const live = findBotMainSession(target, sessions);
                 if (botRuntimeRefreshDecision(target, live) === "wait") {
                   throw new BotPeerMessageError(
                     409,
@@ -4120,10 +4130,9 @@ a{color:#60a5fa}
           if (bot.runtimeRefreshPending) {
             const pendingBot = bot;
             const sessions = await listSessions();
-            const live = sessions.find((session) =>
-              session.botId === pendingBot.id ||
-              (pendingBot.sessionId && (session.sessionId === pendingBot.sessionId || session.nativeSessionId === pendingBot.sessionId))
-            );
+            // The bot's own conversation only — a delegated child inherits
+            // `botId` and must not be closed to apply a profile change.
+            const live = findBotMainSession(pendingBot, sessions);
             // Never kill or rewrite the prompt of the turn that requested the
             // update. A client that races the next message retries once that
             // turn settles, and the message is never run under stale rules.

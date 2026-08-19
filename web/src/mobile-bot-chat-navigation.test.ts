@@ -23,4 +23,16 @@ describe("mobile bot chat navigation", () => {
   test("keeps Chat active and returns to the Bots roster", () => {
     expect(BOTS_VIEW).toMatch(/const mobileNavigation[\s\S]*?active="sessions"[\s\S]*?onOpenBots=\{onBack\}/);
   });
+
+  // The mobile chat is a full-screen portal over the app shell, so the shell's
+  // own back affordance is not reachable. Without this control the bot chat had
+  // no exit at all.
+  test("gives the full-screen mobile chat its own way back to the roster", () => {
+    const portal = BOTS_VIEW.slice(
+      BOTS_VIEW.indexOf("if (isMobile) {"),
+      BOTS_VIEW.indexOf("document.body,"),
+    );
+    expect(portal).toContain('aria-label="Back to bots"');
+    expect(portal).toMatch(/onClick=\{onBack\}[\s\S]*?aria-label="Back to bots"/);
+  });
 });
