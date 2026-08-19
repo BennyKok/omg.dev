@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   MOBILE_BOT_ROSTER_ROW_CLASS,
+  mobileSurfaceDockBottom,
   mobileSurfaceToggleActive,
+  shouldShowBotsInSessionList,
   shouldShowInlineBotsSurfaceToggle,
   shouldShowMobileSurfaceToggle,
 } from "./mobile-bots-nav";
@@ -48,12 +50,32 @@ describe("mobileSurfaceToggleActive", () => {
   });
 });
 
+describe("shouldShowBotsInSessionList", () => {
+  test("keeps bot families out of mobile Chat", () => {
+    expect(shouldShowBotsInSessionList(true)).toBe(false);
+  });
+
+  test("preserves the desktop rail grouping", () => {
+    expect(shouldShowBotsInSessionList(false)).toBe(true);
+  });
+});
+
+describe("mobileSurfaceDockBottom", () => {
+  test("sits above the Live composer", () => {
+    expect(mobileSurfaceDockBottom(true)).toContain("--lfg-inline-composer-height");
+  });
+
+  test("uses the safe-area edge on the Bots roster", () => {
+    expect(mobileSurfaceDockBottom(false)).toBe("var(--lfg-safe-bottom)");
+  });
+});
+
 describe("shouldShowInlineBotsSurfaceToggle", () => {
-  test("hidden at real mobile widths (persistent header toggle covers it)", () => {
+  test("hidden at real mobile widths (persistent bottom toggle covers it)", () => {
     expect(shouldShowInlineBotsSurfaceToggle(true)).toBe(false);
   });
 
-  test("shown in the tablet band, where there is no persistent header toggle", () => {
+  test("shown in the tablet band, where there is no persistent bottom toggle", () => {
     expect(shouldShowInlineBotsSurfaceToggle(false)).toBe(true);
   });
 });

@@ -35,10 +35,13 @@ import {
 import { cacheProjectFilter, readCachedProjectFilter } from "./lib/project-filter";
 import {
   MOBILE_BOT_ROSTER_ROW_CLASS,
+  mobileSurfaceDockBottom,
   mobileSurfaceToggleActive,
+  shouldShowBotsInSessionList,
   shouldShowInlineBotsSurfaceToggle,
   shouldShowMobileSurfaceToggle,
 } from "./lib/mobile-bots-nav";
+import { findBotMainSession } from "./lib/bot-session";
 import { resolveRosterUser } from "./lib/roster-user";
 import {
   botVisibleUserText as botVisibleUserTextFor,
@@ -7750,7 +7753,9 @@ export function App() {
   // clear the composer. The visual fade overlays the scroll surface and must
   // not also become blank layout space.
   const mainBottomPadding = mobileComposerVisible
-    ? "pb-[var(--lfg-inline-composer-height,var(--lfg-composer-clear))] [scroll-padding-bottom:var(--lfg-inline-composer-height,var(--lfg-composer-clear))]"
+    ? "pb-[calc(var(--lfg-inline-composer-height,var(--lfg-composer-clear))+var(--lfg-mobile-surface-dock-height))] [scroll-padding-bottom:calc(var(--lfg-inline-composer-height,var(--lfg-composer-clear))+var(--lfg-mobile-surface-dock-height))]"
+    : isMobile && tab === "bots"
+      ? "pb-[calc(var(--lfg-mobile-surface-dock-height)+var(--lfg-device-safe-bottom))] [scroll-padding-bottom:calc(var(--lfg-mobile-surface-dock-height)+var(--lfg-device-safe-bottom))]"
     : tab === "live"
       ? keyboardOpen
         ? "pb-[calc(var(--lfg-inline-composer-height,var(--lfg-composer-clear))+0.75rem)] md:pb-3"
@@ -8058,28 +8063,6 @@ export function App() {
       </header>
       )}
 
-      {/* Bots as a top-level page alongside Chat: a direct Chat/Bot toggle in
-          the pinned mobile chrome, mirroring the desktop rail's SurfaceToggle
-          instead of leaving Bots reachable only through the PagesMenu
-          overflow. Lower-frequency pages (Notifications, Artifacts, Settings)
-          stay in that overflow — this adds one control, not a second nav
-          model. Sits below whichever header variant rendered above so it
-          stays pinned (not scrolled away) on both Live and Bots. */}
-      {shouldShowMobileSurfaceToggle(isMobile, tab) ? (
-        <div
-          className={cn(
-            "shrink-0 pb-2",
-            embedded ? "pl-3 pr-[calc(0.75rem+var(--lfg-host-top-inset))]" : "px-2",
-          )}
-        >
-          <SurfaceToggle
-            active={mobileSurfaceToggleActive(tab)}
-            onOpenSessions={() => setTab("live")}
-            onOpenBots={() => setTab("bots")}
-          />
-        </div>
-      ) : null}
-
       {embedded ? null : <PwaInstallCallout />}
 
       {error ? (
@@ -8373,6 +8356,15 @@ export function App() {
         ) : null}
         </>}
       </main>
+
+      {shouldShowMobileSurfaceToggle(isMobile, tab) ? (
+        <MobileSurfaceDock
+          active={mobileSurfaceToggleActive(tab)}
+          aboveComposer={mobileComposerVisible}
+          onOpenSessions={() => setTab("live")}
+          onOpenBots={() => setTab("bots")}
+        />
+      ) : null}
 
       {!bare ? (
         <>
@@ -10568,6 +10560,7 @@ function LiveView({
   focus?: { sid: string; n: number } | null;
 }) {
   const isWide = useIsWide();
+  const isMobile = useIsMobile();
   const recentShipped = useRecentShippedSessions(
     projectFilter,
     !!onOpenRecentShipped,
@@ -10656,13 +10649,19 @@ function LiveView({
   const pinnedSet = new Set(topPinned);
   const nodeContainsPin = (node: SessionTreeNode): boolean =>
     pinnedSet.has(sessionStableId(node.session)) || node.children.some(nodeContainsPin);
-  const pinnedNodes = tree.roots.filter(nodeContainsPin);
+  const nodeIsBot = (node: SessionTreeNode): boolean => !!node.session.botId;
+  // Mobile has a dedicated Bots surface. Keep bot-owned families out of Chat,
+  // even when a bot session or one of its delegated children was pinned.
+  const pinnedNodes = tree.roots.filter(
+    (node) => nodeContainsPin(node) && (!isMobile || !nodeIsBot(node)),
+  );
   // Remaining roots keep the familiar working → idle grouping. A parent is
   // considered working if any child is working.
   // Bots are their own category here too — see the rail's note: a bot you have
   // not spoken to in a week is not "idle" the way a finished session is.
-  const nodeIsBot = (node: SessionTreeNode): boolean => !!node.session.botId;
-  const botNodes = tree.roots.filter((node) => !nodeContainsPin(node) && nodeIsBot(node));
+  const botNodes = shouldShowBotsInSessionList(isMobile)
+    ? tree.roots.filter((node) => !nodeContainsPin(node) && nodeIsBot(node))
+    : [];
   const workingNodes = tree.roots.filter(
     (node) => !nodeContainsPin(node) && !nodeIsBot(node) && tree.effectiveBusy(node),
   );
@@ -10674,8 +10673,8 @@ function LiveView({
   const working = tree.flatten(workingNodes);
   const idle = tree.flatten(idleNodes);
 
-  // On-screen order: pinned, bots, then working, then idle. Drives both sheet
-  // navigation and which transcripts we warm ahead of the user opening them.
+  // On-screen order: pinned, bots, then working, then idle. Mobile's bot list
+  // is empty by design because Bots owns those persistent conversations.
   const screenOrder = [...pinned, ...botSessions, ...working, ...idle]
     .map((s) => s.sessionId)
     .filter((id): id is string => !!id);
@@ -10692,7 +10691,10 @@ function LiveView({
   // live list empties and refills.
   if (
     !isWide &&
-    !sessions.length &&
+    !pinned.length &&
+    !botSessions.length &&
+    !working.length &&
+    !idle.length &&
     !findings.length &&
     !shippedReview &&
     !recentShipped.length
@@ -11435,10 +11437,7 @@ function RailStage({
   const botsBySid = useMemo(() => {
     const map = new Map<string, PersistentBot>();
     for (const bot of bots) {
-      const backing = sessions.find(
-        (session) =>
-          session.botId === bot.id || (!!bot.sessionId && session.sessionId === bot.sessionId),
-      );
+      const backing = findBotMainSession(bot, sessions);
       const sid = backing?.sessionId ?? bot.sessionId ?? null;
       if (sid) map.set(sid, bot);
     }
@@ -24018,25 +24017,61 @@ function SurfaceToggle({
   active,
   onOpenSessions,
   onOpenBots,
+  compact = false,
 }: {
   active: "sessions" | "chat";
   onOpenSessions: () => void;
   onOpenBots: () => void;
+  compact?: boolean;
 }) {
   // This is the one segmented-toggle component both the desktop rail header
   // (RailStage, isWide-only) and the mobile Chat/Bots header render — one
   // navigation idiom, two mount points, instead of a second control. It used
   // to hard-hide at mobile widths (docs/design/bot-mode/spec.md §2.1 predates
   // the mobile primary-nav toggle); callers now decide where it mounts.
+  const barRef = useRef<HTMLDivElement>(null);
+  const pillRef = useRef<HTMLSpanElement>(null);
+  const initializedRef = useRef(false);
+  const movePill = useCallback((animate: boolean) => {
+    const bar = barRef.current;
+    const pill = pillRef.current;
+    const tab = bar?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    if (!bar || !pill || !tab) return;
+    const previousTransition = pill.style.transition;
+    if (!animate) pill.style.transition = "none";
+    pill.style.transform = `translateX(${tab.offsetLeft}px)`;
+    pill.style.width = `${tab.offsetWidth}px`;
+    if (!animate) {
+      void pill.offsetWidth;
+      pill.style.transition = previousTransition;
+    }
+  }, []);
+  useLayoutEffect(() => {
+    movePill(initializedRef.current);
+    initializedRef.current = true;
+  }, [active, movePill]);
+  useEffect(() => {
+    const sync = () => movePill(false);
+    window.addEventListener("resize", sync);
+    return () => window.removeEventListener("resize", sync);
+  }, [movePill]);
+
   return (
     <div
-      className="flex gap-0.5 rounded-full bg-muted p-[3px]"
+      ref={barRef}
+      className={cn(
+        "t-tabs lfg-surface-toggle",
+        compact
+          ? "lfg-surface-toggle--dock w-[13rem] max-w-[calc(100vw-2rem)]"
+          : "w-full",
+      )}
       role="tablist"
       aria-label="Switch surface"
     >
+      <span ref={pillRef} className="t-tabs-pill" aria-hidden="true" />
       {([
         ["sessions", "Chat", onOpenSessions],
-        ["chat", "Bot", onOpenBots],
+        ["chat", "Bots", onOpenBots],
       ] as const).map(([value, label, onClick]) => (
         <button
           key={value}
@@ -24044,16 +24079,40 @@ function SurfaceToggle({
           role="tab"
           aria-selected={active === value}
           onClick={onClick}
-          className={cn(
-            "flex h-[26px] flex-1 items-center justify-center rounded-full px-3 text-xs font-semibold transition-[background-color,color,box-shadow] duration-150",
-            active === value
-              ? "bg-card text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground",
-          )}
+          className="t-tab flex flex-1 items-center justify-center gap-1.5 text-xs font-semibold"
         >
+          {compact ? (
+            value === "sessions" ? <MessageSquare className="size-3.5" /> : <Bot className="size-3.5" />
+          ) : null}
           {label}
         </button>
       ))}
+    </div>
+  );
+}
+
+function MobileSurfaceDock({
+  active,
+  aboveComposer,
+  onOpenSessions,
+  onOpenBots,
+}: {
+  active: "sessions" | "chat";
+  aboveComposer: boolean;
+  onOpenSessions: () => void;
+  onOpenBots: () => void;
+}) {
+  return (
+    <div
+      className="pointer-events-none fixed inset-x-0 z-[56] flex justify-center px-4 pb-2"
+      style={{ bottom: mobileSurfaceDockBottom(aboveComposer) }}
+    >
+      <SurfaceToggle
+        compact
+        active={active}
+        onOpenSessions={onOpenSessions}
+        onOpenBots={onOpenBots}
+      />
     </div>
   );
 }
@@ -24344,9 +24403,7 @@ function BotsView({
   }, [bot, isMobile]);
 
   if (bot) {
-    const backingSession = sessions.find(
-      (session) => session.botId === bot.id || (!!bot.sessionId && session.sessionId === bot.sessionId),
-    );
+    const backingSession = findBotMainSession(bot, sessions);
     const sid = backingSession?.sessionId ?? bot.sessionId ?? null;
     const session: Session | null = sid
       ? backingSession ?? {
@@ -24495,9 +24552,7 @@ function BotsView({
         <span className="truncate">New bot</span>
       </button>
       {bots.length ? bots.map((item) => {
-        const session = sessions.find(
-          (candidate) => candidate.botId === item.id || (!!item.sessionId && candidate.sessionId === item.sessionId),
-        );
+        const session = findBotMainSession(item, sessions);
         const working = !!(session?.sessionId && busyBySid[session.sessionId]);
         const rawPreview = session?.last?.text || session?.lastUserText || item.lastMessagePreview || "";
         // See the rail roster: a `[subagent …]` report is not preview material.
