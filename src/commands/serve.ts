@@ -1929,15 +1929,22 @@ function childSubagentDepth(parent: ParentableSession, sessions: ParentableSessi
   return depth;
 }
 
-function withOmgSubagentContract(
+export function withOmgSubagentContract(
   prompt: string | undefined,
   opts: { parentSessionId?: string; depth?: number | null },
 ): string {
   const depthText = opts.depth ? ` Current child depth: ${opts.depth}/${MAX_LFG_SUBAGENT_DEPTH}.` : "";
-  // Short (8-char) id: LFG's MCP layer resolves any unambiguous id prefix back
-  // to the full session id, so the child never needs the whole uuid.
+  // Short (8-char) id: the MCP layer resolves any unambiguous id prefix back to
+  // the full session id, so the child never needs the whole uuid.
+  //
+  // The tool names here are the `omg_*` ones the server actually registers. They
+  // used to be spelled `lfg_*`: inbound calls under that name are still aliased
+  // at the wire (rewriteLegacyToolCall), but a name that appears in no tool
+  // catalog is not something a model can call — it has to guess the real one
+  // first. Naming an unlisted tool in the one instruction that carries a child's
+  // result home is how background work reports nothing and looks like silence.
   const parentLine = opts.parentSessionId
-    ? `- Parent session id: ${shortSessionId(opts.parentSessionId)}. Send progress and terminal-state updates there with MCP tool \`lfg_send_session_message\`.`
+    ? `- Parent session id: ${shortSessionId(opts.parentSessionId)}. Send progress and terminal-state updates there with MCP tool \`omg_send_session_message\`.`
     : "- No parent session id was supplied. If one becomes available, send progress and terminal-state updates there.";
   const reportLines = opts.parentSessionId
     ? [
@@ -1950,7 +1957,7 @@ function withOmgSubagentContract(
   return [
     "=== LFG SUBAGENT OPERATING CONTRACT ===",
     "- You are an LFG-managed subagent.",
-    "- For any further delegation, use LFG MCP tools (`lfg_create_subagent` or `lfg_delegate_*`) instead of generic or harness-native subagent/delegation tools.",
+    "- For any further delegation, use the omg.dev MCP tools (`omg_create_subagent` or `omg_delegate_*`) instead of generic or harness-native subagent/delegation tools.",
     `- Nested LFG subagents are allowed only through depth ${MAX_LFG_SUBAGENT_DEPTH}.${depthText} Do not create another child if it would exceed this limit.`,
     parentLine,
     ...reportLines,
@@ -2290,6 +2297,40 @@ async function ensureBotSession(
   } finally {
     gate.release();
   }
+}
+
+/**
+ * A background task session reporting home to a bot whose session is gone.
+ *
+ * Heavy work is supposed to leave the conversation: the bot spawns a task
+ * session and ends its turn. That session can easily outlive the harness
+ * process behind the chat — a bot idles between turns, and the box reboots,
+ * reclaims memory, or the harness dies. The report then arrived at /send,
+ * found no live session, and was dropped on a 404. The work was done and the
+ * human never heard about it; the child was also left running, because the
+ * auto-close that follows a terminal report only runs on a successful send.
+ *
+ * A bot is exactly the kind of target that is *supposed* to come back, and the
+ * machinery to relaunch it already exists — it is what the next human message
+ * would have done. So do it here too, and let the report ride in on the launch
+ * prompt the way a first message does.
+ *
+ * Only for agent-authored sends (the caller passes `fromSessionId`): a human
+ * posting to a dead session id should still get the 404 that tells them so.
+ */
+async function reviveBotSessionForReport(
+  targetSessionId: string,
+  text: string,
+): Promise<{ session: Session; delivered: boolean } | null> {
+  const bot = (await listBots()).find((candidate) => candidate.sessionId === targetSessionId);
+  if (!bot?.enabled) return null;
+  const ensured = await ensureBotSession(bot, text);
+  if (ensured instanceof Response) return null;
+  await updateBot(bot.id, {
+    sessionId: ensured.session.sessionId ?? bot.sessionId,
+    lastMessageAt: Date.now(),
+  });
+  return ensured;
 }
 
 function liveSessionIds(sessions: Session[]): Set<string> {
@@ -6174,16 +6215,30 @@ a{color:#60a5fa}
           const text = body?.text?.trim();
           if (!text) return err(400, "expected { text }");
           const sessions = await listSessionsCached();
-          const sess = sessions.find(
+          let sess = sessions.find(
             (s) => s.sessionId === m[1] || s.nativeSessionId === m[1],
           );
+          // A background child outliving its bot used to end here, with the
+          // report dropped on a 404 — see reviveBotSessionForReport.
+          let deliveredOnLaunch = false;
+          if (!sess && body?.fromSessionId) {
+            const revived = await reviveBotSessionForReport(m[1], text);
+            if (revived) {
+              sess = revived.session;
+              deliveredOnLaunch = revived.delivered;
+            }
+          }
           if (!sess) return err(404, "session not found");
-          const mode = agentUpdateSendMode(body?.mode, {
-            fromSessionId: body?.fromSessionId,
-            targetPersistent: sess.persistent,
-          });
-          const sent = sendPromptToLiveSession(sess, text, { mode });
-          if (!sent.ok) return err(409, sent.error || "couldn't send message");
+          let sentMsg: unknown;
+          if (!deliveredOnLaunch) {
+            const mode = agentUpdateSendMode(body?.mode, {
+              fromSessionId: body?.fromSessionId,
+              targetPersistent: sess.persistent,
+            });
+            const sent = sendPromptToLiveSession(sess, text, { mode });
+            if (!sent.ok) return err(409, sent.error || "couldn't send message");
+            sentMsg = sent.msg;
+          }
           // Terminal reports also end the child lifecycle. Once this response
           // has flushed, close the managed child; its transient service reaps
           // browser/helper descendants and frees the next concurrency slot.
@@ -6204,7 +6259,7 @@ a{color:#60a5fa}
               }, 1_500);
             }
           }
-          return json({ ok: true, msg: sent.msg });
+          return json({ ok: true, msg: sentMsg });
         }
       }
 

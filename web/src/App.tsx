@@ -12019,9 +12019,14 @@ function RailStage({
         const busy = !!(sid && busyBySid[sid]);
         const active = selectedBotId === bot.id;
         const rawPreview = session?.last?.text || session?.lastUserText || "";
-        const line = rawPreview
-          ? plainPreviewText(botVisibleUserText(rawPreview, bot))
-          : "Say hi to get started.";
+        // A background task's report is machinery, not conversation: it is
+        // hidden inside the chat, so it must not surface as the roster preview
+        // either — the row would read `[subagent complete] …`.
+        const line = !rawPreview
+          ? "Say hi to get started."
+          : isSubagentUpdateText(rawPreview)
+            ? "Background task reported in"
+            : plainPreviewText(botVisibleUserText(rawPreview, bot));
         return (
           <button
             key={bot.id}
@@ -24212,9 +24217,12 @@ function BotsView({
         );
         const working = !!(session?.sessionId && busyBySid[session.sessionId]);
         const rawPreview = session?.last?.text || session?.lastUserText || "";
-        const preview = rawPreview
-          ? plainPreviewText(botVisibleUserText(rawPreview, item))
-          : "Say hi to get started.";
+        // See the rail roster: a `[subagent …]` report is not preview material.
+        const preview = !rawPreview
+          ? "Say hi to get started."
+          : isSubagentUpdateText(rawPreview)
+            ? "Background task reported in"
+            : plainPreviewText(botVisibleUserText(rawPreview, item));
         return (
           <button
             key={item.id}
