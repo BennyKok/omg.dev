@@ -9,6 +9,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  botChatSessionId,
   botConversationRef,
   findBotMainSession,
   isDelegatedSession,
@@ -116,5 +117,36 @@ describe("botConversationRef", () => {
   test("a bot nobody has talked to yet has no conversation to repair", () => {
     expect(botConversationRef({ id: "bot-1" }, [])).toEqual({});
     expect(botConversationRef({ id: "bot-1", sessionId: "   " }, [])).toEqual({});
+  });
+});
+
+describe("botChatSessionId", () => {
+  test("reads the live conversation when one is running", () => {
+    const conversation = { sessionId: CONVERSATION, botId: "bot-1" };
+
+    expect(botChatSessionId({ id: "bot-1", sessionId: CONVERSATION }, [conversation]))
+      .toBe(CONVERSATION);
+  });
+
+  // The chat used to fall back to the raw saved id, which put the delegated
+  // child back on screen even though findBotMainSession had refused to return
+  // it.
+  test("never renders the delegated child a corrupt record points at", () => {
+    const child = {
+      sessionId: CHILD,
+      botId: "bot-1",
+      parentSessionId: CONVERSATION,
+      spawnedBy: "subagent",
+    };
+
+    expect(botChatSessionId({ id: "bot-1", sessionId: CHILD }, [child])).toBe(CONVERSATION);
+  });
+
+  test("reads the saved conversation while its process is down", () => {
+    expect(botChatSessionId({ id: "bot-1", sessionId: CONVERSATION }, [])).toBe(CONVERSATION);
+  });
+
+  test("has nothing to read for a bot nobody has talked to", () => {
+    expect(botChatSessionId({ id: "bot-1" }, [])).toBeNull();
   });
 });
