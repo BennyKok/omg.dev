@@ -390,6 +390,22 @@ export default function SessionsScreen() {
   const projectPicker = useProjectPicker();
 
   const [sessions, setSessions] = useState<OmgSession[]>([]);
+  /**
+   * HAS SESSIONS HAD ITS TURN YET — see the long note on `SESSIONS_SETTLE_TIMEOUT_MS`
+   * below for what this exists to prevent. Kept as its own flag rather than
+   * derived from `loading`/`sessions.length`, because neither means the right
+   * thing here: `loading` starts false before the first fetch has even been
+   * attempted (indistinguishable from "already resolved"), and an EMPTY
+   * `sessions` result is a fully valid, resolved answer, not an unresolved one.
+   */
+  const [sessionsSettled, setSessionsSettled] = useState(false);
+  // A machine switch invalidates this the same way it invalidates `sessions`
+  // itself (see the load() effect) — the new machine's Auto/Recent rows must
+  // wait their turn behind the new machine's OWN session list, not ride in on
+  // however settled the PREVIOUS machine's flag happened to be.
+  useEffect(() => {
+    setSessionsSettled(false);
+  }, [bindingId]);
   const [loading, setLoading] = useState(false);
   /**
    * ONLY A PULL SPINS THE SPINNER.
@@ -592,10 +608,66 @@ export default function SessionsScreen() {
         if (!quiet) setError(e instanceof Error ? e.message : String(e));
       } finally {
         if (!quiet) setLoading(false);
+        // Resolved — success OR failure, both count. An empty or errored
+        // result is a fully answered question, not an unanswered one; see
+        // `sessionsSettled`'s own doc comment for why this can't be derived
+        // from `loading` or `sessions.length` instead. This line is only
+        // reached once the `!client || !ready` guard above has already been
+        // passed, so a machine that's still waking never marks itself
+        // settled by accident — see the timeout below for what covers a
+        // machine that never finishes waking at all.
+        setSessionsSettled(true);
       }
     },
     [client, ready],
   );
+
+  /**
+   * WHY AUTO/RECENT CAN PAINT BEFORE WORKING/IDLE, AND WHY THAT IS THE BUG.
+   *
+   * `load()` above gates on `ready` — the machine's own wake/probe round
+   * trip has to finish before it even ATTEMPTS `client.listSessions()`.
+   * `useAutoAgents()` and `useResumable()` (both above) gate their own
+   * fetches on nothing but the API client existing — no readiness check —
+   * so on a machine that needs waking, Auto and Recent's requests are
+   * already in flight, and often already answered, while Sessions hasn't
+   * started yet. The result: on the first render where `ready` flips true,
+   * Auto/Recent can already have rows to show while Working/Idle are still
+   * empty — and then Sessions resolves a beat later and mounts a batch of
+   * rows ABOVE Auto, shoving it down mid-settle. list-overlap-watch.tsx
+   * caught this live, twice identically: Idle mounting late while Auto had
+   * already-settled rows re-measuring, not newly mounting ones.
+   *
+   * THE FIX: Auto and Recent do not render their rows until Sessions has
+   * had its own turn — `sessionsSettled`, set above once `load()` resolves
+   * (success OR failure both count; see that flag's doc comment). This
+   * removes the ordering bug directly — nothing above a section can shove
+   * it late if the section waits for everything above it — rather than
+   * papering over its consequences with animation suppression, which
+   * #150 already tried and which did not hold up under real-device
+   * evidence.
+   *
+   * THE TIMEOUT IS WHAT MAKES THIS SAFE. `sessionsSettled` becoming true
+   * depends on `load()` actually running to completion, and `load()`
+   * refuses to run at all while `!ready` — so a machine that never finishes
+   * waking, or a `listSessions()` call that hangs, would leave Auto and
+   * Recent hidden FOREVER without this. `SESSIONS_SETTLE_TIMEOUT_MS` forces
+   * `sessionsSettled` true regardless once it elapses, trading one
+   * old-fashioned reflow (Auto/Recent appearing, then Sessions arriving
+   * even later and pushing them down the ORIGINAL way) for never blocking
+   * indefinitely. 2500ms is a guess, not a measurement, sized as "longer
+   * than a `listSessions()` call should ever reasonably take once the
+   * machine is confirmed awake" — this hook only starts counting once
+   * `ready` is true, so it is not timing the wake itself, only the session
+   * fetch that follows it. Tunable the same way COLD_LOAD_WINDOW_MS was —
+   * list-overlap-watch.tsx would show it if this needs to move.
+   */
+  const SESSIONS_SETTLE_TIMEOUT_MS = 2500;
+  useEffect(() => {
+    if (!ready || sessionsSettled) return;
+    const timer = setTimeout(() => setSessionsSettled(true), SESSIONS_SETTLE_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [ready, sessionsSettled]);
 
   /**
    * TITLES AND SUBTITLES GO STALE WHILE YOU WATCH THEM, so this polls.
@@ -1263,8 +1335,15 @@ export default function SessionsScreen() {
              * Blue, matching the tint the web gives findings ("N open" in
              * `text-primary`) and staying clear of the amber/green/grey the
              * three session sections have already claimed.
+             *
+             * GATED ON `sessionsSettled`, ALONGSIDE `autoRows.length` — see
+             * the long note by that flag's `useEffect` above. Auto's own
+             * data is very often ready before Working/Idle's is (no
+             * readiness gate on its fetch), and rendering it the moment it
+             * arrives is exactly what let it paint, settle, and then get
+             * shoved down when Sessions mounted its own rows late.
              */}
-            {autoRows.length ? (
+            {sessionsSettled && autoRows.length ? (
               <>
                 <SectionHeader label="Auto" count={autoRows.length} dotColor={colors.primary} />
                 <View style={{ gap: space.sm }}>
@@ -1300,8 +1379,11 @@ export default function SessionsScreen() {
              *
              * Tapping one READS it. Resuming costs an agent process and is
              * asked for by sending a message, not by opening a row.
+             *
+             * Same `sessionsSettled` gate as Auto, same reason — `resumable`
+             * has no readiness gate on its own fetch either.
              */}
-            {recent.length ? (
+            {sessionsSettled && recent.length ? (
               <>
                 <SectionHeader label="Recent" count={recent.length} dotColor={colors.textMuted} />
                 <View style={{ gap: space.sm }}>
