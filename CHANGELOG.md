@@ -2,6 +2,16 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - Mobile bot navigation stays in its lane (v0.2.1)
+
+- **Chat and Bots now have separate mobile lists.** Chat shows coding sessions,
+  while Bots shows one persistent row per bot without delegated child tasks.
+- **Opening a bot now always opens its main conversation.** A background task
+  can no longer take the place of the bot's saved thread.
+- **The mobile Chat/Bots switch now sits above the composer.** The compact,
+  labeled control frees header space and keeps both destinations within thumb
+  reach, with a reduced-motion mode for the sliding indicator.
+
 ## August 19, 2026 - Bots can schedule themselves (v0.2.0)
 
 - **A bot can now set up its own recurring check.** Ask it to check something
