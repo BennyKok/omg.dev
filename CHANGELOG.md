@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - Cursor stops asking before every tool (v0.1.409)
+
+- **A Cursor session gets on with the work.** It used to stop and ask you to
+  approve tool calls one at a time, so a session you left running would sit
+  there waiting on a question instead of finishing. Cursor now runs the same
+  way every other agent here already did, and it does it without a terminal
+  pane in the background.
+
 ## August 19, 2026 - Your bot remembers the conversation (v0.1.408)
 
 - **A bot that goes away and comes back still has your chat.** Its history used
