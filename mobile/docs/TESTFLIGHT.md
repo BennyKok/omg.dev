@@ -16,7 +16,7 @@ read off the EAS docs.
 | iOS credentials | distribution certificate + provisioning profile, on EAS |
 | ASC API key | `P37PJ5VSHN`, issuer `8e538491-9c7f-4ddf-88ba-4bf3e4f81fa6`, ADMIN |
 | Latest TestFlight build | `1.0.2 (29)` — submitted, Waiting for Review |
-| EAS Update | live, branch `production`, runtimeVersion policy `appVersion`; last group `fcbc12a9-c7ff-43d6-bda5-8af327a26aba` (2026-08-19, `gitCommitHash 281464e`, `#156`) — see the publish log below |
+| EAS Update | live, branch `production`, runtimeVersion policy `appVersion`; last group `8a51c11f-2a0c-4cdf-ae89-c6ad1028702c` (2026-08-19, `gitCommitHash 96c49da`, `#158`) — see the publish log below |
 
 ## Publish log (`production` channel)
 
@@ -32,6 +32,7 @@ command didn't error."
 | 2026-08-18 | `b6c8a104` | `b5dcde4` (`#149`+`#150`) | List-overlap detector (diagnostic, Benny's account only), cold-load list-motion fix | Cleared: `expo-iap` confirmed guarded (`requireOptionalNativeModule`, no top-level import) and safe on build 24 despite the module being genuinely absent from that binary; `expo-linear-gradient` confirmed already compiled into build 24 pre-dating `#131`. Both verified with `strings` on the actual build-24/26 IPAs, not inferred. Full writeup: `#151`. |
 | 2026-08-18 | `2ddf6471` | `276b1e2` (`#152`+`#153`) | Sign-in submit button alignment (Yoga centring fix) + "omg.dev" branding on the welcome screen; sign-out now redirects to sign-in on every signed-out path (fail-closed, after confirmed server-side revocation — see `#146`) | `mobile/package.json` and `mobile/app.json` confirmed byte-identical to the already-cleared `b5dcde4` state — no new native surface, nothing to re-verify beyond the diff itself |
 | 2026-08-19 | `fcbc12a9-c7ff-43d6-bda5-8af327a26aba` | `281464e` (`#156`) | Fix to the list-overlap detector's own re-verification math (symmetric interval-overlap formula, `min(bottoms) - max(tops)`, plus the 200ms re-check) — corrects a bug that scored a relocated row as a huge fake overlap, so real-device reports from before this publish aren't trustworthy | `git diff 276b1e2 281464e -- mobile/package.json` is empty — byte-identical to the already-cleared `276b1e2` state, no new native surface |
+| 2026-08-19 | `8a51c11f-2a0c-4cdf-ae89-c6ad1028702c` | `96c49da` (`#158`) | Tiebreaker diagnostics for the overlap detector — records which sections were mounting, how many rows arrived in that commit, and time since mount, so Benny's next real-device catch is decisive between the two competing theories instead of ambiguous like the last report. Instrumentation only, no behavior change. | `git diff 281464e 96c49da -- mobile/package.json` is empty — byte-identical to the already-cleared `281464e` state, no new native surface |
 
 ## Which change needs which pipeline
 
