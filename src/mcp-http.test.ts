@@ -218,11 +218,12 @@ describe("caller identity over the shared MCP endpoint", () => {
     expect(reply.text).toContain("can only target their owning omg.dev session");
   });
 
-  test("exposes the three narrow persistent-bot capabilities", async () => {
+  test("exposes the four narrow persistent-bot capabilities", async () => {
     const names = await listToolNames();
     expect(names).toContain("omg_create_owned_bot");
     expect(names).toContain("omg_update_self");
     expect(names).toContain("omg_list_owned_bots");
+    expect(names).toContain("omg_send_message_to_peer");
   });
 
   test("bot tools send only caller identity to the dedicated server routes", async () => {
@@ -244,16 +245,23 @@ describe("caller identity over the shared MCP endpoint", () => {
       capabilities: ["build"],
     }, { session: SESSION });
     const peers = await callTool("omg_list_owned_bots", {}, { session: SESSION });
+    const sent = await callTool("omg_send_message_to_peer", {
+      targetBotId: "bot-peer",
+      text: "Please verify the package.",
+      replyToMessageId: "bmsg_parent",
+    }, { session: SESSION });
     const updated = await callTool("omg_update_self", {
       persona: "Updated persistent instructions",
     }, { session: SESSION });
 
     expect(created.isError).toBe(false);
     expect(peers.isError).toBe(false);
+    expect(sent.isError).toBe(false);
     expect(updated.isError).toBe(false);
     expect(requests.map(({ url, method }) => ({ url, method }))).toEqual([
       { url: "http://127.0.0.1:9876/api/runtime/bots/owned", method: "POST" },
       { url: "http://127.0.0.1:9876/api/runtime/bots/peers", method: "GET" },
+      { url: "http://127.0.0.1:9876/api/runtime/bots/peer-messages", method: "POST" },
       { url: "http://127.0.0.1:9876/api/runtime/bots/self", method: "PATCH" },
     ]);
     for (const request of requests) {
@@ -261,7 +269,14 @@ describe("caller identity over the shared MCP endpoint", () => {
     }
     expect(requests[0].body).not.toHaveProperty("owner");
     expect(requests[0].body).not.toHaveProperty("botId");
-    expect(requests[2].body).toEqual({ persona: "Updated persistent instructions" });
+    expect(requests[2].body).toEqual({
+      targetBotId: "bot-peer",
+      text: "Please verify the package.",
+      replyToMessageId: "bmsg_parent",
+    });
+    expect(requests[2].body).not.toHaveProperty("sourceBotId");
+    expect(requests[2].body).not.toHaveProperty("user");
+    expect(requests[3].body).toEqual({ persona: "Updated persistent instructions" });
   });
 
   test("bot self-update schema rejects peer and ownership selectors", async () => {
@@ -280,6 +295,20 @@ describe("caller identity over the shared MCP endpoint", () => {
       cwd: "/",
     }, { session: SESSION });
     expect(createReply.isError).toBe(true);
+    expect(calls).toEqual([]);
+  });
+
+  test("peer messaging schema rejects spoofed sender, owner, correlation, and depth", async () => {
+    const reply = await callTool("omg_send_message_to_peer", {
+      targetBotId: "bot-peer",
+      text: "spoofed",
+      sourceBotId: "bot-admin",
+      user: "attacker@example.com",
+      correlationId: "chosen-correlation",
+      depth: 0,
+    }, { session: SESSION });
+
+    expect(reply.isError).toBe(true);
     expect(calls).toEqual([]);
   });
 });

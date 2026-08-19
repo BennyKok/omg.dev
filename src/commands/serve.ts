@@ -82,6 +82,13 @@ import {
   resolveBotRuntimeActor,
   unknownBotFields,
 } from "../bots/self-management.ts";
+import {
+  BotPeerMessageError,
+  formatBotPeerMessage,
+  markBotPeerMessageEnqueued,
+  releaseBotPeerMessage,
+  reserveBotPeerMessage,
+} from "../bots/messaging.ts";
 import { startAutoScheduler } from "../auto/scheduler.ts";
 import { handleWakeTick } from "../auto/wake-tick.ts";
 import { pushWakeHooksNow, setWakeHooksBootId } from "../auto/wake-hooks-push.ts";
@@ -379,6 +386,26 @@ const SELF_REPO = PATHS.root;
 const EVLOG_DIR = join(PATHS.data, "evlogs");
 const SERVER_INSTANCE_ID = randomBytes(8).toString("hex");
 let selfUpdateRunning = false;
+
+// Peer sends to one bot share one critical section. This prevents two offline
+// sends from launching duplicate backing sessions and preserves enqueue order.
+const botPeerDeliveryTails = new Map<string, Promise<void>>();
+
+async function serializeBotPeerDelivery<T>(targetBotId: string, task: () => Promise<T>): Promise<T> {
+  const previous = botPeerDeliveryTails.get(targetBotId) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  botPeerDeliveryTails.set(targetBotId, current);
+  await previous;
+  try {
+    return await task();
+  } finally {
+    release();
+    if (botPeerDeliveryTails.get(targetBotId) === current) botPeerDeliveryTails.delete(targetBotId);
+  }
+}
 
 function evlog(event: string, fields: Record<string, unknown> = {}) {
   traceLog(event, fields);
@@ -3607,6 +3634,124 @@ a{color:#60a5fa}
           return json({ bots: ownedBotPeers(actor, bots, sessions) });
         } catch (error) {
           if (error instanceof BotSelfManagementError) return err(error.status, error.message);
+          throw error;
+        }
+      }
+      if (path === "/api/runtime/bots/peer-messages" && req.method === "POST") {
+        const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+        if (!body || Array.isArray(body)) return err(400, "invalid peer message");
+        const allowed = new Set(["targetBotId", "text", "replyToMessageId"]);
+        const unknown = Object.keys(body).filter((field) => !allowed.has(field)).sort();
+        if (unknown.length) return err(400, `unsupported peer message fields: ${unknown.join(", ")}`);
+        const targetBotId = typeof body.targetBotId === "string" ? body.targetBotId.trim() : "";
+        const text = typeof body.text === "string" ? body.text : "";
+        const replyToMessageId = body.replyToMessageId === undefined
+          ? undefined
+          : typeof body.replyToMessageId === "string" ? body.replyToMessageId.trim() : null;
+        if (replyToMessageId === null) return err(400, "replyToMessageId must be a string");
+
+        try {
+          return await serializeBotPeerDelivery(targetBotId, async () => {
+            const sessions = await listSessions();
+            const bots = await listBots();
+            const actor = resolveBotRuntimeActor(callerSessionHeader(req), sessions, bots);
+            const { message, target: reservedTarget } = reserveBotPeerMessage({
+              actor,
+              bots,
+              targetBotId,
+              text,
+              replyToMessageId,
+            });
+            let enqueued = false;
+            try {
+              let target = reservedTarget;
+              if (target.runtimeRefreshPending) {
+                const live = sessions.find((session) =>
+                  session.botId === target.id ||
+                  (target.sessionId && (
+                    session.sessionId === target.sessionId || session.nativeSessionId === target.sessionId
+                  ))
+                );
+                if (botRuntimeRefreshDecision(target, live) === "wait") {
+                  throw new BotPeerMessageError(
+                    409,
+                    "target bot profile update is still settling; retry after its current turn completes",
+                  );
+                }
+                if (live?.sessionId) {
+                  const outcome = await closeLiveSession(live, live.sessionId, {
+                    sessionId: live.sessionId,
+                    source: "bot_peer_runtime_refresh",
+                    botId: target.id,
+                  });
+                  if (!outcome.ok) throw new BotPeerMessageError(outcome.status, outcome.reason);
+                }
+                const refreshed = await updateBot(target.id, { runtimeRefreshPending: false });
+                if (!refreshed) throw new BotPeerMessageError(404, "target bot not found");
+                target = refreshed;
+              }
+
+              // Start or revive the persistent conversation first. The peer
+              // turn itself always enters the existing durable send queue; it
+              // is never hidden only inside a process launch prompt.
+              const ensured = await ensureBotSession(target);
+              if (ensured instanceof Response) {
+                const data = await ensured.clone().json().catch(() => ({})) as { error?: string };
+                throw new BotPeerMessageError(ensured.status, data.error || "failed to start target bot");
+              }
+              const envelope = formatBotPeerMessage(message, actor.bot, target);
+              const sent = sendPromptToLiveSession(ensured.session, envelope, { mode: "queue" });
+              const queueMessageId = (sent.msg as { id?: unknown } | undefined)?.id;
+              if (!sent.ok || typeof queueMessageId !== "string") {
+                throw new BotPeerMessageError(502, sent.error || "failed to durably enqueue peer message");
+              }
+              const accepted = markBotPeerMessageEnqueued(
+                message.id,
+                ensured.session.sessionId!,
+                queueMessageId,
+              );
+              enqueued = true;
+              await updateBot(target.id, {
+                sessionId: ensured.session.sessionId ?? target.sessionId,
+                lastMessageAt: Date.now(),
+              });
+              evlog("bot_peer_message_enqueued", {
+                messageId: accepted.id,
+                correlationId: accepted.correlationId,
+                replyToMessageId: accepted.replyToMessageId,
+                sourceBotId: actor.bot.id,
+                targetBotId: target.id,
+                owner: actor.user,
+                depth: accepted.depth,
+                chars: accepted.text.length,
+                queueMessageId,
+              });
+              return json({
+                message: {
+                  id: accepted.id,
+                  correlationId: accepted.correlationId,
+                  replyToMessageId: accepted.replyToMessageId ?? null,
+                  sourceBotId: actor.bot.id,
+                  targetBotId: target.id,
+                  targetName: target.name,
+                  depth: accepted.depth,
+                  status: "enqueued",
+                },
+              }, { status: 202 });
+            } finally {
+              if (!enqueued) releaseBotPeerMessage(message.id);
+            }
+          });
+        } catch (error) {
+          if (error instanceof BotSelfManagementError || error instanceof BotPeerMessageError) {
+            evlog("bot_peer_message_rejected", {
+              targetBotId: targetBotId || null,
+              status: error.status,
+              reason: error.message,
+              chars: text.length,
+            });
+            return err(error.status, error.message);
+          }
           throw error;
         }
       }

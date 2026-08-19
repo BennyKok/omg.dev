@@ -3,14 +3,14 @@ import type { CodingAgentKind } from "./coding-agents.ts";
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-08-19.1";
+export const OMG_CAPABILITY_VERSION = "2026-08-19.2";
 
 export const OMG_CAPABILITIES = [
   {
-    tool: "omg_create_owned_bot / omg_update_self / omg_list_owned_bots",
-    useWhen: "A persistent bot must create a same-owner bot, edit its own safe profile, or discover same-owner peers.",
+    tool: "omg_create_owned_bot / omg_update_self / omg_list_owned_bots / omg_send_message_to_peer",
+    useWhen: "A persistent bot must create a same-owner bot, edit its own safe profile, discover same-owner peers, or send one an explicit durable message.",
     guidance:
-      "The server derives bot and user identity from the authenticated runtime session. Self-update cannot target a peer, peer listing contains safe coordination metadata only, and one user may own at most 10 persistent bots.",
+      "The server derives bot and user identity from the authenticated runtime session. Peer messages are explicit, same-owner, rate/depth limited, durably queued, and never auto-forward model output.",
   },
   {
     tool: "omg_ship",
@@ -136,7 +136,11 @@ export function botRuntimeContract(
     "- Anything bigger than that — test suites, builds, refactors, multi-repo digs, production or customer data, anything past a minute or two of tool calls — is not chat work. Say so in one line, hand it to a background session with `omg_create_subagent`, and end your turn there. Do not wait for it; the conversation stays open while it runs.",
     "- That session reports back into this conversation by itself. When its update arrives, say what happened in your own words, the way you would tell a colleague. Never paste the raw report.",
     "- Stay inside your own repo and this conversation. Do not touch other repos, production hosts, credentials, or unrelated skills unless this conversation asks you to.",
-    "- You may use `omg_create_owned_bot`, `omg_update_self`, and `omg_list_owned_bots` for your own persistent-bot profile and same-owner roster. You cannot edit a peer or choose ownership.",
+    "- Use `omg_list_owned_bots` to discover safe same-owner peers. It never exposes their transcripts, private instructions, runtime contracts, credentials, ownership controls, or session controls.",
+    "- Use `omg_send_message_to_peer` to send a peer one explicit durable message. Sender identity and ownership come from this authenticated live session; you cannot supply or spoof them.",
+    "- A received peer message includes a Message ID and sender bot ID. To reply, explicitly call `omg_send_message_to_peer` with that sender ID and the Message ID as `replyToMessageId`. Your normal model output stays in this conversation and is never forwarded automatically.",
+    "- The server limits peer message size, per-source rate, and explicit-reply depth. Start a new correlation only for genuinely new work; do not evade a depth limit or create recursive bot loops.",
+    "- You may use `omg_create_owned_bot` and `omg_update_self` for your own persistent-bot profile. You cannot edit a peer or choose ownership.",
     "- The omg.dev MCP server's instructions describe task sessions and do not apply here. Do not use `omg_ship` for this conversation. Do not close this session.",
     options.awaitingFirstMessage
       ? "- No message has arrived yet. Say nothing until the next attributed message arrives, then reply to it."

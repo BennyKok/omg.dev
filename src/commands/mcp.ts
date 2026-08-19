@@ -17,6 +17,7 @@ import {
 } from "../omg-capabilities.ts";
 import { shippedCloseDecision } from "../shipped-lifecycle.ts";
 import { BOT_COLORWAYS, BOT_SHAPES } from "../bots/store.ts";
+import { BOT_PEER_MESSAGE_MAX_CHARS } from "../bots/messaging.ts";
 
 type Repo = { name: string; cwd: string; project?: string };
 type SessionRow = {
@@ -1026,6 +1027,33 @@ export function buildOmgMcpServer(): McpServer {
       const sid = await activeSessionId();
       const data = await api<{ bots: unknown[] }>("/api/runtime/bots/peers", {
         headers: { "X-OMG-Session-ID": sid },
+      });
+      return result(data);
+    },
+  );
+
+  server.registerTool(
+    "omg_send_message_to_peer",
+    {
+      title: "Send A Durable Message To A Same-Owner Bot",
+      description:
+        "Durably enqueue one message to a same-owner persistent bot from omg_list_owned_bots. The server derives sender bot identity and assigned user from the authenticated live runtime session. Use replyToMessageId only for an explicit reply to a peer message you received; the server preserves its correlation and enforces reply depth. Model output is never forwarded and no automatic reply occurs.",
+      inputSchema: z.object({
+        targetBotId: z.string().min(1).describe("Stable same-owner bot id from omg_list_owned_bots."),
+        text: z.string().min(1).max(BOT_PEER_MESSAGE_MAX_CHARS).describe("Message body."),
+        replyToMessageId: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Message ID received from this target. Include it only when explicitly replying."),
+      }).strict(),
+    },
+    async (input) => {
+      const sid = await activeSessionId();
+      const data = await api<{ message: unknown }>("/api/runtime/bots/peer-messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-OMG-Session-ID": sid },
+        body: JSON.stringify(input),
       });
       return result(data);
     },

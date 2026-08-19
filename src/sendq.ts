@@ -84,13 +84,21 @@ function persist(sessionId: string, message: QueuedMsg): void {
   writeStoredQueueMessage(sessionId, message);
 }
 
+// SQLite restores a queue by (created_at, id). random ids are not an ordering
+// key, so two accepts in the same millisecond could reverse after a restart.
+// Keep creation time strictly increasing inside each session queue.
+function nextCreatedAt(s: SessionQueue): number {
+  const previous = s.msgs.at(-1)?.createdAt ?? 0;
+  return Math.max(Date.now(), previous + 1);
+}
+
 export function enqueueMessage(
   sessionId: string,
   text: string,
   opts: { queuedBehindTurn?: boolean } = {},
 ): QueuedMsg {
   const s = q(sessionId);
-  const now = Date.now();
+  const now = nextCreatedAt(s);
   const msg: QueuedMsg = {
     id: randomBytes(8).toString("hex"),
     text,
@@ -121,7 +129,7 @@ export function recordCommandFileMessage(
   queuedBehindTurn = false,
 ): QueuedMsg {
   const s = q(sessionId);
-  const now = Date.now();
+  const now = nextCreatedAt(s);
   const msg: QueuedMsg = {
     id: randomBytes(8).toString("hex"),
     text,
