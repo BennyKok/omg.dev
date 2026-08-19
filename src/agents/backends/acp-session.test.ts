@@ -11,12 +11,16 @@ import type { ManagedSdkEventSink } from "./managed-sdk-session.ts";
 
 function sinkRecorder() {
   const drafts: string[] = [];
+  const committed: string[] = [];
   const tools: string[] = [];
   const sink: ManagedSdkEventSink = {
     draft(text) {
       drafts.push(text);
     },
     thinking() {},
+    commitText(text) {
+      committed.push(text);
+    },
     toolStart(id, name) {
       tools.push(`start:${id}:${name}`);
     },
@@ -27,7 +31,7 @@ function sinkRecorder() {
       return null;
     },
   };
-  return { sink, drafts, tools };
+  return { sink, drafts, committed, tools };
 }
 
 describe("ACP initialize capabilities", () => {
@@ -92,6 +96,71 @@ describe("ACP load replay suppression", () => {
     }, sink, state);
     expect(drafts).toEqual(["fresh"]);
     expect(state.draft).toBe("fresh");
+  });
+});
+
+describe("ACP mid-turn draft flush", () => {
+  test("commits narrated text before each tool so segments do not glue together", () => {
+    const { sink, drafts, committed, tools } = sinkRecorder();
+    const state: AcpUpdateState = { draft: "", thought: "", replaying: false };
+
+    applyAcpSessionUpdate({
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "I'll start by understanding the current state." },
+    }, sink, state);
+    applyAcpSessionUpdate({
+      sessionUpdate: "tool_call",
+      toolCallId: "call-1",
+      title: "Shell",
+      status: "pending",
+    }, sink, state);
+
+    expect(committed).toEqual(["I'll start by understanding the current state."]);
+    expect(state.draft).toBe("");
+    expect(drafts.at(-1)).toBe("");
+    expect(tools).toEqual(["start:call-1:Shell"]);
+
+    applyAcpSessionUpdate({
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "This is the vibes repo." },
+    }, sink, state);
+    applyAcpSessionUpdate({
+      sessionUpdate: "tool_call",
+      toolCallId: "call-2",
+      title: "Read",
+      status: "completed",
+    }, sink, state);
+
+    expect(committed).toEqual([
+      "I'll start by understanding the current state.",
+      "This is the vibes repo.",
+    ]);
+    expect(state.draft).toBe("");
+    expect(tools).toEqual([
+      "start:call-1:Shell",
+      "start:call-2:Read",
+      "end:call-2:Read",
+    ]);
+
+    applyAcpSessionUpdate({
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "Final answer." },
+    }, sink, state);
+    expect(state.draft).toBe("Final answer.");
+    expect(committed).toHaveLength(2);
+  });
+
+  test("does not commit an empty draft when a tool arrives with no prior text", () => {
+    const { sink, committed, tools } = sinkRecorder();
+    const state: AcpUpdateState = { draft: "", thought: "", replaying: false };
+    applyAcpSessionUpdate({
+      sessionUpdate: "tool_call",
+      toolCallId: "call-1",
+      title: "Shell",
+      status: "pending",
+    }, sink, state);
+    expect(committed).toEqual([]);
+    expect(tools).toEqual(["start:call-1:Shell"]);
   });
 });
 
