@@ -76,7 +76,9 @@ describe("contextual mobile Live header", () => {
     expect(source).toContain("const { questions } = useAsk();");
     expect(source).toContain("Tap to open notifications");
     expect(source).toContain("const showCard = intro;");
-    expect(source).toContain("embedded ? null : isMobile ? null");
+    expect(source).toMatch(
+      /\{isMobile \? null : \(\s*<>\s*\{embedded \? null : <UpdateNavButton \/>\}\s*<AskNavButton/,
+    );
   });
 });
 

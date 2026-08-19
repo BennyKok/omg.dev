@@ -67,14 +67,24 @@ describe("page navigation reachability", () => {
     expect(app).toContain(") : liveDesktopWorkspace ? null : (");
   });
 
-  test("host-owned chrome stays out of the embedded header", () => {
-    // Un-suppressing the header must not leak omg's own concerns back in.
-    for (const guarded of ["<AskNavButton", "<UserFilterMenu"]) {
-      const at = app.indexOf(guarded, app.indexOf(") : liveDesktopWorkspace ? null : ("));
+  test("the embedded header keeps questions but hides host-owned chrome", () => {
+    const headerStart = app.indexOf(") : liveDesktopWorkspace ? null : (");
+    const askAt = app.indexOf("<AskNavButton", headerStart);
+    expect(askAt, "AskNavButton not found in the header").toBeGreaterThan(0);
+    expect(app).toMatch(
+      /\{embedded \? null : <UpdateNavButton \/>\}\s*<AskNavButton/,
+    );
+
+    for (const guarded of ["<UpdateNavButton", "<UserFilterMenu"]) {
+      const at = app.indexOf(guarded, headerStart);
       expect(at, `${guarded} not found in the header`).toBeGreaterThan(0);
-      // Each is preceded by an `embedded ? null :` guard within a few lines.
       const before = app.slice(Math.max(0, at - 200), at);
       expect(before, `${guarded} is not gated on embedded`).toContain("embedded ? null :");
     }
+  });
+
+  test("the hosted rail can open its question inbox", () => {
+    expect(app).toContain('onOpenAsk={() => setTab("notifications")}');
+    expect(app).not.toContain('onOpenAsk={embedded ? undefined : () => setTab("ask")}');
   });
 });

@@ -7989,9 +7989,9 @@ export function App() {
                 )}
               </>
             ) : null}
-            {embedded ? null : isMobile ? null : (
+            {isMobile ? null : (
               <>
-                <UpdateNavButton />
+                {embedded ? null : <UpdateNavButton />}
                 <AskNavButton
                   active={tab === "notifications"}
                   onOpen={() => setTab("notifications")}
@@ -8087,12 +8087,11 @@ export function App() {
               // header is hidden. The host owns identity/settings chrome, not
               // the LFG workspace's project scope.
               onProjectChange={changeProjectFilter}
-              // Embed: host owns identity/settings — no user picker, settings,
-              // or ask chrome inside the iframe. LFG still owns its Live,
-              // Shipped, and Artifacts pages, so their navigation remains.
+              // Embed: the host owns identity and settings. LFG still owns agent
+              // questions, so the hosted rail must keep their entry point.
               onUserChange={embedded ? undefined : changeUserFilter}
               onOpenSettings={embedded ? undefined : () => setTab("settings")}
-              onOpenAsk={embedded ? undefined : () => setTab("ask")}
+              onOpenAsk={() => setTab("notifications")}
               onOpenBots={() => setTab("bots")}
               onOpenSessions={() => setTab("live")}
               railSurface={tab === "bots" ? "chat" : "sessions"}
@@ -12131,7 +12130,7 @@ function RailStage({
               <div className="ml-auto flex items-center gap-1">
                 {onOpenAsk ? (
                   <>
-                    <UpdateNavButton />
+                    {hosted ? null : <UpdateNavButton />}
                     <AskNavButton active={false} onOpen={onOpenAsk} />
                   </>
                 ) : null}
