@@ -24674,6 +24674,19 @@ function BotsView({
               className="flex items-center gap-2 border-b border-border px-4 pb-3"
               style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.75rem)" }}
             >
+              {/* This chat is a full-screen portal above the app shell, so its
+                  own header is the only way out. The surface toggle above the
+                  composer switches products; it is not a way back to the
+                  roster, which left the bot chat with no exit at all. */}
+              <button
+                type="button"
+                onClick={onBack}
+                aria-label="Back to bots"
+                className="-ml-2 flex h-9 shrink-0 items-center gap-0.5 rounded-full pl-1 pr-2 text-[13px] font-medium tracking-[-0.01em] text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground active:scale-[0.96]"
+              >
+                <ChevronLeft className="size-[18px]" />
+                <span>Bots</span>
+              </button>
               <BotAvatar bot={bot} working={busy} size={28} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[15px] font-semibold leading-tight">{bot.name}</span>
