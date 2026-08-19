@@ -39,6 +39,7 @@ import {
   isBotLaunchOnlyText,
   isSubagentUpdateText,
 } from "./lib/bot-transcript";
+import { botRunAvatarKeys } from "./lib/bot-runs";
 import { sessionMatchesUserFilter } from "./lib/user-filter";
 import { uploadFile as uploadFileThroughTransport } from "./lib/upload";
 import { compressImageFile, isCompressibleImage } from "./lib/image-compress";
@@ -16201,6 +16202,11 @@ const ChatStream = memo(function ChatStream({
   // Only let reasoning at the active tail replace the typing dots; otherwise an
   // old thinking block would make a newly-busy session look idle. The tail here
   // is the live turn's, not the pinned queue's.
+  // One face per run of bot turns, not one per bubble — see lib/bot-runs.
+  const botRunStarts = useMemo(
+    () => (bot ? botRunAvatarKeys(items) : new Set<string>()),
+    [bot, items],
+  );
   const tailItem = items[items.length - 1];
   const tailMessage = tailItem?.type === "msg" ? tailItem.message : undefined;
   const showTypingIndicator = busy && tailMessage?.kind !== "thinking";
@@ -16325,6 +16331,7 @@ const ChatStream = memo(function ChatStream({
                 entering={!!item.message.id && enteringIdsRef.current.has(item.message.id)}
                 onRetryQueued={onRetryQueued}
                 bot={bot}
+                botRunStart={botRunStarts.has(item.key)}
               />
             ),
           )}
@@ -17090,6 +17097,7 @@ function MessageBubble({
   entering = false,
   onRetryQueued,
   bot,
+  botRunStart = false,
 }: {
   message: Message;
   // Whether the session is actively working on THIS turn — drives the thinking
@@ -17101,6 +17109,8 @@ function MessageBubble({
   // Retry a failed queue send through the server queue's retry endpoint.
   onRetryQueued?: (message: Message) => void;
   bot?: PersistentBot;
+  // This turn opens a run, so it carries the bot's face — see lib/bot-runs.
+  botRunStart?: boolean;
 }) {
   const openArtifact = useContext(ArtifactViewerContext);
   // Must run before the early returns below — hooks can't be conditional. The
@@ -17319,6 +17329,45 @@ function MessageBubble({
       </AiMessage>
     );
   }
+  // A bot's turn reads as somebody talking, so it gets a bubble instead of bare
+  // markdown on the canvas (spec §4.2). Only turns that have said something:
+  // an empty one is the typing state, which is already the creature at work and
+  // would otherwise put a second creature inside a bubble beside the first.
+  const botBubble = !!bot && !!message.text;
+  const body = (
+    <MessageActions text={message.text || ""} isUser={false}>
+        {/* Assistant turns render markdown from the raw source via Streamdown,
+            which tolerates half-finished markdown mid-stream (no html injection). */}
+        {/* max-w-full, not MessageContent's default 92%: the cap already lives
+            on MessageActions, whose content div is content-sized (flex-col +
+            items-start). A second 92% here resolves against that shrink-to-fit
+            width, i.e. 92% of the text's own max-content width, so any reply
+            that would fit on one line gets its last word pushed onto a second
+            line ("Hi Benny!" wraps to "Hi" / "Benny!"). Long replies hit the
+            available width first and hid this until bots started replying in
+            one-liners. */}
+      <MessageContent
+        className={cn(
+          "max-w-full",
+          // The card row shell every surface in the app uses, with a taller
+          // corner so it reads as a chat bubble rather than a list row.
+          botBubble && "rounded-[18px] border border-border bg-card px-3.5 py-2.5 text-[14.5px] leading-[1.55]",
+        )}
+      >
+        {message.text ? (
+          <MessageResponse
+            animated={STREAMING_RESPONSE_ANIMATION}
+            isAnimating={isDraftAssistantMessage(message) && !message.catchUp}
+            mode={isDraftAssistantMessage(message) ? "streaming" : "static"}
+          >
+            {message.text}
+          </MessageResponse>
+        ) : (
+          <TypingIndicator bot={bot} />
+        )}
+      </MessageContent>
+    </MessageActions>
+  );
   return (
     <AiMessage
       ref={sendMorphRef}
@@ -17334,31 +17383,19 @@ function MessageBubble({
       )}
       from="assistant"
     >
-      <MessageActions text={message.text || ""} isUser={false}>
-        {/* Assistant turns render markdown from the raw source via Streamdown,
-            which tolerates half-finished markdown mid-stream (no html injection). */}
-        {/* max-w-full, not MessageContent's default 92%: the cap already lives
-            on MessageActions, whose content div is content-sized (flex-col +
-            items-start). A second 92% here resolves against that shrink-to-fit
-            width, i.e. 92% of the text's own max-content width, so any reply
-            that would fit on one line gets its last word pushed onto a second
-            line ("Hi Benny!" wraps to "Hi" / "Benny!"). Long replies hit the
-            available width first and hid this until bots started replying in
-            one-liners. */}
-        <MessageContent className="max-w-full">
-          {message.text ? (
-            <MessageResponse
-              animated={STREAMING_RESPONSE_ANIMATION}
-              isAnimating={isDraftAssistantMessage(message) && !message.catchUp}
-              mode={isDraftAssistantMessage(message) ? "streaming" : "static"}
-            >
-              {message.text}
-            </MessageResponse>
-          ) : (
-            <TypingIndicator bot={bot} />
-          )}
-        </MessageContent>
-      </MessageActions>
+      {botBubble && bot ? (
+        // Bottom-aligned so the face sits on the bubble's baseline, and the
+        // spacer is the avatar's own width: every bubble in a run keeps the same
+        // left edge whether or not this one is the turn that carries the face.
+        <div className="flex w-full min-w-0 max-w-[84%] items-end gap-2">
+          <span className="w-[22px] shrink-0" aria-hidden={!botRunStart}>
+            {botRunStart ? <BotAvatar bot={bot} size={22} /> : null}
+          </span>
+          <div className="min-w-0 flex-1">{body}</div>
+        </div>
+      ) : (
+        body
+      )}
     </AiMessage>
   );
 }
