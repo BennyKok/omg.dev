@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - An affected bot shows its own history right away (v0.2.7)
+
+- **A bot whose chat had been taken over by one of its tasks now recovers its
+  real conversation as soon as you open it.** Before, the chat waited until the
+  next message to show the right thread.
+
 ## August 19, 2026 - A bot can no longer be replaced by its own task (v0.2.6)
 
 - **A bot chat always shows the bot's own conversation.** When a bot's chat
