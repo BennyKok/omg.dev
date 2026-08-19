@@ -8,9 +8,23 @@
 // Runs are processed sequentially — the AI-SDK runner uses a global
 // process.chdir, so concurrent runs would race on the working directory.
 
-import { listAutoAgents, setLastRun } from "./store.ts";
+import { listAutoAgents, setLastRun, type AutoAgent } from "./store.ts";
 import { runAutoAgent } from "./runner.ts";
 import { getGlobalSettingsSync } from "../settings.ts";
+
+// Bot-owned routines are delivered as a chat nudge, not run headless — and
+// that delivery lives in serve.ts (bot session machinery), which this module
+// must not import (serve.ts imports startAutoScheduler from here, so the
+// reverse import would be circular). Dependency injection instead: serve.ts
+// calls setBotRoutineDelivery once at boot, matching the existing module-level
+// state style here (`timer`/`ticking` below).
+export type BotRoutineDelivery = (agent: AutoAgent) => Promise<void>;
+let deliverBotRoutine: BotRoutineDelivery = async (agent) => {
+  console.error(`[auto-sched] no bot delivery wired for owner-bot agent ${agent.id}`);
+};
+export function setBotRoutineDelivery(fn: BotRoutineDelivery): void {
+  deliverBotRoutine = fn;
+}
 
 const DOW: Record<string, number> = {
   Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
@@ -116,7 +130,23 @@ export async function autoSchedulerTickNow(
       if (due === null) continue;
       if (a.lastRunAt && a.lastRunAt >= due) continue; // already ran for this instant
       // Stamp first so a crash mid-run doesn't loop-retry the same instant.
+      // This must also cover the bot-delivery branch below (missing bot,
+      // disabled bot, cold-start gate refusal) or an orphaned routine retries
+      // every tick for the ~25h catch-up lookback window.
       await setLastRun(a.id, now.getTime()).catch(() => {});
+      if (a.owner.kind === "bot") {
+        // Fire-and-forget, deliberately NOT awaited in this sequential loop.
+        // ensureBotSession may cold-start a session (multi-second, through
+        // activationGate), and serializing that behind it would delay every
+        // other due headless agent in this same minute's tick. Delivery never
+        // touches cwd, so it doesn't need the sequencing the headless runner
+        // does.
+        onLog(`[auto-sched] dispatching bot routine ${a.id} (due ${new Date(due).toISOString()})`);
+        void deliverBotRoutine(a).catch((e) =>
+          onLog(`[auto-sched] ${a.id} bot delivery failed: ${e}`),
+        );
+        continue;
+      }
       onLog(`[auto-sched] firing ${a.id} (due ${new Date(due).toISOString()})`);
       try {
         await runAutoAgent(a, onLog); // sequential — chdir is process-global
