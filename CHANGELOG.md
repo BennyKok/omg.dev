@@ -2,6 +2,22 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - A bot chat shows the conversation, not the machinery (v0.1.403)
+
+- **Tool calls, their results and reasoning blocks no longer appear in a bot
+  chat.** It was still the session log with a chat bubble drawn on it: every
+  bash line the bot ran scrolled past in the middle of it answering you. A bot
+  chat is a conversation now. What the bot handed you stays — words, images,
+  video, dashboards.
+- **The header is the bot.** Its face, its name, its persona and the settings
+  gear. Gone: the model chip (which harness it runs on is a session detail),
+  the actions menu offering fork, close and archive (a bot session is not
+  closed from the UI — deleting the bot is), and the floating "files changed /
+  Review" bar.
+- **Nothing is lost.** A bot's session is still an ordinary session: open it
+  from the sessions rail and the whole log is there, tools and reasoning
+  included. Heavy work does not run in the chat any more either — it runs in a
+  background session with its own row in the fleet.
 ## August 19, 2026 - Hosted questions have a visible inbox button (v0.1.402)
 
 - **Hosted omg.dev now shows the question button when an agent needs input.**
