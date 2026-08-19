@@ -6,7 +6,7 @@
 // module's whole graph into the entry chunk, which is exactly how a code split
 // ends up saving nothing.
 import { createContext, useContext, useMemo } from "react";
-import type { ClaudeAccountInfo, CodingAgentInfo, Session } from "../App";
+import type { ClaudeAccountInfo, CodingAgentInfo, PersistentBot, Session } from "../App";
 import { omgAssetUrl } from "./omg-client";
 import { cn } from "./utils";
 
@@ -89,6 +89,33 @@ export function titleForSession(session: Session): string {
     session.sessionId?.slice(0, 8) ||
     "session"
   );
+}
+
+/**
+ * Which face a session's header should wear. A bot-backed session wears the
+ * bot's own creature once the bot directory has resolved it; while it hasn't
+ * (fetch in flight, race on mount) it gets a neutral loading creature rather
+ * than the harness's agent mark, which would claim a harness that isn't
+ * actually running the session. A session with no bot at all gets the
+ * harness's agent icon — the safe fallback, never the default.
+ *
+ * Pulled out as a pure function (rather than duplicated JSX per surface) so
+ * the card header and the mobile session sheet header both derive from the
+ * one BotDirectoryContext lookup instead of each tracking its own copy of
+ * "which bot is this".
+ */
+export type SessionHeaderIdentity =
+  | { kind: "bot"; bot: PersistentBot }
+  | { kind: "bot-loading" }
+  | { kind: "agent" };
+
+export function resolveSessionHeaderIdentity(
+  session: Pick<Session, "botId">,
+  botDirectory: Map<string, PersistentBot>,
+): SessionHeaderIdentity {
+  if (!session.botId) return { kind: "agent" };
+  const bot = botDirectory.get(session.botId);
+  return bot ? { kind: "bot", bot } : { kind: "bot-loading" };
 }
 
 /**
