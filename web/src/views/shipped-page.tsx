@@ -51,7 +51,14 @@ import {
 } from "../lib/session-ui";
 // Types only — erased at build time, so this does not create a runtime cycle
 // back into the entry chunk.
-import type { Agent, GalleryArtifact, ShipMediaItem, ShipPost, Session } from "../App";
+import type {
+  Agent,
+  GalleryArtifact,
+  ShipMediaItem,
+  ShipPost,
+  ShipProvenance,
+  Session,
+} from "../App";
 
 
 function GalleryTilePreview({
@@ -156,6 +163,54 @@ function notificationDayLabel(ts: number, now: number): string {
 
 // Page sizes for the Shipped feed and the artifacts gallery: both load one
 // page up front and grow via "load more" instead of fetching everything.
+
+// A ship post is a claim that work is finished, and for a long time nothing on
+// the card said whether any of it was committed. Posts whose worktree was dirty
+// or whose commits never reached main looked exactly like posts that landed, so
+// tracing a result back to code meant opening the session and reading Git by
+// hand. The badge makes the difference legible at a glance; `landed` stays
+// unbadged because that is the expected case and a feed of green ticks is noise.
+function ShipCodeBadge({ code }: { code: ShipProvenance | undefined }) {
+  if (!code || code.state === "landed") return null;
+  const label =
+    code.state === "uncommitted"
+      ? `${code.dirty} uncommitted`
+      : code.state === "unlanded"
+        ? `${code.ahead} not on main`
+        : code.state === "clean"
+          ? "no code"
+          : "no git";
+  const tone =
+    code.state === "uncommitted"
+      ? "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+      : code.state === "unlanded"
+        ? "border-sky-500/40 bg-sky-500/10 text-sky-600 dark:text-sky-400"
+        : "border-border bg-muted/40 text-muted-foreground";
+  const title = [
+    code.state === "uncommitted"
+      ? "Shipped with uncommitted changes in the session worktree."
+      : code.state === "unlanded"
+        ? "Committed, but these commits have not reached origin/main."
+        : code.state === "clean"
+          ? "No code changes in this session's worktree."
+          : "The session worktree was not a readable Git checkout.",
+    code.branch ? `branch ${code.branch}` : null,
+    code.head ? `head ${code.head}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <span
+      title={title}
+      className={cn(
+        "shrink-0 rounded-full border px-1.5 py-px text-[10px] font-medium leading-tight",
+        tone,
+      )}
+    >
+      {label}
+    </span>
+  );
+}
 
 // The Shipped channel: a showcase feed of finished work, posted by agents via
 // lfg_ship. Media are ordinary artifacts (image / video / live html), so this
@@ -775,7 +830,10 @@ export default function ShippedPage({
                         {post.project ? (
                           <span className="min-w-0 shrink truncate">· {post.project}</span>
                         ) : null}
-                        <span className="ml-auto shrink-0 tabular-nums">{timeAgo(post.ts)}</span>
+                        <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                          <ShipCodeBadge code={post.code} />
+                          <span className="tabular-nums">{timeAgo(post.ts)}</span>
+                        </span>
                       </div>
                       {/* Two lines, not one: unlike a phone notification the
                           title here IS the content, and a narrow screen minus

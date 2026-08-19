@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 import { dirname, extname, join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { PATHS } from "./config.ts";
+import type { ShipProvenance } from "./ship-provenance.ts";
 import { loadSharp } from "./native-deps.ts";
 import {
   createImageArtifact,
@@ -45,6 +46,9 @@ export type ShipPostRevision = {
   project?: string;
   // Artifact ids; hydrated to kind/url on read.
   media: string[];
+  // What Git said about the posting session's worktree at ship time. Absent on
+  // posts from before this was recorded, and on sessions with no checkout.
+  code?: ShipProvenance;
 };
 
 // What a feed page actually renders. The raw `media` id array is dropped (it
@@ -226,6 +230,7 @@ export async function addShipPost(input: {
   mediaPaths?: Array<{ path: string; caption?: string }>;
   // Existing artifacts to embed (e.g. a live html dashboard).
   artifactIds?: string[];
+  code?: ShipProvenance;
   ts?: number;
 }): Promise<ShipPostRevision> {
   const title = input.title?.replace(/\s+/g, " ").trim();
@@ -271,6 +276,10 @@ export async function addShipPost(input: {
     project: input.project ?? prior?.project,
     // An update without new media keeps the existing gallery.
     media: media.length ? media : (prior?.media ?? []),
+    // Re-measured per revision: an agent that ships, then commits and lands,
+    // then updates the post should see the badge follow the work. Only fall
+    // back to the prior reading when this revision could not take one.
+    code: input.code ?? prior?.code,
   };
   mkdirSync(dirname(FILE), { recursive: true });
   appendFileSync(FILE, JSON.stringify(post) + "\n");

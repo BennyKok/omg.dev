@@ -346,6 +346,7 @@ import { resolveUploadRequest, uploadsDir } from "../uploads.ts";
 import { addShipPost, listShipPosts, resolveShipProject } from "../shipped.ts";
 import { shippedCloseDecision } from "../shipped-lifecycle.ts";
 import { verifySelfRepoLanding } from "../session-landing.ts";
+import { collectShipProvenance } from "../ship-provenance.ts";
 import {
   artifactRefreshManager,
   prepareArtifactRefreshConfig,
@@ -6061,8 +6062,25 @@ a{color:#60a5fa}
             // byline survives registry pruning; the GET hydration still prefers
             // the live registry when the session is known.
             const sourceAgent = sourceManaged?.agent;
+            // Stamp what Git says about the session worktree right now. The
+            // self-repo landing gate above proves delivery for this repo only;
+            // every other project shipped with no source-control record at all,
+            // which is how posts that were never committed became
+            // indistinguishable from posts that landed and deployed.
+            const code = collectShipProvenance(sourceManaged);
+            if (code && code.state !== "landed" && code.state !== "clean") {
+              evlog("shipped_unlanded_code", {
+                sessionId: body.sessionId,
+                state: code.state,
+                branch: code.branch,
+                head: code.head,
+                dirty: code.dirty,
+                ahead: code.ahead,
+              });
+            }
             const post = await addShipPost({
               ...body,
+              code,
               agent: body.agent ?? sourceAgent,
               project: resolveShipProject(
                 body.project,

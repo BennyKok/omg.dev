@@ -23427,6 +23427,17 @@ export type ShipMediaItem = {
   refreshStatus?: "idle" | "running" | "success" | "error";
 };
 
+export type ShipProvenance = {
+  state: "uncommitted" | "unlanded" | "landed" | "clean" | "unknown";
+  branch?: string;
+  head?: string;
+  dirty: number;
+  /** Commits origin/main lacks entirely — the unlanded ones. */
+  ahead: number;
+  /** Commits ahead of origin/main by sha, squash-merged ones included. */
+  commits: number;
+};
+
 export type ShipPost = {
   id: string;
   rev: number;
@@ -23444,6 +23455,9 @@ export type ShipPost = {
   // thumbnail can show "+N" without shipping the rest of the gallery.
   mediaItems: ShipMediaItem[];
   mediaTotal?: number;
+  // Git state of the posting session's worktree at ship time. Absent on posts
+  // predating this, and on sessions with no checkout.
+  code?: ShipProvenance;
 };
 
 function SettingsView({
