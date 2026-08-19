@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - Bot chats keep root mobile navigation (v0.2.2)
+
+- **A selected bot chat now stays at the mobile root.** The header no longer
+  shows a Back button, and the compact Chat/Bots switch remains available above
+  the composer so Bots returns directly to the flat bot list.
+
 ## August 19, 2026 - Mobile bot navigation stays in its lane (v0.2.1)
 
 - **Chat and Bots now have separate mobile lists.** Chat shows coding sessions,

@@ -8371,7 +8371,7 @@ export function App() {
         </>}
       </main>
 
-      {shouldShowMobileSurfaceToggle(isMobile, tab) ? (
+      {shouldShowMobileSurfaceToggle(isMobile, tab) && !(tab === "bots" && selectedBotId) ? (
         <MobileSurfaceDock
           active={mobileSurfaceToggleActive(tab)}
           aboveComposer={mobileComposerVisible}
@@ -24486,15 +24486,6 @@ function BotsView({
               className="flex items-center gap-2 border-b border-border px-4 pb-3"
               style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.75rem)" }}
             >
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={onBack}
-                aria-label="Back to bots"
-                className="shrink-0"
-              >
-                <ChevronLeft className="size-5" />
-              </Button>
               <BotAvatar bot={bot} working={busy} size={28} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[15px] font-semibold leading-tight">{bot.name}</span>
@@ -24513,6 +24504,12 @@ function BotsView({
               </Button>
             </header>
             <div className="flex min-h-0 flex-1 flex-col">{chat}</div>
+            <MobileSurfaceDock
+              active="sessions"
+              aboveComposer
+              onOpenSessions={onOpenSessions}
+              onOpenBots={onBack}
+            />
           </section>
         </div>,
         document.body,
