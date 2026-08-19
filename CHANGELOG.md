@@ -2,6 +2,29 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - Unread bot conversations, and a calmer transcript (v0.2.9)
+
+- **Bot conversations now show unread activity, and it survives a reload.** A
+  quiet dot marks each conversation with a new bot reply, with one aggregate dot
+  on the Chat/Bots switch and the desktop bot rail. Read state is stored per
+  user and per conversation on the server, so it follows you between reloads and
+  devices. Your own messages never mark a conversation unread, and a message
+  from another bot marks only the conversation it arrived in. Opening a
+  conversation clears that one conversation and no others.
+- **An open bot conversation no longer carries the Chat/Bots switch.** The
+  switch belongs to the bot list and the Live list. Inside a conversation it sat
+  above the composer and took a row away from the messages, so it is gone; the
+  header Back button is the way out.
+- **Replies sit together again instead of drifting apart.** The per-message copy
+  button used to reserve an empty row under every turn, which pushed consecutive
+  messages about 36px apart and flashed a stray band on hover. It now sits in
+  the margin beside its own message, so the gap is 8px between messages from the
+  same speaker and 18px when the speaker changes, and revealing it shifts
+  nothing.
+- **Settings no longer shows the "Who's on this machine" row.** The local
+  facepile was showing machine accounts rather than anything you manage, so it
+  has been removed along with the endpoint behind it.
+
 ## August 19, 2026 - Agents stop filling RAM-backed /tmp (v0.2.8)
 
 - **Agent temp files go to disk when `/tmp` is tmpfs.** Leftover bun installs
