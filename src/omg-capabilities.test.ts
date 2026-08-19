@@ -78,6 +78,35 @@ describe("omg.dev runtime capabilities", () => {
     expect(withOmgRuntimeContract(contract)).toBe(contract);
   });
 
+  // A bot runs on the ordinary coding-agent harness — same tools, same skills,
+  // same box — so identity alone left it behaving like a task session. Asked
+  // "how is our bot system doing?", one spent four minutes on 25+ tool calls,
+  // ran an unrelated status skill, SSH'd into two production hosts and read the
+  // customer database before saying anything. These are the rules that make a
+  // chat turn a chat turn; each one is load-bearing, so each one is asserted.
+  test("gives a bot the shape of a conversational turn, not an investigation", () => {
+    const contract = botRuntimeContract("Scout", "Be concise and curious.");
+    // Answering is the deliverable, and it happens in the turn the message came in.
+    expect(contract).toContain("same turn");
+    // Chat-shaped, not report-shaped.
+    expect(contract).toContain("Talk like a person in a chat");
+    // Long work is handed off rather than run inline.
+    expect(contract).toContain("omg_create_subagent");
+    // The blast radius the production-database dig walked straight out of.
+    expect(contract).toContain("Stay inside your own repo");
+    expect(contract).toContain("production hosts");
+    // The MCP server tells every session to ship; a bot has to be told that
+    // instruction is not addressed to it, or the two contradict.
+    expect(contract).toContain("do not apply here");
+  });
+
+  // Two envelopes reach a bot: this contract and the MCP server's instructions,
+  // which used to order "ship or stay invisible" at every session indiscriminately.
+  test("the MCP instructions scope shipping to task sessions", () => {
+    expect(OMG_MCP_INSTRUCTIONS).toContain("In a task session, publish every verified result");
+    expect(OMG_MCP_INSTRUCTIONS).toContain("never ships, and never closes");
+  });
+
   // The first "Hey Scout!" went unanswered because the launch envelope told the
   // bot not to reply to its setup message while the greeting was bundled into
   // that same turn. Silence is only correct when nothing is attached.
