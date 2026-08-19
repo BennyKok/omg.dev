@@ -43,7 +43,19 @@ export async function cmdCursorAcpSession(argv: string[]): Promise<void> {
     recoveredAt,
     initialPrompt,
     async createRuntime(sink) {
-      const childArgs = ["--trust"];
+      // `--force` (alias `--yolo`) is a root flag, so it goes before the `acp`
+      // subcommand, the same as `--trust` and `--model`. Without it the ACP
+      // server raises session/request_permission per tool call, which we would
+      // have to put to the user as a dashboard question. A managed session is
+      // meant to run unattended, and every other managed backend already skips
+      // per-tool approval: claude-ai-sdk.ts and aisdk-session.ts use
+      // `bypassPermissions`, grok-cli.ts uses `bypassPermissions`, fx-cli.ts and
+      // cursor-cli.ts use `--yolo`, and the Cursor TUI pane in tmux.ts uses
+      // `--yolo --sandbox disabled`. This keeps Cursor on ACP, with no tmux
+      // pane, and drops the prompts.
+      // The session.requestPermission handler below stays as a fallback for any
+      // prompt the server raises regardless.
+      const childArgs = ["--force", "--trust"];
       if (model && model !== "auto") childArgs.push("--model", model);
       childArgs.push("acp");
       const child = spawn(cursorPath(), childArgs, {
