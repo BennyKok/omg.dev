@@ -78,7 +78,7 @@ export function BotRosterRow({
         })}
       >
         <View style={disabled ? { opacity: 0.45 } : undefined}>
-          <BotAvatar colorway={bot.colorway} size={44} working={!disabled && !!working} />
+          <BotAvatar shape={bot.shape} colorway={bot.colorway} size={44} working={!disabled && !!working} />
         </View>
 
         <View style={{ flex: 1, gap: 1, minWidth: 0 }}>

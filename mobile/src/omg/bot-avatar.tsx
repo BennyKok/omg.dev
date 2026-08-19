@@ -1,87 +1,81 @@
 /**
- * A bot's avatar — deliberately NOT the web's mark.
+ * A bot's avatar — the real mascot, ported instead of faked.
  *
  * The web's `BotAvatar` (web/src/components/BotAvatar.tsx) is a hand-rolled
  * SVG creature: a 12-point radial silhouette that morphs between five shapes
  * (circle/squircle/teardrop/pebble/hexagon) and breathes on a shared rAF
- * loop, painted with one of five gradient "colorways." It supersedes the
- * older emoji-avatar design in docs/design/bot-mode/spec.md, which is why
- * this file exists instead of an emoji box.
+ * loop, painted with one of five gradient "colorways." This used to render
+ * as a flat gradient square with the shape dropped entirely — see git log
+ * on this file for that first cut and its reasoning. The shape now survives
+ * too, as a rasterised PNG (bot-icons.ts / scripts/generate-bot-avatars.ts),
+ * the same trick agent-icons.ts already uses for the nine coding-agent
+ * marks: this app has no react-native-svg and cannot take on a native
+ * module without an EAS rebuild, so the silhouette ships as a bitmap
+ * instead of the web's live SVG path.
  *
- * PORTING THE SILHOUETTE ITSELF IS OUT OF SCOPE, ON PURPOSE. It needs
- * arbitrary SVG path drawing, and this app has no `react-native-svg` and
- * cannot take on a native module without an EAS rebuild — see
- * agent-icons.ts's identical reasoning for why agent marks ship as PNGs
- * instead of the web's SVGs. `expo-linear-gradient` IS already a dependency
- * (used by the home composer's fade), so the colorway half of the identity
- * survives losslessly; the shape half — five distinct silhouettes — does
- * not, and is deliberately deferred rather than faked with a worse-looking
- * stand-in. `shape` still round-trips through bots.ts so no data is lost;
- * only the rendering is simplified. Revisit if Benny wants the five shapes
- * distinguished on native — the honest options then are a small bundled PNG
- * per shape (same trick as agent-icons.ts) or taking the react-native-svg
- * native-module cost deliberately, not a pure-RN geometry hack standing in
- * for five hand-tuned silhouettes.
+ * WHAT STILL DOESN'T SURVIVE: the breathing wobble, the shape-morph tween,
+ * the blink, and the three non-idle motion states (thinking/working/
+ * sleeping) with their own pupil positions. A PNG is one frame; the web's
+ * `state="idle"` frame is the one captured, because idle applies no radii
+ * distortion to the shape's rest geometry (see the generator script's
+ * header). "working" keeps its existing native-only signal instead — the
+ * pulsing amber dot below, the same device SessionStatusDot already uses.
  *
- * THE SHAPE THAT SURVIVES THE PORT IS THE ONE THAT CARRIES MEANING: a bot
- * reads as a bot, not a session, at a glance. On the web that meaning is
- * "circular vs. `rounded-md`" (spec.md §0.5). On THIS app every session/agent
- * mark (`AgentAvatar`, components.tsx) is already circular — full
- * `borderRadius: size / 2` — so a circular bot avatar would carry no
- * distinguishing signal here at all; it would look identical to a session
- * row. The break has to run the other way on this surface: a bot avatar is a
- * ROUNDED SQUARE (a "squircle" corner radius, not a full round), which is
- * the one shape no existing avatar in this app uses. The meaning survives —
- * bot rows are still shape-distinct from session rows on sight — even though
- * the specific shape is inverted from the web's choice.
- *
- * The colorway gradient runs diagonally (top-left to bottom-right), matching
- * the web's `gradientUnits="userSpaceOnUse" x1=18 y1=18 x2=182 y2=182` on a
- * 200x200 viewBox — the same corner-to-corner direction, just without the
- * silhouette clipping it.
+ * THE PLATE IS STILL A ROUNDED SQUARE, ON PURPOSE, AND THAT PART DID NOT
+ * CHANGE. Every session/agent mark on this app (`AgentAvatar`,
+ * components.tsx) is already circular — full `borderRadius: size / 2` — so
+ * a circular bot avatar would carry no distinguishing signal here; a bot row
+ * has to look different from a session row before you even read the text.
+ * On the web that break is "circular vs. `rounded-md`" (spec.md §0.5); on
+ * this app it runs the other way — a rounded square is the shape no other
+ * avatar here uses. That call survives this change untouched. What changes
+ * is what sits ON the plate: instead of the plate itself carrying the
+ * colorway gradient edge-to-edge, the plate goes neutral (`colors.secondary`,
+ * mirroring `AgentAvatar`'s disc) and the creature mark — which now carries
+ * both shape AND colorway, baked into the PNG — sits inset on top of it, at
+ * the same 0.62 mark-to-container ratio AgentAvatar uses. Painting the
+ * gradient on both the plate and the mark had the two fight each other the
+ * exact way AgentAvatar's own doc comment warns about ("tinting the disc
+ * fought the icon"); keeping the plate neutral lets the mark carry the
+ * identity once instead of twice.
  */
 
-import { View } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
+import { Image, View } from "react-native";
 import Reanimated, { useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 
 import { useTheme } from "./theme";
-import type { BotColorway } from "./bots";
-
-/** Mirrors COLORWAYS in web/src/components/BotAvatar.tsx — literal design values, not CSS. */
-const COLORWAY_STOPS: Record<BotColorway, [string, string]> = {
-  warm: ["#f0a04b", "#b4451f"],
-  brand: ["#4d7cff", "#06b6d4"],
-  violet: ["#8b5cf6", "#ec4899"],
-  forest: ["#14b8a6", "#84cc16"],
-  midnight: ["#7b8ba6", "#2b3446"],
-};
-
-/** Same default the web falls back to for a bot with no colorway chosen yet. */
-const DEFAULT_COLORWAY: BotColorway = "warm";
+import type { BotColorway, BotShape } from "./bots";
+import { botIcon } from "./bot-icons";
 
 /**
  * The corner radius that reads as "rounded square" rather than "circle" or
  * "sharp card" at avatar sizes — proportional to size so it holds up at both
- * the roster's 44pt and the chat header's smaller mark.
+ * the roster's 44pt and the New/Edit Bot sheet's 64pt preview.
  */
 const SQUIRCLE_RATIO = 0.32;
 
+/** Mirrors AgentAvatar's mark-to-disc ratio (components.tsx) — leaves the
+ * plate a margin so the mark reads as sitting on it, not as a sticker
+ * covering it edge to edge. */
+const MARK_RATIO = 0.62;
+
 export function BotAvatar({
-  colorway = DEFAULT_COLORWAY,
+  shape,
+  colorway,
   size = 44,
   working = false,
   style,
 }: {
-  colorway?: BotColorway;
+  shape?: BotShape | null;
+  colorway?: BotColorway | null;
   size?: number;
   /** Same warning-amber pulsing dot as SessionStatusDot's busy state. */
   working?: boolean;
   style?: object;
 }) {
   const { colors } = useTheme();
-  const [start, end] = COLORWAY_STOPS[colorway] ?? COLORWAY_STOPS[DEFAULT_COLORWAY];
   const radius = Math.round(size * SQUIRCLE_RATIO);
+  const markSize = Math.round(size * MARK_RATIO);
 
   const pulse = useSharedValue(1);
   if (working) {
@@ -95,12 +89,23 @@ export function BotAvatar({
 
   return (
     <View style={[{ width: size, height: size }, style]}>
-      <LinearGradient
-        colors={[start, end]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={{ width: size, height: size, borderRadius: radius }}
-      />
+      <View
+        style={{
+          width: size,
+          height: size,
+          borderRadius: radius,
+          backgroundColor: colors.secondary,
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+        }}
+      >
+        <Image
+          source={botIcon(shape, colorway)}
+          style={{ width: markSize, height: markSize }}
+          resizeMode="contain"
+        />
+      </View>
       {working ? (
         <Reanimated.View
           pointerEvents="none"
