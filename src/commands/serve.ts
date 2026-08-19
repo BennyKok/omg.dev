@@ -238,17 +238,33 @@ import {
 } from "../live-ws.ts";
 import { appendCmd as appendAisdkCmd, removeEntry as removeAisdkEntry, readEntry as readAisdkEntry, findEntryByAnyId as findAisdkEntryByAnyId, isEntryBusy as isAisdkEntryBusy, isPidAlive as isAisdkPidAlive, patchEntry as patchAisdkEntry, terminateHarnessProcess, waitForHarnessExit, wakeHarnessCommandReader } from "../aisdk-registry.ts";
 import { markClosed } from "../closing.ts";
-import { assignUser, resolveSessionUserTag, rosterBoxAccount, rosterEmails, userAssignments, userRoster } from "../users.ts";
+import {
+  assignUser,
+  gravatar,
+  iconIdentityKey,
+  machineMembers,
+  resolveSessionUserTag,
+  rosterBoxAccount,
+  rosterEmails,
+  userAssignments,
+  userRoster,
+} from "../users.ts";
 import {
   addOnboardingProfile,
   getOnboarding,
   patchOnboarding,
   setProfileAvatar,
-  AVATARS_DIR,
-  AVATAR_MIME_BY_EXT,
   type HostedFirstRun,
   type OnboardingSteps,
 } from "../onboarding.ts";
+import {
+  AVATARS_DIR,
+  AVATAR_MIME_BY_EXT,
+  iconUrl,
+  removeUserIcon,
+  setUserIcon,
+  userIconsSync,
+} from "../user-icons.ts";
 import {
   listCustomRepos,
   listHiddenRepos,
@@ -3206,6 +3222,47 @@ a{color:#60a5fa}
           return err(400, e instanceof Error ? e.message : "invalid image");
         }
       }
+      // ---- user icon (settings-configurable, not just onboarding-once) ----
+      // `email` in the query names which roster member the caller is acting
+      // as; a roster-less hosted box ignores it and keys by its paired omg
+      // account instead (see iconIdentityKey in users.ts — this is the
+      // hosted-side identity decision for the whole feature).
+      if (path === "/api/settings/icon" && req.method === "GET") {
+        const identity = iconIdentityKey(url.searchParams.get("email"));
+        if (!identity.ok) return err(400, identity.reason);
+        const custom = iconUrl(userIconsSync(), identity.key);
+        return json({
+          key: identity.key,
+          avatar: custom ?? gravatar(identity.key),
+          hasCustomIcon: !!custom,
+        });
+      }
+      if (path === "/api/settings/icon" && req.method === "POST") {
+        const identity = iconIdentityKey(url.searchParams.get("email"));
+        if (!identity.ok) return err(400, identity.reason);
+        const mime = (req.headers.get("content-type") ?? "").split(";")[0]!.trim();
+        try {
+          const bytes = new Uint8Array(await req.arrayBuffer());
+          const { url: avatar } = await setUserIcon(identity.key, bytes, mime);
+          return json({ key: identity.key, avatar, users: userRoster() });
+        } catch (e) {
+          return err(400, e instanceof Error ? e.message : "invalid image");
+        }
+      }
+      if (path === "/api/settings/icon" && req.method === "DELETE") {
+        const identity = iconIdentityKey(url.searchParams.get("email"));
+        if (!identity.ok) return err(400, identity.reason);
+        await removeUserIcon(identity.key);
+        return json({
+          key: identity.key,
+          avatar: gravatar(identity.key),
+          users: userRoster(),
+        });
+      }
+      // ---- machine membership (facepile source of truth) ----
+      if (path === "/api/machine/members" && req.method === "GET") {
+        return json({ members: machineMembers() });
+      }
       // Clone a git repository into LFG_REPOS_ROOT — the onboarding "set up
       // your repo" step for installs that have no repos yet.
       if (path === "/api/onboarding/repo" && req.method === "POST") {
@@ -3232,10 +3289,20 @@ a{color:#60a5fa}
         if (m && req.method === "GET") {
           const file = Bun.file(join(AVATARS_DIR(), `${m[1]}.${m[2]}`));
           if (!(await file.exists())) return err(404, "avatar not found");
+          // A request carrying `?v=` (user-icons.ts's version cache-buster)
+          // names a URL that can only ever resolve to this exact image — a
+          // replace bumps the version and therefore the URL, it never
+          // overwrites one a client already cached. That makes it safe to
+          // cache indefinitely, unlike the unversioned legacy onboarding URLs
+          // (no `?v=`), which stay on the conservative short TTL because the
+          // same URL really can change under a client's feet.
+          const versioned = url.searchParams.has("v");
           return new Response(file, {
             headers: {
               "Content-Type": AVATAR_MIME_BY_EXT[m[2]!] ?? "application/octet-stream",
-              "Cache-Control": "private, max-age=3600",
+              "Cache-Control": versioned
+                ? "private, max-age=31536000, immutable"
+                : "private, max-age=3600",
               "X-Content-Type-Options": "nosniff",
             },
           });

@@ -64,6 +64,8 @@ import {
   type BotShape,
 } from "./components/BotAvatar";
 import { EmbeddedConnectGate } from "./components/embedded-connect-gate";
+import { UserFacepile } from "./components/UserFacepile";
+import { facepileLabel, type FacepileMember } from "./lib/facepile";
 import {
   AuthenticatedArtifactImage,
   AuthenticatedArtifactVideo,
@@ -256,6 +258,8 @@ import {
   Trash2,
   TriangleAlert,
   UserRound,
+  Users,
+  Camera,
   X,
   Ellipsis,
 } from "lucide-react";
@@ -23585,6 +23589,168 @@ export type ShipPost = {
   code?: ShipProvenance;
 };
 
+// Backend shape from GET /api/machine/members (src/users.ts's machineMembers()).
+// Roster emails on a shared box, or the box's one paired omg account on a
+// roster-less hosted Computer — never empty unless the box is both
+// roster-less and unpaired.
+function MachineMembersRow() {
+  const [members, setMembers] = useState<FacepileMember[] | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void omgFetch("/api/machine/members")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { members?: FacepileMember[] } | null) => {
+        if (alive) setMembers(d?.members ?? []);
+      })
+      .catch(() => {
+        if (alive) setMembers([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  return (
+    <div className="flex w-full items-center justify-between gap-4 px-4 py-2.5">
+      <div className="flex items-center gap-3">
+        <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
+          <Users className="size-4" />
+        </span>
+        <span className="text-sm font-medium">Who&apos;s on this machine</span>
+      </div>
+      {members === null ? (
+        <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground/60" />
+      ) : (
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-xs text-muted-foreground">{facepileLabel(members)}</span>
+          <UserFacepile members={members} size={22} maxVisible={4} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Settings-configurable icon: upload, replace, remove. Works identically on a
+ * roster box (icon keyed by the selected profile, `identityEmail`) and a
+ * roster-less hosted Computer (identityEmail is null there — the server
+ * resolves identity from the paired omg account instead; see
+ * iconIdentityKey in src/users.ts). Falls back to Gravatar/identicon, exactly
+ * like every other avatar in the app, until something is uploaded.
+ */
+function UserIconSettingsSection({ identityEmail }: { identityEmail: string | null }) {
+  const [state, setState] = useState<{ avatar: string; hasCustomIcon: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const query = identityEmail ? `?email=${encodeURIComponent(identityEmail)}` : "";
+
+  const load = useCallback(() => {
+    void omgFetch(`/api/settings/icon${query}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { avatar?: string; hasCustomIcon?: boolean } | null) => {
+        if (d?.avatar) setState({ avatar: d.avatar, hasCustomIcon: !!d.hasCustomIcon });
+      })
+      .catch(() => {});
+  }, [query]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function upload(file: File) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api<{ avatar: string }>(`/api/settings/icon${query}`, {
+        method: "POST",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      setState({ avatar: res.avatar, hasCustomIcon: true });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't upload that image");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api<{ avatar: string }>(`/api/settings/icon${query}`, {
+        method: "DELETE",
+      });
+      setState({ avatar: res.avatar, hasCustomIcon: false });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't remove that image");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="space-y-2">
+      <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        Icon
+      </h2>
+      <div className="flex items-center gap-4 rounded-2xl border border-border bg-card/40 px-4 py-3.5">
+        <span className="relative flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted">
+          {state?.avatar ? (
+            <img src={state.avatar} alt="" className="size-full object-cover" />
+          ) : (
+            <UserRound className="size-6 text-muted-foreground" />
+          )}
+          {busy ? (
+            <span className="absolute inset-0 flex items-center justify-center bg-background/60">
+              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            </span>
+          ) : null}
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <p className="text-xs text-muted-foreground">
+            Shown next to your sessions and in the facepile of anyone sharing this machine.
+            PNG, JPEG, WebP, or GIF, up to 5MB.
+          </p>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Camera className="size-3.5" />
+              {state?.hasCustomIcon ? "Replace" : "Upload"}
+            </Button>
+            {state?.hasCustomIcon ? (
+              <Button type="button" variant="outline" size="sm" disabled={busy} onClick={remove}>
+                <Trash2 className="size-3.5" />
+                Remove
+              </Button>
+            ) : null}
+          </div>
+          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) void upload(file);
+          }}
+        />
+      </div>
+    </section>
+  );
+}
+
 function SettingsView({
   user,
   settings,
@@ -23627,6 +23793,8 @@ function SettingsView({
         </div>
       </div>
       )}
+
+      <UserIconSettingsSection identityEmail={user} />
 
       {/* Live browser-to-server RTT, measured over the same socket that carries
           session updates. This is intentionally dynamic rather than a cached
@@ -23731,6 +23899,7 @@ function SettingsView({
             </div>
             <ChevronRight className="size-4 text-muted-foreground/60" />
           </button>
+          <MachineMembersRow />
         </div>
       </section>
 
