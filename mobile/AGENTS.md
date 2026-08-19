@@ -4,8 +4,12 @@ These instructions extend the root `AGENTS.md`.
 
 ## Responsibility
 
-`mobile/` owns the open-source Expo client for omg.dev. The root repository
-still owns the local agent runtime and session lifecycle.
+`mobile/` owns the native Expo client for omg.dev. It is currently named
+`LFG Glass` in `app.json`. It is not the separate `app-blocker` product.
+
+The root repository owns the local agent runtime and session lifecycle. The
+`vibes` repository owns hosted authentication, billing, waitlist, and product
+contracts used by this client.
 
 ## Source of truth
 

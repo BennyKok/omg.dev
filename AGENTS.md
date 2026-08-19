@@ -8,8 +8,10 @@ adapters, and local artifacts.
 
 It does not own the hosted omg.dev product, billing, account data, or
 Firecracker fleet. Those concerns belong in the `vibes` repository. The
-`mobile/` directory owns the open-source mobile client and has more specific
-instructions in `mobile/AGENTS.md`.
+`mobile/` directory is the current source tree for the native omg.dev client.
+Its hosted authentication, billing, and product contracts belong in `vibes`.
+The separate `app-blocker` repository is a different product idea. More
+specific client instructions live in `mobile/AGENTS.md`.
 
 ## Task contract
 
