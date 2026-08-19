@@ -27,11 +27,11 @@
  * phase (bot chat); this file is the roster half only.
  *
  * "+ New bot" is visually present (both the header action and, empty-roster
- * only, the dashed row — §3.4) because leaving the roster's own create
- * affordance out would read as broken chrome, not as scope control. Tapping
- * either is a placeholder toast until the New/Edit Bot sheet exists — see
- * the PR description for why that sheet and bot chat are both held for a
- * separate steer.
+ * only, the dashed row — §3.4) and now opens the real thing: BotEditSheet
+ * (bot-edit-sheet.tsx). Bot chat is still the placeholder toast — tapping a
+ * roster row opens the SAME sheet in edit mode instead of routing to
+ * `/bots/[id]`, because that screen does not exist yet and an edit affordance
+ * is a truthful stand-in for "tap a bot" while a dead toast was not.
  */
 
 import { useFocusEffect, useNavigation, useRouter } from "expo-router";
@@ -47,6 +47,7 @@ import { useToast } from "../../src/omg/toast";
 import { useOmg } from "../../src/omg/provider";
 import { useBots, type Bot } from "../../src/omg/bots";
 import { BotRosterRow } from "../../src/omg/bot-roster-row";
+import { BotEditSheet } from "../../src/omg/bot-edit-sheet";
 
 /** A session carries `botId` once it is bot-driven — see bot-mode-design.md's
  * `Session` type extension. Not yet in @omg-dev/protocol's OmgSession, same
@@ -63,6 +64,13 @@ export default function BotsScreen() {
 
   const { bots, loading, refresh } = useBots();
   const [pulling, setPulling] = useState(false);
+
+  // null editingBot + sheetOpen = creating; a Bot = editing that row. Kept as
+  // two pieces of state rather than a union so the sheet's own form-reset
+  // effect (bot-edit-sheet.tsx) can key off `visible` without also having to
+  // guard against `editingBot` changing out from under an already-open sheet.
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [editingBot, setEditingBot] = useState<Bot | null>(null);
 
   // Which bots are working right now, cross-referenced from the live
   // sessions list the same way the web does (`busyBySid` keyed through
@@ -98,14 +106,16 @@ export default function BotsScreen() {
   const animateEntry = Date.now() - mountedAtRef.current >= COLD_LOAD_WINDOW_MS;
 
   const openBot = (bot: Bot) => {
-    // TODO(bot chat): route to /bots/[id] once that screen exists.
-    void bot;
-    toast.show("Bot chat is coming soon.");
+    // TODO(bot chat): route to /bots/[id] once that screen exists. Until
+    // then, opening the sheet in edit mode is a truthful stand-in — you can
+    // at least see and change what you made — rather than a dead toast.
+    setEditingBot(bot);
+    setSheetOpen(true);
   };
 
   const createBot = () => {
-    // TODO(New/Edit Bot sheet): open the create sheet once it exists.
-    toast.show("Creating bots is coming soon.");
+    setEditingBot(null);
+    setSheetOpen(true);
   };
 
   useLayoutEffect(() => {
@@ -195,6 +205,16 @@ export default function BotsScreen() {
           ))}
         </View>
       )}
+
+      <BotEditSheet
+        visible={sheetOpen}
+        bot={editingBot}
+        onClose={() => setSheetOpen(false)}
+        onSaved={(bot) => {
+          toast.show(editingBot ? `Saved ${bot.name}.` : `${bot.name} joined the roster.`);
+          refresh();
+        }}
+      />
     </ScrollView>
   );
 }
