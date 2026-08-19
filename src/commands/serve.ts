@@ -287,6 +287,7 @@ import {
   resolveInputCwd,
 } from "../repo-resolve.ts";
 import { WORKTREE_ROOT, resolveSessionCwd, startWorktreeSweep } from "../worktree.ts";
+import { ensureDiskBackedTmpdir, startTmpSweep } from "../tmp-reclaim.ts";
 import {
   FolderDeleteError,
   deleteFolder,
@@ -2701,6 +2702,10 @@ function prepareLoginTerminal(kind: string, command: string): string {
 }
 
 export async function cmdServe() {
+  const diskTmp = ensureDiskBackedTmpdir();
+  if (diskTmp) {
+    console.log(`lfg tmp → ${diskTmp} (disk-backed; /tmp is RAM)`);
+  }
   const liveWs = createLiveWsSupport({
     evlog,
     getAgentRun: agentRunSnapshot,
@@ -8059,6 +8064,7 @@ a{color:#60a5fa}
   }
   startModelDiscoveryScheduler((l) => console.log(l));
   startWorktreeSweep((l) => console.log(l));
+  startTmpSweep((l) => console.log(l));
   startIdleAgentArchiveSweep();
   // Watch the fleet for busy -> idle transitions and fan "completed" events out
   // to fleet subscribers (Web Push). Idempotent + best-effort.

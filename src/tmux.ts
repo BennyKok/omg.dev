@@ -14,6 +14,7 @@ import {
   claudeAccountConfigDir,
   resolveClaudeAccount,
 } from "./claude-accounts.ts";
+import { agentTmpEnv } from "./tmp-reclaim.ts";
 
 // Known-good Claude model alias to launch with when a caller doesn't specify
 // one. Never launch a managed `claude` bare — see spawnManagedSession. Opus is
@@ -130,6 +131,9 @@ function addSessionEnv(
   } else {
     env.push("-e", `AGENT_BROWSER_IDLE_TIMEOUT_MS=${AGENT_BROWSER_IDLE_TIMEOUT_MS}`);
   }
+  for (const [key, value] of Object.entries(agentTmpEnv())) {
+    env.push("-e", `${key}=${value}`);
+  }
   if (env.length) argv.splice(i + 1, 0, ...env);
 }
 
@@ -175,6 +179,9 @@ export function containedAgentCommand(
   if (opts.omgSessionId) argv.push(`--setenv=LFG_SESSION_ID=${opts.omgSessionId}`);
   argv.push(`--setenv=OMG_CAPABILITY_VERSION=${OMG_CAPABILITY_VERSION}`);
   if (opts.omgUser) argv.push(`--setenv=LFG_USER=${opts.omgUser}`);
+  for (const [key, value] of Object.entries(agentTmpEnv())) {
+    argv.push(`--setenv=${key}=${value}`);
+  }
   return [...argv, "--", ...command];
 }
 
@@ -210,6 +217,7 @@ function spawnManagedHarness(
   // Always name + idle-timeout the browser, including parent (non-slice) harness
   // spawns. containInAgentSlice still only wraps subagents in systemd-run.
   Object.assign(env, agentBrowserEnv(opts.name));
+  Object.assign(env, agentTmpEnv());
   const cmd = opts.containInAgentSlice
     ? containedAgentCommand(command, opts, { pty: false })
     : command;
