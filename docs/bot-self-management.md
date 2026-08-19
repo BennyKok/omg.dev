@@ -39,6 +39,26 @@ in its own conversation. The server does not forward model output and does not
 create automatic replies. The receiver must call `omg_send_message_to_peer`
 with `replyToMessageId` to send a reply.
 
+## Conversation read state
+
+Unread state belongs to a conversation, not to a bot or browser tab. The server
+stores a read-through cursor in `data/bots/conversation-reads.json`. Its key is
+the normalized assigned user and persistent session ID. A bot with two sessions
+therefore has two independent watermarks.
+
+Assistant output and an attributed `[Peer message from …]` turn are unread
+activity. A human user turn is not. The Bots roster reads this state from
+`GET /api/bots?user=<assigned-user>`. Selecting and displaying one conversation
+calls `POST /api/bot-conversations/<session-id>/read`. The server rejects a read
+for a different assigned user.
+
+The client uses the existing transcript WebSocket to refresh unread state. If
+the arriving turn belongs to the visible conversation, the client advances that
+conversation watermark. Otherwise it only refreshes the roster. The normal bot
+poll hydrates the same server state after reload, reconnect, or a change from
+another tab or device. The v0.1.411 `bots` response field remains unchanged;
+new clients also read the additive `conversations` field.
+
 One assigned user can own at most 10 persistent bots. Disabled bots count. The
 store performs the quota check and write in one synchronous commit section, so
 concurrent create calls cannot take the same final slot.

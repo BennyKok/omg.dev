@@ -1052,6 +1052,32 @@ export function lastIndexedAssistantMessage(sessionId: string): SessionMsg | nul
   };
 }
 
+/**
+ * Stable server cursor used by per-conversation read watermarks.
+ *
+ * Human prompts stay quiet. Assistant output is unread activity, as is a
+ * durable peer-bot envelope arriving as a user-role turn in the target bot's
+ * transcript.
+ */
+export function latestIndexedAssistantCursor(sessionId: string): {
+  rowid: number;
+  messageId: string;
+  ts: number | null;
+} | null {
+  init();
+  const row = database()
+    .query<{ rowid: number; id: string; message_id: string | null; ts: number | null }, [string]>(
+      `SELECT rowid, id, message_id, ts
+         FROM transcript_messages
+        WHERE session_id = ?
+          AND (role = 'assistant' OR (role = 'user' AND text LIKE '[Peer message from %'))
+        ORDER BY rowid DESC
+        LIMIT 1`,
+    )
+    .get(sessionId);
+  return row ? { rowid: row.rowid, messageId: row.message_id ?? row.id, ts: row.ts } : null;
+}
+
 // Seed the synthetic per-session read model (`lfg://session/<id>`) from history
 // that was indexed under a real FILE path. Two cases:
 //   - claude: legacy sessions indexed by their native ~/.claude JSONL before the

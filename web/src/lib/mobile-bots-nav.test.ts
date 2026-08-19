@@ -23,6 +23,10 @@ describe("shouldShowMobileSurfaceToggle", () => {
     expect(shouldShowMobileSurfaceToggle(true, "bots")).toBe(true);
   });
 
+  test("stays off an open bot conversation", () => {
+    expect(shouldShowMobileSurfaceToggle(true, "bots", "bot_scout")).toBe(false);
+  });
+
   test("stays hidden on desktop/tablet widths regardless of tab", () => {
     expect(shouldShowMobileSurfaceToggle(false, "live")).toBe(false);
     expect(shouldShowMobileSurfaceToggle(false, "bots")).toBe(false);

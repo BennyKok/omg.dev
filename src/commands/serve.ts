@@ -95,6 +95,14 @@ import {
   releaseBotPeerMessage,
   reserveBotPeerMessage,
 } from "../bots/messaging.ts";
+import {
+  assertConversationAccess,
+  botReadUser,
+  conversationOwner,
+  conversationUnread,
+  ensureBotConversationReadBaseline,
+  markBotConversationRead,
+} from "../bots/unread.ts";
 import { startAutoScheduler, setBotRoutineDelivery } from "../auto/scheduler.ts";
 import { handleWakeTick } from "../auto/wake-tick.ts";
 import { pushWakeHooksNow, setWakeHooksBootId } from "../auto/wake-hooks-push.ts";
@@ -176,6 +184,7 @@ import {
   indexedArtifactPlacement,
   indexTranscript,
   lastIndexedAssistantMessage,
+  latestIndexedAssistantCursor,
   prepareFileHistoryForResume,
   removeIndexedArtifact,
   sessionHasIndexedMessages,
@@ -4056,13 +4065,46 @@ a{color:#60a5fa}
           // bot is idle between turns by definition and its harness may not be
           // running at all, and reading the last turn off the fleet made a bot
           // with a year of history show "Say hi to get started" after a reboot.
-          const bots = (await listBots()).map((bot) => {
+          const requestedUser = url.searchParams.get("user");
+          const allBots = await listBots();
+          const visibleBots = requestedUser == null
+            ? allBots
+            : allBots.filter((bot) => botReadUser(bot.owner) === botReadUser(requestedUser));
+          const bots = visibleBots.map((bot) => {
             const last = bot.sessionId ? lastIndexedAssistantMessage(bot.sessionId) : null;
             return last?.text
               ? { ...bot, lastMessagePreview: last.text.slice(0, 400), lastMessageTs: last.ts ?? null }
               : bot;
           });
-          return json({ bots });
+          // New clients consume one row per conversation. Keep `bots` unchanged
+          // for v0.1.411 clients, which know only the bot-level roster.
+          const sessions = await listSessionsCached();
+          const ids = new Map<string, { bot: Bot; assignedUser?: string | null }>();
+          for (const bot of visibleBots) {
+            if (bot.sessionId) ids.set(bot.sessionId, { bot, assignedUser: bot.owner });
+          }
+          for (const session of sessions) {
+            if (!session.sessionId || !session.botId) continue;
+            const bot = visibleBots.find((candidate) => candidate.id === session.botId);
+            if (bot) ids.set(session.sessionId, { bot, assignedUser: session.assignedUser });
+          }
+          const user = botReadUser(requestedUser);
+          const conversations = [...ids].flatMap(([sessionId, value]) => {
+            const owner = conversationOwner(sessionId, sessions, visibleBots);
+            if (!owner || (requestedUser != null && owner.user !== user)) return [];
+            const cursor = latestIndexedAssistantCursor(sessionId);
+            ensureBotConversationReadBaseline(user, sessionId, cursor?.rowid ?? null);
+            const last = lastIndexedAssistantMessage(sessionId);
+            return [{
+              sessionId,
+              botId: value.bot.id,
+              assignedUser: value.assignedUser ?? value.bot.owner ?? null,
+              unread: conversationUnread(user, sessionId, cursor?.rowid ?? null),
+              lastMessagePreview: last?.text?.slice(0, 400),
+              lastMessageTs: last?.ts ?? null,
+            }];
+          });
+          return json({ bots, conversations });
         }
         if (req.method === "POST") {
           const body = (await req.json().catch(() => null)) as {
@@ -4113,6 +4155,25 @@ a{color:#60a5fa}
             throw error;
           }
           return json({ bot });
+        }
+      }
+      {
+        const match = path.match(/^\/api\/bot-conversations\/([^/]+)\/read$/);
+        if (match && req.method === "POST") {
+          const sessionId = decodeURIComponent(match[1]);
+          const body = (await req.json().catch(() => null)) as { user?: unknown } | null;
+          const requestedUser = typeof body?.user === "string" ? body.user : undefined;
+          const sessions = await listSessionsCached();
+          const bots = await listBots();
+          try {
+            const owner = assertConversationAccess(requestedUser, sessionId, sessions, bots);
+            const cursor = latestIndexedAssistantCursor(sessionId);
+            const read = markBotConversationRead(owner.user, sessionId, cursor?.rowid ?? null);
+            return json({ ok: true, sessionId, readThroughRowid: read.readThroughRowid });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            return err(message.includes("another user") ? 403 : 404, message);
+          }
         }
       }
       {
