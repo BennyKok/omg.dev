@@ -60,7 +60,11 @@ export function shortSessionId(id: string): string {
 export const OMG_MCP_INSTRUCTIONS = [
   `This is omg.dev's agent capability server (capability version ${OMG_CAPABILITY_VERSION}).`,
   "Communicate with the human through normal assistant messages. Use omg_display_image or omg_display_video when local visual evidence is useful.",
-  "Publish every verified result with omg_ship, choosing closeSession explicitly; work that is never shipped never reaches the human.",
+  // Scoped to task sessions on purpose. These instructions reach every session
+  // the MCP server answers, bots included, and an unscoped "ship or stay
+  // invisible" told a named bot the exact opposite of its own envelope — which
+  // is one of the reasons bot chats behaved like task sessions.
+  "In a task session, publish every verified result with omg_ship, choosing closeSession explicitly; work that is never shipped never reaches the human. A named bot conversation runs under its own bot runtime contract instead: it replies in chat, never ships, and never closes.",
   "Decide autonomously; use omg_input only for a genuinely irreversible, risky, or ambiguous decision. Use omg.dev-managed delegation only when delegation is explicitly requested.",
   "Recurring scheduled work belongs to the auto agent tools (omg_list_auto_agents, omg_compose_auto_agent, omg_save_auto_agent, omg_run_auto_agent, omg_list_findings).",
   `Session ids are returned in short form (${SHORT_SESSION_ID_LENGTH}-char prefix, like a git short sha). Pass them back exactly as given — any unambiguous prefix resolves to the full id.`,
@@ -92,6 +96,16 @@ export function omgRuntimeContract(): string {
  * no answer and only the second message ever worked. So the silence rule is
  * only correct when nothing is bundled; when a message is attached, the
  * contract has to point at it explicitly.
+ *
+ * The turn-shape rules exist because a bot runs on the ordinary coding-agent
+ * harness: same tools, same skills, same box, `bypassPermissions`, no per-turn
+ * budget. Identity and a "do not ship" line were never enough to make that
+ * behave like a conversation. Asked "how is our bot system doing?", a bot spent
+ * four minutes on 25+ tool calls — it picked up an unrelated status skill, went
+ * SSH'ing into two production hosts, read the customer database and the
+ * analytics store, and still had not said a word to the human. A chat turn is
+ * answered, not investigated; work that needs an investigation belongs in a
+ * task session that reports back here.
  */
 export function botRuntimeContract(
   name: string,
@@ -102,8 +116,12 @@ export function botRuntimeContract(
     `=== omg.dev BOT RUNTIME CONTRACT (capability version ${OMG_CAPABILITY_VERSION}) ===`,
     `- You are ${name}, a named persistent bot in an ongoing conversation.`,
     `- Your persona is: ${persona.trim()}`,
-    "- Reply to the human through normal assistant messages.",
-    "- Do not use `omg_ship` for this conversation. Do not close this session.",
+    "- Reply to the human through normal assistant messages. Every message gets a reply in that same turn; the reply IS the deliverable, and a turn that ends without one has failed.",
+    "- Talk like a person in a chat: a few sentences, in character, plain words. Answer from what you already know whenever you can.",
+    "- Looking something up is fine when the answer depends on it — a couple of reads, then answer. Never open an investigation in a chat turn.",
+    "- Anything bigger than that — test suites, builds, refactors, multi-repo digs, production or customer data, anything past a minute or two of tool calls — is not chat work. Say so in one line, hand it to a task session with `omg_create_subagent`, and report back here when it lands.",
+    "- Stay inside your own repo and this conversation. Do not touch other repos, production hosts, credentials, or unrelated skills unless this conversation asks you to.",
+    "- The omg.dev MCP server's instructions describe task sessions and do not apply here. Do not use `omg_ship` for this conversation. Do not close this session.",
     options.awaitingFirstMessage
       ? "- No message has arrived yet. Say nothing until the next attributed message arrives, then reply to it."
       : "- An attributed message follows this contract. Reply to it now, in character, as your first turn.",

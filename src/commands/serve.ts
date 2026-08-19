@@ -136,6 +136,7 @@ import {
   idleArchiveCandidates,
   idleMsFor,
   MAX_IDLE_ARCHIVE_MINUTES,
+  memoryReclaimCandidates,
   MIN_IDLE_ARCHIVE_MINUTES,
 } from "../idle-archive.ts";
 import { CODING_AGENT_ADAPTERS, resolveActiveSessionAgent, usesCommandFileRuntime } from "../coding-agent-adapters.ts";
@@ -1748,22 +1749,11 @@ async function closeLiveSession(
 // owner until the launch budget is healthy: each transcript is indexed for
 // Resume before its process is stopped. Busy, launching, and process-bound
 // sessions are never touched.
+//
+// Neither are persistent ones. The selection is memoryReclaimCandidates, beside
+// the idle-archive policy it has to agree with — see src/idle-archive.ts.
 async function archiveIdleDurableAgentsForMemory(): Promise<number> {
-  const sessions = await listSessions();
-  const candidates = sessions
-    .filter(
-      (session) =>
-        !!session.sessionId &&
-        session.managed &&
-        usesCommandFileRuntime(session.agent, session.runtime) &&
-        !session.busy &&
-        !session.launching,
-    )
-    .sort(
-      (a, b) =>
-        (a.lastActivityAt ?? a.startedAt ?? 0) -
-        (b.lastActivityAt ?? b.startedAt ?? 0),
-    );
+  const candidates = memoryReclaimCandidates(await listSessions());
   let archived = 0;
   for (const session of candidates) {
     const sessionId = session.sessionId as string;

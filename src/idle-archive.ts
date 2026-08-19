@@ -13,6 +13,11 @@
 //
 // The selection is a pure function so the policy can be tested without spawning
 // or killing anything.
+//
+// Memory-pressure reclaim (memoryReclaimCandidates, below) is the second reaper
+// and lives here for one reason: two reapers in two files disagreed about what
+// is exempt, and the one that forgot won. See its own comment.
+import { usesCommandFileRuntime, type CodingAgentTransport } from "./coding-agent-adapters.ts";
 
 export type IdleArchiveCandidate = {
   sessionId: string | null;
@@ -77,6 +82,45 @@ export function idleArchiveCandidates<T extends IdleArchiveCandidate>(
   });
   eligible.sort((a, b) => (idleMsFor(b, options.now) ?? 0) - (idleMsFor(a, options.now) ?? 0));
   return options.limit != null ? eligible.slice(0, options.limit) : eligible;
+}
+
+export type MemoryReclaimCandidate = Omit<IdleArchiveCandidate, "lastActivityAt" | "startedAt"> & {
+  agent?: string | null;
+  runtime?: CodingAgentTransport | null;
+  lastActivityAt?: number | null;
+  startedAt?: number | null;
+};
+
+/**
+ * Durable harnesses a memory-pressure launch may reclaim, oldest first.
+ *
+ * Same exemptions as idle archiving, for the same reasons — plus the one that
+ * was missing here and only here: `persistent`. A bot's backing session is idle
+ * between turns by definition, which made it the oldest candidate in this list
+ * and let any unrelated launch reclaim it. Archiving is normally cheap because
+ * a session resumes where it left off, but a bot relaunch mints a fresh session
+ * id, so the human's chat with that bot came back empty.
+ *
+ * Only command-file harnesses qualify: a process-bound (tmux) session has no
+ * resume record to archive against, so reclaiming it would be a kill.
+ */
+export function memoryReclaimCandidates<T extends MemoryReclaimCandidate>(
+  sessions: readonly T[],
+): T[] {
+  return sessions
+    .filter(
+      (session) =>
+        !!session.sessionId &&
+        session.managed &&
+        !session.persistent &&
+        !session.busy &&
+        !session.launching &&
+        usesCommandFileRuntime(session.agent, session.runtime),
+    )
+    .sort(
+      (a, b) =>
+        (a.lastActivityAt ?? a.startedAt ?? 0) - (b.lastActivityAt ?? b.startedAt ?? 0),
+    );
 }
 
 /** Clamp a user-supplied idle window, where 0 means "off". */
