@@ -85,6 +85,7 @@ import {
   CodingAgentsContext,
   SessionAgentIcon,
   GALLERY_PAGE,
+  pausedProviderErrorDetail,
   resolveSessionHeaderIdentity,
   titleForSession,
   useClaudeAccountNumber,
@@ -13107,7 +13108,7 @@ function PausedBanner({
             : `${session.statusDetail || `Your ${reconnectLabel} login is no longer valid.`} Sign in again here, then retry your message.`
           : `${session.statusDetail || "The selected provider rejected the request."} Check the OpenCode provider key or switch models.`
         : reason === "provider_error"
-          ? `${session.statusDetail || "The selected provider failed the request."} Check the OpenCode provider logs or switch models.`
+          ? pausedProviderErrorDetail(session)
       : `${session.statusDetail || "The selected model isn't available."} Switch to a working model to pick the build back up.`;
 
   return (

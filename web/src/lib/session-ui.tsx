@@ -46,6 +46,17 @@ export function agentIconAlt(agent?: string): string {
   return "Claude";
 }
 
+/** Recovery copy for a provider failure, scoped to the session that failed. */
+export function pausedProviderErrorDetail(
+  session: Pick<Session, "agent" | "statusDetail">,
+): string {
+  const detail = session.statusDetail || "The selected provider failed the request.";
+  if (session.agent === "opencode") {
+    return `${detail} Check the OpenCode provider logs or switch models.`;
+  }
+  return `${detail} Retry the session or switch models.`;
+}
+
 export function timeAgo(value?: number | null): string {
   if (!value) return "unknown";
   const seconds = Math.max(0, Math.round((Date.now() - value) / 1000));

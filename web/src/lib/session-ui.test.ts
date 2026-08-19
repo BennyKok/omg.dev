@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { PersistentBot } from "../App";
-import { resolveSessionHeaderIdentity } from "./session-ui";
+import { pausedProviderErrorDetail, resolveSessionHeaderIdentity } from "./session-ui";
 
 // A mobile bot conversation's header used to always wear the harness's agent
 // mark (e.g. the Claude/Codex icon), even for a session driven by a bot with
@@ -50,5 +50,27 @@ describe("resolveSessionHeaderIdentity", () => {
     ]);
     const identity = resolveSessionHeaderIdentity({ botId: designer.id }, directory);
     expect(identity).toEqual({ kind: "bot", bot: designer });
+  });
+});
+
+describe("pausedProviderErrorDetail", () => {
+  test("does not label a Claude Code failure as an OpenCode failure", () => {
+    const detail = pausedProviderErrorDetail({
+      agent: "aisdk",
+      statusDetail: "Claude Code returned an error result: No conversation found",
+    });
+
+    expect(detail).toContain("Claude Code returned an error result");
+    expect(detail).toContain("Retry the session or switch models.");
+    expect(detail).not.toContain("OpenCode");
+  });
+
+  test("keeps the OpenCode-specific recovery hint for OpenCode sessions", () => {
+    const detail = pausedProviderErrorDetail({
+      agent: "opencode",
+      statusDetail: "OpenCode turn failed",
+    });
+
+    expect(detail).toContain("Check the OpenCode provider logs or switch models.");
   });
 });
