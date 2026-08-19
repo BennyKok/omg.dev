@@ -1,26 +1,35 @@
-# Expo HAS CHANGED
+# Mobile Agent Instructions
 
-Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before writing any code.
+These instructions extend the root `AGENTS.md`.
 
-## SDK / Expo Go coupling — read before bumping
+## Responsibility
 
-This project is on **SDK 57**, which requires an Expo Go 57 client.
+`mobile/` owns the open-source Expo client for omg.dev. The root repository
+still owns the local agent runtime and session lifecycle.
 
-As of 2026-07-26, Expo Go for SDK 57 was **not on the App Store** — Expo was
-still awaiting Apple's approval, so it had to be obtained via `eas go`. If you
-open this project in an App Store Expo Go, it fails with "Project is
-incompatible with this version of Expo Go" and there is no update to install.
-The project was briefly pinned to SDK 56 for exactly this reason.
+## Source of truth
 
-Expo Go ships only the **latest released** SDK, and its version number now
-tracks the SDK (56.0.4, 57.0.5, …). Before bumping the SDK, check that the
-matching Expo Go is actually on the App Store:
+- `package.json` and `package-lock.json` define the installed Expo stack.
+- Expo configuration files define native capabilities and bundle settings.
+- Use the documentation for the exact installed Expo SDK version.
+- Do not rely on a dated note about Expo Go or App Store availability. Verify
+  current compatibility before an SDK change.
 
-```bash
-curl -s https://api.expo.dev/v2/versions/latest \
-  | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const v=JSON.parse(s).data.sdkVersions;for(const[k,x]of Object.entries(v))if(+k.split('.')[0]>=54)console.log(k,x.iosClientVersion)})"
-```
+## Preflight
 
-and cross-check the SDK changelog at https://expo.dev/changelog/ for an
-"awaiting approval" note. Alternatively, move off Expo Go to a development
-build (`eas build --profile development`), which removes the coupling entirely.
+Before an Expo, React Native, or native change:
+
+1. Confirm the installed Expo SDK and React Native versions.
+2. Confirm the target: Expo Go, development build, simulator, or device.
+3. Check whether the change needs a native module or a new development build.
+4. Read the exact versioned Expo documentation for the affected API.
+
+Expo SDK and Expo Go versions are coupled. Verify that the matching client is
+available before you change the SDK. Prefer a development build when the app
+needs native modules or stable control over the client version.
+
+## Verification
+
+Run the closest mobile checks during development. Run the mobile type check and
+the affected platform build before delivery. Do not treat a web preview as
+proof that a native path works.
