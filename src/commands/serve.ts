@@ -59,6 +59,7 @@ import { runAutoAgent } from "../auto/runner.ts";
 import {
   BOT_COLORWAYS,
   BOT_SHAPES,
+  botConversationId,
   createBot,
   deleteBot,
   getBot,
@@ -148,8 +149,10 @@ import {
   indexArtifactMessage,
   indexedArtifactPlacement,
   indexTranscript,
+  lastIndexedAssistantMessage,
   prepareFileHistoryForResume,
   removeIndexedArtifact,
+  sessionHasIndexedMessages,
   sessionIndexKey,
   searchTranscriptIndex,
   subscribeIndexedArtifactMessages,
@@ -2248,7 +2251,31 @@ async function ensureBotSession(
               : agent === "pi"
                 ? resolvedModel ?? PI_DEFAULT_MODEL
                 : resolvedModel;
-    const continuity = bot.sessionId ? await botContinuitySummary(bot.sessionId) : null;
+    // The bot's id IS its conversation. A relaunch used to mint a fresh one,
+    // which is why a bot that died came back with an empty chat: the transcript
+    // read model is keyed on the id (`lfg://session/<id>`, sessionIndexKey), so
+    // a new id is a new conversation by construction. Reusing it makes new
+    // turns append to the history that is already there — no change to the
+    // transcript API, the live socket, or the client, because none of them ever
+    // cared which process produced a turn.
+    const sessionId = botConversationId(bot, () => crypto.randomUUID());
+    // aisdk decides resume-vs-fresh by asking the index itself
+    // (sessionHasIndexedMessages, aisdk-session.ts), so reusing the id restores
+    // the model's own thread too and a summary would only repeat what it can
+    // already read. Every other harness gets the summary, because for them the
+    // reused id restores what the *human* sees but not what the model recalls.
+    const resumesOwnThread = agent === "aisdk" && sessionHasIndexedMessages(sessionId);
+    // Claude files conversations under a cwd-derived directory. A bot whose
+    // repo changed, or whose file was pruned, would otherwise fail its resume
+    // and answer with a harness error instead of a sentence.
+    if (resumesOwnThread) {
+      try {
+        ensureConversationVisibleFrom(repo.cwd, sessionId);
+      } catch {}
+    }
+    const continuity = !resumesOwnThread && bot.sessionId
+      ? await botContinuitySummary(bot.sessionId)
+      : null;
     const prompt = [
       botRuntimeContract(bot.name, bot.persona, { awaitingFirstMessage: !firstMessage }),
       continuity ? `=== PRIOR CONVERSATION SUMMARY ===\n${continuity}\n=== END PRIOR CONVERSATION SUMMARY ===` : "",
@@ -2259,7 +2286,6 @@ async function ensureBotSession(
       assignUser(stale.tmuxName, null);
     }
     const tmuxName = `lfg-${randomBytes(3).toString("hex")}`;
-    const sessionId = crypto.randomUUID();
     const createdAt = Date.now();
     addManaged({
       tmuxName,
@@ -3554,7 +3580,19 @@ a{color:#60a5fa}
 
       // ---- persistent bots ----
       if (path === "/api/bots") {
-        if (req.method === "GET") return json({ bots: await listBots() });
+        if (req.method === "GET") {
+          // The roster line comes from the index, not from a live session. A
+          // bot is idle between turns by definition and its harness may not be
+          // running at all, and reading the last turn off the fleet made a bot
+          // with a year of history show "Say hi to get started" after a reboot.
+          const bots = (await listBots()).map((bot) => {
+            const last = bot.sessionId ? lastIndexedAssistantMessage(bot.sessionId) : null;
+            return last?.text
+              ? { ...bot, lastMessagePreview: last.text.slice(0, 400), lastMessageTs: last.ts ?? null }
+              : bot;
+          });
+          return json({ bots });
+        }
         if (req.method === "POST") {
           const body = (await req.json().catch(() => null)) as {
             name?: unknown;
