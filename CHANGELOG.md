@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - Bot channel media stays in chat (v0.2.4)
+
+- **Images and videos sent back through a bot's originating channel now also
+  appear in the bot chat.** The media joins the same ordered transcript, and a
+  delivery retry updates the existing row instead of adding a duplicate.
+
 ## August 19, 2026 - Custom user icons and a machine facepile (v0.2.3)
 
 - **You can now upload your own icon in Settings.** PNG, JPEG, WebP, or GIF,
