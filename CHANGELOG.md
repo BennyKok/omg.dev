@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - Bot switch stays above the composer (v0.2.5)
+
+- **The mobile Chat/Bots switch no longer floats over bot messages.** It now
+  occupies real layout space directly above the bot composer.
+
 ## August 19, 2026 - Bot channel media stays in chat (v0.2.4)
 
 - **Images and videos sent back through a bot's originating channel now also
