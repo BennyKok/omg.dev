@@ -76,7 +76,7 @@ import {
   type BotColorway,
   type BotShape,
 } from "../bots/store.ts";
-import { botConversationRef, findBotMainSession } from "../bots/session.ts";
+import { botCanonicalSessionId, botConversationRef, findBotMainSession } from "../bots/session.ts";
 import {
   BOT_SELF_CREATE_FIELDS,
   BOT_SELF_UPDATE_FIELDS,
@@ -98,7 +98,6 @@ import {
 import {
   assertConversationAccess,
   botReadUser,
-  conversationOwner,
   conversationUnread,
   ensureBotConversationReadBaseline,
   markBotConversationRead,
@@ -4076,29 +4075,42 @@ a{color:#60a5fa}
               ? { ...bot, lastMessagePreview: last.text.slice(0, 400), lastMessageTs: last.ts ?? null }
               : bot;
           });
-          // New clients consume one row per conversation. Keep `bots` unchanged
-          // for v0.1.411 clients, which know only the bot-level roster.
+          // Exactly one conversation per bot — the roster invariant, decided
+          // here rather than left to the client.
+          //
+          // This used to key off every session carrying the bot's `botId`.
+          // Delegated children inherit `botId`, so a bot that had spawned
+          // background work contributed one conversation per subagent and the
+          // roster showed it two or three times, each duplicate captioned with
+          // a child's last line. `botCanonicalSessionId` owns the choice and
+          // never returns a delegated session.
+          //
+          // Collapsing here is also what makes the roster cheap. The per
+          // conversation body below reads the read-watermark file and runs two
+          // index queries, so the old fan-out paid that for every subagent a
+          // bot had ever spawned; on this machine that was 39 conversations
+          // for 9 bots.
           const sessions = await listSessionsCached();
-          const ids = new Map<string, { bot: Bot; assignedUser?: string | null }>();
-          for (const bot of visibleBots) {
-            if (bot.sessionId) ids.set(bot.sessionId, { bot, assignedUser: bot.owner });
-          }
-          for (const session of sessions) {
-            if (!session.sessionId || !session.botId) continue;
-            const bot = visibleBots.find((candidate) => candidate.id === session.botId);
-            if (bot) ids.set(session.sessionId, { bot, assignedUser: session.assignedUser });
-          }
           const user = botReadUser(requestedUser);
-          const conversations = [...ids].flatMap(([sessionId, value]) => {
-            const owner = conversationOwner(sessionId, sessions, visibleBots);
-            if (!owner || (requestedUser != null && owner.user !== user)) return [];
+          const conversations = visibleBots.flatMap((bot) => {
+            const sessionId = botCanonicalSessionId(bot, sessions);
+            if (!sessionId) return [];
+            // Ownership is anchored to the bot we already resolved from, so a
+            // repaired binding that names a session the fleet no longer lists
+            // still reports under its own bot instead of dropping out.
+            const session = sessions.find((row) => row.sessionId === sessionId);
+            const assigned = session?.assignedUser?.trim();
+            const botOwner = bot.owner?.trim();
+            if (assigned && botOwner && botReadUser(assigned) !== botReadUser(botOwner)) return [];
+            const conversationUser = botReadUser(assigned || botOwner);
+            if (requestedUser != null && conversationUser !== user) return [];
             const cursor = latestIndexedAssistantCursor(sessionId);
             ensureBotConversationReadBaseline(user, sessionId, cursor?.rowid ?? null);
             const last = lastIndexedAssistantMessage(sessionId);
             return [{
               sessionId,
-              botId: value.bot.id,
-              assignedUser: value.assignedUser ?? value.bot.owner ?? null,
+              botId: bot.id,
+              assignedUser: assigned ?? bot.owner ?? null,
               unread: conversationUnread(user, sessionId, cursor?.rowid ?? null),
               lastMessagePreview: last?.text?.slice(0, 400),
               lastMessageTs: last?.ts ?? null,

@@ -3,6 +3,7 @@
 // delegated children while the server was still rebinding bot records to them,
 // so the chat and the record disagreed about which session a bot owned.
 export {
+  botCanonicalSessionId,
   botChatSessionId,
   botConversationRef,
   findBotMainSession,
