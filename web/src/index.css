@@ -747,18 +747,27 @@ html.lfg-keyboard-open {
      second, always-visible copy control next to every mobile bubble and
      duplicated that gesture on screen. Leaving it at opacity 0 (still
      reachable via focus-within, e.g. an external keyboard) keeps touch on
-     just the one, intended interaction. */
+     just the one, intended interaction.
+
+     pointer-events go with the opacity. The button is positioned out of flow
+     beside its bubble, so an invisible-but-clickable box would sit in the
+     transcript margin of every turn and copy on a stray tap with nothing on
+     screen to explain it. Keyboard reach is unaffected: focus does not need
+     pointer-events, and focus-within turns them back on. */
   .message-copy-button {
     opacity: 0;
+    pointer-events: none;
   }
 
   .group\/message:focus-within .message-copy-button {
     opacity: 1;
+    pointer-events: auto;
   }
 
   @media (hover: hover) and (pointer: fine) {
     .group\/message:hover .message-copy-button {
       opacity: 1;
+      pointer-events: auto;
     }
   }
 

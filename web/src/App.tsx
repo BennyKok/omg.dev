@@ -17172,8 +17172,19 @@ function MessageActions({
         // percentage collapsed and long user turns grew full-width / looked
         // left-aligned. Short turns still hug the trailing edge via items-end
         // + Message's justify-end.
-        "message-actions-wrap flex min-w-0 flex-col",
-        isUser ? "max-w-[85%] items-end" : "max-w-[92%] items-start",
+        //
+        // relative: the copy button below is absolutely positioned against
+        // this box, so it never adds a row of its own to the transcript. That
+        // out-of-flow button sits in the 2.25rem gutter beside the bubble
+        // (1.75rem button + 0.25rem offset + 0.25rem slack), so the cap also
+        // subtracts that gutter from the row: without it a bubble at the
+        // percentage cap would push the button past the scroll container and
+        // trade a vertical gap for a horizontal one. The percentage still
+        // wins on wide viewports, where it is the smaller of the two.
+        "message-actions-wrap relative flex min-w-0 flex-col",
+        isUser
+          ? "max-w-[min(85%,calc(100%-2.25rem))] items-end"
+          : "max-w-[min(92%,calc(100%-2.25rem))] items-start",
         selecting && "is-selecting",
       )}
       onPointerDown={onPointerDown}
@@ -17191,7 +17202,17 @@ function MessageActions({
         <button
           type="button"
           onClick={() => void copy()}
-          className="message-copy-button mt-1 flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none"
+          // Absolute, bottom-aligned in the gutter beside the bubble: in flow
+          // (the old `mt-1` block) it reserved a full 28px row under every
+          // single turn, so two replies in a row sat ~36px apart and the
+          // transcript's vertical rhythm read as a stray empty band whenever
+          // hover revealed the icon. Out of flow it stays attached to its own
+          // message, costs no height, and — because it is never added or
+          // removed on hover — shifts nothing when it appears.
+          className={cn(
+            "message-copy-button absolute bottom-0 flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none",
+            isUser ? "right-full mr-1" : "left-full ml-1",
+          )}
           aria-label={copied ? "Message copied" : "Copy message"}
           title={copied ? "Copied" : "Copy message"}
         >
