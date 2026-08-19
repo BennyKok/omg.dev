@@ -105,10 +105,13 @@ export default function SettingsScreen() {
 
   const current = bindings.find((b) => b.id === bindingId);
   const currentShared = sharedComputers.find((c) => c.id === bindingId);
+  // Same record the label resolved — a selected live share must not paint
+  // idle just because `current` is owned-only and therefore undefined.
+  const selectedMachine = current ?? currentShared;
   const machineName = current
     ? bindingLabel(current)
     : currentShared
-      ? sharedBindingLabel(currentShared.ownerLabel)
+      ? sharedBindingLabel(currentShared, sharedComputers)
       : bindingId === CLOUD_BINDING_ID
         ? "Cloud computer"
         : "None selected";
@@ -277,7 +280,7 @@ export default function SettingsScreen() {
             chevron is honest here for the same reason it would have been a lie
             on a row that only opened a menu. */}
         <Row onPress={() => router.push("/computers")}>
-          <StatusDot busy={current?.online ?? false} />
+          <StatusDot busy={selectedMachine?.online ?? false} />
           <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>{machineName}</Text>
           <Icon
             ios="chevron.right"

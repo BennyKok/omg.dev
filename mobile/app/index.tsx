@@ -57,7 +57,11 @@ import { SessionListSkeleton } from "../src/omg/skeleton";
 import { useTheme } from "../src/omg/theme";
 import { bindingLabel, relativeTime } from "../src/omg/format";
 import { CLOUD_BINDING_ID } from "../src/omg/config";
-import { sharedBindingLabel } from "../src/omg/computer-shared-binding";
+import {
+  isSharedBindingId,
+  SHARED_REVOKED_DETAIL,
+  sharedBindingLabel,
+} from "../src/omg/computer-shared-binding";
 
 /**
  * A session and everything it spawned.
@@ -714,7 +718,7 @@ export default function SessionsScreen() {
   // "shared:ab12cd…" id. sharedBindingLabel is the one that actually knows
   // how to name it.
   const machineName = currentSharedComputer
-    ? sharedBindingLabel(currentSharedComputer.ownerLabel)
+    ? sharedBindingLabel(currentSharedComputer, sharedComputers)
     : currentBinding
       ? bindingLabel(currentBinding)
       : bindingId === CLOUD_BINDING_ID
@@ -1244,7 +1248,11 @@ export default function SessionsScreen() {
            */
           <EmptyState
             title="No longer available"
-            detail={readiness.message}
+            detail={
+              isSharedBindingId(bindingId ?? "")
+                ? SHARED_REVOKED_DETAIL
+                : readiness.message
+            }
             action={
               <DropdownMenu title="Computer" options={computerPicker.options}>
                 <PrimaryButton label="Choose another" />

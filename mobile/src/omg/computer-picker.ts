@@ -21,7 +21,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import { Linking } from "react-native";
 
 import { CLOUD_BINDING_ID } from "./config";
-import { sharedBindingLabel } from "./computer-shared-binding";
+import { sharedComputerPickerLabel } from "./computer-shared-binding";
 import { bindingLabel, cloudStatusLabel, relativeTime } from "./format";
 import { type MenuOption } from "./menu";
 import { useOmg } from "./provider";
@@ -105,7 +105,7 @@ export function useComputerPicker() {
      * Machines someone else shared with this account. Their own `section`
      * heading keeps them visually apart from the rows above — the menu's own
      * checkmark already tells you which of ALL of them (yours or shared) is
-     * current, but a name like "Ada's computer" sitting unlabelled among your
+     * current, but a name like "Ada's MacBook" sitting unlabelled among your
      * own machines reads as one more of yours, not someone else's.
      *
      * Never disabled for being offline: an owner's machine can come back
@@ -115,9 +115,7 @@ export function useComputerPicker() {
      */
     for (const shared of sharedComputers) {
       rows.push({
-        label: shared.online === false
-          ? `${sharedBindingLabel(shared.ownerLabel)} — offline`
-          : sharedBindingLabel(shared.ownerLabel),
+        label: sharedComputerPickerLabel(shared, sharedComputers),
         section: "Shared with you",
         selected: shared.id === bindingId,
         onPress: () => void selectBinding(shared.id),

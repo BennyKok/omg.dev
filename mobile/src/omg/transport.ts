@@ -20,7 +20,11 @@ import {
 
 import { SESSION_AUTH_PATH, SESSION_ORIGIN } from "./config";
 import { getAuthToken } from "./auth";
-import { mintTargetForBinding } from "./computer-shared-binding";
+import {
+  isSharedBindingId,
+  mintTargetForBinding,
+  SHARED_REVOKED_DETAIL,
+} from "./computer-shared-binding";
 
 export class ComputerGrantError extends Error {
   /**
@@ -80,7 +84,9 @@ export async function mintSessionGrant(bindingId: string): Promise<OmgGrant> {
     // never yours or a share that was just revoked. See the `forbidden` flag's
     // doc comment above.
     throw new ComputerGrantError(
-      "This computer isn't available to your account anymore.",
+      isSharedBindingId(bindingId)
+        ? SHARED_REVOKED_DETAIL
+        : "This computer isn't available to your account anymore.",
       true,
     );
   }

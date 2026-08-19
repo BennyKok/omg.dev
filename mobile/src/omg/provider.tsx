@@ -30,7 +30,9 @@ import { startCloudPresence } from "./presence";
 import { waitForReady, type ComputerReadiness } from "./readiness";
 import {
   isSharedBindingId,
+  SHARED_REVOKED_DETAIL,
   sharedBindingId,
+  sharedComputerMachineIdentity,
   sharedComputerOwnerLabel,
   type SharedComputerView,
 } from "./computer-shared-binding";
@@ -58,21 +60,33 @@ export type ComputerBinding = {
 export type SharedComputerBinding = ComputerBinding & {
   shared: true;
   ownerUserId: string;
+  /** The owner's raw binding id, for a unique tail when titles collide. */
+  ownerBindingId: string;
   /** The owner's name, or their email if they have none set. */
   ownerLabel: string;
+  /** Display name when they have one. Never an email. */
+  ownerName?: string;
+  email: string;
+  /** Hostname / machine name when the share row named the box. */
+  machineLabel?: string;
 };
 
 function toSharedBinding(computer: SharedComputerView): SharedComputerBinding {
   const ownerLabel = sharedComputerOwnerLabel(computer);
+  const ownerName = computer.name?.trim();
   return {
     id: sharedBindingId(computer.ownerUserId, computer.bindingId),
     online: computer.online ?? true,
     lastSeenAt: null,
-    defaultFolder: null,
+    defaultFolder: computer.defaultFolder ?? computer.binding?.defaultFolder ?? null,
     computerUrl: null,
     shared: true,
     ownerUserId: computer.ownerUserId,
+    ownerBindingId: computer.bindingId,
     ownerLabel,
+    ownerName: ownerName && !ownerName.includes("@") ? ownerName : undefined,
+    email: computer.email,
+    machineLabel: sharedComputerMachineIdentity(computer),
   };
 }
 
@@ -337,7 +351,7 @@ export function OmgProvider({ children }: PropsWithChildren) {
         if (ticket === probeToken.current) {
           setReadiness({
             status: "unauthorized",
-            message: "This computer is no longer shared with you.",
+            message: SHARED_REVOKED_DETAIL,
           });
         }
         return;

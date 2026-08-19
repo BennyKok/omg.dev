@@ -71,8 +71,36 @@ export function mintTargetForBinding(bindingId: string): {
   return shared ? { bindingId: shared.bindingId, ownerUserId: shared.ownerUserId } : { bindingId };
 }
 
+/**
+ * Detail for a revoked share — mint 403 or a `shared:` preference that is no
+ * longer in `listSharedComputers`. The empty-state TITLE is already
+ * "No longer available"; this line says why, instead of restating that title.
+ */
+export const SHARED_REVOKED_DETAIL = "This computer is no longer shared with you.";
+
+/**
+ * Optional machine identity the share row may carry. A guest never gets the
+ * owner's live `computerUrl` for transport, but the list payload can still
+ * name the box so two shares from one person are not the same string.
+ */
+export type SharedComputerIdentity = {
+  hostname?: string;
+  computerName?: string;
+  machineName?: string;
+  machineLabel?: string;
+  defaultFolder?: string | null;
+  computerUrl?: string | null;
+  binding?: {
+    hostname?: string;
+    computerName?: string;
+    machineName?: string;
+    computerUrl?: string | null;
+    defaultFolder?: string | null;
+  };
+};
+
 /** What `listSharedComputers` returns for one machine shared with the signed-in account. */
-export type SharedComputerView = {
+export type SharedComputerView = SharedComputerIdentity & {
   ownerUserId: string;
   bindingId: string;
   email: string;
@@ -89,6 +117,19 @@ export type SharedComputerView = {
   online?: boolean;
 };
 
+/** Fields the label helpers read — a list row or the synthesized binding. */
+export type SharedComputerLabelSource = SharedComputerIdentity & {
+  ownerUserId?: string;
+  bindingId?: string;
+  id?: string;
+  email?: string;
+  name?: string;
+  ownerName?: string;
+  ownerLabel?: string;
+  ownerBindingId?: string;
+  online?: boolean;
+};
+
 /** "Ada" / "ada@example.com" — whichever the share row actually carries. */
 export function sharedComputerOwnerLabel(
   computer: Pick<SharedComputerView, "name" | "email">,
@@ -96,11 +137,148 @@ export function sharedComputerOwnerLabel(
   return computer.name?.trim() || computer.email;
 }
 
-/** "Ada's computer" — how a shared machine is named in the picker and the
- *  manage screen, distinct from how this app labels its OWN machines
- *  (bindingLabel in format.ts). Never call bindingLabel on a synthesized
- *  shared binding: it has no computerUrl/defaultFolder of its own to read,
- *  and would fall back to a truncated id. */
-export function sharedBindingLabel(ownerLabel: string): string {
-  return `${ownerLabel}’s computer`;
+export function looksLikeEmail(value: string): boolean {
+  return value.includes("@");
+}
+
+/**
+ * First name from a real display name. Never an email — possessivizing
+ * `ada@example.com` produced "ada@example.com's computer", which is the
+ * string this helper exists to stop shipping.
+ */
+export function sharedComputerFirstName(computer: SharedComputerLabelSource): string | null {
+  const named = computer.name?.trim() || computer.ownerName?.trim();
+  const fromName = firstNameToken(named);
+  if (fromName) return fromName;
+  return firstNameToken(computer.ownerLabel?.trim());
+}
+
+function firstNameToken(raw?: string): string | null {
+  if (!raw || looksLikeEmail(raw)) return null;
+  const first = raw.split(/\s+/)[0] ?? "";
+  if (!first || looksLikeEmail(first)) return null;
+  return `${first.charAt(0).toUpperCase()}${first.slice(1)}`;
+}
+
+/**
+ * Which machine this share is, when the server said. Hostname first, then
+ * an explicit name, then the same URL/folder fallbacks `bindingLabel` uses
+ * for a box you own. Missing is fine — the title falls back to "computer"
+ * and collisions get a short tail.
+ */
+export function sharedComputerMachineIdentity(
+  computer: SharedComputerLabelSource,
+): string | undefined {
+  const nested = computer.binding;
+  const candidates = [
+    computer.machineLabel,
+    computer.hostname,
+    computer.computerName,
+    computer.machineName,
+    nested?.hostname,
+    nested?.computerName,
+    nested?.machineName,
+    hostnameFromUrl(computer.computerUrl),
+    hostnameFromUrl(nested?.computerUrl),
+    folderBasename(computer.defaultFolder),
+    folderBasename(nested?.defaultFolder),
+  ];
+  for (const candidate of candidates) {
+    const trimmed = typeof candidate === "string" ? candidate.trim() : "";
+    if (trimmed && !looksLikeEmail(trimmed)) return trimmed;
+  }
+  return undefined;
+}
+
+function hostnameFromUrl(url?: string | null): string | undefined {
+  if (!url) return undefined;
+  try {
+    const host = new URL(url).hostname.split(".")[0];
+    if (host && host !== "localhost" && !/^\d+$/.test(host)) return host;
+  } catch {
+    /* fall through */
+  }
+  return undefined;
+}
+
+function folderBasename(folder?: string | null): string | undefined {
+  const name = folder?.split("/").filter(Boolean).pop()?.trim();
+  return name || undefined;
+}
+
+function ownerBindingId(computer: SharedComputerLabelSource): string {
+  if (computer.ownerBindingId?.trim()) return computer.ownerBindingId.trim();
+  if (computer.bindingId?.trim()) {
+    const parsed = parseSharedBindingId(computer.bindingId);
+    return parsed?.bindingId ?? computer.bindingId.trim();
+  }
+  if (computer.id) {
+    const parsed = parseSharedBindingId(computer.id);
+    if (parsed) return parsed.bindingId;
+  }
+  return "";
+}
+
+function uniqueTail(computer: SharedComputerLabelSource): string {
+  const compact = ownerBindingId(computer).replace(/[^a-zA-Z0-9]/g, "");
+  if (compact.length >= 6) return compact.slice(-6);
+  if (compact.length > 0) return compact;
+  return "share";
+}
+
+/**
+ * Title for a shared machine.
+ *
+ * - Owner has a name: first-name possessive + machine identity when we have
+ *   one ("Ada's MacBook" / "Ada's studio"), else "Ada's computer".
+ * - Owner is email-only: "Shared computer". Never `"ada@example.com's computer"`.
+ * - Two rows that would otherwise match get a short unique tail.
+ *
+ * Distinct from `bindingLabel` (format.ts), which reads a machine YOU own.
+ * Never call that on a synthesized shared binding: a guest has no
+ * `computerUrl` of their own, and it would fall through to a truncated id.
+ */
+export function sharedBindingLabel(
+  computer: SharedComputerLabelSource,
+  siblings: SharedComputerLabelSource[] = [],
+): string {
+  const title = sharedBindingBaseTitle(computer);
+  const collisions = siblings.filter((other) => sharedBindingBaseTitle(other) === title);
+  if (collisions.length <= 1) return title;
+  return `${title} · ${uniqueTail(computer)}`;
+}
+
+export function sharedBindingBaseTitle(computer: SharedComputerLabelSource): string {
+  const first = sharedComputerFirstName(computer);
+  if (!first) return "Shared computer";
+  const machine = sharedComputerMachineIdentity(computer);
+  return `${first}’s ${machine ?? "computer"}`;
+}
+
+/**
+ * Second line on the manage screen.
+ *
+ * Attribution is the section + title. A named owner gets liveness
+ * (Online / Offline). Email-only puts the email here — that is the only
+ * place the address belongs, and possessivizing it as a title is the
+ * thing this policy forbids.
+ */
+export function sharedComputerSubtitle(computer: SharedComputerLabelSource): string {
+  if (!sharedComputerFirstName(computer)) {
+    const email = computer.email?.trim();
+    if (email) return email;
+    const label = computer.ownerLabel?.trim();
+    if (label && looksLikeEmail(label)) return label;
+    return computer.online === false ? "Offline" : "Online";
+  }
+  return computer.online === false ? "Offline" : "Online";
+}
+
+/** Picker row: the title, plus a title-case "Offline" suffix when down. */
+export function sharedComputerPickerLabel(
+  computer: SharedComputerLabelSource,
+  siblings: SharedComputerLabelSource[] = [],
+): string {
+  const title = sharedBindingLabel(computer, siblings);
+  return computer.online === false ? `${title} — Offline` : title;
 }

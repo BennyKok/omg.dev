@@ -24,7 +24,7 @@ import { useTheme } from "../src/omg/theme";
 import { useToast } from "../src/omg/toast";
 import { bindingLabel, cloudStatusLabel, machineSpec, relativeTime } from "../src/omg/format";
 import { CLOUD_BINDING_ID } from "../src/omg/config";
-import { sharedBindingLabel } from "../src/omg/computer-shared-binding";
+import { sharedBindingLabel, sharedComputerSubtitle } from "../src/omg/computer-shared-binding";
 
 const BLOCKED_CLOUD_STATUSES = new Set(["upgrade_required", "recycled"]);
 
@@ -127,7 +127,10 @@ export default function ComputersScreen() {
                   <Row onPress={() => void choose(b.id)}>
                     <StatusDot busy={b.online} />
                     <View style={{ flex: 1, gap: 2 }}>
-                      <Text style={{ ...type.callout, color: colors.text, fontWeight: "600" }}>
+                      <Text
+                        numberOfLines={1}
+                        style={{ ...type.callout, color: colors.text, fontWeight: "600" }}
+                      >
                         {bindingLabel(b)}
                       </Text>
                       <Text numberOfLines={1} style={{ ...type.footnote, color: colors.textMuted }}>
@@ -161,7 +164,10 @@ export default function ComputersScreen() {
         >
           <StatusDot busy={!cloudBlocked && Boolean(cloud)} blocked={cloudBlocked} />
           <View style={{ flex: 1, gap: 2 }}>
-            <Text style={{ ...type.callout, color: colors.text, fontWeight: "600" }}>
+            <Text
+              numberOfLines={1}
+              style={{ ...type.callout, color: colors.text, fontWeight: "600" }}
+            >
               Cloud computer
             </Text>
             <Text style={{ ...type.footnote, color: cloudBlocked ? colors.warning : colors.textMuted }}>
@@ -217,7 +223,9 @@ export default function ComputersScreen() {
        * relay only ever reports machines you own. Its own section, same as
        * "Your machines" above: these are reachable and selectable exactly the
        * same way, but they are not this account's machines, and saying so
-       * plainly is the whole point (see `sharedBindingLabel`).
+       * plainly is the whole point (see `sharedBindingLabel`). The row names
+       * the machine; the section names whose it is. The subtitle is liveness,
+       * not "Shared by Ada" — that attribution is already the heading.
        *
        * Not rendered at all for the (overwhelming majority) account nothing
        * has been shared with — an empty "Shared with you" heading over
@@ -235,11 +243,14 @@ export default function ComputersScreen() {
                   <Row onPress={() => void choose(c.id)}>
                     <StatusDot busy={c.online ?? true} />
                     <View style={{ flex: 1, gap: 2 }}>
-                      <Text style={{ ...type.callout, color: colors.text, fontWeight: "600" }}>
-                        {sharedBindingLabel(c.ownerLabel)}
+                      <Text
+                        numberOfLines={1}
+                        style={{ ...type.callout, color: colors.text, fontWeight: "600" }}
+                      >
+                        {sharedBindingLabel(c, sharedComputers)}
                       </Text>
                       <Text numberOfLines={1} style={{ ...type.footnote, color: colors.textMuted }}>
-                        {c.online === false ? "Offline" : `Shared by ${c.ownerLabel}`}
+                        {sharedComputerSubtitle(c)}
                       </Text>
                     </View>
                     {selected ? (
