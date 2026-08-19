@@ -18,6 +18,7 @@ export type AgentKind =
   | "jcode"
   | "grok"
   | "cursor"
+  | "fx"
   | "pi"
   | "copilot";
 

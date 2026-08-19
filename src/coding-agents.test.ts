@@ -130,6 +130,33 @@ describe("coding agent browser auth output", () => {
     });
   });
 
+  // Captured verbatim from `fx login` against fx 0.0.3. fx has no
+  // --device-auth flag: `fx login` is itself the Vercel device flow.
+  test("extracts the Vercel verification URL and device code for fx", () => {
+    const output = [
+      "Open https://vercel.com/oauth/device?user_code=XFCJ-ZGNJ",
+      "Code: XFCJ-ZGNJ",
+      "",
+      "Waiting for authentication...",
+    ].join("\n");
+
+    expect(parseAuthOutput("fx", output)).toEqual({
+      authorizationUrl: "https://vercel.com/oauth/device?user_code=XFCJ-ZGNJ",
+      userCode: "XFCJ-ZGNJ",
+      needsCode: false,
+    });
+  });
+
+  test("falls back to the printed Code line when fx omits the code from the URL", () => {
+    const output = ["Open https://vercel.com/oauth/device", "Code: XFCJ-ZGNJ"].join("\n");
+
+    expect(parseAuthOutput("fx", output)).toEqual({
+      authorizationUrl: "https://vercel.com/oauth/device",
+      userCode: "XFCJ-ZGNJ",
+      needsCode: false,
+    });
+  });
+
   test("extracts the GitHub verification URL and device code", () => {
     const output = [
       "! First copy your one-time code: 8A2B-C3D4",

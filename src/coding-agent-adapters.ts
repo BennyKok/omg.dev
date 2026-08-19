@@ -9,6 +9,7 @@ export type CodingAgentProduct =
   | "jcode"
   | "grok"
   | "cursor"
+  | "fx"
   | "pi"
   | "copilot";
 
@@ -62,6 +63,13 @@ export const CODING_AGENT_ADAPTERS = {
     recovery: "durable",
     capabilities: { interrupt: "immediate", questions: true, modelChange: "none", thinkingChange: "launch-only", scheduled: true, toolAccess: "mcp" },
   },
+  fx: {
+    product: "fx", driver: "rpc", transport: "command-file", managedLaunch: true,
+    recovery: "durable",
+    // fx exposes reasoning effort only as a stored setting, never on `fx acp`,
+    // so LFG cannot pick a thinking level per launch.
+    capabilities: { interrupt: "immediate", questions: true, modelChange: "none", thinkingChange: "none", scheduled: true, toolAccess: "mcp" },
+  },
   copilot: {
     product: "copilot", driver: "sdk", transport: "command-file", managedLaunch: true,
     recovery: "durable",
@@ -107,6 +115,7 @@ export const ACTIVE_SESSION_AGENT_KINDS = [
   "jcode",
   "grok",
   "cursor",
+  "fx",
   "pi",
   "copilot",
 ] as const satisfies readonly CodingAgentKind[];
@@ -137,6 +146,7 @@ export const SESSION_AGENT_KINDS = [
   "jcode",
   "grok",
   "cursor",
+  "fx",
   "pi",
   "copilot",
 ] as const satisfies readonly CodingAgentKind[];
@@ -153,6 +163,7 @@ export const COMMAND_FILE_AGENT_KINDS = [
   "pi",
   "grok",
   "cursor",
+  "fx",
   "copilot",
   "jcode",
 ] as const satisfies readonly CodingAgentKind[];

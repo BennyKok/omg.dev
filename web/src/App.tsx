@@ -476,12 +476,13 @@ export type ClaudeAccountInfo = {
 
 const AgentAccessModeContext = createContext<AgentAccessMode>("configured");
 
-type AuthProvider = "claude" | "codex" | "grok" | "github" | "pi-anthropic" | "pi-codex";
+type AuthProvider = "claude" | "codex" | "grok" | "fx" | "github" | "pi-anthropic" | "pi-codex";
 
 const AUTH_PROVIDER_LABELS: Record<AuthProvider, string> = {
   claude: "Claude",
   codex: "Codex",
   grok: "Grok",
+  fx: "Vercel",
   github: "GitHub",
   "pi-anthropic": "Claude",
   "pi-codex": "ChatGPT",
@@ -968,9 +969,23 @@ const PI_MODELS_FALLBACK = ["fable", "opus", "sonnet", "haiku", "deepseek/deepse
 // overrides this fallback at bootstrap).
 const COPILOT_MODELS = ["claude-sonnet-4.5", "claude-sonnet-4", "gpt-5"];
 const JCODE_MODELS = ["auto"];
+// fx routes through Vercel AI Gateway, so its ids are `provider/model` strings.
+// Kept in sync with FX_MODELS in src/agent-catalog.ts (the server catalog
+// overrides this fallback at bootstrap). "auto" keeps the model configured in
+// ~/.fx/settings.json.
+const FX_MODELS = [
+  "auto",
+  "anthropic/claude-opus-5",
+  "anthropic/claude-sonnet-5",
+  "openai/gpt-5.6-sol",
+  "openai/gpt-5.5",
+  "xai/grok-4.6",
+  "moonshotai/kimi-k3",
+  "zai/glm-5.2",
+];
 const THINKING_LEVELS = ["low", "medium", "high", "xhigh"] as const;
 type ThinkingLevel = string;
-type AutoAgentBackend = "aisdk" | "codex-aisdk" | "grok" | "cursor" | "opencode";
+type AutoAgentBackend = "aisdk" | "codex-aisdk" | "grok" | "cursor" | "fx" | "opencode";
 function savedThinkingLevel(): ThinkingLevel {
   const value = localStorage.getItem("lfg_thinking_level");
   return value && (THINKING_LEVELS as readonly string[]).includes(value) ? value : "medium";
@@ -1005,6 +1020,7 @@ const AGENT_MODELS: Record<AgentKind, string[]> = {
   "codex-aisdk": CODEX_AISDK_MODELS,
   grok: GROK_MODELS,
   cursor: CURSOR_MODELS,
+  fx: FX_MODELS,
   opencode: OPENCODE_MODELS,
   jcode: JCODE_MODELS,
   pi: PI_MODELS_FALLBACK,
@@ -1017,6 +1033,7 @@ const AGENT_DEFAULT_MODEL: Record<AgentKind, string> = {
   "codex-aisdk": "gpt-5.6-sol",
   grok: "grok-4.6",
   cursor: "auto",
+  fx: "auto",
   opencode: "opencode/deepseek-v4-flash-free",
   jcode: "auto",
   pi: "sonnet",
@@ -1030,6 +1047,9 @@ const AGENT_THINKING_LEVELS: Record<AgentKind, string[]> = {
   // grok's CLI exits on anything above high, so these are all it can take.
   grok: ["low", "medium", "high"],
   cursor: ["low", "medium", "high", "xhigh", "max"],
+  // fx keeps reasoning effort in ~/.fx/settings.json and takes no per-launch
+  // flag on `fx acp`, so the selector stays hidden.
+  fx: [],
   opencode: [],
   jcode: ["low", "medium", "high", "xhigh", "max"],
   // pi's own list, straight from its --thinking help. It has a real "off".
@@ -17544,7 +17564,7 @@ export type ResumableSession = {
   title: string;
   lastActivityAt: number | null;
   lastUserText: string | null;
-  agent: "claude" | "codex" | "opencode" | "grok" | "cursor";
+  agent: "claude" | "codex" | "opencode" | "grok" | "cursor" | "fx";
   model?: string | null;
 };
 

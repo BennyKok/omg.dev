@@ -85,6 +85,7 @@ const DIRECT_INDEX_MANAGED_AGENTS = new Set<ManagedSession["agent"]>([
   "pi",
   "grok",
   "cursor",
+  "fx",
   "copilot",
   "jcode",
 ]);
@@ -525,6 +526,8 @@ export function managedLaunchRow(
         ? `grok --model ${m.model ?? ""}`.trim()
         : agent === "cursor"
           ? `agent --model ${m.model ?? ""}`.trim()
+        : agent === "fx"
+          ? `fx acp --model ${m.model ?? ""}`.trim()
           : agent === "jcode"
             ? `jcode --model ${m.model ?? ""} repl`.trim()
           : agent === "hermes"
@@ -3271,8 +3274,8 @@ export type ResumableSession = {
   // Which engine the session was recorded with. "claude" resumes via the claude
   // CLI (`claude --resume`); "codex" resumes via a codex-aisdk harness keyed to
   // the rollout's threadId. The serve /resume endpoint branches on this.
-  agent: "claude" | "codex" | "opencode" | "pi" | "grok" | "cursor" | "copilot" | "jcode";
-  backend?: "aisdk" | "codex-aisdk" | "opencode" | "pi" | "grok" | "cursor" | "copilot" | "jcode";
+  agent: "claude" | "codex" | "opencode" | "pi" | "grok" | "cursor" | "fx" | "copilot" | "jcode";
+  backend?: "aisdk" | "codex-aisdk" | "opencode" | "pi" | "grok" | "cursor" | "fx" | "copilot" | "jcode";
   resumeHandle?: string | null;
   model?: string | null;
   assignedUser?: string | null;

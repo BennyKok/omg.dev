@@ -2,7 +2,7 @@
 
 LFG exposes a stable product name and selects one internal driver for it.
 New Claude, Codex, OpenCode, JCode, and Copilot sessions use their SDK drivers.
-Grok and Cursor use their native ACP servers through the official ACP SDK.
+Grok, Cursor, and fx use their native ACP servers through the official ACP SDK.
 The old native CLI drivers remain readable for live and historical compatibility.
 They do not receive new sessions.
 
@@ -16,6 +16,7 @@ They do not receive new sessions.
 | Pi | `pi` | Pi RPC SDK | Command file | Durable | No | Runtime contract | Active. |
 | Grok | `grok` | Native ACP through `@agentclientprotocol/sdk` | Command file | Durable | Yes | MCP | Preferred. Reuses the Grok CLI login. |
 | Cursor | `cursor` | Native ACP through `@agentclientprotocol/sdk` | Command file | Durable | Yes | MCP | Preferred. Reuses the Cursor CLI login. |
+| fx | `fx` | Native ACP through `@agentclientprotocol/sdk` | Command file | Durable | Yes | MCP | Preferred. Reuses the fx Vercel AI Gateway credential. |
 | JCode | `jcode` | `@1jehuang/jcode-sdk` | Command file | Durable | No | MCP | Preferred. Uses a private persistent SDK instance. |
 | Copilot | `copilot` | `@github/copilot-sdk` | Command file | Durable | No | MCP | Preferred. The SDK bundles its JSON-RPC runtime. |
 | Claude CLI | None | Native TUI | tmux | Durable | No | MCP | Deprecated. The `claude` alias now resolves to `aisdk`. |
@@ -35,6 +36,34 @@ The UI hydrates these rows after navigation and after an LFG server restart.
 The server resumes safe `pending` sends during startup.
 It marks an interrupted `sending` row as failed to prevent a duplicate user turn.
 SDK and ACP command-file rows stay `queued` until transcript reconciliation confirms delivery.
+
+fx (Vercel Labs) publishes no TypeScript SDK for its agent core.
+`fx acp` is its only structured surface, so ACP is both the supported route and
+the cheapest one.
+
+fx bills differently from every other provider here.
+Its only credentials are `VERCEL_OIDC_TOKEN`, `AI_GATEWAY_API_KEY`, `fx login`
+and a stored key, and all four resolve to Vercel AI Gateway.
+Running `anthropic/claude-opus-5` under fx therefore spends AI Gateway credit.
+It does not use a Claude Pro/Max, ChatGPT Plus/Pro, or Cursor subscription, and
+fx implements no OAuth flow other than Vercel's.
+Attach provider API keys to the Gateway account (Vercel BYOK) to bill them
+instead; consumer subscriptions have no API surface the Gateway can consume.
+
+Its MCP capability is HTTP and SSE, never stdio.
+That is the shape `omgAcpMcpServers` already emits, so the omg.dev MCP server is
+handed to fx inside `session/new` and needs no entry in `~/.fx/mcp.json`.
+fx treats an MCP server it cannot reach as a fatal error and fails `session/new`
+with `Required MCP server 'omg' failed to start`.
+The URL points at the same LFG process that spawns the session, so it is up
+whenever a launch happens.
+fx opens every ACP session in its `ask` mode, which requests permission before
+each change.
+LFG selects the `code` mode right after the session opens, because `fx acp`
+takes no launch flag equivalent to Grok's `--always-approve` or Cursor's
+`--trust`.
+Any permission request fx still raises reaches the shared prompt UI.
+For fewer prompts, set `permission_mode` in `~/.fx/settings.json`.
 
 Cursor also provides `@cursor/sdk`.
 That SDK requires a Cursor API key and uses separate SDK billing.

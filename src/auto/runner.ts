@@ -214,6 +214,17 @@ async function runSelectedBackend(
       }),
     );
   }
+  if (backend === "fx") {
+    onLog(`[auto] fx run (${prompt.length} chars) in ${cwd} [model: ${agent.model ?? "default"}]`);
+    const { pipeToFxCli } = await import("../agents/backends/fx-cli.ts");
+    return await runInCwd(cwd, () =>
+      pipeToFxCli(prompt, onLog, {
+        cwd,
+        model: agent.model,
+        writable: (agent.tools ?? []).includes("Bash"),
+      }),
+    );
+  }
   if (backend === "hermes") {
     throw new Error("Hermes has been removed. Select another auto-agent backend.");
   }

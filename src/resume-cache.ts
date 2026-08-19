@@ -37,6 +37,7 @@ export type ResumableBackend =
   | "pi"
   | "grok"
   | "cursor"
+  | "fx"
   | "copilot"
   | "jcode";
 
@@ -203,7 +204,8 @@ function toSession(row: Row): ResumableSession {
       row.agent === "opencode" ||
       row.agent === "pi" ||
       row.agent === "grok" ||
-      row.agent === "cursor"
+      row.agent === "cursor" ||
+      row.agent === "fx"
         ? row.agent
         : "claude"
     ) as ResumableSession["agent"],

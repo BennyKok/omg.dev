@@ -3,6 +3,7 @@ import {
   spawnManagedCodexAisdkSession,
   spawnManagedCopilotSdkSession,
   spawnManagedCursorAcpSession,
+  spawnManagedFxAcpSession,
   spawnManagedGrokAcpSession,
   spawnManagedJcodeSdkSession,
   spawnManagedOpencodeAisdkSession,
@@ -66,6 +67,12 @@ const result = agent === "claude" || agent === "aisdk"
                 key: `key-${resume}`,
                 resume,
               })
+            : agent === "fx"
+              ? spawnManagedFxAcpSession({
+                  ...common,
+                  key: `key-${resume}`,
+                  resume,
+                })
             : agent === "copilot"
               ? spawnManagedCopilotSdkSession({
                   ...common,

@@ -32,7 +32,7 @@ export type ModelDiscoveryCache = {
 const CACHE_PATH = join(PATHS.data, "model-catalog.json");
 const DEFAULT_REFRESH_CRON = "0 8 * * *";
 /** Every provider a full refresh probes. `codex-aisdk` is mirrored from `codex`. */
-const REFRESH_KEYS: ProviderKey[] = ["claude", "aisdk", "codex", "grok", "cursor", "opencode", "jcode"];
+const REFRESH_KEYS: ProviderKey[] = ["claude", "aisdk", "codex", "grok", "cursor", "fx", "opencode", "jcode"];
 /**
  * Providers whose failure is structural rather than transient: they expose no
  * model-list command at all, so every attempt returns the same error. Retrying
@@ -142,6 +142,12 @@ function opencodePath(): string | null {
   return which("opencode", [join(PATHS.root, "node_modules", ".bin", "opencode")]);
 }
 
+function fxPath(): string | null {
+  if (process.env.LFG_FX_PATH) return process.env.LFG_FX_PATH;
+  const home = userHome();
+  return which("fx", [`${home}/.local/bin/fx`, `${home}/.bun/bin/fx`, "/usr/local/bin/fx"]);
+}
+
 function jcodePath(): string | null {
   if (process.env.LFG_JCODE_PATH) return process.env.LFG_JCODE_PATH;
   const home = userHome();
@@ -164,6 +170,12 @@ function commandFor(key: ProviderKey): string[] | null {
   if (key === "opencode") {
     const bin = opencodePath();
     return bin ? [bin, "models"] : null;
+  }
+  if (key === "fx") {
+    const bin = fxPath();
+    // `fx models --json` reads the public AI Gateway catalog and needs no
+    // credential, so discovery works before the user signs in.
+    return bin ? [bin, "models", "--json"] : null;
   }
   if (key === "jcode") {
     const bin = jcodePath();
@@ -258,11 +270,31 @@ export function parseJcodeModels(text: string): { models: string[]; labels: Reco
   return { models: ids, labels };
 }
 
+/**
+ * `fx models --json` answers with the gateway catalog as
+ * `{"kind":"models","count":N,"ids":["provider/model", ...]}`. "auto" is LFG's
+ * own placeholder for "whatever ~/.fx/settings.json selected", so it leads the
+ * list rather than coming from fx.
+ */
+export function parseFxModels(text: string): { models: string[]; labels: Record<string, string> } {
+  const parsed = JSON.parse(text) as { ids?: unknown };
+  const ids: string[] = ["auto"];
+  const labels: Record<string, string> = {};
+  if (Array.isArray(parsed.ids)) {
+    for (const item of parsed.ids) {
+      if (typeof item !== "string") continue;
+      addModel(ids, labels, cleanId(item));
+    }
+  }
+  return { models: ids, labels };
+}
+
 function parseModels(key: ProviderKey, text: string): { models: string[]; labels: Record<string, string> } {
   if (key === "codex" || key === "codex-aisdk") return parseCodexModels(text);
   if (key === "grok") return parseBulletModels(text);
   if (key === "cursor") return parseDashListModels(text);
   if (key === "opencode") return parsePlainModelLines(text);
+  if (key === "fx") return parseFxModels(text);
   if (key === "jcode") return parseJcodeModels(text);
   return { models: [], labels: {} };
 }

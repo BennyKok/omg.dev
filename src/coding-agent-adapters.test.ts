@@ -20,6 +20,7 @@ import {
   spawnManagedCopilotSdkSession,
   spawnManagedCopilotSession,
   spawnManagedCursorAcpSession,
+  spawnManagedFxAcpSession,
   spawnManagedCursorSession,
   spawnManagedGrokAcpSession,
   spawnManagedGrokSession,
@@ -56,6 +57,7 @@ const launchers = {
   jcode: spawnManagedJcodeSdkSession,
   grok: spawnManagedGrokAcpSession,
   cursor: spawnManagedCursorAcpSession,
+  fx: spawnManagedFxAcpSession,
   pi: spawnManagedPiSession,
   copilot: spawnManagedCopilotSdkSession,
 } satisfies Record<(typeof SESSION_AGENT_KINDS)[number], unknown>;

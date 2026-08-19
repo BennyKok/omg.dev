@@ -33,6 +33,7 @@ export type CodingAgentKind =
   | "jcode"
   | "grok"
   | "cursor"
+  | "fx"
   | "hermes"
   | "pi"
   | "copilot";
@@ -116,6 +117,7 @@ export type AuthProvider =
   | "claude"
   | "codex"
   | "grok"
+  | "fx"
   | "github"
   | "pi-anthropic"
   | "pi-codex";
@@ -124,6 +126,7 @@ const AUTH_PROVIDER_LABELS: Record<AuthProvider, string> = {
   claude: "Claude",
   codex: "Codex",
   grok: "Grok",
+  fx: "Vercel",
   github: "GitHub",
   "pi-anthropic": "Claude",
   "pi-codex": "ChatGPT",
@@ -176,6 +179,7 @@ export const CODING_AGENT_KINDS: Exclude<CodingAgentKind, "claude" | "hermes">[]
   "codex-aisdk",
   "grok",
   "cursor",
+  "fx",
   "opencode",
   "jcode",
   "copilot",
@@ -191,6 +195,7 @@ export const CODING_AGENT_LABELS: Record<CodingAgentKind, string> = {
   jcode: "jcode",
   grok: "grok",
   cursor: "cursor",
+  fx: "fx",
   hermes: "hermes",
   pi: "pi",
   copilot: "copilot",
@@ -385,6 +390,18 @@ function cursorPath(): string | null {
     `${home}/.bun/bin/agent`,
     "/usr/local/bin/agent",
   ]));
+}
+
+// fx's published installer drops a single static binary in FX_INSTALL_DIR,
+// defaulting to ~/.local/bin. There is no package manager path to check.
+function fxPath(): string | null {
+  const home = userHome();
+  return which("fx", [
+    process.env.LFG_FX_PATH ?? "",
+    `${home}/.local/bin/fx`,
+    `${home}/.bun/bin/fx`,
+    "/usr/local/bin/fx",
+  ]);
 }
 
 function rejectGrokAgent(path: string | null): string | null {
@@ -666,6 +683,24 @@ function hasCopilotAccountAuth(): boolean {
   );
 }
 
+// fx reaches Vercel AI Gateway three ways, in its own precedence order: a
+// Vercel OIDC token, the AI_GATEWAY_API_KEY env var, then a stored credential
+// from `fx login` (~/.fx/auth.json) or `fx setup` (~/.fx/api-key).
+function hasFxAuth(): boolean {
+  if (process.env.AI_GATEWAY_API_KEY) return true;
+  if (process.env.VERCEL_OIDC_TOKEN) return true;
+  return hasFxAccountAuth();
+}
+
+// Only a real sign-in counts as a connected account: a platform-supplied
+// gateway key makes fx runnable without being the user's own login. Both files
+// are written by the flow itself, so neither appears on a box that merely ran
+// fx once.
+function hasFxAccountAuth(): boolean {
+  const home = userHome();
+  return existsSync(`${home}/.fx/auth.json`) || existsSync(`${home}/.fx/api-key`);
+}
+
 function installCommandFor(kind: CodingAgentKind): string | null {
   if (kind === "claude" || kind === "aisdk") return "curl -fsSL https://claude.ai/install.sh | bash";
   if (kind === "codex" || kind === "codex-aisdk") return "bun add -g @openai/codex";
@@ -673,6 +708,7 @@ function installCommandFor(kind: CodingAgentKind): string | null {
   if (kind === "jcode") return "curl -fsSL https://jcode.sh/install | bash";
   if (kind === "grok") return "curl -fsSL https://x.ai/cli/install.sh | bash";
   if (kind === "cursor") return "curl -fsSL https://cursor.com/install | bash";
+  if (kind === "fx") return "curl -fsSL https://fx.sh/setup.sh | bash";
   if (kind === "copilot") return "npm install -g @github/copilot";
   // pi is no longer bundled. Its provider layer (@earendil-works/pi-ai) pulls
   // in eleven SDKs — Anthropic, OpenAI, Google GenAI, Mistral, Bedrock — which
@@ -693,6 +729,7 @@ function loginCommandPartsFor(kind: CodingAgentKind): string[] | null {
   if (kind === "jcode") return [jcodePath() ?? "jcode", "login"];
   if (kind === "grok") return [grokPath() ?? "grok", "login", "--device-auth"];
   if (kind === "cursor") return [cursorPath() ?? "cursor-agent", "login"];
+  if (kind === "fx") return [fxPath() ?? "fx", "login"];
   if (kind === "copilot") return [copilotPath() ?? "copilot"];
   // pi has no login subcommand — auth is file-based (~/.pi/agent/auth.json) or
   // ANTHROPIC_API_KEY, so there is no terminal login to offer.
@@ -704,6 +741,7 @@ function authProviderFor(kind: CodingAgentKind): AuthProvider | null {
   if (kind === "claude" || kind === "aisdk") return "claude";
   if (kind === "codex" || kind === "codex-aisdk") return "codex";
   if (kind === "grok") return "grok";
+  if (kind === "fx") return "fx";
   return null;
 }
 
@@ -711,6 +749,7 @@ function authProviderBinary(provider: AuthProvider): string | null {
   if (provider === "claude") return claudePath();
   if (provider === "codex") return codexPath();
   if (provider === "grok") return grokPath();
+  if (provider === "fx") return fxPath();
   return githubCliPath();
 }
 
@@ -728,6 +767,9 @@ function authProviderArgv(provider: AuthProvider, binary: string): string[] {
       "--web",
     ];
   }
+  // fx has no --device-auth flag because `fx login` IS the device flow: it
+  // prints the Vercel verification URL and code, then polls.
+  if (provider === "fx") return [binary, "login"];
   // Codex and Grok both expose an RFC 8628 device flow that prints a
   // verification URL plus a short user code — no terminal interaction needed.
   return [binary, "login", "--device-auth"];
@@ -762,6 +804,19 @@ export function parseAuthOutput(
   }
   if (provider === "codex") {
     const userCode = output.match(/one-time code[\s\S]{0,160}?\b([A-Z0-9]{4,}-[A-Z0-9]{4,})\b/i)?.[1];
+    return { authorizationUrl, userCode, needsCode: false };
+  }
+  if (provider === "fx") {
+    // `fx login` prints:
+    //   Open https://vercel.com/oauth/device?user_code=XFCJ-ZGNJ
+    //   Code: XFCJ-ZGNJ
+    //
+    //   Waiting for authentication...
+    // Same shape as grok: the URL already carries the code, so read it there
+    // and fall back to the printed "Code:" line.
+    const userCode =
+      output.match(/[?&]user_code=([A-Z0-9]{4,}-[A-Z0-9]{4,})/i)?.[1] ??
+      output.match(/^\s*Code:\s*([A-Z0-9]{4,}-[A-Z0-9]{4,})\s*$/im)?.[1];
     return { authorizationUrl, userCode, needsCode: false };
   }
   if (provider === "github") {
@@ -1176,6 +1231,11 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
     addBinary("Cursor CLI", cursorPath());
     addAuth("Cursor auth", hasCursorAuth(), "run `cursor-agent login` once or set CURSOR_API_KEY");
     instructions.push("Install Cursor CLI, then run `cursor-agent login` and sign in, or set CURSOR_API_KEY.");
+  } else if (kind === "fx") {
+    accountConnected = hasFxAccountAuth();
+    addBinary("fx CLI", fxPath());
+    addAuth("fx auth", hasFxAuth(), "use Login below or set AI_GATEWAY_API_KEY");
+    instructions.push("Use Login to sign in to Vercel in your browser, or set AI_GATEWAY_API_KEY.");
   } else if (kind === "pi") {
     const providers = piAuthProviders();
     accountConnected = providers.some((p) => p.connected && !p.fromEnv);
@@ -1477,6 +1537,7 @@ function setupEnvFor(kind: CodingAgentKind): Record<string, string> | null {
   if (kind === "jcode") return { LFG_INSTALL_JCODE: "1" };
   if (kind === "grok") return { LFG_INSTALL_GROK: "1" };
   if (kind === "cursor") return { LFG_INSTALL_CURSOR: "1" };
+  if (kind === "fx") return { LFG_INSTALL_FX: "1" };
   if (kind === "copilot") return { LFG_INSTALL_COPILOT: "1" };
   return null;
 }

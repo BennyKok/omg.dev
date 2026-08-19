@@ -340,6 +340,24 @@ export function grokBin(): string {
   return (_grokBin = "grok");
 }
 
+let _fxBin: string | null = null;
+export function fxBin(): string {
+  if (_fxBin) return _fxBin;
+  const onPath = Bun.which("fx");
+  if (onPath) return (_fxBin = onPath);
+  const home = process.env.HOME ?? homedir();
+  // The published installer defaults to ~/.local/bin, honouring FX_INSTALL_DIR.
+  for (const p of [
+    process.env.LFG_FX_PATH ?? "",
+    `${home}/.local/bin/fx`,
+    `${home}/.bun/bin/fx`,
+    "/usr/local/bin/fx",
+  ]) {
+    if (p && existsSync(p)) return (_fxBin = p);
+  }
+  return (_fxBin = "fx");
+}
+
 let _copilotBin: string | null = null;
 export function copilotBin(): string {
   if (_copilotBin) return _copilotBin;
@@ -1187,7 +1205,7 @@ type ManagedStructuredSessionOptions = {
 };
 
 function spawnManagedStructuredSession(
-  moduleName: "grok-acp-session" | "cursor-acp-session" | "copilot-sdk-session" | "jcode-sdk-session",
+  moduleName: "grok-acp-session" | "cursor-acp-session" | "fx-acp-session" | "copilot-sdk-session" | "jcode-sdk-session",
   opts: ManagedStructuredSessionOptions,
 ): ManagedHarnessSpawnResult {
   const harnessPath = `${import.meta.dir}/agents/backends/${moduleName}.ts`;
@@ -1218,6 +1236,9 @@ export const spawnManagedGrokAcpSession = (opts: ManagedStructuredSessionOptions
 
 export const spawnManagedCursorAcpSession = (opts: ManagedStructuredSessionOptions) =>
   spawnManagedStructuredSession("cursor-acp-session", opts);
+
+export const spawnManagedFxAcpSession = (opts: ManagedStructuredSessionOptions) =>
+  spawnManagedStructuredSession("fx-acp-session", opts);
 
 export const spawnManagedCopilotSdkSession = (opts: ManagedStructuredSessionOptions) =>
   spawnManagedStructuredSession("copilot-sdk-session", opts);
