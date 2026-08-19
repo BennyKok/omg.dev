@@ -57,6 +57,7 @@ import { SessionListSkeleton } from "../src/omg/skeleton";
 import { useTheme } from "../src/omg/theme";
 import { bindingLabel, relativeTime } from "../src/omg/format";
 import { CLOUD_BINDING_ID } from "../src/omg/config";
+import { sharedBindingLabel } from "../src/omg/computer-shared-binding";
 
 /**
  * A session and everything it spawned.
@@ -370,7 +371,7 @@ export default function SessionsScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { colors, type, space } = useTheme();
-  const { client, readiness, probe, bindingId, bindings, user } = useOmg();
+  const { client, readiness, probe, bindingId, bindings, sharedComputers, user } = useOmg();
   const computerPicker = useComputerPicker();
   // No session exists yet, so these upload to the pre-session endpoint and
   // ride along in the prompt that creates one.
@@ -698,16 +699,27 @@ export default function SessionsScreen() {
     return client.live.subscribeConnection((state) => setConnection(state.status));
   }, [client]);
 
+  const currentSharedComputer = useMemo(
+    () => sharedComputers.find((c) => c.id === bindingId) ?? null,
+    [sharedComputers, bindingId],
+  );
   const currentBinding = useMemo(
-    () => bindings.find((b) => b.id === bindingId) ?? null,
-    [bindings, bindingId],
+    () => bindings.find((b) => b.id === bindingId) ?? currentSharedComputer ?? null,
+    [bindings, currentSharedComputer, bindingId],
   );
 
-  const machineName = currentBinding
-    ? bindingLabel(currentBinding)
-    : bindingId === CLOUD_BINDING_ID
-      ? "Cloud computer"
-      : "No computer";
+  // `bindingLabel` reads a machine's OWN computerUrl/defaultFolder, neither of
+  // which a synthesized shared entry carries (a guest never gets the owner's
+  // direct box URL) — calling it there would fall through to a truncated
+  // "shared:ab12cd…" id. sharedBindingLabel is the one that actually knows
+  // how to name it.
+  const machineName = currentSharedComputer
+    ? sharedBindingLabel(currentSharedComputer.ownerLabel)
+    : currentBinding
+      ? bindingLabel(currentBinding)
+      : bindingId === CLOUD_BINDING_ID
+        ? "Cloud computer"
+        : "No computer";
 
   /** First name only, capitalised — the web greets the same way. */
   const firstName = useMemo(() => {
@@ -1219,6 +1231,25 @@ export default function SessionsScreen() {
             title="Too many agents running"
             detail={readiness.message}
             action={<PrimaryButton label="Try again" onPress={() => void probe()} />}
+          />
+        ) : readiness?.status === "unauthorized" ? (
+          /**
+           * NOT a connection problem — say so, and don't offer a retry that
+           * cannot succeed. This is the state a revoked share (or an
+           * unpaired machine still named in a stale preference) resolves to;
+           * see the readiness.ts doc comment on `"unauthorized"` for the web
+           * bug ("Computer not connected", read as offline) this exists to
+           * not repeat. "Try again" is deliberately absent — the server has
+           * already answered, and asking again gets the same answer.
+           */
+          <EmptyState
+            title="No longer available"
+            detail={readiness.message}
+            action={
+              <DropdownMenu title="Computer" options={computerPicker.options}>
+                <PrimaryButton label="Choose another" />
+              </DropdownMenu>
+            }
           />
         ) : readiness && readiness.status !== "ready" ? (
           <EmptyState

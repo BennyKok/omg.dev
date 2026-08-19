@@ -24,6 +24,7 @@ import { useTheme } from "../src/omg/theme";
 import { useToast } from "../src/omg/toast";
 import { bindingLabel, cloudStatusLabel, machineSpec, relativeTime } from "../src/omg/format";
 import { CLOUD_BINDING_ID } from "../src/omg/config";
+import { sharedBindingLabel } from "../src/omg/computer-shared-binding";
 
 const BLOCKED_CLOUD_STATUSES = new Set(["upgrade_required", "recycled"]);
 
@@ -70,6 +71,7 @@ export default function ComputersScreen() {
   const { colors, type, space } = useTheme();
   const {
     bindings,
+    sharedComputers,
     cloud,
     bindingId,
     selectBinding,
@@ -209,6 +211,53 @@ export default function ComputersScreen() {
           </>
         ) : null}
       </Card>
+
+      {/**
+       * Machines someone else shared with this account — never in `bindings`,
+       * relay only ever reports machines you own. Its own section, same as
+       * "Your machines" above: these are reachable and selectable exactly the
+       * same way, but they are not this account's machines, and saying so
+       * plainly is the whole point (see `sharedBindingLabel`).
+       *
+       * Not rendered at all for the (overwhelming majority) account nothing
+       * has been shared with — an empty "Shared with you" heading over
+       * nothing would be a section that exists to say "no".
+       */}
+      {sharedComputers.length > 0 ? (
+        <>
+          <SectionLabel>Shared with you</SectionLabel>
+          <Card>
+            {sharedComputers.map((c, i) => {
+              const selected = c.id === bindingId;
+              return (
+                <View key={c.id}>
+                  {i > 0 ? <Separator inset="text" /> : null}
+                  <Row onPress={() => void choose(c.id)}>
+                    <StatusDot busy={c.online ?? true} />
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text style={{ ...type.callout, color: colors.text, fontWeight: "600" }}>
+                        {sharedBindingLabel(c.ownerLabel)}
+                      </Text>
+                      <Text numberOfLines={1} style={{ ...type.footnote, color: colors.textMuted }}>
+                        {c.online === false ? "Offline" : `Shared by ${c.ownerLabel}`}
+                      </Text>
+                    </View>
+                    {selected ? (
+                      <Icon
+                        ios="checkmark"
+                        android="check"
+                        size={16}
+                        weight="semibold"
+                        color={colors.primary}
+                      />
+                    ) : null}
+                  </Row>
+                </View>
+              );
+            })}
+          </Card>
+        </>
+      ) : null}
 
       <Text
         style={{
