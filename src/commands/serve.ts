@@ -347,7 +347,7 @@ import { resolveUploadRequest, uploadsDir } from "../uploads.ts";
 import { addShipPost, listShipPosts, resolveShipProject } from "../shipped.ts";
 import { shippedCloseDecision } from "../shipped-lifecycle.ts";
 import { verifySelfRepoLanding } from "../session-landing.ts";
-import { collectShipProvenance } from "../ship-provenance.ts";
+import { collectShipProvenance, shipBlockReason } from "../ship-provenance.ts";
 import {
   artifactRefreshManager,
   prepareArtifactRefreshConfig,
@@ -6081,8 +6081,11 @@ a{color:#60a5fa}
             // which is how posts that were never committed became
             // indistinguishable from posts that landed and deployed.
             const code = collectShipProvenance(sourceManaged);
-            if (code && code.state !== "landed" && code.state !== "clean") {
-              evlog("shipped_unlanded_code", {
+            const unlanded = shipBlockReason(code);
+            if (unlanded && code) {
+              // Refused, not annotated. A post the reader has to distrust is
+              // worse than no post: "shipped" has to mean the code is in.
+              evlog("shipped_unlanded_rejected", {
                 sessionId: body.sessionId,
                 state: code.state,
                 branch: code.branch,
@@ -6090,6 +6093,7 @@ a{color:#60a5fa}
                 dirty: code.dirty,
                 ahead: code.ahead,
               });
+              return err(409, unlanded);
             }
             const post = await addShipPost({
               ...body,
