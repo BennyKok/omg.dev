@@ -30,6 +30,10 @@ export type Bot = {
   shape?: BotShape;
   colorway?: BotColorway;
   persona: string;
+  /** Short, non-secret role text that same-owner bots may discover. */
+  description?: string;
+  /** Declared coordination abilities. These are labels, not tool grants. */
+  capabilities?: string[];
   agent: string;
   model?: string;
   thinkingLevel?: string;
@@ -44,7 +48,19 @@ export type Bot = {
   sessionId?: string;
   createdAt: number;
   lastMessageAt?: number;
+  /** Relaunch with persisted profile/workspace data before the next user turn. */
+  runtimeRefreshPending?: boolean;
 };
+
+/** A hard per-user fleet bound for persistent bots, including disabled bots. */
+export const BOT_OWNER_QUOTA = 10;
+
+export class BotOwnerQuotaError extends Error {
+  constructor(readonly owner: string, readonly limit: number) {
+    super(`bot quota reached (${limit} persistent bots per assigned user)`);
+    this.name = "BotOwnerQuotaError";
+  }
+}
 
 /**
  * The conversation a bot's next process attaches to.
@@ -97,13 +113,17 @@ function writeBots(bots: Bot[]): void {
   }
 }
 
-export async function listBots(): Promise<Bot[]> {
+function readBots(): Bot[] {
   try {
     const parsed = JSON.parse(readFileSync(botsPath(), "utf8"));
     return Array.isArray(parsed) ? parsed as Bot[] : [];
   } catch {
     return [];
   }
+}
+
+export async function listBots(): Promise<Bot[]> {
+  return readBots();
 }
 
 export async function getBot(id: string): Promise<Bot | null> {
@@ -113,6 +133,8 @@ export async function getBot(id: string): Promise<Bot | null> {
 export async function createBot(input: {
   name: string;
   persona: string;
+  description?: string;
+  capabilities?: string[];
   agent?: string;
   model?: string;
   thinkingLevel?: string;
@@ -120,8 +142,16 @@ export async function createBot(input: {
   owner?: string;
   shape?: BotShape;
   colorway?: BotColorway;
+  ownerQuota?: number;
 }): Promise<Bot> {
-  const bots = await listBots();
+  // Keep the read, quota check, and write in one synchronous section. Two MCP
+  // calls cannot both observe the last free slot before either commits it.
+  const bots = readBots();
+  if (input.owner && input.ownerQuota !== undefined) {
+    const owner = input.owner.trim().toLowerCase();
+    const owned = bots.filter((bot) => bot.owner?.trim().toLowerCase() === owner).length;
+    if (owned >= input.ownerQuota) throw new BotOwnerQuotaError(input.owner, input.ownerQuota);
+  }
   let id: string;
   do id = `bot_${randomBytes(4).toString("hex")}`;
   while (bots.some((bot) => bot.id === id));
@@ -137,6 +167,8 @@ export async function createBot(input: {
     shape,
     colorway,
     persona: input.persona,
+    description: input.description,
+    capabilities: input.capabilities,
     agent,
     model: input.model,
     thinkingLevel: sanitizeThinkingLevel(input.thinkingLevel, agent),
@@ -151,7 +183,7 @@ export async function createBot(input: {
 
 export async function updateBot(
   id: string,
-  patch: Partial<Pick<Bot, "name" | "shape" | "colorway" | "persona" | "agent" | "model" | "thinkingLevel" | "cwd" | "owner" | "enabled" | "sessionId" | "lastMessageAt">>,
+  patch: Partial<Pick<Bot, "name" | "shape" | "colorway" | "persona" | "description" | "capabilities" | "agent" | "model" | "thinkingLevel" | "cwd" | "owner" | "enabled" | "sessionId" | "lastMessageAt" | "runtimeRefreshPending">>,
 ): Promise<Bot | null> {
   const bots = await listBots();
   const current = bots.find((bot) => bot.id === id);

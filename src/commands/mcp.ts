@@ -16,6 +16,7 @@ import {
   SHORT_SESSION_ID_LENGTH,
 } from "../omg-capabilities.ts";
 import { shippedCloseDecision } from "../shipped-lifecycle.ts";
+import { BOT_COLORWAYS, BOT_SHAPES } from "../bots/store.ts";
 
 type Repo = { name: string; cwd: string; project?: string };
 type SessionRow = {
@@ -1010,6 +1011,79 @@ export function buildOmgMcpServer(): McpServer {
         }),
       });
       return result({ shipped: true, post: data.post, session: data.session });
+    },
+  );
+
+  server.registerTool(
+    "omg_list_owned_bots",
+    {
+      title: "List Same-Owner Bots",
+      description:
+        "List this persistent bot's same-owner peers using safe coordination metadata only. Returns stable bot ids, names, public descriptions, avatars, enabled/runtime status, and declared capabilities. It never returns peer transcripts, private instructions, runtime contracts, credentials, ownership controls, or peer mutation actions.",
+      inputSchema: {},
+    },
+    async () => {
+      const sid = await activeSessionId();
+      const data = await api<{ bots: unknown[] }>("/api/runtime/bots/peers", {
+        headers: { "X-OMG-Session-ID": sid },
+      });
+      return result(data);
+    },
+  );
+
+  server.registerTool(
+    "omg_create_owned_bot",
+    {
+      title: "Create A Same-Owner Persistent Bot",
+      description:
+        "Create one persistent bot for the same assigned user as the calling bot. The server derives ownership and execution workspace from the authenticated runtime session and enforces a hard limit of 10 bots per user. Agent, model, and thinking level use the existing catalogs. The new bot inherits the caller's approved workspace and cannot expand filesystem access.",
+      inputSchema: z.object({
+        name: z.string().min(1).max(80).describe("Bot display name."),
+        persona: z.string().min(1).max(20_000).describe("Private persistent instructions for the new bot."),
+        description: z.string().max(500).optional().describe("Short public role description visible to same-owner bots."),
+        capabilities: z.array(z.string().min(1).max(64)).max(20).optional().describe("Declared coordination labels. These do not grant tools."),
+        shape: z.enum(BOT_SHAPES).optional().describe("Avatar shape."),
+        colorway: z.enum(BOT_COLORWAYS).optional().describe("Avatar colorway."),
+        agent: z.string().optional().describe("Coding-agent backend from the existing catalog. Defaults to aisdk."),
+        model: z.string().optional().describe("Model from the selected agent's existing catalog."),
+        thinkingLevel: z.string().optional().describe("Thinking level supported by the selected agent."),
+      }).strict(),
+    },
+    async (input) => {
+      const sid = await activeSessionId();
+      const data = await api<{ bot: unknown }>("/api/runtime/bots/owned", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-OMG-Session-ID": sid },
+        body: JSON.stringify(input),
+      });
+      return result(data);
+    },
+  );
+
+  server.registerTool(
+    "omg_update_self",
+    {
+      title: "Update This Persistent Bot",
+      description:
+        "Update only the calling persistent bot's safe editable profile. Editable fields are name, private persona/instructions, public description, declared capability labels, and avatar. Identity, ownership, session ids, runtime security contracts, credentials, agent configuration, and workspace are not editable. Instruction changes persist and take effect on the next idle user turn.",
+      inputSchema: z.object({
+        name: z.string().min(1).max(80).optional().describe("New display name."),
+        persona: z.string().min(1).max(20_000).optional().describe("New private persistent instructions."),
+        description: z.string().max(500).optional().describe("New public role description."),
+        capabilities: z.array(z.string().min(1).max(64)).max(20).optional().describe("New declared coordination labels. These do not grant tools."),
+        shape: z.enum(BOT_SHAPES).optional().describe("New avatar shape."),
+        colorway: z.enum(BOT_COLORWAYS).optional().describe("New avatar colorway."),
+      }).strict(),
+    },
+    async (input) => {
+      if (!Object.keys(input).length) throw new Error("at least one editable profile field is required");
+      const sid = await activeSessionId();
+      const data = await api<{ bot: unknown }>("/api/runtime/bots/self", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "X-OMG-Session-ID": sid },
+        body: JSON.stringify(input),
+      });
+      return result(data);
     },
   );
 
