@@ -42,6 +42,13 @@ import {
   shouldShowMobileSurfaceToggle,
 } from "./lib/mobile-bots-nav";
 import { botChatSessionId, findBotMainSession } from "./lib/bot-session";
+import {
+  BOT_UNREAD_DOT_CLASS,
+  botConversationRows,
+  botUnreadActionForTranscript,
+  hasUnreadBotConversation,
+  type BotConversationUnread,
+} from "./lib/bot-unread";
 import { resolveRosterUser } from "./lib/roster-user";
 import {
   botVisibleUserText as botVisibleUserTextFor,
@@ -669,6 +676,7 @@ export type PersistentBot = {
 };
 
 const BotDirectoryContext = createContext<Map<string, PersistentBot>>(new Map());
+const BotUnreadContext = createContext<{ conversations: BotConversationUnread[]; any: boolean; selectedConversationId: string | null }>({ conversations: [], any: false, selectedConversationId: null });
 const OpenBotContext = createContext<(id: string) => void>(() => {});
 /**
  * Editing a bot from wherever its chat is open. The bot chat is a session card
@@ -5538,6 +5546,7 @@ export function App() {
   // switching pages re-renders here rather than remounting the whole app.
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const routeSearch = useRouterState({ select: (s) => s.location.search as AppSearch });
   const tab: string = pathnameToTab(pathname);
   // `/bots/<id>` is a chat. `/bots/new` and `/bots/<id>/edit` are the editor,
   // which is a PAGE and not a sheet over the list: a form with a name, a
@@ -5550,6 +5559,7 @@ export function App() {
   const botEditorTarget: string | null =
     botPathId === "new" ? "new" : botPathSegments[2] === "edit" ? botPathId : null;
   const selectedBotId = botPathId && botPathId !== "new" ? botPathId : null;
+  const selectedBotConversationId = selectedBotId ? routeSearch.conversation ?? null : null;
   // A terminal is on screen — as the Terminal tab, or pulled up over any tab.
   // Both need the same soft-keyboard treatment: the shell pinned to the visible
   // band and translated past the scroll iOS applies to reveal the focused field.
@@ -5580,7 +5590,7 @@ export function App() {
     [navigate],
   );
   const openBot = useCallback(
-    (botId: string) => {
+    (botId: string, conversationId?: string | null) => {
       const keepHostMode = (prev: AppSearch): AppSearch => ({
         ...(prev.embed ? { embed: prev.embed } : {}),
         ...(prev.embedOrigin ? { embedOrigin: prev.embedOrigin } : {}),
@@ -5588,7 +5598,7 @@ export function App() {
       void navigate({
         to: "/bots/$botId",
         params: { botId },
-        search: keepHostMode,
+        search: (prev) => ({ ...keepHostMode(prev), ...(conversationId ? { conversation: conversationId } : {}) }),
       });
     },
     [navigate],
@@ -5688,6 +5698,7 @@ export function App() {
   }, [loading]);
   const [autoAgents, setAutoAgents] = useState<AutoAgent[]>([]);
   const [bots, setBots] = useState<PersistentBot[]>([]);
+  const [botConversations, setBotConversations] = useState<BotConversationUnread[]>([]);
   const botDirectory = useMemo(
     () => new Map(bots.map((bot) => [bot.id, bot])),
     [bots],
@@ -5739,6 +5750,12 @@ export function App() {
   const [identity, setIdentity] = useState<string | null>(() =>
     localStorage.getItem("lfg_user"),
   );
+  // Hosted surfaces do not show the profile picker. Their one-user roster is
+  // still the assigned identity for server-owned bot read state.
+  const botUnreadIdentity = identity ??
+    (userFilter !== "__all" && userFilter !== "__unassigned"
+      ? userFilter
+      : users.length === 1 ? users[0].email : "");
   // The mobile Live header introduces the product mark, then gives that prime
   // strip of screen back to the person using it. Start the two-second hold only
   // once bootstrap is ready so a slow connection does not consume the intro
@@ -5948,14 +5965,21 @@ export function App() {
   }, [bare, isMobile, loading, tab, terminalSurface]);
 
   const refreshBots = useCallback(async () => {
-    const payload = await api<{ bots: PersistentBot[] }>("/api/bots", { cache: "no-store" });
+    const payload = await api<{ bots: PersistentBot[]; conversations?: BotConversationUnread[] }>(
+      `/api/bots?user=${encodeURIComponent(botUnreadIdentity)}`,
+      { cache: "no-store" },
+    );
     setBots(payload.bots ?? []);
-  }, []);
+    setBotConversations(payload.conversations ?? []);
+  }, [botUnreadIdentity]);
 
   const loadCore = useCallback(async () => {
     const [payload, botPayload] = await Promise.all([
       fetchBootstrap<BootstrapPayload>(),
-      api<{ bots: PersistentBot[] }>("/api/bots", { cache: "no-store" }),
+      api<{ bots: PersistentBot[]; conversations?: BotConversationUnread[] }>(
+        `/api/bots?user=${encodeURIComponent(botUnreadIdentity)}`,
+        { cache: "no-store" },
+      ),
     ]);
     setOmgVersion(payload.version || "unknown");
     setOnboarding(payload.onboarding ?? null);
@@ -5992,6 +6016,7 @@ export function App() {
     setRepos(payload.repos ?? []);
     setAutoAgents(payload.auto?.agents ?? []);
     setBots(botPayload.bots ?? []);
+    setBotConversations(botPayload.conversations ?? []);
     setSchedTz(payload.settings?.timeZone ?? payload.auto?.tz ?? DEFAULT_SCHED_TZ);
     const findingList = payload.auto?.findings ?? [];
     setFindings(findingList);
@@ -6001,7 +6026,7 @@ export function App() {
     // since succeeded, so retire it — a stale "could not load" over a screen
     // full of freshly loaded state is just noise the reader has to disbelieve.
     setError(null);
-  }, [embedded]);
+  }, [botUnreadIdentity, embedded]);
 
   // Sessions the user just deleted. The server's list can lag a beat (tmux pane
   // still tearing down), and the 5s poll below would otherwise resurrect a card
@@ -6745,6 +6770,46 @@ export function App() {
     onStatusRows: applyLiveStatusRows,
   });
   const liveStream = useWsLive ? wsLiveStream : sseLiveStream;
+
+  const selectedConversationSid = selectedBotConversationId ??
+    (selectedBotId ? bots.find((bot) => bot.id === selectedBotId)?.sessionId ?? null : null);
+  const markBotConversationVisible = useCallback(async (sessionId: string) => {
+    await api(`/api/bot-conversations/${encodeURIComponent(sessionId)}/read`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user: botUnreadIdentity }),
+    });
+    await refreshBots();
+  }, [botUnreadIdentity, refreshBots]);
+
+  // Selection is committed before this effect runs, so a route preload or a
+  // tap that never revealed the conversation cannot clear its watermark.
+  useEffect(() => {
+    if (tab !== "bots" || !selectedConversationSid || document.visibilityState !== "visible") return;
+    void markBotConversationVisible(selectedConversationSid).catch(() => {});
+  }, [markBotConversationVisible, selectedConversationSid, tab]);
+
+  // Reuse the transcript websocket. Every committed assistant row refreshes
+  // the server-owned watermark view. The open conversation advances its own
+  // watermark; background conversations only gain an unread dot.
+  useEffect(() => {
+    if (!useWsLive) return;
+    const unsubs = botConversations.map((conversation) =>
+      wsLiveStream.subscribeTranscript(conversation.sessionId, (event) => {
+        if (event.type !== "message") return;
+        const action = botUnreadActionForTranscript({
+          role: event.message.role,
+          text: event.message.text,
+          conversationId: conversation.sessionId,
+          selectedConversationId: selectedConversationSid,
+          botsVisible: tab === "bots" && document.visibilityState === "visible",
+        });
+        if (action === "mark-read") void markBotConversationVisible(conversation.sessionId).catch(() => {});
+        if (action === "refresh") void refreshBots().catch(() => {});
+      })
+    );
+    return () => unsubs.forEach((unsubscribe) => unsubscribe());
+  }, [botConversations, markBotConversationVisible, refreshBots, selectedConversationSid, tab, useWsLive, wsLiveStream.subscribeTranscript]);
 
   function toggleTheme() {
     setThemePreference(!document.documentElement.classList.contains("dark"));
@@ -7816,6 +7881,7 @@ export function App() {
     <SessionTerminalContext.Provider value={setTerminalSid}>
     <OpenSettingsPageContext.Provider value={setTab}>
     <BotDirectoryContext.Provider value={botDirectory}>
+    <BotUnreadContext.Provider value={{ conversations: botConversations, any: hasUnreadBotConversation(botConversations), selectedConversationId: selectedBotConversationId }}>
     <OpenBotContext.Provider value={openBot}>
     <EditBotContext.Provider value={openBotEditor}>
     <div
@@ -8218,6 +8284,7 @@ export function App() {
             bots={bots}
             sessions={sessions}
             selectedBotId={selectedBotId}
+            selectedConversationId={selectedBotConversationId}
             busyBySid={liveStream.busyBySid}
             onSubscribeTranscript={useWsLive ? wsLiveStream.subscribeTranscript : undefined}
             onOpen={openBot}
@@ -8243,7 +8310,7 @@ export function App() {
             onEditRoutine={setEditingAgent}
             onClose={() => {
               if (botEditor === "new") closeBot();
-              else openBot(botEditor.id);
+              else openBot(botEditor.id, selectedBotConversationId);
             }}
             onSave={saveBot}
             onDelete={deletePersistentBot}
@@ -8375,7 +8442,7 @@ export function App() {
         </>}
       </main>
 
-      {shouldShowMobileSurfaceToggle(isMobile, tab) && !(tab === "bots" && selectedBotId) ? (
+      {shouldShowMobileSurfaceToggle(isMobile, tab, selectedBotId) ? (
         <MobileSurfaceDock
           active={mobileSurfaceToggleActive(tab)}
           aboveComposer={mobileComposerVisible}
@@ -8555,6 +8622,7 @@ export function App() {
     ) : null}
     </EditBotContext.Provider>
     </OpenBotContext.Provider>
+    </BotUnreadContext.Provider>
     </BotDirectoryContext.Provider>
     </OpenSettingsPageContext.Provider>
     </SessionTerminalContext.Provider>
@@ -10547,7 +10615,7 @@ function LiveView({
   railSurface?: "sessions" | "chat";
   bots?: PersistentBot[];
   selectedBotId?: string | null;
-  onOpenBot?: (id: string) => void;
+  onOpenBot?: (id: string, conversationId?: string | null) => void;
   onNewBot?: () => void;
   onEditBot?: (bot: PersistentBot) => void;
   onRefreshBots?: () => Promise<void>;
@@ -11078,7 +11146,7 @@ function RailStage({
   railSurface?: "sessions" | "chat";
   bots?: PersistentBot[];
   selectedBotId?: string | null;
-  onOpenBot?: (id: string) => void;
+  onOpenBot?: (id: string, conversationId?: string | null) => void;
   onNewBot?: () => void;
   onEditBot?: (bot: PersistentBot) => void;
   onRefreshBots?: () => Promise<void>;
@@ -11109,6 +11177,7 @@ function RailStage({
   onNew: () => void;
 }) {
   const appDialog = useAppDialog();
+  const { conversations: botConversationsForRail, selectedConversationId: selectedBotConversationForRail } = useContext(BotUnreadContext);
   const MAX_COLUMNS = 4;
   const layoutScope = projectFilter || "__all";
   const layoutKey = encodeURIComponent(layoutScope);
@@ -11454,12 +11523,11 @@ function RailStage({
    */
   const botsBySid = useMemo(() => {
     const map = new Map<string, PersistentBot>();
-    for (const bot of bots) {
-      const sid = botChatSessionId(bot, sessions);
-      if (sid) map.set(sid, bot);
+    for (const row of botConversationRows(bots, sessions, botConversationsForRail)) {
+      if (row.sessionId) map.set(row.sessionId, row.bot);
     }
     return map;
-  }, [bots, sessions]);
+  }, [botConversationsForRail, bots, sessions]);
   const sidForBot = useCallback(
     (botId: string) => {
       for (const [sid, bot] of botsBySid) if (bot.id === botId) return sid;
@@ -11471,7 +11539,9 @@ function RailStage({
     () => (selectedBotId ? bots.find((bot) => bot.id === selectedBotId) ?? null : null),
     [bots, selectedBotId],
   );
-  const selectedBotSid = selectedBotId ? sidForBot(selectedBotId) : null;
+  const selectedBotSid = selectedBotId
+    ? selectedBotConversationForRail ?? sidForBot(selectedBotId)
+    : null;
 
   // Selecting a bot in the rail is selecting its session on the stage. Runs on
   // the sid too, not just the id: a brand-new bot's session appears only after
@@ -12102,12 +12172,13 @@ function RailStage({
           <span className="truncate">New bot</span>
         </button>
       ) : null}
-      {bots.map((bot) => {
-        const sid = sidForBot(bot.id);
-        const session = sid ? sessions.find((item) => item.sessionId === sid) : undefined;
+      {botConversationRows(bots, sessions, botConversationsForRail).map((row) => {
+        const bot = row.bot;
+        const sid = row.sessionId;
+        const session = row.session;
         const busy = !!(sid && busyBySid[sid]);
-        const active = selectedBotId === bot.id;
-        const rawPreview = session?.last?.text || session?.lastUserText || bot.lastMessagePreview || "";
+        const active = selectedBotId === bot.id && (!selectedBotConversationForRail || selectedBotConversationForRail === sid);
+        const rawPreview = session?.last?.text || session?.lastUserText || row.lastMessagePreview || bot.lastMessagePreview || "";
         // A background task's report is machinery, not conversation: it is
         // hidden inside the chat, so it must not surface as the roster preview
         // either — the row would read `[subagent complete] …`.
@@ -12118,15 +12189,15 @@ function RailStage({
             : plainPreviewText(botVisibleUserText(rawPreview, bot));
         return (
           <button
-            key={bot.id}
+            key={row.key}
             type="button"
             title={railCollapsed ? bot.name : undefined}
             onClick={() => {
-              onOpenBot?.(bot.id);
+              onOpenBot?.(bot.id, sid);
               if (sid) activate(sid, false);
             }}
             className={cn(
-              "flex w-full items-center rounded-lg text-left transition-colors",
+              "relative flex w-full items-center rounded-lg text-left transition-colors",
               railCollapsed ? "justify-center px-1 py-1.5" : "gap-2 px-2 py-1.5",
               active ? "bg-muted" : "hover:bg-muted/60",
             )}
@@ -12147,9 +12218,14 @@ function RailStage({
                 </span>
               </span>
             ) : null}
-            {!railCollapsed && bot.lastMessageAt ? (
+            {row.unread ? (
+              <span role="status" aria-label={`Unread conversation with ${bot.name}`} className={railCollapsed ? "absolute translate-x-2 -translate-y-2" : undefined}>
+                <span className={BOT_UNREAD_DOT_CLASS} aria-hidden="true" />
+              </span>
+            ) : null}
+            {!railCollapsed && (row.lastMessageTs || bot.lastMessageAt) ? (
               <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/70">
-                {relTime(bot.lastMessageAt)}
+                {relTime(row.lastMessageTs || bot.lastMessageAt!)}
               </span>
             ) : null}
           </button>
@@ -12281,7 +12357,9 @@ function RailStage({
             {/* Sits below the actions, directly above the list it switches.
                 Above the brand row it read as app-level navigation; what it
                 actually does is change which list the rail is showing. */}
-            <SurfaceToggle active={railSurface} onOpenSessions={onOpenSessions} onOpenBots={onOpenBots} />
+            {!selectedBotId ? (
+              <SurfaceToggle active={railSurface} onOpenSessions={onOpenSessions} onOpenBots={onOpenBots} />
+            ) : null}
           </div>
         )}
         <div className="session-list-scroll min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
@@ -24213,6 +24291,7 @@ function SurfaceToggle({
   onOpenBots: () => void;
   compact?: boolean;
 }) {
+  const { any: botsUnread } = useContext(BotUnreadContext);
   // This is the one segmented-toggle component both the desktop rail header
   // (RailStage, isWide-only) and the mobile Chat/Bots header render — one
   // navigation idiom, two mount points, instead of a second control. It used
@@ -24273,7 +24352,12 @@ function SurfaceToggle({
           {compact ? (
             value === "sessions" ? <MessageSquare className="size-3.5" /> : <Bot className="size-3.5" />
           ) : null}
-          {label}
+          <span>{label}</span>
+          {value === "chat" && botsUnread ? (
+            <span className="ml-1 flex items-center" role="status" aria-label="Bots have unread conversations">
+              <span className={BOT_UNREAD_DOT_CLASS} aria-hidden="true" />
+            </span>
+          ) : null}
         </button>
       ))}
     </div>
@@ -24557,6 +24641,7 @@ function BotsView({
   bots,
   sessions,
   selectedBotId,
+  selectedConversationId,
   busyBySid,
   onSubscribeTranscript,
   onOpen,
@@ -24572,7 +24657,8 @@ function BotsView({
   selectedBotId: string | null;
   busyBySid: Record<string, boolean>;
   onSubscribeTranscript?: OmgTranscriptSubscribe;
-  onOpen: (id: string) => void;
+  selectedConversationId: string | null;
+  onOpen: (id: string, conversationId?: string | null) => void;
   onBack: () => void;
   onOpenSessions: () => void;
   onNew: () => void;
@@ -24581,6 +24667,7 @@ function BotsView({
   onRefreshSessions: () => Promise<void>;
 }) {
   const isMobile = useIsMobile();
+  const { conversations } = useContext(BotUnreadContext);
   const bot = selectedBotId ? bots.find((item) => item.id === selectedBotId) ?? null : null;
   useEffect(() => {
     if (!isMobile || !bot) return;
@@ -24592,8 +24679,12 @@ function BotsView({
   }, [bot, isMobile]);
 
   if (bot) {
-    const backingSession = findBotMainSession(bot, sessions);
-    const sid = botChatSessionId(bot, sessions);
+    const mainSid = botChatSessionId(bot, sessions);
+    const sid = selectedConversationId ?? mainSid;
+    const backingSession =
+      sid === mainSid
+        ? findBotMainSession(bot, sessions)
+        : sessions.find((session) => session.sessionId === sid);
     const session: Session | null = sid
       ? backingSession ?? {
           sessionId: sid,
@@ -24608,16 +24699,6 @@ function BotsView({
         }
       : null;
     const busy = !!(sid && busyBySid[sid]);
-    const mobileNavigation = isMobile ? (
-      <div className="flex shrink-0 justify-center bg-background px-4 py-2">
-        <SurfaceToggle
-          compact
-          active="sessions"
-          onOpenSessions={onOpenSessions}
-          onOpenBots={onBack}
-        />
-      </div>
-    ) : null;
     const chat = session ? (
       <SessionChat
         session={session}
@@ -24627,7 +24708,6 @@ function BotsView({
         error={null}
         onError={reportBotChatError}
         onSubscribeTranscript={onSubscribeTranscript}
-        beforeComposer={mobileNavigation}
         onRefresh={async () => {
           await Promise.all([onRefreshBots(), onRefreshSessions()]);
         }}
@@ -24640,7 +24720,6 @@ function BotsView({
           <BotAvatar bot={bot} size={96} />
           <span>Say hi to start your conversation with {bot.name}.</span>
         </div>
-        {mobileNavigation}
         <FirstBotMessageComposer
           bot={bot}
           onStarted={async () => {
@@ -24655,7 +24734,6 @@ function BotsView({
             This bot is disabled. Re-enable it in settings to keep talking to it.
           </div>
         </div>
-        {mobileNavigation}
       </>
     );
 
@@ -24674,9 +24752,10 @@ function BotsView({
               style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.75rem)" }}
             >
               {/* This chat is a full-screen portal above the app shell, so its
-                  own header is the only way out. The surface toggle above the
-                  composer switches products; it is not a way back to the
-                  roster, which left the bot chat with no exit at all. */}
+                  own header is the only way out. An open conversation owns the
+                  surface: the Chat/Bots switch belongs to the roster and the
+                  list pages, never inside a conversation, so this Back button
+                  is the exit. */}
               <button
                 type="button"
                 onClick={onBack}
@@ -24759,10 +24838,11 @@ function BotsView({
         </span>
         <span className="truncate">New bot</span>
       </button>
-      {bots.length ? bots.map((item) => {
-        const session = findBotMainSession(item, sessions);
+      {bots.length ? botConversationRows(bots, sessions, conversations).map((row) => {
+        const item = row.bot;
+        const session = row.session;
         const working = !!(session?.sessionId && busyBySid[session.sessionId]);
-        const rawPreview = session?.last?.text || session?.lastUserText || item.lastMessagePreview || "";
+        const rawPreview = session?.last?.text || session?.lastUserText || row.lastMessagePreview || item.lastMessagePreview || "";
         // See the rail roster: a `[subagent …]` report is not preview material.
         const preview = !rawPreview
           ? "Say hi to get started."
@@ -24771,9 +24851,10 @@ function BotsView({
             : plainPreviewText(botVisibleUserText(rawPreview, item));
         return (
           <button
-            key={item.id}
+            key={row.key}
             type="button"
-            onClick={() => onOpen(item.id)}
+            onClick={() => onOpen(item.id, row.sessionId)}
+            aria-label={`${item.name}${row.unread ? ", unread conversation" : ""}`}
             className={MOBILE_BOT_ROSTER_ROW_CLASS}
           >
             <BotAvatar bot={item} working={working} size={44} />
@@ -24781,8 +24862,13 @@ function BotsView({
               <span className={cn("truncate text-[13px] font-semibold", !item.enabled && "text-muted-foreground")}>{item.name}</span>
               <span className="truncate text-xs text-muted-foreground">{working ? `Working — ${preview}` : preview}</span>
             </span>
-            {item.lastMessageAt ? (
-              <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/70">{relTime(item.lastMessageAt)}</span>
+            {row.unread ? (
+              <span role="status" aria-label={`Unread conversation with ${item.name}`}>
+                <span className={BOT_UNREAD_DOT_CLASS} aria-hidden="true" />
+              </span>
+            ) : null}
+            {row.lastMessageTs || item.lastMessageAt ? (
+              <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/70">{relTime(row.lastMessageTs || item.lastMessageAt!)}</span>
             ) : null}
             {!item.enabled ? <Badge variant="secondary">Disabled</Badge> : null}
             <ChevronRight className="size-4 shrink-0 text-muted-foreground/60" />

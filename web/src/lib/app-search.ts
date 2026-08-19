@@ -74,6 +74,8 @@ export interface AppSearch {
    *  `/?session=<id>` via `publicSessionUrl` into messaging bridges and Shipped
    *  posts, so this key must never be renamed or dropped. */
   session?: string;
+  /** Conversation selected inside a persistent bot. */
+  conversation?: string;
   /** Framed-host mode (omg Computer iframe). EXTERNAL CONTRACT with omg's
    *  use-computer-session-frame mint — must stay as `embed=1`. */
   embed?: boolean;
@@ -88,6 +90,7 @@ export interface AppSearch {
 export function validateAppSearch(search: Record<string, unknown>): AppSearch {
   const out: AppSearch = {};
   if (typeof search.session === "string" && search.session) out.session = search.session;
+  if (typeof search.conversation === "string" && search.conversation) out.conversation = search.conversation;
   if (
     search.embed === true ||
     search.embed === 1 ||
