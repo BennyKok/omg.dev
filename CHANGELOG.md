@@ -2,6 +2,19 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - Bots can send secure messages to each other (v0.1.411)
+
+- **Your bots can now coordinate without exposing their private setup.** A bot
+  can send a durable message only to another enabled bot that you own. The
+  receiving bot sees the verified sender, while private instructions and
+  credentials stay out of the message.
+- **Replies stay explicit and bounded.** A reply keeps its conversation link,
+  stops after four handoffs, and never forwards model output automatically.
+  Each bot can send at most ten peer messages per minute.
+- **Messages keep their order through restarts.** The queue stores every
+  accepted message before delivery and keeps audit details for both accepted
+  and rejected attempts.
+
 ## August 19, 2026 - Bots can manage themselves, and mobile puts them first (v0.1.410)
 
 - **Bots can safely update their own profile and create a new bot.** The server
