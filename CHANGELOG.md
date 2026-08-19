@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - Existing hosted questions return to the inbox (v0.1.401)
+
+- **Questions created before v0.1.400 now appear again.** The inbox recovers an
+  older question through its assigned session when the question itself has no
+  user. It still hides questions owned by another user and questions with no
+  owner at all.
+
 ## August 19, 2026 - Questions stay visible, and shipped work shows its code state (v0.1.400)
 
 - **Fixed: a question from a hosted coding agent could disappear.** The shared
