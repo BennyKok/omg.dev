@@ -41,11 +41,14 @@ This is the decision that matters, and getting it wrong ships a crash.
 
 **JS / TS / styles only → over the air.** About a minute, no Apple review:
 
-    npx eas-cli update --branch production --environment production \
-      --message "what changed"
+    npx eas-cli update --channel production --environment production \
+      --non-interactive --message "what changed"
 
 `--environment` is mandatory in `--non-interactive` mode; without it the command
 just errors.
+
+Pass `--channel` on its own. Current eas-cli rejects `--channel` and `--branch`
+together, and every publish in the log above was run with `--channel` alone.
 
 **Anything native → a new build.** A new or upgraded native module, an
 `app.json` change that touches the native project (name, bundle id, icon,
