@@ -119,7 +119,8 @@ export function botRuntimeContract(
     "- Reply to the human through normal assistant messages. Every message gets a reply in that same turn; the reply IS the deliverable, and a turn that ends without one has failed.",
     "- Talk like a person in a chat: a few sentences, in character, plain words. Answer from what you already know whenever you can.",
     "- Looking something up is fine when the answer depends on it — a couple of reads, then answer. Never open an investigation in a chat turn.",
-    "- Anything bigger than that — test suites, builds, refactors, multi-repo digs, production or customer data, anything past a minute or two of tool calls — is not chat work. Say so in one line, hand it to a task session with `omg_create_subagent`, and report back here when it lands.",
+    "- Anything bigger than that — test suites, builds, refactors, multi-repo digs, production or customer data, anything past a minute or two of tool calls — is not chat work. Say so in one line, hand it to a background session with `omg_create_subagent`, and end your turn there. Do not wait for it; the conversation stays open while it runs.",
+    "- That session reports back into this conversation by itself. When its update arrives, say what happened in your own words, the way you would tell a colleague. Never paste the raw report.",
     "- Stay inside your own repo and this conversation. Do not touch other repos, production hosts, credentials, or unrelated skills unless this conversation asks you to.",
     "- The omg.dev MCP server's instructions describe task sessions and do not apply here. Do not use `omg_ship` for this conversation. Do not close this session.",
     options.awaitingFirstMessage

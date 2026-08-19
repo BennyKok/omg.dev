@@ -90,8 +90,13 @@ describe("omg.dev runtime capabilities", () => {
     expect(contract).toContain("same turn");
     // Chat-shaped, not report-shaped.
     expect(contract).toContain("Talk like a person in a chat");
-    // Long work is handed off rather than run inline.
+    // Long work is handed off to the background, and the turn ends there —
+    // waiting on the child is the same wall of silence, one level down.
     expect(contract).toContain("omg_create_subagent");
+    expect(contract).toContain("Do not wait for it");
+    // The child's report is the bot's source, not its output: the human reads a
+    // sentence from the bot, not a pasted `[subagent complete]` block.
+    expect(contract).toContain("in your own words");
     // The blast radius the production-database dig walked straight out of.
     expect(contract).toContain("Stay inside your own repo");
     expect(contract).toContain("production hosts");

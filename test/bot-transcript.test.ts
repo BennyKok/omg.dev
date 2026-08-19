@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   botVisibleUserText,
   isBotLaunchOnlyText,
+  isSubagentUpdateText,
   stripBotLaunchEnvelope,
 } from "../web/src/lib/bot-transcript";
 
@@ -53,5 +54,28 @@ describe("bot chat transcript visibility", () => {
   test("outside a bot chat the raw text is untouched", () => {
     const launch = `${CONTRACT}\n\n[Message from benny@example.com to bot Scout]\n\nping`;
     expect(botVisibleUserText(launch, false)).toBe(launch);
+  });
+});
+
+// Heavy work belongs in a background task session, and that session reports
+// home with the markers from the subagent operating contract. Those reports
+// land on the bot's session as user turns — i.e. in the human's chat, looking
+// like the human wrote them. They are machinery; the bot's own next message is
+// the part meant to be read.
+describe("background task updates in a bot chat", () => {
+  test("recognises every terminal state and progress", () => {
+    for (const marker of ["progress", "complete", "blocked", "failed"]) {
+      expect(isSubagentUpdateText(`[subagent ${marker}] rebased onto main, 3 tests fixed`)).toBe(true);
+    }
+    // Leading whitespace and casing come from whichever harness wrote it.
+    expect(isSubagentUpdateText("  [Subagent Complete] done")).toBe(true);
+  });
+
+  test("leaves the human's own words alone", () => {
+    expect(isSubagentUpdateText("can you check on the subagent progress?")).toBe(false);
+    expect(isSubagentUpdateText("[subagent] no state")).toBe(false);
+    expect(isSubagentUpdateText("")).toBe(false);
+    // A marker quoted mid-sentence is the human talking about one, not one reporting.
+    expect(isSubagentUpdateText("it said [subagent failed] and then stopped")).toBe(false);
   });
 });
