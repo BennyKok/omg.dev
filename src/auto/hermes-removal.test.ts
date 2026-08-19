@@ -14,6 +14,7 @@ function row(agent: AutoAgent["agent"], enabled = true): AutoAgent {
     prompt: "test",
     schedule: "0 9 * * *",
     enabled,
+    owner: { kind: "user" },
     agent,
   };
 }

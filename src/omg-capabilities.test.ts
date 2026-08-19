@@ -156,6 +156,31 @@ describe("omg.dev runtime capabilities", () => {
     expect(serveSource).not.toContain('ADVISOR_BRIEF');
   });
 
+  // Bot-owned automations (docs/bot-owned-automations-plan.md §4): a bot needs
+  // to know it can self-schedule, what the fired nudge looks like so it
+  // doesn't mistake it for a human message, and that the cap/frequency limits
+  // are real and enforced — not just self-service tools with no guidance.
+  test("gives a bot the self-scheduling tools, its own live cap, and the nudge shape", () => {
+    const contract = botRuntimeContract("Scout", "Be concise.", { maxBotSchedules: 3 });
+    expect(contract).toContain("omg_schedule_routine");
+    expect(contract).toContain("omg_list_my_routines");
+    expect(contract).toContain("omg_unschedule_routine");
+    // The number in the prompt must be the live setting, not a hardcoded guess.
+    expect(contract).toContain("at most 3 at a time");
+    expect(contract).toContain("[Scheduled routine: <name>]");
+    expect(contract).toContain("frequency ceiling");
+  });
+
+  test("falls back to the default cap when the live setting isn't threaded through", () => {
+    const contract = botRuntimeContract("Scout", "Be concise.");
+    expect(contract).toContain("at most 5 at a time");
+  });
+
+  test("does not duplicate the bot contract either", () => {
+    const contract = botRuntimeContract("Scout", "Be concise.", { maxBotSchedules: 5 });
+    expect(withOmgRuntimeContract(contract)).toBe(contract);
+  });
+
   test("reports honest harness access", () => {
     expect(omgCapabilityAccess("aisdk")).toBe("mcp");
     expect(omgCapabilityAccess("codex-aisdk")).toBe("mcp");

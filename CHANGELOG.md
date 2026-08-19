@@ -2,6 +2,27 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - Bots can schedule themselves (v0.2.0)
+
+- **A bot can now set up its own recurring check.** Ask it to check something
+  every morning, and it schedules a routine on itself with `omg_schedule_routine`
+  — no trip through the web UI. When it fires, the bot gets a message in the
+  same conversation and does the checking itself, in its own voice, then
+  replies like it would to anything else. It can list its own schedules and
+  remove one just as easily.
+- **Every schedule now says who it belongs to** — you, or a named bot — and the
+  Schedules page and each bot's own settings show it. A bot's chat header
+  carries a small "Schedules" count too.
+- **A bot is capped at 5 self-scheduled routines by default**, configurable in
+  Settings, and a schedule that would fire more than roughly every 30 minutes
+  is rejected outright — a runaway bot cannot spam itself into a corner.
+- **Fixed: a bot could edit or delete another bot's — or your own — schedule.**
+  The generic schedule tools had no ownership check at all; a bot's tools are
+  now restricted to its own rows, enforced on the server, not just by which
+  tool it happens to call.
+- **Deleting a bot now cleans up after itself**, removing any routines it
+  owned instead of leaving them behind with nothing to deliver to.
+
 ## August 19, 2026 - Bots can send secure messages to each other (v0.1.411)
 
 - **Your bots can now coordinate without exposing their private setup.** A bot

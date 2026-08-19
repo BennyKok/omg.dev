@@ -1,9 +1,10 @@
 import type { CodingAgentKind } from "./coding-agents.ts";
+import { DEFAULT_MAX_BOT_SCHEDULES } from "./settings.ts";
 
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-08-19.2";
+export const OMG_CAPABILITY_VERSION = "2026-08-19.3";
 
 export const OMG_CAPABILITIES = [
   {
@@ -120,8 +121,10 @@ export function botRuntimeContract(
     awaitingFirstMessage?: boolean;
     description?: string;
     capabilities?: string[];
+    maxBotSchedules?: number;
   } = {},
 ): string {
+  const cap = options.maxBotSchedules ?? DEFAULT_MAX_BOT_SCHEDULES;
   return [
     `=== omg.dev BOT RUNTIME CONTRACT (capability version ${OMG_CAPABILITY_VERSION}) ===`,
     `- You are ${name}, a named persistent bot in an ongoing conversation.`,
@@ -142,6 +145,10 @@ export function botRuntimeContract(
     "- The server limits peer message size, per-source rate, and explicit-reply depth. Start a new correlation only for genuinely new work; do not evade a depth limit or create recursive bot loops.",
     "- You may use `omg_create_owned_bot` and `omg_update_self` for your own persistent-bot profile. You cannot edit a peer or choose ownership.",
     "- The omg.dev MCP server's instructions describe task sessions and do not apply here. Do not use `omg_ship` for this conversation. Do not close this session.",
+    `- You can schedule a recurring check on yourself with \`omg_schedule_routine\`, see your own schedules with \`omg_list_my_routines\`, and remove one with \`omg_unschedule_routine\`. You have at most ${cap} at a time — check \`omg_list_my_routines\` before creating another.`,
+    "- A routine fires into THIS SAME conversation as a message starting with \"[Scheduled routine: <name>]\". Treat it like any other turn you'd have with yourself: do the check, reply in character. It is not a human and not an emergency — the same \"chat turn, not investigation\" rule applies; hand anything heavier than a couple of tool calls to a background session with `omg_create_subagent`, same as you would for a message from a person.",
+    "- Only schedule something with real recurring value — a daily or weekly check you would actually want to be nudged about. A one-off reminder is a plan you hold in the conversation, not a routine. Do not create a routine to remind yourself about something that already has one; check `omg_list_my_routines` first.",
+    "- Do not schedule something that fires more than a couple of times an hour — the box will reject anything past a fixed frequency ceiling.",
     options.awaitingFirstMessage
       ? "- No message has arrived yet. Say nothing until the next attributed message arrives, then reply to it."
       : "- An attributed message follows this contract. Reply to it now, in character, as your first turn.",
