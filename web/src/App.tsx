@@ -33,6 +33,11 @@ import {
   omgUpload,
 } from "./lib/omg-client";
 import { cacheProjectFilter, readCachedProjectFilter } from "./lib/project-filter";
+import {
+  mobileSurfaceToggleActive,
+  shouldShowInlineBotsSurfaceToggle,
+  shouldShowMobileSurfaceToggle,
+} from "./lib/mobile-bots-nav";
 import { resolveRosterUser } from "./lib/roster-user";
 import {
   botVisibleUserText as botVisibleUserTextFor,
@@ -8038,6 +8043,28 @@ export function App() {
         </NavIsland>
       </header>
       )}
+
+      {/* Bots as a top-level page alongside Chat: a direct Chat/Bot toggle in
+          the pinned mobile chrome, mirroring the desktop rail's SurfaceToggle
+          instead of leaving Bots reachable only through the PagesMenu
+          overflow. Lower-frequency pages (Notifications, Artifacts, Settings)
+          stay in that overflow — this adds one control, not a second nav
+          model. Sits below whichever header variant rendered above so it
+          stays pinned (not scrolled away) on both Live and Bots. */}
+      {shouldShowMobileSurfaceToggle(isMobile, tab) ? (
+        <div
+          className={cn(
+            "shrink-0 pb-2",
+            embedded ? "pl-3 pr-[calc(0.75rem+var(--lfg-host-top-inset))]" : "px-2",
+          )}
+        >
+          <SurfaceToggle
+            active={mobileSurfaceToggleActive(tab)}
+            onOpenSessions={() => setTab("live")}
+            onOpenBots={() => setTab("bots")}
+          />
+        </div>
+      ) : null}
 
       {embedded ? null : <PwaInstallCallout />}
 
@@ -23945,11 +23972,11 @@ function SurfaceToggle({
   onOpenSessions: () => void;
   onOpenBots: () => void;
 }) {
-  // Desktop-only affordance: on narrow/mobile layouts the switch bar is
-  // dropped entirely and the Bots surface is reached via PagesMenu instead
-  // (docs/design/bot-mode/spec.md §2.1).
-  const isMobile = useIsMobile();
-  if (isMobile) return null;
+  // This is the one segmented-toggle component both the desktop rail header
+  // (RailStage, isWide-only) and the mobile Chat/Bots header render — one
+  // navigation idiom, two mount points, instead of a second control. It used
+  // to hard-hide at mobile widths (docs/design/bot-mode/spec.md §2.1 predates
+  // the mobile primary-nav toggle); callers now decide where it mounts.
   return (
     <div
       className="flex gap-0.5 rounded-full bg-muted p-[3px]"
@@ -24283,16 +24310,31 @@ function BotsView({
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-2" data-lfg-page-column>
-      <SurfaceToggle active="chat" onOpenSessions={onOpenSessions} onOpenBots={() => {}} />
-      <div className="flex items-start gap-3 px-1 pb-2 pt-2">
+      {/* Tablet band only (no persistent header toggle there yet) — real
+          mobile gets the pinned Chat/Bot toggle in the app shell's mobile
+          chrome instead, so it isn't doubled here. */}
+      {shouldShowInlineBotsSurfaceToggle(isMobile) ? (
+        <SurfaceToggle active="chat" onOpenSessions={onOpenSessions} onOpenBots={() => {}} />
+      ) : null}
+      <div className="flex items-start gap-3 px-1 pb-1 pt-2">
         <div className="min-w-0 flex-1">
           <h1 className="text-lg font-semibold leading-tight">Bots</h1>
           <p className="text-sm text-muted-foreground">Persistent agents you talk to, not tasks you launch.</p>
         </div>
-        <Button variant="brand" size="sm" onClick={onNew}>
-          <Plus className="size-3.5" /> New bot
-        </Button>
       </div>
+      {/* Flat "New bot" item, same shell as the desktop rail's botRailList —
+          the page's information hierarchy matches the rail: a flat New bot
+          row above a flat list of bots, no card-grid CTA. */}
+      <button
+        type="button"
+        onClick={onNew}
+        className="mb-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      >
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
+          <Plus className="size-3.5" />
+        </span>
+        <span className="truncate">New bot</span>
+      </button>
       {bots.length ? bots.map((item) => {
         const session = sessions.find(
           (candidate) => candidate.botId === item.id || (!!item.sessionId && candidate.sessionId === item.sessionId),
@@ -24325,28 +24367,23 @@ function BotsView({
           </button>
         );
       }) : (
-        <>
-          <div className="flex flex-col items-center rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
-            {/* One creature, asleep, waiting to be woken by the first bot. */}
-            <BotMascot
-              shape="circle"
-              colorway="warm"
-              size={72}
-              state="sleeping"
-              className="mb-3"
-              title="No bots yet"
-            />
-            <span className="block font-medium text-foreground">No bots yet.</span>
-            <span>Give a persona a name and a memory — it will be there next time you open this.</span>
-          </div>
-          <button
-            type="button"
-            onClick={onNew}
-            className="flex items-center justify-center gap-2 rounded-2xl border border-dashed border-border py-3 text-sm font-medium text-muted-foreground hover:text-foreground"
-          >
-            <Plus className="size-4" /> New bot
-          </button>
-        </>
+        // The flat "New bot" row above is already the create affordance here
+        // (matches the rail: one create control, not a header button plus a
+        // second dashed row repeating it) — the empty state is just the
+        // explanation card.
+        <div className="flex flex-col items-center rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+          {/* One creature, asleep, waiting to be woken by the first bot. */}
+          <BotMascot
+            shape="circle"
+            colorway="warm"
+            size={72}
+            state="sleeping"
+            className="mb-3"
+            title="No bots yet"
+          />
+          <span className="block font-medium text-foreground">No bots yet.</span>
+          <span>Give a persona a name and a memory — it will be there next time you open this.</span>
+        </div>
       )}
     </div>
   );
