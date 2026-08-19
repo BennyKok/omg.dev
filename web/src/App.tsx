@@ -13539,6 +13539,7 @@ type SessionChatProps = {
   onSubscribeTranscript?: OmgTranscriptSubscribe;
   onRefresh: () => Promise<void>;
   onDictatingChange?: (recording: boolean) => void;
+  beforeComposer?: ReactNode;
 };
 
 /**
@@ -13612,6 +13613,7 @@ function SessionChatBody({
   onSubscribeTranscript,
   onRefresh,
   onDictatingChange,
+  beforeComposer,
 }: SessionChatProps) {
   const sid = session.sessionId;
   const reviewingShipped = !!session.shippedReview;
@@ -13953,6 +13955,8 @@ function SessionChatBody({
       {error ? (
         <div className="border-t border-border/70 px-3 py-1.5 text-xs text-destructive">{error}</div>
       ) : null}
+
+      {beforeComposer}
 
       {bot && !bot.enabled ? (
         <div className="px-2 pb-[calc(0.5rem+var(--lfg-safe-bottom))] pt-2">
@@ -24605,6 +24609,16 @@ function BotsView({
         }
       : null;
     const busy = !!(sid && busyBySid[sid]);
+    const mobileNavigation = isMobile ? (
+      <div className="flex shrink-0 justify-center bg-background px-4 py-2">
+        <SurfaceToggle
+          compact
+          active="sessions"
+          onOpenSessions={onOpenSessions}
+          onOpenBots={onBack}
+        />
+      </div>
+    ) : null;
     const chat = session ? (
       <SessionChat
         session={session}
@@ -24614,6 +24628,7 @@ function BotsView({
         error={null}
         onError={reportBotChatError}
         onSubscribeTranscript={onSubscribeTranscript}
+        beforeComposer={mobileNavigation}
         onRefresh={async () => {
           await Promise.all([onRefreshBots(), onRefreshSessions()]);
         }}
@@ -24626,6 +24641,7 @@ function BotsView({
           <BotAvatar bot={bot} size={96} />
           <span>Say hi to start your conversation with {bot.name}.</span>
         </div>
+        {mobileNavigation}
         <FirstBotMessageComposer
           bot={bot}
           onStarted={async () => {
@@ -24634,11 +24650,14 @@ function BotsView({
         />
       </>
     ) : (
-      <div className="flex min-h-0 flex-1 items-end p-3 pb-[calc(0.75rem+var(--lfg-safe-bottom))]">
-        <div className="w-full rounded-2xl border border-dashed border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-          This bot is disabled. Re-enable it in settings to keep talking to it.
+      <>
+        <div className="flex min-h-0 flex-1 items-end p-3">
+          <div className="w-full rounded-2xl border border-dashed border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+            This bot is disabled. Re-enable it in settings to keep talking to it.
+          </div>
         </div>
-      </div>
+        {mobileNavigation}
+      </>
     );
 
     if (isMobile) {
@@ -24673,12 +24692,6 @@ function BotsView({
               </Button>
             </header>
             <div className="flex min-h-0 flex-1 flex-col">{chat}</div>
-            <MobileSurfaceDock
-              active="sessions"
-              aboveComposer
-              onOpenSessions={onOpenSessions}
-              onOpenBots={onBack}
-            />
           </section>
         </div>,
         document.body,
