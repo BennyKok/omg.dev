@@ -20,6 +20,10 @@ export type PrimaryMobileTab = "live" | "bots";
 /** `SurfaceToggle`'s own active-segment vocabulary (desktop rail history). */
 export type SurfaceToggleActive = "sessions" | "chat";
 
+/** Flat roster treatment shared with the rail instead of the former card shell. */
+export const MOBILE_BOT_ROSTER_ROW_CLASS =
+  "flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted";
+
 /**
  * The persistent mobile header toggle (Live header + Bots header) shows only
  * at real mobile widths, and only on the two tabs it switches between. Other

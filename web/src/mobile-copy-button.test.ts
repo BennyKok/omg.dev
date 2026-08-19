@@ -31,8 +31,9 @@ describe("mobile message copy button", () => {
     expect(coarseBlock).not.toContain(".message-copy-button");
   });
 
-  test("hover/focus-within still reveals the button for mouse and keyboard users", () => {
-    expect(CSS).toContain(".group\\/message:hover .message-copy-button,");
+  test("hover reveals only for a fine pointer, while keyboard focus works everywhere", () => {
+    expect(CSS).toContain("@media (hover: hover) and (pointer: fine) {");
+    expect(CSS).toContain(".group\\/message:hover .message-copy-button {");
     expect(CSS).toContain(".group\\/message:focus-within .message-copy-button {");
   });
 });
