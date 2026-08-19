@@ -2,6 +2,17 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - Questions stay visible, and shipped work shows its code state (v0.1.400)
+
+- **Fixed: a question from a hosted coding agent could disappear.** The shared
+  agent server kept the session id but lost the assigned user, so the signed-in
+  question feed filtered the question out. Questions now inherit the owner of
+  the session that asked them.
+- **Shipped posts now show whether their code is committed and landed.** Each
+  post records its branch, commit, uncommitted files, and commits that have not
+  reached the base branch. Research and operations work can still ship without
+  code, but the feed no longer implies that every result is committed.
+
 ## August 19, 2026 - Bots hold a conversation, and the work happens in the background (v0.1.399)
 
 - **A bot answers you in the turn you asked.** Ask one a plain question and it
