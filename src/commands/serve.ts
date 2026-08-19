@@ -106,6 +106,7 @@ import {
   waitForAnswer,
   sweepExpiredQuestions,
   formatPushbackAnswerText,
+  questionVisibleToUser,
 } from "../ask/store.ts";
 import {
   listSessions,
@@ -3980,7 +3981,19 @@ a{color:#60a5fa}
         const notification = endpoint ? await takePushNotification(endpoint) : null;
         await sweepExpiredQuestions();
         const openQs = await listQuestions("open");
-        const questions = me ? openQs.filter((q) => q.user === me) : openQs;
+        let questions = openQs;
+        if (me) {
+          const sessions = await listSessionsCached();
+          const ownedSessionIds = new Set<string>();
+          for (const session of sessions) {
+            if (session.assignedUser !== me) continue;
+            if (session.sessionId) ownedSessionIds.add(session.sessionId);
+            if (session.nativeSessionId) ownedSessionIds.add(session.nativeSessionId);
+          }
+          questions = openQs.filter((question) =>
+            questionVisibleToUser(question, me, ownedSessionIds)
+          );
+        }
         // Findings are global (not user-private), so they pass through as-is.
         const findings = await listFindings("open");
         return json({ user: me, notification, questions, findings });
