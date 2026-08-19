@@ -2,6 +2,18 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - The bot's face shows up when something is happening (v0.1.407)
+
+- **Fixed: bot messages sat oddly indented.** Space was being reserved beside
+  every reply for the bot's face, including the replies that did not show one,
+  so the whole column was pushed right with nothing in the gap.
+- **The face appears in one place now: while the bot is working.** It used to
+  mark the first reply of every run, which put a row of faces down the chat and
+  read as several speakers rather than one bot — and the header already tells
+  you who you are talking to. Down in the conversation it now says the thing
+  the header cannot: this is happening right now.
+- **And it is bigger there** — 40px, up from 30.
+
 ## August 19, 2026 - Vercel fx joins the roster (v0.1.406)
 
 - **fx is a supported coding agent.** Vercel Labs' fx runs as a full session
