@@ -2,7 +2,11 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { classifyShipProvenance, collectShipProvenance } from "./ship-provenance.ts";
+import {
+  classifyShipProvenance,
+  collectShipProvenance,
+  shipBlockReason,
+} from "./ship-provenance.ts";
 
 describe("classifyShipProvenance", () => {
   test("uncommitted work outranks everything else", () => {
@@ -59,6 +63,37 @@ describe("classifyShipProvenance", () => {
     expect(classifyShipProvenance({ readable: false, reachable: true, dirty: 0, ahead: 0, commits: 0 })).toBe(
       "unknown",
     );
+  });
+});
+
+describe("shipBlockReason", () => {
+  const base = { branch: "session_x", head: "abc1234", dirty: 0, ahead: 0, commits: 0 };
+
+  test("refuses a ship whose work is uncommitted", () => {
+    const why = shipBlockReason({ ...base, state: "uncommitted", dirty: 4 });
+    expect(why).toContain("4 uncommitted");
+    expect(why).toContain("session_x");
+  });
+
+  test("refuses a ship whose commits never reached main", () => {
+    const why = shipBlockReason({ ...base, state: "unlanded", ahead: 2, commits: 2 });
+    expect(why).toContain("2 commit(s)");
+    expect(why).toContain("origin/main");
+  });
+
+  test("lets landed work through", () => {
+    expect(shipBlockReason({ ...base, state: "landed", commits: 3 })).toBeNull();
+  });
+
+  test("lets a session with no code through", () => {
+    // Ops, research, deploy and plain conversations are honest ships. The gate
+    // fires on work that exists and did not land, never on work never there.
+    expect(shipBlockReason({ ...base, state: "clean" })).toBeNull();
+  });
+
+  test("lets an unreadable checkout through rather than blocking on our own blind spot", () => {
+    expect(shipBlockReason({ ...base, state: "unknown" })).toBeNull();
+    expect(shipBlockReason(undefined)).toBeNull();
   });
 });
 

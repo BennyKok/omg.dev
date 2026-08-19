@@ -5,10 +5,13 @@
 // with no source-control check at all, so "shipped" and "landed on main" drifted
 // apart silently and a reader had no way to tell which posts carried code.
 //
-// This records what Git actually says about the session worktree at ship time
-// and stores it on the post. It does not block: plenty of real ships are ops,
-// research, or deploy work with no commit to show. The point is that the feed
-// stops implying a commit that isn't there.
+// This reads what Git actually says about the session worktree at ship time,
+// stores it on the post for tracing, and refuses the ship outright when the
+// work is uncommitted or has not reached main. A post that has to be read
+// sceptically is worth very little: the feed is only useful if "shipped" means
+// the code is in. Sessions with no code to show (ops, research, a deploy, a
+// plain conversation) still ship freely — the gate fires on work that exists
+// and did not land, never on work that was never there.
 
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
@@ -151,6 +154,34 @@ function commitCounts(
  * a plain chat) gets no provenance rather than a misleading "unknown" badge.
  * Never throws: a broken checkout must not cost an agent its ship post.
  */
+/**
+ * Why this ship must be refused, or null when it may proceed.
+ *
+ * Only two states block, and both mean the same thing to a reader: the result
+ * being claimed is not in the tree. `clean` (no code at all) and `unknown` (no
+ * readable checkout) deliberately pass — an ops or research session is an
+ * honest ship, and an unreadable repo is our failure to measure, not the
+ * agent's failure to land. Blocking either would take the feed down for work
+ * that was never at fault.
+ */
+export function shipBlockReason(code: ShipProvenance | undefined): string | null {
+  if (!code) return null;
+  const where = code.branch ? ` on ${code.branch}` : "";
+  if (code.state === "uncommitted") {
+    return (
+      `This session has ${code.dirty} uncommitted file(s)${where}, so there is no commit ` +
+      "backing this result. Commit the work and land it on main, then ship again."
+    );
+  }
+  if (code.state === "unlanded") {
+    return (
+      `This session has ${code.ahead} commit(s)${where} that have not reached origin/main, ` +
+      "so the result is not in the tree anyone else builds from. Land the branch, then ship again."
+    );
+  }
+  return null;
+}
+
 export function collectShipProvenance(
   managed: Pick<ManagedSession, "cwd" | "worktreeBranch"> | undefined,
 ): ShipProvenance | undefined {

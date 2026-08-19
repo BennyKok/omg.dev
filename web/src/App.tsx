@@ -23467,8 +23467,9 @@ export type ShipPost = {
   // thumbnail can show "+N" without shipping the rest of the gallery.
   mediaItems: ShipMediaItem[];
   mediaTotal?: number;
-  // Git state of the posting session's worktree at ship time. Absent on posts
-  // predating this, and on sessions with no checkout.
+  // Git state of the posting session's worktree at ship time, kept for tracing
+  // a post back to a commit. Not rendered: a ship whose code did not land is
+  // refused outright, so there is no "untrustworthy post" state to badge.
   code?: ShipProvenance;
 };
 
