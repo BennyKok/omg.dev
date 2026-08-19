@@ -1895,6 +1895,33 @@ function sessionMatchesId(session: ParentableSession, id: string): boolean {
  * sending to the same session keeps steer, because interrupting is the whole
  * point of the composer's Enter key.
  */
+/**
+ * Say who an inbound agent message is from.
+ *
+ * A human's message to a bot has always carried `[Message from <who> to bot
+ * <name>]`. An agent's did not, so a bot running two background tasks got two
+ * anonymous `[subagent complete] …` reports and could not tell which was which
+ * — it had to hope the child described its own work well enough to be
+ * identifiable. Hermes tags every inbound bot-to-bot message with its sender
+ * for exactly this reason.
+ *
+ * The wrapper goes on the same envelope seam the human path uses, and the bot
+ * chat hides it the same way. Only for persistent (bot) targets: a task session
+ * receiving a child's report is reading a log, where the parenthetical would be
+ * noise, and its transcript already renders the sender.
+ */
+export function attributedAgentUpdate(
+  text: string,
+  from: { fromSessionId?: string; senderTitle?: string | null; targetPersistent?: boolean },
+): string {
+  if (!from.fromSessionId || !from.targetPersistent) return text;
+  const title = (from.senderTitle ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+  const who = title
+    ? `${title} · ${shortSessionId(from.fromSessionId)}`
+    : shortSessionId(from.fromSessionId);
+  return `[Background task ${who}]\n\n${text}`;
+}
+
 export function agentUpdateSendMode(
   requested: "steer" | "queue" | undefined,
   target: { fromSessionId?: string; targetPersistent?: boolean },
@@ -6239,12 +6266,26 @@ a{color:#60a5fa}
             mode?: "steer" | "queue";
             fromSessionId?: string;
           } | null;
-          const text = body?.text?.trim();
-          if (!text) return err(400, "expected { text }");
+          const rawText = body?.text?.trim();
+          if (!rawText) return err(400, "expected { text }");
           const sessions = await listSessionsCached();
           let sess = sessions.find(
             (s) => s.sessionId === m[1] || s.nativeSessionId === m[1],
           );
+          // Attribute before delivery, so the text that rides into a relaunch
+          // prompt is the same text a live session would have received.
+          const sender = body?.fromSessionId
+            ? sessions.find(
+                (session) =>
+                  session.sessionId === body.fromSessionId ||
+                  session.nativeSessionId === body.fromSessionId,
+              )
+            : undefined;
+          const text = attributedAgentUpdate(rawText, {
+            fromSessionId: body?.fromSessionId,
+            senderTitle: sender?.title,
+            targetPersistent: sess?.persistent ?? true,
+          });
           // A background child outliving its bot used to end here, with the
           // report dropped on a 404 — see reviveBotSessionForReport.
           let deliveredOnLaunch = false;
@@ -6269,12 +6310,7 @@ a{color:#60a5fa}
           // Terminal reports also end the child lifecycle. Once this response
           // has flushed, close the managed child; its transient service reaps
           // browser/helper descendants and frees the next concurrency slot.
-          if (/^\[subagent (?:complete|blocked|failed)\]/i.test(text) && body?.fromSessionId) {
-            const sender = sessions.find(
-              (session) =>
-                session.sessionId === body.fromSessionId ||
-                session.nativeSessionId === body.fromSessionId,
-            );
+          if (/^\[subagent (?:complete|blocked|failed)\]/i.test(rawText) && body?.fromSessionId) {
             const senderParent = sender?.parentSessionId ?? sender?.parentNativeSessionId;
             if (sender?.managed && sender.spawnedBy === "subagent" && senderParent === m[1]) {
               setTimeout(() => {

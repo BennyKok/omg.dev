@@ -57,9 +57,13 @@ export function isBotLaunchOnlyText(text: string): boolean {
  * — the report is the bot's source, not its output.
  */
 const SUBAGENT_UPDATE = /^\s*\[subagent (?:progress|complete|blocked|failed)\]/i;
+// The attribution wrapper the server puts on an agent-authored update, naming
+// which background task is reporting. Older transcripts carry the bare marker
+// with no wrapper, so both forms have to be recognised forever.
+const BACKGROUND_ATTRIBUTION = /^\s*\[Background task [^\]]*\]/i;
 
 export function isSubagentUpdateText(text: string): boolean {
-  return SUBAGENT_UPDATE.test(text);
+  return BACKGROUND_ATTRIBUTION.test(text) || SUBAGENT_UPDATE.test(text);
 }
 
 /**
