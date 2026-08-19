@@ -74,7 +74,13 @@ describe("which responses drop cmd", () => {
   test("/api/sessions keeps a full=1 opt-in", () => {
     const route = SERVE.indexOf('path === "/api/sessions"');
     expect(route, "/api/sessions route not found").toBeGreaterThanOrEqual(0);
-    const block = SERVE.slice(route, route + 600);
+    // Slice to the start of the *next* top-level route handler rather than a
+    // fixed char count — a fixed window silently stops covering this route
+    // the moment someone adds a comment inside it (see the pendingLogins
+    // hibernation note above), which is exactly what happened here.
+    const nextRoute = SERVE.indexOf("\n      if (path ===", route + 1);
+    expect(nextRoute, "next route boundary not found").toBeGreaterThan(route);
+    const block = SERVE.slice(route, nextRoute);
     expect(block).toContain('url.searchParams.get("full") === "1"');
     expect(block).toContain("full ? sessions : sessions.map(sessionListRow)");
   });
