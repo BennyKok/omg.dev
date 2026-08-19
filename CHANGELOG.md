@@ -2,6 +2,22 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - A session cannot ship work it never committed (v0.1.404)
+
+- **Shipping now refuses when the code is not in.** A session with uncommitted
+  files, or with commits that never reached main, cannot post to Shipped at
+  all. It gets told which branch, how many files or commits, and what to do
+  about it. Previously only omg.dev's own repo was checked, so sessions in
+  every other project could post a finished result while the work sat in a
+  dirty worktree — and there was no way to tell those posts apart from real
+  ones.
+- **Sessions with no code still ship freely.** Operations, research, deploys
+  and plain conversations have nothing to land, and the gate never fires on
+  them. It only blocks work that exists and did not land.
+- Every post also records the branch and commit it was made from, so a result
+  can be traced back to the code long after the session is gone. Refusals are
+  logged too.
+
 ## August 19, 2026 - A bot chat shows the conversation, not the machinery (v0.1.403)
 
 - **Tool calls, their results and reasoning blocks no longer appear in a bot
