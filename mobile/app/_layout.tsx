@@ -373,6 +373,11 @@ function RootNavigator() {
             name="notifications"
             options={{ title: "Notifications", headerLargeTitle: true }}
           />
+          {/* Bots roster. `bots/[id]` (bot chat) is a later phase — see
+              app/bots/index.tsx's own doc comment for the navigation
+              reasoning and why this is a header icon button, not a rail
+              toggle. */}
+          <Stack.Screen name="bots/index" options={{ title: "Bots", headerLargeTitle: true }} />
           {/* In-app purchase. Pushed from the blocked cloud computer and from
               Settings — the two places someone learns they need to pay. It is
               a normal pushed screen rather than a modal so the back gesture

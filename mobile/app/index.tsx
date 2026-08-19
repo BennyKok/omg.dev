@@ -1034,6 +1034,20 @@ export default function SessionsScreen() {
             size={19}
             color={colors.textSecondary}
           />
+          {/* Bots. Same idiom as the bell/computer/gear beside it — a plain
+              bar button pushing a full screen — rather than the web's rail
+              toggle, which this app has no rail to hang. See
+              app/bots/index.tsx for the navigation reasoning. Lucide, not an
+              SF Symbol: `person.and.background.dotted` and friends read as
+              "people," not "a bot," and this app already reaches for Lucide
+              exactly when SF Symbols has no honest equivalent (lucide.tsx). */}
+          <IconButton
+            lucide="bot"
+            accessibilityLabel="Bots"
+            onPress={() => router.push("/bots")}
+            size={19}
+            color={colors.textSecondary}
+          />
           {/* TWO BUTTONS, NOT ONE CHIP.
               The machine name and the gear used to share a single pill, which
               read as one control and made the name look pressable-adjacent
