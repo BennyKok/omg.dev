@@ -44,6 +44,16 @@ export function acpResumeStrategy(
   return "new";
 }
 
+function flushAcpDraft(sink: ManagedSdkEventSink, state: AcpUpdateState): void {
+  const body = state.draft;
+  if (!body.trim()) return;
+  // Clear ACP state first so a later session.prompt return cannot re-emit the
+  // same narration as one concatenated turn-end blob.
+  state.draft = "";
+  sink.commitText(body);
+  sink.draft("");
+}
+
 export function applyAcpSessionUpdate(
   update: acp.SessionUpdate,
   sink: ManagedSdkEventSink,
@@ -62,6 +72,10 @@ export function applyAcpSessionUpdate(
       sink.thinking(state.thought);
       break;
     case "tool_call":
+      // Cursor (and other ACP agents) stream short narrations between tools.
+      // Commit each segment before the tool so the transcript keeps message
+      // boundaries instead of one glued wall of text at turn end.
+      flushAcpDraft(sink, state);
       sink.toolStart(update.toolCallId, update.name ?? update.title, update.rawInput);
       if (update.status === "completed" || update.status === "failed") {
         sink.toolEnd(update.toolCallId, update.name ?? update.title, update.rawOutput, update.status === "failed");
