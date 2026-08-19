@@ -2,6 +2,28 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - One row per bot, and faster bot chats (v0.2.10)
+
+- **The Bots list shows each bot once.** A bot that had handed work to a
+  background session appeared two or three times, and each duplicate was
+  captioned with that background session's last line rather than the bot's. A
+  background session inherits the bot's identity for attribution, and both the
+  API and the list treated it as its own conversation. The list is now built
+  from one canonical conversation for each bot, decided by the server, and a
+  background session can never become a row. If a bot's saved conversation had
+  been rebound to one of its background sessions, that binding is repaired to
+  the original conversation, so the history comes back instead of a background
+  task's thread.
+- **Unread dots follow the same single conversation.** The dot on a row, and
+  the aggregate dot on the Chat/Bots switch, come from that bot's own
+  conversation only. Opening a bot still clears that one conversation and no
+  others.
+- **Bot chats open faster.** Opening a bot waited on a read receipt and then a
+  full rebuild of the list before the messages could be served, and the list
+  re-opened a live channel for every bot conversation each time any bot
+  replied. The receipt is now written behind the paint, and the channels stay
+  put unless the set of conversations actually changes.
+
 ## August 19, 2026 - Unread bot conversations, and a calmer transcript (v0.2.9)
 
 - **Bot conversations now show unread activity, and it survives a reload.** A
