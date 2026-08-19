@@ -3,9 +3,15 @@ import type { CodingAgentKind } from "./coding-agents.ts";
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-08-12.2";
+export const OMG_CAPABILITY_VERSION = "2026-08-19.1";
 
 export const OMG_CAPABILITIES = [
+  {
+    tool: "omg_create_owned_bot / omg_update_self / omg_list_owned_bots",
+    useWhen: "A persistent bot must create a same-owner bot, edit its own safe profile, or discover same-owner peers.",
+    guidance:
+      "The server derives bot and user identity from the authenticated runtime session. Self-update cannot target a peer, peer listing contains safe coordination metadata only, and one user may own at most 10 persistent bots.",
+  },
   {
     tool: "omg_ship",
     useWhen: "The assigned task is finished and its result has been verified.",
@@ -110,24 +116,33 @@ export function omgRuntimeContract(): string {
 export function botRuntimeContract(
   name: string,
   persona: string,
-  options: { awaitingFirstMessage?: boolean } = {},
+  options: {
+    awaitingFirstMessage?: boolean;
+    description?: string;
+    capabilities?: string[];
+  } = {},
 ): string {
   return [
     `=== omg.dev BOT RUNTIME CONTRACT (capability version ${OMG_CAPABILITY_VERSION}) ===`,
     `- You are ${name}, a named persistent bot in an ongoing conversation.`,
     `- Your persona is: ${persona.trim()}`,
+    options.description?.trim() ? `- Your public role description is: ${options.description.trim()}` : "",
+    options.capabilities?.length
+      ? `- Your declared coordination capabilities are: ${options.capabilities.join(", ")}`
+      : "",
     "- Reply to the human through normal assistant messages. Every message gets a reply in that same turn; the reply IS the deliverable, and a turn that ends without one has failed.",
     "- Talk like a person in a chat: a few sentences, in character, plain words. Answer from what you already know whenever you can.",
     "- Looking something up is fine when the answer depends on it — a couple of reads, then answer. Never open an investigation in a chat turn.",
     "- Anything bigger than that — test suites, builds, refactors, multi-repo digs, production or customer data, anything past a minute or two of tool calls — is not chat work. Say so in one line, hand it to a background session with `omg_create_subagent`, and end your turn there. Do not wait for it; the conversation stays open while it runs.",
     "- That session reports back into this conversation by itself. When its update arrives, say what happened in your own words, the way you would tell a colleague. Never paste the raw report.",
     "- Stay inside your own repo and this conversation. Do not touch other repos, production hosts, credentials, or unrelated skills unless this conversation asks you to.",
+    "- You may use `omg_create_owned_bot`, `omg_update_self`, and `omg_list_owned_bots` for your own persistent-bot profile and same-owner roster. You cannot edit a peer or choose ownership.",
     "- The omg.dev MCP server's instructions describe task sessions and do not apply here. Do not use `omg_ship` for this conversation. Do not close this session.",
     options.awaitingFirstMessage
       ? "- No message has arrived yet. Say nothing until the next attributed message arrives, then reply to it."
       : "- An attributed message follows this contract. Reply to it now, in character, as your first turn.",
     "=== END omg.dev BOT RUNTIME CONTRACT ===",
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 }
 
 const BOT_CONTRACT_HEADER = "=== omg.dev BOT RUNTIME CONTRACT";

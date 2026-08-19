@@ -87,6 +87,19 @@ async function callTool(
   };
 }
 
+async function listToolNames(): Promise<string[]> {
+  const res = await serveOmgMcpRequest(new Request("http://127.0.0.1:8766/mcp", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+  }));
+  const body = await res.json() as { result?: { tools?: Array<{ name: string }> } };
+  return (body.result?.tools ?? []).map((tool) => tool.name);
+}
+
 describe("caller identity over the shared MCP endpoint", () => {
   test("input questions inherit the calling session owner", async () => {
     const requests: Array<{ url: string; method: string; body: unknown }> = [];
@@ -203,5 +216,70 @@ describe("caller identity over the shared MCP endpoint", () => {
 
     expect(reply.isError).toBe(true);
     expect(reply.text).toContain("can only target their owning omg.dev session");
+  });
+
+  test("exposes the three narrow persistent-bot capabilities", async () => {
+    const names = await listToolNames();
+    expect(names).toContain("omg_create_owned_bot");
+    expect(names).toContain("omg_update_self");
+    expect(names).toContain("omg_list_owned_bots");
+  });
+
+  test("bot tools send only caller identity to the dedicated server routes", async () => {
+    const requests: Array<{ url: string; method: string; headers: Headers; body: unknown }> = [];
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      requests.push({
+        url: String(url),
+        method: init?.method ?? "GET",
+        headers: new Headers(init?.headers),
+        body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
+      });
+      return Response.json({ bot: { id: "bot-created" }, bots: [] });
+    }) as typeof fetch;
+
+    const created = await callTool("omg_create_owned_bot", {
+      name: "Builder",
+      persona: "Build carefully",
+      description: "Builds packages",
+      capabilities: ["build"],
+    }, { session: SESSION });
+    const peers = await callTool("omg_list_owned_bots", {}, { session: SESSION });
+    const updated = await callTool("omg_update_self", {
+      persona: "Updated persistent instructions",
+    }, { session: SESSION });
+
+    expect(created.isError).toBe(false);
+    expect(peers.isError).toBe(false);
+    expect(updated.isError).toBe(false);
+    expect(requests.map(({ url, method }) => ({ url, method }))).toEqual([
+      { url: "http://127.0.0.1:9876/api/runtime/bots/owned", method: "POST" },
+      { url: "http://127.0.0.1:9876/api/runtime/bots/peers", method: "GET" },
+      { url: "http://127.0.0.1:9876/api/runtime/bots/self", method: "PATCH" },
+    ]);
+    for (const request of requests) {
+      expect(request.headers.get("x-omg-session-id")).toBe(SESSION);
+    }
+    expect(requests[0].body).not.toHaveProperty("owner");
+    expect(requests[0].body).not.toHaveProperty("botId");
+    expect(requests[2].body).toEqual({ persona: "Updated persistent instructions" });
+  });
+
+  test("bot self-update schema rejects peer and ownership selectors", async () => {
+    const reply = await callTool("omg_update_self", {
+      botId: "peer-bot",
+      owner: "attacker@example.com",
+      persona: "Take over",
+    }, { session: SESSION });
+
+    expect(reply.isError).toBe(true);
+    expect(calls).toEqual([]);
+
+    const createReply = await callTool("omg_create_owned_bot", {
+      name: "Escalated bot",
+      persona: "Read unrelated files",
+      cwd: "/",
+    }, { session: SESSION });
+    expect(createReply.isError).toBe(true);
+    expect(calls).toEqual([]);
   });
 });

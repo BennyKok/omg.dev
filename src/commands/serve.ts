@@ -58,7 +58,9 @@ import {
 import { runAutoAgent } from "../auto/runner.ts";
 import {
   BOT_COLORWAYS,
+  BOT_OWNER_QUOTA,
   BOT_SHAPES,
+  BotOwnerQuotaError,
   botConversationId,
   createBot,
   deleteBot,
@@ -69,6 +71,17 @@ import {
   type BotColorway,
   type BotShape,
 } from "../bots/store.ts";
+import {
+  BOT_SELF_CREATE_FIELDS,
+  BOT_SELF_UPDATE_FIELDS,
+  BotSelfManagementError,
+  botPatchRequiresRuntimeRefresh,
+  botRuntimeRefreshDecision,
+  ownedBotPeers,
+  readDeclaredCapabilities,
+  resolveBotRuntimeActor,
+  unknownBotFields,
+} from "../bots/self-management.ts";
 import { startAutoScheduler } from "../auto/scheduler.ts";
 import { handleWakeTick } from "../auto/wake-tick.ts";
 import { pushWakeHooksNow, setWakeHooksBootId } from "../auto/wake-hooks-push.ts";
@@ -2277,7 +2290,11 @@ async function ensureBotSession(
       ? await botContinuitySummary(bot.sessionId)
       : null;
     const prompt = [
-      botRuntimeContract(bot.name, bot.persona, { awaitingFirstMessage: !firstMessage }),
+      botRuntimeContract(bot.name, bot.persona, {
+        awaitingFirstMessage: !firstMessage,
+        description: bot.description,
+        capabilities: bot.capabilities,
+      }),
       continuity ? `=== PRIOR CONVERSATION SUMMARY ===\n${continuity}\n=== END PRIOR CONVERSATION SUMMARY ===` : "",
       firstMessage ?? "",
     ].filter(Boolean).join("\n\n");
@@ -3578,6 +3595,135 @@ a{color:#60a5fa}
         }
       }
 
+      // ---- bot runtime self-management ----
+      // These routes accept no owner or current-bot id. The authenticated MCP
+      // session header is resolved against the server's live session registry,
+      // then cross-checked with the persisted bot owner before any data moves.
+      if (path === "/api/runtime/bots/peers" && req.method === "GET") {
+        try {
+          const sessions = await listSessions();
+          const bots = await listBots();
+          const actor = resolveBotRuntimeActor(callerSessionHeader(req), sessions, bots);
+          return json({ bots: ownedBotPeers(actor, bots, sessions) });
+        } catch (error) {
+          if (error instanceof BotSelfManagementError) return err(error.status, error.message);
+          throw error;
+        }
+      }
+      if (path === "/api/runtime/bots/owned" && req.method === "POST") {
+        try {
+          const sessions = await listSessions();
+          const bots = await listBots();
+          const actor = resolveBotRuntimeActor(callerSessionHeader(req), sessions, bots);
+          const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+          if (!body || Array.isArray(body)) return err(400, "invalid bot definition");
+          const unknown = unknownBotFields(body, BOT_SELF_CREATE_FIELDS);
+          if (unknown.length) return err(400, `unsupported bot fields: ${unknown.join(", ")}`);
+          const name = typeof body.name === "string" ? body.name.trim() : "";
+          const persona = typeof body.persona === "string" ? body.persona.trim() : "";
+          if (!name || !persona) return err(400, "name and persona are required");
+          if (name.length > 80) return err(400, "name must be at most 80 characters");
+          if (persona.length > 20_000) return err(400, "persona must be at most 20000 characters");
+          const description = body.description === undefined
+            ? undefined
+            : typeof body.description === "string" ? body.description.trim() : null;
+          if (description === null) return err(400, "description must be a string");
+          if (description && description.length > 500)
+            return err(400, "description must be at most 500 characters");
+          const capabilities = readDeclaredCapabilities(body.capabilities);
+          if (capabilities && !Array.isArray(capabilities)) return err(400, capabilities.error);
+          const agentValue = typeof body.agent === "string" ? body.agent.trim() || undefined : undefined;
+          const model = typeof body.model === "string" ? body.model.trim() || undefined : undefined;
+          const thinkingLevel = typeof body.thinkingLevel === "string"
+            ? body.thinkingLevel.trim() || undefined
+            : undefined;
+          const config = validateBotAgent(agentValue, model, thinkingLevel);
+          if ("error" in config) return err(400, config.error);
+          const cwd = actor.bot.cwd;
+          if (cwd && !(await listRepos()).some((repo) => repo.cwd === cwd))
+            return err(409, "calling bot workspace is no longer approved");
+          const avatar = readBotAvatar(body);
+          if ("error" in avatar) return err(400, avatar.error);
+          const bot = await createBot({
+            name,
+            persona,
+            description,
+            capabilities,
+            shape: avatar.shape,
+            colorway: avatar.colorway,
+            agent: config.agent,
+            model,
+            thinkingLevel,
+            cwd,
+            owner: actor.user,
+            ownerQuota: BOT_OWNER_QUOTA,
+          });
+          evlog("bot_created_by_bot", {
+            actorBotId: actor.bot.id,
+            createdBotId: bot.id,
+            owner: actor.user,
+          });
+          return json({ bot }, { status: 201 });
+        } catch (error) {
+          if (error instanceof BotSelfManagementError) return err(error.status, error.message);
+          if (error instanceof BotOwnerQuotaError) return err(409, error.message);
+          throw error;
+        }
+      }
+      if (path === "/api/runtime/bots/self" && req.method === "PATCH") {
+        try {
+          const sessions = await listSessions();
+          const bots = await listBots();
+          const actor = resolveBotRuntimeActor(callerSessionHeader(req), sessions, bots);
+          const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+          if (!body || Array.isArray(body)) return err(400, "invalid bot profile patch");
+          const unknown = unknownBotFields(body, BOT_SELF_UPDATE_FIELDS);
+          if (unknown.length) return err(400, `unsupported bot fields: ${unknown.join(", ")}`);
+          if (!Object.keys(body).length) return err(400, "at least one editable profile field is required");
+          const name = body.name === undefined
+            ? actor.bot.name
+            : typeof body.name === "string" ? body.name.trim() : "";
+          const persona = body.persona === undefined
+            ? actor.bot.persona
+            : typeof body.persona === "string" ? body.persona.trim() : "";
+          if (!name || !persona) return err(400, "name and persona are required");
+          if (name.length > 80) return err(400, "name must be at most 80 characters");
+          if (persona.length > 20_000) return err(400, "persona must be at most 20000 characters");
+          const description = body.description === undefined
+            ? actor.bot.description
+            : typeof body.description === "string" ? body.description.trim() : null;
+          if (description === null) return err(400, "description must be a string");
+          if (description && description.length > 500)
+            return err(400, "description must be at most 500 characters");
+          const capabilities = body.capabilities === undefined
+            ? actor.bot.capabilities
+            : readDeclaredCapabilities(body.capabilities);
+          if (capabilities && !Array.isArray(capabilities)) return err(400, capabilities.error);
+          const avatar = readBotAvatar(body);
+          if ("error" in avatar) return err(400, avatar.error);
+          const refreshRuntime = botPatchRequiresRuntimeRefresh(body);
+          const bot = await updateBot(actor.bot.id, {
+            name,
+            persona,
+            description,
+            capabilities,
+            shape: body.shape === undefined ? actor.bot.shape : avatar.shape,
+            colorway: body.colorway === undefined ? actor.bot.colorway : avatar.colorway,
+            runtimeRefreshPending: refreshRuntime ? true : actor.bot.runtimeRefreshPending,
+          });
+          if (!bot) return err(404, "bot not found");
+          evlog("bot_updated_self", {
+            botId: actor.bot.id,
+            owner: actor.user,
+            fields: Object.keys(body).sort(),
+          });
+          return json({ bot });
+        } catch (error) {
+          if (error instanceof BotSelfManagementError) return err(error.status, error.message);
+          throw error;
+        }
+      }
+
       // ---- persistent bots ----
       if (path === "/api/bots") {
         if (req.method === "GET") {
@@ -3623,24 +3769,31 @@ a{color:#60a5fa}
             return err(400, `unknown user "${ownerTag.unknown}" (expected one of the roster emails)`);
           const avatar = readBotAvatar(body);
           if ("error" in avatar) return err(400, avatar.error);
-          const bot = await createBot({
-            name,
-            persona,
-            shape: avatar.shape,
-            colorway: avatar.colorway,
-            agent: config.agent,
-            model,
-            thinkingLevel,
-            cwd,
-            owner: ownerTag.user,
-          });
+          let bot: Bot;
+          try {
+            bot = await createBot({
+              name,
+              persona,
+              shape: avatar.shape,
+              colorway: avatar.colorway,
+              agent: config.agent,
+              model,
+              thinkingLevel,
+              cwd,
+              owner: ownerTag.user,
+              ownerQuota: ownerTag.user ? BOT_OWNER_QUOTA : undefined,
+            });
+          } catch (error) {
+            if (error instanceof BotOwnerQuotaError) return err(409, error.message);
+            throw error;
+          }
           return json({ bot });
         }
       }
       {
         const match = path.match(/^\/api\/bots\/([^/]+)\/messages$/);
         if (match && req.method === "POST") {
-          const bot = await getBot(decodeURIComponent(match[1]));
+          let bot = await getBot(decodeURIComponent(match[1]));
           if (!bot) return err(404, "bot not found");
           if (!bot.enabled) return err(409, "bot is disabled");
           const body = (await req.json().catch(() => null)) as { text?: unknown; user?: unknown } | null;
@@ -3649,6 +3802,30 @@ a{color:#60a5fa}
           const tag = resolveSessionUserTag(typeof body?.user === "string" ? body.user : undefined);
           if (!tag.ok)
             return err(400, `unknown user "${tag.unknown}" (expected one of the roster emails)`);
+          if (bot.runtimeRefreshPending) {
+            const pendingBot = bot;
+            const sessions = await listSessions();
+            const live = sessions.find((session) =>
+              session.botId === pendingBot.id ||
+              (pendingBot.sessionId && (session.sessionId === pendingBot.sessionId || session.nativeSessionId === pendingBot.sessionId))
+            );
+            // Never kill or rewrite the prompt of the turn that requested the
+            // update. A client that races the next message retries once that
+            // turn settles, and the message is never run under stale rules.
+            if (botRuntimeRefreshDecision(pendingBot, live) === "wait")
+              return err(409, "bot profile update is still settling; retry after the current turn completes");
+            if (live?.sessionId) {
+              const outcome = await closeLiveSession(live, live.sessionId, {
+                sessionId: live.sessionId,
+                source: "bot_runtime_refresh",
+                botId: pendingBot.id,
+              });
+              if (!outcome.ok) return err(outcome.status, outcome.reason);
+            }
+            const refreshed = await updateBot(pendingBot.id, { runtimeRefreshPending: false });
+            if (!refreshed) return err(404, "bot not found");
+            bot = refreshed;
+          }
           // Attribute before launching: when the session has to be started, this
           // exact text rides inside the launch prompt instead of racing it.
           const author = tag.user || bot.owner || process.env.OMG_USER?.trim() || "user";
@@ -3721,6 +3898,9 @@ a{color:#60a5fa}
               cwd,
               owner,
               enabled: body.enabled === undefined ? current.enabled : body.enabled,
+              runtimeRefreshPending: botPatchRequiresRuntimeRefresh(body)
+                ? true
+                : current.runtimeRefreshPending,
             });
             return json({ bot });
           }

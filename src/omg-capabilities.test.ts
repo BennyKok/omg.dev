@@ -132,6 +132,7 @@ describe("omg.dev runtime capabilities", () => {
 
   test("publishes a bootstrap entry for every promoted workflow", () => {
     expect(OMG_CAPABILITIES.map((item) => item.tool)).toEqual([
+      "omg_create_owned_bot / omg_update_self / omg_list_owned_bots",
       "omg_ship",
       "omg_display_image / omg_display_video",
       "omg_input",
