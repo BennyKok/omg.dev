@@ -384,6 +384,7 @@ import {
 } from "../artifacts.ts";
 import {
   createOriginDelivery,
+  indexOriginDeliveryMedia,
   listOriginDeliveries,
   type OriginDeliveryMedia,
 } from "../origin-deliveries.ts";
@@ -6392,6 +6393,14 @@ a{color:#60a5fa}
               kind: artifact.media === "video" ? "video" : "image",
               mimeType: artifact.mimeType,
             }));
+            if (artifacts.length) {
+              const transcriptPath = await resolveTranscript(m[1]);
+              indexOriginDeliveryMedia({
+                indexPath: transcriptPath ?? sessionIndexKey(m[1]),
+                sessionId: m[1],
+                artifacts,
+              });
+            }
             const delivery = createOriginDelivery({
               sessionId: m[1],
               text: body.text,
