@@ -2,6 +2,23 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - Your bot remembers the conversation (v0.1.408)
+
+- **A bot that goes away and comes back still has your chat.** Its history used
+  to vanish: a restart, a reboot or a crash gave the bot a new conversation,
+  and everything you had said to it was orphaned. The conversation now belongs
+  to the bot rather than to whichever process happened to be running it, so it
+  picks up exactly where you left off — and on the default provider the bot
+  itself remembers the thread too, instead of being handed a summary of it.
+- **The roster shows what your bot last said, even when it is not running.** A
+  bot with months of history could greet you with "Say hi to get started"
+  simply because nothing was awake to ask.
+- **Fixed: some bots could not be typed to at all once their session ended.**
+  The composer was waiting for a running process — the one your message was
+  about to start.
+- **A background task's report now says which task it is from**, so a bot
+  running two of them can tell you which one finished.
+
 ## August 19, 2026 - The bot's face shows up when something is happening (v0.1.407)
 
 - **Fixed: bot messages sat oddly indented.** Space was being reserved beside
