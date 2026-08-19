@@ -6,7 +6,7 @@ import sharp from "sharp";
 import { PATHS } from "./config.ts";
 import { addOnboardingProfile } from "./onboarding.ts";
 import { setUserIcon } from "./user-icons.ts";
-import { iconIdentityKey, machineMembers, userRoster } from "./users.ts";
+import { iconIdentityKey, userRoster } from "./users.ts";
 
 describe("iconIdentityKey", () => {
   test("a roster box keys the icon by a roster email", () => {
@@ -57,30 +57,7 @@ describe("iconIdentityKey", () => {
   });
 });
 
-describe("machineMembers", () => {
-  test("a shared box lists its whole roster, unchanged", () => {
-    const roster = [
-      { email: "benny@example.com", name: "Benny", avatar: "https://gravatar/benny" },
-      { email: "angel@example.com", name: "Angel", avatar: "https://gravatar/angel" },
-    ];
-    expect(machineMembers(roster, "unused@example.com")).toEqual(roster);
-  });
-
-  test("a roster-less hosted box is never empty — its one member is the paired account", () => {
-    const members = machineMembers([], "account@omg.dev");
-    expect(members).toHaveLength(1);
-    expect(members[0]!.email).toBe("account@omg.dev");
-    // Falls back to Gravatar/identicon exactly like every other member without
-    // an uploaded icon.
-    expect(members[0]!.avatar).toContain("gravatar.com");
-  });
-
-  test("a roster-less, unpaired box genuinely has nobody on it", () => {
-    expect(machineMembers([], null)).toEqual([]);
-  });
-});
-
-describe("userRoster / machineMembers icon precedence (integration)", () => {
+describe("userRoster icon precedence (integration)", () => {
   const originalData = PATHS.data;
   let root: string;
 
@@ -111,12 +88,5 @@ describe("userRoster / machineMembers icon precedence (integration)", () => {
     expect(roster.find((u) => u.email === "benny@example.com")?.avatar).toMatch(
       /^\/api\/avatars\/[a-f0-9]{32}\.webp\?v=1$/,
     );
-  });
-
-  test("machineMembers() reflects the same uploaded icon for a real roster", async () => {
-    await addOnboardingProfile({ email: "benny@example.com", name: "Benny" });
-    const members = machineMembers();
-    expect(members).toHaveLength(1);
-    expect(members[0]!.email).toBe("benny@example.com");
   });
 });
