@@ -2,6 +2,34 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - Bots hold a conversation, and the work happens in the background (v0.1.399)
+
+- **A bot answers you in the turn you asked.** Ask one a plain question and it
+  used to do a coding agent's entire job before saying anything: one spent four
+  minutes on 25+ tool calls, picked up an unrelated status skill, went reading
+  production databases, and only then replied with a status report. A bot is a
+  conversation, so its instructions now say so — answer first, keep it short,
+  look things up briefly, and stay inside your own repo.
+- **Anything bigger goes to a background session, and that session reports back
+  into the chat.** The bot says in one line what it is handing off, ends its
+  turn, and tells you what happened in its own words when the work lands. The
+  machinery stays out of the conversation.
+- **Fixed: a background session's report could be lost completely.** If the
+  bot's session had gone away — a reboot, a memory reclaim — the report was
+  dropped on the floor, the work was never mentioned, and the task session was
+  left running forever holding a slot. The report now brings the bot back and
+  gets delivered.
+- **Fixed: background updates cut the bot off mid-reply.** They now wait their
+  turn. You keep the right to interrupt it yourself.
+- **Fixed: a bot could be shut down to make room for another session**, despite
+  being the one kind of session that is meant to stay. Coming back gave it a
+  new session, so your chat history with it looked empty.
+- **Fixed: raw internal reports showed up in your chat with a bot**, in the
+  message list and in the roster preview, as though you had typed them.
+- **A bot's replies now sit in a bubble, with its face on the first message of
+  each run** — so the chat reads as talking to someone rather than reading a
+  log. Your side is unchanged.
+
 ## August 19, 2026 - The bot's face leads its own editor (v0.1.398)
 
 - **The avatar preview on the bot page is now the size of the thing you are
