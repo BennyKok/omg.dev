@@ -2,6 +2,21 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - Stale session branches can be cleaned up (v0.1.405)
+
+- **New `omg projects status` and `omg projects clean`.** The worktree sweeper
+  removes a session's directory but leaves its Git branch behind, and those
+  accumulate: across the projects on this box there are over 600 stale session
+  branches and 627 ownership markers. `status` reports what is removable and
+  changes nothing. `clean` removes only session branches already contained in
+  that project's local `main`, worktree records whose directories are gone, and
+  ownership markers whose directories are gone. It keeps unmerged and
+  checked-out branches, and never touches working files.
+- This work was written and tested two days ago, was reported as finished, and
+  then sat unmerged on an abandoned branch. It has now been recovered onto
+  main — which is the class of problem the shipping gate above exists to
+  prevent.
+
 ## August 19, 2026 - A session cannot ship work it never committed (v0.1.404)
 
 - **Shipping now refuses when the code is not in.** A session with uncommitted
