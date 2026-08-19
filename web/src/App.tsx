@@ -37,6 +37,7 @@ import { resolveRosterUser } from "./lib/roster-user";
 import {
   botVisibleUserText as botVisibleUserTextFor,
   isBotLaunchOnlyText,
+  isSubagentUpdateText,
 } from "./lib/bot-transcript";
 import { sessionMatchesUserFilter } from "./lib/user-filter";
 import { uploadFile as uploadFileThroughTransport } from "./lib/upload";
@@ -16159,7 +16160,9 @@ const ChatStream = memo(function ChatStream({
       const filtered = messages.filter(
         (message) =>
           !message.seed &&
-          (!bot || !isBotRuntimeContractMessage(message)),
+          (!bot ||
+            (!isBotRuntimeContractMessage(message) &&
+              !isBotBackgroundUpdateMessage(message))),
       );
       if (!bot) return filtered;
       const delivered = new Set(
@@ -17363,6 +17366,19 @@ function isBotRuntimeContractMessage(message: Message): boolean {
   return (
     (message.role === "user" || message.role === "system") &&
     isBotLaunchOnlyText(message.text ?? "")
+  );
+}
+
+/**
+ * A background task session reporting home. It arrives on the bot's session as
+ * a user turn, so in a bot chat it would otherwise look like the human pasted
+ * `[subagent complete] …` into their own conversation. The bot answers it in
+ * plain words on the next turn; that reply is what the human reads.
+ */
+function isBotBackgroundUpdateMessage(message: Message): boolean {
+  return (
+    (message.role === "user" || message.role === "system") &&
+    isSubagentUpdateText(message.text ?? "")
   );
 }
 

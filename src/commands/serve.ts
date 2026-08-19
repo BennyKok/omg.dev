@@ -1889,6 +1889,28 @@ function sessionMatchesId(session: ParentableSession, id: string): boolean {
   return session.sessionId === id || session.nativeSessionId === id;
 }
 
+/**
+ * How an inbound /send reaches its target.
+ *
+ * `steer` interrupts the running turn, which is right for a human correcting an
+ * agent mid-flight and wrong for a background child reporting home. A bot's
+ * backing session is a conversation someone is reading in real time: a
+ * `[subagent progress]` update steering into it cuts the bot off mid-reply, and
+ * the human sees their answer truncated by machinery they never asked about.
+ *
+ * So an agent-authored update (it carries `fromSessionId`) into a persistent
+ * session always queues — it waits its turn like any other message. A human
+ * sending to the same session keeps steer, because interrupting is the whole
+ * point of the composer's Enter key.
+ */
+export function agentUpdateSendMode(
+  requested: "steer" | "queue" | undefined,
+  target: { fromSessionId?: string; targetPersistent?: boolean },
+): "steer" | "queue" {
+  if (target.fromSessionId && target.targetPersistent) return "queue";
+  return requested === "queue" ? "queue" : "steer";
+}
+
 function sessionParentId(session: ParentableSession): string | undefined {
   return session.parentSessionId ?? session.parentNativeSessionId ?? undefined;
 }
@@ -6151,12 +6173,15 @@ a{color:#60a5fa}
           } | null;
           const text = body?.text?.trim();
           if (!text) return err(400, "expected { text }");
-          const mode = body?.mode === "queue" ? "queue" : "steer";
           const sessions = await listSessionsCached();
           const sess = sessions.find(
             (s) => s.sessionId === m[1] || s.nativeSessionId === m[1],
           );
           if (!sess) return err(404, "session not found");
+          const mode = agentUpdateSendMode(body?.mode, {
+            fromSessionId: body?.fromSessionId,
+            targetPersistent: sess.persistent,
+          });
           const sent = sendPromptToLiveSession(sess, text, { mode });
           if (!sent.ok) return err(409, sent.error || "couldn't send message");
           // Terminal reports also end the child lifecycle. Once this response

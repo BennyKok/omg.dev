@@ -40,3 +40,24 @@ export function botVisibleUserText(text: string, isBotChat = true): string {
 export function isBotLaunchOnlyText(text: string): boolean {
   return text.trimStart().startsWith(CONTRACT_HEADER) && stripBotLaunchEnvelope(text) === "";
 }
+
+/**
+ * A background task session reporting home to the bot that spawned it.
+ *
+ * Heavy work does not run in a chat turn — the bot hands it to a task session,
+ * which reports back with the markers from the subagent operating contract
+ * (`[subagent progress]`, and one of complete/blocked/failed at the end). Those
+ * arrive on the bot's session as ordinary user turns, so without this they
+ * render as though the human typed `[subagent complete] rebased onto main…`
+ * into their own chat.
+ *
+ * They are machinery, like the launch envelope and the attribution wrapper, and
+ * they are hidden for the same reason. What the human should read is the bot's
+ * own next message, which the bot contract requires it to write in plain words
+ * — the report is the bot's source, not its output.
+ */
+const SUBAGENT_UPDATE = /^\s*\[subagent (?:progress|complete|blocked|failed)\]/i;
+
+export function isSubagentUpdateText(text: string): boolean {
+  return SUBAGENT_UPDATE.test(text);
+}
