@@ -377,12 +377,20 @@ describe("mobile overlay scroll contract", () => {
     expect(app).toContain(
       'tab === "live" || tab === "bots" || tab === "notifications" || tab === "artifacts"',
     );
-    expect(app).toContain(
-      "pb-[var(--lfg-inline-composer-height,var(--lfg-composer-clear))]",
-    );
-    expect(app).not.toContain(
-      "pb-[calc(var(--lfg-inline-composer-height,var(--lfg-composer-clear))+var(--lfg-mobile-composer-fade-height))]",
-    );
+    // <main>'s bottom padding must clear the inline composer, but the exact
+    // expression has grown legitimate additive terms since this test was
+    // written (e.g. the bot-nav dock height). What must stay true is the
+    // regression this test exists for: that reserved space never also adds
+    // the fade's height, which would double-count space the fade only
+    // overlays instead of reserving. Match every pb-[...] that clears the
+    // composer and assert none of them fold in the fade height.
+    const composerClearances = [
+      ...app.matchAll(/pb-\[[^\]]*--lfg-inline-composer-height[^\]]*\]/g),
+    ].map((m) => m[0]);
+    expect(composerClearances.length, "no pb-[...] clears the inline composer height").toBeGreaterThan(0);
+    for (const clearance of composerClearances) {
+      expect(clearance).not.toContain("--lfg-mobile-composer-fade-height");
+    }
     expect(app).toContain(
       "mobile-scroll-composer-fade pointer-events-auto relative z-[55] mt-auto",
     );
