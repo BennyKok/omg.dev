@@ -29,7 +29,13 @@ export function ConversationContent({ className, ...props }: ConversationContent
   // this container gap — a flat gap-3 here made every row equally far apart
   // regardless of who was talking, which read as mostly empty screen on a
   // tall/narrow viewport like an iPad.
-  return <div className={cn("flex flex-col gap-1", className)} {...props} />;
+  //
+  // gap-2, not gap-1: every message used to carry an in-flow copy button that
+  // padded ~32px under it, so gap-1 was never the real distance between two
+  // bubbles. That button is out of flow now (see MessageActions), and gap-1
+  // alone left consecutive bubbles almost touching. This is the whole
+  // same-speaker gap now, and it is the same for every pair of rows.
+  return <div className={cn("flex flex-col gap-2", className)} {...props} />;
 }
 
 export type ConversationEmptyStateProps = ComponentProps<"div"> & {
