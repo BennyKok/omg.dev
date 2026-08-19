@@ -20,6 +20,8 @@ const OTHER = "99999999-2222-4222-8222-222222222222";
 const originalFetch = globalThis.fetch;
 const originalBase = process.env.LFG_BASE;
 const originalSessionId = process.env.LFG_SESSION_ID;
+const originalLfgUser = process.env.LFG_USER;
+const originalOmgUser = process.env.OMG_USER;
 
 /** Outbound API calls the tool made, in order. */
 let calls: string[] = [];
@@ -29,6 +31,8 @@ beforeEach(() => {
   process.env.LFG_BASE = "http://127.0.0.1:9876";
   // The serve process answers every session and belongs to none of them.
   delete process.env.LFG_SESSION_ID;
+  delete process.env.LFG_USER;
+  delete process.env.OMG_USER;
   globalThis.fetch = (async (url: string | URL | Request) => {
     calls.push(String(url));
     return Response.json({ artifact: { id: "art-1" }, sessions: [] });
@@ -41,6 +45,10 @@ afterEach(() => {
   else process.env.LFG_BASE = originalBase;
   if (originalSessionId === undefined) delete process.env.LFG_SESSION_ID;
   else process.env.LFG_SESSION_ID = originalSessionId;
+  if (originalLfgUser === undefined) delete process.env.LFG_USER;
+  else process.env.LFG_USER = originalLfgUser;
+  if (originalOmgUser === undefined) delete process.env.OMG_USER;
+  else process.env.OMG_USER = originalOmgUser;
 });
 
 type ToolReply = { text: string; isError: boolean };
@@ -80,6 +88,57 @@ async function callTool(
 }
 
 describe("caller identity over the shared MCP endpoint", () => {
+  test("input questions inherit the calling session owner", async () => {
+    const requests: Array<{ url: string; method: string; body: unknown }> = [];
+    globalThis.fetch = (async (
+      url: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const href = String(url);
+      requests.push({
+        url: href,
+        method: init?.method ?? "GET",
+        body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
+      });
+      if (href.endsWith("/api/sessions")) {
+        return Response.json({
+          sessions: [{ sessionId: SESSION, assignedUser: "owner@example.com" }],
+        });
+      }
+      if (href.endsWith("/api/ask")) {
+        return Response.json({ id: "question-1", status: "open" });
+      }
+      return Response.json({}, { status: 404 });
+    }) as typeof fetch;
+
+    const reply = await callTool(
+      "omg_input",
+      { prompt: "Which release should I deploy?", options: ["Stable", "Canary"] },
+      { session: SESSION },
+    );
+
+    expect(reply.isError).toBe(false);
+    expect(requests).toEqual([
+      {
+        url: "http://127.0.0.1:9876/api/sessions",
+        method: "GET",
+        body: null,
+      },
+      {
+        url: "http://127.0.0.1:9876/api/ask",
+        method: "POST",
+        body: {
+          question: "Which release should I deploy?",
+          options: ["Stable", "Canary"],
+          sessionId: SESSION,
+          user: "owner@example.com",
+          pushback: true,
+          wait: false,
+        },
+      },
+    ]);
+  });
+
   test("display_image publishes to the calling session named on the request", async () => {
     const reply = await callTool(
       "omg_display_image",

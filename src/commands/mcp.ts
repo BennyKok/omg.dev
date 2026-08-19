@@ -273,6 +273,27 @@ async function activeSessionId(input?: string): Promise<string> {
   return await resolveSid(sessionId);
 }
 
+/**
+ * Resolve the owner of a question from the session that will receive its answer.
+ *
+ * A stdio MCP child inherits OMG_USER, but the shared HTTP MCP server belongs
+ * to no user. Its request only carries the calling session id. Reading the
+ * shared server's environment there stores the question as unassigned, and a
+ * signed-in device then removes it from its user-scoped pending feed. The
+ * session row is the durable owner in both transports, so use it when no
+ * explicit or ambient user exists.
+ */
+async function questionUser(explicit: string | undefined, sessionId: string): Promise<string | null> {
+  const direct = explicit?.trim() || envValue("USER");
+  if (direct) return direct;
+
+  const { sessions } = await api<{ sessions: SessionRow[] }>("/api/sessions");
+  const session = sessions.find(
+    (row) => row.sessionId === sessionId || row.nativeSessionId === sessionId,
+  );
+  return session?.assignedUser?.trim() || null;
+}
+
 export async function closeOmgSession(sessionIdInput: string) {
   if (!sessionIdInput.trim()) throw new Error("sessionId required");
   // Resolve before the self-close check so a short id can't slip past it.
@@ -725,7 +746,7 @@ export function buildOmgMcpServer(): McpServer {
     },
     async ({ question, options, sessionId, user }) => {
       const sid = await activeSessionId(sessionId);
-      const who = user?.trim() || envValue("USER") || null;
+      const who = await questionUser(user, sid);
       const data = await api<{ id: string; status: string }>("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1155,7 +1176,7 @@ export function buildOmgMcpServer(): McpServer {
     },
     async ({ prompt, options, sessionId, user }) => {
       const sid = await activeSessionId(sessionId);
-      const who = user?.trim() || envValue("USER") || null;
+      const who = await questionUser(user, sid);
       const data = await api<{ id: string; status: string }>("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
