@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - Custom user icons and a machine facepile (v0.2.3)
+
+- **You can now upload your own icon in Settings.** PNG, JPEG, WebP, or GIF,
+  up to 5MB, instead of relying on your Gravatar. Replacing or removing it
+  takes effect immediately, with no stale cached copy lingering.
+- **Settings now shows who is on this machine.** A new "Who's on this
+  machine" row displays a facepile of everyone sharing this machine — or the
+  one account it is paired to — each with their own icon.
+
 ## August 19, 2026 - Bot chats keep root mobile navigation (v0.2.2)
 
 - **A selected bot chat now stays at the mobile root.** The header no longer
