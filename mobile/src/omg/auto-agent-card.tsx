@@ -249,9 +249,48 @@ export function AutoFindingCard({
               <View style={{ marginTop: 5 }}>
                 <SeverityDot severity={finding.severity} />
               </View>
+              {/**
+               * COLLAPSED HEIGHT IS FIXED AT TWO LINES, NOT "UP TO TWO."
+               *
+               * `numberOfLines={2}` alone caps wrapping but does not RESERVE
+               * the space — a one-line title sizes to one line, a two-line
+               * title sizes to two, and which one you get depends on the
+               * text's actual measured width against the row's available
+               * width. That measurement is a SECOND layout pass Yoga has to
+               * run after resolving this row's flex width, which every other
+               * home-list row (SessionCard's `numberOfLines={1}` title and
+               * subtitle, always exactly one line) never needs. This
+               * two-pass convergence is what list-overlap-watch.tsx's
+               * diagnostics caught: when a section above this one grows late
+               * (see the ordering fix in app/index.tsx), Session rows
+               * resettle in one pass and this row needed a second — the
+               * asymmetry that made Auto specifically the one that showed a
+               * transient wrong position rather than Working/Idle/Recent.
+               *
+               * `height: lineHeight * 2` while collapsed makes the box a
+               * CONSTANT regardless of whether the title needs one line or
+               * two — no text measurement required to know this row's
+               * height before Yoga can place it, same one-pass shape as
+               * every other row. Expanded stays auto-sized (`numberOfLines`
+               * already goes to `undefined` there) since a tap is a
+               * deliberate, one-row-at-a-time action, not a burst of many
+               * rows settling at once — the case this addresses.
+               *
+               * THE COST, ON PURPOSE, NOT HIDDEN: a one-line title now
+               * leaves visible blank space below it where a second line
+               * would have gone. That is a real visual change for short
+               * findings, not a free win — Benny should see it before/after
+               * rather than have it decided for him.
+               */}
               <Text
                 numberOfLines={expanded ? undefined : 2}
-                style={{ ...type.footnote, color: colors.textSecondary, flex: 1, lineHeight: 18 }}
+                style={{
+                  ...type.footnote,
+                  color: colors.textSecondary,
+                  flex: 1,
+                  lineHeight: 18,
+                  ...(expanded ? null : { height: 18 * 2 }),
+                }}
               >
                 {finding.title}
               </Text>
