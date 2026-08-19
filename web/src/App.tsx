@@ -41,7 +41,7 @@ import {
   shouldShowInlineBotsSurfaceToggle,
   shouldShowMobileSurfaceToggle,
 } from "./lib/mobile-bots-nav";
-import { findBotMainSession } from "./lib/bot-session";
+import { botChatSessionId, findBotMainSession } from "./lib/bot-session";
 import { resolveRosterUser } from "./lib/roster-user";
 import {
   botVisibleUserText as botVisibleUserTextFor,
@@ -11455,8 +11455,7 @@ function RailStage({
   const botsBySid = useMemo(() => {
     const map = new Map<string, PersistentBot>();
     for (const bot of bots) {
-      const backing = findBotMainSession(bot, sessions);
-      const sid = backing?.sessionId ?? bot.sessionId ?? null;
+      const sid = botChatSessionId(bot, sessions);
       if (sid) map.set(sid, bot);
     }
     return map;
@@ -24594,7 +24593,7 @@ function BotsView({
 
   if (bot) {
     const backingSession = findBotMainSession(bot, sessions);
-    const sid = backingSession?.sessionId ?? bot.sessionId ?? null;
+    const sid = botChatSessionId(bot, sessions);
     const session: Session | null = sid
       ? backingSession ?? {
           sessionId: sid,

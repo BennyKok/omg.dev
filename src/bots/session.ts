@@ -87,6 +87,22 @@ export function findBotMainSession<T extends BotSessionCandidate>(
 }
 
 /**
+ * The session id a bot's chat should read.
+ *
+ * The bot's live conversation when there is one, otherwise the conversation it
+ * will reattach to. Falling back to the raw saved id instead would put a
+ * corrupt binding back on screen: `findBotMainSession` refuses to return the
+ * delegated child, and the chat would then render that child anyway.
+ */
+export function botChatSessionId(
+  bot: BotSessionRef,
+  sessions: readonly BotSessionCandidate[],
+): string | null {
+  const live = findBotMainSession(bot, sessions);
+  return live?.sessionId ?? botConversationRef(bot, sessions).sessionId ?? null;
+}
+
+/**
  * The conversation id a bot's next process must attach to, with a corrupted
  * binding repaired.
  *
