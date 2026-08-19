@@ -9,8 +9,8 @@ This spec is written against the **actual tokens and component idioms already in
 ## 0. Design decisions (read this first)
 
 1. **Bots is a new top-level page, not a rail section.** The left rail (`RailGroup`/`RailItem`) stays session-only. A roster with avatars + last-message previews reads as its own "list of relationships," not another grouping of sessions — mixing it into Pinned/Working/Idle would bury it. Precedent: `AutoManageView` ("Schedules") is already a dedicated page reached outside the rail, not a rail group.
-2. **Reuse the existing Pages navigation, don't invent a tab bar.** The app has no persistent labeled tab strip — `PagesMenu` is a single dropdown (`⋮` trigger → radio group: Live, Notifications, Artifacts, Settings). Bots becomes a fifth radio item there. This keeps one navigation idiom in the app instead of two.
-3. **"Next to Sessions" is delivered literally in the rail header**, not just via the menu three-dots — but as a text segmented toggle, not an icon button. The rail header gains a `Sessions | Chat` control stacked above the existing "New session" + collapse row, so switching to Bots is a single tap from the session list, and switching back is the same control, not a separate back-affordance. `PagesMenu`'s radio item is the fallback path on narrow/mobile layouts where the rail is hidden. See §2.1 for the control's spec and an open question on the label pair.
+2. **Bots is directly next to Chat on mobile.** A pinned `Chat | Bot` segmented toggle appears in the mobile chrome on the Live and Bots pages. `PagesMenu` keeps its Bots item for secondary navigation and discoverability, but it is no longer the only mobile path.
+3. **The same segmented control serves desktop and mobile.** The desktop rail header keeps its `Chat | Bot` control above the existing "New session" + collapse row. Mobile mounts the same control below the page header, so switching between Chat and Bots is one tap at either layout size. See §2.1.
 4. **Bot chat is not a new transcript component.** A bot's `sessionId` is a normal managed session; the chat view is the existing session transcript + composer, wrapping the message stream and `ComposerTextarea`/send-button chrome that every session already uses. What's new is the *header* (bot identity instead of session title/agent icons), that `omg_ship`-style close/fork actions are hidden (a bot session never closes), and that bot turns render inside a card/bubble instead of bare markdown on the canvas (§4.2) — a deliberate deviation from a normal task session's plain-markdown assistant turns, because a bot chat needs to read as talking to somebody, not reading a log.
 5. **Bots get circular avatars; sessions keep their rounded-square agent icon.** `SessionAgentIcon` in the rail is `rounded-md` (a tool/agent glyph — "what kind of run"). A bot's emoji avatar is `rounded-full` (a face — "who"). This is the one deliberate shape break in the whole spec, and it's the signal that lets a glance tell a bot roster row from a session row even when both show an emoji. The same `rounded-full` avatar is reused at three sizes: `size-11` on the roster row (§3.2), `size-8` in the chat header (§4.1), and `size-[22px]` beside the first bubble of a run in the transcript itself (§4.2).
 6. **The "driven by" badge is a pill, styled like the existing model badge, colored like the existing "open finding" badge.** Session rows already show a muted rounded-full pill for the model (`bg-muted text-muted-foreground`) and a tinted rounded-full pill for finding counts (`bg-primary/12 text-primary`). The bot badge borrows the tinted treatment (it's provenance worth noticing, like an open finding) but carries the bot's emoji + name instead of a count.
@@ -52,7 +52,7 @@ Reused component idioms (exact classes, for the React implementation):
 
 ## 2. Navigation
 
-### 2.1 Rail header (desktop / wide layout)
+### 2.1 Chat/Bot surface toggle (desktop and mobile)
 
 The existing rail header row (`New session` button + collapse toggle) is unchanged in its own row, but the header now stacks a **text segmented toggle** above it — this replaces an earlier icon-button approach (a single unlabeled `Bot` glyph inserted before "New session"), which read as another tool button rather than a navigation switch and had no way to show which surface you were currently on:
 
@@ -64,9 +64,10 @@ The existing rail header row (`New session` button + collapse toggle) is unchang
 
 - Toggle shell: two segments in a `flex gap-0.5 p-[3px] rounded-full bg-muted` track, each segment `flex-1 h-[26px] rounded-full text-xs font-semibold text-muted-foreground`. The active segment gets `bg-card text-foreground` plus the app's standard card shadow — the same "pill inside a track" idiom as any other segmented control in the app, applied here at rail-header scale.
 - Labels: **Chat** | **Bot** — settled by Benny 2026-08-16: "Chat" is the ORIGINAL sessions surface (a session is a conversation you have with an agent), "Bot" is the new bots surface. Earlier drafts of this spec had "Sessions | Chat" (with "Chat" meaning the bots side); that reading is dead — do not resurrect it. The bots page `h1` ("Bots") and the `PagesMenu` entry may stay plural; the toggle segment stays singular "Bot" per Benny's wording.
-- Unread indicator: a `size-1.5` `bg-primary` dot inline after the "Chat" label (there's no icon left to corner-badge), shown when any bot has an unread reply.
-- Click **Chat** → navigates to the Bots page (`/bots`, `tab === "bots"`). Click **Sessions** → returns to the session rail (`tab === "live"`). The toggle is rendered — with the correct segment active — on both the Bots roster screen and the session rail itself, so the switch reads as one control with two states, not a one-way door out of Sessions.
-- When the rail is collapsed to icon-only width, there isn't room for a legible two-word control; the toggle is hidden at that width and `PagesMenu` (§2.2) is the only path, same fallback it already is for mobile.
+- Click **Bot** → navigates to the Bots page (`/bots`, `tab === "bots"`). Click **Chat** → returns to the session rail (`tab === "live"`). The toggle is rendered — with the correct segment active — on both the Bots roster screen and the session rail itself, so the switch reads as one control with two states, not a one-way door out of Chat.
+- On mobile, mount the same full-width toggle in the pinned app chrome below the active page header. Show it only on Live and Bots. Keep it outside the scrollable page column so it remains visible on the roster and in bot chat.
+- In the tablet band where the mobile chrome is absent and the wide rail is not available, render the toggle inline at the top of the Bots page.
+- When the desktop rail is collapsed to icon-only width, there is not enough room for the control. Hide it there and keep `PagesMenu` (§2.2) as the fallback.
 
 ### 2.2 Pages menu (`PagesMenu`, mobile fallback + discoverability)
 
@@ -91,7 +92,7 @@ The Bots page (roster) and an open bot chat both live under the same `bots` tab 
 
 Page shell matches `AutoManageView`: `mx-auto flex max-w-3xl flex-col gap-2` with `data-lfg-page-column`, a header block, then rows.
 
-### 3.1 Header
+### 3.1 Header and create row
 
 ```
 Bots
@@ -99,11 +100,11 @@ Persistent agents you talk to, not tasks you launch.
 ```
 - `h1`: `text-lg font-semibold leading-tight`
 - subtitle: `text-sm text-muted-foreground`
-- Top-right of the header row: `+ New bot` button, `variant="brand"` `size="sm"`, `<Plus className="size-3.5" /> New bot`.
+- Place a flat **New bot** row directly below the heading. It uses the same compact rail-list rhythm as the bot rows: a dashed circular icon shell, the `Plus` icon, and a text label. Do not add a separate card-style or header CTA.
 
 ### 3.2 Roster row (populated, default state)
 
-Row shell: `flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5` — one row per bot, `gap-y-2` between rows, whole row is a `button` (click → open chat).
+Row shell: `flex items-center gap-3 rounded-lg px-2 py-2` — one flat rail-style row per bot, with no card border or card fill. The whole row is a `button` (click → open chat). Use the muted hover surface already used by rail rows.
 
 Anatomy, left to right:
 
@@ -137,16 +138,7 @@ Single centered card, verbatim pattern from `AutoManageView`'s empty state:
 ```
 `rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground`, two lines (first line can carry slightly more weight — `text-foreground font-medium` — the rest `text-muted-foreground`).
 
-Below it, the dashed "create" affordance already used for `+ New schedule`:
-
-```
-- - - - - - - - - - - - - - - - - -
-        ＋  New bot
-- - - - - - - - - - - - - - - - - -
-```
-`flex items-center justify-center gap-2 rounded-2xl border border-dashed border-border py-3 text-sm font-medium text-muted-foreground hover:text-foreground`.
-
-(Both the header's `+ New bot` button and this dashed row open the same sheet — the dashed row only renders when the roster is empty, exactly like `+ New schedule`.)
+The flat **New bot** row from §3.1 remains above this card. Do not repeat the create action below the empty state.
 
 ---
 
