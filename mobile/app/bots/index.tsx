@@ -27,11 +27,11 @@
  * phase (bot chat); this file is the roster half only.
  *
  * "+ New bot" is visually present (both the header action and, empty-roster
- * only, the dashed row — §3.4) because leaving the roster's own create
- * affordance out would read as broken chrome, not as scope control. Tapping
- * either is a placeholder toast until the New/Edit Bot sheet exists — see
- * the PR description for why that sheet and bot chat are both held for a
- * separate steer.
+ * only, EmptyState's action slot — same pattern as home's "Choose a computer")
+ * because leaving the roster's own create affordance out would read as broken
+ * chrome, not as scope control. Tapping either is a placeholder toast until
+ * the New/Edit Bot sheet exists — see the PR description for why that sheet
+ * and bot chat are both held for a separate steer.
  */
 
 import { useFocusEffect, useNavigation, useRouter } from "expo-router";
@@ -156,32 +156,33 @@ export default function BotsScreen() {
       </Text>
 
       {bots.length === 0 && loading ? null : bots.length === 0 ? (
-        <>
-          <EmptyState
-            title="No bots yet"
-            detail="Give a persona a name and a memory — it'll be there next time you open this."
-          />
-          <PressableScale
-            onPress={createBot}
-            scale={0.98}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: space.sm,
-              marginHorizontal: space.lg,
-              marginTop: space.sm,
-              paddingVertical: space.md,
-              borderRadius: 18,
-              borderWidth: 1,
-              borderStyle: "dashed",
-              borderColor: colors.borderStrong,
-            }}
-          >
-            <Icon ios="plus" android="add" size={14} color={colors.textMuted} />
-            <Text style={{ ...type.subhead, color: colors.textMuted }}>New bot</Text>
-          </PressableScale>
-        </>
+        <EmptyState
+          title="No bots yet"
+          detail="A bot is a persistent agent you talk to, not a task you launch."
+          action={
+            <PressableScale
+              onPress={createBot}
+              scale={0.98}
+              accessibilityRole="button"
+              accessibilityLabel="New bot"
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: space.sm,
+                paddingHorizontal: space.lg,
+                paddingVertical: space.md,
+                borderRadius: 18,
+                borderWidth: 1,
+                borderStyle: "dashed",
+                borderColor: colors.borderStrong,
+              }}
+            >
+              <Icon ios="plus" android="add" size={14} color={colors.textMuted} />
+              <Text style={{ ...type.subhead, color: colors.textMuted }}>New bot</Text>
+            </PressableScale>
+          }
+        />
       ) : (
         <View style={{ gap: space.sm }}>
           {bots.map((bot) => (

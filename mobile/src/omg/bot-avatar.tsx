@@ -63,13 +63,13 @@ const DEFAULT_COLORWAY: BotColorway = "warm";
 /**
  * The corner radius that reads as "rounded square" rather than "circle" or
  * "sharp card" at avatar sizes — proportional to size so it holds up at both
- * the roster's 44pt and the chat header's smaller mark.
+ * the roster's 28pt mark and a later chat-header size.
  */
 const SQUIRCLE_RATIO = 0.32;
 
 export function BotAvatar({
   colorway = DEFAULT_COLORWAY,
-  size = 44,
+  size = 28,
   working = false,
   style,
 }: {

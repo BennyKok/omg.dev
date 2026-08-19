@@ -14,23 +14,25 @@
  * importing the web's, which was tuned for a different navigation context.
  *
  * Otherwise this mirrors AutoFindingCard/SessionCard closely on purpose:
- * same card shell, same avatar-left/text-middle/state-right anatomy, same
+ * same card shell, same 16h/10v padding and minHeight 60, same
  * `useListItemMotion`/`animateEntry` contract for cold-load list settling
  * (see the long note on that flag in auto-agent-card.tsx — Bots gets a
  * second independently-fetched section on a future combined home surface,
  * so the same suppression window will matter there too, even though this
  * screen is not that home surface yet).
+ *
+ * Working is one signal: the avatar's corner dot. The subtitle is the last
+ * message preview only — no "Working —" prefix, no timestamp, no Disabled
+ * pill, no chevron. A disabled bot dims the avatar, not the card.
  */
 
 import { View } from "react-native";
 import Reanimated from "react-native-reanimated";
 
-import { Icon } from "../components";
 import { Text } from "./text";
 import { BotAvatar } from "./bot-avatar";
 import { PressableScale, useListItemMotion } from "./motion";
 import { useTheme } from "./theme";
-import { relativeTime } from "./format";
 import { botPreviewText, type Bot } from "./bots";
 
 export function BotRosterRow({
@@ -74,11 +76,10 @@ export function BotRosterRow({
           borderWidth: 1,
           borderColor: colors.borderStrong,
           backgroundColor: pressed ? colors.cardPressed : colors.card,
-          opacity: disabled ? 0.7 : 1,
         })}
       >
         <View style={disabled ? { opacity: 0.45 } : undefined}>
-          <BotAvatar colorway={bot.colorway} size={44} working={!disabled && !!working} />
+          <BotAvatar colorway={bot.colorway} size={28} working={!disabled && !!working} />
         </View>
 
         <View style={{ flex: 1, gap: 1, minWidth: 0 }}>
@@ -87,7 +88,7 @@ export function BotRosterRow({
             style={{
               ...type.callout,
               fontWeight: "600",
-              color: disabled ? colors.textMuted : colors.text,
+              color: colors.text,
             }}
           >
             {bot.name}
@@ -100,38 +101,9 @@ export function BotRosterRow({
               color: colors.textMuted,
             }}
           >
-            {disabled ? preview : working ? `Working — ${preview}` : preview}
+            {preview}
           </Text>
         </View>
-
-        {bot.lastMessageAt ? (
-          <Text
-            style={{
-              ...type.caption,
-              fontSize: 10,
-              fontVariant: ["tabular-nums"],
-              color: colors.textMuted,
-              opacity: 0.7,
-            }}
-          >
-            {relativeTime(bot.lastMessageAt)}
-          </Text>
-        ) : null}
-
-        {disabled ? (
-          <View
-            style={{
-              paddingHorizontal: 8,
-              paddingVertical: 2,
-              borderRadius: 999,
-              backgroundColor: colors.secondary,
-            }}
-          >
-            <Text style={{ ...type.caption, fontSize: 10, color: colors.textMuted }}>Disabled</Text>
-          </View>
-        ) : null}
-
-        <Icon ios="chevron.right" android="chevron_right" size={14} color={colors.textMuted} />
       </PressableScale>
     </Reanimated.View>
   );
