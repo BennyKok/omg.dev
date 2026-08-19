@@ -11,6 +11,7 @@ function sinkWithAnswers(...answers: Array<number | null>): ManagedSdkEventSink 
   return {
     draft() {},
     thinking() {},
+    commitText() {},
     toolStart() {},
     toolEnd() {},
     async ask() {
