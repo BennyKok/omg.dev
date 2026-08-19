@@ -2,6 +2,17 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - Agents stop filling RAM-backed /tmp
+
+- **Agent temp files go to disk when `/tmp` is tmpfs.** Leftover bun installs
+  and checkouts in RAM-backed `/tmp` filled 7.8G on one box, which then stalled
+  in memory reclaim and looked like a CPU melt. Serve and every agent launch
+  now use `~/.cache/lfg/tmp` (or `LFG_TMPDIR`) so those files cost disk, not
+  RAM.
+- **Unused leftovers in tmpfs `/tmp` are swept.** Entries older than two hours
+  with no open process are removed. Live names such as `lfg-uploads`, Claude
+  caches, tmux, and ssh sockets stay. The disk cache is swept after a day.
+
 ## August 19, 2026 - An affected bot shows its own history right away (v0.2.7)
 
 - **A bot whose chat had been taken over by one of its tasks now recovers its
