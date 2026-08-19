@@ -2,6 +2,18 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - A bot can no longer be replaced by its own task (v0.2.6)
+
+- **A bot chat always shows the bot's own conversation.** When a bot's chat
+  process ended while one of its background tasks kept running, the bot could be
+  permanently rebound to that task. Its chat then opened the task instead, new
+  messages waited behind work that was never yours, and there was no way back to
+  the real conversation. A bot now keeps its own thread, and a bot already
+  affected recovers its full history on the next message.
+- **The mobile bot chat has a Back button again.** The chat opens as a full
+  screen, so the switch above the composer was the only exit. The header now
+  returns you straight to the bot list.
+
 ## August 19, 2026 - Bot switch stays above the composer (v0.2.5)
 
 - **The mobile Chat/Bots switch no longer floats over bot messages.** It now
