@@ -40,7 +40,6 @@ import {
   isBotLaunchOnlyText,
   isSubagentUpdateText,
 } from "./lib/bot-transcript";
-import { botRunAvatarKeys } from "./lib/bot-runs";
 import { sessionMatchesUserFilter } from "./lib/user-filter";
 import { uploadFile as uploadFileThroughTransport } from "./lib/upload";
 import { compressImageFile, isCompressibleImage } from "./lib/image-compress";
@@ -16232,11 +16231,6 @@ const ChatStream = memo(function ChatStream({
   // Only let reasoning at the active tail replace the typing dots; otherwise an
   // old thinking block would make a newly-busy session look idle. The tail here
   // is the live turn's, not the pinned queue's.
-  // One face per run of bot turns, not one per bubble — see lib/bot-runs.
-  const botRunStarts = useMemo(
-    () => (bot ? botRunAvatarKeys(items) : new Set<string>()),
-    [bot, items],
-  );
   const tailItem = items[items.length - 1];
   const tailMessage = tailItem?.type === "msg" ? tailItem.message : undefined;
   const showTypingIndicator = busy && tailMessage?.kind !== "thinking";
@@ -16361,7 +16355,6 @@ const ChatStream = memo(function ChatStream({
                 entering={!!item.message.id && enteringIdsRef.current.has(item.message.id)}
                 onRetryQueued={onRetryQueued}
                 bot={bot}
-                botRunStart={botRunStarts.has(item.key)}
               />
             ),
           )}
@@ -16706,6 +16699,12 @@ function ToolGroup({ items, live }: { items: Message[]; live: boolean }) {
  * itself: a named creature you are talking to already has a face and a working
  * pose, so an anonymous pill standing in for it is a worse answer to "what is
  * happening" than just showing it at work.
+ *
+ * This is the *only* place the creature appears in the stream. A face beside
+ * every reply read as a column of different speakers, and reserving the gutter
+ * for it indented every bot message whether or not that message carried one.
+ * The header already says who you are talking to; down here the avatar earns
+ * its space only while there is something happening, so it is drawn bigger.
  */
 function TypingIndicator({ visible = true, bot }: { visible?: boolean; bot?: PersistentBot }) {
   return (
@@ -16715,7 +16714,7 @@ function TypingIndicator({ visible = true, bot }: { visible?: boolean; bot?: Per
     >
       {bot ? (
         <div className="typing-mascot" role="status" aria-label={`${bot.name} is working`}>
-          <BotAvatar bot={bot} working size={30} />
+          <BotAvatar bot={bot} working size={40} />
         </div>
       ) : (
         <div className="typing-indicator" role="status" aria-label="Assistant is typing">
@@ -17129,7 +17128,6 @@ function MessageBubble({
   entering = false,
   onRetryQueued,
   bot,
-  botRunStart = false,
 }: {
   message: Message;
   // Whether the session is actively working on THIS turn — drives the thinking
@@ -17141,8 +17139,6 @@ function MessageBubble({
   // Retry a failed queue send through the server queue's retry endpoint.
   onRetryQueued?: (message: Message) => void;
   bot?: PersistentBot;
-  // This turn opens a run, so it carries the bot's face — see lib/bot-runs.
-  botRunStart?: boolean;
 }) {
   const openArtifact = useContext(ArtifactViewerContext);
   // Must run before the early returns below — hooks can't be conditional. The
@@ -17383,7 +17379,7 @@ function MessageBubble({
           "max-w-full",
           // The card row shell every surface in the app uses, with a taller
           // corner so it reads as a chat bubble rather than a list row.
-          botBubble && "rounded-[18px] border border-border bg-card px-3.5 py-2.5 text-[14.5px] leading-[1.55]",
+          botBubble && "max-w-[84%] rounded-[18px] border border-border bg-card px-3.5 py-2.5 text-[14.5px] leading-[1.55]",
         )}
       >
         {message.text ? (
@@ -17415,19 +17411,7 @@ function MessageBubble({
       )}
       from="assistant"
     >
-      {botBubble && bot ? (
-        // Bottom-aligned so the face sits on the bubble's baseline, and the
-        // spacer is the avatar's own width: every bubble in a run keeps the same
-        // left edge whether or not this one is the turn that carries the face.
-        <div className="flex w-full min-w-0 max-w-[84%] items-end gap-2">
-          <span className="w-[22px] shrink-0" aria-hidden={!botRunStart}>
-            {botRunStart ? <BotAvatar bot={bot} size={22} /> : null}
-          </span>
-          <div className="min-w-0 flex-1">{body}</div>
-        </div>
-      ) : (
-        body
-      )}
+      {body}
     </AiMessage>
   );
 }
