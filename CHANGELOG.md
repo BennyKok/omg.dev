@@ -2,7 +2,7 @@
 
 Recent product updates and deployment notes.
 
-## August 19, 2026 - Agents stop filling RAM-backed /tmp
+## August 19, 2026 - Agents stop filling RAM-backed /tmp (v0.2.8)
 
 - **Agent temp files go to disk when `/tmp` is tmpfs.** Leftover bun installs
   and checkouts in RAM-backed `/tmp` filled 7.8G on one box, which then stalled
