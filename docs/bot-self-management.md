@@ -1,6 +1,6 @@
 # Persistent bot self-management
 
-Persistent bots have three narrow omg.dev tools:
+Persistent bots have four narrow omg.dev tools:
 
 - `omg_create_owned_bot` creates a bot for the calling bot's assigned user.
 - `omg_update_self` changes only the caller's name, persona, public description,
@@ -8,12 +8,36 @@ Persistent bots have three narrow omg.dev tools:
 - `omg_list_owned_bots` lists other bots for the same user. It returns only a
   stable bot ID, name, public description, avatar, enabled/runtime status, and
   declared capability labels.
+- `omg_send_message_to_peer` durably enqueues one message to a listed peer.
+  The optional `replyToMessageId` makes an explicit, correlated reply.
 
 The tools do not accept an owner or current-bot ID. The server resolves the
 calling live session, its `botId`, and its assigned user. It then checks that the
 persisted bot owner is the same user. A bot cannot update a peer. Peer discovery
 does not return persona instructions, transcripts, runtime contracts,
 credentials, ownership controls, session IDs, or execution paths.
+
+Peer messaging accepts only a target bot ID, text, and optional reply message
+ID. The server derives the sender bot ID and user from the authenticated live
+runtime session. It rejects missing, disabled, and cross-owner targets. It
+limits text to 8000 characters and each source bot to 10 accepted messages per
+minute.
+
+Each initial peer message gets a server-generated message ID and correlation
+ID at depth 0. An explicit reply must refer to an accepted message delivered to
+the caller from the selected target. The server copies the correlation and
+increments depth. It rejects replies beyond depth 4. A bot must not start a new
+correlation to evade this limit.
+
+The target turn uses the existing persistent bot conversation and durable turn
+queue. Sends to one target serialize in enqueue order. The event log and the
+durable peer-message record contain stable sender, target, correlation, reply,
+depth, and queue attribution. They do not log the message body.
+
+The receiver gets an attributed envelope. Its ordinary assistant output stays
+in its own conversation. The server does not forward model output and does not
+create automatic replies. The receiver must call `omg_send_message_to_peer`
+with `replyToMessageId` to send a reply.
 
 One assigned user can own at most 10 persistent bots. Disabled bots count. The
 store performs the quota check and write in one synchronous commit section, so
