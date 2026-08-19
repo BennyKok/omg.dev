@@ -28,6 +28,13 @@ export type ManagedSdkPromptOption = {
 export type ManagedSdkEventSink = {
   draft(text: string): void;
   thinking(text: string): void;
+  /**
+   * Commit streamed assistant text into the transcript before a tool call (or
+   * any other mid-turn boundary). ACP agents narrate between tools; without a
+   * commit those segments stay in one draft and glue into a single wall of text
+   * at turn end (e.g. "codebase.This is the vibes repo").
+   */
+  commitText(text: string): void;
   toolStart(id: string, name: string, input?: unknown): void;
   toolEnd(id: string, name: string, output?: unknown, error?: boolean): void;
   ask(question: string, options: ManagedSdkPromptOption[], header?: string): Promise<number | null>;
@@ -133,6 +140,13 @@ export async function runManagedSdkSession(options: ManagedSdkSessionOptions): P
     thinking(next) {
       thought = next;
       if (!draft) publishDraft(next);
+    },
+    commitText(next) {
+      const body = next.trim();
+      draft = "";
+      publishDraft("", true);
+      if (!body) return;
+      indexSessionMessagesDirect(key, [row("assistant", "text", body)]);
     },
     toolStart(id, name, input) {
       const toolId = `${id}:start`;
