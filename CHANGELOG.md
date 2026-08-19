@@ -2,6 +2,23 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - Vercel fx joins the roster (v0.1.406)
+
+- **fx is a supported coding agent.** Vercel Labs' fx runs as a full session
+  like any other agent: durable resume, the omg.dev MCP toolset, permission
+  prompts in the dashboard, and scheduled auto-agent runs. It is driven over
+  its native ACP server, the same route Grok and Cursor already use.
+- **Sign in from the browser, not a terminal.** `fx login` is a Vercel device
+  flow, so the fx card offers the same one-time-code sign-in as Claude, Codex
+  and Grok, instead of Cursor's terminal-only login.
+- **The whole gateway catalog, useful models first.** The picker reads the live
+  Vercel AI Gateway list — 229 models — and leads with a curated slice. `auto`
+  keeps whatever `~/.fx/settings.json` already selects.
+- **Know what fx bills.** Every fx credential resolves to Vercel AI Gateway, so
+  running `anthropic/claude-opus-5` under fx spends Gateway credit rather than a
+  Claude subscription. Claude, Codex and Cursor stay the subscription-backed
+  agents. Attach your own provider keys with Vercel BYOK to bill those instead.
+
 ## August 19, 2026 - Stale session branches can be cleaned up (v0.1.405)
 
 - **New `omg projects status` and `omg projects clean`.** The worktree sweeper
