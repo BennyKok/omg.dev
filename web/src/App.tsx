@@ -64,8 +64,6 @@ import {
   type BotShape,
 } from "./components/BotAvatar";
 import { EmbeddedConnectGate } from "./components/embedded-connect-gate";
-import { UserFacepile } from "./components/UserFacepile";
-import { facepileLabel, type FacepileMember } from "./lib/facepile";
 import {
   AuthenticatedArtifactImage,
   AuthenticatedArtifactVideo,
@@ -258,7 +256,6 @@ import {
   Trash2,
   TriangleAlert,
   UserRound,
-  Users,
   Camera,
   X,
   Ellipsis,
@@ -23592,48 +23589,6 @@ export type ShipPost = {
   code?: ShipProvenance;
 };
 
-// Backend shape from GET /api/machine/members (src/users.ts's machineMembers()).
-// Roster emails on a shared box, or the box's one paired omg account on a
-// roster-less hosted Computer — never empty unless the box is both
-// roster-less and unpaired.
-function MachineMembersRow() {
-  const [members, setMembers] = useState<FacepileMember[] | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    void omgFetch("/api/machine/members")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { members?: FacepileMember[] } | null) => {
-        if (alive) setMembers(d?.members ?? []);
-      })
-      .catch(() => {
-        if (alive) setMembers([]);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  return (
-    <div className="flex w-full items-center justify-between gap-4 px-4 py-2.5">
-      <div className="flex items-center gap-3">
-        <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
-          <Users className="size-4" />
-        </span>
-        <span className="text-sm font-medium">Who&apos;s on this machine</span>
-      </div>
-      {members === null ? (
-        <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground/60" />
-      ) : (
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-xs text-muted-foreground">{facepileLabel(members)}</span>
-          <UserFacepile members={members} size={22} maxVisible={4} />
-        </div>
-      )}
-    </div>
-  );
-}
-
 /**
  * Settings-configurable icon: upload, replace, remove. Works identically on a
  * roster box (icon keyed by the selected profile, `identityEmail`) and a
@@ -23902,7 +23857,6 @@ function SettingsView({
             </div>
             <ChevronRight className="size-4 text-muted-foreground/60" />
           </button>
-          <MachineMembersRow />
         </div>
       </section>
 

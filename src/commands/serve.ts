@@ -243,7 +243,6 @@ import {
   assignUser,
   gravatar,
   iconIdentityKey,
-  machineMembers,
   resolveSessionUserTag,
   rosterBoxAccount,
   rosterEmails,
@@ -3271,10 +3270,6 @@ a{color:#60a5fa}
           avatar: gravatar(identity.key),
           users: userRoster(),
         });
-      }
-      // ---- machine membership (facepile source of truth) ----
-      if (path === "/api/machine/members" && req.method === "GET") {
-        return json({ members: machineMembers() });
       }
       // Clone a git repository into LFG_REPOS_ROOT — the onboarding "set up
       // your repo" step for installs that have no repos yet.
