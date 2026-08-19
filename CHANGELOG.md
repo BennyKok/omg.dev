@@ -2,6 +2,22 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - Bots can manage themselves, and mobile puts them first (v0.1.410)
+
+- **Bots can safely update their own profile and create a new bot.** The server
+  derives ownership from the running bot session, limits each owner to ten
+  bots, and never accepts credentials, runtime control or another bot's
+  identity through these tools.
+- **Chat and Bot are now one tap apart on mobile.** The pinned switch matches
+  the desktop rail, and the Bots page now uses a compact, flat roster with one
+  clear New bot row.
+- **A bot conversation now keeps the bot's own face in its mobile header.** A
+  normal coding-agent icon appears only when the session is not owned by a
+  resolved bot.
+- **Mobile message bubbles no longer show a duplicate copy icon.** Long press
+  still opens Copy and Select text, while mouse hover and keyboard focus keep
+  the desktop control available.
+
 ## August 19, 2026 - Cursor stops asking before every tool (v0.1.409)
 
 - **A Cursor session gets on with the work.** It used to stop and ask you to
