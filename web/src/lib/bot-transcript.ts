@@ -61,3 +61,27 @@ const SUBAGENT_UPDATE = /^\s*\[subagent (?:progress|complete|blocked|failed)\]/i
 export function isSubagentUpdateText(text: string): boolean {
   return SUBAGENT_UPDATE.test(text);
 }
+
+/**
+ * Transcript kinds a bot chat does not show.
+ *
+ * A task session's transcript is a log you read: every tool call, every result,
+ * every reasoning block, because the point is auditing what the agent did. A bot
+ * chat is a conversation you are having, and a conversation does not narrate its
+ * own mechanics — nobody wants `$ rg -n "persistent bot" src` in the middle of
+ * being answered.
+ *
+ * Nothing is lost, only relocated: the bot's session is still an ordinary
+ * session, so opening it from the sessions rail shows the whole log, tools and
+ * reasoning included. The bot chat is a view of that session, not a different
+ * recording of it — and heavy work does not run here anyway, it runs in a
+ * background session that has its own row in the fleet.
+ *
+ * Images, video and artifacts stay. A bot that answers you with a picture chose
+ * to hand you that picture; it is the reply, not the machinery behind it.
+ */
+const HIDDEN_IN_BOT_CHAT = new Set(["tool_use", "tool_result", "thinking"]);
+
+export function isBotHiddenLogKind(kind: string | undefined): boolean {
+  return !!kind && HIDDEN_IN_BOT_CHAT.has(kind);
+}

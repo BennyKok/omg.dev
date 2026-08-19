@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   botVisibleUserText,
+  isBotHiddenLogKind,
   isBotLaunchOnlyText,
   isSubagentUpdateText,
   stripBotLaunchEnvelope,
@@ -77,5 +78,28 @@ describe("background task updates in a bot chat", () => {
     expect(isSubagentUpdateText("")).toBe(false);
     // A marker quoted mid-sentence is the human talking about one, not one reporting.
     expect(isSubagentUpdateText("it said [subagent failed] and then stopped")).toBe(false);
+  });
+});
+
+// A bot chat is a conversation, not a log. The full log still exists — the
+// bot's session opens as an ordinary session — but the chat view does not
+// narrate the mechanics of being answered.
+describe("what a bot chat hides", () => {
+  test("tool calls, their results, and reasoning are machinery", () => {
+    expect(isBotHiddenLogKind("tool_use")).toBe(true);
+    expect(isBotHiddenLogKind("tool_result")).toBe(true);
+    expect(isBotHiddenLogKind("thinking")).toBe(true);
+  });
+
+  test("what the bot actually handed you stays", () => {
+    // Text is the reply; media and artifacts are replies the bot chose to send
+    // as something other than words.
+    expect(isBotHiddenLogKind("text")).toBe(false);
+    expect(isBotHiddenLogKind("image")).toBe(false);
+    expect(isBotHiddenLogKind("video")).toBe(false);
+    expect(isBotHiddenLogKind("html")).toBe(false);
+    // An unkinded message is a plain turn, not machinery.
+    expect(isBotHiddenLogKind(undefined)).toBe(false);
+    expect(isBotHiddenLogKind("")).toBe(false);
   });
 });

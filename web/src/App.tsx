@@ -36,6 +36,7 @@ import { cacheProjectFilter, readCachedProjectFilter } from "./lib/project-filte
 import { resolveRosterUser } from "./lib/roster-user";
 import {
   botVisibleUserText as botVisibleUserTextFor,
+  isBotHiddenLogKind,
   isBotLaunchOnlyText,
   isSubagentUpdateText,
 } from "./lib/bot-transcript";
@@ -16036,7 +16037,11 @@ const onTouchStart = (e: ReactTouchEvent) => {
         {!collapsedView && !headerBot && session.botId && session.botName ? (
           <DrivenByBotBadge session={session} />
         ) : null}
-        {!collapsedView && (
+        {/* A bot's header is its face, its name and its persona (spec §4.1).
+            The harness it happens to run on is a session detail, and picking a
+            model mid-conversation is a session action — both belong to the
+            session view of this same session, not to the chat. */}
+        {!collapsedView && !headerBot && (
           (session.agent === "claude" || session.agent === "opencode") &&
           (session.tmuxTarget || session.agent === "opencode") &&
           sid ? (
@@ -16094,7 +16099,10 @@ const onTouchStart = (e: ReactTouchEvent) => {
             variant={headerBot ? "avatar" : "inline"}
           />
         )}
-        {!collapsedView && (
+        {/* No fork, ship, close or archive in a bot chat: a bot session is not
+            closed from the UI, and the gear beside its name is the one entry
+            point to everything you can change about it. */}
+        {!collapsedView && !headerBot && (
           <SessionActionsMenu
             session={session}
             busy={busy}
@@ -16167,7 +16175,10 @@ const ChatStream = memo(function ChatStream({
           !message.seed &&
           (!bot ||
             (!isBotRuntimeContractMessage(message) &&
-              !isBotBackgroundUpdateMessage(message))),
+              !isBotBackgroundUpdateMessage(message) &&
+              // A conversation does not narrate its own mechanics. The full log
+              // is still one click away, in this session's ordinary view.
+              !isBotHiddenLogKind(message.kind))),
       );
       if (!bot) return filtered;
       const delivered = new Set(
@@ -16393,8 +16404,10 @@ const ChatStream = memo(function ChatStream({
       </button>
     </div>
     {/* Floating "diffs for review" bar: appears when this session's worktree
-        has changes; opens the pierre-style diff viewer. */}
-    <SessionDiffBar sid={sid} onVisibilityChange={setDiffBarVisible} />
+        has changes; opens the pierre-style diff viewer. Not in a bot chat —
+        reviewing a diff is work you do on a session, and the bot's own repo is
+        not where its heavy work happens anyway. */}
+    {bot ? null : <SessionDiffBar sid={sid} onVisibilityChange={setDiffBarVisible} />}
     </div>
   );
 });
