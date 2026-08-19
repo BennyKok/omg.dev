@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## August 19, 2026 - Hosted questions have a visible inbox button (v0.1.402)
+
+- **Hosted omg.dev now shows the question button when an agent needs input.**
+  The button opens the Notifications inbox. The hosted layout still keeps
+  self-hosted update controls out of the host-owned chrome.
+
 ## August 19, 2026 - Existing hosted questions return to the inbox (v0.1.401)
 
 - **Questions created before v0.1.400 now appear again.** The inbox recovers an
