@@ -208,6 +208,18 @@ describe("Computer agent admission", () => {
     ).toEqual({ plan: "x", limit: 64, scheduleLimit: 64 });
   });
 
+  test("accepts an additive persistent-bot entitlement without deriving it from plan", () => {
+    expect(computerAgentAdmissionContext(
+      '{"plan":"custom","limit":4,"scheduleLimit":2,"persistentBotLimit":37}',
+    )).toEqual({ plan: "custom", limit: 4, scheduleLimit: 2, persistentBotLimit: 37 });
+    expect(computerAgentAdmissionContext(
+      '{"plan":"custom","limit":4,"scheduleLimit":2}',
+    )).toEqual({ plan: "custom", limit: 4, scheduleLimit: 2 });
+    expect(computerAgentAdmissionContext(
+      '{"plan":"custom","limit":4,"scheduleLimit":2,"persistentBotLimit":"team"}',
+    )).toEqual({ plan: "custom", limit: 4, scheduleLimit: 2 });
+  });
+
   test("NO_AGENT_LIMIT waives the count, and ONLY the count", () => {
     // The self-hosted override. Discarding the cap must not also discard the
     // memory budget — that budget is the whole reason overriding is safe to

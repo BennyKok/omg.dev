@@ -38,6 +38,7 @@
 
 import type { Bot } from "./store.ts";
 import { botReadUser, conversationOwner, type BotConversationOwnerRow } from "./unread.ts";
+import { resolveSessionUserTag } from "../users.ts";
 
 /**
  * Viewer email stamped by control-plane's session proxy, taken from the
@@ -88,6 +89,24 @@ export function botViewerFromRequest(
   requestedUser: string | null | undefined,
 ): BotViewer {
   return botViewer(req.headers.get(VIEWER_EMAIL_HEADER), requestedUser);
+}
+
+/**
+ * Resolve attribution for a new bot.
+ *
+ * A managed request always uses the identity stamped by the authenticated host
+ * proxy. Its body cannot move the create into another member's allowance. A
+ * local administrator has no HTTP identity layer, so the existing roster
+ * validation remains its explicit attribution boundary.
+ */
+export function botCreationOwner(
+  viewer: BotViewer,
+  requestedUser: string | null | undefined,
+  roster: string[],
+): { ok: true; owner: string | undefined } | { ok: false; unknown: string } {
+  if (viewer.managed) return { ok: true, owner: viewer.identity };
+  const tag = resolveSessionUserTag(requestedUser, roster);
+  return tag.ok ? { ok: true, owner: tag.user } : tag;
 }
 
 /**
