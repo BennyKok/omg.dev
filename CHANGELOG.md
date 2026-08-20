@@ -2,6 +2,22 @@
 
 Recent product updates and deployment notes.
 
+## August 20, 2026 - The hosted Computer/Settings switcher could float over the page instead of docking
+
+- **On a host running `@omg-dev/app`'s native mount (`app.omg.dev`) at a
+  tablet-portrait or narrow-desktop width (roughly 768-1023px), the host's
+  Computer/Settings pill lost its usual anchor point and fell back to
+  floating a differently-styled pill over the top of the page** — visible as
+  a small, foreign-looking capsule overlapping other chrome. LFG's embedded
+  header renders a `data-lfg-host-slot="header-actions"` node the host docks
+  into at every breakpoint; that node existed on the mobile header (<768px)
+  and the desktop rail footer (>=1024px) but was missing from the one header
+  branch in between. The generic/tablet header now carries the same slot and
+  host-settings capability flag as the mobile header. See
+  `docs/hosted-shell-inventory.md` for the full shell inventory and root
+  cause. Ships to the hosted product once `vibes` bumps its `@omg-dev/app`
+  pin past this release.
+
 ## August 20, 2026 - The desktop Chat/Bots switch could disappear after selecting a bot (v0.2.13)
 
 - **On desktop, opening a bot's conversation hid the Chat/Bots switch bar in
