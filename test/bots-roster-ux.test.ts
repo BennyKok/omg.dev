@@ -56,15 +56,17 @@ describe("bots page roster chrome", () => {
   });
 
   test("the page roster is larger than the compact rail", () => {
-    expect(ROSTER).toContain("text-3xl font-semibold");
+    expect(ROSTER).toContain("text-[32px] font-bold");
     expect(ROSTER).toContain("size={56}");
     expect(ROSTER).toContain("text-base font-semibold");
-    expect(ROSTER).toContain("text-sm text-muted-foreground");
+    expect(ROSTER).toContain("text-sm");
     expect(ROSTER).toContain("size-9");
     expect(ROSTER).toContain("text-[15px]");
+    expect(ROSTER).toContain("isCodingAgentStoppedText(rawPreview)");
+    expect(ROSTER).toContain("text-destructive");
     expect(BOT_RAIL).toContain("size={railCollapsed ? 24 : 28}");
     expect(BOT_RAIL).not.toContain("size={56}");
-    expect(BOT_RAIL).not.toContain("text-3xl");
+    expect(BOT_RAIL).not.toContain("text-[32px]");
   });
 
   test("New bot stays a quiet dashed row", () => {

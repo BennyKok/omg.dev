@@ -19,7 +19,7 @@ export type SurfaceToggleActive = "sessions" | "chat";
 
 /** Flat roster treatment on the Bots page — airier than the compact rail. */
 export const MOBILE_BOT_ROSTER_ROW_CLASS =
-  "flex w-full items-center gap-3.5 rounded-lg px-2 py-3.5 text-left transition-colors hover:bg-muted";
+  "flex w-full items-center gap-3.5 rounded-lg px-2 py-4 text-left transition-colors hover:bg-muted";
 
 /**
  * The persistent mobile bottom toggle shows only at real mobile widths, and

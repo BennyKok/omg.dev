@@ -98,6 +98,7 @@ import {
   botVisibleUserText as botVisibleUserTextFor,
   isBotHiddenLogKind,
   isBotLaunchOnlyText,
+  isCodingAgentStoppedText,
   isSubagentUpdateText,
 } from "./lib/bot-transcript";
 import { sessionMatchesUserFilter } from "./lib/user-filter";
@@ -25742,9 +25743,9 @@ function BotsView({
       {shouldShowInlineBotsSurfaceToggle(isMobile) ? (
         <SurfaceToggle active="chat" onOpenSessions={onOpenSessions} onOpenBots={() => {}} />
       ) : null}
-      <div className="flex items-start gap-3 px-2 pb-2 pt-4">
+      <div className="flex items-start gap-3 px-2 pb-3 pt-5">
         <div className="min-w-0 flex-1">
-          <h1 className="text-3xl font-semibold leading-tight tracking-tight">Bots</h1>
+          <h1 className="text-[32px] font-bold leading-tight tracking-tight">Bots</h1>
         </div>
       </div>
       {/* Quiet dashed "New bot" row — same control as the rail, sized for
@@ -25766,6 +25767,7 @@ function BotsView({
         const rawPreview = session?.last?.text || session?.lastUserText || row.lastMessagePreview || item.lastMessagePreview || "";
         // See the rail roster: a `[subagent …]` report is not preview material.
         const preview = plainPreviewText(botRosterPreview(rawPreview, working));
+        const stopped = !working && isCodingAgentStoppedText(rawPreview);
         return (
           <button
             key={row.key}
@@ -25778,7 +25780,7 @@ function BotsView({
             <span className="flex min-w-0 flex-1 flex-col">
               <span className={cn("truncate text-base font-semibold", !item.enabled && "text-muted-foreground")}>{item.name}</span>
               {preview ? (
-                <span className="truncate text-sm text-muted-foreground">{preview}</span>
+                <span className={cn("truncate text-sm", stopped ? "text-destructive" : "text-muted-foreground")}>{preview}</span>
               ) : null}
             </span>
             {row.unread ? (
