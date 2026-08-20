@@ -29,7 +29,7 @@ function openBotConversationBranch(): string {
   const start = APP.indexOf("\n  if (bot) {", view);
   expect(start).toBeGreaterThan(-1);
   // The branch ends where the roster (non-selected) render begins.
-  const end = APP.indexOf('\n    <div className="mx-auto flex max-w-3xl flex-col gap-2" data-lfg-page-column>', start);
+  const end = APP.indexOf('\n    <div className="mx-auto flex max-w-3xl flex-col gap-3" data-lfg-page-column>', start);
   expect(end).toBeGreaterThan(start);
   return APP.slice(start, end);
 }
