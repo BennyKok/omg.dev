@@ -314,10 +314,7 @@ export function EmbeddedConnectGate({
         </div>
         {page === "survey-identity" ? (
           <>
-            <h1 className="text-xl font-semibold">Which best describes you?</h1>
-            <p className="mb-5 mt-1 text-sm text-muted-foreground">
-              Helps us show you the right things first.
-            </p>
+            <h1 className="mb-5 text-xl font-semibold">Which best describes you?</h1>
             <SurveyOptionGrid
               options={IDENTITY_OPTIONS}
               selected={surveyAnswers.identity ? [surveyAnswers.identity] : []}

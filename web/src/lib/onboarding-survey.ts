@@ -25,7 +25,7 @@ export type SurveyOption<V extends string> = {
   icon: string;
 };
 
-// "Side hustling" used to carry a moon (time-of-day) next to three role
+// "Side hustle" used to carry a moon (time-of-day) next to three role
 // metaphors (rocket, palette, sparkles) — a different kind of metaphor in
 // the same row. Layers reads as "juggling more than one thing", which is
 // what a side hustle actually is, and stays in the same "what you do"
@@ -34,7 +34,7 @@ export const IDENTITY_OPTIONS: readonly SurveyOption<SurveyIdentity>[] = [
   { value: "founder", label: "Founder", icon: "rocket" },
   { value: "designer", label: "Designer", icon: "palette" },
   { value: "creator", label: "Creator", icon: "sparkles" },
-  { value: "side-hustle", label: "Side hustling", icon: "layers" },
+  { value: "side-hustle", label: "Side hustle", icon: "layers" },
 ];
 
 // 4 options, not 5: the original 5th ("I do not trust AI with real work")
@@ -58,7 +58,7 @@ export const DAILY_TOOL_OPTIONS: readonly SurveyOption<SurveyDailyTool>[] = [
   { value: "notion", label: "Notion", icon: "brand:notion" },
   { value: "dropbox", label: "Dropbox", icon: "brand:dropbox" },
   { value: "drive", label: "Google Drive", icon: "brand:google-drive" },
-  { value: "chat", label: "WhatsApp / iMessage", icon: "brand:whatsapp" },
+  { value: "chat", label: "WhatsApp", icon: "brand:whatsapp" },
   { value: "slack", label: "Slack", icon: "brand:slack" },
 ];
 
