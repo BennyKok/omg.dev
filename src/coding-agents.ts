@@ -201,7 +201,7 @@ export const CODING_AGENT_LABELS: Record<CodingAgentKind, string> = {
   copilot: "copilot",
 };
 
-const CONFIG_PATH = join(PATHS.data, "coding-agents.json");
+const configPath = () => join(PATHS.data, "coding-agents.json");
 const setupRuns = new Map<CodingAgentKind, Promise<void>>();
 const setupProgress = new Map<CodingAgentKind, { percent: number; label: string }>();
 
@@ -251,7 +251,7 @@ function readJson<T>(path: string): T | null {
 }
 
 export async function getCodingAgentConfig(): Promise<CodingAgentConfig> {
-  const raw = readJson<CodingAgentConfig>(CONFIG_PATH);
+  const raw = readJson<CodingAgentConfig>(configPath());
   return { agents: raw?.agents ?? {} };
 }
 
@@ -262,8 +262,23 @@ export async function setCodingAgentVisibility(
   const cfg = await getCodingAgentConfig();
   cfg.agents[kind] = { ...(cfg.agents[kind] ?? {}), visible };
   await mkdir(PATHS.data, { recursive: true });
-  await Bun.write(CONFIG_PATH, JSON.stringify(cfg, null, 2));
+  await Bun.write(configPath(), JSON.stringify(cfg, null, 2));
   return cfg;
+}
+
+/**
+ * Composer toggle for one coding agent.
+ *
+ * An agent is ON only when it can actually run. No saved choice follows
+ * readiness: ready defaults ON, unready defaults OFF. An explicit hide stays
+ * off after the agent becomes ready. An old implicit-on value (`true`, or
+ * missing) does not keep an unready agent on.
+ */
+export function codingAgentVisible(
+  saved: boolean | undefined,
+  configured: boolean,
+): boolean {
+  return saved === false ? false : configured;
 }
 
 function which(name: string, extra: string[] = []): string | null {
@@ -1288,12 +1303,15 @@ export async function listCodingAgents(): Promise<CodingAgentInfo[]> {
   // more than a second apiece; serialising them would stall the read even
   // after the spawn itself is async.
   return Promise.all(
-    CODING_AGENT_KINDS.map(async (key) => ({
-      key,
-      label: CODING_AGENT_LABELS[key],
-      visible: cfg.agents[key]?.visible !== false,
-      status: await statusFor(key),
-    })),
+    CODING_AGENT_KINDS.map(async (key) => {
+      const status = await statusFor(key);
+      return {
+        key,
+        label: CODING_AGENT_LABELS[key],
+        visible: codingAgentVisible(cfg.agents[key]?.visible, status.configured),
+        status,
+      };
+    }),
   );
 }
 
