@@ -67,6 +67,7 @@ import {
   isBotConversation,
   isOtherHumanMessageAuthor,
   productBotId,
+  renderedBotId,
   unknownConversationParticipant,
 } from "./lib/conversation-ui";
 import {
@@ -12289,6 +12290,14 @@ function RailStage({
     onCloseColumn?: () => void,
   ) => {
     const sid = session.sessionId ?? "";
+    // The bot stage renders exactly one column — the bot the rail resolved
+    // via botCanonicalSessionId/botStageSession (see botStageColumns above).
+    // That resolution is already verified; hand it to SessionCard as the
+    // trusted identity instead of letting it re-derive one from this
+    // session's own (possibly stale/nested/child-attached) conversation
+    // snapshot. Every other stage column (railSurface !== "chat") passes
+    // undefined and keeps the existing productBotId-derived behavior.
+    const stageBotId = railSurface === "chat" ? (selectedBot?.id ?? null) : undefined;
     return (
       <div
         key={sessionStableId(session)}
@@ -12322,6 +12331,7 @@ function RailStage({
             focusGlow={focusGlow?.sid === sid ? focusGlow.n : 0}
             pinned={!session.shippedReview && topPinnedSet.has(sid)}
             onTogglePin={session.shippedReview ? undefined : onToggleTopPin}
+            stageBotId={stageBotId}
           />
         </ErrorBoundary>
       </div>
@@ -16070,6 +16080,7 @@ const SessionCard = memo(function SessionCard({
   focusGlow = 0,
   pinned = false,
   onTogglePin,
+  stageBotId,
 }: {
   session: Session;
   users: User[];
@@ -16098,6 +16109,15 @@ const SessionCard = memo(function SessionCard({
   // Narrow/mobile list preference. Desktop stage pinning is owned by RailStage.
   pinned?: boolean;
   onTogglePin?: (sid: string) => void;
+  // Set only by the dedicated bot-stage column (RailStage, railSurface ===
+  // "chat"): the id of the bot the caller resolved and navigated to. That
+  // resolution already went through the canonical, botId-verified picker
+  // (botCanonicalSessionId / botStageSession) — trust it outright rather than
+  // re-derive identity from this session's own conversation snapshot, which
+  // can lag behind rotation or point at a same-sessionId/child/stale
+  // attachment. Undefined (every other caller: grid cards, regular stage
+  // columns) keeps the existing productBotId-derived behavior unchanged.
+  stageBotId?: string | null;
 }) {
   const appDialog = useAppDialog();
   const catalog = useAgentModelCatalog();
@@ -16110,7 +16130,7 @@ const SessionCard = memo(function SessionCard({
   // name in the header rather than a generated session title, wherever it is
   // opened from.
   const botDirectory = useContext(BotDirectoryContext);
-  const headerBotId = productBotId(session);
+  const headerBotId = renderedBotId(session, stageBotId);
   const headerBot = headerBotId ? botDirectory.get(headerBotId) ?? null : null;
   const editBot = useContext(EditBotContext);
 
@@ -16395,7 +16415,7 @@ const onTouchStart = (e: ReactTouchEvent) => {
               bot's face instead of the harness mark: the creature already says
               which agent it is, and it carries busy in its own posture, so the
               spinner would be saying it twice. See SessionHeaderIdentity. */}
-          <SessionHeaderIdentity session={session} busy={busy} size={28} />
+          <SessionHeaderIdentity session={session} busy={busy} size={28} trustedBotId={headerBotId} />
           {renamingInline ? (
             <SessionTitleInlineEditor
               initial={session.title?.trim() || titleForSession(session)}
@@ -16565,6 +16585,11 @@ const onTouchStart = (e: ReactTouchEvent) => {
       {!collapsedView && (
         <SessionChat
           session={session}
+          // Same trusted identity as the header: on the bot-stage column this
+          // is the bot the caller already resolved, not whatever SessionChat's
+          // own productBotId fallback would re-derive from the session's
+          // conversation snapshot.
+          bot={headerBot ?? undefined}
           busy={busy}
           prompt={prompt}
           error={error}
@@ -25050,14 +25075,21 @@ function SessionHeaderIdentity({
   session,
   busy,
   size = 28,
+  trustedBotId,
 }: {
   session: Session;
   busy: boolean;
   size?: number;
+  // Passed by SessionCard on the bot-stage column, where the caller already
+  // resolved and verified the bot via the canonical picker. When present
+  // (including explicitly null) it wins outright; productBotId only runs for
+  // callers that never resolved a trusted id themselves (e.g. the mobile
+  // session detail sheet, opened generically from the session list).
+  trustedBotId?: string | null;
 }) {
   const botDirectory = useContext(BotDirectoryContext);
   const identity = resolveSessionHeaderIdentity(
-    { ...session, botId: productBotId(session) },
+    { ...session, botId: renderedBotId(session, trustedBotId) },
     botDirectory,
   );
 
@@ -25488,15 +25520,18 @@ function BotsView({
                   own header is the only way out. An open conversation owns the
                   surface: the Chat/Bots switch belongs to the roster and the
                   list pages, never inside a conversation, so this Back button
-                  is the exit. */}
+                  is the exit. Icon-only — the "Bots" label used to ride along
+                  with the chevron, but the destination is already implied by
+                  what the button is exiting. Kept a square, thumb-sized hit
+                  target (size-9, matching the other icon-only header controls)
+                  so the label's removal doesn't shrink what's tappable. */}
               <button
                 type="button"
                 onClick={onBack}
                 aria-label="Back to bots"
-                className="-ml-2 flex h-9 shrink-0 items-center gap-0.5 rounded-full pl-1 pr-2 text-[13px] font-medium tracking-[-0.01em] text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground active:scale-[0.96]"
+                className="-ml-2 flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground active:scale-[0.96]"
               >
                 <ChevronLeft className="size-[18px]" />
-                <span>Bots</span>
               </button>
               <BotAvatar bot={bot} working={busy} size={28} />
               {/* This header is the bot's identity and settings — never who
