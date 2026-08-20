@@ -136,6 +136,7 @@ import {
   // Aliased: the route already binds `visibleBots` to its own result.
   visibleBots as visibleBotsForViewer,
 } from "../bots/access.ts";
+import { formatBotAttribution, resolveBotMessageAuthor } from "../bots/authorship.ts";
 import { startAutoScheduler, setBotRoutineDelivery } from "../auto/scheduler.ts";
 import { handleWakeTick } from "../auto/wake-tick.ts";
 import { pushWakeHooksNow, setWakeHooksBootId } from "../auto/wake-hooks-push.ts";
@@ -4644,8 +4645,17 @@ a{color:#60a5fa}
           const body = (await req.json().catch(() => null)) as { text?: unknown; user?: unknown } | null;
           const text = typeof body?.text === "string" ? body.text.trim() : "";
           if (!text) return err(400, "text is required");
-          const tag = resolveSessionUserTag(typeof body?.user === "string" ? body.user : undefined);
-          if (!tag.ok)
+          const requestedUser = typeof body?.user === "string" ? body.user : undefined;
+          // The write route now asks the same question the read routes ask.
+          // When control-plane vouched for this caller, their email decides
+          // authorship and `body.user` is never consulted — see
+          // bots/authorship.ts for why that ordering is the security property.
+          const viewer = botViewerFromRequest(req, requestedUser);
+          const tag = resolveSessionUserTag(requestedUser);
+          // A managed caller's `body.user` is inert, so validating it can only
+          // produce a spurious 400 on a shared Computer that also happens to
+          // have a local roster. Unmanaged callers keep the original contract.
+          if (!tag.ok && !viewer.managed)
             return err(400, `unknown user "${tag.unknown}" (expected one of the roster emails)`);
           // A rotation the human already asked for lands here, at the first
           // moment the bot is demonstrably reachable. Rotating before the
@@ -4660,8 +4670,13 @@ a{color:#60a5fa}
           }
           // Attribute before launching: when the session has to be started, this
           // exact text rides inside the launch prompt instead of racing it.
-          const author = tag.user || bot.owner || process.env.OMG_USER?.trim() || "user";
-          const attributed = `[Message from ${author} to bot ${bot.name}]\n\n${text}`;
+          const { author } = resolveBotMessageAuthor({
+            viewer,
+            rosterTagUser: tag.ok ? tag.user : undefined,
+            botOwner: bot.owner,
+            envUser: process.env.OMG_USER,
+          });
+          const attributed = `${formatBotAttribution(author, bot.name)}\n\n${text}`;
           const delivery = await deliverBotMessage(bot, attributed);
           if ("error" in delivery) return err(delivery.status, delivery.error);
           return json({ sessionId: delivery.sessionId });
