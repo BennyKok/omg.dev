@@ -37,4 +37,19 @@ describe("the bootstrap payload", () => {
         .toContain(`boot.${key}`);
     }
   });
+
+  // The transcript renderer's own-vs-other-human avatar split (see
+  // isOtherHumanMessageAuthor in web/src/lib/conversation-ui.ts) reads
+  // `viewer.participantId` off this same payload. If a future edit here drops
+  // it, or derives it from something other than the request's own trusted
+  // viewer, that split silently breaks for every shared bot conversation with
+  // no type error anywhere — the same class of "gathered but discarded" bug
+  // the task test above exists for.
+  test("carries the requesting viewer's own conversation participant id, from the trusted viewer only", () => {
+    const block = bootstrapBlock();
+    expect(block).toContain("botViewerFromRequest(req, url.searchParams.get(\"user\"))");
+    expect(block).toContain("viewerConversationParticipantId(viewer.identity)");
+    const response = block.slice(block.indexOf("return json("));
+    expect(response).toContain("viewer: { managed: viewer.managed, participantId: viewerParticipantId }");
+  });
 });

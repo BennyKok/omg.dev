@@ -162,6 +162,7 @@ import {
   listConversations,
   replaceConversationPrimaryRuntime,
   upsertConversationParticipant,
+  viewerConversationParticipantId,
 } from "../conversations.ts";
 import { startAutoScheduler, setBotRoutineDelivery } from "../auto/scheduler.ts";
 import { handleWakeTick } from "../auto/wake-tick.ts";
@@ -4163,7 +4164,13 @@ a{color:#60a5fa}
           warmChatTranscripts(sessions);
           return sessions;
         });
-        const viewer = botViewerFromRequest(req, undefined);
+        // Unmanaged callers have no trusted header, so the client tells us which
+        // locally-selected roster profile it's using (the same identity it
+        // already sends to /api/bots?user= and to bot message sends) — this
+        // is a view preference on a box that already has no auth between its
+        // local users, not a new trust boundary. A managed caller's trusted
+        // header always wins over this regardless (see botViewer).
+        const viewer = botViewerFromRequest(req, url.searchParams.get("user"));
         const conversationsTask = sessionsTask.then(() => {
           let conversations = listConversations();
           if (viewer.managed && viewer.identity) {
@@ -4174,6 +4181,9 @@ a{color:#60a5fa}
           }
           return conversations;
         });
+        // Which participant, if any, the *messages* the UI is about to render
+        // belong to "me" — see viewerConversationParticipantId.
+        const viewerParticipantId = viewerConversationParticipantId(viewer.identity);
         const reposTask = listRepos();
         const codingAgentsTask = listCodingAgentsCached();
         const settingsTask = getGlobalSettings();
@@ -4218,6 +4228,13 @@ a{color:#60a5fa}
             settings: boot.settings ?? null,
             sessions: boot.sessions ? boot.sessions.map(sessionListRow) : null,
             conversations: boot.conversations ?? null,
+            // Not an authorization signal — never gates what the UI is allowed
+            // to show. It only tells the transcript renderer which already-
+            // delivered MessageAuthorRef.participantId is "mine", so a shared
+            // bot conversation's message list can skip drawing a redundant
+            // avatar on the viewer's own turns. See conversation-ui.ts on the
+            // client for the comparison.
+            viewer: { managed: viewer.managed, participantId: viewerParticipantId },
             users: boot.users ?? null,
             repos: boot.repos ?? null,
             auto: {
