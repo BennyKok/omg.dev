@@ -7,6 +7,7 @@ import type {
   SetupCheckGroup,
 } from "../App";
 import { agentIconAlt, agentIconSrc } from "../lib/session-ui";
+import { agentStatusNote, binaryMissing } from "../lib/coding-agent-status-note";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/lib/notify";
@@ -32,31 +33,12 @@ import { useState } from "react";
  * agent has no provider/account rows of its own.
  */
 
-/** statusFor() labels the binary row "<Product> CLI" or "pi runtime". */
-export function isBinaryCheck(label: string): boolean {
-  return /CLI$|runtime$/i.test(label);
-}
-
-export function binaryMissing(checks: { label: string; ok: boolean }[]): boolean {
-  return checks.some((check) => isBinaryCheck(check.label) && !check.ok);
-}
-
 /** Setup groups still name the failing check. Agent rows do not. */
 function statusNote(checks: { label: string; ok: boolean }[]): string | null {
   const failing = checks.filter((check) => !check.ok);
   if (!failing.length) return null;
   if (failing.length === 1) return `${failing[0].label} missing`;
   return `${failing.length} checks failing`;
-}
-
-/** One quiet word when the agent cannot run. Ready rows stay silent. */
-export function agentStatusNote(
-  checks: { label: string; ok: boolean }[],
-): "Install" | "Connect" | null {
-  const failing = checks.filter((check) => !check.ok);
-  if (!failing.length) return null;
-  if (failing.some((check) => isBinaryCheck(check.label))) return "Install";
-  return "Connect";
 }
 
 function CheckList({ checks }: { checks: { label: string; ok: boolean; detail?: string }[] }) {
