@@ -26,6 +26,14 @@ import {
   shouldShowEmbeddedConnectGate,
   type ToolConnectOption,
 } from "./lib/embedded-connect";
+import {
+  hostedCoachSteps,
+  shouldShowHostedCoach,
+  unrecordedHostedCoachSteps,
+  type HostedCoachFlags,
+  type HostedCoachKey,
+} from "./lib/hosted-coach";
+import { HostedCoachCard } from "./components/hosted-coach-card";
 import { emitSessionCreatedToHost } from "./lib/embed-host-signal";
 import { isAuthorizationUrl } from "./lib/auth-popup";
 import { LFG_SMALL_ICON_PATH } from "./lib/icon-assets";
@@ -5594,6 +5602,10 @@ export function App() {
     nonce: number;
   } | null>(null);
   const [composerFocusNonce, setComposerFocusNonce] = useState(0);
+  // Local echo of "I dismissed the getting-started panel". The durable record
+  // is the server marking every coach step done (see the card's onDismiss);
+  // this just makes it go away without waiting on the round trip.
+  const [hostedCoachDismissed, setHostedCoachDismissed] = useState(false);
   // Auto agents
   // Tabs are "live" | "settings" | "notifications" | "term". Auto agents and runtime
   // extension nav-tabs now render inside the Settings page rather than as their
@@ -7502,6 +7514,25 @@ export function App() {
   }, []);
 
   /**
+   * Record hosted coach progress. Same fire-and-forget posture as
+   * markHostedIntroDone: a failed write costs a repeated step, never a block.
+   * hostedCoachSteps() also counts on-box evidence, so the panel stays correct
+   * for the whole session even when this never lands.
+   */
+  const markHostedCoach = useCallback(async (patch: Partial<HostedCoachFlags>) => {
+    try {
+      const response = await api<{ state: OnboardingState }>("/api/onboarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hostedCoach: patch }),
+      });
+      setOnboarding(response.state);
+    } catch {
+      /* see above */
+    }
+  }, []);
+
+  /**
    * Put the hosted surface back through its own first run. Deliberately does
    * NOT touch `steps`/`completedAt`: those belong to the open-source flow, and
    * a hosted Computer must not be able to reset a walkthrough it never ran.
@@ -7524,6 +7555,7 @@ export function App() {
       }
       setConnectGateSkipped(false);
       connectGateStarted.current = false;
+      setHostedCoachDismissed(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't restart the tour");
     }
@@ -7861,6 +7893,44 @@ export function App() {
       ? !!onboarding.hosted.introDoneAt
       : hostedIntroDoneOnThisDevice()
     : false;
+
+  // Second half of the hosted first run, and the half that was missing: the
+  // connect gate hands a fresh Computer back to an empty home with nothing to
+  // read. These steps are optional, so unlike the gate they render INSIDE the
+  // home surface (see components/hosted-coach-card.tsx). Counts are unfiltered
+  // on purpose — "have you ever run a session here" is not a question the
+  // project filter gets to answer.
+  const hostedCoachFlags = onboarding?.hosted?.coach ?? null;
+  const hostedCoachInput = {
+    coach: hostedCoachFlags,
+    sessionCount: sessions.length,
+    autoAgentCount: autoAgents.length,
+  };
+  const hostedCoach = hostedCoachSteps(hostedCoachInput);
+  const hostedCoachOpen =
+    !hostedCoachDismissed &&
+    shouldShowHostedCoach({
+      embedded,
+      bare,
+      introSeen: hostedIntroSeen,
+      // `onboarding` is null until bootstrap answers. Rendering a fresh-looking
+      // checklist over an unknown state would flash it at people who are done.
+      coachLoaded: !!onboarding,
+      steps: hostedCoach,
+    });
+
+  // Backfill the server from what the box can already prove, so progress made
+  // before this panel existed (or while a write failed) is not re-taught on the
+  // next device. Keyed on the pending list, so it fires once per real change.
+  const hostedCoachPending = onboarding ? unrecordedHostedCoachSteps(hostedCoachInput) : [];
+  const hostedCoachPendingKey = hostedCoachPending.join(",");
+  useEffect(() => {
+    if (!embedded || !hostedCoachPendingKey) return;
+    const patch: Partial<HostedCoachFlags> = {};
+    for (const key of hostedCoachPendingKey.split(",") as HostedCoachKey[]) patch[key] = true;
+    void markHostedCoach(patch);
+  }, [embedded, hostedCoachPendingKey, markHostedCoach]);
+
   const connectGateRequired = shouldShowEmbeddedConnectGate({
     embedded,
     bare,
@@ -8448,6 +8518,37 @@ export function App() {
               onManageSessions={(template) => void launchManageSessions(template)}
               onClearIdle={() => void clearIdleSessions()}
               hosted={embedded}
+              // The hosted first run's optional half. Steps complete from
+              // EVIDENCE (a session exists, an auto agent exists), so these
+              // handlers only take the person to where the step happens —
+              // claiming a step on click would tick it for anyone who tapped
+              // and changed their mind.
+              coach={
+                hostedCoachOpen ? (
+                  <HostedCoachCard
+                    steps={hostedCoach}
+                    onStep={(key) => {
+                      if (key === "schedule") {
+                        // The auto-agent surface, not Settings: a framed box
+                        // has no Settings tab of its own (the host owns that
+                        // chrome), but `tab === "auto"` renders either way.
+                        setTab("auto");
+                        return;
+                      }
+                      if (isMobile) setComposerFocusNonce((n) => n + 1);
+                      else setNewOpen(true);
+                    }}
+                    onDismiss={() => {
+                      // Echo locally, then make it stick. Dismissing IS the
+                      // answer "do not teach me these", so it records the
+                      // steps done rather than hiding them for this tab only —
+                      // and Settings' "Setup guide" row still replays it.
+                      setHostedCoachDismissed(true);
+                      void markHostedCoach({ session: true, schedule: true });
+                    }}
+                  />
+                ) : null
+              }
               findings={projectScopedFindings}
               autoAgents={projectScopedAutoAgents}
               onOpenFinding={setOpenFinding}
@@ -10785,6 +10886,7 @@ function LiveView({
   repos = [],
   onReposChanged,
   hosted = false,
+  coach = null,
   focus,
 }: {
   sessions: Session[];
@@ -10831,6 +10933,9 @@ function LiveView({
   onDismissFinding: (f: AutoFinding) => void;
   onTriageFindings: () => void;
   autoTriageBusy?: boolean;
+  /** Hosted getting-started panel, built by the shell. Null on every other
+   *  surface, so this view stays unaware of first-run state. */
+  coach?: ReactNode;
   // External "jump to session" request (e.g. tapping a Shipped post).
   focus?: { sid: string; n: number } | null;
 }) {
@@ -10975,11 +11080,14 @@ function LiveView({
     !recentShipped.length
   ) {
     return (
-      <div className="flex min-h-[60dvh] flex-col items-center justify-center gap-3 text-center">
-        <MessageSquare className="size-8 text-muted-foreground/45" aria-hidden />
-        <span className="text-sm font-medium text-muted-foreground">
-          No running sessions
-        </span>
+      <div className="flex flex-col gap-5">
+        {coach}
+        <div className="flex min-h-[50dvh] flex-col items-center justify-center gap-3 text-center">
+          <MessageSquare className="size-8 text-muted-foreground/45" aria-hidden />
+          <span className="text-sm font-medium text-muted-foreground">
+            No running sessions
+          </span>
+        </div>
       </div>
     );
   }
@@ -11119,6 +11227,7 @@ function LiveView({
         repos={repos}
         onReposChanged={onReposChanged}
         hosted={hosted}
+        coach={coach}
         focus={focus}
         topPinned={topPinned}
         onToggleTopPin={toggleTopPin}
@@ -11140,6 +11249,7 @@ function LiveView({
   return (
     <>
     <div className="flex flex-col gap-5">
+      {coach}
       {pinned.length ? (
         <section>
           <CategoryHeader label="Pinned" count={pinned.length} dotClass="bg-primary" />
@@ -11315,6 +11425,7 @@ function RailStage({
   repos = [],
   onReposChanged,
   hosted = false,
+  coach = null,
   focus,
   topPinned,
   onToggleTopPin,
@@ -11347,6 +11458,8 @@ function RailStage({
   repos?: Repo[];
   onReposChanged?: () => Promise<void>;
   hosted?: boolean;
+  /** Hosted getting-started panel, built by the shell. */
+  coach?: ReactNode;
   focus?: { sid: string; n: number } | null;
   topPinned: string[];
   onToggleTopPin: (sid: string) => void;
@@ -12697,7 +12810,8 @@ function RailStage({
             }}
           />
         ) : (
-          <div className="flex h-full flex-1 flex-col items-center justify-center">
+          <div className="flex h-full flex-1 flex-col items-center justify-center gap-4">
+            {coach ? <div className="w-full max-w-md text-left">{coach}</div> : null}
             <div className="lfg-gborder flex flex-col items-center gap-3 rounded-3xl border border-transparent bg-card px-8 py-10 text-center shadow-[0_12px_40px_-24px_rgba(0,0,0,0.5)]">
               <div className="lfg-gborder flex size-14 items-center justify-center rounded-2xl border border-transparent bg-muted">
                 <MessageSquare className="size-6 text-muted-foreground" />
