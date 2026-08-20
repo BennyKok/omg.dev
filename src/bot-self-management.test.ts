@@ -5,12 +5,12 @@ import { join } from "node:path";
 
 import { PATHS } from "./config.ts";
 import {
-  BOT_OWNER_QUOTA,
   BotOwnerQuotaError,
   createBot,
   listBots,
   updateBot,
 } from "./bots/store.ts";
+import { DEFAULT_PERSISTENT_BOT_LIMIT, persistentBotQuotaPolicy } from "./bots/quota.ts";
 import {
   BOT_SELF_CREATE_FIELDS,
   BOT_SELF_UPDATE_FIELDS,
@@ -40,13 +40,14 @@ async function bot(name: string, owner = "owner@example.com") {
 }
 
 describe("persistent bot self-management", () => {
-  test("atomically enforces the hard quota of 10 bots per assigned user", async () => {
-    for (let i = 0; i < BOT_OWNER_QUOTA; i++) {
+  test("atomically enforces the default quota per assigned user", async () => {
+    const policy = persistentBotQuotaPolicy({ entitlement: null, configuredLimit: null });
+    for (let i = 0; i < DEFAULT_PERSISTENT_BOT_LIMIT; i++) {
       await createBot({
         name: `Bot ${i}`,
         persona: "Be useful",
         owner: "Owner@Example.com",
-        ownerQuota: BOT_OWNER_QUOTA,
+        ownerQuota: policy,
       });
     }
 
@@ -54,16 +55,16 @@ describe("persistent bot self-management", () => {
       name: "Recursive bot",
       persona: "Create more bots",
       owner: "owner@example.com",
-      ownerQuota: BOT_OWNER_QUOTA,
+      ownerQuota: policy,
     })).rejects.toBeInstanceOf(BotOwnerQuotaError);
 
     await expect(createBot({
       name: "Another user's bot",
       persona: "Be useful",
       owner: "other@example.com",
-      ownerQuota: BOT_OWNER_QUOTA,
+      ownerQuota: policy,
     })).resolves.toMatchObject({ owner: "other@example.com" });
-    expect(await listBots()).toHaveLength(11);
+    expect(await listBots()).toHaveLength(DEFAULT_PERSISTENT_BOT_LIMIT + 1);
   });
 
   test("derives bot and user identity only from matching server session state", async () => {
