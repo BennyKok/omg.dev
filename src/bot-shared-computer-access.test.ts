@@ -69,6 +69,17 @@ describe("shared Computer bot visibility", () => {
     expect(visibleBots(bots, benny, [], BENNY)).toHaveLength(2);
   });
 
+  test("a box whose LOCAL roster is just the owner does not filter", async () => {
+    // The live shape behind this bug. The box's own roster is one name; the
+    // other members exist only in the roster control-plane merges into the
+    // bootstrap response, which never reaches the box. So the box must not
+    // treat its single local name as a user split, or every guest keeps
+    // getting an empty list even after control-plane identifies them.
+    const mine = await createBot({ name: "Mine", persona: "p", owner: BENNY });
+    const angel = botViewer(null, ANGEL);
+    expect(visibleBots([mine], angel, [BENNY], ANGEL)).toHaveLength(1);
+  });
+
   test("a roster-less box does not filter, with or without a trusted header", async () => {
     // users.ts owns this contract: no roster means the per-user split is OFF.
     const bots = await hostedBots();
