@@ -23,6 +23,7 @@ import { botViewer, VIEWER_EMAIL_HEADER, botViewerFromRequest } from "./bots/acc
 import { resolveSessionUserTag } from "./users.ts";
 import {
   botAuthorId,
+  botAuthorEmailFromText,
   botAuthorIdFromText,
   formatBotAttribution,
   isOwnBotMessage,
@@ -254,5 +255,28 @@ describe("negative control: the payload shape that shipped before this change", 
     const bennyTurn = delivered(BENNY, "Scout", "from benny");
     const angelTurn = delivered(ANGEL, "Scout", "from angel");
     expect(botAuthorIdFromText(bennyTurn)).not.toBe(botAuthorIdFromText(angelTurn));
+  });
+});
+
+describe("server-side author, for the rotation checkpoint handoff", () => {
+  // Session ea948ef4's buildHandoffCheckpoint summarises a tail of the old
+  // conversation into the new session's launch prompt. Its CheckpointTurn is
+  // `{ role, text, author? }`, and without an author every human in a shared
+  // thread collapses to the bare word "user", so the bot wakes up unable to
+  // tell three people apart. This is the value it reads.
+  test("hands back the normalized email, not the opaque id", () => {
+    expect(botAuthorEmailFromText(delivered("ANGEL@omg.dev", "Scout", "hi"))).toBe(ANGEL);
+  });
+
+  test("refuses the same turns the client-facing id refuses", () => {
+    // Absent is handled by the checkpoint renderer; a guess is not.
+    expect(botAuthorEmailFromText(delivered("user", "Scout", "hi"))).toBeUndefined();
+    expect(botAuthorEmailFromText("plain historical turn")).toBeUndefined();
+    expect(botAuthorEmailFromText("[subagent complete] done")).toBeUndefined();
+  });
+
+  test("the two readers never disagree about who wrote a turn", () => {
+    const stored = delivered(CARLA, "Scout", "ship it");
+    expect(botAuthorId(botAuthorEmailFromText(stored)!)).toBe(botAuthorIdFromText(stored));
   });
 });
