@@ -66,6 +66,22 @@ export function conversationHumanParticipantId(identity: string): string {
   return digest ? `human:${digest}` : "";
 }
 
+/**
+ * The participant id a viewer's own bootstrap response should carry as "me".
+ *
+ * Only an address can be a person — the same rule bots/authorship.ts's
+ * botAuthorIdFromText uses reading a stored turn's author back off its text.
+ * A BotViewer's `identity` is not always one: on an unmanaged box with nobody
+ * picked as the active local profile, or the anonymous/local placeholder
+ * bucket, it is a fixed sentinel string, not an email. Hashing that sentinel
+ * would produce a stable id that happens to name nobody real, which invites a
+ * caller to treat it as a resolved identity instead of the honest "unknown"
+ * that null makes it read as (see isOtherHumanMessageAuthor on the client).
+ */
+export function viewerConversationParticipantId(identity: string): string | null {
+  return identity.includes("@") ? conversationHumanParticipantId(identity) : null;
+}
+
 export function botParticipantId(botId: string): string {
   return `bot:${botId}`;
 }
