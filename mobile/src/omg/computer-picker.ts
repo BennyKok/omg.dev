@@ -21,6 +21,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import { Linking } from "react-native";
 
 import { CLOUD_BINDING_ID } from "./config";
+import { sharedComputerPickerLabel } from "./computer-shared-binding";
 import { bindingLabel, cloudStatusLabel, relativeTime } from "./format";
 import { type MenuOption } from "./menu";
 import { useOmg } from "./provider";
@@ -39,7 +40,15 @@ const WEB_FIXABLE_CLOUD_STATUSES = new Set(["recycled"]);
 
 export function useComputerPicker() {
   const router = useRouter();
-  const { bindings, cloud, bindingId, selectBinding, refreshMachines, machinesError } = useOmg();
+  const {
+    bindings,
+    sharedComputers,
+    cloud,
+    bindingId,
+    selectBinding,
+    refreshMachines,
+    machinesError,
+  } = useOmg();
   const toast = useToast();
   // The pushed screen this menu replaced surfaced a listing failure with its
   // own toast. There is no longer a screen to own that effect, so the menu
@@ -93,6 +102,27 @@ export function useComputerPicker() {
     }
 
     /**
+     * Machines someone else shared with this account. Their own `section`
+     * heading keeps them visually apart from the rows above — the menu's own
+     * checkmark already tells you which of ALL of them (yours or shared) is
+     * current, but a name like "Ada's MacBook" sitting unlabelled among your
+     * own machines reads as one more of yours, not someone else's.
+     *
+     * Never disabled for being offline: an owner's machine can come back
+     * (theirs to wake, not something this account can do from here), and
+     * `online` on a shared entry defaults optimistic when the server could
+     * not resolve it — see computer-shared-binding.ts's SharedComputerView.
+     */
+    for (const shared of sharedComputers) {
+      rows.push({
+        label: sharedComputerPickerLabel(shared, sharedComputers),
+        section: "Shared with you",
+        selected: shared.id === bindingId,
+        onPress: () => void selectBinding(shared.id),
+      });
+    }
+
+    /**
      * The menu switches; the screen manages. They are not competing answers.
      *
      * A menu is a list of short labels, and there are things it structurally
@@ -115,7 +145,7 @@ export function useComputerPicker() {
     });
 
     return rows;
-  }, [bindings, bindingId, cloud, cloudBlocked, selectBinding, router]);
+  }, [bindings, sharedComputers, bindingId, cloud, cloudBlocked, selectBinding, router]);
 
   return { options, cloudBlocked };
 }
