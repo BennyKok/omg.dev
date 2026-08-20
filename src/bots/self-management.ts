@@ -124,20 +124,17 @@ export function readDeclaredCapabilities(value: unknown): string[] | { error: st
   return result;
 }
 
-const BOT_RUNTIME_PROFILE_FIELDS = new Set([
-  "name",
-  "persona",
-  "description",
-  "capabilities",
-  "agent",
-  "model",
-  "thinkingLevel",
-  "cwd",
-  "user",
-]);
-
+/**
+ * Which edits are material to the running session.
+ *
+ * One definition, in `src/bots/rotation.ts`, because this set now drives two
+ * things that must never disagree: whether an edit bumps the config revision,
+ * and whether the UI offers to apply it. A second copy here would eventually
+ * let a field bump the revision without ever offering the button, leaving a bot
+ * permanently reading "Update available" with no way to apply it.
+ */
 export function botPatchRequiresRuntimeRefresh(body: Record<string, unknown>): boolean {
-  return Object.keys(body).some((field) => BOT_RUNTIME_PROFILE_FIELDS.has(field));
+  return botPatchTouchesSessionBoundField(body);
 }
 
 export function botRuntimeRefreshDecision(
