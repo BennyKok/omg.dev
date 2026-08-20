@@ -2,6 +2,19 @@
 
 Recent product updates and deployment notes.
 
+## August 20, 2026 - Persistent bot quotas are owner-aware and default to 20 (v0.2.15)
+
+- **Each verified owner can store 20 persistent bots by default.** Disabled and
+  idle bots count because they remain stored. Ownerless legacy bots stay in a
+  separate pool and do not consume a personal allowance. The API returns a
+  structured quota snapshot, and the bot editor shows current usage and a clear
+  limit state. This quota is separate from the live-agent admission limit.
+- **Managed Computers use trusted viewer identity for quota attribution.** A
+  host-provided `persistentBotLimit` entitlement overrides the local
+  `LFG_PERSISTENT_BOT_LIMIT`, which overrides the default of 20. The default
+  works without a host change. Plan-specific limits require the host to write
+  `persistentBotLimit` into the trusted entitlement.
+
 ## August 20, 2026 - The hosted Computer/Settings switcher could float over the page instead of docking (v0.2.14)
 
 - **On a host running `@omg-dev/app`'s native mount (`app.omg.dev`) at a
