@@ -12454,10 +12454,14 @@ function RailStage({
             </div>
             {/* Sits below the actions, directly above the list it switches.
                 Above the brand row it read as app-level navigation; what it
-                actually does is change which list the rail is showing. */}
-            {!selectedBotId ? (
-              <SurfaceToggle active={railSurface} onOpenSessions={onOpenSessions} onOpenBots={onOpenBots} />
-            ) : null}
+                actually does is change which list the rail is showing.
+                Unlike the mobile dock, this never sits inside a full-screen
+                bot conversation — the desktop rail always keeps showing the
+                roster, with the stage panes doing the switching. Hiding it
+                once a bot is selected (`selectedBotId`, mirroring the mobile
+                guard added in 1b3ca7d) stranded desktop users on the Bots
+                surface with no way back to Chat. Always render it here. */}
+            <SurfaceToggle active={railSurface} onOpenSessions={onOpenSessions} onOpenBots={onOpenBots} />
           </div>
         )}
         <div className="session-list-scroll min-h-0 flex-1 overflow-y-auto px-1.5 py-2">

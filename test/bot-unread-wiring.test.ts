@@ -10,9 +10,18 @@ describe("bot unread surface wiring", () => {
     expect(APP).toContain("hasUnreadBotConversation(botConversations)");
   });
 
-  test("the switch stays on the conversation list and out of an open bot chat", () => {
+  test("the mobile switch stays on the conversation list and out of an open bot chat", () => {
     expect(APP).toContain("shouldShowMobileSurfaceToggle(isMobile, tab, selectedBotId)");
-    expect(APP).toContain("{!selectedBotId ? (");
+  });
+
+  // Desktop regressed here once: an earlier revision copied the mobile
+  // `selectedBotId` guard onto the desktop rail's own SurfaceToggle mount.
+  // Unlike the mobile full-screen chat, the desktop rail is never replaced by
+  // an open bot conversation — it keeps showing the roster — so that guard
+  // hid the switch with no way back to Chat. See
+  // test/desktop-rail-switch-bar.test.ts for the focused regression coverage.
+  test("the desktop rail's switch is never gated on selectedBotId", () => {
+    expect(APP).not.toMatch(/\{!selectedBotId\s*\?\s*\(\s*<SurfaceToggle/);
   });
 
   test("the mobile roster and desktop rail render conversation rows and accessible dots", () => {

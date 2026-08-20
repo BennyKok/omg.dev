@@ -2,6 +2,18 @@
 
 Recent product updates and deployment notes.
 
+## August 20, 2026 - The desktop Chat/Bots switch could disappear after selecting a bot
+
+- **On desktop, opening a bot's conversation hid the Chat/Bots switch bar in
+  the rail, with no way back to the session list short of a reload.** A fix
+  that correctly took the switch out of the mobile full-screen bot chat (once
+  that view got its own "Back to bots" button, making the switch redundant
+  there) copied the same `selectedBotId` guard onto the desktop rail's own
+  switch. Desktop never gets that full-screen takeover — the rail keeps
+  showing the roster regardless of which bot or session is open in the stage
+  — so the guard just stranded desktop users on the Bots surface. The desktop
+  rail now always renders its switch; mobile's behavior is unchanged.
+
 ## August 20, 2026 - A selected bot could render as a plain session
 
 - **A persistent bot's chat could show the plain session header instead of
