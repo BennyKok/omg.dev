@@ -73,24 +73,15 @@ const INDEX_CHUNK_BYTES = 1024 * 1024;
 const WAL_CHECKPOINT_INTERVAL_MS = 30_000;
 const TRANSCRIPT_BUSY_TIMEOUT_MS = 15_000;
 
-// The FTS mirror is addressed by rowid, never by its `id` column. `id` is
-// declared UNINDEXED (fts5 stores it but builds no index), so `WHERE id = ?`
-// cannot seek and degrades to a full scan of the mirror — 110ms per row at
-// 200k rows. bun:sqlite is synchronous, so with one of those per indexed
-// message the ingest path pinned the main thread and the HTTP server stopped
-// accepting connections while search silently fell behind. Migration 10 aligns
-// the mirror's rowid with transcript_messages.rowid, making every guard and
-// delete an O(log n) docid seek. Keep it that way: filter the base table (whose
-// id is a PRIMARY KEY) and carry the rowid across, rather than filtering the
-// mirror by id.
-const FTS_MIRROR_INSERT = `
-  INSERT INTO transcript_messages_fts (rowid, id, session_id, text)
-  SELECT m.rowid, m.id, m.session_id, m.text
-    FROM transcript_messages m
-   WHERE m.id = ?
-     AND NOT EXISTS (SELECT 1 FROM transcript_messages_fts f WHERE f.rowid = m.rowid)
-`;
-
+// Search reads are always scoped to a single session (see
+// searchTranscriptIndex), and sessions are small: at 707k indexed messages the
+// average session held 75 rows and the largest held 4,732. An fts5 mirror of
+// every message existed to answer that per-session question, and cost a second
+// write-amplified insert on the ingest path while the write lock was held. With
+// ~16 agent processes writing one file that pushed lock waits past the 15s busy
+// timeout, which surfaced as `database is locked` crashes and silent stalls.
+// Migration 12 drops the mirror; search scans the base table through the
+// transcript_messages_session_ts index instead (12ms on the largest session).
 let db: Database | null = null;
 let dbOpenedPath: string | null = null;
 let initialized = false;
@@ -179,9 +170,6 @@ function upsertArtifactRow(d: Database, artifact: ImageArtifact): void {
 
 function deleteArtifactRow(d: Database, artifactId: string): void {
   d.query("DELETE FROM artifacts WHERE id = ?").run(artifactId);
-  d.query(
-    "DELETE FROM transcript_messages_fts WHERE rowid IN (SELECT rowid FROM transcript_messages WHERE message_id = ?)",
-  ).run(`artifact-${artifactId}`);
   d.query("DELETE FROM transcript_messages WHERE message_id = ?").run(`artifact-${artifactId}`);
 }
 
@@ -225,10 +213,6 @@ export function indexArtifactMessage(path: string, sessionId: string, artifact: 
            WHERE id = ?
         `).run(message.ts, message.role, message.kind, text, existing.id);
       }
-      d.query(
-        "DELETE FROM transcript_messages_fts WHERE rowid IN (SELECT rowid FROM transcript_messages WHERE id = ?)",
-      ).run(existing.id);
-      d.query(FTS_MIRROR_INSERT).run(existing.id);
       pageTotalCache.delete(existing.path);
       pageTotalCache.delete(path);
       return 0;
@@ -255,7 +239,6 @@ export function indexArtifactMessage(path: string, sessionId: string, artifact: 
     );
     const inserted = Number(result.changes ?? 0);
     if (inserted) {
-      d.query(FTS_MIRROR_INSERT).run(rowId);
       pageTotalCache.delete(path);
     }
     return inserted;
@@ -449,15 +432,6 @@ function init(busyTimeoutMs = TRANSCRIPT_BUSY_TIMEOUT_MS) {
     -- loopback requests and inflating the live ping display into seconds.
     CREATE INDEX IF NOT EXISTS transcript_messages_message_id
       ON transcript_messages(message_id);
-    -- Rows are keyed by rowid, aligned to transcript_messages.rowid (migration
-    -- 10). The id column is carried for reads to join on; it is NOT searchable,
-    -- so it must never appear in a WHERE clause here. See FTS_MIRROR_INSERT.
-    CREATE VIRTUAL TABLE IF NOT EXISTS transcript_messages_fts USING fts5(
-      id UNINDEXED,
-      session_id UNINDEXED,
-      text,
-      tokenize = 'unicode61'
-    );
   `);
   const version = d.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0;
   if (version < 2) {
@@ -465,7 +439,6 @@ function init(busyTimeoutMs = TRANSCRIPT_BUSY_TIMEOUT_MS) {
     // text un-clipped so SQLite can serve transcript pages, not just search
     // snippets.
     d.exec(`
-      DELETE FROM transcript_messages_fts;
       DELETE FROM transcript_messages;
       DELETE FROM transcript_index_cursors;
       PRAGMA user_version = 2;
@@ -475,7 +448,6 @@ function init(busyTimeoutMs = TRANSCRIPT_BUSY_TIMEOUT_MS) {
     // Version 3 stores every normalized transcript message with text. The UI can
     // still filter tool results, but SQLite is the complete read model.
     d.exec(`
-      DELETE FROM transcript_messages_fts;
       DELETE FROM transcript_messages;
       DELETE FROM transcript_index_cursors;
       PRAGMA user_version = 3;
@@ -487,7 +459,6 @@ function init(busyTimeoutMs = TRANSCRIPT_BUSY_TIMEOUT_MS) {
     // rows are derived data and can be rebuilt where file-backed agents still
     // need them.
     d.exec(`
-      DELETE FROM transcript_messages_fts;
       DELETE FROM transcript_messages;
       DELETE FROM transcript_index_cursors;
       PRAGMA user_version = 4;
@@ -650,24 +621,11 @@ function init(busyTimeoutMs = TRANSCRIPT_BUSY_TIMEOUT_MS) {
       // shape. The old manifest bridge incorrectly promoted those gallery-only
       // assets into chat. Remove the placement, not the artifact/file, so the
       // Shipped post keeps its media.
-      d.query(`DELETE FROM transcript_messages_fts
-        WHERE id IN (
-          SELECT m.id FROM transcript_messages m
-          JOIN artifacts a ON m.message_id = 'artifact-' || a.id
-          WHERE a.source_path GLOB '/tmp/lfg-ship-????????????.webp'
-        )`).run();
       d.query(`DELETE FROM transcript_messages
         WHERE id IN (
           SELECT m.id FROM transcript_messages m
           JOIN artifacts a ON m.message_id = 'artifact-' || a.id
           WHERE a.source_path GLOB '/tmp/lfg-ship-????????????.webp'
-        )`).run();
-      d.query(`DELETE FROM transcript_messages_fts
-        WHERE id IN (
-          SELECT m.id FROM transcript_messages m
-          WHERE m.kind IN ('image', 'video', 'html')
-            AND m.message_id LIKE 'artifact-%'
-            AND NOT EXISTS (SELECT 1 FROM artifacts a WHERE a.id = substr(m.message_id, 10))
         )`).run();
       d.query(`DELETE FROM transcript_messages
         WHERE kind IN ('image', 'video', 'html')
@@ -677,35 +635,12 @@ function init(busyTimeoutMs = TRANSCRIPT_BUSY_TIMEOUT_MS) {
     }).immediate();
   }
   if (version < 10) {
-    // Re-key the FTS mirror by rowid (see FTS_MIRROR_INSERT). Existing mirrors
-    // were built with fts5-assigned rowids that have no relation to
-    // transcript_messages.rowid, so the new O(log n) docid lookups would match
-    // the wrong document until the mirror is rebuilt in alignment.
-    //
-    // transcript_messages carries the full text, so this rebuilds from the base
-    // table rather than re-ingesting: no transcript files are re-read, and the
-    // lfg:// rows from direct SDK-stream indexing — which have no file to
-    // re-read and would be lost by a wipe-and-reindex — are preserved. Takes
-    // ~8s per 200k rows, under the 15s busy timeout other writers wait on.
-    d.transaction(() => {
-      // `version` was read outside this transaction. The index has multiple
-      // process writers, so a second process can arrive here holding a stale
-      // read and rebuild a mirror that is already correct — doubling the stall
-      // on exactly the large installs this is slowest for. Re-read under the
-      // write lock and no-op if someone else finished first.
-      const current = d.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0;
-      if (current >= 10) return;
-      d.exec("DROP TABLE IF EXISTS transcript_messages_fts");
-      d.exec(`CREATE VIRTUAL TABLE transcript_messages_fts USING fts5(
-        id UNINDEXED,
-        session_id UNINDEXED,
-        text,
-        tokenize = 'unicode61'
-      )`);
-      d.exec(`INSERT INTO transcript_messages_fts (rowid, id, session_id, text)
-        SELECT rowid, id, session_id, text FROM transcript_messages`);
-      d.exec("PRAGMA user_version = 10");
-    }).immediate();
+    // Version 10 rebuilt the fts5 mirror so its rowids aligned with
+    // transcript_messages.rowid. Migration 12 drops that mirror outright, so
+    // rebuilding it here would only be undone a few statements later. The
+    // version bump is kept so the sequence stays monotonic for installs that
+    // stopped at 9.
+    d.exec("PRAGMA user_version = 10");
   }
   if (version < 11) {
     // Seed dimensions already present in the durable artifact manifest. Older
@@ -713,20 +648,45 @@ function init(busyTimeoutMs = TRANSCRIPT_BUSY_TIMEOUT_MS) {
     for (const artifact of listAllArtifacts()) upsertArtifactRow(d, artifact);
     d.exec("PRAGMA user_version = 11");
   }
+  if (version < 12) {
+    // Drop the fts5 mirror. Every search is scoped to one session and sessions
+    // are small, so the mirror bought nothing a scan of the base table does not
+    // already give through transcript_messages_session_ts, while costing a
+    // second write-amplified insert per message on the ingest path. It was the
+    // dominant write cost on a file that ~16 agent processes share, and the
+    // source of `database is locked` under concurrency.
+    //
+    // DROP does not reclaim file space on its own; the freed pages are reused
+    // for new rows. Run VACUUM out of band to shrink the file.
+    d.transaction(() => {
+      // Re-read under the write lock: another process may have dropped it
+      // already while this one held a stale `version` from outside.
+      const current = d.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0;
+      if (current >= 12) return;
+      d.exec("DROP TABLE IF EXISTS transcript_messages_fts");
+      d.exec("PRAGMA user_version = 12");
+    }).immediate();
+  }
   d.exec(`CREATE UNIQUE INDEX IF NOT EXISTS transcript_artifact_message_unique
     ON transcript_messages(message_id)
     WHERE message_id LIKE 'artifact-%'`);
   initialized = true;
 }
 
-function ftsQuery(query: string): string {
-  const terms = query
+function searchTerms(query: string): string[] {
+  return query
     .trim()
     .split(/\s+/)
     .map((term) => term.replace(/"/g, ""))
     .filter(Boolean)
     .slice(0, 12);
-  return terms.map((term) => `"${term}"`).join(" AND ");
+}
+
+// LIKE reads % and _ as wildcards, so a literal search for `100%` or `a_b` would
+// otherwise match far more than the user typed. Escape them and declare the
+// escape character on the operator.
+function likePattern(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
 }
 
 function snippet(text: string, query: string, window = 220): string {
@@ -878,8 +838,6 @@ export function deleteTranscriptIndexForPath(path: string): void {
   directNextOffset.delete(path);
   const d = database();
   d.transaction(() => {
-    d.query("DELETE FROM transcript_messages_fts WHERE rowid IN (SELECT rowid FROM transcript_messages WHERE path = ?)")
-      .run(path);
     d.query("DELETE FROM transcript_messages WHERE path = ?").run(path);
     d.query("DELETE FROM transcript_index_cursors WHERE path = ?").run(path);
   }).immediate();
@@ -918,7 +876,6 @@ export function indexTranscriptMessages(
         (id, session_id, path, message_id, byte_offset, order_seq, ts, role, kind, text)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    const ftsStmt = d.query(FTS_MIRROR_INSERT);
     const authorStmt = d.query("UPDATE transcript_messages SET author_json = ? WHERE id = ?");
     let insertedRows = 0;
     for (const row of pending) {
@@ -938,7 +895,6 @@ export function indexTranscriptMessages(
       if (Number(result.changes ?? 0)) {
         authorStmt.run(JSON.stringify(messageAuthorForSession(sessionId, row.msg)), row.id);
       }
-      ftsStmt.run(row.id);
     }
     if (cursor) updateCursorInDb(d, path, sessionId, cursor);
     return insertedRows;
@@ -1005,7 +961,6 @@ export function indexSessionMessagesDirect(sessionId: string, messages: SessionM
         (id, session_id, path, message_id, byte_offset, order_seq, ts, role, kind, text)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    const ftsStmt = d.query(FTS_MIRROR_INSERT);
     const authorStmt = d.query("UPDATE transcript_messages SET author_json = ? WHERE id = ?");
     let insertedRows = 0;
     for (const row of pending) {
@@ -1025,7 +980,6 @@ export function indexSessionMessagesDirect(sessionId: string, messages: SessionM
       if (Number(result.changes ?? 0)) {
         authorStmt.run(JSON.stringify(messageAuthorForSession(sessionId, row.msg)), row.id);
       }
-      ftsStmt.run(row.id);
     }
     return insertedRows;
   }).immediate(rows);
@@ -1148,13 +1102,11 @@ export function reindexFileHistoryUnderSessionKey(
         (id, session_id, path, message_id, byte_offset, order_seq, ts, role, kind, text, author_json)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    const ftsStmt = d.query(FTS_MIRROR_INSERT);
     let n = 0;
     for (const r of rows) {
       const id = `${key}\0${r.message_id ?? String(seq)}\0${seq}`;
       const result = msgStmt.run(id, sessionId, key, r.message_id, seq, seq, r.ts, r.role, r.kind, r.text, r.author_json);
       n += Number(result.changes ?? 0);
-      ftsStmt.run(id);
       seq++;
     }
     return n;
@@ -1211,8 +1163,6 @@ async function indexTranscriptOnce(path: string, sessionId: string): Promise<{
 
   if (st.size < cursor) {
     d.transaction(() => {
-      d.query("DELETE FROM transcript_messages_fts WHERE rowid IN (SELECT rowid FROM transcript_messages WHERE path = ?)")
-        .run(path);
       d.query("DELETE FROM transcript_messages WHERE path = ?").run(path);
       d.query("DELETE FROM transcript_index_cursors WHERE path = ?").run(path);
     }).immediate();
@@ -1231,7 +1181,6 @@ async function indexTranscriptOnce(path: string, sessionId: string): Promise<{
         (id, session_id, path, message_id, byte_offset, order_seq, ts, role, kind, text)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    const ftsStmt = d.query(FTS_MIRROR_INSERT);
     const authorStmt = d.query("UPDATE transcript_messages SET author_json = ? WHERE id = ?");
     for (const row of rows) {
       const result = msgStmt.run(
@@ -1249,7 +1198,6 @@ async function indexTranscriptOnce(path: string, sessionId: string): Promise<{
       if (Number(result.changes ?? 0)) {
         authorStmt.run(JSON.stringify(messageAuthorForSession(sessionId, row.msg)), row.id);
       }
-      ftsStmt.run(row.id);
     }
     updateCursorInDb(d, path, sessionId, { size: st.size, offset: committed, mtimeMs: st.mtimeMs });
   });
@@ -1566,10 +1514,14 @@ export async function searchTranscriptIndex(
 ): Promise<{ total: number; scanned: number; truncated: boolean; results: IndexedTranscriptMatch[] }> {
   await importTranscriptForRead(path, sessionId);
   init();
-  const q = ftsQuery(query);
-  if (!q) return { total: 0, scanned: 0, truncated: false, results: [] };
+  const terms = searchTerms(query);
+  if (!terms.length) return { total: 0, scanned: 0, truncated: false, results: [] };
   const limit = Math.max(1, Math.min(50, opts.limit ?? 12));
   const d = database();
+  // Every term must appear, matching the AND semantics the fts5 mirror had.
+  // The scan is bounded by session_id through transcript_messages_session_ts,
+  // and sessions are small enough that this stays in the low milliseconds.
+  const termClause = terms.map(() => "m.text LIKE ? ESCAPE '\\'").join(" AND ");
   const rows = d
     .query<{
       session_id: string;
@@ -1579,15 +1531,14 @@ export async function searchTranscriptIndex(
       ts: number | null;
       text: string;
       byte_offset: number;
-    }, [string, string, number]>(`
+    }, (string | number)[]>(`
       SELECT m.session_id, m.path, m.role, m.kind, m.ts, m.text, m.order_seq AS byte_offset
-      FROM transcript_messages_fts f
-      JOIN transcript_messages m ON m.id = f.id
-      WHERE m.session_id = ? AND transcript_messages_fts MATCH ?
+      FROM transcript_messages m
+      WHERE m.session_id = ? AND ${termClause}
       ORDER BY COALESCE(m.ts, 0) DESC, m.order_seq DESC
       LIMIT ?
     `)
-    .all(sessionId, q, limit);
+    .all(sessionId, ...terms.map(likePattern), limit);
 
   return {
     total: rows.length,
