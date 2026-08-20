@@ -115,6 +115,16 @@ describe("lockedAgentOptions", () => {
     ).toEqual(["codex-aisdk"]);
   });
 
+  test("still advertises an unready agent that is off by default", () => {
+    expect(
+      lockedAgentOptions(options, [
+        { key: "aisdk", visible: false, status: { configured: false } },
+        { key: "codex-aisdk", visible: false, status: { configured: false } },
+        { key: "opencode", visible: true, status: { configured: true } },
+      ]).map((option) => option.key),
+    ).toEqual(["aisdk", "codex-aisdk"]);
+  });
+
   test("respects an agent the person switched off in Settings", () => {
     expect(
       lockedAgentOptions(

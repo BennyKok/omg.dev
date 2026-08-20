@@ -2,6 +2,19 @@
 
 Recent product updates and deployment notes.
 
+## August 20, 2026 - Coding agent toggles follow readiness
+
+- **A coding agent is on only when it can run.** The Settings list used to
+  default every toggle on, even when the CLI was missing or no account was
+  connected. A fresh box now shows those agents off, with one word:
+  Install or Connect. A ready agent stays on. An agent you turned off stays
+  off.
+- Turning an unready agent on no longer enables it. The row opens to the
+  missing action instead.
+- The expanded row no longer repeats the failure, dumps install commands, or
+  labels OMG tools. Provider Connect rows and a single Install or Login
+  control stay.
+
 ## August 20, 2026 - Move an existing schedule onto a bot
 
 - **An auto agent could not be handed to a bot.** A bot-owned routine could
