@@ -12,6 +12,7 @@ test("the mobile bot roster uses a flat rail-style row", () => {
   expect(MOBILE_BOT_ROSTER_ROW_CLASS).toContain("hover:bg-muted");
   expect(MOBILE_BOT_ROSTER_ROW_CLASS).not.toContain("border-border");
   expect(MOBILE_BOT_ROSTER_ROW_CLASS).not.toContain("bg-card");
+  expect(MOBILE_BOT_ROSTER_ROW_CLASS).toContain("py-3.5");
 });
 
 describe("shouldShowMobileSurfaceToggle", () => {

@@ -94,6 +94,7 @@ import {
   type PersistentBotQuota,
 } from "./lib/bot-quota";
 import {
+  botRosterPreview,
   botVisibleUserText as botVisibleUserTextFor,
   isBotHiddenLogKind,
   isBotLaunchOnlyText,
@@ -12533,11 +12534,7 @@ function RailStage({
         // A background task's report is machinery, not conversation: it is
         // hidden inside the chat, so it must not surface as the roster preview
         // either — the row would read `[subagent complete] …`.
-        const line = !rawPreview
-          ? "Say hi to get started."
-          : isSubagentUpdateText(rawPreview)
-            ? "Background task reported in"
-            : plainPreviewText(botVisibleUserText(rawPreview, bot));
+        const preview = plainPreviewText(botRosterPreview(rawPreview, busy));
         return (
           <button
             key={row.key}
@@ -12564,9 +12561,11 @@ function RailStage({
                 >
                   {bot.name}
                 </span>
-                <span className="truncate text-[11px] leading-tight text-muted-foreground">
-                  {busy ? "Working…" : line}
-                </span>
+                {preview ? (
+                  <span className="truncate text-[11px] leading-tight text-muted-foreground">
+                    {preview}
+                  </span>
+                ) : null}
               </span>
             ) : null}
             {row.unread ? (
@@ -12584,7 +12583,7 @@ function RailStage({
       })}
       {!bots.length && !railCollapsed ? (
         <div className="px-2 py-6 text-center text-xs text-muted-foreground">
-          No bots yet. A bot is a persistent agent you talk to, not a task you launch.
+          No bots yet.
         </div>
       ) : null}
     </div>
@@ -25040,7 +25039,7 @@ function BotStagePlaceholder({
           <div className="mt-1 text-sm text-muted-foreground">
             {bot
               ? "Re-enable it in its settings to keep talking to it."
-              : "Pick one from the rail. A bot is a persistent agent you talk to, not a task you launch."}
+              : "Pick one from the rail."}
           </div>
         </div>
         {!bot && onNewBot ? (
@@ -25736,29 +25735,27 @@ function BotsView({
   }
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-2" data-lfg-page-column>
+    <div className="mx-auto flex max-w-3xl flex-col gap-3" data-lfg-page-column>
       {/* Tablet band only (no persistent header toggle there yet) — real
           mobile gets the pinned Chat/Bot toggle in the app shell's mobile
           chrome instead, so it isn't doubled here. */}
       {shouldShowInlineBotsSurfaceToggle(isMobile) ? (
         <SurfaceToggle active="chat" onOpenSessions={onOpenSessions} onOpenBots={() => {}} />
       ) : null}
-      <div className="flex items-start gap-3 px-1 pb-1 pt-2">
+      <div className="flex items-start gap-3 px-2 pb-2 pt-4">
         <div className="min-w-0 flex-1">
-          <h1 className="text-lg font-semibold leading-tight">Bots</h1>
-          <p className="text-sm text-muted-foreground">Persistent agents you talk to, not tasks you launch.</p>
+          <h1 className="text-3xl font-semibold leading-tight tracking-tight">Bots</h1>
         </div>
       </div>
-      {/* Flat "New bot" item, same shell as the desktop rail's botRailList —
-          the page's information hierarchy matches the rail: a flat New bot
-          row above a flat list of bots, no card-grid CTA. */}
+      {/* Quiet dashed "New bot" row — same control as the rail, sized for
+          this page roster rather than the compact sidebar. */}
       <button
         type="button"
         onClick={onNew}
-        className="mb-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        className="mb-1 flex w-full items-center gap-3 rounded-lg px-2 py-3 text-left text-[15px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
-          <Plus className="size-3.5" />
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
+          <Plus className="size-4" />
         </span>
         <span className="truncate">New bot</span>
       </button>
@@ -25768,11 +25765,7 @@ function BotsView({
         const working = !!(session?.sessionId && busyBySid[session.sessionId]);
         const rawPreview = session?.last?.text || session?.lastUserText || row.lastMessagePreview || item.lastMessagePreview || "";
         // See the rail roster: a `[subagent …]` report is not preview material.
-        const preview = !rawPreview
-          ? "Say hi to get started."
-          : isSubagentUpdateText(rawPreview)
-            ? "Background task reported in"
-            : plainPreviewText(botVisibleUserText(rawPreview, item));
+        const preview = plainPreviewText(botRosterPreview(rawPreview, working));
         return (
           <button
             key={row.key}
@@ -25781,10 +25774,12 @@ function BotsView({
             aria-label={`${item.name}${row.unread ? ", unread conversation" : ""}`}
             className={MOBILE_BOT_ROSTER_ROW_CLASS}
           >
-            <BotAvatar bot={item} working={working} size={44} />
+            <BotAvatar bot={item} working={working} size={56} />
             <span className="flex min-w-0 flex-1 flex-col">
-              <span className={cn("truncate text-[13px] font-semibold", !item.enabled && "text-muted-foreground")}>{item.name}</span>
-              <span className="truncate text-xs text-muted-foreground">{working ? `Working — ${preview}` : preview}</span>
+              <span className={cn("truncate text-base font-semibold", !item.enabled && "text-muted-foreground")}>{item.name}</span>
+              {preview ? (
+                <span className="truncate text-sm text-muted-foreground">{preview}</span>
+              ) : null}
             </span>
             {row.unread ? (
               <span role="status" aria-label={`Unread conversation with ${item.name}`}>
@@ -25792,29 +25787,27 @@ function BotsView({
               </span>
             ) : null}
             {row.lastMessageTs || item.lastMessageAt ? (
-              <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/70">{relTime(row.lastMessageTs || item.lastMessageAt!)}</span>
+              <span className="shrink-0 text-xs tabular-nums text-muted-foreground/70">{relTime(row.lastMessageTs || item.lastMessageAt!)}</span>
             ) : null}
             {!item.enabled ? <Badge variant="secondary">Disabled</Badge> : null}
-            <ChevronRight className="size-4 shrink-0 text-muted-foreground/60" />
           </button>
         );
       }) : (
         // The flat "New bot" row above is already the create affordance here
         // (matches the rail: one create control, not a header button plus a
         // second dashed row repeating it) — the empty state is just the
-        // explanation card.
-        <div className="flex flex-col items-center rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+        // heading card.
+        <div className="flex flex-col items-center rounded-xl border border-border bg-card p-10 text-center">
           {/* One creature, asleep, waiting to be woken by the first bot. */}
           <BotMascot
             shape="circle"
             colorway="warm"
             size={72}
             state="sleeping"
-            className="mb-3"
+            className="mb-4"
             title="No bots yet"
           />
-          <span className="block font-medium text-foreground">No bots yet.</span>
-          <span>Give a persona a name and a memory — it will be there next time you open this.</span>
+          <span className="block text-base font-medium text-foreground">No bots yet.</span>
         </div>
       )}
     </div>

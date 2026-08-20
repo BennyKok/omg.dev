@@ -1,0 +1,76 @@
+import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+
+const APP = readFileSync(new URL("../web/src/App.tsx", import.meta.url), "utf8");
+
+const BOTS_VIEW = APP.slice(
+  APP.indexOf("function BotsView("),
+  APP.indexOf("function BotEditorPage("),
+);
+const BOT_RAIL = APP.slice(
+  APP.indexOf("const botRailList = ("),
+  APP.indexOf("return (", APP.indexOf("const botRailList = (")),
+);
+const PLACEHOLDER = APP.slice(
+  APP.indexOf("function BotStagePlaceholder("),
+  APP.indexOf("function BotsView("),
+);
+const ROSTER = BOTS_VIEW.slice(BOTS_VIEW.indexOf("return (\n    <div className=\"mx-auto"));
+
+describe("bots roster copy", () => {
+  test("drops the manifesto everywhere on the Bots surfaces", () => {
+    expect(APP).not.toContain("persistent agent you talk to");
+    expect(APP).not.toContain("Persistent agents you talk to");
+    expect(APP).not.toContain("Give a persona a name");
+    expect(APP).not.toContain("Say hi to get started.");
+  });
+
+  test("keeps one short empty-state line on each surface", () => {
+    expect(ROSTER).toContain("No bots yet.");
+    expect(ROSTER).not.toContain("Give a persona");
+    expect(BOT_RAIL).toContain("No bots yet.");
+    expect(BOT_RAIL).not.toContain("A bot is a persistent");
+    expect(PLACEHOLDER).toContain("Pick one from the rail.");
+    expect(PLACEHOLDER).not.toContain("A bot is a persistent");
+  });
+
+  test("the page header is the word Bots only", () => {
+    expect(ROSTER).toContain(">Bots</h1>");
+    expect(ROSTER).not.toContain("<p className=\"text-sm text-muted-foreground\">");
+  });
+});
+
+describe("bots roster preview wiring", () => {
+  test("rail and page roster share the preview helper", () => {
+    expect(BOT_RAIL).toContain("botRosterPreview(rawPreview, busy)");
+    expect(ROSTER).toContain("botRosterPreview(rawPreview, working)");
+    expect(BOT_RAIL).not.toContain("Say hi to get started.");
+    expect(ROSTER).not.toContain("Say hi to get started.");
+    expect(BOT_RAIL).not.toContain("Working…");
+    expect(ROSTER).not.toContain("Working — ");
+  });
+});
+
+describe("bots page roster chrome", () => {
+  test("the mobile roster row has no trailing chevron", () => {
+    expect(ROSTER).not.toContain("<ChevronRight");
+  });
+
+  test("the page roster is larger than the compact rail", () => {
+    expect(ROSTER).toContain("text-3xl font-semibold");
+    expect(ROSTER).toContain("size={56}");
+    expect(ROSTER).toContain("text-base font-semibold");
+    expect(ROSTER).toContain("text-sm text-muted-foreground");
+    expect(ROSTER).toContain("size-9");
+    expect(ROSTER).toContain("text-[15px]");
+    expect(BOT_RAIL).toContain("size={28}");
+    expect(BOT_RAIL).not.toContain("size={56}");
+    expect(BOT_RAIL).not.toContain("text-3xl");
+  });
+
+  test("New bot stays a quiet dashed row", () => {
+    expect(ROSTER).toContain("border-dashed");
+    expect(ROSTER).toContain("New bot");
+    expect(ROSTER).not.toContain("lfg-gborder--brand");
+  });
+});

@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  botRosterPreview,
   botVisibleUserText,
   isBotHiddenLogKind,
   isBotLaunchOnlyText,
+  isCodingAgentStoppedText,
   isSubagentUpdateText,
   stripBotLaunchEnvelope,
 } from "../web/src/lib/bot-transcript";
@@ -84,6 +86,42 @@ describe("background task updates in a bot chat", () => {
 // A bot chat is a conversation, not a log. The full log still exists — the
 // bot's session opens as an ordinary session — but the chat view does not
 // narrate the mechanics of being answered.
+describe("bot roster preview line", () => {
+  test("a crash last-message collapses to Stopped", () => {
+    expect(
+      botRosterPreview("The coding agent stopped unexpectedly: datab…"),
+    ).toBe("Stopped");
+    expect(
+      botRosterPreview("The coding agent stopped unexpectedly after the session had started."),
+    ).toBe("Stopped");
+    expect(botRosterPreview("The coding agent stopped before it could start.")).toBe("Stopped");
+    expect(isCodingAgentStoppedText("The coding agent stopped unexpectedly: timeout")).toBe(true);
+  });
+
+  test("an empty last-message has no second line", () => {
+    expect(botRosterPreview("")).toBe("");
+    expect(botRosterPreview(undefined)).toBe("");
+    expect(botRosterPreview("   ")).toBe("");
+  });
+
+  test("a background-task report keeps the existing roster line", () => {
+    expect(botRosterPreview("[subagent complete] rebased onto main")).toBe(
+      "Background task reported in",
+    );
+  });
+
+  test("ordinary last-message text stays readable", () => {
+    expect(botRosterPreview("[Message from benny@example.com to bot Scout]\n\nping")).toBe("ping");
+    expect(botRosterPreview("still there?")).toBe("still there?");
+  });
+
+  test("busy wins and is always Working", () => {
+    expect(botRosterPreview("still there?", true)).toBe("Working");
+    expect(botRosterPreview("", true)).toBe("Working");
+    expect(botRosterPreview("The coding agent stopped unexpectedly: datab…", true)).toBe("Working");
+  });
+});
+
 describe("what a bot chat hides", () => {
   test("tool calls, their results, and reasoning are machinery", () => {
     expect(isBotHiddenLogKind("tool_use")).toBe(true);
