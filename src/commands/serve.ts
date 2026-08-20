@@ -56,6 +56,7 @@ import {
 } from "../auto/store.ts";
 import { runAutoAgent } from "../auto/runner.ts";
 import { startAutoScheduler } from "../auto/scheduler.ts";
+import { listBots, getBot, createBot, updateBot, BOT_SHAPES, BOT_COLORWAYS, type BotShape, type BotColorway } from "../bots/store.ts";
 import {
   getMetricsHistory,
   readAllPressure,
@@ -3130,6 +3131,126 @@ a{color:#60a5fa}
             tools: Array.isArray(b.tools) ? b.tools : undefined,
           });
           return json({ agent: withAutoAgentMeta(agent) });
+        }
+      }
+      // ---- persistent bots (phase 1: record CRUD only, no chat/messaging —
+      // that stays out of scope until the New/Edit Bot sheet's own PR grows
+      // one; see src/bots/store.ts's header for the full boundary) ----
+      if (path === "/api/bots") {
+        if (req.method === "GET") {
+          return json({ bots: await listBots() });
+        }
+        if (req.method === "POST") {
+          const b = (await req.json().catch(() => null)) as {
+            name?: unknown;
+            persona?: unknown;
+            agent?: unknown;
+            model?: unknown;
+            thinkingLevel?: unknown;
+            cwd?: unknown;
+            user?: unknown;
+            shape?: unknown;
+            colorway?: unknown;
+          } | null;
+          const name = typeof b?.name === "string" ? b.name.trim() : "";
+          const persona = typeof b?.persona === "string" ? b.persona.trim() : "";
+          if (!name || !persona) return err(400, "name and persona are required");
+          const agentValue = typeof b?.agent === "string" ? b.agent.trim() : "";
+          const agent = agentValue || "aisdk";
+          if (!isCodingAgentKind(agent)) return err(400, `unknown coding agent "${agent}"`);
+          const model = typeof b?.model === "string" ? b.model.trim() || undefined : undefined;
+          if (model) {
+            const allowed = modelsForAgent(agent);
+            if (allowed.length && !allowed.includes(model))
+              return err(400, `unknown model "${model}" (expected one of ${allowed.join(", ")})`);
+          }
+          const thinkingLevel = typeof b?.thinkingLevel === "string" ? b.thinkingLevel.trim() || undefined : undefined;
+          if (thinkingLevel) {
+            const allowed = thinkingLevelsForAgent(agent);
+            if (!allowed) return err(400, `thinkingLevel is not supported for ${agent} bots`);
+            if (!allowed.includes(thinkingLevel))
+              return err(400, `unknown thinking level "${thinkingLevel}" for ${agent} (expected one of ${allowed.join(", ")})`);
+          }
+          const cwd = typeof b?.cwd === "string" ? b.cwd.trim() || undefined : undefined;
+          if (cwd && !(await listRepos()).some((repo) => repo.cwd === cwd)) return err(400, "unknown repo");
+          const shape = typeof b?.shape === "string" && (BOT_SHAPES as readonly string[]).includes(b.shape)
+            ? (b.shape as BotShape)
+            : undefined;
+          const colorway = typeof b?.colorway === "string" && (BOT_COLORWAYS as readonly string[]).includes(b.colorway)
+            ? (b.colorway as BotColorway)
+            : undefined;
+          const ownerTag = resolveSessionUserTag(typeof b?.user === "string" ? b.user : undefined);
+          if (!ownerTag.ok) return err(400, `unknown user "${ownerTag.unknown}" (expected one of the roster emails)`);
+          const bot = await createBot({
+            name,
+            persona,
+            agent,
+            model,
+            thinkingLevel,
+            cwd,
+            shape,
+            colorway,
+            owner: ownerTag.user,
+          });
+          return json({ bot });
+        }
+      }
+      {
+        const match = path.match(/^\/api\/bots\/([^/]+)$/);
+        if (match && req.method === "PATCH") {
+          const id = decodeURIComponent(match[1]);
+          const current = await getBot(id);
+          if (!current) return err(404, "bot not found");
+          const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+          if (!b) return err(400, "invalid bot patch");
+          const name = b.name === undefined ? current.name : typeof b.name === "string" ? b.name.trim() : "";
+          const persona =
+            b.persona === undefined ? current.persona : typeof b.persona === "string" ? b.persona.trim() : "";
+          if (!name || !persona) return err(400, "name and persona are required");
+          const agent =
+            b.agent === undefined ? current.agent : typeof b.agent === "string" ? b.agent.trim() || current.agent : current.agent;
+          if (!isCodingAgentKind(agent)) return err(400, `unknown coding agent "${agent}"`);
+          const model =
+            b.model === undefined ? current.model : typeof b.model === "string" ? b.model.trim() || undefined : undefined;
+          if (model) {
+            const allowed = modelsForAgent(agent);
+            if (allowed.length && !allowed.includes(model))
+              return err(400, `unknown model "${model}" (expected one of ${allowed.join(", ")})`);
+          }
+          const thinkingLevel =
+            b.thinkingLevel === undefined
+              ? current.thinkingLevel
+              : typeof b.thinkingLevel === "string"
+                ? b.thinkingLevel.trim() || undefined
+                : undefined;
+          const cwd = b.cwd === undefined ? current.cwd : typeof b.cwd === "string" ? b.cwd.trim() || undefined : undefined;
+          if (cwd && !(await listRepos()).some((repo) => repo.cwd === cwd)) return err(400, "unknown repo");
+          const shape =
+            b.shape === undefined
+              ? current.shape
+              : typeof b.shape === "string" && (BOT_SHAPES as readonly string[]).includes(b.shape)
+                ? (b.shape as BotShape)
+                : current.shape;
+          const colorway =
+            b.colorway === undefined
+              ? current.colorway
+              : typeof b.colorway === "string" && (BOT_COLORWAYS as readonly string[]).includes(b.colorway)
+                ? (b.colorway as BotColorway)
+                : current.colorway;
+          if (b.enabled !== undefined && typeof b.enabled !== "boolean") return err(400, "enabled must be a boolean");
+          const bot = await updateBot(id, {
+            name,
+            persona,
+            agent,
+            model,
+            thinkingLevel,
+            cwd,
+            shape,
+            colorway,
+            enabled: typeof b.enabled === "boolean" ? b.enabled : undefined,
+          });
+          if (!bot) return err(404, "bot not found");
+          return json({ bot });
         }
       }
       // Resolve a client-supplied cwd to a KNOWN repo before we ever chdir into
