@@ -2,7 +2,7 @@
 
 Recent product updates and deployment notes.
 
-## August 20, 2026 - The hosted Computer/Settings switcher could float over the page instead of docking
+## August 20, 2026 - The hosted Computer/Settings switcher could float over the page instead of docking (v0.2.14)
 
 - **On a host running `@omg-dev/app`'s native mount (`app.omg.dev`) at a
   tablet-portrait or narrow-desktop width (roughly 768-1023px), the host's
