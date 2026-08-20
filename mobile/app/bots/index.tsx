@@ -23,15 +23,18 @@
  *
  * Master-detail lives under the same route family the web uses (`/bots`
  * roster, `/bots/[id]` chat) rather than two unrelated tabs — mirrors how
- * `session/[id]` nests under the sessions surface. `[id].tsx` is the next
- * phase (bot chat); this file is the roster half only.
+ * `session/[id]` nests under the sessions surface. `/bots/[id]` itself
+ * (bot chat) is a later phase; `/bots/[id]/edit` exists now — see
+ * bot-edit-screen.tsx — and is nested a level under the reserved chat route
+ * rather than sitting flat at `/bots/[id]` for exactly that reason.
  *
  * "+ New bot" is visually present (both the header action and, empty-roster
- * only, the dashed row — §3.4) and now opens the real thing: BotEditSheet
- * (bot-edit-sheet.tsx). Bot chat is still the placeholder toast — tapping a
- * roster row opens the SAME sheet in edit mode instead of routing to
- * `/bots/[id]`, because that screen does not exist yet and an edit affordance
- * is a truthful stand-in for "tap a bot" while a dead toast was not.
+ * only, the dashed row — §3.4) and pushes the full-page create flow
+ * (`/bots/new`, bot-create-flow.tsx). Bot chat is still a later phase —
+ * tapping a roster row pushes the full-page edit screen (`/bots/[id]/edit`,
+ * bot-edit-screen.tsx) instead of routing to bot chat, because that screen
+ * does not exist yet and editing is a truthful stand-in for "tap a bot"
+ * while a dead toast was not.
  */
 
 import { useFocusEffect, useNavigation, useRouter } from "expo-router";
@@ -43,11 +46,9 @@ import { EmptyState, Icon, IconButton } from "../../src/components";
 import { PressableScale } from "../../src/omg/motion";
 import { Text } from "../../src/omg/text";
 import { useTheme } from "../../src/omg/theme";
-import { useToast } from "../../src/omg/toast";
 import { useOmg } from "../../src/omg/provider";
 import { useBots, type Bot } from "../../src/omg/bots";
 import { BotRosterRow } from "../../src/omg/bot-roster-row";
-import { BotEditSheet } from "../../src/omg/bot-edit-sheet";
 
 /** A session carries `botId` once it is bot-driven — see bot-mode-design.md's
  * `Session` type extension. Not yet in @omg-dev/protocol's OmgSession, same
@@ -60,17 +61,9 @@ export default function BotsScreen() {
   const router = useRouter();
   const { colors, type, space } = useTheme();
   const { client } = useOmg();
-  const toast = useToast();
 
   const { bots, loading, refresh } = useBots();
   const [pulling, setPulling] = useState(false);
-
-  // null editingBot + sheetOpen = creating; a Bot = editing that row. Kept as
-  // two pieces of state rather than a union so the sheet's own form-reset
-  // effect (bot-edit-sheet.tsx) can key off `visible` without also having to
-  // guard against `editingBot` changing out from under an already-open sheet.
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [editingBot, setEditingBot] = useState<Bot | null>(null);
 
   // Which bots are working right now, cross-referenced from the live
   // sessions list the same way the web does (`busyBySid` keyed through
@@ -107,15 +100,13 @@ export default function BotsScreen() {
 
   const openBot = (bot: Bot) => {
     // TODO(bot chat): route to /bots/[id] once that screen exists. Until
-    // then, opening the sheet in edit mode is a truthful stand-in — you can
-    // at least see and change what you made — rather than a dead toast.
-    setEditingBot(bot);
-    setSheetOpen(true);
+    // then, the full-page edit screen is a truthful stand-in — you can at
+    // least see and change what you made — rather than a dead toast.
+    router.push(`/bots/${encodeURIComponent(bot.id)}/edit`);
   };
 
   const createBot = () => {
-    setEditingBot(null);
-    setSheetOpen(true);
+    router.push("/bots/new");
   };
 
   useLayoutEffect(() => {
@@ -205,16 +196,6 @@ export default function BotsScreen() {
           ))}
         </View>
       )}
-
-      <BotEditSheet
-        visible={sheetOpen}
-        bot={editingBot}
-        onClose={() => setSheetOpen(false)}
-        onSaved={(bot) => {
-          toast.show(editingBot ? `Saved ${bot.name}.` : `${bot.name} joined the roster.`);
-          refresh();
-        }}
-      />
     </ScrollView>
   );
 }
