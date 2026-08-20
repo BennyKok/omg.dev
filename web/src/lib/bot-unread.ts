@@ -2,6 +2,7 @@ import { botCanonicalSessionId, type BotSessionCandidate } from "./bot-session";
 
 export type BotConversationUnread = {
   sessionId: string;
+  conversationId?: string;
   botId: string;
   assignedUser?: string | null;
   unread: boolean;
@@ -14,6 +15,7 @@ export type BotConversationRow<B, S> = {
   bot: B;
   session: S | undefined;
   sessionId: string | null;
+  conversationId: string | null;
   unread: boolean;
   lastMessagePreview?: string;
   lastMessageTs?: number | null;
@@ -55,6 +57,7 @@ export function botConversationRows<
       bot,
       session: sessions.find((item) => item.sessionId === canonical),
       sessionId: canonical,
+      conversationId: conversation?.conversationId ?? canonical,
       unread: !!conversation?.unread,
       lastMessagePreview: conversation?.lastMessagePreview,
       lastMessageTs: conversation?.lastMessageTs,

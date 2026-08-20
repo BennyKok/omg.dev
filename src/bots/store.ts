@@ -52,11 +52,49 @@ export type Bot = {
    */
   owner?: string;
   enabled: boolean;
+  /** Durable product conversation. Runtime session ids can rotate beneath it. */
+  conversationId?: string;
+  /** Current canonical primary runtime session. */
   sessionId?: string;
   createdAt: number;
   lastMessageAt?: number;
-  /** Relaunch with persisted profile/workspace data before the next user turn. */
+  /**
+   * Legacy deferred-relaunch flag, kept only so a record written by an older
+   * build still applies its pending edit after upgrade. New writes use the
+   * revision pair below; see `src/bots/rotation.ts` for why a relaunch onto the
+   * same conversation id was never a real refresh.
+   */
   runtimeRefreshPending?: boolean;
+
+  // ---- configuration versioning and rotation (src/bots/rotation.ts) ----
+  /**
+   * Monotonic revision of everything baked into the launch prompt. Bumped by
+   * any edit touching SESSION_BOUND_BOT_FIELDS, never by a cosmetic one.
+   */
+  configRevision?: number;
+  /** The revision actually live in the current canonical session. */
+  appliedConfigRevision?: number;
+  /** Lifecycle of an in-flight or deferred rotation. Absent means idle. */
+  rotationState?: "idle" | "queued" | "rotating" | "failed";
+  /** Why the pending/last rotation was requested. */
+  rotationReason?: "config" | "compaction";
+  /** Human-readable reason the last rotation attempt did not land. */
+  rotationError?: string;
+  rotationUpdatedAt?: number;
+  lastRotatedAt?: number;
+  /**
+   * Prior canonical sessions, newest first and bounded. These stay resumable
+   * and searchable through history; they are explicitly NOT roster rows and
+   * never carry independent unread state.
+   */
+  archivedSessionIds?: string[];
+  /**
+   * Hysteresis latch for automatic compaction. `false` means the bot has
+   * already rotated for context pressure and must fall back below the re-arm
+   * mark before it may do so again. Absent means armed.
+   */
+  compactionArmed?: boolean;
+  lastCompactionAt?: number;
 };
 
 /**
@@ -177,15 +215,19 @@ export async function createBot(input: {
   return bot;
 }
 
-export async function updateBot(
-  id: string,
-  patch: Partial<Pick<Bot, "name" | "shape" | "colorway" | "persona" | "description" | "capabilities" | "agent" | "model" | "thinkingLevel" | "cwd" | "owner" | "enabled" | "sessionId" | "lastMessageAt" | "runtimeRefreshPending">>,
-): Promise<Bot | null> {
-  const bots = await listBots();
-  const current = bots.find((bot) => bot.id === id);
-  if (!current) return null;
+export type BotPatch = Partial<Pick<
+  Bot,
+  | "name" | "shape" | "colorway" | "persona" | "description" | "capabilities"
+  | "agent" | "model" | "thinkingLevel" | "cwd" | "owner" | "enabled"
+  | "conversationId" | "sessionId" | "lastMessageAt" | "runtimeRefreshPending"
+  | "configRevision" | "appliedConfigRevision" | "rotationState"
+  | "rotationReason" | "rotationError" | "rotationUpdatedAt" | "lastRotatedAt"
+  | "archivedSessionIds" | "compactionArmed" | "lastCompactionAt"
+>>;
+
+function applyPatch(current: Bot, patch: BotPatch): Bot {
   const agent = patch.agent ?? current.agent;
-  const bot: Bot = {
+  return {
     ...current,
     ...patch,
     agent,
@@ -194,8 +236,42 @@ export async function updateBot(
       agent,
     ),
   };
-  writeBots(bots.map((item) => item.id === id ? bot : item));
-  return bot;
+}
+
+export async function updateBot(id: string, patch: BotPatch): Promise<Bot | null> {
+  return mutateBot(id, (current) => applyPatch(current, patch));
+}
+
+/**
+ * Read-modify-write a single bot in one synchronous section.
+ *
+ * `updateBot` used to `await listBots()` and then write. The await is a real
+ * yield point, so two overlapping updates could both read the pre-state and the
+ * second write would silently drop the first one's field — the classic lost
+ * update. That was survivable when every patch was a whole-record form submit,
+ * and stops being survivable once rotation writes a revision that a concurrent
+ * writer must not clobber.
+ *
+ * There is no await between the read and the write here, so within this process
+ * the mutation is atomic. `writeBots` is already atomic on disk (temp file plus
+ * rename plus fsync), which covers the cross-process case as far as it can be
+ * covered by a single-writer JSON store.
+ *
+ * `mutate` returning null aborts the write and reports the abort, which is what
+ * makes a compare-and-swap expressible: read the current revision, decide, and
+ * either commit or decline without ever leaving the critical section.
+ */
+export function mutateBot(
+  id: string,
+  mutate: (current: Bot) => Bot | null,
+): Bot | null {
+  const bots = readBots();
+  const current = bots.find((bot) => bot.id === id);
+  if (!current) return null;
+  const next = mutate(current);
+  if (!next) return null;
+  writeBots(bots.map((item) => item.id === id ? next : item));
+  return next;
 }
 
 export async function deleteBot(id: string): Promise<void> {
