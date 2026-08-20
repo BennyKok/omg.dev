@@ -109,6 +109,20 @@ import {
   visibleBots as visibleBotsForViewer,
 } from "../bots/access.ts";
 import { formatBotAttribution, resolveBotMessageAuthor } from "../bots/authorship.ts";
+import {
+  attachRuntimeSession,
+  botParticipantId,
+  canManageConversation,
+  canReadConversation,
+  conversationBotParticipant,
+  conversationHumanParticipantId,
+  ensureBotConversation,
+  ensureConversationHuman,
+  getConversation,
+  leaveConversationParticipant,
+  listConversations,
+  upsertConversationParticipant,
+} from "../conversations.ts";
 import { startAutoScheduler, setBotRoutineDelivery } from "../auto/scheduler.ts";
 import { handleWakeTick } from "../auto/wake-tick.ts";
 import { pushWakeHooksNow, setWakeHooksBootId } from "../auto/wake-hooks-push.ts";
@@ -2346,6 +2360,12 @@ async function ensureBotSession(
     // talking to instead of resuming a delegated task's thread.
     const conversation = botConversationRef(bot, sessions);
     const sessionId = botConversationId(conversation, () => crypto.randomUUID());
+    ensureBotConversation({
+      conversationId: sessionId,
+      bot,
+      ownerIdentity: bot.owner,
+      roster: userRoster(),
+    });
     // aisdk decides resume-vs-fresh by asking the index itself
     // (sessionHasIndexedMessages, aisdk-session.ts), so reusing the id restores
     // the model's own thread too and a summary would only repeat what it can
@@ -2397,8 +2417,16 @@ async function ensureBotSession(
       title: bot.name,
       project: repo.project,
       spawnedBy: "bot",
+      conversationId: sessionId,
       botId: bot.id,
       persistent: true,
+    });
+    attachRuntimeSession({
+      conversationId: sessionId,
+      sessionId,
+      participantId: botParticipantId(bot.id),
+      kind: "primary",
+      attachedAt: createdAt,
     });
     // Tag before spawn, same as /api/sessions/new: an unassigned bot session is
     // invisible under the rail's default per-user filter, which is exactly how
@@ -3467,6 +3495,17 @@ a{color:#60a5fa}
           warmChatTranscripts(sessions);
           return sessions;
         });
+        const viewer = botViewerFromRequest(req, undefined);
+        const conversationsTask = sessionsTask.then(() => {
+          let conversations = listConversations();
+          if (viewer.managed && viewer.identity) {
+            const participantId = conversationHumanParticipantId(viewer.identity);
+            conversations = conversations.filter((conversation) =>
+              canReadConversation(conversation, participantId),
+            );
+          }
+          return conversations;
+        });
         const reposTask = listRepos();
         const codingAgentsTask = listCodingAgentsCached();
         const settingsTask = getGlobalSettings();
@@ -3476,6 +3515,7 @@ a{color:#60a5fa}
           models: codingAgentsTask.then((agents) => listModelCatalog(agents)),
           settings: settingsTask,
           sessions: sessionsTask,
+          conversations: conversationsTask,
           users: Promise.resolve(userRoster()),
           repos: reposTask,
           autoAgents: listAutoAgents(),
@@ -3495,6 +3535,7 @@ a{color:#60a5fa}
           models?: ReturnType<typeof listModelCatalog> | null;
           settings?: GlobalSettings | null;
           sessions?: Awaited<ReturnType<typeof listSessionsCached>> | null;
+          conversations?: Awaited<typeof conversationsTask> | null;
           users?: ReturnType<typeof userRoster> | null;
           repos?: Awaited<ReturnType<typeof listRepos>> | null;
           autoAgents?: Awaited<ReturnType<typeof listAutoAgents>> | null;
@@ -3508,6 +3549,7 @@ a{color:#60a5fa}
             models: boot.models ?? null,
             settings: boot.settings ?? null,
             sessions: boot.sessions ? boot.sessions.map(sessionListRow) : null,
+            conversations: boot.conversations ?? null,
             users: boot.users ?? null,
             repos: boot.repos ?? null,
             auto: {
@@ -4215,6 +4257,47 @@ a{color:#60a5fa}
         }
       }
       {
+        const match = path.match(/^\/api\/conversations\/([^/]+)\/participants(?:\/([^/]+))?$/);
+        if (match) {
+          const conversationId = decodeURIComponent(match[1]);
+          const participantPathId = match[2] ? decodeURIComponent(match[2]) : null;
+          const conversation = getConversation(conversationId);
+          if (!conversation) return err(404, "conversation not found");
+          const viewer = botViewerFromRequest(req, undefined);
+          if (viewer.managed) {
+            const viewerParticipantId = conversationHumanParticipantId(viewer.identity);
+            if (!canManageConversation(conversation, viewerParticipantId)) {
+              return err(403, "conversation management access denied");
+            }
+          }
+          if (req.method === "POST" && !participantPathId) {
+            const body = (await req.json().catch(() => null)) as {
+              botId?: unknown;
+              historyAccess?: unknown;
+            } | null;
+            const botId = typeof body?.botId === "string" ? body.botId.trim() : "";
+            if (!botId) return err(400, "botId is required");
+            const bot = await getBot(botId);
+            if (!bot || !bot.enabled) return err(404, "bot not found");
+            const historyAccess = body?.historyAccess === "from_join" ? "from_join" : "all";
+            const updated = upsertConversationParticipant(
+              conversationId,
+              conversationBotParticipant(bot, { historyAccess }),
+            );
+            return json({ conversation: updated });
+          }
+          if (req.method === "DELETE" && participantPathId) {
+            const participant = conversation.participants.find((row) => row.id === participantPathId);
+            if (!participant) return err(404, "participant not found");
+            if (participant.role === "owner") return err(409, "conversation owner cannot leave");
+            return json({
+              conversation: leaveConversationParticipant(conversationId, participantPathId),
+            });
+          }
+          return err(405, "method not allowed");
+        }
+      }
+      {
         const match = path.match(/^\/api\/bots\/([^/]+)\/messages$/);
         if (match && req.method === "POST") {
           let bot = await getBot(decodeURIComponent(match[1]));
@@ -4260,7 +4343,7 @@ a{color:#60a5fa}
           }
           // Attribute before launching: when the session has to be started, this
           // exact text rides inside the launch prompt instead of racing it.
-          const { author } = resolveBotMessageAuthor({
+          const { author, trusted } = resolveBotMessageAuthor({
             viewer,
             rosterTagUser: tag.ok ? tag.user : undefined,
             botOwner: bot.owner,
@@ -4269,6 +4352,18 @@ a{color:#60a5fa}
           const attributed = `${formatBotAttribution(author, bot.name)}\n\n${text}`;
           const delivery = await deliverBotMessage(bot, attributed);
           if ("error" in delivery) return err(delivery.status, delivery.error);
+          if (trusted) {
+            const profile = userRoster().find(
+              (user) => user.email.trim().toLowerCase() === author.trim().toLowerCase(),
+            );
+            ensureConversationHuman({
+              conversationId: bot.sessionId?.trim() || delivery.sessionId,
+              identity: author,
+              name: profile?.name,
+              avatar: profile?.avatar,
+              role: "member",
+            });
+          }
           return json({ sessionId: delivery.sessionId });
         }
       }

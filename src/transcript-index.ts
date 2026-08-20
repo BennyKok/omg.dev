@@ -5,6 +5,11 @@ import { PATHS } from "./config.ts";
 import { isCursorTurnEndedLine, normalizeLineMessages, type SessionMsg } from "./sessions.ts";
 import { traceLog } from "./trace-log.ts";
 import {
+  messageAuthorForSession,
+  UNKNOWN_LEGACY_AUTHOR,
+  type MessageAuthorRef,
+} from "./conversations.ts";
+import {
   imageArtifactToMessage,
   listAllArtifacts,
   type ImageArtifact,
@@ -30,6 +35,7 @@ type IndexedMessageRow = {
   text: string;
   byte_offset: number;
   order_seq: number;
+  author_json: string;
   // Joined from the artifacts table when present (same SQLite DB).
   artifact_id?: string | null;
   artifact_media?: string | null;
@@ -109,7 +115,7 @@ export function subscribeIndexedArtifactMessages(
 // come from the same query path as prose — never a second poll stream that
 // re-sorts by timestamp and lands media out of place.
 const ARTIFACT_MESSAGE_SELECT = `
-  m.id, m.message_id, m.role, m.kind, m.ts, m.text, m.byte_offset, m.order_seq,
+  m.id, m.message_id, m.role, m.kind, m.ts, m.text, m.byte_offset, m.order_seq, m.author_json,
   a.id AS artifact_id,
   a.media AS artifact_media,
   a.name AS artifact_name,
@@ -558,6 +564,15 @@ function init(busyTimeoutMs = TRANSCRIPT_BUSY_TIMEOUT_MS) {
       d.exec("ALTER TABLE artifacts ADD COLUMN height INTEGER");
     }
   }
+  if (version < 12) {
+    const columns = d.query<{ name: string }, []>("PRAGMA table_info(transcript_messages)").all();
+    if (!columns.some((column) => column.name === "author_json")) {
+      // Existing rows cannot be made trustworthy after the fact. Mark them
+      // explicitly instead of inferring a person from a role or display text.
+      d.exec(`ALTER TABLE transcript_messages ADD COLUMN author_json TEXT NOT NULL DEFAULT '{"kind":"legacy","participantId":"legacy:unknown","verified":false}'`);
+    }
+    d.exec("PRAGMA user_version = 12");
+  }
   if (version < 6) {
     const columns = d.query<{ name: string }, []>("PRAGMA table_info(transcript_messages)").all();
     if (!columns.some((column) => column.name === "order_seq")) {
@@ -740,12 +755,18 @@ function clippedText(message: SessionMsg): string {
 }
 
 function rowMessage(row: IndexedMessageRow): SessionMsg | ImageArtifactMessage {
+  let author: MessageAuthorRef = UNKNOWN_LEGACY_AUTHOR;
+  try {
+    const parsed = JSON.parse(row.author_json) as MessageAuthorRef;
+    if (parsed && typeof parsed === "object" && typeof parsed.participantId === "string") author = parsed;
+  } catch {}
   const base: SessionMsg = {
     id: row.message_id || row.id,
     role: row.role,
     kind: row.kind,
     text: row.text,
     ts: row.ts,
+    author,
   };
   if (row.kind !== "image" && row.kind !== "video" && row.kind !== "html") return base;
 
@@ -898,6 +919,7 @@ export function indexTranscriptMessages(
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const ftsStmt = d.query(FTS_MIRROR_INSERT);
+    const authorStmt = d.query("UPDATE transcript_messages SET author_json = ? WHERE id = ?");
     let insertedRows = 0;
     for (const row of pending) {
       const result = msgStmt.run(
@@ -913,6 +935,9 @@ export function indexTranscriptMessages(
         row.text,
       );
       insertedRows += Number(result.changes ?? 0);
+      if (Number(result.changes ?? 0)) {
+        authorStmt.run(JSON.stringify(messageAuthorForSession(sessionId, row.msg)), row.id);
+      }
       ftsStmt.run(row.id);
     }
     if (cursor) updateCursorInDb(d, path, sessionId, cursor);
@@ -981,6 +1006,7 @@ export function indexSessionMessagesDirect(sessionId: string, messages: SessionM
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const ftsStmt = d.query(FTS_MIRROR_INSERT);
+    const authorStmt = d.query("UPDATE transcript_messages SET author_json = ? WHERE id = ?");
     let insertedRows = 0;
     for (const row of pending) {
       const result = msgStmt.run(
@@ -996,6 +1022,9 @@ export function indexSessionMessagesDirect(sessionId: string, messages: SessionM
         row.text,
       );
       insertedRows += Number(result.changes ?? 0);
+      if (Number(result.changes ?? 0)) {
+        authorStmt.run(JSON.stringify(messageAuthorForSession(sessionId, row.msg)), row.id);
+      }
       ftsStmt.run(row.id);
     }
     return insertedRows;
@@ -1102,10 +1131,10 @@ export function reindexFileHistoryUnderSessionKey(
   if (d.query("SELECT 1 FROM transcript_messages WHERE path = ? LIMIT 1").get(key)) return 0;
   const src = d
     .query<
-      { message_id: string | null; role: string; kind: string; ts: number; text: string },
+      { message_id: string | null; role: string; kind: string; ts: number; text: string; author_json: string },
       [string]
     >(
-      `SELECT message_id, role, kind, ts, text
+      `SELECT message_id, role, kind, ts, text, author_json
          FROM transcript_messages
         WHERE session_id = ? AND path NOT LIKE 'lfg://%'
         ORDER BY order_seq ASC, id ASC`,
@@ -1116,14 +1145,14 @@ export function reindexFileHistoryUnderSessionKey(
   const inserted = d.transaction((rows: typeof src) => {
     const msgStmt = d.query(`
       INSERT OR IGNORE INTO transcript_messages
-        (id, session_id, path, message_id, byte_offset, order_seq, ts, role, kind, text)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, session_id, path, message_id, byte_offset, order_seq, ts, role, kind, text, author_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const ftsStmt = d.query(FTS_MIRROR_INSERT);
     let n = 0;
     for (const r of rows) {
       const id = `${key}\0${r.message_id ?? String(seq)}\0${seq}`;
-      const result = msgStmt.run(id, sessionId, key, r.message_id, seq, seq, r.ts, r.role, r.kind, r.text);
+      const result = msgStmt.run(id, sessionId, key, r.message_id, seq, seq, r.ts, r.role, r.kind, r.text, r.author_json);
       n += Number(result.changes ?? 0);
       ftsStmt.run(id);
       seq++;
@@ -1203,8 +1232,9 @@ async function indexTranscriptOnce(path: string, sessionId: string): Promise<{
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const ftsStmt = d.query(FTS_MIRROR_INSERT);
+    const authorStmt = d.query("UPDATE transcript_messages SET author_json = ? WHERE id = ?");
     for (const row of rows) {
-      msgStmt.run(
+      const result = msgStmt.run(
         row.id,
         sessionId,
         path,
@@ -1216,6 +1246,9 @@ async function indexTranscriptOnce(path: string, sessionId: string): Promise<{
         row.msg.kind,
         row.text,
       );
+      if (Number(result.changes ?? 0)) {
+        authorStmt.run(JSON.stringify(messageAuthorForSession(sessionId, row.msg)), row.id);
+      }
       ftsStmt.run(row.id);
     }
     updateCursorInDb(d, path, sessionId, { size: st.size, offset: committed, mtimeMs: st.mtimeMs });
