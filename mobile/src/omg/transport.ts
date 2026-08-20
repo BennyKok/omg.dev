@@ -20,8 +20,25 @@ import {
 
 import { SESSION_AUTH_PATH, SESSION_ORIGIN } from "./config";
 import { getAuthToken } from "./auth";
+import {
+  isSharedBindingId,
+  mintTargetForBinding,
+  SHARED_REVOKED_DETAIL,
+} from "./computer-shared-binding";
 
-export class ComputerGrantError extends Error {}
+export class ComputerGrantError extends Error {
+  /**
+   * Set only for a 403. readiness.ts reads this to tell "the server refused
+   * this exact (owner, machine) pair" apart from "couldn't reach the session
+   * origin at all" — the two errors this class otherwise flattens into one
+   * shape. A 403 here is never transient: it means the mint's authorization
+   * check failed (an unshared/unpaired binding, or a share that has since
+   * been revoked), and retrying with the same grant will 403 again forever.
+   */
+  constructor(message: string, public readonly forbidden = false) {
+    super(message);
+  }
+}
 
 /**
  * Trade the account JWT for a signed, short-lived grant scoped to one machine.
@@ -30,10 +47,19 @@ export class ComputerGrantError extends Error {}
  * browser needs the header; we deliberately ignore it and use the field as a
  * bearer token, which the proxy's readSessionGrant() accepts precisely so
  * non-browser clients don't have to care about cookie policy.
+ *
+ * `bindingId` here is whatever this app has selected, which may be the
+ * `shared:<ownerUserId>:<bindingId>` spelling from computer-shared-binding.ts.
+ * The mint endpoint itself only understands the raw pair — decoding the
+ * opaque id into `{bindingId, ownerUserId}` is this call's job, same as the
+ * web dashboard's `mintTargetForBinding` does before it calls the identical
+ * route.
  */
 export async function mintSessionGrant(bindingId: string): Promise<OmgGrant> {
   const authToken = await getAuthToken();
   if (!authToken) throw new ComputerGrantError("Please sign in again.");
+
+  const target = mintTargetForBinding(bindingId);
 
   let response: Response;
   try {
@@ -43,7 +69,7 @@ export async function mintSessionGrant(bindingId: string): Promise<OmgGrant> {
         Authorization: `Bearer ${authToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ bindingId }),
+      body: JSON.stringify(target),
     });
   } catch {
     throw new ComputerGrantError(
@@ -53,7 +79,16 @@ export async function mintSessionGrant(bindingId: string): Promise<OmgGrant> {
 
   if (response.status === 401) throw new ComputerGrantError("Please sign in again.");
   if (response.status === 403) {
-    throw new ComputerGrantError("This computer isn't connected to your account.");
+    // The one case that is not "try again": the server does not consider this
+    // account authorized for this machine, whether that is a binding that was
+    // never yours or a share that was just revoked. See the `forbidden` flag's
+    // doc comment above.
+    throw new ComputerGrantError(
+      isSharedBindingId(bindingId)
+        ? SHARED_REVOKED_DETAIL
+        : "This computer isn't available to your account anymore.",
+      true,
+    );
   }
   if (response.status === 402) {
     throw new ComputerGrantError("Your included computer time is used up.");

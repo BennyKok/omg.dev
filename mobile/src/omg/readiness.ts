@@ -15,6 +15,8 @@
 
 import type { OmgTransport } from "@omg-dev/client";
 
+import { ComputerGrantError } from "./transport";
+
 /** What the box can run, and the folders it can run in. */
 export type BootstrapRoster = {
   agents: { key: string; label: string; visible?: boolean; status?: { configured?: boolean; accountConnected?: boolean } }[];
@@ -42,6 +44,18 @@ export type ComputerReadiness =
   | { status: "agent-limit"; message: string }
   /** The runtime behind the proxy is down (502/503/504). */
   | { status: "unavailable"; message: string }
+  /**
+   * The mint 403'd: the server does not consider this account authorized for
+   * the selected machine RIGHT NOW. Distinct from `unavailable` on purpose —
+   * that status reads as "the box is having trouble", which is a reason to
+   * retry, and this is not. A revoked share (or an unpaired laptop still
+   * named in the stored preference) needs a different machine, not a retry
+   * loop against a grant that will 403 forever. See computer-shared-binding.ts
+   * for the web bug this specifically exists to not repeat: a revoked share
+   * used to render as "Computer not connected", which reads as offline rather
+   * than as "pick something else".
+   */
+  | { status: "unauthorized"; message: string }
   | { status: "error"; message: string };
 
 export async function probeReadiness(
@@ -51,6 +65,9 @@ export async function probeReadiness(
   try {
     response = await transport.fetch("/api/bootstrap");
   } catch (error) {
+    if (error instanceof ComputerGrantError && error.forbidden) {
+      return { status: "unauthorized", message: error.message };
+    }
     return {
       status: "unavailable",
       message: error instanceof Error ? error.message : "Couldn't reach your Computer.",

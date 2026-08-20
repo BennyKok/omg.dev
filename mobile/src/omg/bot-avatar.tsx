@@ -28,16 +28,19 @@
  * has to look different from a session row before you even read the text.
  * On the web that break is "circular vs. `rounded-md`" (spec.md §0.5); on
  * this app it runs the other way — a rounded square is the shape no other
- * avatar here uses. That call survives this change untouched. What changes
- * is what sits ON the plate: instead of the plate itself carrying the
- * colorway gradient edge-to-edge, the plate goes neutral (`colors.secondary`,
- * mirroring `AgentAvatar`'s disc) and the creature mark — which now carries
- * both shape AND colorway, baked into the PNG — sits inset on top of it, at
- * the same 0.62 mark-to-container ratio AgentAvatar uses. Painting the
- * gradient on both the plate and the mark had the two fight each other the
- * exact way AgentAvatar's own doc comment warns about ("tinting the disc
- * fought the icon"); keeping the plate neutral lets the mark carry the
- * identity once instead of twice.
+ * avatar here uses. That call survives this change untouched, and it also
+ * survives the roster row's later pass toward matching SessionCard's shell
+ * (bot-roster-row.tsx) — everything about that pass matches SessionCard
+ * except this shape, kept deliberately as the one signal that a bot row is
+ * not a session row. What changes here is what sits ON the plate: instead
+ * of the plate itself carrying the colorway gradient edge-to-edge, the
+ * plate goes neutral (`colors.secondary`, mirroring `AgentAvatar`'s disc)
+ * and the creature mark — which now carries both shape AND colorway, baked
+ * into the PNG — sits inset on top of it, at the same 0.62 mark-to-container
+ * ratio AgentAvatar uses. Painting the gradient on both the plate and the
+ * mark had the two fight each other the exact way AgentAvatar's own doc
+ * comment warns about ("tinting the disc fought the icon"); keeping the
+ * plate neutral lets the mark carry the identity once instead of twice.
  */
 
 import { Image, View } from "react-native";
@@ -50,7 +53,8 @@ import { botIcon } from "./bot-icons";
 /**
  * The corner radius that reads as "rounded square" rather than "circle" or
  * "sharp card" at avatar sizes — proportional to size so it holds up at both
- * the roster's 44pt and the New/Edit Bot sheet's 64pt preview.
+ * the roster's 28pt mark (shrunk to line up with SessionCard's own avatar
+ * size, components.tsx) and the New/Edit Bot sheet's larger previews.
  */
 const SQUIRCLE_RATIO = 0.32;
 
@@ -62,7 +66,7 @@ const MARK_RATIO = 0.62;
 export function BotAvatar({
   shape,
   colorway,
-  size = 44,
+  size = 28,
   working = false,
   style,
 }: {

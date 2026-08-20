@@ -28,6 +28,14 @@ import { forgetAllTransports, getHostedTransport } from "./transport";
 import { unregisterForPushNotifications } from "./push";
 import { startCloudPresence } from "./presence";
 import { waitForReady, type ComputerReadiness } from "./readiness";
+import {
+  isSharedBindingId,
+  SHARED_REVOKED_DETAIL,
+  sharedBindingId,
+  sharedComputerMachineIdentity,
+  sharedComputerOwnerLabel,
+  type SharedComputerView,
+} from "./computer-shared-binding";
 
 export type ComputerBinding = {
   id: string;
@@ -37,6 +45,50 @@ export type ComputerBinding = {
   defaultFolder?: string | null;
   computerUrl?: string | null;
 };
+
+/**
+ * A machine somebody else shared with this account, presented as an ordinary
+ * binding so it can flow through the same transport cache, grant mint and
+ * picker rows as one of the account's own. `id` is the opaque
+ * `shared:<ownerUserId>:<bindingId>` spelling from computer-shared-binding.ts
+ * — everything downstream keys on that one string.
+ *
+ * Never synthesized with a `computerUrl`: a guest never gets the owner's
+ * direct box URL, only the session proxy (which is what actually authorized
+ * them) knows how to reach it.
+ */
+export type SharedComputerBinding = ComputerBinding & {
+  shared: true;
+  ownerUserId: string;
+  /** The owner's raw binding id, for a unique tail when titles collide. */
+  ownerBindingId: string;
+  /** The owner's name, or their email if they have none set. */
+  ownerLabel: string;
+  /** Display name when they have one. Never an email. */
+  ownerName?: string;
+  email: string;
+  /** Hostname / machine name when the share row named the box. */
+  machineLabel?: string;
+};
+
+function toSharedBinding(computer: SharedComputerView): SharedComputerBinding {
+  const ownerLabel = sharedComputerOwnerLabel(computer);
+  const ownerName = computer.name?.trim();
+  return {
+    id: sharedBindingId(computer.ownerUserId, computer.bindingId),
+    online: computer.online ?? true,
+    lastSeenAt: null,
+    defaultFolder: computer.defaultFolder ?? computer.binding?.defaultFolder ?? null,
+    computerUrl: null,
+    shared: true,
+    ownerUserId: computer.ownerUserId,
+    ownerBindingId: computer.bindingId,
+    ownerLabel,
+    ownerName: ownerName && !ownerName.includes("@") ? ownerName : undefined,
+    email: computer.email,
+    machineLabel: sharedComputerMachineIdentity(computer),
+  };
+}
 
 /**
  * What the SELECTED box can run and where. Read from /api/bootstrap, which is
@@ -76,6 +128,13 @@ type OmgContextValue = {
   signOut: () => Promise<void>;
 
   bindings: ComputerBinding[];
+  /**
+   * Machines OTHER people shared with this account. Never present in
+   * `bindings` — relay only ever reports machines you own — so every
+   * consumer that used to just read `bindings` for "everything I can pick"
+   * needs to read this alongside it now.
+   */
+  sharedComputers: SharedComputerBinding[];
   cloud: CloudComputer | null;
   machinesLoading: boolean;
   /** The computer list has been answered at least once. See the state below. */
@@ -130,6 +189,7 @@ export function OmgProvider({ children }: PropsWithChildren) {
   const [user, setUser] = useState<SignedInUser | null>(null);
 
   const [bindings, setBindings] = useState<ComputerBinding[]>([]);
+  const [sharedComputers, setSharedComputers] = useState<SharedComputerBinding[]>([]);
   const [cloud, setCloud] = useState<CloudComputer | null>(null);
   const [machinesLoading, setMachinesLoading] = useState(false);
   /**
@@ -159,16 +219,25 @@ export function OmgProvider({ children }: PropsWithChildren) {
   const refreshMachines = useCallback(async () => {
     setMachinesLoading(true);
     try {
-      const [bindingsResult, cloudResult] = await Promise.allSettled([
+      const [bindingsResult, cloudResult, sharedResult] = await Promise.allSettled([
         controlPlane<{ bindings?: ComputerBinding[] }>("listComputerBindings"),
         controlPlane<CloudComputer>("getCloudComputer"),
+        controlPlane<{ computers?: SharedComputerView[] }>("listSharedComputers"),
       ]);
       if (bindingsResult.status === "fulfilled") {
         setBindings(bindingsResult.value?.bindings ?? []);
       }
       if (cloudResult.status === "fulfilled") setCloud(cloudResult.value ?? null);
-      // Only a total failure is worth a message; one of the two answering is
-      // still a usable screen.
+      // Best-effort, same as the web dashboard: almost every account has
+      // nothing shared with it, and a failure here should cost the "Shared
+      // with you" section, never the two calls above that every account
+      // depends on.
+      if (sharedResult.status === "fulfilled") {
+        setSharedComputers((sharedResult.value?.computers ?? []).map(toSharedBinding));
+      }
+      // Only a total failure of the two calls every account depends on is
+      // worth a message; `sharedComputers` failing alone never blocks the
+      // screen (see the best-effort note above).
       if (bindingsResult.status === "rejected" && cloudResult.status === "rejected") {
         setMachinesError(
           bindingsResult.reason instanceof Error
@@ -262,6 +331,34 @@ export function OmgProvider({ children }: PropsWithChildren) {
     setReadiness((current) => (current?.status === "ready" ? current : { status: "connecting" }));
 
     /**
+     * A `shared:` selection that no longer appears in OUR OWN read of "shared
+     * with me" has had its access revoked (or never existed). Caught here,
+     * before ever asking the box: minting a grant for it would 403 anyway —
+     * readiness.ts's ComputerGrantError handling is what catches that same
+     * failure reactively, for a share that gets revoked mid-session — but
+     * finding out here means a stale preference reads as "no longer shared
+     * with you" immediately, with no failed round trip in between to frame it
+     * as a broken connection instead of a withdrawn one.
+     *
+     * Gated on `machinesLoaded` so a probe that races the FIRST
+     * `refreshMachines()` (cold start restoring a saved bindingId before the
+     * network has answered even once) falls through to the real probe below
+     * instead of misreading "not fetched yet" as "revoked".
+     */
+    if (machinesLoaded && isSharedBindingId(bindingId)) {
+      const stillShared = sharedComputers.some((c) => c.id === bindingId);
+      if (!stillShared) {
+        if (ticket === probeToken.current) {
+          setReadiness({
+            status: "unauthorized",
+            message: SHARED_REVOKED_DETAIL,
+          });
+        }
+        return;
+      }
+    }
+
+    /**
      * Ask a sleeping cloud Computer to actually wake up.
      *
      * Nothing else this app does will. The control plane is emphatic that
@@ -295,7 +392,7 @@ export function OmgProvider({ children }: PropsWithChildren) {
     const result = await waitForReady(getHostedTransport(bindingId));
     // A machine switch mid-probe must not overwrite the new machine's state.
     if (ticket === probeToken.current) setReadiness(result);
-  }, [bindingId]);
+  }, [bindingId, machinesLoaded, sharedComputers]);
 
   useEffect(() => {
     if (bindingId && authStatus === "signed-in") void probe();
@@ -394,6 +491,7 @@ export function OmgProvider({ children }: PropsWithChildren) {
     setBindingId(null);
     setReadiness(null);
     setBindings([]);
+    setSharedComputers([]);
     setCloud(null);
     setUser(null);
     // The redirect to sign-in lives centrally in RootNavigator
@@ -437,6 +535,7 @@ export function OmgProvider({ children }: PropsWithChildren) {
       refreshSession,
       signOut,
       bindings,
+      sharedComputers,
       cloud,
       machinesLoading,
       machinesLoaded,
@@ -456,6 +555,7 @@ export function OmgProvider({ children }: PropsWithChildren) {
       refreshSession,
       signOut,
       bindings,
+      sharedComputers,
       cloud,
       machinesLoading,
       machinesLoaded,

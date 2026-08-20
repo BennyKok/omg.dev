@@ -28,6 +28,7 @@ import { useOmg } from "../src/omg/provider";
 import { useTheme } from "../src/omg/theme";
 import { bindingLabel } from "../src/omg/format";
 import { CLOUD_BINDING_ID } from "../src/omg/config";
+import { sharedBindingLabel } from "../src/omg/computer-shared-binding";
 import {
   getStoredPushToken,
   pushPermissionStatus,
@@ -99,15 +100,21 @@ const WEB_PAGES: { label: string; path: string }[] = [
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { colors, type, space } = useTheme();
-  const { user, client, signOut, bindings, bindingId } = useOmg();
+  const { user, client, signOut, bindings, sharedComputers, bindingId } = useOmg();
   const router = useRouter();
 
   const current = bindings.find((b) => b.id === bindingId);
+  const currentShared = sharedComputers.find((c) => c.id === bindingId);
+  // Same record the label resolved — a selected live share must not paint
+  // idle just because `current` is owned-only and therefore undefined.
+  const selectedMachine = current ?? currentShared;
   const machineName = current
     ? bindingLabel(current)
-    : bindingId === CLOUD_BINDING_ID
-      ? "Cloud computer"
-      : "None selected";
+    : currentShared
+      ? sharedBindingLabel(currentShared, sharedComputers)
+      : bindingId === CLOUD_BINDING_ID
+        ? "Cloud computer"
+        : "None selected";
 
   /**
    * "on" tracks whether THIS device has a live, registered token — not just
@@ -273,7 +280,7 @@ export default function SettingsScreen() {
             chevron is honest here for the same reason it would have been a lie
             on a row that only opened a menu. */}
         <Row onPress={() => router.push("/computers")}>
-          <StatusDot busy={current?.online ?? false} />
+          <StatusDot busy={selectedMachine?.online ?? false} />
           <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>{machineName}</Text>
           <Icon
             ios="chevron.right"
