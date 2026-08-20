@@ -15,6 +15,10 @@ Recent product updates and deployment notes.
   with the signed-in provider, the same way other signed-in harnesses do.
 - omg.dev still drives the jcode CLI you already own. It does not resell
   tokens.
+- **When jcode is not installed, Connect starts setup instead of the login
+  dialog.** The jcode row shows only the missing CLI check. Helper text is
+  "Connect Claude or Codex above." The dialog title says Claude or Codex
+  once the CLI is present.
 
 ## August 20, 2026 - A new account saw no onboarding steps at all (v0.2.20)
 

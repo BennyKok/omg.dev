@@ -352,7 +352,13 @@ export default function CodingAgentsPage({
                     <AgentProviderRow
                       key={provider.id}
                       provider={provider}
-                      onConnect={(p) => onConnectProvider(agent.key, p)}
+                      onConnect={(p) => {
+                        if (agent.key === "jcode" && !status.configured) {
+                          onSetup(agent.key);
+                          return;
+                        }
+                        onConnectProvider(agent.key, p);
+                      }}
                       onDisconnect={(p) => onDisconnectProvider(agent.key, p)}
                     />
                   ))}

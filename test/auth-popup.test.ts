@@ -111,4 +111,16 @@ describe("the dialog owns the wait", () => {
       "pendingLabel={codingAgentAuthInlineSid ? null : codingAgentAuthPending}",
     );
   });
+
+  test("jcode names Claude or Codex and does not open the dialog without the CLI", () => {
+    const fn = app.slice(
+      app.indexOf("async function loginAgentProvider"),
+      app.indexOf("async function connectApiKeyProvider"),
+    );
+    expect(fn).toContain('kind === "jcode"');
+    expect(fn).toContain("provider.label");
+    expect(fn).toContain("!agent?.status.configured");
+    expect(fn).toContain('setupCodingAgent("jcode")');
+    expect(fn.indexOf("setupCodingAgent")).toBeLessThan(fn.indexOf("startBrowserAuth"));
+  });
 });

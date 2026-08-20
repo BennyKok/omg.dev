@@ -7790,6 +7790,13 @@ export function App() {
   async function loginAgentProvider(kind: AgentKind, provider: PiProviderInfo) {
     if (provider.method === "api-key") return connectApiKeyProvider(kind, provider);
     if (kind === "jcode") {
+      const agent = codingAgents.find((item) => item.key === "jcode");
+      // A missing CLI cannot produce an auth URL. Opening the dialog first
+      // parks the user on "Connect your account" until the server rejects.
+      if (!agent?.status.configured) {
+        setupCodingAgent("jcode");
+        return;
+      }
       return startBrowserAuth(
         "jcode",
         "/api/coding-agents/jcode/auth",

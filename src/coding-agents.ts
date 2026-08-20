@@ -743,7 +743,9 @@ function loginCommandPartsFor(kind: CodingAgentKind): string[] | null {
     return [codexPath() ?? "codex", "login", "--device-auth"];
   }
   if (kind === "opencode") return [opencodePath() ?? "opencode"];
-  if (kind === "jcode") return [jcodePath() ?? "jcode", "login", "--provider", "claude"];
+  // Sign-in is the Claude/Codex rows. A quoted `jcode login` argv is a second
+  // product the settings page would print the moment the CLI is missing.
+  if (kind === "jcode") return null;
   if (kind === "grok") return [grokPath() ?? "grok", "login", "--device-auth"];
   if (kind === "cursor") return [cursorPath() ?? "cursor-agent", "login"];
   if (kind === "fx") return [fxPath() ?? "fx", "login"];
@@ -1344,14 +1346,7 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
       auth.accountConnected ||
       jcodeProviders.some((provider) => provider.connected && !provider.fromEnv);
     addBinary("Jcode CLI", jcodePath());
-    addAuth(
-      "Jcode provider",
-      auth.available || accountConnected,
-      "use Connect below for Claude or Codex",
-    );
-    instructions.push(
-      "Connect Claude or Codex above. Codex uses `jcode login --provider openai`.",
-    );
+    instructions.push("Connect Claude or Codex above.");
     // Sign-in is the provider rows, the same shape pi uses. A leftover
     // `jcode login` terminal button would be a second product.
     canLoginInTerminal = false;

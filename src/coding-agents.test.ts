@@ -482,10 +482,23 @@ describe("coding agent auth detection", () => {
     expect(agents.find((agent) => agent.key === "jcode")?.status.canLoginInTerminal).toBe(false);
   });
 
-  test("the jcode login command uses --provider claude, not a terminal picker", () => {
-    expect(loginCommandFor("jcode")).toContain("--provider");
-    expect(loginCommandFor("jcode")).toContain("claude");
-    expect(loginCommandFor("jcode")).not.toContain("codex");
+  test("a missing jcode CLI is the only failing check", async () => {
+    const home = useTmpHome();
+    setEnv("PATH", home);
+    setEnv("LFG_JCODE_PATH", join(home, "missing-jcode"));
+
+    const agents = await listCodingAgents();
+    const status = agents.find((agent) => agent.key === "jcode")?.status;
+    expect(status?.checks.map((check) => check.label)).toEqual(["Jcode CLI"]);
+    expect(status?.checks.every((check) => !check.ok)).toBe(true);
+    expect(status?.configured).toBe(false);
+    expect(status?.instructions).toEqual(["Connect Claude or Codex above."]);
+    expect(status?.loginCommand).toBeUndefined();
+    expect(status?.providers?.map((provider) => provider.id)).toEqual(["claude", "openai"]);
+  });
+
+  test("jcode has no quoted terminal login command", () => {
+    expect(loginCommandFor("jcode")).toBeNull();
   });
 
   test("a platform OpenAI key makes Codex runnable without claiming the account is connected", async () => {
