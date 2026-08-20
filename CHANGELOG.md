@@ -33,6 +33,7 @@ Recent product updates and deployment notes.
   messages. Interrupt could not stop it. The session now ends the turn, writes
   the reason in the transcript, keeps the conversation, and accepts the next
   message.
+
 ## August 20, 2026 - Persistent bots rotate without losing the conversation (v0.2.16)
 
 - **Persona and runtime changes now start a fresh model runtime instead of
