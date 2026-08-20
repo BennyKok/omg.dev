@@ -6463,8 +6463,21 @@ a{color:#60a5fa}
         if (!sessionId) return err(400, "sessionId required");
         const model = body?.model?.trim() || undefined;
         // Already running? Don't double-spawn — point the client at the live one.
+        //
+        // listSessions() returns HISTORICAL sessions too, so identity alone does
+        // not mean "live". A session whose harness died is still listed, with
+        // pid 0. Matching on identity alone made every such session permanently
+        // unresumable: this branch queued the prompt into a command file no
+        // process was tailing, reported alreadyLive, and never cold-started.
+        // That is how a run of `database is locked` harness deaths turned into
+        // sessions that could not be recovered by any supported path.
+        //
+        // The pid is an unambiguous signal here: every live session carries a
+        // running harness pid, and every dead one reports 0.
         const live = (await listSessions()).find(
-          (s) => s.sessionId === sessionId || s.nativeSessionId === sessionId,
+          (s) =>
+            (s.sessionId === sessionId || s.nativeSessionId === sessionId) &&
+            isAisdkPidAlive(s.pid),
         );
         if (live) {
           if (body?.user && live.tmuxName) assignUser(live.tmuxName, body.user);
