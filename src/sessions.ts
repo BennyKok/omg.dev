@@ -13,7 +13,7 @@ import {
   isEntryBusy as isAisdkEntryBusy,
 } from "./aisdk-registry";
 import { isClosing } from "./closing";
-import { userAssignments } from "./users";
+import { userAssignments, userRoster } from "./users";
 import { PATHS } from "./config";
 import { homedir } from "node:os";
 import { projectName } from "./projects";
@@ -45,6 +45,11 @@ import {
 } from "./transcript-index";
 import { isProviderAuthError } from "./provider-auth-error";
 import { listBots } from "./bots/store.ts";
+import {
+  migrateLegacyConversations,
+  type Conversation,
+  type MessageAuthorRef,
+} from "./conversations.ts";
 
 const HOME = process.env.HOME ?? homedir();
 const PROJECTS_DIR = join(HOME, ".claude", "projects");
@@ -289,6 +294,8 @@ export type SessionMsg = {
   // exactly what lets computeStatus avoid false "build paused" banners on
   // sessions that are debugging or summarizing those errors.
   apiError?: boolean;
+  /** Persisted product author. Old rows use explicit legacy:unknown. */
+  author?: MessageAuthorRef;
 };
 
 export type Session = {
@@ -310,6 +317,12 @@ export type Session = {
   parentNativeSessionId?: string | null;
   parentAgent?: string | null;
   spawnedBy?: string | null;
+  /** Durable product identity. This, not the runtime id, selects the surface. */
+  conversationId?: string | null;
+  /** Bot configuration revision loaded when this runtime started. */
+  appliedConfigRevision?: number | null;
+  /** Additive product contract used by clients during the legacy migration. */
+  conversation?: Conversation | null;
   botId?: string;
   botName?: string;
   persistent?: boolean;
@@ -558,6 +571,8 @@ export function managedLaunchRow(
     parentNativeSessionId: m.parentNativeSessionId ?? null,
     parentAgent: m.parentAgent ?? null,
     spawnedBy: m.spawnedBy ?? null,
+    conversationId: m.conversationId ?? null,
+    appliedConfigRevision: m.appliedConfigRevision ?? null,
     botId: m.botId,
     persistent: m.persistent,
     capabilityVersion: m.capabilityVersion ?? null,
@@ -603,6 +618,8 @@ function managedLineage(m: ManagedSession | undefined): Pick<
   | "parentNativeSessionId"
   | "parentAgent"
   | "spawnedBy"
+  | "conversationId"
+  | "appliedConfigRevision"
   | "botId"
   | "persistent"
   | "capabilityVersion"
@@ -614,6 +631,8 @@ function managedLineage(m: ManagedSession | undefined): Pick<
     parentNativeSessionId: m?.parentNativeSessionId ?? null,
     parentAgent: m?.parentAgent ?? null,
     spawnedBy: m?.spawnedBy ?? null,
+    conversationId: m?.conversationId ?? null,
+    appliedConfigRevision: m?.appliedConfigRevision ?? null,
     botId: m?.botId,
     persistent: m?.persistent,
     capabilityVersion: m?.capabilityVersion ?? null,
@@ -3028,6 +3047,31 @@ export async function listSessions(): Promise<Session[]> {
       session.botId = parentBot.id;
       session.botName = parentBot.name;
     }
+  }
+  // Materialize the product model only after lineage has been resolved. Child
+  // runtimes can then inherit the parent's conversation attachment without
+  // ever joining its participant roster or becoming its selected surface.
+  const conversations = migrateLegacyConversations({
+    sessions: out,
+    bots,
+    roster: userRoster(),
+  });
+  const conversationByRuntime = new Map<string, Conversation>();
+  for (const conversation of conversations) {
+    for (const attachment of conversation.runtimeSessions) {
+      conversationByRuntime.set(attachment.sessionId, conversation);
+    }
+  }
+  for (const session of out) {
+    const explicit = session.conversationId
+      ? conversations.find((row) => row.id === session.conversationId)
+      : undefined;
+    const conversation = explicit ?? (session.sessionId
+      ? conversationByRuntime.get(session.sessionId)
+      : undefined);
+    if (!conversation) continue;
+    session.conversationId = conversation.id;
+    session.conversation = conversation;
   }
   profile?.end(out.length);
   return out;

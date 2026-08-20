@@ -6,6 +6,7 @@ import {
   sanitizeIdleArchiveMinutes,
 } from "./idle-archive.ts";
 import { join } from "node:path";
+import { sanitizeBotCompactionThreshold } from "./bots/rotation.ts";
 
 export type GlobalSettings = {
   timeZone: string;
@@ -31,6 +32,17 @@ export type GlobalSettings = {
   // Global transcript rendering preference. The focused mode is experimental
   // and projects the loaded transcript down to user turns + lfg_output.
   transcriptView: TranscriptView;
+  // Rotate a persistent bot onto a fresh session before its context window
+  // fills, carrying a handoff summary across. Off means a bot only ever
+  // rotates when a human applies a configuration change, and a long-lived
+  // conversation eventually fails at the wall the way it does today.
+  botAutoCompactionEnabled: boolean;
+  // Share of the model's context window at which that rotation fires. Bounded
+  // well away from both ends: see sanitizeBotCompactionThreshold for why 40 and
+  // 95 are the limits. There is no matching setting for the re-arm mark, which
+  // is derived, because two independently editable water marks can be crossed
+  // over and produce a bot that rotates on every single turn.
+  botCompactionThresholdPercent: number;
   // The update the "What's new" drawer's Skip button last dismissed (a
   // version, tag, or sha — whatever /api/install reported as latestVersion /
   // latestTag / latestSha at the time). "" means nothing has been skipped.
@@ -106,6 +118,10 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
   const skippedUpdateVersion = typeof input?.skippedUpdateVersion === "string"
     ? input.skippedUpdateVersion
     : "";
+  const botAutoCompactionEnabled = input?.botAutoCompactionEnabled !== false;
+  const botCompactionThresholdPercent = sanitizeBotCompactionThreshold(
+    input?.botCompactionThresholdPercent,
+  );
   return {
     timeZone,
     maxLiveAgents,
@@ -113,6 +129,8 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
     agentsPaused,
     idleAgentArchiveMinutes,
     transcriptView,
+    botAutoCompactionEnabled,
+    botCompactionThresholdPercent,
     skippedUpdateVersion,
   };
 }
@@ -221,6 +239,8 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
     write.run("agentsPaused", JSON.stringify(next.agentsPaused), now);
     write.run("idleAgentArchiveMinutes", JSON.stringify(next.idleAgentArchiveMinutes), now);
     write.run("transcriptView", JSON.stringify(next.transcriptView), now);
+    write.run("botAutoCompactionEnabled", JSON.stringify(next.botAutoCompactionEnabled), now);
+    write.run("botCompactionThresholdPercent", JSON.stringify(next.botCompactionThresholdPercent), now);
     write.run("skippedUpdateVersion", JSON.stringify(next.skippedUpdateVersion), now);
   })();
   return next;

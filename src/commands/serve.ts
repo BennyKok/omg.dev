@@ -65,11 +65,11 @@ import {
   BOT_COLORWAYS,
   BOT_SHAPES,
   BotOwnerQuotaError,
-  botConversationId,
   createBot,
   deleteBot,
   getBot,
   listBots,
+  mutateBot,
   updateBot,
   type Bot,
   type BotColorway,
@@ -81,12 +81,40 @@ import {
   persistentBotQuotaPolicy,
 } from "../bots/quota.ts";
 import { botCanonicalSessionId, botConversationRef, findBotMainSession } from "../bots/session.ts";
+import { botVisibleUserText } from "../bots/transcript.ts";
+import {
+  CHECKPOINT_MAX_TURNS,
+  MAX_BOT_COMPACTION_THRESHOLD_PERCENT,
+  MIN_BOT_COMPACTION_THRESHOLD_PERCENT,
+  appendArchivedSession,
+  botCompactionDecision,
+  botAppliedConfigRevision,
+  botConfigRevision,
+  botConfigStatus,
+  botHasPendingConfig,
+  botRotationAdmission,
+  buildHandoffCheckpoint,
+  checkpointIsEmpty,
+  defaultBotCompactionSettings,
+  extractCheckpointSections,
+  formatHandoffCheckpoint,
+  migrateLegacyBotRotationState,
+  nextBotConfigRevision,
+  queueBlocksBotRotation,
+  rotationCompareAndSwap,
+  rotationNoticeText,
+  sessionBoundConfigChanged,
+  sessionBoundConfigOf,
+  type BotHandoffCheckpoint,
+  type BotRotationBlock,
+  type BotRotationReason,
+  type CheckpointTurn,
+} from "../bots/rotation.ts";
 import {
   BOT_SELF_CREATE_FIELDS,
   BOT_SELF_UPDATE_FIELDS,
   BotSelfManagementError,
   botPatchRequiresRuntimeRefresh,
-  botRuntimeRefreshDecision,
   ownedBotPeers,
   readDeclaredCapabilities,
   resolveBotRuntimeActor,
@@ -113,6 +141,27 @@ import {
   // Aliased: the route already binds `visibleBots` to its own result.
   visibleBots as visibleBotsForViewer,
 } from "../bots/access.ts";
+import {
+  botAuthorEmailFromText,
+  formatBotAttribution,
+  resolveBotMessageAuthor,
+} from "../bots/authorship.ts";
+import {
+  attachRuntimeSession,
+  botParticipantId,
+  canManageConversation,
+  canReadConversation,
+  conversationBotParticipant,
+  conversationHumanParticipantId,
+  detachRuntimeSession,
+  ensureBotConversation,
+  ensureConversationHuman,
+  getConversation,
+  leaveConversationParticipant,
+  listConversations,
+  replaceConversationPrimaryRuntime,
+  upsertConversationParticipant,
+} from "../conversations.ts";
 import { startAutoScheduler, setBotRoutineDelivery } from "../auto/scheduler.ts";
 import { handleWakeTick } from "../auto/wake-tick.ts";
 import { pushWakeHooksNow, setWakeHooksBootId } from "../auto/wake-hooks-push.ts";
@@ -430,23 +479,31 @@ const EVLOG_DIR = join(PATHS.data, "evlogs");
 const SERVER_INSTANCE_ID = randomBytes(8).toString("hex");
 let selfUpdateRunning = false;
 
-// Peer sends to one bot share one critical section. This prevents two offline
-// sends from launching duplicate backing sessions and preserves enqueue order.
-const botPeerDeliveryTails = new Map<string, Promise<void>>();
+// Everything that can start, stop, or rebind one bot's backing session shares a
+// single critical section per bot.
+//
+// It began as peer-delivery-only: two offline sends could otherwise launch
+// duplicate backing sessions and scramble enqueue order. Rotation joins the
+// same lock rather than taking its own, because a separate lock would not be a
+// lock at all — a rotation tearing a session down while a peer delivery is
+// bringing one up interleaves two writers on `bot.sessionId`, and the loser's
+// write silently wins. One queue per bot makes "which session is this bot's"
+// answerable at every instant.
+const botWorkTails = new Map<string, Promise<void>>();
 
-async function serializeBotPeerDelivery<T>(targetBotId: string, task: () => Promise<T>): Promise<T> {
-  const previous = botPeerDeliveryTails.get(targetBotId) ?? Promise.resolve();
+async function serializeBotWork<T>(botId: string, task: () => Promise<T>): Promise<T> {
+  const previous = botWorkTails.get(botId) ?? Promise.resolve();
   let release!: () => void;
   const current = new Promise<void>((resolve) => {
     release = resolve;
   });
-  botPeerDeliveryTails.set(targetBotId, current);
+  botWorkTails.set(botId, current);
   await previous;
   try {
     return await task();
   } finally {
     release();
-    if (botPeerDeliveryTails.get(targetBotId) === current) botPeerDeliveryTails.delete(targetBotId);
+    if (botWorkTails.get(botId) === current) botWorkTails.delete(botId);
   }
 }
 
@@ -1917,6 +1974,66 @@ export function startIdleAgentArchiveSweep(): void {
   idleArchiveTimer.unref?.();
 }
 
+const BOT_COMPACTION_SWEEP_MS = 15_000;
+let botCompactionTimer: ReturnType<typeof setInterval> | null = null;
+let botCompactionRunning = false;
+
+/** Check measured context usage and rotate eligible persistent bots. */
+export async function checkBotCompactionOnce(now = Date.now()): Promise<number> {
+  const global = getGlobalSettingsSync();
+  const defaults = defaultBotCompactionSettings();
+  const threshold = global.botCompactionThresholdPercent;
+  const settings = {
+    ...defaults,
+    enabled: global.botAutoCompactionEnabled,
+    thresholdPercent: threshold,
+    // Keep a real hysteresis gap even when the operator lowers the threshold.
+    rearmPercent: Math.min(defaults.rearmPercent, threshold - 10),
+  };
+  if (!settings.enabled) return 0;
+
+  const [bots, sessions] = await Promise.all([listBots(), listSessions().catch(() => [])]);
+  let rotated = 0;
+  for (const bot of bots) {
+    if (!bot.enabled || bot.rotationState === "rotating" || bot.rotationState === "failed") continue;
+    if (bot.rotationState === "queued" && bot.rotationReason === "config") continue;
+
+    if (bot.rotationState === "queued" && bot.rotationReason === "compaction") {
+      const outcome = await rotateBotSession(bot.id, { reason: "compaction" });
+      if (outcome.ok && outcome.rotated) rotated++;
+      continue;
+    }
+
+    const primary = findBotMainSession(bot, sessions);
+    const sessionId = primary?.sessionId ?? bot.sessionId?.trim();
+    if (!sessionId) continue;
+    const transcriptPath = await resolveTranscript(sessionId).catch(() => null);
+    const usage = await sessionTokenUsage(sessionId, transcriptPath);
+    const decision = botCompactionDecision({ usage, bot, settings, now });
+    if (decision.armed !== (bot.compactionArmed !== false)) {
+      mutateBot(bot.id, (current) => ({ ...current, compactionArmed: decision.armed }));
+    }
+    if (!decision.rotate) continue;
+    const outcome = await rotateBotSession(bot.id, { reason: "compaction" });
+    if (outcome.ok && outcome.rotated) rotated++;
+  }
+  return rotated;
+}
+
+export function startBotCompactionSweep(): void {
+  if (botCompactionTimer) return;
+  botCompactionTimer = setInterval(() => {
+    if (botCompactionRunning) return;
+    botCompactionRunning = true;
+    void checkBotCompactionOnce()
+      .catch((error) => console.error(`[bot-compaction] ${error instanceof Error ? error.message : String(error)}`))
+      .finally(() => {
+        botCompactionRunning = false;
+      });
+  }, BOT_COMPACTION_SWEEP_MS);
+  botCompactionTimer.unref?.();
+}
+
 // When an agent explicitly chooses to close after publishing, the POST response
 // has to reach it before its tmux session disappears. Persist the resumable
 // record synchronously at the call site, then close from a short deferred task.
@@ -2304,12 +2421,62 @@ async function ensureBotSession(
   if (live) {
     // Heal a record an older broad `botId` match rebound to a delegated child,
     // so the corrupt id stops being handed to the next reader.
-    if (live.sessionId && live.sessionId !== bot.sessionId) {
-      await updateBot(bot.id, { sessionId: live.sessionId });
+    const conversationId = bot.conversationId?.trim() || live.conversationId?.trim() || bot.sessionId?.trim();
+    if (
+      live.sessionId &&
+      (live.sessionId !== bot.sessionId || (conversationId && conversationId !== bot.conversationId))
+    ) {
+      await updateBot(bot.id, { sessionId: live.sessionId, conversationId });
     }
     return { session: live, delivered: false };
   }
+  // botConversationRef repairs a saved id that names one of this bot's own
+  // subagents, recovering the conversation the human has actually been talking
+  // to instead of resuming a delegated task's thread.
+  return launchBotSession(bot, {
+    conversationId: bot.conversationId?.trim() || botConversationRef(bot, sessions).sessionId,
+    runtimeSessionId: botConversationRef(bot, sessions).sessionId,
+    firstMessage,
+  });
+}
 
+/**
+ * Start one backing process for a bot and bind the record to it.
+ *
+ * Split out of `ensureBotSession` so cold start and rotation cannot drift.
+ * They differ in exactly two ways — which conversation id the process attaches
+ * to, and what continuity material rides in the launch prompt — and everything
+ * else (agent validation, repo resolution, the activation gate, account
+ * picking, the managed-registry rows, user assignment, the spawn, the binding
+ * write) is identical. Two copies of that would be two places to forget
+ * `assignUser`, and the first Scout session already went missing once for
+ * exactly that reason.
+ *
+ * Rotation changes `runtimeSessionId` while preserving `conversationId`.
+ * Cold restart preserves both. The two ids were historically the same, so an
+ * old bot record is migrated by treating its saved session id as both values.
+ */
+async function launchBotSession(
+  bot: Bot,
+  opts: {
+    /** Durable product conversation. */
+    conversationId?: string;
+    /** Runtime transcript/provider thread. Omitted mints a fresh runtime. */
+    runtimeSessionId?: string;
+    /** Rotation commits the binding itself after all preparation succeeds. */
+    bindRecord?: boolean;
+    /** Keep the old primary live while a replacement is prepared. */
+    preserveExistingPrimary?: boolean;
+    /** Revision loaded into this runtime's launch contract. */
+    appliedConfigRevision?: number;
+    /** Pre-rendered blocks injected after the contract, in order. */
+    injectedBlocks?: readonly string[];
+    /** Skip the automatic prior-conversation summary (rotation brings its own). */
+    skipContinuity?: boolean;
+    firstMessage?: string;
+  } = {},
+): Promise<{ session: Session; delivered: boolean } | Response> {
+  const firstMessage = opts.firstMessage;
   const config = validateBotAgent(bot.agent, bot.model, bot.thinkingLevel);
   if ("error" in config) return err(400, config.error);
   const repos = await listRepos();
@@ -2342,18 +2509,24 @@ async function ensureBotSession(
               : agent === "pi"
                 ? resolvedModel ?? PI_DEFAULT_MODEL
                 : resolvedModel;
-    // The bot's id IS its conversation. A relaunch used to mint a fresh one,
-    // which is why a bot that died came back with an empty chat: the transcript
-    // read model is keyed on the id (`lfg://session/<id>`, sessionIndexKey), so
-    // a new id is a new conversation by construction. Reusing it makes new
-    // turns append to the history that is already there — no change to the
-    // transcript API, the live socket, or the client, because none of them ever
-    // cared which process produced a turn.
-    // botConversationRef repairs a saved id that names one of this bot's own
-    // subagents, recovering the conversation the human has actually been
-    // talking to instead of resuming a delegated task's thread.
-    const conversation = botConversationRef(bot, sessions);
-    const sessionId = botConversationId(conversation, () => crypto.randomUUID());
+    const legacyId = bot.sessionId?.trim();
+    const sessionId = opts.runtimeSessionId?.trim() || crypto.randomUUID();
+    const conversationId = opts.conversationId?.trim() || bot.conversationId?.trim() || legacyId || sessionId;
+    const durableConversation = ensureBotConversation({
+      conversationId,
+      bot,
+      ownerIdentity: bot.owner,
+      roster: userRoster(),
+    });
+    const botParticipant = durableConversation.participants.find((row) => row.id === botParticipantId(bot.id));
+    upsertConversationParticipant(
+      conversationId,
+      conversationBotParticipant(bot, {
+        role: botParticipant?.role,
+        joinedAt: botParticipant?.joinedAt,
+        historyAccess: botParticipant?.historyAccess,
+      }),
+    );
     // aisdk decides resume-vs-fresh by asking the index itself
     // (sessionHasIndexedMessages, aisdk-session.ts), so reusing the id restores
     // the model's own thread too and a summary would only repeat what it can
@@ -2371,10 +2544,13 @@ async function ensureBotSession(
     // Summarize the repaired conversation, never the corrupt id: a bot rebound
     // to its own subagent would otherwise be reintroduced to that task's
     // transcript as if it were its own history.
-    const continuity = !resumesOwnThread && conversation.sessionId
-      ? await botContinuitySummary(conversation.sessionId)
+    const continuity = !opts.skipContinuity && !resumesOwnThread && legacyId
+      ? await botContinuitySummary(legacyId)
       : null;
     const prompt = [
+      // Regenerated from the bot record on every launch, which is the whole
+      // reason a config change needs a new session: this text is read once, at
+      // boot, and nothing can revise it afterwards.
       botRuntimeContract(bot.name, bot.persona, {
         awaitingFirstMessage: !firstMessage,
         description: bot.description,
@@ -2382,11 +2558,19 @@ async function ensureBotSession(
         maxBotSchedules: getGlobalSettingsSync().maxBotSchedules,
       }),
       continuity ? `=== PRIOR CONVERSATION SUMMARY ===\n${continuity}\n=== END PRIOR CONVERSATION SUMMARY ===` : "",
+      ...(opts.injectedBlocks ?? []),
       firstMessage ?? "",
     ].filter(Boolean).join("\n\n");
-    for (const stale of listManaged().filter((row) => row.botId === bot.id)) {
-      removeManaged(stale.tmuxName);
-      assignUser(stale.tmuxName, null);
+    if (!opts.preserveExistingPrimary) {
+      for (const stale of listManaged().filter((row) =>
+        row.botId === bot.id &&
+        !row.parentSessionId &&
+        !row.parentNativeSessionId &&
+        row.spawnedBy !== "subagent"
+      )) {
+        removeManaged(stale.tmuxName);
+        assignUser(stale.tmuxName, null);
+      }
     }
     const tmuxName = `lfg-${randomBytes(3).toString("hex")}`;
     const createdAt = Date.now();
@@ -2405,8 +2589,20 @@ async function ensureBotSession(
       title: bot.name,
       project: repo.project,
       spawnedBy: "bot",
+      conversationId,
+      appliedConfigRevision: opts.appliedConfigRevision ?? botConfigRevision(bot),
       botId: bot.id,
       persistent: true,
+    });
+    // Attach provisionally before the harness can write its launch turn. This
+    // gives transcript indexing a verified bot author without selecting this
+    // runtime as the product surface before startup succeeds.
+    attachRuntimeSession({
+      conversationId,
+      sessionId,
+      participantId: botParticipantId(bot.id),
+      kind: "execution",
+      attachedAt: createdAt,
     });
     // Tag before spawn, same as /api/sessions/new: an unassigned bot session is
     // invisible under the rail's default per-user filter, which is exactly how
@@ -2428,13 +2624,32 @@ async function ensureBotSession(
     if (!launched.ok) {
       removeManaged(tmuxName);
       assignUser(tmuxName, null);
+      detachRuntimeSession(conversationId, sessionId);
       return err(502, launched.error || "failed to start bot session");
     }
     if (launched.nativeSessionId) patchManaged(tmuxName, { nativeSessionId: launched.nativeSessionId });
     if (CODING_AGENT_ADAPTERS[agent].transport === "command-file")
       patchManaged(tmuxName, { launchState: "running" });
-    const saved = await updateBot(bot.id, { sessionId });
-    if (!saved) return err(404, "bot not found");
+    if (opts.bindRecord !== false) {
+      const attached = replaceConversationPrimaryRuntime({
+        conversationId,
+        sessionId,
+        participantId: botParticipantId(bot.id),
+        attachedAt: createdAt,
+      });
+      if (!attached) {
+        removeManaged(tmuxName);
+        assignUser(tmuxName, null);
+        detachRuntimeSession(conversationId, sessionId);
+        return err(502, "bot conversation could not attach the runtime");
+      }
+      const saved = await updateBot(bot.id, {
+        conversationId,
+        sessionId,
+        appliedConfigRevision: opts.appliedConfigRevision ?? botConfigRevision(bot),
+      });
+      if (!saved) return err(404, "bot not found");
+    }
     invalidateListSessionsCache();
     const record = listManaged().find((row) => row.tmuxName === tmuxName);
     const row = record
@@ -2445,6 +2660,421 @@ async function ensureBotSession(
   } finally {
     gate.release();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Bot session rotation
+// ---------------------------------------------------------------------------
+
+/**
+ * Commit-ish and link-ish references worth naming in a handoff.
+ *
+ * Deliberately high-precision and low-recall. A checkpoint that invents context
+ * is worse than one that omits it, because the bot will state the invention as
+ * fact on its first turn.
+ */
+function extractCheckpointArtifacts(turns: readonly CheckpointTurn[]): string[] {
+  const found: string[] = [];
+  const push = (value: string) => {
+    if (value && !found.includes(value)) found.push(value);
+  };
+  for (const turn of turns) {
+    for (const url of turn.text.match(/https?:\/\/[^\s)>\]]+/g) ?? []) push(url);
+    for (const ref of turn.text.match(/\B#\d{1,6}\b/g) ?? []) push(ref);
+    for (const sha of turn.text.match(/\b[0-9a-f]{7,40}\b/g) ?? []) {
+      // A run of hex that is all digits is a number, not a sha, and a 12-digit
+      // timestamp would otherwise be reported as a commit.
+      if (/[a-f]/.test(sha) && /\d/.test(sha)) push(sha);
+    }
+  }
+  return found;
+}
+
+/**
+ * Read a bounded tail of a conversation and assemble the handoff.
+ *
+ * Only user and assistant prose is eligible. Tool calls, tool results and
+ * reasoning are excluded at the source rather than filtered later — they are
+ * the bulk of a long session, they are the most likely place for a credential
+ * or a customer record to appear, and none of them is the thread a human is
+ * trying to keep.
+ *
+ * The structured sections are populated only from what a caller supplies. This
+ * build extracts artifacts deterministically and carries the recent turns
+ * verbatim-but-clamped, and leaves goals/decisions/tasks/preferences empty
+ * rather than guessing them from keyword heuristics: a regex that reports
+ * "durable decision: we will not use Postgres" because someone typed the words
+ * produces a briefing that is confidently wrong, and the bot has no way to
+ * check it. Recent turns carry the real continuity; an empty section renders as
+ * nothing at all.
+ */
+async function buildBotHandoffCheckpoint(
+  sessionId: string,
+  input: { reason: BotRotationReason; configRevision: number; now: number },
+): Promise<BotHandoffCheckpoint> {
+  const transcript = await resolveTranscript(sessionId) ?? sessionIndexKey(sessionId);
+  const page = await indexedMessagePage(transcript, sessionId, { limit: 60 });
+  const turns: CheckpointTurn[] = page.messages
+    .filter((message) =>
+      (message.role === "user" || message.role === "assistant") &&
+      (!message.kind || message.kind === "text")
+    )
+    .map((message) => ({
+      role: message.role as "user" | "assistant",
+      text: botVisibleUserText(message.text ?? ""),
+      ...(message.role === "user"
+        ? {
+            author:
+              botAuthorEmailFromText(message.text ?? "") ||
+              (message.author?.kind === "legacy" ? "legacy:unknown" : undefined),
+          }
+        : {}),
+    }))
+    .filter((turn) => !!turn.text.trim());
+  const sections = extractCheckpointSections(turns.slice(-CHECKPOINT_MAX_TURNS));
+
+  return buildHandoffCheckpoint({
+    sourceSessionId: sessionId,
+    reason: input.reason,
+    configRevision: input.configRevision,
+    createdAt: input.now,
+    ...sections,
+    artifacts: extractCheckpointArtifacts(turns.slice(-CHECKPOINT_MAX_TURNS)),
+    turns,
+  });
+}
+
+export type BotRotationOutcome =
+  | {
+      ok: true;
+      rotated: true;
+      sessionId: string;
+      previousSessionId: string | null;
+      appliedConfigRevision: number;
+    }
+  | { ok: true; rotated: false; reason: "already-applied"; sessionId: string | null }
+  | { ok: false; deferred: true; blocked: BotRotationBlock; children: string[] }
+  | { ok: false; deferred?: false; status: number; error: string };
+
+/**
+ * Move a bot onto a brand new canonical session carrying its current config.
+ *
+ * The one server-owned rotation primitive. Manual apply and automatic
+ * compaction both come through here, so the ordering guarantees below are
+ * stated once and hold for both.
+ *
+ * Order is the whole design:
+ *
+ *  1. Serialize on the bot. Two browser tabs clicking Apply cannot produce two
+ *     primaries, because the second one runs after the first has committed and
+ *     then finds its revision already applied.
+ *  2. Compare-and-swap the revision. A request naming a revision that is
+ *     already live is a no-op *success* — the caller asked for "revision N is
+ *     running" and it is, so spawning a second session to satisfy it would cost
+ *     the user their thread for nothing. A request naming a revision that no
+ *     longer exists is stale and is rejected so the client re-reads.
+ *  3. Admit or defer. Busy primary or live delegated children means queue, not
+ *     kill. The pending state is persisted so the UI can say so.
+ *  4. Build the checkpoint BEFORE anything is torn down. A checkpoint failure
+ *     here costs nothing: the old session is still running and still bound.
+ *  5. Launch and provisionally attach the replacement while the old primary
+ *     remains live. A failed spawn changes no canonical binding.
+ *  6. Promote and stage the replacement binding while the old process remains
+ *     live. A staging failure restores the old attachment and stops the candidate.
+ *  7. Close the old primary, then finalize. A close failure rolls the staged
+ *     binding back to the still-live old runtime.
+ */
+async function rotateBotSession(
+  botId: string,
+  opts: {
+    reason: BotRotationReason;
+    expectedRevision?: number;
+  },
+): Promise<BotRotationOutcome> {
+  return serializeBotWork(botId, async () => {
+    const bot = await getBot(botId);
+    if (!bot) return { ok: false, status: 404, error: "bot not found" };
+
+    const cas = rotationCompareAndSwap(bot, opts.expectedRevision);
+    if (!cas.proceed) {
+      if (cas.outcome === "already-applied") {
+        evlog("bot_rotation_noop", { botId, reason: opts.reason, revision: opts.expectedRevision });
+        return { ok: true, rotated: false, reason: "already-applied", sessionId: bot.sessionId ?? null };
+      }
+      return {
+        ok: false,
+        status: 409,
+        error: "bot configuration has changed since this request was made; re-read the bot and retry",
+      };
+    }
+
+    const sessions = await listSessions();
+    const primary = findBotMainSession(bot, sessions);
+    const admission = botRotationAdmission(bot.id, primary, sessions);
+    if (!admission.ready) {
+      mutateBot(bot.id, (current) => ({
+        ...current,
+        rotationState: "queued",
+        rotationReason: opts.reason,
+        rotationError: undefined,
+        rotationUpdatedAt: Date.now(),
+      }));
+      evlog("bot_rotation_deferred", {
+        botId,
+        reason: opts.reason,
+        blocked: admission.blocked,
+        children: admission.children.length,
+      });
+      return { ok: false, deferred: true, blocked: admission.blocked, children: admission.children };
+    }
+
+    const queueSessionId = primary?.sessionId ?? botCanonicalSessionId(bot, sessions);
+    if (queueSessionId) {
+      await reconcileQueued(queueSessionId).catch(() => false);
+      const queueBusy = queueBlocksBotRotation(listQueue(queueSessionId));
+      if (queueBusy) {
+        mutateBot(bot.id, (current) => ({
+          ...current,
+          rotationState: "queued",
+          rotationReason: opts.reason,
+          rotationError: undefined,
+          rotationUpdatedAt: Date.now(),
+        }));
+        return { ok: false, deferred: true, blocked: "primary-busy", children: [] };
+      }
+    }
+
+    // The revision this rotation is applying. Captured before any await, and
+    // used verbatim at commit time: an edit that lands WHILE the rotation runs
+    // bumps configRevision again, and that newer edit is genuinely not in the
+    // session being launched. Committing `botConfigRevision(current)` instead
+    // would mark it applied and the user would never be offered the button.
+    const targetRevision = botConfigRevision(bot);
+    const previousSessionId = botCanonicalSessionId(bot, sessions);
+    const conversationId =
+      bot.conversationId?.trim() ||
+      primary?.conversationId?.trim() ||
+      previousSessionId ||
+      crypto.randomUUID();
+    const now = Date.now();
+
+    mutateBot(bot.id, (current) => ({
+      ...current,
+      rotationState: "rotating",
+      rotationReason: opts.reason,
+      rotationError: undefined,
+      rotationUpdatedAt: now,
+    }));
+
+    const fail = (status: number, error: string): BotRotationOutcome => {
+      mutateBot(bot.id, (current) => ({
+        ...current,
+        rotationState: "failed",
+        rotationReason: opts.reason,
+        rotationError: error.slice(0, 400),
+        rotationUpdatedAt: Date.now(),
+      }));
+      evlog("bot_rotation_failed", { botId, reason: opts.reason, error: error.slice(0, 200) });
+      return { ok: false, status, error };
+    };
+
+    // 4. Checkpoint first, while the old session is still intact.
+    let injectedBlocks: string[];
+    try {
+      const checkpoint = previousSessionId
+        ? await buildBotHandoffCheckpoint(previousSessionId, {
+            reason: opts.reason,
+            configRevision: targetRevision,
+            now,
+          })
+        : null;
+      injectedBlocks = [
+        ...(checkpoint && !checkpointIsEmpty(checkpoint) ? [formatHandoffCheckpoint(checkpoint)] : []),
+        rotationNoticeText(opts.reason),
+      ];
+    } catch (error) {
+      // A bot with no readable history is not a failure — it has nothing to
+      // carry. A checkpoint that throws is, because it means the transcript
+      // read model is unhealthy and continuing would silently drop the thread.
+      return fail(
+        502,
+        `handoff checkpoint could not be generated: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    // 5. Prepare a fresh runtime under the same durable conversation while the
+    // old primary remains live. A spawn failure therefore leaves the old bot
+    // fully usable, not merely resumable from disk.
+    // The checkpoint is aboard. The record and conversation binding remain unchanged
+    // until the process has started successfully.
+    const launched = await launchBotSession(bot, {
+      conversationId,
+      injectedBlocks,
+      skipContinuity: true,
+      bindRecord: false,
+      preserveExistingPrimary: true,
+      appliedConfigRevision: targetRevision,
+    });
+    if (launched instanceof Response) {
+      const body = (await launched.json().catch(() => null)) as { error?: string } | null;
+      return fail(launched.status, body?.error ?? "failed to start the replacement session");
+    }
+    const newSessionId = launched.session.sessionId;
+    if (!newSessionId) return fail(502, "replacement session did not report an id");
+
+    const stopReplacement = async (source: string): Promise<void> => {
+      await closeLiveSession(launched.session, newSessionId, {
+        sessionId: newSessionId,
+        source,
+        botId: bot.id,
+      }).catch(() => undefined);
+    };
+
+    const attached = replaceConversationPrimaryRuntime({
+      conversationId,
+      sessionId: newSessionId,
+      participantId: botParticipantId(bot.id),
+      attachedAt: Date.now(),
+    });
+    if (!attached) {
+      await stopReplacement("bot_rotation_attach_rollback");
+      return fail(502, "replacement runtime could not attach to the bot conversation");
+    }
+
+    // 6. Stage the canonical record while the old process is still live. This
+    // closes the old rollback gap: if the record write fails, no live runtime
+    // has been destroyed and the old attachment can remain canonical.
+    const staged = mutateBot(bot.id, (current) => ({
+      ...current,
+      conversationId,
+      sessionId: newSessionId,
+      appliedConfigRevision: targetRevision,
+      configRevision: botConfigRevision(current),
+      rotationState: "rotating",
+      rotationReason: opts.reason,
+      rotationError: undefined,
+      rotationUpdatedAt: Date.now(),
+    }));
+    if (!staged) {
+      if (previousSessionId) {
+        replaceConversationPrimaryRuntime({
+          conversationId,
+          sessionId: previousSessionId,
+          participantId: botParticipantId(bot.id),
+        });
+      }
+      await stopReplacement("bot_rotation_record_stage_rollback");
+      return fail(404, "bot not found");
+    }
+
+    // 7. Retire the old process only after its replacement is running,
+    // attached, and staged. A close failure restores both durable pointers to
+    // the still-live old primary before the candidate is stopped.
+    if (primary?.sessionId) {
+      const outcome = await closeLiveSession(primary, primary.sessionId, {
+        sessionId: primary.sessionId,
+        source: `bot_rotation_${opts.reason}`,
+        botId: bot.id,
+      });
+      if (!outcome.ok) {
+        replaceConversationPrimaryRuntime({
+          conversationId,
+          sessionId: primary.sessionId,
+          participantId: botParticipantId(bot.id),
+        });
+        mutateBot(bot.id, (current) => ({
+          ...current,
+          conversationId,
+          sessionId: previousSessionId ?? bot.sessionId,
+          appliedConfigRevision: botAppliedConfigRevision(bot),
+          rotationState: "failed",
+          rotationReason: opts.reason,
+          rotationError: outcome.reason.slice(0, 400),
+          rotationUpdatedAt: Date.now(),
+        }));
+        await stopReplacement("bot_rotation_close_rollback");
+        return fail(outcome.status, outcome.reason);
+      }
+    }
+
+    // Finalize only after the new process is live and the old process has
+    // retired. Session-bound edits that arrived while rotation ran remain a
+    // newer configRevision, so the UI still offers their unapplied revision.
+    const committed = mutateBot(bot.id, (current) => ({
+      ...current,
+      rotationState: "idle",
+      rotationReason: undefined,
+      rotationError: undefined,
+      rotationUpdatedAt: Date.now(),
+      lastRotatedAt: Date.now(),
+      runtimeRefreshPending: false,
+      archivedSessionIds: previousSessionId && previousSessionId !== newSessionId
+        ? appendArchivedSession(current.archivedSessionIds, previousSessionId)
+        : current.archivedSessionIds,
+      ...(opts.reason === "compaction"
+        ? { compactionArmed: false, lastCompactionAt: Date.now() }
+        : {}),
+    }));
+    if (!committed) {
+      // Deletion uses the same bot critical section, so this branch only
+      // protects against a store failure. The replacement stays attached and
+      // running because the staged record already names it.
+      return fail(404, "bot not found");
+    }
+
+    evlog("bot_rotation_done", {
+      botId,
+      reason: opts.reason,
+      previousSessionId,
+      sessionId: newSessionId,
+      conversationId,
+      appliedConfigRevision: targetRevision,
+      archived: committed.archivedSessionIds?.length ?? 0,
+    });
+    return {
+      ok: true,
+      rotated: true,
+      sessionId: newSessionId,
+      previousSessionId,
+      appliedConfigRevision: targetRevision,
+    };
+  });
+}
+
+/**
+ * Run a rotation that was deferred, if the bot is now able to take it.
+ *
+ * Called on the paths that already know a bot just became reachable — a human
+ * message, a peer delivery — so a queued rotation lands at the first safe
+ * moment instead of waiting for a poll. Returns the (possibly refreshed) bot so
+ * the caller keeps using a current record.
+ */
+async function applyPendingBotRotation(bot: Bot): Promise<Bot> {
+  // Only a rotation somebody actually asked for resumes here. A bot merely
+  // sitting on an unapplied edit is left alone: "Update available" means the
+  // human has not decided yet, and quietly restarting their conversation the
+  // next time they say hello is precisely the surprise this design removes.
+  if (bot.rotationState !== "queued") return bot;
+  await rotateBotSession(bot.id, {
+    reason: bot.rotationReason ?? "config",
+    expectedRevision: botConfigRevision(bot),
+  });
+  // Re-read either way. A rotation that lands moves the binding; one that
+  // defers again refreshes the pending state; one that fails records why.
+  return (await getBot(bot.id)) ?? bot;
+}
+
+/**
+ * Migrate a record written before configuration was versioned.
+ *
+ * An older build's `runtimeRefreshPending` is a real, unapplied user edit. It
+ * has no revision attached, so it is translated into one: bump the revision so
+ * the gap exists, and mark it queued so it applies the way its author expected
+ * rather than silently evaporating on upgrade.
+ */
+function migrateLegacyBotRefreshFlag(bot: Bot): Bot {
+  if (!bot.runtimeRefreshPending) return bot;
+  return mutateBot(bot.id, (current) => migrateLegacyBotRotationState(current)) ?? bot;
 }
 
 /** Pure half of callerBotId, split out so the id-matching logic is testable
@@ -3459,6 +4089,25 @@ a{color:#60a5fa}
               );
             patch.idleAgentArchiveMinutes = minutes;
           }
+          if (b?.botAutoCompactionEnabled !== undefined) {
+            if (typeof b.botAutoCompactionEnabled !== "boolean")
+              return err(400, "botAutoCompactionEnabled must be a boolean");
+            patch.botAutoCompactionEnabled = b.botAutoCompactionEnabled;
+          }
+          if (b?.botCompactionThresholdPercent !== undefined) {
+            const threshold = Number(b.botCompactionThresholdPercent);
+            if (
+              !Number.isInteger(threshold) ||
+              threshold < MIN_BOT_COMPACTION_THRESHOLD_PERCENT ||
+              threshold > MAX_BOT_COMPACTION_THRESHOLD_PERCENT
+            ) {
+              return err(
+                400,
+                `botCompactionThresholdPercent must be an integer from ${MIN_BOT_COMPACTION_THRESHOLD_PERCENT} to ${MAX_BOT_COMPACTION_THRESHOLD_PERCENT}`,
+              );
+            }
+            patch.botCompactionThresholdPercent = threshold;
+          }
           if (b?.skippedUpdateVersion !== undefined) {
             if (typeof b.skippedUpdateVersion !== "string" || b.skippedUpdateVersion.length > 100)
               return err(400, "skippedUpdateVersion must be a string of 100 characters or fewer");
@@ -3475,6 +4124,17 @@ a{color:#60a5fa}
           warmChatTranscripts(sessions);
           return sessions;
         });
+        const viewer = botViewerFromRequest(req, undefined);
+        const conversationsTask = sessionsTask.then(() => {
+          let conversations = listConversations();
+          if (viewer.managed && viewer.identity) {
+            const participantId = conversationHumanParticipantId(viewer.identity);
+            conversations = conversations.filter((conversation) =>
+              canReadConversation(conversation, participantId),
+            );
+          }
+          return conversations;
+        });
         const reposTask = listRepos();
         const codingAgentsTask = listCodingAgentsCached();
         const settingsTask = getGlobalSettings();
@@ -3484,6 +4144,7 @@ a{color:#60a5fa}
           models: codingAgentsTask.then((agents) => listModelCatalog(agents)),
           settings: settingsTask,
           sessions: sessionsTask,
+          conversations: conversationsTask,
           users: Promise.resolve(userRoster()),
           repos: reposTask,
           autoAgents: listAutoAgents(),
@@ -3503,6 +4164,7 @@ a{color:#60a5fa}
           models?: ReturnType<typeof listModelCatalog> | null;
           settings?: GlobalSettings | null;
           sessions?: Awaited<ReturnType<typeof listSessionsCached>> | null;
+          conversations?: Awaited<typeof conversationsTask> | null;
           users?: ReturnType<typeof userRoster> | null;
           repos?: Awaited<ReturnType<typeof listRepos>> | null;
           autoAgents?: Awaited<ReturnType<typeof listAutoAgents>> | null;
@@ -3516,6 +4178,7 @@ a{color:#60a5fa}
             models: boot.models ?? null,
             settings: boot.settings ?? null,
             sessions: boot.sessions ? boot.sessions.map(sessionListRow) : null,
+            conversations: boot.conversations ?? null,
             users: boot.users ?? null,
             repos: boot.repos ?? null,
             auto: {
@@ -3859,7 +4522,7 @@ a{color:#60a5fa}
         if (replyToMessageId === null) return err(400, "replyToMessageId must be a string");
 
         try {
-          return await serializeBotPeerDelivery(targetBotId, async () => {
+          return await serializeBotWork(targetBotId, async () => {
             const sessions = await listSessions();
             const bots = await listBots();
             const actor = resolveBotRuntimeActor(callerSessionHeader(req), sessions, bots);
@@ -3872,29 +4535,28 @@ a{color:#60a5fa}
             });
             let enqueued = false;
             try {
-              let target = reservedTarget;
-              if (target.runtimeRefreshPending) {
-                // Only the bot's own conversation may be closed for a profile
-                // refresh. A delegated child matches on inherited `botId` and
-                // would be killed mid-task.
-                const live = findBotMainSession(target, sessions);
-                if (botRuntimeRefreshDecision(target, live) === "wait") {
-                  throw new BotPeerMessageError(
-                    409,
-                    "target bot profile update is still settling; retry after its current turn completes",
-                  );
-                }
-                if (live?.sessionId) {
-                  const outcome = await closeLiveSession(live, live.sessionId, {
-                    sessionId: live.sessionId,
-                    source: "bot_peer_runtime_refresh",
-                    botId: target.id,
-                  });
-                  if (!outcome.ok) throw new BotPeerMessageError(outcome.status, outcome.reason);
-                }
-                const refreshed = await updateBot(target.id, { runtimeRefreshPending: false });
-                if (!refreshed) throw new BotPeerMessageError(404, "target bot not found");
-                target = refreshed;
+              // Same rule as a human message: apply a rotation the owner
+              // already requested before the peer turn is enqueued, so the
+              // envelope is answered under the current configuration.
+              //
+              // Note this runs INSIDE the per-bot critical section already held
+              // by this delivery, and `rotateBotSession` takes that same lock.
+              // It is called through `applyPendingBotRotation` only on paths
+              // that do not already hold it; here the pending state is checked
+              // and the rotation is left to the message path, because
+              // re-entering the lock would deadlock.
+              let target = migrateLegacyBotRefreshFlag(reservedTarget);
+              if (
+                target.rotationState === "queued" ||
+                target.rotationState === "rotating" ||
+                (target.rotationState === "failed" && target.rotationReason === "config")
+              ) {
+                throw new BotPeerMessageError(
+                  409,
+                  target.rotationState === "failed"
+                    ? `target bot refresh failed: ${target.rotationError || "retry the refresh"}`
+                    : "target bot refresh is still settling; retry after its current turn completes",
+                );
               }
 
               // Start or revive the persistent conversation, then hand the
@@ -4052,15 +4714,29 @@ a{color:#60a5fa}
           if (capabilities && !Array.isArray(capabilities)) return err(400, capabilities.error);
           const avatar = readBotAvatar(body);
           if ("error" in avatar) return err(400, avatar.error);
-          const refreshRuntime = botPatchRequiresRuntimeRefresh(body);
-          const bot = await updateBot(actor.bot.id, {
+          const nextConfig = {
+            ...sessionBoundConfigOf(actor.bot),
             name,
             persona,
             description,
             capabilities,
+          };
+          const refreshRuntime = botPatchRequiresRuntimeRefresh(body) &&
+            sessionBoundConfigChanged(sessionBoundConfigOf(actor.bot), nextConfig);
+          const bot = await updateBot(actor.bot.id, {
+            ...nextConfig,
             shape: body.shape === undefined ? actor.bot.shape : avatar.shape,
             colorway: body.colorway === undefined ? actor.bot.colorway : avatar.colorway,
-            runtimeRefreshPending: refreshRuntime ? true : actor.bot.runtimeRefreshPending,
+            ...(refreshRuntime
+              ? {
+                  configRevision: nextBotConfigRevision(actor.bot),
+                  rotationState: "queued" as const,
+                  rotationReason: "config" as const,
+                  rotationError: undefined,
+                  rotationUpdatedAt: Date.now(),
+                  runtimeRefreshPending: false,
+                }
+              : {}),
           });
           if (!bot) return err(404, "bot not found");
           evlog("bot_updated_self", {
@@ -4097,9 +4773,20 @@ a{color:#60a5fa}
           );
           const bots = visibleBots.map((bot) => {
             const last = bot.sessionId ? lastIndexedAssistantMessage(bot.sessionId) : null;
+            // The status is derived here rather than in the client so every
+            // surface agrees on one answer. A client computing it from the
+            // revision pair alone would miss an in-flight or failed rotation
+            // and cheerfully render "Update available" over a running one.
+            const decorated = {
+              ...bot,
+              configRevision: botConfigRevision(bot),
+              appliedConfigRevision: botAppliedConfigRevision(bot),
+              configStatus: botConfigStatus(bot),
+              rotationError: bot.rotationError,
+            };
             return last?.text
-              ? { ...bot, lastMessagePreview: last.text.slice(0, 400), lastMessageTs: last.ts ?? null }
-              : bot;
+              ? { ...decorated, lastMessagePreview: last.text.slice(0, 400), lastMessageTs: last.ts ?? null }
+              : decorated;
           });
           // Exactly one conversation per bot — the roster invariant, decided
           // here rather than left to the client.
@@ -4140,14 +4827,19 @@ a{color:#60a5fa}
             if (scoped && assigned && botOwner && botReadUser(assigned) !== botReadUser(botOwner)) return [];
             const conversationUser = botReadUser(assigned || botOwner);
             if (scoped && requestedUser != null && conversationUser !== user) return [];
+            const conversationId =
+              bot.conversationId?.trim() ||
+              session?.conversationId?.trim() ||
+              sessionId;
             const cursor = latestIndexedAssistantCursor(sessionId);
-            ensureBotConversationReadBaseline(user, sessionId, cursor?.rowid ?? null);
+            ensureBotConversationReadBaseline(user, conversationId, cursor?.rowid ?? null);
             const last = lastIndexedAssistantMessage(sessionId);
             return [{
               sessionId,
+              conversationId,
               botId: bot.id,
               assignedUser: assigned ?? bot.owner ?? null,
-              unread: conversationUnread(user, sessionId, cursor?.rowid ?? null),
+              unread: conversationUnread(user, conversationId, cursor?.rowid ?? null),
               lastMessagePreview: last?.text?.slice(0, 400),
               lastMessageTs: last?.ts ?? null,
             }];
@@ -4230,12 +4922,57 @@ a{color:#60a5fa}
               bots,
             );
             const cursor = latestIndexedAssistantCursor(sessionId);
-            const read = markBotConversationRead(owner.user, sessionId, cursor?.rowid ?? null);
-            return json({ ok: true, sessionId, readThroughRowid: read.readThroughRowid });
+            const conversationId =
+              owner.bot.conversationId?.trim() ||
+              sessions.find((row) => row.sessionId === sessionId)?.conversationId?.trim() ||
+              sessionId;
+            const read = markBotConversationRead(owner.user, conversationId, cursor?.rowid ?? null);
+            return json({ ok: true, sessionId, conversationId, readThroughRowid: read.readThroughRowid });
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             return err(message.includes("another user") ? 403 : 404, message);
           }
+        }
+      }
+      {
+        const match = path.match(/^\/api\/conversations\/([^/]+)\/participants(?:\/([^/]+))?$/);
+        if (match) {
+          const conversationId = decodeURIComponent(match[1]);
+          const participantPathId = match[2] ? decodeURIComponent(match[2]) : null;
+          const conversation = getConversation(conversationId);
+          if (!conversation) return err(404, "conversation not found");
+          const viewer = botViewerFromRequest(req, undefined);
+          if (viewer.managed) {
+            const viewerParticipantId = conversationHumanParticipantId(viewer.identity);
+            if (!canManageConversation(conversation, viewerParticipantId)) {
+              return err(403, "conversation management access denied");
+            }
+          }
+          if (req.method === "POST" && !participantPathId) {
+            const body = (await req.json().catch(() => null)) as {
+              botId?: unknown;
+              historyAccess?: unknown;
+            } | null;
+            const botId = typeof body?.botId === "string" ? body.botId.trim() : "";
+            if (!botId) return err(400, "botId is required");
+            const bot = await getBot(botId);
+            if (!bot || !bot.enabled) return err(404, "bot not found");
+            const historyAccess = body?.historyAccess === "from_join" ? "from_join" : "all";
+            const updated = upsertConversationParticipant(
+              conversationId,
+              conversationBotParticipant(bot, { historyAccess }),
+            );
+            return json({ conversation: updated });
+          }
+          if (req.method === "DELETE" && participantPathId) {
+            const participant = conversation.participants.find((row) => row.id === participantPathId);
+            if (!participant) return err(404, "participant not found");
+            if (participant.role === "owner") return err(409, "conversation owner cannot leave");
+            return json({
+              conversation: leaveConversationParticipant(conversationId, participantPathId),
+            });
+          }
+          return err(405, "method not allowed");
         }
       }
       {
@@ -4247,39 +4984,123 @@ a{color:#60a5fa}
           const body = (await req.json().catch(() => null)) as { text?: unknown; user?: unknown } | null;
           const text = typeof body?.text === "string" ? body.text.trim() : "";
           if (!text) return err(400, "text is required");
-          const tag = resolveSessionUserTag(typeof body?.user === "string" ? body.user : undefined);
-          if (!tag.ok)
+          const requestedUser = typeof body?.user === "string" ? body.user : undefined;
+          // The write route now asks the same question the read routes ask.
+          // When control-plane vouched for this caller, their email decides
+          // authorship and `body.user` is never consulted — see
+          // bots/authorship.ts for why that ordering is the security property.
+          const viewer = botViewerFromRequest(req, requestedUser);
+          const tag = resolveSessionUserTag(requestedUser);
+          // A managed caller's `body.user` is inert, so validating it can only
+          // produce a spurious 400 on a shared Computer that also happens to
+          // have a local roster. Unmanaged callers keep the original contract.
+          if (!tag.ok && !viewer.managed)
             return err(400, `unknown user "${tag.unknown}" (expected one of the roster emails)`);
-          if (bot.runtimeRefreshPending) {
-            const pendingBot = bot;
-            const sessions = await listSessions();
-            // The bot's own conversation only — a delegated child inherits
-            // `botId` and must not be closed to apply a profile change.
-            const live = findBotMainSession(pendingBot, sessions);
-            // Never kill or rewrite the prompt of the turn that requested the
-            // update. A client that races the next message retries once that
-            // turn settles, and the message is never run under stale rules.
-            if (botRuntimeRefreshDecision(pendingBot, live) === "wait")
-              return err(409, "bot profile update is still settling; retry after the current turn completes");
-            if (live?.sessionId) {
-              const outcome = await closeLiveSession(live, live.sessionId, {
-                sessionId: live.sessionId,
-                source: "bot_runtime_refresh",
-                botId: pendingBot.id,
-              });
-              if (!outcome.ok) return err(outcome.status, outcome.reason);
+          // A rotation the human already asked for lands here, at the first
+          // moment the bot is demonstrably reachable. Rotating before the
+          // message is sent is what guarantees the message is answered under
+          // the new configuration rather than the old one.
+          bot = await applyPendingBotRotation(migrateLegacyBotRefreshFlag(bot));
+          const botId = bot.id;
+          return serializeBotWork(botId, async () => {
+            const activeBot = (await getBot(botId)) ?? bot!;
+            if (activeBot.rotationState === "queued") {
+              return err(
+                409,
+                "bot refresh is waiting for the current turn to finish; retry in a moment",
+              );
             }
-            const refreshed = await updateBot(pendingBot.id, { runtimeRefreshPending: false });
-            if (!refreshed) return err(404, "bot not found");
-            bot = refreshed;
+            if (activeBot.rotationState === "rotating") return err(409, "bot refresh is in progress; retry in a moment");
+            if (activeBot.rotationState === "failed" && activeBot.rotationReason === "config") {
+              return err(409, `bot refresh failed: ${activeBot.rotationError || "apply the update again"}`);
+            }
+            // Attribute before launching: when the session has to be started,
+            // this text rides inside the launch prompt instead of racing it.
+            const { author, trusted } = resolveBotMessageAuthor({
+              viewer,
+              rosterTagUser: tag.ok ? tag.user : undefined,
+              botOwner: activeBot.owner,
+              envUser: process.env.OMG_USER,
+            });
+            const attributed = `${formatBotAttribution(author, activeBot.name)}\n\n${text}`;
+            const delivery = await deliverBotMessage(activeBot, attributed);
+            if ("error" in delivery) return err(delivery.status, delivery.error);
+            if (trusted) {
+              const profile = userRoster().find(
+                (user) => user.email.trim().toLowerCase() === author.trim().toLowerCase(),
+              );
+              ensureConversationHuman({
+                conversationId:
+                  activeBot.conversationId?.trim() ||
+                  (await getBot(botId))?.conversationId?.trim() ||
+                  delivery.sessionId,
+                identity: author,
+                name: profile?.name,
+                avatar: profile?.avatar,
+                role: "member",
+              });
+            }
+            return json({ sessionId: delivery.sessionId });
+          });
+        }
+      }
+      {
+        // Apply a pending configuration change by rotating the bot onto a fresh
+        // canonical session. The explicit half of the feature: the human decides
+        // when their conversation restarts, and gets told what happened.
+        const match = path.match(/^\/api\/bots\/([^/]+)\/rotate$/);
+        if (match && req.method === "POST") {
+          const id = decodeURIComponent(match[1]);
+          const existing = await getBot(id);
+          if (!existing) return err(404, "bot not found");
+          const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+          const allowed = new Set(["expectedRevision"]);
+          const unknown = Object.keys(body ?? {}).filter((key) => !allowed.has(key)).sort();
+          if (unknown.length) return err(400, `unsupported rotate fields: ${unknown.join(", ")}`);
+          if (
+            body?.expectedRevision !== undefined &&
+            (!Number.isInteger(body.expectedRevision) || (body.expectedRevision as number) < 1)
+          ) {
+            return err(400, "expectedRevision must be a positive integer");
           }
-          // Attribute before launching: when the session has to be started, this
-          // exact text rides inside the launch prompt instead of racing it.
-          const author = tag.user || bot.owner || process.env.OMG_USER?.trim() || "user";
-          const attributed = `[Message from ${author} to bot ${bot.name}]\n\n${text}`;
-          const delivery = await deliverBotMessage(bot, attributed);
-          if ("error" in delivery) return err(delivery.status, delivery.error);
-          return json({ sessionId: delivery.sessionId });
+          const bot = migrateLegacyBotRefreshFlag(existing);
+          const retryingCompaction =
+            bot.rotationReason === "compaction" &&
+            !botHasPendingConfig(bot);
+          const outcome = await rotateBotSession(id, {
+            reason: retryingCompaction ? "compaction" : "config",
+            expectedRevision: retryingCompaction
+              ? undefined
+              : body?.expectedRevision as number | undefined,
+          });
+          const after = (await getBot(id)) ?? bot;
+          if (outcome.ok) {
+            return json({
+              ok: true,
+              rotated: outcome.rotated,
+              sessionId: outcome.rotated ? outcome.sessionId : outcome.sessionId,
+              previousSessionId: outcome.rotated ? outcome.previousSessionId : null,
+              configStatus: botConfigStatus(after),
+              configRevision: botConfigRevision(after),
+            });
+          }
+          if (outcome.deferred) {
+            // 202: accepted and pending, not refused. The rotation is recorded
+            // on the record and applies at the next safe moment.
+            return json(
+              {
+                ok: true,
+                rotated: false,
+                queued: true,
+                blocked: outcome.blocked,
+                activeChildren: outcome.children.length,
+                configStatus: botConfigStatus(after),
+                configRevision: botConfigRevision(after),
+              },
+              { status: 202 },
+            );
+          }
+          return err(outcome.status, outcome.error);
         }
       }
       {
@@ -4325,50 +5146,87 @@ a{color:#60a5fa}
             }
             const avatar = readBotAvatar(body);
             if ("error" in avatar) return err(400, avatar.error);
-            const bot = await updateBot(id, {
+            // Version the edit by what actually changed, not by which keys the
+            // form happened to submit. A cosmetic-only save must leave the
+            // revision alone so the bot keeps reading "Current" and is never
+            // offered a rotation that would change nothing.
+            const nextConfig = {
               name,
               persona,
-              shape: body.shape === undefined ? current.shape : avatar.shape,
-              colorway: body.colorway === undefined ? current.colorway : avatar.colorway,
+              description: current.description,
+              capabilities: current.capabilities,
               agent: config.agent,
               model,
               thinkingLevel,
               cwd,
               owner,
+            };
+            const materiallyChanged = sessionBoundConfigChanged(
+              sessionBoundConfigOf(current),
+              nextConfig,
+            );
+            const bot = await updateBot(id, {
+              ...nextConfig,
+              shape: body.shape === undefined ? current.shape : avatar.shape,
+              colorway: body.colorway === undefined ? current.colorway : avatar.colorway,
               enabled: body.enabled === undefined ? current.enabled : body.enabled,
-              runtimeRefreshPending: botPatchRequiresRuntimeRefresh(body)
-                ? true
-                : current.runtimeRefreshPending,
+              ...(materiallyChanged
+                ? {
+                    configRevision: nextBotConfigRevision(current),
+                    // Editing does NOT start a rotation. The revision gap alone
+                    // makes the status read "Update available", and applying it
+                    // is the human's explicit call — that is the whole point of
+                    // the control. Any queued-or-failed state from a previous
+                    // revision is cleared here rather than left up, because it
+                    // describes a target that no longer exists and would report
+                    // the wrong revision's error against the new edit.
+                    rotationState: "idle" as const,
+                    rotationReason: undefined,
+                    rotationError: undefined,
+                    rotationUpdatedAt: Date.now(),
+                  }
+                : {}),
             });
-            return json({ bot });
+            return json({
+              bot,
+              configStatus: bot ? botConfigStatus(bot) : "current",
+              configRevision: bot ? botConfigRevision(bot) : 1,
+            });
           }
           if (req.method === "DELETE") {
-            const sessions = await listSessions();
-            const live = sessions.find((session) =>
-              session.botId === id ||
-              (current.sessionId && (session.sessionId === current.sessionId || session.nativeSessionId === current.sessionId))
-            );
-            if (live?.sessionId) {
-              const outcome = await closeLiveSession(live, live.sessionId, {
-                sessionId: live.sessionId,
-                source: "bot_delete",
-                botId: id,
-              });
-              if (!outcome.ok) return err(outcome.status, outcome.reason);
-            }
-            for (const stale of listManaged().filter((row) => row.botId === id)) {
-              removeManaged(stale.tmuxName);
-              assignUser(stale.tmuxName, null);
-            }
-            // A deleted bot can never receive its own routine nudges again —
-            // leaving its rows behind would otherwise make "deleted bot with
-            // live routines" the steady state instead of the rare transient
-            // window the scheduler already tolerates (missing/disabled bot:
-            // skip, log, stamp lastRunAt so it doesn't retry every tick).
-            const removedRoutines = await deleteAutoAgentsOwnedByBot(id);
-            await deleteBot(id);
-            invalidateListSessionsCache();
-            return json({ ok: true, removedRoutines });
+            return serializeBotWork(id, async () => {
+              const deleting = await getBot(id);
+              if (!deleting) return err(404, "bot not found");
+              const sessions = await listSessions();
+              const live = sessions.find((session) =>
+                session.botId === id ||
+                (deleting.sessionId && (
+                  session.sessionId === deleting.sessionId ||
+                  session.nativeSessionId === deleting.sessionId
+                ))
+              );
+              if (live?.sessionId) {
+                const outcome = await closeLiveSession(live, live.sessionId, {
+                  sessionId: live.sessionId,
+                  source: "bot_delete",
+                  botId: id,
+                });
+                if (!outcome.ok) return err(outcome.status, outcome.reason);
+              }
+              for (const stale of listManaged().filter((row) => row.botId === id)) {
+                removeManaged(stale.tmuxName);
+                assignUser(stale.tmuxName, null);
+              }
+              // A deleted bot can never receive its own routine nudges again —
+              // leaving its rows behind would otherwise make "deleted bot with
+              // live routines" the steady state instead of the rare transient
+              // window the scheduler already tolerates (missing/disabled bot:
+              // skip, log, stamp lastRunAt so it doesn't retry every tick).
+              const removedRoutines = await deleteAutoAgentsOwnedByBot(id);
+              await deleteBot(id);
+              invalidateListSessionsCache();
+              return json({ ok: true, removedRoutines });
+            });
           }
         }
       }
@@ -8155,7 +9013,15 @@ a{color:#60a5fa}
       console.error(`[auto-sched] routine ${agent.id} owner bot ${agent.owner.botId} is gone or disabled — skipping`);
       return;
     }
-    const result = await deliverBotMessage(bot, routineNudgeText(agent));
+    const prepared = await applyPendingBotRotation(migrateLegacyBotRefreshFlag(bot));
+    if (prepared.rotationState === "failed" && prepared.rotationReason === "config") {
+      console.error(`[auto-sched] routine ${agent.id} is waiting for bot ${bot.id} to refresh`);
+      return;
+    }
+    const result = await serializeBotWork(bot.id, async () => {
+      const current = (await getBot(bot.id)) ?? prepared;
+      return deliverBotMessage(current, routineNudgeText(agent));
+    });
     if ("error" in result) {
       console.error(`[auto-sched] routine ${agent.id} delivery failed: ${result.error}`);
     }
@@ -8184,6 +9050,7 @@ a{color:#60a5fa}
   startWorktreeSweep((l) => console.log(l));
   startTmpSweep((l) => console.log(l));
   startIdleAgentArchiveSweep();
+  startBotCompactionSweep();
   // Watch the fleet for busy -> idle transitions and fan "completed" events out
   // to fleet subscribers (Web Push). Idempotent + best-effort.
   startFleetWatcher();

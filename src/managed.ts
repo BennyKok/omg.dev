@@ -52,6 +52,10 @@ export type ManagedSession = {
   parentNativeSessionId?: string;
   parentAgent?: string;
   spawnedBy?: "subagent" | "fork" | "finding" | "voice" | string;
+  /** Durable product conversation. Runtime ids may rotate without changing it. */
+  conversationId?: string;
+  /** Bot configuration revision loaded when this runtime started. */
+  appliedConfigRevision?: number;
   botId?: string;
   persistent?: boolean;
   /** LFG agent capability contract/tool catalog present when this process launched. */
