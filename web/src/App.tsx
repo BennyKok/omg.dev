@@ -25743,23 +25743,17 @@ function BotsView({
       {shouldShowInlineBotsSurfaceToggle(isMobile) ? (
         <SurfaceToggle active="chat" onOpenSessions={onOpenSessions} onOpenBots={() => {}} />
       ) : null}
-      <div className="flex items-start gap-3 px-2 pb-3 pt-5">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-[32px] font-bold leading-tight tracking-tight">Bots</h1>
-        </div>
+      <div className="flex items-center gap-3 px-2 pb-3 pt-5">
+        <h1 className="min-w-0 flex-1 text-[32px] font-bold leading-tight tracking-tight">Bots</h1>
+        <button
+          type="button"
+          onClick={onNew}
+          aria-label="New bot"
+          className="shrink-0 px-1 text-base font-medium text-primary transition-colors hover:text-primary/80"
+        >
+          New
+        </button>
       </div>
-      {/* Quiet dashed "New bot" row — same control as the rail, sized for
-          this page roster rather than the compact sidebar. */}
-      <button
-        type="button"
-        onClick={onNew}
-        className="mb-1 flex w-full items-center gap-3 rounded-lg px-2 py-3 text-left text-[15px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-      >
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
-          <Plus className="size-4" />
-        </span>
-        <span className="truncate">New bot</span>
-      </button>
       {bots.length ? botConversationRows(bots, sessions, conversations).map((row) => {
         const item = row.bot;
         const session = row.session;
@@ -25795,10 +25789,8 @@ function BotsView({
           </button>
         );
       }) : (
-        // The flat "New bot" row above is already the create affordance here
-        // (matches the rail: one create control, not a header button plus a
-        // second dashed row repeating it) — the empty state is just the
-        // heading card.
+        // Create lives in the header "New" control so the empty card is
+        // only the heading.
         <div className="flex flex-col items-center rounded-xl border border-border bg-card p-10 text-center">
           {/* One creature, asleep, waiting to be woken by the first bot. */}
           <BotMascot

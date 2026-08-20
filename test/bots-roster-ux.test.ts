@@ -33,8 +33,10 @@ describe("bots roster copy", () => {
     expect(PLACEHOLDER).not.toContain("A bot is a persistent");
   });
 
-  test("the page header is the word Bots only", () => {
+  test("the page header is Bots plus a New control", () => {
     expect(ROSTER).toContain(">Bots</h1>");
+    expect(ROSTER).toContain('aria-label="New bot"');
+    expect(ROSTER).toContain("\n          New\n");
     expect(ROSTER).not.toContain("<p className=\"text-sm text-muted-foreground\">");
   });
 });
@@ -60,18 +62,20 @@ describe("bots page roster chrome", () => {
     expect(ROSTER).toContain("size={56}");
     expect(ROSTER).toContain("text-base font-semibold");
     expect(ROSTER).toContain("text-sm");
-    expect(ROSTER).toContain("size-9");
-    expect(ROSTER).toContain("text-[15px]");
+    expect(ROSTER).toContain("text-xs tabular-nums");
     expect(ROSTER).toContain("isCodingAgentStoppedText(rawPreview)");
     expect(ROSTER).toContain("text-destructive");
+    expect(ROSTER).not.toContain("size={44}");
+    expect(ROSTER).not.toContain("text-[13px]");
     expect(BOT_RAIL).toContain("size={railCollapsed ? 24 : 28}");
     expect(BOT_RAIL).not.toContain("size={56}");
     expect(BOT_RAIL).not.toContain("text-[32px]");
   });
 
-  test("New bot stays a quiet dashed row", () => {
-    expect(ROSTER).toContain("border-dashed");
-    expect(ROSTER).toContain("New bot");
+  test("create is a header New control, not a dashed row", () => {
+    expect(ROSTER).toContain('aria-label="New bot"');
+    expect(ROSTER).not.toContain("border-dashed");
+    expect(ROSTER).not.toContain(">New bot<");
     expect(ROSTER).not.toContain("lfg-gborder--brand");
   });
 });

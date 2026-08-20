@@ -98,10 +98,10 @@ describe("bot roster preview line", () => {
     expect(isCodingAgentStoppedText("The coding agent stopped unexpectedly: timeout")).toBe(true);
   });
 
-  test("an empty last-message has no second line", () => {
-    expect(botRosterPreview("")).toBe("");
-    expect(botRosterPreview(undefined)).toBe("");
-    expect(botRosterPreview("   ")).toBe("");
+  test("an empty last-message is Say hi", () => {
+    expect(botRosterPreview("")).toBe("Say hi");
+    expect(botRosterPreview(undefined)).toBe("Say hi");
+    expect(botRosterPreview("   ")).toBe("Say hi");
   });
 
   test("a background-task report keeps the existing roster line", () => {

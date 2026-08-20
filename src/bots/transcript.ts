@@ -112,15 +112,15 @@ export function isCodingAgentStoppedText(text: string): boolean {
 /**
  * One-line preview for a bot roster or rail row.
  *
- * Empty means the row shows the name only. Crash text collapses to
- * "Stopped" instead of the raw exception. A background-task report stays
- * the existing "Background task reported in" line. Busy wins over the
+ * An empty last-message is "Say hi". Crash text collapses to "Stopped"
+ * instead of the raw exception. A background-task report stays the
+ * existing "Background task reported in" line. Busy wins over the
  * last-message text and is always "Working".
  */
 export function botRosterPreview(rawPreview: string | undefined, busy = false): string {
   if (busy) return "Working";
   const raw = (rawPreview ?? "").trim();
-  if (!raw) return "";
+  if (!raw) return "Say hi";
   if (isCodingAgentStoppedText(raw)) return "Stopped";
   if (isSubagentUpdateText(raw)) return "Background task reported in";
   return botVisibleUserText(raw);
