@@ -72,6 +72,16 @@ describe("CodingAgentsPage copy cut", () => {
     expect(saveAt).toBeGreaterThan(expandAt);
   });
 
+  test("expanded jcode is Claude/Codex Connect plus one Install", () => {
+    const row = agentRowBody(page);
+    expect(row).toContain("status.providers");
+    expect(row).toContain('agent.key === "jcode" && needsBinary');
+    expect(row).toContain("canAutoSetup && needsBinary");
+    expect(row).not.toContain("<CheckList");
+    expect(row).not.toContain("curl");
+    expect(row).not.toContain("OMG tools");
+  });
+
   test("jcode Connect with a missing CLI runs setup instead of the login dialog", () => {
     const row = agentRowBody(page);
     expect(row).toContain('agent.key === "jcode" && needsBinary');

@@ -453,6 +453,22 @@ describe("coding agent auth detection", () => {
     expect(status?.accountConnected).toBe(false);
   });
 
+  test("a missing jcode CLI still offers Claude and Codex Connect rows", async () => {
+    const home = useTmpHome();
+    setEnv("PATH", home);
+    setEnv("LFG_JCODE_PATH", join(home, "missing-jcode"));
+
+    const agents = await listCodingAgents();
+    const status = agents.find((agent) => agent.key === "jcode")?.status;
+    expect(status?.configured).toBe(false);
+    expect(status?.canLoginInTerminal).toBe(false);
+    expect(status?.providers?.map((provider) => ({ id: provider.id, label: provider.label }))).toEqual([
+      { id: "claude", label: "Claude" },
+      { id: "openai", label: "Codex" },
+    ]);
+    expect(status?.providers?.every((provider) => !provider.connected)).toBe(true);
+  });
+
   test("Jcode reports stored provider credentials as a connected account", async () => {
     const home = useTmpHome();
     setEnv("PATH", home);
