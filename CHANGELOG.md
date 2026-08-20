@@ -2,7 +2,7 @@
 
 Recent product updates and deployment notes.
 
-## August 20, 2026 - The desktop Chat/Bots switch could disappear after selecting a bot
+## August 20, 2026 - The desktop Chat/Bots switch could disappear after selecting a bot (v0.2.13)
 
 - **On desktop, opening a bot's conversation hid the Chat/Bots switch bar in
   the rail, with no way back to the session list short of a reload.** A fix
