@@ -4,7 +4,7 @@ import { DEFAULT_MAX_BOT_SCHEDULES } from "./settings.ts";
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-08-19.3";
+export const OMG_CAPABILITY_VERSION = "2026-08-19.4";
 
 export const OMG_CAPABILITIES = [
   {
@@ -113,6 +113,22 @@ export function omgRuntimeContract(): string {
  * analytics store, and still had not said a word to the human. A chat turn is
  * answered, not investigated; work that needs an investigation belongs in a
  * task session that reports back here.
+ *
+ * The reply-style rules (2026-08-19) exist because replies read as essays, not
+ * chat: multi-paragraph, headed, bolded lead-ins on every point, a bulleted
+ * recap of what just happened, a hedge on every claim, and a "want me to do X
+ * or Y?" tacked onto the end regardless of whether the question called for it.
+ * The fix is not a new tool. Every distinct piece of text a bot sends mid-turn
+ * — the narration before and after a tool call — is already rendered as its
+ * own chat bubble: verified against sessions.ts's transcript parsing, which
+ * splits each content block of an assistant turn (text separated by a
+ * tool_use block, or a fresh turn after a tool result) into its own message
+ * with its own id, and against web/src/lib/chat-render-items.ts, which never
+ * coalesces separate text messages back into one bubble. So the contract asks
+ * for what the runtime already does — short beats instead of one long final
+ * block — rather than inventing a mechanism that does not exist. It does not
+ * tell a bot to call tools it does not need just to manufacture breaks; a
+ * reply with no tool calls is one message of a couple of short lines.
  */
 export function botRuntimeContract(
   name: string,
@@ -134,7 +150,14 @@ export function botRuntimeContract(
       ? `- Your declared coordination capabilities are: ${options.capabilities.join(", ")}`
       : "",
     "- Reply to the human through normal assistant messages. Every message gets a reply in that same turn; the reply IS the deliverable, and a turn that ends without one has failed.",
-    "- Talk like a person in a chat: a few sentences, in character, plain words. Answer from what you already know whenever you can.",
+    "- Talk like a person in a chat, not a report: a couple of short sentences by default, plain words, in character. Length is earned by the question, not by everything you know — most replies are one or two lines. Answer from what you already know whenever you can.",
+    // Every distinct piece of text you send lands as its own bubble in the chat —
+    // that already happens automatically whenever you pause mid-turn to use a
+    // tool, it is not a special tool or a format you opt into. Say so plainly
+    // instead of describing it as a trick.
+    "- Land it in short beats instead of one block. A message you send mid-turn — the way you already do when you pause to use a tool — becomes its own bubble; let that show instead of saving everything for one long final message. \"it's been a long stretch on the last version\" / \"this adds tools, not just fixes\" / \"so a bump like this felt right\" beats a five-paragraph writeup. A reply that needs no tools at all can just be a couple of short lines in one message — never call a tool just to force a break.",
+    "- Say what you think, once, plainly. No hedging, no both-sides framing, no performing uncertainty as depth. If something is genuinely unclear, say so in one line and move on.",
+    "- Cut these, they read as machine-written: a bolded label leading every paragraph, markdown headings in a chat reply, a bulleted recap of what you just did, restating the question before you answer it, and a closing \"want me to do X or Y?\" tacked onto every message.",
     "- Looking something up is fine when the answer depends on it — a couple of reads, then answer. Never open an investigation in a chat turn.",
     "- Anything bigger than that — test suites, builds, refactors, multi-repo digs, production or customer data, anything past a minute or two of tool calls — is not chat work. Say so in one line, hand it to a background session with `omg_create_subagent`, and end your turn there. Do not wait for it; the conversation stays open while it runs.",
     "- That session reports back into this conversation by itself. When its update arrives, say what happened in your own words, the way you would tell a colleague. Never paste the raw report.",

@@ -105,6 +105,31 @@ describe("omg.dev runtime capabilities", () => {
     expect(contract).toContain("do not apply here");
   });
 
+  // Benny's direct feedback: replies read as essays (multi-paragraph, headed,
+  // bolded lead-ins, hedged) instead of chat. Each rule below is asserted
+  // because each one is a habit he named explicitly.
+  test("gives a bot chat-shaped reply style: short, beat-by-beat, confident", () => {
+    const contract = botRuntimeContract("Scout", "Be concise and curious.");
+    // Length is earned by the question, not by everything the bot knows.
+    expect(contract).toContain("Length is earned by the question");
+    // The multi-bubble mechanism is real: sessions.ts splits each content
+    // block of an assistant turn (text around a tool call) into its own
+    // message, and chat-render-items.ts never coalesces separate text
+    // messages back into one bubble — the contract names what already
+    // happens instead of inventing a tool that doesn't exist.
+    expect(contract).toContain("becomes its own bubble");
+    expect(contract).toContain("never call a tool just to force a break");
+    // Confidence: no hedging, no both-sides framing, no performed uncertainty.
+    expect(contract).toContain("Say what you think, once, plainly");
+    expect(contract).toContain("No hedging");
+    // The concrete habits Benny named to cut.
+    expect(contract).toContain("a bolded label leading every paragraph");
+    expect(contract).toContain("markdown headings in a chat reply");
+    expect(contract).toContain("a bulleted recap of what you just did");
+    expect(contract).toContain("restating the question before you answer it");
+    expect(contract).toContain("want me to do X or Y?");
+  });
+
   // Two envelopes reach a bot: this contract and the MCP server's instructions,
   // which used to order "ship or stay invisible" at every session indiscriminately.
   test("the MCP instructions scope shipping to task sessions", () => {
