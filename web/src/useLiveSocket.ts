@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { MessageAuthorRef } from "../../src/conversation-contract";
 import { visibilityRecoveryAction } from "./live-visibility";
 import { api, omgFetch, openOmgLiveSocket } from "./lib/omg-client";
 import type { OmgQueueMessage } from "./lib/omg-chat-transport";
@@ -47,6 +48,7 @@ export type Message = {
   queueId?: string;
   seed?: boolean;
   catchUp?: boolean;
+  author?: MessageAuthorRef;
 };
 
 export type AiStreamPart = {

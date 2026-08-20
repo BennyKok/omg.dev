@@ -1,5 +1,10 @@
 import { Component, createContext, type ComponentProps, forwardRef, memo, Suspense, useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import type {
+  Conversation as ProductConversation,
+  ConversationParticipant,
+  MessageAuthorRef,
+} from "../../src/conversation-contract";
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import {
   DEFAULT_TAB,
@@ -55,6 +60,11 @@ import {
   shouldShowMobileSurfaceToggle,
 } from "./lib/mobile-bots-nav";
 import { botChatSessionId, botStageSession, findBotMainSession } from "./lib/bot-session";
+import {
+  activeConversationParticipants,
+  isBotConversation,
+  productBotId,
+} from "./lib/conversation-ui";
 import {
   BOT_UNREAD_DOT_CLASS,
   botConversationRows,
@@ -610,6 +620,8 @@ export type Session = {
   parentNativeSessionId?: string | null;
   parentAgent?: string | null;
   spawnedBy?: string | null;
+  conversationId?: string | null;
+  conversation?: ProductConversation | null;
   botId?: string | null;
   botName?: string | null;
   capabilityVersion?: string | null;
@@ -746,6 +758,7 @@ type Message = {
   // accumulated when we connected, so it renders settled instead of replaying
   // the word-by-word streaming reveal. See DRAFT_CATCHUP_MIN_CHARS.
   catchUp?: boolean;
+  author?: MessageAuthorRef;
 };
 
 type AiStreamPart = {
@@ -980,6 +993,7 @@ type BootstrapPayload = {
   models?: ModelCatalogItem[] | null;
   settings?: GlobalSettings | null;
   sessions?: Session[] | null;
+  conversations?: ProductConversation[] | null;
   users?: User[] | null;
   repos?: Repo[] | null;
   auto?: { agents?: AutoAgent[] | null; tz?: string; findings?: AutoFinding[] | null };
@@ -10858,7 +10872,7 @@ function LiveView({
   const pinnedSet = new Set(topPinned);
   const nodeContainsPin = (node: SessionTreeNode): boolean =>
     pinnedSet.has(sessionStableId(node.session)) || node.children.some(nodeContainsPin);
-  const nodeIsBot = (node: SessionTreeNode): boolean => !!node.session.botId;
+  const nodeIsBot = (node: SessionTreeNode): boolean => isBotConversation(node.session);
   // Mobile has a dedicated Bots surface. Keep bot-owned families out of Chat,
   // even when a bot session or one of its delegated children was pinned.
   const pinnedNodes = tree.roots.filter(
@@ -11689,7 +11703,7 @@ function RailStage({
   // spoken to since Tuesday is not "idle" in the sense the rest of that group
   // means. Bots get their own category above the fleet, and are held out of
   // the project groups for the same reason.
-  const railNodeIsBot = (node: SessionTreeNode): boolean => !!node.session.botId;
+  const railNodeIsBot = (node: SessionTreeNode): boolean => isBotConversation(node.session);
   const botNodes = railTree.roots.filter(
     (node) => !railNodeContainsTopPin(node) && railNodeIsBot(node),
   );
@@ -12782,7 +12796,8 @@ const RailItem = memo(function RailItem({
   onTogglePin: () => void;
 }) {
   const botDirectory = useContext(BotDirectoryContext);
-  const drivingBot = session.botId ? botDirectory.get(session.botId) : undefined;
+  const drivingBotId = productBotId(session);
+  const drivingBot = drivingBotId ? botDirectory.get(drivingBotId) : undefined;
   // Touch swipe: drag right to pin, left to unpin. The foreground row slides
   // and a pin glyph is revealed behind it; past ~52px on release it commits.
   // A horizontal drag suppresses the tap-to-open; vertical is left to scroll.
@@ -13770,7 +13785,8 @@ function SessionChat(rawProps: SessionChatProps) {
   // from the session list would show the launch contract as a real message
   // and wait on anonymous dots instead of the creature.
   const directory = useContext(BotDirectoryContext);
-  const contextBot = rawProps.session.botId ? directory.get(rawProps.session.botId) : undefined;
+  const contextBotId = productBotId(rawProps.session);
+  const contextBot = contextBotId ? directory.get(contextBotId) : undefined;
   const props = rawProps.bot ? rawProps : { ...rawProps, bot: contextBot };
   const sid = props.session.sessionId;
   const botId = props.bot?.id;
@@ -15883,6 +15899,68 @@ function ForkSessionDialog({
   );
 }
 
+function ConversationParticipantRow({ session, compact = false }: { session: Session; compact?: boolean }) {
+  const botDirectory = useContext(BotDirectoryContext);
+  const participants = activeConversationParticipants(session);
+  if (participants.length < 2) return null;
+  return (
+    <div
+      className="mt-0.5 flex min-w-0 max-w-full items-center gap-1 overflow-hidden"
+      aria-label={`Conversation participants: ${participants.map((participant) => participant.display.name || participant.display.fallback).join(", ")}`}
+    >
+      {participants.slice(0, 5).map((participant) => {
+        const name = participant.display.name?.trim() || participant.display.fallback;
+        if (participant.kind === "bot") {
+          const botId = participant.id.startsWith("bot:") ? participant.id.slice(4) : participant.id;
+          const bot = botDirectory.get(botId);
+          return (
+            <span
+              key={participant.id}
+              className={cn(
+                "flex min-w-0 shrink items-center rounded-full bg-muted text-[10px] leading-none text-muted-foreground",
+                compact ? "size-4 justify-center" : "gap-1 px-1.5 py-0.5",
+              )}
+              title={`${name} · bot`}
+              aria-label={`${name}, bot`}
+            >
+              <BotMascot
+                shape={bot?.shape}
+                colorway={bot?.colorway}
+                size={14}
+                state="idle"
+                seed={botId.length}
+              />
+              {!compact ? <span className="max-w-20 truncate">{name}</span> : null}
+            </span>
+          );
+        }
+        const fallback = name.slice(0, 1).toUpperCase() || "M";
+        return (
+          <span
+            key={participant.id}
+            className="relative grid size-4 shrink-0 place-items-center overflow-hidden rounded-full bg-primary/12 text-[9px] font-semibold text-primary"
+            title={`${name} · ${participant.role}`}
+            aria-label={`${name}, ${participant.role}`}
+          >
+            {fallback}
+            {participant.display.avatar ? (
+              <img
+                src={participant.display.avatar}
+                alt=""
+                className="absolute inset-0 size-full object-cover"
+                onError={(event) => event.currentTarget.remove()}
+              />
+            ) : null}
+          </span>
+        );
+      })}
+      {participants.length > 5 ? (
+        <span className="shrink-0 text-[10px] text-muted-foreground">+{participants.length - 5}</span>
+      ) : null}
+    </div>
+  );
+}
+
 // memo'd: an SSE event for one session replaces the messagesBySid/etc. Record
 // reference, re-rendering LiveView's map. Without memo every card re-renders;
 // with it, only the card whose own message/busy/prompt reference changed does —
@@ -15944,7 +16022,8 @@ const SessionCard = memo(function SessionCard({
   // name in the header rather than a generated session title, wherever it is
   // opened from.
   const botDirectory = useContext(BotDirectoryContext);
-  const headerBot = session.botId ? botDirectory.get(session.botId) ?? null : null;
+  const headerBotId = productBotId(session);
+  const headerBot = headerBotId ? botDirectory.get(headerBotId) ?? null : null;
   const editBot = useContext(EditBotContext);
 
   const sid = session.sessionId;
@@ -16271,6 +16350,7 @@ const onTouchStart = (e: ReactTouchEvent) => {
                     {latest}
                   </div>
                 ) : null}
+                <ConversationParticipantRow session={session} compact={isMobile} />
               </div>
             </button>
           )}
@@ -24695,7 +24775,10 @@ function SessionHeaderIdentity({
   size?: number;
 }) {
   const botDirectory = useContext(BotDirectoryContext);
-  const identity = resolveSessionHeaderIdentity(session, botDirectory);
+  const identity = resolveSessionHeaderIdentity(
+    { ...session, botId: productBotId(session) },
+    botDirectory,
+  );
 
   if (identity.kind === "bot") {
     return (
@@ -25015,6 +25098,7 @@ function BotsView({
                 <span className="block truncate text-xs text-muted-foreground">
                   {bot.enabled ? (busy ? "working" : "idle") : "disabled"}
                 </span>
+                {session ? <ConversationParticipantRow session={session} compact /> : null}
               </span>
               <Button
                 variant="tint"
@@ -25045,6 +25129,7 @@ function BotsView({
             <span className="block truncate text-xs text-muted-foreground">
               {bot.persona.slice(0, 60)} · {bot.enabled ? (busy ? "working" : "idle") : "disabled"}
             </span>
+            {session ? <ConversationParticipantRow session={session} /> : null}
           </span>
           <Button variant="tint" size="icon-sm" onClick={() => onEdit(bot)} aria-label="Bot settings">
             <Settings className="size-4" />
