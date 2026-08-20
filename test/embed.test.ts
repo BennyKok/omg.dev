@@ -197,9 +197,9 @@ describe("host bottom inset contract", () => {
     // repos, one hand-maintained number: it drifted ~1rem and the islands
     // overlapped on a phone. One island cannot overlap itself.
     expect(app).toContain('data-lfg-host-slot="header-actions"');
-    // Both embedded mobile headers carry it. If only Live did, the host's
-    // chrome would jump back to floating the moment you opened Notifications.
-    expect(app.match(/data-lfg-host-slot="header-actions"/g)?.length).toBe(2);
+    // Both embedded mobile headers carry it. The tablet header carries the
+    // third slot added in v0.2.14, so host controls stay docked at every width.
+    expect(app.match(/data-lfg-host-slot="header-actions"/g)?.length).toBe(3);
     // Backward compatibility is the whole design: an older host that still
     // floats its own island must see no change. The slot is inert until the
     // host portals into it, and :empty is what makes that continuous.
