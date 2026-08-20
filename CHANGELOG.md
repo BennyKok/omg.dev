@@ -2,6 +2,23 @@
 
 Recent product updates and deployment notes.
 
+## August 20, 2026 - Codex sessions could not start after a Computer update (v0.2.17)
+
+- **Release bundles contain the Codex runtime again.** The bundle removed
+  `@openai/codex` to save space, because a coding agent runtime is expected to
+  come from the CLI on your own machine. The Codex backend does not use a
+  global CLI. It uses the runtime that the SDK pins, unless you set
+  `LFG_CODEX_PATH`. A Computer that updated to a recent release could therefore
+  not start any Codex session, and reported "Unable to locate Codex CLI
+  binaries". Scheduled agents that use Codex failed for the same reason.
+  Bundles are approximately 336 MB larger.
+- **A Codex session that goes silent now stops with a clear reason.** If the
+  Codex process stopped during a turn, the event stream could stop without an
+  error. The session stayed busy, gave no reason, and did not answer new
+  messages. Interrupt could not stop it. The session now ends the turn, writes
+  the reason in the transcript, keeps the conversation, and accepts the next
+  message.
+
 ## August 20, 2026 - Persistent bots rotate without losing the conversation (v0.2.16)
 
 - **Persona and runtime changes now start a fresh model runtime instead of
