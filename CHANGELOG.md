@@ -2,6 +2,23 @@
 
 Recent product updates and deployment notes.
 
+## August 20, 2026 - First-run installs the local control plane (v0.2.12)
+
+- **The documented install no longer goes through the retired `@omg-dev/cli`
+  0.4.x line.** That package is published from `BennyKok/vibes` and is the old
+  prompt-to-app CLI (`create` / `deploy` to `*.omgs.app`). A new user who
+  followed the previous README got that CLI, and often two `omg` binaries.
+  The README first command is now this repository's `scripts/setup.sh`. After
+  setup, open http://localhost:8766.
+- **This repository now owns `@omg-dev/cli` starting at 0.5.0.** That version
+  is required because 0.4.42 is already `latest` on npm; publishing 0.2.x would
+  not replace it. The new package only installs and forwards to the local
+  control plane. It rejects `create` / `deploy`. `lfg` stays a compatibility
+  alias. A release after this change must publish 0.5.0, and `BennyKok/vibes`
+  must stop publishing 0.4.x onto the same name.
+- **Hosted one-click points at `/sandbox/templates/omg` and `omg serve`.**
+  `lfg` remains a compatibility alias for the same product.
+
 ## August 20, 2026 - See which versions you are actually running (v0.2.11)
 
 - **Settings shows the app build and the Computer's runtime side by side.**
