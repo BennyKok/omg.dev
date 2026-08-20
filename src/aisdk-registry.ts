@@ -265,6 +265,12 @@ export function appendCmd(sessionId: string, cmd: AisdkCommand): void {
 
 // Liveness: a harness entry is only real if its process is still running.
 export function isPidAlive(pid: number): boolean {
+  // process.kill() reads 0 and negatives as PROCESS GROUPS, not processes:
+  // kill(0, 0) signals the caller's own group and kill(-N, 0) signals group N,
+  // so both return true and report a dead harness as alive. A dead or
+  // unrecorded harness is exactly the pid 0 case, so without this guard the
+  // function answers "alive" precisely when it matters most.
+  if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
