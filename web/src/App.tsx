@@ -30,8 +30,21 @@ import {
   isPlanLimitError,
   omgAssetUrl,
   omgFetch,
+  omgTransportGeneration,
   omgUpload,
 } from "./lib/omg-client";
+import {
+  FRONTEND_VERSION,
+  formatComputerVersion,
+  formatVersion,
+  copyableVersion,
+  isVersionMismatch,
+  normalizeVersion,
+  resolveComputerVersion,
+  versionMismatchNote,
+  versionRelation,
+  type ComputerVersionState,
+} from "./lib/version-diagnostics";
 import { cacheProjectFilter, readCachedProjectFilter } from "./lib/project-filter";
 import {
   MOBILE_BOT_ROSTER_ROW_CLASS,
@@ -951,6 +964,13 @@ type SessionUsage = {
 
 type BootstrapPayload = {
   version?: string | null;
+  /**
+   * Identifies the server PROCESS, so it changes on every restart. `version`
+   * alone cannot detect a restart (two builds can share a version), and a
+   * restart is exactly when the running version changes underneath a tab that
+   * is already open — see the reconnect check that re-bootstraps on a change.
+   */
+  bootId?: string | null;
   agents?: Agent[] | null;
   codingAgents?: CodingAgentInfo[] | null;
   models?: ModelCatalogItem[] | null;
@@ -5510,7 +5530,19 @@ export function App() {
   // full-screen onboarding flow is showing. See loadCore for the gate.
   const [onboarding, setOnboarding] = useState<OnboardingState | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [omgVersion, setOmgVersion] = useState("unknown");
+  // What the SELECTED Computer said it is running, tagged with the transport it
+  // said it over. The tag is what makes the claim falsifiable: a host switches
+  // Computers by swapping the transport in place, without remounting this tree,
+  // so an untagged version string would silently keep describing the previous
+  // machine. null = no bootstrap has returned yet.
+  const [computerVersionReport, setComputerVersionReport] = useState<
+    { version: string | null; generation: number; bootId: string | null } | null
+  >(null);
+  // Read by the reconnect check below. A ref, not a dep: depending on the state
+  // would re-arm that effect every time a bootstrap lands, and the effect's job
+  // is to fire on a connection EDGE, not on new data.
+  const computerVersionReportRef = useRef(computerVersionReport);
+  computerVersionReportRef.current = computerVersionReport;
   const [repos, setRepos] = useState<Repo[]>([]);
   const [loading, setLoading] = useState(true);
   // STARTUP failures only — "the app could not load its own state". Every other
@@ -5980,7 +6012,14 @@ export function App() {
         { cache: "no-store" },
       ),
     ]);
-    setOmgVersion(payload.version || "unknown");
+    // Stored raw, including absent/blank. Settings needs to tell "an older
+    // runtime that sends no version marker" apart from "we have not asked yet",
+    // and `|| "unknown"` collapsed both into one unreadable string.
+    setComputerVersionReport({
+      version: typeof payload.version === "string" ? payload.version : null,
+      generation: omgTransportGeneration(),
+      bootId: typeof payload.bootId === "string" ? payload.bootId : null,
+    });
     setOnboarding(payload.onboarding ?? null);
     // First-run gate: a brand-new install has no roster (env or stored
     // profiles), no sessions, and no completed onboarding. The flag is sticky
@@ -6769,6 +6808,38 @@ export function App() {
     onStatusRows: applyLiveStatusRows,
   });
   const liveStream = useWsLive ? wsLiveStream : sseLiveStream;
+
+  // A box that restarts under an open tab keeps serving, so nothing else here
+  // notices — but the version it runs has just changed, and Settings would go
+  // on showing the pre-restart number indefinitely. That is the worst possible
+  // direction for this row to fail: it is the exact signal people use to
+  // confirm a deploy landed (see the RUNNING_VERSION note in src/config.ts).
+  //
+  // bootId is the existing owner of "this is a different process", so a
+  // reconnect asks the cheap /api/install?ready=1 for it and re-bootstraps only
+  // when it actually changed. An ordinary network blip costs one tiny request
+  // and re-fetches nothing.
+  const liveStatus = wsLiveStream.connection?.status ?? null;
+  const wasLiveRef = useRef(false);
+  useEffect(() => {
+    if (!useWsLive) return;
+    const wasLive = wasLiveRef.current;
+    wasLiveRef.current = liveStatus === "live";
+    if (liveStatus !== "live" || wasLive) return;
+    let cancelled = false;
+    void api<{ bootId?: string | null }>("/api/install?ready=1", { cache: "no-store" })
+      .then((payload) => {
+        if (cancelled) return;
+        const seen = computerVersionReportRef.current?.bootId ?? null;
+        const now = typeof payload.bootId === "string" ? payload.bootId : null;
+        if (!seen || !now || seen === now) return;
+        void loadCore().catch(() => {});
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [useWsLive, liveStatus, loadCore]);
 
   const selectedConversationSid = selectedBotConversationId ??
     (selectedBotId ? bots.find((bot) => bot.id === selectedBotId)?.sessionId ?? null : null);
@@ -7798,7 +7869,7 @@ export function App() {
     return (
       <OnboardingFlow
         onboarding={onboarding}
-        version={omgVersion}
+        version={normalizeVersion(computerVersionReport?.version)}
         codingAgents={codingAgents}
         repos={repos}
         identity={identity}
@@ -8457,6 +8528,7 @@ export function App() {
             settings={settings}
             onSettingsChange={updateSettings}
             connection={useWsLive ? wsLiveStream.connection : null}
+            computerVersionReport={computerVersionReport}
           />
         ) : null}
         </>}
@@ -9556,7 +9628,8 @@ function OnboardingFlow({
   onDone,
 }: {
   onboarding: OnboardingState | null;
-  version: string;
+  /** Null when the box reported no usable version — the chip is dropped, not faked. */
+  version: string | null;
   codingAgents: CodingAgentInfo[];
   repos: Repo[];
   identity: string | null;
@@ -9835,9 +9908,11 @@ function OnboardingFlow({
               alt="omg"
               className="size-7 shrink-0"
             />
-            <span className="text-xs font-medium text-muted-foreground">
-              v{version}
-            </span>
+            {version ? (
+              <span className="text-xs font-medium text-muted-foreground">
+                v{version}
+              </span>
+            ) : null}
           </div>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             {labels.map(([key, label], i) => (
@@ -23831,6 +23906,94 @@ function UserIconSettingsSection({ identityEmail }: { identityEmail: string | nu
   );
 }
 
+/**
+ * One version row in Settings > Computer.
+ *
+ * Copy is offered only when there is a real version behind it. "Unavailable"
+ * and "Disconnected" are states, not values, and putting either on someone's
+ * clipboard to paste into a bug report would be worse than offering nothing.
+ */
+function VersionRow({
+  icon,
+  iconClassName,
+  label,
+  detail,
+  value,
+  copyValue,
+}: {
+  icon: ReactNode;
+  iconClassName: string;
+  label: string;
+  detail: string;
+  value: string;
+  copyValue: string | null;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+    const id = setTimeout(() => setCopied(false), 1200);
+    return () => clearTimeout(id);
+  }, [copied]);
+
+  // min-w-0 + truncate on the label column and shrink-0 on the value keeps a
+  // long label from pushing the number off a 320px screen.
+  const body = (
+    <>
+      <div className="flex min-w-0 items-center gap-3">
+        <span
+          className={cn(
+            "flex size-7 shrink-0 items-center justify-center rounded-[7px]",
+            iconClassName,
+          )}
+        >
+          {icon}
+        </span>
+        <span className="min-w-0">
+          <span className="block text-sm font-medium">{label}</span>
+          <span className="block truncate text-xs text-muted-foreground">{detail}</span>
+        </span>
+      </div>
+      <span className="flex shrink-0 items-center gap-2">
+        <span
+          className={cn(
+            "text-sm font-semibold tabular-nums",
+            copyValue ? "font-mono" : "text-muted-foreground",
+          )}
+        >
+          {value}
+        </span>
+        {copyValue ? (
+          copied ? (
+            <Check className="size-3.5 text-success" />
+          ) : (
+            <Copy className="size-3.5 text-muted-foreground/60" />
+          )
+        ) : null}
+      </span>
+    </>
+  );
+
+  if (!copyValue) {
+    return <div className="flex items-center justify-between gap-3 px-4 py-2.5">{body}</div>;
+  }
+
+  return (
+    <button
+      type="button"
+      aria-label={`Copy ${label} version ${copyValue}`}
+      onClick={() => {
+        void copyMessageText(copyValue)
+          .then(() => setCopied(true))
+          .catch(() => toast.error("Could not copy the version"));
+      }}
+      className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
+    >
+      {body}
+    </button>
+  );
+}
+
 function SettingsView({
   user,
   settings,
@@ -23840,6 +24003,7 @@ function SettingsView({
   onOpenStorage,
   onOpenMore,
   connection,
+  computerVersionReport,
 }: {
   user: string | null;
   settings: GlobalSettings;
@@ -23849,12 +24013,30 @@ function SettingsView({
   onOpenStorage: () => void;
   onOpenMore: () => void;
   connection: ConnectionState | null;
+  computerVersionReport: { version: string | null; generation: number } | null;
 }) {
   const initial = (user ?? "").trim().slice(0, 1).toUpperCase() || "?";
   // A host mounting this page renders the signed-in account itself — and its
   // account is the real one, where ours is only a per-device session tag. Two
   // identity blocks on one page is worse than none.
   const bare = useBareSurface();
+
+  // The two halves of "what am I actually looking at", resolved from two
+  // independent sources: FRONTEND_VERSION is stamped into this bundle at build
+  // time, and the Computer value comes only from that box's own bootstrap
+  // response. Neither falls back to the other — see version-diagnostics.ts.
+  const computerVersion = resolveComputerVersion({
+    reported: computerVersionReport?.version,
+    loaded: computerVersionReport != null,
+    connection: connection?.status ?? null,
+    // A number captured over a previous transport describes the machine we
+    // just switched away from, so it is dropped rather than relabelled.
+    stale:
+      computerVersionReport != null &&
+      computerVersionReport.generation !== omgTransportGeneration(),
+  });
+  const versionSkew = versionRelation(FRONTEND_VERSION, computerVersion);
+  const versionNote = versionMismatchNote(versionSkew);
 
   return (
     <div className="mx-auto max-w-xl space-y-8 pb-10" data-lfg-page-column>
@@ -23979,7 +24161,36 @@ function SettingsView({
             </div>
             <ChevronRight className="size-4 text-muted-foreground/60" />
           </button>
+          {/* Two independent facts, side by side, so a skew is visible without
+              reading logs: which UI build is rendering, and what the selected
+              Computer is really executing. */}
+          <VersionRow
+            icon={<Layers className="size-4" />}
+            iconClassName="bg-muted text-foreground/70"
+            label="Frontend"
+            detail="This app build"
+            value={formatVersion(FRONTEND_VERSION)}
+            copyValue={FRONTEND_VERSION ? `v${FRONTEND_VERSION}` : null}
+          />
+          <VersionRow
+            icon={<Cpu className="size-4" />}
+            iconClassName="bg-foreground text-background"
+            label="Computer"
+            detail="Runtime on this machine"
+            value={formatComputerVersion(computerVersion)}
+            copyValue={copyableVersion(computerVersion)}
+          />
         </div>
+        {versionNote ? (
+          <p
+            className={cn(
+              "px-4 text-xs text-pretty",
+              isVersionMismatch(versionSkew) ? "text-warning" : "text-muted-foreground",
+            )}
+          >
+            {versionNote}
+          </p>
+        ) : null}
       </section>
 
       <AgentConcurrencySettingsSection

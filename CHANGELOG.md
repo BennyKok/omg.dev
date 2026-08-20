@@ -2,6 +2,30 @@
 
 Recent product updates and deployment notes.
 
+## August 20, 2026 - See which versions you are actually running (v0.2.11)
+
+- **Settings shows the app build and the Computer's runtime side by side.**
+  Settings > Computer now has two rows, `Frontend` and `Computer`. The first is
+  the version of the app you are looking at right now; the second is the
+  version the selected Computer is really executing. Tap either to copy it.
+  When they disagree, a short line under them says which side is behind. This
+  is what you read to tell whether an update actually reached the box.
+- **The two numbers cannot agree by accident.** They are read from two separate
+  places: the app build stamps its own version at build time, and the Computer
+  value only ever comes from that Computer's own reply. Neither one falls back
+  to the other, so a matching pair is real evidence and not an assumption.
+- **Honest when it does not know.** A Computer that cannot be reached reads
+  `Disconnected`, and one running a version too old to report itself reads
+  `Unavailable`. Neither shows a guessed number. Self-hosted installs are
+  unchanged.
+- **The Computer row keeps up with restarts and machine switches.** Updating and
+  restarting a Computer used to leave the old version on screen until you
+  reloaded the page, which is the one moment the number has to be right. It now
+  corrects itself. Switching to a different Computer no longer shows the
+  previous machine's version under the new machine's name.
+- **Fixed: everyone with access to a shared Computer can see and open that
+  Computer's bots again.**
+
 ## August 19, 2026 - One row per bot, and faster bot chats (v0.2.10)
 
 - **The Bots list shows each bot once.** A bot that had handed work to a
