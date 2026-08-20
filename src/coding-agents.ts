@@ -201,7 +201,7 @@ export const CODING_AGENT_LABELS: Record<CodingAgentKind, string> = {
   copilot: "copilot",
 };
 
-const CONFIG_PATH = join(PATHS.data, "coding-agents.json");
+const configPath = () => join(PATHS.data, "coding-agents.json");
 const setupRuns = new Map<CodingAgentKind, Promise<void>>();
 const setupProgress = new Map<CodingAgentKind, { percent: number; label: string }>();
 
@@ -251,7 +251,7 @@ function readJson<T>(path: string): T | null {
 }
 
 export async function getCodingAgentConfig(): Promise<CodingAgentConfig> {
-  const raw = readJson<CodingAgentConfig>(CONFIG_PATH);
+  const raw = readJson<CodingAgentConfig>(configPath());
   return { agents: raw?.agents ?? {} };
 }
 
@@ -262,8 +262,23 @@ export async function setCodingAgentVisibility(
   const cfg = await getCodingAgentConfig();
   cfg.agents[kind] = { ...(cfg.agents[kind] ?? {}), visible };
   await mkdir(PATHS.data, { recursive: true });
-  await Bun.write(CONFIG_PATH, JSON.stringify(cfg, null, 2));
+  await Bun.write(configPath(), JSON.stringify(cfg, null, 2));
   return cfg;
+}
+
+/**
+ * Composer toggle for one coding agent.
+ *
+ * An agent is ON only when it can actually run. No saved choice follows
+ * readiness: ready defaults ON, unready defaults OFF. An explicit hide stays
+ * off after the agent becomes ready. An old implicit-on value (`true`, or
+ * missing) does not keep an unready agent on.
+ */
+export function codingAgentVisible(
+  saved: boolean | undefined,
+  configured: boolean,
+): boolean {
+  return saved === false ? false : configured;
 }
 
 function which(name: string, extra: string[] = []): string | null {
@@ -332,14 +347,44 @@ function jcodePath(): string | null {
 
 type JcodeAuthStatus = {
   any_available?: unknown;
-  providers?: Array<{ status?: unknown; credential_source?: unknown }>;
+  providers?: Array<{ id?: unknown; status?: unknown; credential_source?: unknown }>;
 };
 
-async function jcodeAuthStatus(): Promise<{ available: boolean; accountConnected: boolean }> {
+function jcodeProviderConnected(
+  reported: Array<{ id?: unknown; status?: unknown; credential_source?: unknown }>,
+  id: "claude" | "openai",
+): boolean {
+  const aliases = id === "openai" ? ["openai", "codex"] : [id];
+  const match = reported.find(
+    (provider) => typeof provider.id === "string" && aliases.includes(provider.id),
+  );
+  return (
+    match?.status === "available" &&
+    typeof match.credential_source === "string" &&
+    match.credential_source !== "none"
+  );
+}
+
+/** Claude and Codex rows stay visible even when the CLI is missing. */
+function jcodeProviderRows(
+  reported: Array<{ id?: unknown; status?: unknown; credential_source?: unknown }> = [],
+): AgentProviderInfo[] {
+  return [
+    { id: "claude", label: "Claude", method: "oauth", connected: jcodeProviderConnected(reported, "claude") },
+    { id: "openai", label: "Codex", method: "oauth", connected: jcodeProviderConnected(reported, "openai") },
+  ];
+}
+
+async function jcodeAuthStatus(): Promise<{
+  available: boolean;
+  accountConnected: boolean;
+  providers: Array<{ id?: unknown; status?: unknown; credential_source?: unknown }>;
+}> {
+  const empty = { available: false, accountConnected: false, providers: [] };
   const binary = jcodePath();
-  if (!binary) return { available: false, accountConnected: false };
+  if (!binary) return empty;
   const out = await commandOutputAsync([binary, "--no-update", "auth", "status", "--json"]);
-  if (!out.ok) return { available: false, accountConnected: false };
+  if (!out.ok) return empty;
   try {
     const parsed = JSON.parse(out.text) as JcodeAuthStatus;
     const providers = Array.isArray(parsed.providers) ? parsed.providers : [];
@@ -350,9 +395,9 @@ async function jcodeAuthStatus(): Promise<{ available: boolean; accountConnected
         typeof p.credential_source === "string" &&
         p.credential_source !== "none",
     );
-    return { available, accountConnected };
+    return { available, accountConnected, providers };
   } catch {
-    return { available: false, accountConnected: false };
+    return empty;
   }
 }
 
@@ -1181,6 +1226,7 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
   let canAutoSetup = true;
   let canLoginInTerminal = true;
   let accountConnected = false;
+  let jcodeProviders: AgentProviderInfo[] | undefined;
 
   const addBinary = (label: string, path: string | null) => {
     checks.push({ label, ok: !!path, detail: path ?? "not found" });
@@ -1222,10 +1268,14 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
     );
   } else if (kind === "jcode") {
     const auth = await jcodeAuthStatus();
-    accountConnected = auth.accountConnected;
+    jcodeProviders = jcodeProviderRows(auth.providers);
+    accountConnected =
+      auth.accountConnected || jcodeProviders.some((provider) => provider.connected);
     addBinary("Jcode CLI", jcodePath());
-    addAuth("Jcode provider", auth.available, "run `jcode login` and connect at least one provider");
-    instructions.push("Install Jcode, then run `jcode login` and connect at least one provider.");
+    addAuth("Jcode provider", auth.available || accountConnected, "connect Claude or Codex");
+    // Sign-in is the Claude/Codex rows. A leftover Login button would be a
+    // second product next to Connect.
+    canLoginInTerminal = false;
   } else if (kind === "cursor") {
     accountConnected = hasCursorAccountAuth();
     addBinary("Cursor CLI", cursorPath());
@@ -1279,6 +1329,7 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
       : {}),
     ...(kind === "pi" ? { providers: piAuthProviders() } : {}),
     ...(kind === "opencode" ? { providers: opencodeAuthProviders() } : {}),
+    ...(kind === "jcode" ? { providers: jcodeProviders ?? jcodeProviderRows() } : {}),
   };
 }
 
@@ -1288,12 +1339,15 @@ export async function listCodingAgents(): Promise<CodingAgentInfo[]> {
   // more than a second apiece; serialising them would stall the read even
   // after the spawn itself is async.
   return Promise.all(
-    CODING_AGENT_KINDS.map(async (key) => ({
-      key,
-      label: CODING_AGENT_LABELS[key],
-      visible: cfg.agents[key]?.visible !== false,
-      status: await statusFor(key),
-    })),
+    CODING_AGENT_KINDS.map(async (key) => {
+      const status = await statusFor(key);
+      return {
+        key,
+        label: CODING_AGENT_LABELS[key],
+        visible: codingAgentVisible(cfg.agents[key]?.visible, status.configured),
+        status,
+      };
+    }),
   );
 }
 
