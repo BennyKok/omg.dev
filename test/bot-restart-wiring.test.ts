@@ -67,9 +67,16 @@ describe("persistent bot manual restart wiring", () => {
     expect(SERVE).not.toContain("/api/sessions/:id/restart");
   });
 
-  test("uses the same bot menu in desktop and mobile chat headers", () => {
+  test("uses the same bot menu in wide desktop and responsive chat headers", () => {
+    const sessionCard = APP.slice(
+      APP.indexOf("const SessionCard = memo("),
+      APP.indexOf("const ChatStream = memo("),
+    );
     const botsView = APP.slice(APP.indexOf("function BotsView("));
     const selectedBotView = botsView.slice(botsView.indexOf("if (bot) {"), botsView.indexOf("No bots yet."));
+    expect(sessionCard).toContain("!collapsedView && headerBot && editBot");
+    expect(sessionCard).toContain("<BotConversationMenu");
+    expect(sessionCard).not.toContain('aria-label={`${headerBot.name} settings`}');
     expect(selectedBotView.match(/<BotConversationMenu/g)).toHaveLength(2);
     expect(botMenu).toContain("Restart unavailable — bot is disabled");
     expect(botMenu).toContain("Restart unavailable — start the conversation first");

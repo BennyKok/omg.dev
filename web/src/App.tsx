@@ -16422,20 +16422,17 @@ const onTouchStart = (e: ReactTouchEvent) => {
             <Pin className="size-3.5" fill="currentColor" />
           </span>
         ) : null}
-        {/* The badge is a way back to a bot you are not looking at. Once the
-            header wears the bot's own face, it would only link here — so it
-            becomes the way into that bot's settings instead. */}
+        {/* A bot-backed card is the authoritative desktop bot conversation.
+            Keep its lifecycle menu on the same header instead of exposing the
+            regular session menu or a settings-only shortcut. */}
         {!collapsedView && headerBot && editBot ? (
-          <Button
-            variant="tint"
-            size="icon-sm"
-            onClick={() => editBot(headerBot)}
-            aria-label={`${headerBot.name} settings`}
-            title={`${headerBot.name} settings`}
-            className="shrink-0"
-          >
-            <Settings className="size-4" />
-          </Button>
+          <BotConversationMenu
+            bot={headerBot}
+            runtimeHealthy
+            busy={busy}
+            onEdit={() => editBot(headerBot)}
+            onRefresh={onRefresh}
+          />
         ) : null}
         {!collapsedView && !headerBot && session.botId && session.botName ? (
           <DrivenByBotBadge session={session} />
@@ -25098,17 +25095,47 @@ function BotConversationMenu({
   bot,
   runtimeHealthy,
   busy,
-  restarting,
   onEdit,
-  onRestart,
+  onRefresh,
 }: {
   bot: PersistentBot;
   runtimeHealthy: boolean;
   busy: boolean;
-  restarting: boolean;
   onEdit: () => void;
-  onRestart: () => Promise<void>;
+  onRefresh: () => Promise<void>;
 }) {
+  const [restarting, setRestarting] = useState(false);
+  const restart = useCallback(async () => {
+    if (restarting) return;
+    setRestarting(true);
+    const toastId = `bot-restart-${bot.id}`;
+    toast.loading("Restarting the bot runtime…", { id: toastId });
+    try {
+      const result = await api<BotRestartResponse>(`/api/bots/${encodeURIComponent(bot.id)}/restart`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedRuntimeSessionId: bot.sessionId ?? null }),
+      });
+      // The lifecycle response is authoritative. A transient roster refresh
+      // failure must not turn a completed restart into a false failure toast;
+      // the normal poll/live stream will reconcile the view.
+      await onRefresh().catch(() => {});
+      if (result.state === "queued") {
+        const detail = result.blocked === "children-active"
+          ? ` after ${result.activeChildren || 1} active child task${result.activeChildren === 1 ? "" : "s"} finish`
+          : " after the current work and queued messages finish";
+        toast.success(`Restart queued${detail}.`, { id: toastId });
+      } else if (result.state === "already-restarted") {
+        toast.success("The runtime was already restarted.", { id: toastId });
+      } else {
+        toast.success("Runtime restarted. Conversation and history were preserved.", { id: toastId });
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not restart the bot runtime", { id: toastId });
+    } finally {
+      setRestarting(false);
+    }
+  }, [bot, onRefresh, restarting]);
   const unavailable = !bot.enabled
     ? "Restart unavailable — bot is disabled"
     : !bot.conversationId && !bot.sessionId
@@ -25139,10 +25166,10 @@ function BotConversationMenu({
       icon={<RotateCcw className="size-4" />}
       confirmIcon={<RotateCcw className="size-4" />}
       render={<DropdownMenuItem />}
-      onConfirm={onRestart}
+      onConfirm={restart}
     />
   ) : (
-    <DropdownMenuItem onClick={() => void onRestart()} aria-label="Restart session">
+    <DropdownMenuItem onClick={() => void restart()} aria-label="Restart session">
       <RotateCcw className="size-4" />
       Restart session
     </DropdownMenuItem>
@@ -25205,38 +25232,6 @@ function BotsView({
   const isMobile = useIsMobile();
   const { conversations } = useContext(BotUnreadContext);
   const bot = selectedBotId ? bots.find((item) => item.id === selectedBotId) ?? null : null;
-  const [restartingBotId, setRestartingBotId] = useState<string | null>(null);
-  const restartBot = useCallback(async (target: PersistentBot) => {
-    if (restartingBotId === target.id) return;
-    setRestartingBotId(target.id);
-    const toastId = `bot-restart-${target.id}`;
-    toast.loading("Restarting the bot runtime…", { id: toastId });
-    try {
-      const result = await api<BotRestartResponse>(`/api/bots/${encodeURIComponent(target.id)}/restart`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ expectedRuntimeSessionId: target.sessionId ?? null }),
-      });
-      // The lifecycle response is authoritative. A transient roster refresh
-      // failure must not turn a completed restart into a false failure toast;
-      // the normal poll/live stream will reconcile the view.
-      await Promise.all([onRefreshBots(), onRefreshSessions()]).catch(() => {});
-      if (result.state === "queued") {
-        const detail = result.blocked === "children-active"
-          ? ` after ${result.activeChildren || 1} active child task${result.activeChildren === 1 ? "" : "s"} finish`
-          : " after the current work and queued messages finish";
-        toast.success(`Restart queued${detail}.`, { id: toastId });
-      } else if (result.state === "already-restarted") {
-        toast.success("The runtime was already restarted.", { id: toastId });
-      } else {
-        toast.success("Runtime restarted. Conversation and history were preserved.", { id: toastId });
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not restart the bot runtime", { id: toastId });
-    } finally {
-      setRestartingBotId((current) => current === target.id ? null : current);
-    }
-  }, [onRefreshBots, onRefreshSessions, restartingBotId]);
   useEffect(() => {
     if (!isMobile || !bot) return;
     const previousOverflow = document.body.style.overflow;
@@ -25350,9 +25345,10 @@ function BotsView({
                 bot={bot}
                 runtimeHealthy={!!backingSession}
                 busy={busy}
-                restarting={restartingBotId === bot.id}
                 onEdit={() => onEdit(bot)}
-                onRestart={() => restartBot(bot)}
+                onRefresh={async () => {
+                  await Promise.all([onRefreshBots(), onRefreshSessions()]);
+                }}
               />
             </header>
             <div className="flex min-h-0 flex-1 flex-col">{chat}</div>
@@ -25380,9 +25376,10 @@ function BotsView({
             bot={bot}
             runtimeHealthy={!!backingSession}
             busy={busy}
-            restarting={restartingBotId === bot.id}
             onEdit={() => onEdit(bot)}
-            onRestart={() => restartBot(bot)}
+            onRefresh={async () => {
+              await Promise.all([onRefreshBots(), onRefreshSessions()]);
+            }}
           />
         </header>
         {chat}
