@@ -69,7 +69,7 @@ describe("POST /api/auto/agents/:id/run", () => {
 
 describe("DELETE /api/bots/:id — deletion cascade", () => {
   test("removes the bot's own routines before/alongside deleting the bot itself", () => {
-    const handler = block('if (req.method === "DELETE") {\n            const sessions = await listSessions();', 1600);
+    const handler = block('if (req.method === "DELETE") {\n            return serializeBotWork(id', 2100);
     const cascadeAt = handler.indexOf("deleteAutoAgentsOwnedByBot(id)");
     const deleteBotAt = handler.indexOf("await deleteBot(id)");
     expect(cascadeAt, "deleteAutoAgentsOwnedByBot not called from bot deletion").toBeGreaterThanOrEqual(0);

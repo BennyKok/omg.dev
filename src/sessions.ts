@@ -319,6 +319,8 @@ export type Session = {
   spawnedBy?: string | null;
   /** Durable product identity. This, not the runtime id, selects the surface. */
   conversationId?: string | null;
+  /** Bot configuration revision loaded when this runtime started. */
+  appliedConfigRevision?: number | null;
   /** Additive product contract used by clients during the legacy migration. */
   conversation?: Conversation | null;
   botId?: string;
@@ -570,6 +572,7 @@ export function managedLaunchRow(
     parentAgent: m.parentAgent ?? null,
     spawnedBy: m.spawnedBy ?? null,
     conversationId: m.conversationId ?? null,
+    appliedConfigRevision: m.appliedConfigRevision ?? null,
     botId: m.botId,
     persistent: m.persistent,
     capabilityVersion: m.capabilityVersion ?? null,
@@ -616,6 +619,7 @@ function managedLineage(m: ManagedSession | undefined): Pick<
   | "parentAgent"
   | "spawnedBy"
   | "conversationId"
+  | "appliedConfigRevision"
   | "botId"
   | "persistent"
   | "capabilityVersion"
@@ -628,6 +632,7 @@ function managedLineage(m: ManagedSession | undefined): Pick<
     parentAgent: m?.parentAgent ?? null,
     spawnedBy: m?.spawnedBy ?? null,
     conversationId: m?.conversationId ?? null,
+    appliedConfigRevision: m?.appliedConfigRevision ?? null,
     botId: m?.botId,
     persistent: m?.persistent,
     capabilityVersion: m?.capabilityVersion ?? null,

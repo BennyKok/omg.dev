@@ -226,6 +226,8 @@ export type BotRotationSession = {
   nativeSessionId?: string | null;
   botId?: string | null;
   busy?: boolean;
+  pid?: number | null;
+  launching?: boolean;
   parentSessionId?: string | null;
   parentNativeSessionId?: string | null;
   subagentDepth?: number | null;
@@ -256,7 +258,12 @@ export function activeBotChildren<T extends BotRotationSession>(
       !!session.parentNativeSessionId ||
       !!session.subagentDepth ||
       session.spawnedBy === "subagent";
-    return delegated;
+    if (!delegated) return false;
+    // listSessions can retain resumable history. Only a running or launching
+    // child can still report into the primary and therefore block rotation.
+    return session.pid === undefined
+      ? true
+      : !!session.busy || !!session.launching || (session.pid ?? 0) > 0;
   });
 }
 
@@ -267,18 +274,12 @@ export function activeBotChildren<T extends BotRotationSession>(
  * somebody is waiting for; a bot with live children has delegated work that
  * will try to report home. Rotating through either loses real work silently,
  * which is the one outcome worse than a stale persona.
- *
- * `force` is the explicit escape hatch. It does not skip the checkpoint and it
- * does not skip the safe interrupt in the caller — it only says the human has
- * confirmed that losing the in-flight turn is acceptable.
  */
 export function botRotationAdmission(
   botId: string,
   primary: BotRotationSession | undefined,
   sessions: readonly BotRotationSession[],
-  opts: { force?: boolean } = {},
 ): BotRotationAdmission {
-  if (opts.force) return { ready: true };
   if (primary?.busy) {
     return {
       ready: false,
@@ -291,6 +292,15 @@ export function botRotationAdmission(
     .filter((id): id is string => !!id);
   if (children.length) return { ready: false, blocked: "children-active", children };
   return { ready: true };
+}
+
+/** A queued turn must keep its original ordering and finish before rotation. */
+export function queueBlocksBotRotation(
+  messages: readonly { status: string }[],
+): boolean {
+  return messages.some((message) =>
+    message.status === "pending" || message.status === "sending" || message.status === "queued"
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -448,8 +458,8 @@ export function measuredContextPercent(usage: BotContextReading | null | undefin
 /**
  * One turn carried across the boundary.
  *
- * `author` is the trusted normalized author identity (an email), server-derived
- * and possibly absent. It exists for multi-user bot threads: when several
+ * `author` is the trusted normalized author identity (an email), server-derived,
+ * or the explicit `legacy:unknown` marker. It exists for multi-user bot threads: when several
  * people share a conversation, collapsing every human turn to the bare word
  * "user" loses who said what, and the bot wakes up in the new session unable to
  * attribute a preference or a request to the person who made it.
@@ -484,6 +494,36 @@ export type BotHandoffCheckpoint = {
   artifacts: string[];
   recentTurns: CheckpointTurn[];
 };
+
+/**
+ * Build conservative structured sections from explicit prose signals.
+ *
+ * The latest human turns are current goals. Decisions, unresolved work, and
+ * preferences require direct wording. This avoids inventing durable facts from
+ * ordinary discussion while still giving the new runtime more than a raw tail.
+ */
+export function extractCheckpointSections(turns: readonly CheckpointTurn[]): Pick<
+  BotHandoffCheckpoint,
+  "goals" | "decisions" | "openTasks" | "preferences"
+> {
+  const human = turns.filter((turn) => turn.role === "user" && turn.text.trim());
+  const goals = human.slice(-3).map((turn) => turn.text);
+  const lines = turns.flatMap((turn) =>
+    turn.text.split(/\n+/).map((line) => line.replace(/^[-*\d.)\s]+/, "").trim()).filter(Boolean)
+  );
+  return {
+    goals,
+    decisions: lines.filter((line) =>
+      /^(?:decision|decided)\s*[:\-]|\b(?:we|the user) (?:decided|will use|will keep)\b|\bmust (?:remain|stay|use|not)\b/i.test(line)
+    ),
+    openTasks: lines.filter((line) =>
+      /^(?:todo|open task|remaining|next|unresolved|blocked)\s*[:\-]|\b(?:still need|remains to|not yet)\b/i.test(line)
+    ),
+    preferences: lines.filter((line) =>
+      /\b(?:I|the user) (?:prefer|always want|never want)\b|^(?:preference|user preference)\s*[:\-]/i.test(line)
+    ),
+  };
+}
 
 /** Hard bounds. A checkpoint that blows the budget defeats the point of rotating. */
 export const CHECKPOINT_MAX_TURNS = 12;
@@ -711,9 +751,25 @@ export function rotationCompareAndSwap(
   // No expectation supplied: compaction and other server-initiated rotations
   // always target whatever is current.
   if (expectedRevision === undefined) return { proceed: true };
-  if (expectedRevision > current) return { proceed: false, outcome: "stale" };
   if (expectedRevision <= applied) return { proceed: false, outcome: "already-applied" };
+  if (expectedRevision !== current) return { proceed: false, outcome: "stale" };
   return { proceed: true };
+}
+
+/** Translate the old deferred-refresh flag without losing its requested edit. */
+export function migrateLegacyBotRotationState(bot: Bot, now = Date.now()): Bot {
+  if (!bot.runtimeRefreshPending) return bot;
+  return {
+    ...bot,
+    conversationId: bot.conversationId?.trim() || bot.sessionId?.trim() || undefined,
+    runtimeRefreshPending: false,
+    configRevision: nextBotConfigRevision(bot),
+    appliedConfigRevision: botConfigRevision(bot),
+    rotationState: "queued",
+    rotationReason: "config",
+    rotationError: undefined,
+    rotationUpdatedAt: now,
+  };
 }
 
 /** Bounded archive of prior canonical sessions, newest first. */

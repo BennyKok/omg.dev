@@ -6,6 +6,7 @@ import {
   sanitizeIdleArchiveMinutes,
 } from "./idle-archive.ts";
 import { join } from "node:path";
+import { sanitizeBotCompactionThreshold } from "./bots/rotation.ts";
 
 export type GlobalSettings = {
   timeZone: string;
@@ -238,6 +239,8 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
     write.run("agentsPaused", JSON.stringify(next.agentsPaused), now);
     write.run("idleAgentArchiveMinutes", JSON.stringify(next.idleAgentArchiveMinutes), now);
     write.run("transcriptView", JSON.stringify(next.transcriptView), now);
+    write.run("botAutoCompactionEnabled", JSON.stringify(next.botAutoCompactionEnabled), now);
+    write.run("botCompactionThresholdPercent", JSON.stringify(next.botCompactionThresholdPercent), now);
     write.run("skippedUpdateVersion", JSON.stringify(next.skippedUpdateVersion), now);
   })();
   return next;

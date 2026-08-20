@@ -52,6 +52,9 @@ export type Bot = {
    */
   owner?: string;
   enabled: boolean;
+  /** Durable product conversation. Runtime session ids can rotate beneath it. */
+  conversationId?: string;
+  /** Current canonical primary runtime session. */
   sessionId?: string;
   createdAt: number;
   lastMessageAt?: number;
@@ -216,7 +219,7 @@ export type BotPatch = Partial<Pick<
   Bot,
   | "name" | "shape" | "colorway" | "persona" | "description" | "capabilities"
   | "agent" | "model" | "thinkingLevel" | "cwd" | "owner" | "enabled"
-  | "sessionId" | "lastMessageAt" | "runtimeRefreshPending"
+  | "conversationId" | "sessionId" | "lastMessageAt" | "runtimeRefreshPending"
   | "configRevision" | "appliedConfigRevision" | "rotationState"
   | "rotationReason" | "rotationError" | "rotationUpdatedAt" | "lastRotatedAt"
   | "archivedSessionIds" | "compactionArmed" | "lastCompactionAt"

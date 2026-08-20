@@ -31,7 +31,8 @@ describe("bot unread surface wiring", () => {
 
   test("selection marks one server conversation and websocket arrivals refresh it", () => {
     expect(APP).toContain("/api/bot-conversations/${encodeURIComponent(sessionId)}/read");
-    expect(APP).toContain("wsLiveStream.subscribeTranscript(conversation.sessionId");
+    expect(APP).toContain("botConversationSubscriptionIds(botConversations)");
+    expect(APP).toContain("wsLiveStream.subscribeTranscript(sessionId");
     expect(SERVE).toContain('path.match(/^\\/api\\/bot-conversations\\/([^/]+)\\/read$/)');
   });
 });

@@ -690,7 +690,12 @@ export type PersistentBot = {
   thinkingLevel?: string;
   cwd?: string;
   enabled: boolean;
+  conversationId?: string;
   sessionId?: string;
+  configRevision?: number;
+  appliedConfigRevision?: number;
+  configStatus?: "current" | "update-available" | "queued" | "refreshing" | "failed";
+  rotationError?: string;
   createdAt: number;
   lastMessageAt?: number;
   /**
@@ -870,6 +875,8 @@ type GlobalSettings = {
   maxBotSchedules: number;
   agentsPaused: boolean;
   idleAgentArchiveMinutes: number;
+  botAutoCompactionEnabled: boolean;
+  botCompactionThresholdPercent: number;
   transcriptView: TranscriptView;
   // The update the "What's new" drawer's Skip button last dismissed. See
   // UpdateProvider in components/update-drawer.tsx.
@@ -5760,6 +5767,8 @@ export function App() {
     maxBotSchedules: 5,
     agentsPaused: false,
     idleAgentArchiveMinutes: 0,
+    botAutoCompactionEnabled: true,
+    botCompactionThresholdPercent: 78,
     transcriptView: "full",
     skippedUpdateVersion: "",
   });
@@ -6063,6 +6072,8 @@ export function App() {
       maxBotSchedules: 5,
       agentsPaused: false,
       idleAgentArchiveMinutes: 0,
+      botAutoCompactionEnabled: true,
+      botCompactionThresholdPercent: 78,
       transcriptView: "full",
       skippedUpdateVersion: "",
     });
@@ -6862,8 +6873,11 @@ export function App() {
     };
   }, [useWsLive, liveStatus, loadCore]);
 
-  const selectedConversationSid = selectedBotConversationId ??
-    (selectedBotId ? bots.find((bot) => bot.id === selectedBotId)?.sessionId ?? null : null);
+  const selectedConversationSid = selectedBotConversationId
+    ? botConversations.find((row) =>
+        row.conversationId === selectedBotConversationId || row.sessionId === selectedBotConversationId
+      )?.sessionId ?? null
+    : selectedBotId ? bots.find((bot) => bot.id === selectedBotId)?.sessionId ?? null : null;
   // Clearing a dot must not sit in front of the conversation the human just
   // opened. This used to await the POST and then await a full `/api/bots`
   // refetch, so every bot open queued a roster rebuild behind a write on the
@@ -7162,7 +7176,7 @@ export function App() {
     thinkingLevel?: string;
     cwd?: string;
     enabled: boolean;
-  }) {
+  }): Promise<PersistentBot | null> {
     try {
       const endpoint = input.id ? `/api/bots/${encodeURIComponent(input.id)}` : "/api/bots";
       const { id, ...body } = input;
@@ -7174,20 +7188,54 @@ export function App() {
           : localStorage.getItem("lfg_user"),
         users,
       );
-      const result = await api<{ bot: PersistentBot; quota?: PersistentBotQuota }>(endpoint, {
+      const result = await api<{
+        bot: PersistentBot;
+        quota?: PersistentBotQuota;
+        configStatus?: PersistentBot["configStatus"];
+        configRevision?: number;
+      }>(endpoint, {
         method: id ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(id ? body : { ...body, user: owner || undefined }),
       });
       if (result.quota) setBotQuota(result.quota);
-      // Leaving the editor is a navigation now, not a state reset: saving an
-      // existing bot lands back in its chat, creating one lands on the list.
-      if (id) openBot(id);
-      else closeBot();
+      // Keep an existing bot's editor open when a session-bound change created
+      // a revision gap. The next action is Apply changes, and hiding that state
+      // behind a second trip into settings made the explicit refresh unusable.
+      if (!id) closeBot();
       await refreshBots();
       toast.success(id ? "Bot saved" : "Bot created");
+      return {
+        ...result.bot,
+        configStatus: result.configStatus ?? result.bot.configStatus,
+        configRevision: result.configRevision ?? result.bot.configRevision,
+      };
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
+      return null;
+    }
+  }
+
+  async function applyBotChanges(bot: PersistentBot): Promise<{
+    configStatus: NonNullable<PersistentBot["configStatus"]>;
+    rotationError?: string;
+  } | null> {
+    try {
+      const result = await api<{
+        configStatus: NonNullable<PersistentBot["configStatus"]>;
+        queued?: boolean;
+      }>(`/api/bots/${encodeURIComponent(bot.id)}/rotate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedRevision: bot.configRevision ?? 1 }),
+      });
+      await Promise.all([refreshBots(), refreshSessions()]);
+      toast.success(result.queued ? "Bot refresh queued" : "Bot refreshed");
+      return { configStatus: result.configStatus };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      toast.error(message);
+      return { configStatus: "failed", rotationError: message };
     }
   }
 
@@ -8446,6 +8494,7 @@ export function App() {
               else openBot(botEditor.id, selectedBotConversationId);
             }}
             onSave={saveBot}
+            onRefresh={applyBotChanges}
             onDelete={deletePersistentBot}
           />
         ) : null}
@@ -11677,7 +11726,12 @@ function RailStage({
     [bots, selectedBotId],
   );
   const selectedBotSid = selectedBotId
-    ? selectedBotConversationForRail ?? sidForBot(selectedBotId)
+    ? botConversationsForRail.find((row) =>
+        row.botId === selectedBotId && (
+          row.conversationId === selectedBotConversationForRail ||
+          row.sessionId === selectedBotConversationForRail
+        )
+      )?.sessionId ?? sidForBot(selectedBotId)
     : null;
 
   // Selecting a bot in the rail is selecting its session on the stage. Runs on
@@ -12317,7 +12371,10 @@ function RailStage({
         const sid = row.sessionId;
         const session = row.session;
         const busy = !!(sid && busyBySid[sid]);
-        const active = selectedBotId === bot.id && (!selectedBotConversationForRail || selectedBotConversationForRail === sid);
+        const active = selectedBotId === bot.id &&
+          (!selectedBotConversationForRail ||
+            selectedBotConversationForRail === row.conversationId ||
+            selectedBotConversationForRail === row.sessionId);
         const rawPreview = session?.last?.text || session?.lastUserText || row.lastMessagePreview || bot.lastMessagePreview || "";
         // A background task's report is machinery, not conversation: it is
         // hidden inside the chat, so it must not surface as the roster preview
@@ -12333,7 +12390,7 @@ function RailStage({
             type="button"
             title={railCollapsed ? bot.name : undefined}
             onClick={() => {
-              onOpenBot?.(bot.id, sid);
+              onOpenBot?.(bot.id, row.conversationId);
               if (sid) activate(sid, false);
             }}
             className={cn(
@@ -22634,6 +22691,7 @@ const LIVE_AGENT_LIMIT_OPTIONS = [0, 4, 8, 10, 12, 16, 24, 32];
 
 // No 0/unlimited option here on purpose — see GlobalSettings.maxBotSchedules.
 const BOT_SCHEDULE_LIMIT_OPTIONS = [1, 2, 3, 5, 8, 10, 15, 20];
+const BOT_COMPACTION_THRESHOLD_OPTIONS = [60, 70, 75, 78, 80, 85, 90, 95];
 
 // Idle windows, in minutes. Nothing below 15 is offered: an agent pausing
 // between turns must never look abandoned.
@@ -22656,6 +22714,7 @@ function AgentConcurrencySettingsSection({
   const [savingBotCap, setSavingBotCap] = useState(false);
   const [pausing, setPausing] = useState(false);
   const [archiving, setArchiving] = useState(false);
+  const [savingCompaction, setSavingCompaction] = useState(false);
   const stats = useServerStats(true);
 
   async function saveIdleArchive(idleAgentArchiveMinutes: number) {
@@ -22715,6 +22774,22 @@ function AgentConcurrencySettingsSection({
       toast.error(e instanceof Error ? e.message : "Could not update pause state");
     } finally {
       setPausing(false);
+    }
+  }
+
+  async function saveBotCompaction(patch: Partial<Pick<
+    GlobalSettings,
+    "botAutoCompactionEnabled" | "botCompactionThresholdPercent"
+  >>) {
+    if (savingCompaction) return;
+    setSavingCompaction(true);
+    try {
+      await onChange(patch);
+      toast.success("Bot context refresh settings updated");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update bot context refresh settings");
+    } finally {
+      setSavingCompaction(false);
     }
   }
 
@@ -22800,6 +22875,48 @@ function AgentConcurrencySettingsSection({
             </select>
             <ChevronDown className="size-3 text-muted-foreground/70" />
           </label>
+        </div>
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className={cn(
+              "flex size-7 shrink-0 items-center justify-center rounded-[7px] text-white transition-colors duration-200 ease-apple",
+              settings.botAutoCompactionEnabled ? "bg-primary" : "bg-foreground/70",
+            )}>
+              <RotateCcw className="size-4" />
+            </span>
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Refresh full bot contexts</div>
+              <div className="text-xs text-muted-foreground">
+                {settings.botAutoCompactionEnabled
+                  ? `At ${settings.botCompactionThresholdPercent}% measured context use`
+                  : "Off — bots keep one runtime until manually refreshed"}
+              </div>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <label className="flex items-center gap-1 rounded-full bg-muted px-3 py-1.5">
+              <select
+                value={settings.botCompactionThresholdPercent}
+                onChange={(event) => void saveBotCompaction({
+                  botCompactionThresholdPercent: Number(event.target.value),
+                })}
+                disabled={savingCompaction || !settings.botAutoCompactionEnabled}
+                aria-label="Bot context refresh threshold"
+                className="appearance-none bg-transparent text-right text-xs font-medium outline-none disabled:opacity-50"
+              >
+                {BOT_COMPACTION_THRESHOLD_OPTIONS.map((percent) => (
+                  <option key={percent} value={percent}>{percent}%</option>
+                ))}
+              </select>
+              <ChevronDown className="size-3 text-muted-foreground/70" />
+            </label>
+            <Switch
+              checked={settings.botAutoCompactionEnabled}
+              onCheckedChange={(next) => void saveBotCompaction({ botAutoCompactionEnabled: next })}
+              disabled={savingCompaction}
+              aria-label="Automatically refresh full bot contexts"
+            />
+          </div>
         </div>
         <div className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left">
           <div className="flex min-w-0 items-center gap-3">
@@ -25007,7 +25124,12 @@ function BotsView({
 
   if (bot) {
     const mainSid = botChatSessionId(bot, sessions);
-    const sid = selectedConversationId ?? mainSid;
+    const selectedRow = selectedConversationId
+      ? conversations.find((row) => row.botId === bot.id && (
+          row.conversationId === selectedConversationId || row.sessionId === selectedConversationId
+        ))
+      : undefined;
+    const sid = selectedRow?.sessionId ?? mainSid;
     const backingSession =
       sid === mainSid
         ? findBotMainSession(bot, sessions)
@@ -25182,7 +25304,7 @@ function BotsView({
           <button
             key={row.key}
             type="button"
-            onClick={() => onOpen(item.id, row.sessionId)}
+            onClick={() => onOpen(item.id, row.conversationId)}
             aria-label={`${item.name}${row.unread ? ", unread conversation" : ""}`}
             className={MOBILE_BOT_ROSTER_ROW_CLASS}
           >
@@ -25236,6 +25358,7 @@ function BotEditorPage({
   tz,
   onClose,
   onSave,
+  onRefresh,
   onDelete,
   onEditRoutine,
 }: {
@@ -25258,7 +25381,11 @@ function BotEditorPage({
     thinkingLevel?: string;
     cwd?: string;
     enabled: boolean;
-  }) => void | Promise<void>;
+  }) => Promise<PersistentBot | null>;
+  onRefresh: (bot: PersistentBot) => Promise<{
+    configStatus: NonNullable<PersistentBot["configStatus"]>;
+    rotationError?: string;
+  } | null>;
   onDelete: (id: string) => void | Promise<void>;
   onEditRoutine?: (agent: AutoAgent) => void;
 }) {
@@ -25300,6 +25427,13 @@ function BotEditorPage({
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(editing ? bot.thinkingLevel ?? savedThinkingLevel() : savedThinkingLevel());
   const [advanced, setAdvanced] = useState(false);
   const quotaCopy = !editing && quota ? botQuotaPresentation(quota) : null;
+  const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [configRevision, setConfigRevision] = useState(editing ? bot.configRevision ?? 1 : 1);
+  const [configStatus, setConfigStatus] = useState<NonNullable<PersistentBot["configStatus"]>>(
+    editing ? bot.configStatus ?? "current" : "current",
+  );
+  const [rotationError, setRotationError] = useState(editing ? bot.rotationError : undefined);
   const models = useAgentModels(backend);
   const backendDefault = useAgentDefaultModel(backend);
   useEffect(() => {
@@ -25317,9 +25451,10 @@ function BotEditorPage({
   }, [isMobile]);
 
   const canSubmit = !!name.trim() && !!persona.trim() && !quotaCopy?.reached;
-  const submit = () => {
-    if (!canSubmit) return;
-    void onSave({
+  const submit = async () => {
+    if (!canSubmit || saving) return;
+    setSaving(true);
+    const saved = await onSave({
       id: editing ? bot.id : undefined,
       name: name.trim(),
       shape,
@@ -25331,6 +25466,22 @@ function BotEditorPage({
       cwd: cwd || undefined,
       enabled,
     });
+    setSaving(false);
+    if (!saved) return;
+    setConfigRevision(saved.configRevision ?? configRevision);
+    setConfigStatus(saved.configStatus ?? "current");
+    setRotationError(saved.rotationError);
+  };
+
+  const applyChanges = async () => {
+    if (!editing || refreshing) return;
+    setRefreshing(true);
+    setConfigStatus("refreshing");
+    const result = await onRefresh({ ...bot, configRevision });
+    setRefreshing(false);
+    if (!result) return;
+    setConfigStatus(result.configStatus);
+    setRotationError(result.rotationError);
   };
 
   // Back, title, commit — the header every other full-screen surface in the app
@@ -25350,7 +25501,8 @@ function BotEditorPage({
       <span className="min-w-0 flex-1 truncate text-[15px] font-semibold">
         {editing ? "Edit bot" : "New bot"}
       </span>
-      <Button size="sm" variant="brand" disabled={!canSubmit} onClick={submit}>
+      <Button size="sm" variant="brand" disabled={!canSubmit || saving} onClick={() => void submit()}>
+        {saving ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : null}
         {editing ? "Save" : "Create"}
       </Button>
     </>
@@ -25464,6 +25616,44 @@ function BotEditorPage({
         placeholder="How this bot should think and talk…"
         className="lfg-gfield mt-1 w-full resize-none rounded-2xl px-3 py-2 text-sm outline-none"
       />
+
+      {editing ? (
+        <div
+          className={cn(
+            "mt-3 rounded-xl border px-3 py-2.5",
+            configStatus === "failed" ? "border-destructive/40 bg-destructive/5" : "border-border",
+          )}
+          data-bot-config-status={configStatus}
+        >
+          <div className="flex items-center gap-3">
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium">
+                {configStatus === "current" ? "Current" :
+                  configStatus === "update-available" ? "Update available" :
+                  configStatus === "queued" ? "Refresh queued" :
+                  configStatus === "refreshing" ? "Refreshing" : "Refresh failed"}
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                {configStatus === "current"
+                  ? "The active bot uses these instructions."
+                  : configStatus === "queued"
+                    ? "The bot will refresh after its current work and child tasks finish."
+                    : configStatus === "refreshing"
+                      ? "A fresh runtime is starting with the latest instructions."
+                      : configStatus === "failed"
+                        ? rotationError || "The old runtime is still active. Try again."
+                        : "Apply the saved instructions to a fresh runtime."}
+              </span>
+            </span>
+            {configStatus === "update-available" || configStatus === "failed" ? (
+              <Button size="sm" variant="outline" disabled={refreshing} onClick={() => void applyChanges()}>
+                {refreshing ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : null}
+                Apply changes
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       {editing ? (
         <div className="mt-3 flex items-center justify-between rounded-xl border border-border px-3 py-2">

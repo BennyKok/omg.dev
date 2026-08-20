@@ -11,6 +11,7 @@ import {
   canWriteConversation,
   conversationBotParticipant,
   conversationHumanParticipantId,
+  detachRuntimeSession,
   ensureBotConversation,
   ensureConversationHuman,
   getConversation,
@@ -18,6 +19,7 @@ import {
   listConversations,
   messageAuthorForSession,
   migrateLegacyConversations,
+  replaceConversationPrimaryRuntime,
   upsertConversationParticipant,
 } from "./conversations.ts";
 import { formatBotAttribution } from "./bots/authorship.ts";
@@ -48,6 +50,65 @@ afterEach(() => {
 });
 
 describe("conversation migration and identity", () => {
+  test("rotation replaces only the primary runtime and keeps participants and children", () => {
+    ensureBotConversation({
+      conversationId: "conversation-1",
+      bot: scout,
+      ownerIdentity: scout.owner,
+      roster: [{ email: scout.owner!, name: "Owner" }],
+      now: 10,
+    });
+    attachRuntimeSession({
+      conversationId: "conversation-1",
+      sessionId: "runtime-old",
+      participantId: botParticipantId(scout.id),
+      kind: "primary",
+      attachedAt: 11,
+    });
+    attachRuntimeSession({
+      conversationId: "conversation-1",
+      sessionId: "child-active",
+      participantId: botParticipantId(scout.id),
+      kind: "execution",
+      attachedAt: 12,
+    });
+
+    const before = getConversation("conversation-1")!;
+    const participantIds = before.participants.map((row) => row.id);
+    replaceConversationPrimaryRuntime({
+      conversationId: "conversation-1",
+      sessionId: "runtime-new",
+      participantId: botParticipantId(scout.id),
+      attachedAt: 20,
+      now: 21,
+    });
+
+    const after = getConversation("conversation-1")!;
+    expect(after.id).toBe("conversation-1");
+    expect(after.participants.map((row) => row.id)).toEqual(participantIds);
+    expect(after.runtimeSessions.find((row) => row.sessionId === "runtime-old")?.detachedAt).toBe(21);
+    expect(after.runtimeSessions.find((row) => row.sessionId === "runtime-new")).toMatchObject({
+      kind: "primary",
+      participantId: botParticipantId(scout.id),
+    });
+    const child = after.runtimeSessions.find((row) => row.sessionId === "child-active");
+    expect(child?.kind).toBe("execution");
+    expect(child?.detachedAt).toBeUndefined();
+    expect(after.runtimeSessions.filter((row) => row.kind === "primary" && !row.detachedAt)).toHaveLength(1);
+
+    // A failed commit can restore the old primary without changing the roster.
+    replaceConversationPrimaryRuntime({
+      conversationId: "conversation-1",
+      sessionId: "runtime-old",
+      participantId: botParticipantId(scout.id),
+      now: 30,
+    });
+    detachRuntimeSession("conversation-1", "runtime-new", 30);
+    const rolledBack = getConversation("conversation-1")!;
+    expect(rolledBack.runtimeSessions.find((row) => row.sessionId === "runtime-old")?.detachedAt).toBeNull();
+    expect(rolledBack.runtimeSessions.find((row) => row.sessionId === "runtime-new")?.detachedAt).toBe(30);
+  });
+
   test("migrates Session.botId once and makes children execution attachments, not participants", () => {
     const rows = migrateLegacyConversations({
       now: 1_000,

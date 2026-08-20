@@ -80,3 +80,24 @@ describe("maxBotSchedules sanitize clamp", () => {
     expect(saved.maxBotSchedules).toBe(7);
   });
 });
+
+describe("persistent bot compaction settings", () => {
+  test("defaults to proactive compaction at a conservative threshold", () => {
+    const value = settings.getGlobalSettingsSync();
+    expect(value.botAutoCompactionEnabled).toBe(true);
+    expect(value.botCompactionThresholdPercent).toBeGreaterThanOrEqual(70);
+    expect(value.botCompactionThresholdPercent).toBeLessThan(90);
+  });
+
+  test("persists the switch and threshold across reads", async () => {
+    await settings.setGlobalSettings({
+      botAutoCompactionEnabled: false,
+      botCompactionThresholdPercent: 84,
+    });
+    settings.resetSettingsDbConnectionForTests();
+    expect(settings.getGlobalSettingsSync()).toMatchObject({
+      botAutoCompactionEnabled: false,
+      botCompactionThresholdPercent: 84,
+    });
+  });
+});
