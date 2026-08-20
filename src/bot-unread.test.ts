@@ -5,11 +5,11 @@ import { join } from "node:path";
 import { PATHS } from "./config.ts";
 import { createBot, updateBot } from "./bots/store.ts";
 import {
-  assertConversationAccess,
   conversationUnread,
   ensureBotConversationReadBaseline,
   markBotConversationRead,
 } from "./bots/unread.ts";
+import { assertBotConversationAccess, botViewer } from "./bots/access.ts";
 import { indexSessionMessagesDirect, latestIndexedAssistantCursor } from "./transcript-index.ts";
 
 const originalData = PATHS.data;
@@ -59,11 +59,22 @@ describe("persistent bot conversation unread watermarks", () => {
     expect(conversationUnread("owner@example.com", "two", two.rowid)).toBe(true);
   });
 
-  test("denies a different assigned user", async () => {
+  test("denies a different assigned user on a rostered self-hosted box", async () => {
+    // The access decision moved to bots/access.ts so one module owns it for
+    // both the self-hosted and the shared-Computer regime. This is the same
+    // contract as before, now asserted against its owner.
     const bot = await createBot({ name: "Private", persona: "Private", owner: "owner@example.com" });
     await updateBot(bot.id, { sessionId: "private-conversation" });
     const sessions = [{ sessionId: "private-conversation", botId: bot.id, assignedUser: "owner@example.com" }];
-    expect(() => assertConversationAccess("other@example.com", "private-conversation", sessions, [{ ...bot, sessionId: "private-conversation" }]))
-      .toThrow("belongs to another user");
+    expect(() =>
+      assertBotConversationAccess(
+        botViewer(null, "other@example.com"),
+        ["owner@example.com", "other@example.com"],
+        "other@example.com",
+        "private-conversation",
+        sessions,
+        [{ ...bot, sessionId: "private-conversation" }],
+      ),
+    ).toThrow("belongs to another user");
   });
 });
