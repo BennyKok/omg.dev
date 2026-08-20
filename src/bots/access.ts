@@ -97,11 +97,21 @@ export function botViewerFromRequest(
  * onboarding profiles "there is nobody to split the session list between — the
  * feature is OFF, not 'every user is invalid'". Session tagging already honours
  * that. The bot roster did not, and filtered by user on precisely the boxes
- * that have no users to filter by, which is what made a shared hosted Computer
- * show an empty bot list to everyone on it.
+ * that have no users to filter by.
+ *
+ * The threshold is TWO, not one, because one person is not a split either.
+ * This is the shape a real shared Computer actually has, verified against the
+ * live box behind this bug: its LOCAL roster is just the owner, every bot is
+ * owned by them, and the other members exist only in the roster control-plane
+ * merges into the bootstrap RESPONSE — which the box never sees. Counting one
+ * local name as "splitting enabled" left the owner filter switched on for a
+ * machine with exactly one local user, so every guest still got an empty list.
+ *
+ * A genuinely multi-user self-hosted box (two or more configured people) keeps
+ * its owner-scoped view untouched.
  */
 export function localUserSplitEnabled(roster: readonly string[]): boolean {
-  return roster.length > 0;
+  return roster.length >= 2;
 }
 
 /**
