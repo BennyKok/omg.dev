@@ -77,7 +77,9 @@ export type Bot = {
   /** Lifecycle of an in-flight or deferred rotation. Absent means idle. */
   rotationState?: "idle" | "queued" | "rotating" | "failed";
   /** Why the pending/last rotation was requested. */
-  rotationReason?: "config" | "compaction";
+  rotationReason?: "config" | "compaction" | "restart";
+  /** Primary runtime observed when an explicit restart was requested. */
+  rotationExpectedSessionId?: string | null;
   /** Human-readable reason the last rotation attempt did not land. */
   rotationError?: string;
   rotationUpdatedAt?: number;
@@ -221,7 +223,7 @@ export type BotPatch = Partial<Pick<
   | "agent" | "model" | "thinkingLevel" | "cwd" | "owner" | "enabled"
   | "conversationId" | "sessionId" | "lastMessageAt" | "runtimeRefreshPending"
   | "configRevision" | "appliedConfigRevision" | "rotationState"
-  | "rotationReason" | "rotationError" | "rotationUpdatedAt" | "lastRotatedAt"
+  | "rotationReason" | "rotationExpectedSessionId" | "rotationError" | "rotationUpdatedAt" | "lastRotatedAt"
   | "archivedSessionIds" | "compactionArmed" | "lastCompactionAt"
 >>;
 
