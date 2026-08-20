@@ -7,10 +7,9 @@ const BOTS_VIEW = APP.slice(
   APP.indexOf("function BotsView("),
   APP.indexOf("function BotEditorPage("),
 );
-const BOT_RAIL = APP.slice(
-  APP.indexOf("const botRailList = ("),
-  APP.indexOf("return (", APP.indexOf("const botRailList = (")),
-);
+const railStart = APP.indexOf("const botRailList = (");
+const railEnd = APP.indexOf("    </div>\n  );\n\n  return (\n    <div ref={workspaceRef}", railStart);
+const BOT_RAIL = APP.slice(railStart, railEnd);
 const PLACEHOLDER = APP.slice(
   APP.indexOf("function BotStagePlaceholder("),
   APP.indexOf("function BotsView("),
@@ -63,7 +62,7 @@ describe("bots page roster chrome", () => {
     expect(ROSTER).toContain("text-sm text-muted-foreground");
     expect(ROSTER).toContain("size-9");
     expect(ROSTER).toContain("text-[15px]");
-    expect(BOT_RAIL).toContain("size={28}");
+    expect(BOT_RAIL).toContain("size={railCollapsed ? 24 : 28}");
     expect(BOT_RAIL).not.toContain("size={56}");
     expect(BOT_RAIL).not.toContain("text-3xl");
   });
