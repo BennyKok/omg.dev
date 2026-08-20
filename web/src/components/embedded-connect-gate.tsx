@@ -2,33 +2,181 @@
 //
 // A framed LFG hides onboarding and settings (the host owns account UX), so a
 // fresh box had no surface at all for connecting a coding agent. This card is
-// that surface: page one renders the browser-loginable agents, page two
-// connects the tools those agents act through, and every click hands straight
-// back to App's existing auth/setup handlers. Those drive the existing
-// agent/connection endpoints and the same <CodingAgentAuthDialog> the Settings
-// page uses. No credentials, no second auth path, no progress bar.
-// Once opened, the card stays mounted through both pages so a successful agent
-// login cannot make the tool step disappear underneath the user.
+// that surface: a 4-question survey leads, then page one renders the
+// browser-loginable agents, page two connects the tools those agents act
+// through, and every click hands straight back to App's existing auth/setup
+// handlers. Those drive the existing agent/connection endpoints and the same
+// <CodingAgentAuthDialog> the Settings page uses. No credentials, no second
+// auth path, no progress bar.
+// Once opened, the card stays mounted through every page — survey included —
+// so a successful agent login cannot make the tool step disappear underneath
+// the user, and answering (or skipping) a survey question never remounts the
+// card into a different route.
+//
+// The survey question data, page sequencing, and skip/multi-select mechanics
+// live in ../lib/onboarding-survey.ts — kept framework-free so it is testable
+// without React or a DOM. This file only renders it and wires answers to
+// Umami (../lib/umami.ts, also env-gated and a no-op with no config set).
+// Every survey question is skippable: a forced question here is exactly the
+// "dead step is worse than no step" failure the tools-page skip below already
+// guards against, just for a question instead of a broken connect row.
 
 import { useState } from "react";
-import { CalendarClock, Check, Github, Repeat } from "lucide-react";
+import {
+  CalendarClock,
+  Check,
+  Clock,
+  Github,
+  Laptop,
+  Layers,
+  Palette,
+  Repeat,
+  Rocket,
+  Shuffle,
+  Smartphone,
+  Sparkles,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Button } from "./ui/button";
+import { BrandIcon } from "../lib/brand-icons";
 import type { ConnectOption, ToolConnectOption } from "../lib/embedded-connect";
 import { LFG_SMALL_ICON_PATH } from "../lib/icon-assets";
 import { agentIconAlt, agentIconSrc } from "../lib/session-ui";
 import { omgAssetUrl } from "../lib/omg-client";
+import {
+  AI_TOOL_OPTIONS,
+  buildGateFlow,
+  DAILY_TOOL_OPTIONS,
+  EMPTY_SURVEY_ANSWERS,
+  IDENTITY_OPTIONS,
+  isSurveyPage,
+  PAIN_OPTIONS,
+  SHOWCASE_AGENT_KINDS,
+  stepAfter,
+  stepBefore,
+  SURVEY_PAGES,
+  surveyAnswerEvent,
+  surveyCompleteEvent,
+  toggleMulti,
+} from "../lib/onboarding-survey";
+import type {
+  ConnectPageId,
+  GatePage,
+  SurveyAiTool,
+  SurveyAnswers,
+  SurveyDailyTool,
+  SurveyIdentity,
+  SurveyOption,
+  SurveyPain,
+} from "../lib/onboarding-survey";
+import { trackEvent } from "../lib/umami";
 
 /**
  * The agents shown on the closing screen. Real marks, not generic glyphs —
  * the whole point of the screen is "we take the account you already have",
  * and a person recognises the Claude sunburst faster than any sentence about
- * it. Same five that lead the picker (see DISCOVERABLE_AGENT_COUNT); listing
- * them here rather than deriving keeps this a fixed piece of art instead of
- * something that reshuffles with whatever this box happens to have.
+ * it. Same five that lead the picker (see DISCOVERABLE_AGENT_COUNT) and the
+ * survey's AI-tools question — SHOWCASE_AGENT_KINDS in onboarding-survey.ts
+ * is the single owner of that list now, so this and the survey question
+ * cannot silently drift apart.
  */
-const SHOWCASE_AGENTS = ["aisdk", "codex-aisdk", "grok", "cursor", "opencode"] as const;
+const SHOWCASE_AGENTS = SHOWCASE_AGENT_KINDS;
 
-type Page = "agents" | "tools" | "value";
+// Icon lookup for survey options that aren't a real agent or brand mark.
+// Values match the `icon` string on each SurveyOption in
+// onboarding-survey.ts; an "agent:<kind>" icon is resolved via
+// agentIconSrc/agentIconAlt (real agent marks, same as the showcase row
+// below) and a "brand:<name>" icon via BrandIcon in ../lib/brand-icons.tsx
+// (real product marks, monochrome so they sit in the same tinted badge as
+// everything else here — see that file's header for why).
+const SURVEY_ICONS: Record<string, LucideIcon> = {
+  rocket: Rocket,
+  palette: Palette,
+  sparkles: Sparkles,
+  layers: Layers,
+  clock: Clock,
+  smartphone: Smartphone,
+  shuffle: Shuffle,
+  laptop: Laptop,
+};
+
+function SurveyOptionIcon({ icon, className }: { icon: string; className: string }) {
+  if (icon.startsWith("agent:")) {
+    const kind = icon.slice("agent:".length);
+    return <img src={agentIconSrc(kind)} alt={agentIconAlt(kind)} className={className} />;
+  }
+  if (icon.startsWith("brand:")) {
+    return <BrandIcon name={icon.slice("brand:".length)} className={className} />;
+  }
+  const Icon = SURVEY_ICONS[icon];
+  return Icon ? <Icon className={className} /> : null;
+}
+
+// One tap, no keyboard: every survey question — single or multi select — is
+// this same grid of icon+label cards. `selected` holds 0-1 values for a
+// single-select question and 0-N for multi-select; the component doesn't
+// care which, it just highlights whatever's in the list.
+//
+// An odd option count leaves one tile alone in the last row. Stretching it
+// full width used to make it read as a different kind of object than its
+// siblings — on the tools question that put a wide Slack tile directly above
+// the wide Continue button, and the two looked like the same control. Instead
+// it stays tile-sized and centres in its row, so every option in the grid is
+// visually the same weight no matter how many there are.
+function SurveyOptionGrid<V extends string>({
+  options,
+  selected,
+  onToggle,
+}: {
+  options: readonly SurveyOption<V>[];
+  selected: readonly V[];
+  onToggle: (value: V) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {options.map((option, index) => {
+        const isSelected = selected.includes(option.value);
+        const lastOdd = index === options.length - 1 && options.length % 2 === 1;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onToggle(option.value)}
+            className={`flex flex-col items-center justify-center gap-2 rounded-xl border px-3 py-4 text-center text-sm font-medium transition-colors duration-150 ease-ios ${
+              isSelected
+                ? "border-primary bg-primary/10 text-foreground"
+                : "border-border bg-muted/40 text-foreground hover:bg-muted"
+            } ${lastOdd ? "col-span-2 mx-auto w-[calc(50%-0.25rem)]" : ""}`}
+          >
+            <span
+              className={`flex size-9 items-center justify-center rounded-lg ${
+                isSelected ? "bg-primary/15 text-primary" : "bg-foreground/5 text-foreground"
+              }`}
+            >
+              <SurveyOptionIcon icon={option.icon} className="size-5" />
+            </span>
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// The same quiet skip link on every survey question — visible, but
+// deliberately not styled like an action. See the file header: a forced
+// question is a drop-off.
+function SurveySkipLink({ onSkip }: { onSkip: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onSkip}
+      className="mt-4 w-full text-center text-xs text-muted-foreground underline-offset-2 hover:underline"
+    >
+      Skip
+    </button>
+  );
+}
 
 export function EmbeddedConnectGate({
   options,
@@ -48,7 +196,8 @@ export function EmbeddedConnectGate({
   onConnectTool: (key: ToolConnectOption["key"]) => void;
   onDone: () => void;
 }) {
-  const [page, setPage] = useState<Page>("agents");
+  const [page, setPage] = useState<GatePage>("survey-identity");
+  const [surveyAnswers, setSurveyAnswers] = useState<SurveyAnswers>(EMPTY_SURVEY_ANSWERS);
   const hasConnectedAgent = options.some((option) => option.configured);
 
   // Skip the tools page when nothing on it can actually be connected.
@@ -61,17 +210,80 @@ export function EmbeddedConnectGate({
   // means still loading, which is NOT the same as unavailable — that case
   // keeps the page and shows its skeleton.
   const toolsUsable = toolConnections === undefined || toolConnections.some((t) => t.installed);
-  const pages: Page[] = toolsUsable ? ["agents", "tools", "value"] : ["agents", "value"];
-  const stepIndex = Math.max(0, pages.indexOf(page));
-  const goNext = () => setPage(pages[Math.min(stepIndex + 1, pages.length - 1)]!);
-  const goBack = () => setPage(pages[Math.max(stepIndex - 1, 0)]!);
+  const connectPages: ConnectPageId[] = toolsUsable ? ["agents", "tools", "value"] : ["agents", "value"];
+  const flow = buildGateFlow(toolsUsable);
+  const goNext = () => setPage(stepAfter(flow, page));
+  const goBack = () => setPage(stepBefore(flow, page));
+
+  // Survey handlers. Selecting fires the per-question Umami event (skipped
+  // questions never do — see the file header) and single-select advances on
+  // its own; multi-select waits for its Continue button. The completion
+  // event fires exactly once, whichever way the last question is left.
+  const trackAnswer = (surveyPage: (typeof SURVEY_PAGES)[number], value: string | string[]) => {
+    const event = surveyAnswerEvent(surveyPage, value);
+    trackEvent(event.name, event.data);
+  };
+  const trackComplete = (answers: SurveyAnswers) => {
+    const event = surveyCompleteEvent(answers);
+    trackEvent(event.name, event.data);
+  };
+  const selectIdentity = (value: SurveyIdentity) => {
+    setSurveyAnswers((prev) => ({ ...prev, identity: value }));
+    trackAnswer("survey-identity", value);
+    window.setTimeout(goNext, 150);
+  };
+  const selectPain = (value: SurveyPain) => {
+    setSurveyAnswers((prev) => ({ ...prev, pain: value }));
+    trackAnswer("survey-pain", value);
+    window.setTimeout(goNext, 150);
+  };
+  const toggleDailyTool = (value: SurveyDailyTool) => {
+    setSurveyAnswers((prev) => ({ ...prev, dailyTools: toggleMulti(prev.dailyTools, value) }));
+  };
+  const continueDailyTools = () => {
+    if (surveyAnswers.dailyTools.length) trackAnswer("survey-tools", surveyAnswers.dailyTools);
+    goNext();
+  };
+  const toggleAiTool = (value: SurveyAiTool) => {
+    setSurveyAnswers((prev) => ({ ...prev, aiTools: toggleMulti(prev.aiTools, value) }));
+  };
+  const finishAiTools = () => {
+    if (surveyAnswers.aiTools.length) trackAnswer("survey-ai", surveyAnswers.aiTools);
+    trackComplete(surveyAnswers);
+    goNext();
+  };
+  const skipSurveyQuestion = () => {
+    if (page === "survey-ai") trackComplete(surveyAnswers);
+    goNext();
+  };
+
+  // Cheap progress, never a percentage: the same small-dot bar as before,
+  // just running over whichever leg of the flow is active — 4 dots across
+  // the survey questions, then the existing per-page dots across
+  // agents/tools/value. Two independent short sequences read better here
+  // than one long one, and the connect pages' dot math is untouched from
+  // before this survey existed.
+  const onSurveyPage = isSurveyPage(page);
+  const dotPages: readonly string[] = onSurveyPage ? SURVEY_PAGES : connectPages;
+  const dotIndex = onSurveyPage
+    ? SURVEY_PAGES.indexOf(page as (typeof SURVEY_PAGES)[number])
+    : connectPages.indexOf(page as ConnectPageId);
 
   return (
     <div
       className="flex flex-col items-center overflow-y-auto overscroll-none bg-background px-6 text-foreground"
       style={{ height: "var(--lfg-app-height, 100dvh)" }}
     >
-      <div className="my-auto w-full max-w-sm py-6">
+      {/* Fixed top offset, not `my-auto` centering. Centering re-measures
+          the whole block's height on every page, and the survey questions
+          don't all have the same height — Q1 has 4 options (2 grid rows),
+          Q2-4 have 5 (3 rows) plus a Continue button. A centered block gets
+          more top margin when it's short and less when it's tall, so the
+          title itself visibly shifts the moment the page changes — worst on
+          the very first tap, from Q1 into Q2. Pinning the top here means the
+          header/title sit at the same spot on every page; only the grid
+          below grows or shrinks. */}
+      <div className="mt-[8dvh] w-full max-w-sm pb-6">
         <div className="mb-4 flex items-center justify-between gap-2">
           <img
             src={omgAssetUrl(LFG_SMALL_ICON_PATH)}
@@ -80,15 +292,19 @@ export function EmbeddedConnectGate({
           />
           <div
             className="flex items-center gap-1.5"
-            aria-label={`Step ${stepIndex + 1} of ${pages.length}`}
+            aria-label={
+              onSurveyPage
+                ? `Question ${dotIndex + 1} of ${dotPages.length}`
+                : `Step ${dotIndex + 1} of ${dotPages.length}`
+            }
           >
-            {pages.map((id, index) => (
+            {dotPages.map((id, index) => (
               <span
                 key={id}
                 className={`h-1.5 rounded-full transition-all duration-300 ease-ios ${
-                  index === stepIndex
+                  index === dotIndex
                     ? "w-5 bg-primary"
-                    : index < stepIndex
+                    : index < dotIndex
                       ? "w-1.5 bg-primary/40"
                       : "w-1.5 bg-foreground/10"
                 }`}
@@ -96,7 +312,48 @@ export function EmbeddedConnectGate({
             ))}
           </div>
         </div>
-        {page === "agents" ? (
+        {page === "survey-identity" ? (
+          <>
+            <h1 className="mb-5 text-xl font-semibold">Which best describes you?</h1>
+            <SurveyOptionGrid
+              options={IDENTITY_OPTIONS}
+              selected={surveyAnswers.identity ? [surveyAnswers.identity] : []}
+              onToggle={selectIdentity}
+            />
+            <SurveySkipLink onSkip={skipSurveyQuestion} />
+          </>
+        ) : page === "survey-pain" ? (
+          <>
+            <h1 className="text-xl font-semibold">What hurts most right now?</h1>
+            <p className="mb-5 mt-1 text-sm text-muted-foreground">Pick the one that's true today.</p>
+            <SurveyOptionGrid
+              options={PAIN_OPTIONS}
+              selected={surveyAnswers.pain ? [surveyAnswers.pain] : []}
+              onToggle={selectPain}
+            />
+            <SurveySkipLink onSkip={skipSurveyQuestion} />
+          </>
+        ) : page === "survey-tools" ? (
+          <>
+            <h1 className="text-xl font-semibold">What do you use every day?</h1>
+            <p className="mb-5 mt-1 text-sm text-muted-foreground">Pick as many as you like.</p>
+            <SurveyOptionGrid options={DAILY_TOOL_OPTIONS} selected={surveyAnswers.dailyTools} onToggle={toggleDailyTool} />
+            <Button variant="brand" className="mt-4 w-full" onClick={continueDailyTools}>
+              Continue
+            </Button>
+            <SurveySkipLink onSkip={skipSurveyQuestion} />
+          </>
+        ) : page === "survey-ai" ? (
+          <>
+            <h1 className="text-xl font-semibold">Which AI tools do you use?</h1>
+            <p className="mb-5 mt-1 text-sm text-muted-foreground">Pick as many as you like.</p>
+            <SurveyOptionGrid options={AI_TOOL_OPTIONS} selected={surveyAnswers.aiTools} onToggle={toggleAiTool} />
+            <Button variant="brand" className="mt-4 w-full" onClick={finishAiTools}>
+              Continue
+            </Button>
+            <SurveySkipLink onSkip={skipSurveyQuestion} />
+          </>
+        ) : page === "agents" ? (
           <>
             <h1 className="text-xl font-semibold">Connect a coding agent</h1>
             <p className="mb-5 mt-1 text-sm text-muted-foreground">
