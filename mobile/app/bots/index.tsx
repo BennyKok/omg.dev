@@ -23,15 +23,19 @@
  *
  * Master-detail lives under the same route family the web uses (`/bots`
  * roster, `/bots/[id]` chat) rather than two unrelated tabs — mirrors how
- * `session/[id]` nests under the sessions surface. `[id].tsx` is the next
- * phase (bot chat); this file is the roster half only.
+ * `session/[id]` nests under the sessions surface. `/bots/[id]` itself
+ * (bot chat) is a later phase; `/bots/[id]/edit` exists now — see
+ * bot-edit-screen.tsx — and is nested a level under the reserved chat route
+ * rather than sitting flat at `/bots/[id]` for exactly that reason.
  *
  * "+ New bot" is visually present (both the header action and, empty-roster
- * only, EmptyState's action slot — same pattern as home's "Choose a computer")
- * because leaving the roster's own create affordance out would read as broken
- * chrome, not as scope control. Tapping either is a placeholder toast until
- * the New/Edit Bot sheet exists — see the PR description for why that sheet
- * and bot chat are both held for a separate steer.
+ * only, EmptyState's action slot — same pattern as home's "Choose a
+ * computer") and pushes the full-page create flow (`/bots/new`,
+ * bot-create-flow.tsx). Bot chat is still a later phase — tapping a roster
+ * row pushes the full-page edit screen (`/bots/[id]/edit`,
+ * bot-edit-screen.tsx) instead of routing to bot chat, because that screen
+ * does not exist yet and editing is a truthful stand-in for "tap a bot"
+ * while a dead toast was not.
  */
 
 import { useFocusEffect, useNavigation, useRouter } from "expo-router";
@@ -43,7 +47,6 @@ import { EmptyState, Icon, IconButton } from "../../src/components";
 import { PressableScale } from "../../src/omg/motion";
 import { Text } from "../../src/omg/text";
 import { useTheme } from "../../src/omg/theme";
-import { useToast } from "../../src/omg/toast";
 import { useOmg } from "../../src/omg/provider";
 import { useBots, type Bot } from "../../src/omg/bots";
 import { BotRosterRow } from "../../src/omg/bot-roster-row";
@@ -59,7 +62,6 @@ export default function BotsScreen() {
   const router = useRouter();
   const { colors, type, space } = useTheme();
   const { client } = useOmg();
-  const toast = useToast();
 
   const { bots, loading, refresh } = useBots();
   const [pulling, setPulling] = useState(false);
@@ -98,14 +100,14 @@ export default function BotsScreen() {
   const animateEntry = Date.now() - mountedAtRef.current >= COLD_LOAD_WINDOW_MS;
 
   const openBot = (bot: Bot) => {
-    // TODO(bot chat): route to /bots/[id] once that screen exists.
-    void bot;
-    toast.show("Bot chat is coming soon.");
+    // TODO(bot chat): route to /bots/[id] once that screen exists. Until
+    // then, the full-page edit screen is a truthful stand-in — you can at
+    // least see and change what you made — rather than a dead toast.
+    router.push(`/bots/${encodeURIComponent(bot.id)}/edit`);
   };
 
   const createBot = () => {
-    // TODO(New/Edit Bot sheet): open the create sheet once it exists.
-    toast.show("Creating bots is coming soon.");
+    router.push("/bots/new");
   };
 
   useLayoutEffect(() => {

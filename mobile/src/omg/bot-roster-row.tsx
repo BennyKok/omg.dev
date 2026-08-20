@@ -24,6 +24,12 @@
  * Working is one signal: the avatar's corner dot. The subtitle is the last
  * message preview only — no "Working —" prefix, no timestamp, no Disabled
  * pill, no chevron. A disabled bot dims the avatar, not the card.
+ *
+ * The avatar itself is the one deliberate departure from SessionCard: it
+ * carries the real rasterised mascot (shape + colorway, bot-avatar.tsx) on a
+ * rounded-square plate rather than SessionCard's circular AgentAvatar — see
+ * bot-avatar.tsx's own doc comment for why that shape break has to survive
+ * even as everything else here converges on SessionCard's shell.
  */
 
 import { View } from "react-native";
@@ -79,7 +85,7 @@ export function BotRosterRow({
         })}
       >
         <View style={disabled ? { opacity: 0.45 } : undefined}>
-          <BotAvatar colorway={bot.colorway} size={28} working={!disabled && !!working} />
+          <BotAvatar shape={bot.shape} colorway={bot.colorway} size={28} working={!disabled && !!working} />
         </View>
 
         <View style={{ flex: 1, gap: 1, minWidth: 0 }}>
