@@ -16,7 +16,7 @@ read off the EAS docs.
 | iOS credentials | distribution certificate + provisioning profile, on EAS |
 | ASC API key | `P37PJ5VSHN`, issuer `8e538491-9c7f-4ddf-88ba-4bf3e4f81fa6`, ADMIN |
 | Latest TestFlight build | `1.0.2 (29)` — submitted, Waiting for Review |
-| EAS Update | live, branch `production`, runtimeVersion policy `appVersion`; last group `7e0c702d-9d36-43e9-84be-ad2d41d24897` (2026-08-19, `gitCommitHash fc1826d`, `#160`) — see the publish log below |
+| EAS Update | live, branch `production`, runtimeVersion policy `appVersion`; last group `e82dfbf2-896d-416b-ac15-8be8cee3fdd0` (2026-08-20, `gitCommitHash ce4efa8`, `#183`) — see the publish log below |
 
 ## Publish log (`production` channel)
 
@@ -34,6 +34,7 @@ command didn't error."
 | 2026-08-19 | `fcbc12a9-c7ff-43d6-bda5-8af327a26aba` | `281464e` (`#156`) | Fix to the list-overlap detector's own re-verification math (symmetric interval-overlap formula, `min(bottoms) - max(tops)`, plus the 200ms re-check) — corrects a bug that scored a relocated row as a huge fake overlap, so real-device reports from before this publish aren't trustworthy | `git diff 276b1e2 281464e -- mobile/package.json` is empty — byte-identical to the already-cleared `276b1e2` state, no new native surface |
 | 2026-08-19 | `8a51c11f-2a0c-4cdf-ae89-c6ad1028702c` | `96c49da` (`#158`) | Tiebreaker diagnostics for the overlap detector — records which sections were mounting, how many rows arrived in that commit, and time since mount, so Benny's next real-device catch is decisive between the two competing theories instead of ambiguous like the last report. Instrumentation only, no behavior change. | `git diff 281464e 96c49da -- mobile/package.json` is empty — byte-identical to the already-cleared `281464e` state, no new native surface |
 | 2026-08-19 | `7e0c702d-9d36-43e9-84be-ad2d41d24897` | `fc1826d` (`#160`) | Current best fix for the list-overlap bug itself — don't paint Auto/Recent until Sessions has had its turn. Simulator evidence is 18/18 clean (9 warm, 9 under simulated slow wake) versus roughly every load failing before; labelled "meaningfully fewer, not eliminated," not proven fixed. The on-device detector from `b6c8a104` stays in place to tell us whether it recurs — this bug only reproduces on Benny's physical device. | `git diff 96c49da fc1826d -- mobile/package.json` is empty — byte-identical to the already-cleared `96c49da` state, no new native surface |
+| 2026-08-20 | `e82dfbf2-896d-416b-ac15-8be8cee3fdd0` | `ce4efa8` (`#183`) | Today's whole mobile queue: Bots roster (`#166`), guest side of shared Computers (`#170`), rasterized mascot avatars, and New/Edit Bot as full-page onboarding (`#182`/`#183`). Bot chat is **not** in this update — it is on an unmerged, unverified branch. | `git diff 96c49da ce4efa8 -- mobile/package.json` is empty — byte-identical to the already-cleared `96c49da` state, no new native surface |
 
 ## Which change needs which pipeline
 
