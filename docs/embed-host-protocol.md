@@ -4,6 +4,16 @@ OMG runs framed inside omg's Computer surface (`https://<box>/?embed=1`). Embed
 mode hides OMG's own header, settings, user picker and onboarding — the host
 owns account UX. This document is the contract between the two.
 
+This is one of **two** ways a host mounts OMG — this cross-origin iframe path,
+and the same-document native library mount (`@omg-dev/app`'s `OmgAppSurface`,
+built by `web/vite.lib.config.ts`), which `app.omg.dev` uses instead. The
+native mount shares no postMessage protocol with this one; it has its own DOM
+slot contract (`data-lfg-host-slot`) documented alongside the full shell/host
+integration inventory in `docs/hosted-shell-inventory.md`. Both flags
+(`?embed=1` / `readLocationEmbedFlag()`) and the native mount set the same
+`embedded` state inside `App.tsx`, so the header/onboarding suppression this
+document describes applies to both.
+
 ## Detection
 
 `?embed=1` on the frame URL is the explicit signal; running inside a

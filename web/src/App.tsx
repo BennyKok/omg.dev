@@ -8188,6 +8188,24 @@ export function App() {
 
         <NavIsland className="shrink-0">
           <div className="glass-island flex h-11 items-center gap-1.5 rounded-full px-2">
+            {/* This header covers the band between the mobile and desktop-rail
+                breakpoints (roughly 768-1023px: tablet portrait, split view, a
+                resized embedded window) — the one layout that used to render
+                with no `header-actions` slot at all. The mobile headers above
+                and the desktop rail-footer slot each got one when the host
+                docking contract was added; this one was missed, so a host
+                mounted at exactly this width had nothing to portal its
+                Computer/Settings switcher into and fell back to floating its
+                own chrome over ours. Same slot, same host-settings flag, same
+                spot in the island as the mobile-live header: host actions
+                first, our overflow menu last. */}
+            {embedded ? (
+              <span
+                data-lfg-host-slot="header-actions"
+                data-lfg-host-settings={hostSettingsInMenu ? "menu" : undefined}
+                className="flex items-center gap-1.5"
+              />
+            ) : null}
             {tab === "live" || tab === "bots" || tab === "notifications" || tab === "artifacts" ? (
               // Page destinations live in PagesMenu. Desktop also keeps its
               // project scope control here; mobile project scope lives in the
@@ -8232,6 +8250,7 @@ export function App() {
               onOpenTab={setTab}
               extraTabs={extNavTabs}
               showSettings={!embedded}
+              onOpenHostSettings={embedded && hostSettingsInMenu ? onOpenHostSettings : undefined}
             />
           </div>
         </NavIsland>
