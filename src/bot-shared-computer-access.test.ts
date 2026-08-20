@@ -15,6 +15,7 @@ import { PATHS } from "./config.ts";
 import { createBot, updateBot, type Bot } from "./bots/store.ts";
 import {
   assertBotConversationAccess,
+  botCreationOwner,
   botViewer,
   botViewerFromRequest,
   visibleBots,
@@ -101,6 +102,22 @@ describe("shared Computer bot visibility", () => {
 });
 
 describe("the ?user= parameter is an identity, never an authorization input", () => {
+  test("a managed create is charged to the trusted member, not the body user", () => {
+    const viewer = botViewerFromRequest(clientReq({ [VIEWER_EMAIL_HEADER]: ANGEL }), BENNY);
+    expect(botCreationOwner(viewer, BENNY, [BENNY, ANGEL])).toEqual({
+      ok: true,
+      owner: ANGEL,
+    });
+  });
+
+  test("a local create still rejects a user outside the configured roster", () => {
+    const viewer = botViewerFromRequest(clientReq(), STRANGER);
+    expect(botCreationOwner(viewer, STRANGER, [BENNY, ANGEL])).toEqual({
+      ok: false,
+      unknown: STRANGER,
+    });
+  });
+
   test("a forged ?user= cannot change what a managed viewer sees", async () => {
     const bots = await hostedBots();
     // Angel edits the URL to claim she is Benny. The trusted header still

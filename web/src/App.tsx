@@ -66,6 +66,10 @@ import {
 } from "./lib/bot-unread";
 import { resolveRosterUser } from "./lib/roster-user";
 import {
+  botQuotaPresentation,
+  type PersistentBotQuota,
+} from "./lib/bot-quota";
+import {
   botVisibleUserText as botVisibleUserTextFor,
   isBotHiddenLogKind,
   isBotLaunchOnlyText,
@@ -5729,6 +5733,7 @@ export function App() {
   }, [loading]);
   const [autoAgents, setAutoAgents] = useState<AutoAgent[]>([]);
   const [bots, setBots] = useState<PersistentBot[]>([]);
+  const [botQuota, setBotQuota] = useState<PersistentBotQuota | null>(null);
   const [botConversations, setBotConversations] = useState<BotConversationUnread[]>([]);
   const botDirectory = useMemo(
     () => new Map(bots.map((bot) => [bot.id, bot])),
@@ -5996,18 +6001,19 @@ export function App() {
   }, [bare, isMobile, loading, tab, terminalSurface]);
 
   const refreshBots = useCallback(async () => {
-    const payload = await api<{ bots: PersistentBot[]; conversations?: BotConversationUnread[] }>(
+    const payload = await api<{ bots: PersistentBot[]; conversations?: BotConversationUnread[]; quota?: PersistentBotQuota }>(
       `/api/bots?user=${encodeURIComponent(botUnreadIdentity)}`,
       { cache: "no-store" },
     );
     setBots(payload.bots ?? []);
     setBotConversations(payload.conversations ?? []);
+    setBotQuota(payload.quota ?? null);
   }, [botUnreadIdentity]);
 
   const loadCore = useCallback(async () => {
     const [payload, botPayload] = await Promise.all([
       fetchBootstrap<BootstrapPayload>(),
-      api<{ bots: PersistentBot[]; conversations?: BotConversationUnread[] }>(
+      api<{ bots: PersistentBot[]; conversations?: BotConversationUnread[]; quota?: PersistentBotQuota }>(
         `/api/bots?user=${encodeURIComponent(botUnreadIdentity)}`,
         { cache: "no-store" },
       ),
@@ -6055,6 +6061,7 @@ export function App() {
     setAutoAgents(payload.auto?.agents ?? []);
     setBots(botPayload.bots ?? []);
     setBotConversations(botPayload.conversations ?? []);
+    setBotQuota(botPayload.quota ?? null);
     setSchedTz(payload.settings?.timeZone ?? payload.auto?.tz ?? DEFAULT_SCHED_TZ);
     const findingList = payload.auto?.findings ?? [];
     setFindings(findingList);
@@ -7153,11 +7160,12 @@ export function App() {
           : localStorage.getItem("lfg_user"),
         users,
       );
-      await api(endpoint, {
+      const result = await api<{ bot: PersistentBot; quota?: PersistentBotQuota }>(endpoint, {
         method: id ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(id ? body : { ...body, user: owner || undefined }),
       });
+      if (result.quota) setBotQuota(result.quota);
       // Leaving the editor is a navigation now, not a state reset: saving an
       // existing bot lands back in its chat, creating one lands on the list.
       if (id) openBot(id);
@@ -8416,6 +8424,7 @@ export function App() {
             codingAgents={codingAgents}
             autoAgents={autoAgents}
             maxBotSchedules={settings.maxBotSchedules}
+            quota={botQuota}
             tz={schedTz}
             onEditRoutine={setEditingAgent}
             onClose={() => {
@@ -25138,6 +25147,7 @@ function BotEditorPage({
   codingAgents,
   autoAgents = [],
   maxBotSchedules,
+  quota,
   tz,
   onClose,
   onSave,
@@ -25149,6 +25159,7 @@ function BotEditorPage({
   codingAgents: CodingAgentInfo[];
   autoAgents?: AutoAgent[];
   maxBotSchedules?: number;
+  quota?: PersistentBotQuota | null;
   tz?: string;
   onClose: () => void;
   onSave: (input: {
@@ -25203,6 +25214,7 @@ function BotEditorPage({
   const [model, setModel] = useState(editing ? bot.model ?? defaultModel : defaultModel);
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(editing ? bot.thinkingLevel ?? savedThinkingLevel() : savedThinkingLevel());
   const [advanced, setAdvanced] = useState(false);
+  const quotaCopy = !editing && quota ? botQuotaPresentation(quota) : null;
   const models = useAgentModels(backend);
   const backendDefault = useAgentDefaultModel(backend);
   useEffect(() => {
@@ -25219,7 +25231,7 @@ function BotEditorPage({
     };
   }, [isMobile]);
 
-  const canSubmit = !!name.trim() && !!persona.trim();
+  const canSubmit = !!name.trim() && !!persona.trim() && !quotaCopy?.reached;
   const submit = () => {
     if (!canSubmit) return;
     void onSave({
@@ -25261,6 +25273,22 @@ function BotEditorPage({
 
   const fields = (
     <>
+      {!editing && quotaCopy ? (
+        <div
+          role={quotaCopy.reached ? "alert" : "status"}
+          className={cn(
+            "mb-4 rounded-xl border px-3 py-2.5 text-sm",
+            quotaCopy.reached
+              ? "border-destructive/35 bg-destructive/5 text-destructive"
+              : "border-border bg-card/50 text-muted-foreground",
+          )}
+        >
+          <span className="block font-medium text-foreground">{quotaCopy.usage}</span>
+          {quotaCopy.limitMessage ? (
+            <span className="mt-0.5 block">{quotaCopy.limitMessage}</span>
+          ) : null}
+        </div>
+      ) : null}
       {/* The live creature is the preview: it breathes and blinks while you
           pick, so you meet the bot before you create it. It leads the page at
           the size it will never otherwise be seen at — 56px in a row beside the

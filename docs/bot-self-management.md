@@ -59,9 +59,45 @@ poll hydrates the same server state after reload, reconnect, or a change from
 another tab or device. The v0.1.411 `bots` response field remains unchanged;
 new clients also read the additive `conversations` field.
 
-One assigned user can own at most 10 persistent bots. Disabled bots count. The
-store performs the quota check and write in one synchronous commit section, so
-concurrent create calls cannot take the same final slot.
+## Persistent-bot quota
+
+One verified owner can store 20 persistent bots by default. Disabled and idle
+bots count because the quota measures stored bot identities, not processes.
+The store performs the count, quota check, and write in one synchronous commit
+section. Concurrent create calls therefore cannot take the same final slot.
+
+The server derives a managed caller from the host-stamped
+`X-Omg-Viewer-Email` header. A request body cannot choose another Computer
+member as the bot owner or consume that member's allowance. A local install has
+no HTTP authentication layer. Its existing server roster validation remains
+the local administrator boundary.
+
+`GET /api/bots` and successful creates return an additive `quota` object with
+`used`, `limit`, `remaining`, `scope`, and `source`. A refused create returns
+HTTP 409 with `code: "bot_quota_limit"` and the same quota object.
+
+The root-written `/etc/omg/computer-entitlement.json` contract can supply an
+optional numeric `persistentBotLimit`. This is the only plan integration. The
+runtime does not map plan names to guessed free, pro, or team values. Without
+that field, a local administrator can set `LFG_PERSISTENT_BOT_LIMIT`; otherwise
+the explicit default is 20.
+
+Legacy bots that have no `owner` stay ownerless. The migration never guesses
+ownership from a bot name, display name, session, or roster order. These bots
+are reported in the grandfathered `legacy_pool` with a null limit. They remain
+shared as before and do not consume any verified owner's allowance. Every new
+managed create is stamped with the trusted caller, so the legacy pool does not
+grow through the hosted API.
+
+Four resource counts remain separate:
+
+- The machine's total persistent bot records are the full `bots.json` list.
+- A verified owner's allowance counts only records with that normalized owner.
+- Sharing a Computer or a conversation changes access. It does not combine or
+  transfer personal stored-bot allowances.
+- Concurrent resident bot and agent runtimes use `maxLiveAgents`, the Computer
+  admission entitlement, and the memory gate. They do not use this stored-bot
+  quota.
 
 A bot-created bot inherits the caller's approved execution workspace. The tool
 does not accept a workspace path, so bot creation cannot expand filesystem

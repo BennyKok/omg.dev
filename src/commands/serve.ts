@@ -63,7 +63,6 @@ import { runAutoAgent } from "../auto/runner.ts";
 import { routineNudgeText, exceedsMaxFrequency } from "../auto/bot-routine.ts";
 import {
   BOT_COLORWAYS,
-  BOT_OWNER_QUOTA,
   BOT_SHAPES,
   BotOwnerQuotaError,
   botConversationId,
@@ -76,6 +75,11 @@ import {
   type BotColorway,
   type BotShape,
 } from "../bots/store.ts";
+import {
+  botQuotaLimitPayload,
+  persistentBotQuota,
+  persistentBotQuotaPolicy,
+} from "../bots/quota.ts";
 import { botCanonicalSessionId, botConversationRef, findBotMainSession } from "../bots/session.ts";
 import {
   BOT_SELF_CREATE_FIELDS,
@@ -103,6 +107,7 @@ import {
 } from "../bots/unread.ts";
 import {
   assertBotConversationAccess,
+  botCreationOwner,
   botViewerFromRequest,
   localUserSplitEnabled,
   // Aliased: the route already binds `visibleBots` to its own result.
@@ -1664,8 +1669,12 @@ function json(obj: unknown, init?: ResponseInit) {
  * offers to start the agent anyway (`overLimit`) or to go and edit the number.
  * Kept apart from `plan_limit` precisely so a host cannot mistake one for the
  * other and try to sell an upgrade to someone who owns the hardware.
+ *
+ * `bot_quota_limit`: a stored-bot owner allowance. It is never a concurrent
+ * runtime or memory refusal. The response also carries the typed quota
+ * snapshot, so clients do not have to parse this code or the prose for counts.
  */
-export type ApiErrorCode = "plan_limit" | "agent_limit";
+export type ApiErrorCode = "plan_limit" | "agent_limit" | "bot_quota_limit";
 
 function err(status: number, message: string, code?: ApiErrorCode) {
   return json(code ? { error: message, code } : { error: message }, { status });
@@ -3983,6 +3992,7 @@ a{color:#60a5fa}
             return err(409, "calling bot workspace is no longer approved");
           const avatar = readBotAvatar(body);
           if ("error" in avatar) return err(400, avatar.error);
+          const quotaPolicy = persistentBotQuotaPolicy();
           const bot = await createBot({
             name,
             persona,
@@ -3995,17 +4005,19 @@ a{color:#60a5fa}
             thinkingLevel,
             cwd,
             owner: actor.user,
-            ownerQuota: BOT_OWNER_QUOTA,
+            ownerQuota: quotaPolicy,
           });
           evlog("bot_created_by_bot", {
             actorBotId: actor.bot.id,
             createdBotId: bot.id,
             owner: actor.user,
           });
-          return json({ bot }, { status: 201 });
+          const quota = persistentBotQuota(await listBots(), actor.user, quotaPolicy);
+          return json({ bot, quota }, { status: 201 });
         } catch (error) {
           if (error instanceof BotSelfManagementError) return err(error.status, error.message);
-          if (error instanceof BotOwnerQuotaError) return err(409, error.message);
+          if (error instanceof BotOwnerQuotaError)
+            return json(botQuotaLimitPayload(error), { status: 409 });
           throw error;
         }
       }
@@ -4077,6 +4089,12 @@ a{color:#60a5fa}
           // what hid a shared Computer's bots from everyone authorized on it.
           const viewer = botViewerFromRequest(req, requestedUser);
           const visibleBots = visibleBotsForViewer(allBots, viewer, rosterEmails(), requestedUser);
+          const quotaOwner = botCreationOwner(viewer, requestedUser, rosterEmails());
+          const quota = persistentBotQuota(
+            allBots,
+            quotaOwner.ok ? quotaOwner.owner : undefined,
+            persistentBotQuotaPolicy(),
+          );
           const bots = visibleBots.map((bot) => {
             const last = bot.sessionId ? lastIndexedAssistantMessage(bot.sessionId) : null;
             return last?.text
@@ -4134,7 +4152,7 @@ a{color:#60a5fa}
               lastMessageTs: last?.ts ?? null,
             }];
           });
-          return json({ bots, conversations });
+          return json({ bots, conversations, quota });
         }
         if (req.method === "POST") {
           const body = (await req.json().catch(() => null)) as {
@@ -4161,12 +4179,15 @@ a{color:#60a5fa}
           const cwd = typeof body?.cwd === "string" ? body.cwd.trim() || undefined : undefined;
           if (cwd && !(await listRepos()).some((repo) => repo.cwd === cwd))
             return err(400, "unknown repo");
-          const ownerTag = resolveSessionUserTag(typeof body?.user === "string" ? body.user : undefined);
+          const requestedUser = typeof body?.user === "string" ? body.user : undefined;
+          const viewer = botViewerFromRequest(req, requestedUser);
+          const ownerTag = botCreationOwner(viewer, requestedUser, rosterEmails());
           if (!ownerTag.ok)
             return err(400, `unknown user "${ownerTag.unknown}" (expected one of the roster emails)`);
           const avatar = readBotAvatar(body);
           if ("error" in avatar) return err(400, avatar.error);
           let bot: Bot;
+          const quotaPolicy = persistentBotQuotaPolicy();
           try {
             bot = await createBot({
               name,
@@ -4177,14 +4198,18 @@ a{color:#60a5fa}
               model,
               thinkingLevel,
               cwd,
-              owner: ownerTag.user,
-              ownerQuota: ownerTag.user ? BOT_OWNER_QUOTA : undefined,
+              owner: ownerTag.owner,
+              ownerQuota: quotaPolicy,
             });
           } catch (error) {
-            if (error instanceof BotOwnerQuotaError) return err(409, error.message);
+            if (error instanceof BotOwnerQuotaError)
+              return json(botQuotaLimitPayload(error), { status: 409 });
             throw error;
           }
-          return json({ bot });
+          return json({
+            bot,
+            quota: persistentBotQuota(await listBots(), ownerTag.owner, quotaPolicy),
+          });
         }
       }
       {

@@ -23,6 +23,14 @@ export type AgentAdmissionContext = {
   limit: number;
   /** Concurrent scheduled runs. Separate from `limit` — a cron must not fill the interactive cap. */
   scheduleLimit: number;
+  /**
+   * Optional persistent-bot allowance per verified owner.
+   *
+   * Older control planes do not send this field. Its absence is therefore not
+   * an invalid entitlement and leaves the bot store on its explicit default or
+   * local administrator override. The host owns only the value it supplies.
+   */
+  persistentBotLimit?: number;
 };
 
 export type AgentActivity = {
@@ -83,6 +91,9 @@ const COMPUTER_ENTITLEMENT_FILE = "/etc/omg/computer-entitlement.json";
  * memory budget is still the real gate underneath it.
  */
 const MAX_SUPPLIED_LIMIT = 64;
+
+/** Sanity ceiling for a host-supplied stored-bot allowance. */
+const MAX_SUPPLIED_PERSISTENT_BOT_LIMIT = 10_000;
 
 /**
  * A Computer whose entitlement we cannot read admits one agent.
@@ -149,8 +160,22 @@ export function computerAgentAdmissionContext(
   const scheduleLimit = positiveInteger(entitlement.scheduleLimit, MAX_SUPPLIED_LIMIT);
   if (limit === null || scheduleLimit === null) return failUnreadable(source);
 
+  const persistentBotLimit = entitlement.persistentBotLimit === undefined
+    ? undefined
+    : positiveInteger(entitlement.persistentBotLimit, MAX_SUPPLIED_PERSISTENT_BOT_LIMIT);
+  // This field is additive. A malformed new value must not invalidate the
+  // already-authoritative runtime limits in an otherwise readable entitlement.
+  // Ignore it and use the documented bot fallback instead.
+
   const plan = typeof entitlement.plan === "string" ? entitlement.plan.trim() : "";
-  return { plan: plan || "managed", limit, scheduleLimit };
+  return {
+    plan: plan || "managed",
+    limit,
+    scheduleLimit,
+    ...(persistentBotLimit === null || persistentBotLimit === undefined
+      ? {}
+      : { persistentBotLimit }),
+  };
 }
 
 function failUnreadable(source: string): AgentAdmissionContext {

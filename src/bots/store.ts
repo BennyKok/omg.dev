@@ -12,6 +12,13 @@ import { randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 import { PATHS } from "../config.ts";
 import { sanitizeThinkingLevel } from "../auto/store.ts";
+import {
+  BotOwnerQuotaError,
+  persistentBotQuota,
+  type PersistentBotQuotaPolicy,
+} from "./quota.ts";
+
+export { BotOwnerQuotaError } from "./quota.ts";
 
 /**
  * The mascot avatar: one eye (the species) x a home shape (the individual) x a
@@ -51,16 +58,6 @@ export type Bot = {
   /** Relaunch with persisted profile/workspace data before the next user turn. */
   runtimeRefreshPending?: boolean;
 };
-
-/** A hard per-user fleet bound for persistent bots, including disabled bots. */
-export const BOT_OWNER_QUOTA = 10;
-
-export class BotOwnerQuotaError extends Error {
-  constructor(readonly owner: string, readonly limit: number) {
-    super(`bot quota reached (${limit} persistent bots per assigned user)`);
-    this.name = "BotOwnerQuotaError";
-  }
-}
 
 /**
  * The conversation a bot's next process attaches to.
@@ -142,15 +139,14 @@ export async function createBot(input: {
   owner?: string;
   shape?: BotShape;
   colorway?: BotColorway;
-  ownerQuota?: number;
+  ownerQuota?: PersistentBotQuotaPolicy;
 }): Promise<Bot> {
   // Keep the read, quota check, and write in one synchronous section. Two MCP
   // calls cannot both observe the last free slot before either commits it.
   const bots = readBots();
-  if (input.owner && input.ownerQuota !== undefined) {
-    const owner = input.owner.trim().toLowerCase();
-    const owned = bots.filter((bot) => bot.owner?.trim().toLowerCase() === owner).length;
-    if (owned >= input.ownerQuota) throw new BotOwnerQuotaError(input.owner, input.ownerQuota);
+  if (input.owner && input.ownerQuota) {
+    const quota = persistentBotQuota(bots, input.owner, input.ownerQuota);
+    if (quota.remaining === 0) throw new BotOwnerQuotaError(input.owner, quota);
   }
   let id: string;
   do id = `bot_${randomBytes(4).toString("hex")}`;
