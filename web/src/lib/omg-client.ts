@@ -73,6 +73,7 @@ export type OmgErrorSink = {
 };
 
 let omgErrorSinkConfig: OmgErrorSink | null = null;
+let omgTransportGenerationCounter = 0;
 
 /**
  * Installs the host-owned runtime boundary before the shared LFG application
@@ -82,9 +83,27 @@ export function configureOmgTransport(
   transport: OmgTransport,
   options: { assetBaseUrl?: string; errorSink?: OmgErrorSink } = {},
 ): void {
+  // Bump only on a genuine swap. A host re-renders this surface freely and
+  // calls us with the same transport object each time; treating that as a
+  // change would blank the version rows on every render.
+  if (transport !== omgTransport) omgTransportGenerationCounter += 1;
   omgTransport = transport;
   omgAssetBaseUrl = options.assetBaseUrl?.replace(/\/+$/, "") ?? "";
   omgErrorSinkConfig = options.errorSink ?? null;
+}
+
+/**
+ * Which transport a value was fetched over.
+ *
+ * A host switches Computers by handing us a new transport, in place — the app
+ * tree is not remounted, so state captured from the previous machine survives
+ * the switch. Anything claiming to describe "the selected Computer" has to
+ * record this counter alongside the value and discard it when the counter
+ * moves, or it will keep displaying the old box's answer under the new box's
+ * name. Settings' Computer version row is the first such reader.
+ */
+export function omgTransportGeneration(): number {
+  return omgTransportGenerationCounter;
 }
 
 export function omgErrorSink(): OmgErrorSink | null {
