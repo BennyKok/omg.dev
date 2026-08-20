@@ -42,3 +42,31 @@ export function productBotId(session: ConversationSessionIdentity): string | nul
 export function isBotConversation(session: ConversationSessionIdentity): boolean {
   return !!productBotId(session);
 }
+
+/**
+ * The botId a render should trust for bot chrome (header avatar/settings,
+ * composer, message-send endpoint) — the single place that decides between
+ * "trust the caller" and "derive it from this session's own data."
+ *
+ * `trustedBotId` is anything other than `undefined` (including explicit
+ * `null`) when the caller already resolved and verified which bot this
+ * render belongs to — the bot-stage column, reached via the canonical,
+ * botId-verified picker (botCanonicalSessionId / botStageSession in
+ * ../../../src/bots/session.ts and ./bot-session.ts). That resolution wins
+ * outright over re-deriving identity from this session's own conversation
+ * snapshot, which can lag behind rotation, or share a runtime attachment
+ * with a nested, child, same-name, or already-open regular session —
+ * exactly the cases `productBotId` cannot tell apart from this session's
+ * data alone, because it only has this session's data to look at.
+ *
+ * Every other caller (a grid card, the generic mobile session-detail sheet
+ * opened from the plain session list) never resolved a bot from navigation
+ * and passes `undefined`, so it keeps deriving from `productBotId` exactly
+ * as before — a regular session's chrome does not change.
+ */
+export function renderedBotId(
+  session: ConversationSessionIdentity,
+  trustedBotId: string | null | undefined,
+): string | null {
+  return trustedBotId !== undefined ? trustedBotId : productBotId(session);
+}
