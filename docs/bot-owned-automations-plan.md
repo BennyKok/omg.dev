@@ -723,3 +723,100 @@ announcement.
   schedule to a bot from the UI (flip `owner` after the fact) — not required
   by the spec, straightforward to add later since it's just another allowed
   `owner` transition under the same edit guard.
+
+## 8. Migration of the 38 existing auto agents to the existing bots
+
+Inventory checked 2026-08-20 against `data/auto/agents.json` (38 rows) and
+`data/bots/bots.json` (11 enabled bots) in the live lfg checkout. This section
+answers which work can move to bots that already exist. It does not propose a
+new bot.
+
+The status labels have strict meanings:
+
+- **Move as-is**: the prompt, cadence, and target bot workspace are compatible.
+  The storage row still needs the owner migration described above, but the job
+  itself does not need redesign.
+- **Change first**: move the named bot to the stated workspace before assigning
+  the routine. Do not keep a second per-routine `cwd`; the bot's workspace must
+  remain the single execution context. A cadence change is also named where
+  needed.
+- **Stay headless**: keep the current auto-agent runner. These are silent health
+  checks, stateful notifiers, or operational watches where a dropped bot nudge,
+  a queued reply, or a routine reply on every healthy run would be a regression.
+  The bot column names the best existing escalation owner, not a migration
+  target.
+
+| Auto agent | Existing bot | Status | Reason or prerequisite |
+|---|---|---|---|
+| `design-review` | Designer | **Change first** | Change Designer from `/home/dev/repos/lfg` to `/home/dev/repos/vibes`; then the daily review fits its persona. |
+| `model-watch` | Manager | **Stay headless** | This is a silent catalog and price integrity check. No existing bot owns model routing, and healthy runs should not create chat turns. |
+| `strategy` | Landing + Funnel Optimization | **Move as-is** | The bot already works in `vibes`; daily product and market judgement benefits from its continuing context. |
+| `repo-review` | Manager | **Stay headless** | This is an independent risk review of `vibes`. The current Manager is rooted in `lfg`, and independence is more valuable than persona memory here. |
+| `database-insights` | Incident Killer | **Stay headless** | It is a read-only, usually-silent database integrity sweep. Keep it isolated and escalate its finding to Incident Killer. |
+| `infra-latency` | Incident Killer | **Stay headless** | It is an operational detector. Reliable silent execution is more important than a conversational reply. |
+| `security-audit` | Incident Killer | **Stay headless** | Keep the security sweep isolated from a persistent bot session and its broader tool context. Escalate real evidence only. |
+| `user-bugs` | Incident Killer | **Change first** | Change Incident Killer from `/home/dev/repos/lfg` to `/home/dev/repos/vibes`; then daily bug triage fits the bot's root-cause remit. |
+| `marketing-ideas` | Landing + Funnel Optimization | **Move as-is** | The weekly growth review matches the bot's persona and existing `vibes` workspace. |
+| `ui-declutter-watch` | Designer | **Change first** | Change Designer to `/home/dev/repos/vibes`; the prompt then becomes a direct recurring design review. |
+| `data-drift-watch` | Incident Killer | **Stay headless** | This narrow consistency invariant should stay an independent silent detector and escalate only on evidence. |
+| `session-supervisor` | Bot Improver | **Move as-is** | It already uses `lfg`, and session supervision directly supports the bot-integration persona. Preserve its current disabled state until Benny explicitly enables it. |
+| `bug-report-triage` | Incident Killer | **Change first** | Change Incident Killer to `/home/dev/repos/vibes`; the 30-minute cadence is within the proposed frequency ceiling. |
+| `fleet-health` | Incident Killer | **Stay headless** | Hourly fleet checks need reliable execution and silence when healthy. Send only a real finding to Incident Killer. |
+| `imessage-channel-watch` | Incident Killer | **Stay headless** | The 10-minute cadence exceeds the 48-runs-per-day bot limit, and this channel monitor must stay silent and reliable. |
+| `ci-watch` | Incident Killer | **Change first** | Change Incident Killer to `/home/dev/repos/vibes`; hourly CI triage then fits the incident persona. |
+| `house-computer-e2e` | Manager | **Stay headless** | This is a long, two-part E2E procedure in `vibes-e2e`. No existing bot owns that workspace, and the run should remain isolated. |
+| `growth-digest` | Landing + Funnel Optimization | **Move as-is** | It always produces a morning report, so a bot reply is useful rather than noisy. The workspace already matches. |
+| `billing-optimization` | Landing + Funnel Optimization | **Move as-is** | Weekly cost judgement belongs with the product and growth owner, and the workspace matches. |
+| `inbox-watch` | Manager | **Move as-is** | It runs in `lfg`, and a concise three-times-daily decision queue fits the Manager persona. Keep the prompt read-only. |
+| `video-ideas` | Ad | **Change first** | Change Ad from `/home/dev/repos/app-blocker` to `/home/dev/distributor`; its stated omg.dev growth remit then matches this daily idea scout. |
+| `byok-funnel-invariant` | Landing + Funnel Optimization | **Move as-is** | The invariant is part of onboarding conversion, and both the bot and job use `vibes`. |
+| `linkedin-token-expiry-watch` | Ad | **Change first** | Change Ad to `/home/dev/distributor`; the weekly channel-readiness check then shares the bot's marketing workspace. |
+| `new-user-onboarding-watch` | Landing + Funnel Optimization | **Move as-is** | Hourly onboarding judgement is within the cadence ceiling and matches the bot's `vibes` scope. |
+| `payment-trial-watch` | Landing + Funnel Optimization | **Move as-is** | Trial conversion and delivered plan value are core funnel work. The daily cadence and workspace already match. |
+| `support-inbox-watch` | Manager | **Move as-is** | It already runs in `lfg`; a four-hour read-only support decision queue fits Manager. |
+| `elevenlabs-quota-watch` | Manager | **Change first** | Change this routine's owner only after its relative `vibes` assumptions are removed or Manager gains a supported `vibes` workspace; do not preserve a second routine `cwd`. |
+| `plan-allowance-grant-watch` | Incident Killer | **Change first** | Change Incident Killer to `/home/dev/repos/vibes`; this paid-plan invariant then fits its incident remit. |
+| `billing-email-sync-watch` | Incident Killer | **Change first** | Change Incident Killer to `/home/dev/repos/vibes`; this is hosted billing pipeline work, not native iOS ownership. |
+| `api-latency-watch` | Incident Killer | **Change first** | Change Incident Killer to `/home/dev/repos/vibes`; the six-hour investigation fits the bot after that workspace correction. |
+| `daily-growth-digest-whatsapp` | Landing + Funnel Optimization | **Stay headless** | Its contract is an outbound WhatsApp send. Keep delivery state and retry behavior in the dedicated headless job; do not duplicate `growth-digest` in bot chat. |
+| `web-vitals-regression-watch-app-omg-dev` | Landing Page + Onboarding | **Change first** | Change the bot from `/home/dev/repos/lfg` to `/home/dev/repos/vibes`. This also removes the agent's stale deleted-worktree dependency. |
+| `new-signup-paid-user-notifier-whatsapp` | Landing + Funnel Optimization | **Stay headless** | It is a stateful outbound notifier, and its 20-minute cadence exceeds the bot frequency ceiling. |
+| `production-database-health` | Incident Killer | **Stay headless** | Daily database health should remain an isolated silent check and escalate only on a real fault. |
+| `user-health-watch-trial-paying` | Landing + Funnel Optimization | **Move as-is** | The bot already uses `vibes`; the prompt uses explicit read-only lfg helpers and benefits from longitudinal customer context. |
+| `app-store-approval-watch-launch-prep` | iOS Manager | **Move as-is** | It already uses `lfg`, matches the bot's App Store ownership, and runs at a safe two-hour cadence. |
+| `triage-regression-watch` | Incident Killer | **Change first** | Change Incident Killer to `/home/dev/repos/vibes`; the three-hour regression follow-up then fits its remit. |
+| `ovh-box4-order-watch` | Incident Killer | **Stay headless** | This is a narrow stateful order-status poll. Keep unchanged polls silent and escalate a transition to Incident Killer. |
+
+### Migration totals and order
+
+- **12 move as-is**: `strategy`, `marketing-ideas`, `session-supervisor`,
+  `growth-digest`, `billing-optimization`, `inbox-watch`,
+  `byok-funnel-invariant`, `new-user-onboarding-watch`, `payment-trial-watch`,
+  `support-inbox-watch`, `user-health-watch-trial-paying`, and
+  `app-store-approval-watch-launch-prep`.
+- **13 move after a workspace correction**: `design-review`, `user-bugs`,
+  `ui-declutter-watch`, `bug-report-triage`, `ci-watch`, `video-ideas`,
+  `linkedin-token-expiry-watch`, `elevenlabs-quota-watch`,
+  `plan-allowance-grant-watch`, `billing-email-sync-watch`,
+  `api-latency-watch`, `web-vitals-regression-watch-app-omg-dev`, and
+  `triage-regression-watch`.
+- **13 stay headless**: the remaining silent monitors, isolated E2E job, and
+  outbound notifiers. `imessage-channel-watch` and
+  `new-signup-paid-user-notifier-whatsapp` also exceed the proposed cadence
+  ceiling.
+
+Apply the workspace corrections before changing ownership:
+
+1. Move Designer to `/home/dev/repos/vibes`.
+2. Move Landing Page + Onboarding to `/home/dev/repos/vibes`.
+3. Move Incident Killer to `/home/dev/repos/vibes`; Bot Improver remains the
+   `lfg`-runtime specialist.
+4. Move Ad to `/home/dev/distributor`; its current persona already says it
+   manages omg.dev growth, so `/home/dev/repos/app-blocker` is the mismatch.
+5. Resolve `elevenlabs-quota-watch` separately. Manager should stay in `lfg`,
+   so its prompt must use explicit paths or a supported cross-workspace helper
+   before migration.
+
+After those changes, migrate the 12 as-is rows first. Then migrate the 13
+workspace-dependent rows in small domain groups. Leave the other 13 on the
+headless path. This avoids turning routine chat into a second alert transport.

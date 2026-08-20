@@ -2,6 +2,26 @@
 
 Recent product updates and deployment notes.
 
+## August 20, 2026 - Move an existing schedule onto a bot
+
+- **An auto agent could not be handed to a bot.** A bot-owned routine could
+  only be created by the bot itself, from scratch. Moving one of the existing
+  schedules to a bot meant retyping its whole prompt and losing its id, run
+  history and findings. You can now reassign an existing schedule in place:
+  `lfg agents auto assign <id> --bot <botId>`, and `--user` moves it back to
+  the headless runner.
+- `lfg agents auto list` and `show` now name each schedule's owner. A
+  bot-owned routine produces no findings, because its results go to that
+  bot's conversation instead, so this is the difference between quiet
+  because healthy and quiet because nobody is watching the right surface.
+- The per-bot routine cap, the frequency ceiling, and the check that the
+  target bot exists and is enabled now apply to any schedule that ends up
+  bot-owned, not only to ones a bot created. Re-saving a routine the bot
+  already owns no longer trips its own cap.
+- Documented which of the existing auto agents can move to which existing
+  bot, and which should stay headless, in
+  `docs/bot-owned-automations-plan.md`.
+
 ## August 20, 2026 - A new account saw no onboarding steps at all (v0.2.20)
 
 - **A brand new hosted account landed on an empty home screen.** After
