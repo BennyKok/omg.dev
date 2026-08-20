@@ -214,20 +214,35 @@ function entryKey(message: Entry, index: number): string {
  * above it grows — a streaming reply gaining a paragraph, a thinking block
  * resolving into text.
  */
-export function TranscriptRow({ item, fresh }: { item: TranscriptItem; fresh?: boolean }) {
+export function TranscriptRow({
+  item,
+  fresh,
+  bot,
+}: {
+  item: TranscriptItem;
+  fresh?: boolean;
+  /** Present only inside a bot chat — see app/session/[id].tsx's `SessionScreenBody`. */
+  bot?: BotBubbleIdentity | null;
+}) {
   return (
     <Reanimated.View
       entering={fresh ? FadeInDown.springify().damping(18).mass(0.6) : undefined}
       layout={LinearTransition.springify().damping(20).mass(0.7)}
     >
       {item.type === "message" ? (
-        <TranscriptEntry message={item.message} nextTs={item.nextTs} />
+        <TranscriptEntry message={item.message} nextTs={item.nextTs} bot={bot} />
       ) : (
         <ToolRun pairs={item.pairs} />
       )}
     </Reanimated.View>
   );
 }
+
+/** The little a bot bubble needs to know — not the whole `Bot` record, so
+ * this module does not have to import bots.ts for a shape/colorway it
+ * already has no use for on a settled bubble (that's carried on the working
+ * indicator instead — see app/session/[id].tsx's `BotWorkingIndicator`). */
+export type BotBubbleIdentity = { id: string };
 
 /**
  * A RUN COLLAPSES TO ONE BADGE — "4 tool calls" — and opens into the four.
@@ -467,11 +482,13 @@ function isInterruptedTurn(message: Entry): boolean {
 export function TranscriptEntry({
   message,
   nextTs,
+  bot,
 }: {
   message: Entry;
   nextTs?: number | null;
+  bot?: BotBubbleIdentity | null;
 }) {
-  const { colors, type, space } = useTheme();
+  const { colors, type, space, radius } = useTheme();
   const isUser = message.role === "user";
 
   if (isInterruptedTurn(message)) {
@@ -533,6 +550,36 @@ export function TranscriptEntry({
         <Text style={{ ...type.caption, color: colors.textMuted, textAlign: "center" }}>
           {message.text}
         </Text>
+      </View>
+    );
+  }
+
+  // A bot's reply gets a bubble — spec §4.2, and the point of bot chat at
+  // all: it should read as talking to somebody, not as a session log. Card
+  // shell + taller corner (matches the web's shipped `rounded-[18px]
+  // border-border bg-card px-3.5 py-2.5`, radius.xl already being that same
+  // 18 — see palette.ts), capped at 84% of the stream. No avatar on the
+  // bubble itself: the web's shipped behavior (App.tsx's `TypingIndicator`)
+  // moved the bot's face to the ONE place it earns its space — the working
+  // indicator, app/session/[id].tsx's `BotWorkingIndicator` — after finding
+  // on-device that a face beside every settled reply reads as several
+  // speakers, not one bot saying several things. See bot-transcript.ts's own
+  // header for that same "shipped code over spec.md" note.
+  if (bot) {
+    return (
+      <View
+        style={{
+          alignSelf: "flex-start",
+          maxWidth: "84%",
+          borderRadius: radius.xl,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+          backgroundColor: colors.card,
+          paddingHorizontal: 14,
+          paddingVertical: 10,
+        }}
+      >
+        <Markdown text={message.text ?? ""} streaming={message.streaming} />
       </View>
     );
   }

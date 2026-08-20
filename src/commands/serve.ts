@@ -3253,6 +3253,142 @@ a{color:#60a5fa}
           return json({ bot });
         }
       }
+      // ---- bot chat: the minimum wiring to hold a conversation ----
+      //
+      // NOT the real implementation. `main` has a full bot messaging stack
+      // (src/bots/messaging.ts, src/bots/session.ts, deliverBotMessage's
+      // launch-envelope + continuity-summary + peer-message machinery) that
+      // this branch diverged from before it existed, and a reconciliation
+      // between the two is already pending (see AGENTS.md / this repo's own
+      // note on /api/bots). Re-deriving that whole stack here — accounts,
+      // delegated-session repair, self-management tools, peer messaging —
+      // would be exactly the "restructure" the task asked this endpoint NOT
+      // to be.
+      //
+      // So this is the smallest thing that lets the mobile app hold a real
+      // conversation with a bot, built by COMPOSING the session primitives
+      // that already exist and are already tested — the same self-loopback
+      // idiom this file already uses elsewhere (see /api/sessions/continue,
+      // or the ask-answer delivery above) rather than reaching into their
+      // internals:
+      //   - no backing session yet  -> POST /api/sessions/new (mints one,
+      //     folds a small identity envelope + the human's text into the one
+      //     launch prompt, same reasoning as main's `ensureBotSession`: a
+      //     message sent separately from the launch prompt races the boot).
+      //   - a live backing session  -> POST /api/sessions/:id/send (mode
+      //     "queue", so a message arriving mid-turn waits rather than steers).
+      //   - a dead backing session  -> POST /api/sessions/resume, which
+      //     already knows how to cold-start a session back onto its OWN id —
+      //     the same id keeps the transcript one continuous conversation.
+      // The bot record's `sessionId` is the only piece of continuity state
+      // this endpoint owns, and it is the same field the roster and the
+      // (currently CRUD-only) edit screen already read.
+      //
+      // FLAG FOR THE RECONCILIATION: this endpoint should be replaced by (or
+      // reconciled with) whatever `POST /api/bots/:id/messages` main's
+      // src/bots stack ends up owning — same path, same request shape
+      // (`{ text }`), so the mobile client this PR ships needs no change
+      // when that lands.
+      {
+        const match = path.match(/^\/api\/bots\/([^/]+)\/messages$/);
+        if (match && req.method === "POST") {
+          const id = decodeURIComponent(match[1]);
+          const bot = await getBot(id);
+          if (!bot) return err(404, "bot not found");
+          if (!bot.enabled) return err(409, "bot is disabled");
+          const b = (await req.json().catch(() => null)) as { text?: unknown; mode?: unknown } | null;
+          const text = typeof b?.text === "string" ? b.text.trim() : "";
+          if (!text) return err(400, "text is required");
+          // "steer" interrupts the bot's turn in flight, "queue" waits behind
+          // it. Default to queue — the same default `/api/sessions/resume`
+          // uses for a follow-up into an already-live session, and the
+          // gentler choice for a chat surface where cutting the bot off
+          // mid-reply is rarely what sending your next line meant.
+          const mode = b?.mode === "steer" ? "steer" : "queue";
+
+          const forward = async (
+            url: string,
+            body: Record<string, unknown>,
+          ): Promise<{ ok: boolean; status: number; data: Record<string, unknown> | null }> => {
+            const r = await fetch(`http://127.0.0.1:${PORT}${url}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            });
+            const data = (await r.json().catch(() => null)) as Record<string, unknown> | null;
+            return { ok: r.ok, status: r.status, data };
+          };
+
+          if (!bot.sessionId) {
+            // Never talked to before: mint the bot's one conversation. The
+            // envelope rides IN the launch prompt with the human's own first
+            // line, not a separate send after — see the header note above.
+            const repos = await listRepos();
+            const repo = bot.cwd
+              ? repos.find((item) => item.cwd === bot.cwd)
+              : (repos.find((item) => item.cwd === SELF_REPO) ?? repos[0]);
+            if (!repo) return err(400, bot.cwd ? "unknown repo" : "no repo is available");
+            const prompt = [
+              "=== omg.dev BOT CHAT LAUNCH ===",
+              `You are "${bot.name}", a persistent bot a human is chatting with directly — this is`,
+              "an ongoing conversation, not a one-off task. Reply the way you would text a person",
+              "back: plain sentences, no tool-call narration needed unless the human's message asks",
+              "you to do something that requires one.",
+              `Persona: ${bot.persona}`,
+              "=== END omg.dev BOT CHAT LAUNCH ===",
+              "",
+              text,
+            ].join("\n");
+            const created = await forward("/api/sessions/new", {
+              cwd: repo.cwd,
+              prompt,
+              title: bot.name,
+              agent: bot.agent,
+              model: bot.model,
+              thinkingLevel: bot.thinkingLevel,
+              user: bot.owner,
+            });
+            if (!created.ok) {
+              return err(created.status, (created.data?.error as string | undefined) ?? "failed to start bot session");
+            }
+            const sessionId = created.data?.sessionId as string | undefined;
+            if (!sessionId) return err(502, "bot session did not come back with an id");
+            await updateBot(bot.id, { sessionId, lastMessageAt: Date.now() });
+            return json({ sessionId });
+          }
+
+          const live = (await listSessions()).find(
+            (s) => s.sessionId === bot.sessionId || s.nativeSessionId === bot.sessionId,
+          );
+          if (live) {
+            const sent = await forward(`/api/sessions/${encodeURIComponent(bot.sessionId)}/send`, {
+              text,
+              mode,
+            });
+            if (!sent.ok) {
+              return err(sent.status, (sent.data?.error as string | undefined) ?? "failed to send bot message");
+            }
+            await updateBot(bot.id, { lastMessageAt: Date.now() });
+            return json({ sessionId: bot.sessionId });
+          }
+
+          // The backing session ended (box restarted, harness died between
+          // turns). Resuming BY THE SAME ID is what keeps this one continuous
+          // conversation rather than starting a new one every time the process
+          // does not survive between messages.
+          const resumed = await forward("/api/sessions/resume", {
+            sessionId: bot.sessionId,
+            prompt: text,
+            user: bot.owner,
+          });
+          if (!resumed.ok) {
+            return err(resumed.status, (resumed.data?.error as string | undefined) ?? "failed to resume bot session");
+          }
+          const resumedSessionId = (resumed.data?.sessionId as string | undefined) ?? bot.sessionId;
+          await updateBot(bot.id, { sessionId: resumedSessionId, lastMessageAt: Date.now() });
+          return json({ sessionId: resumedSessionId });
+        }
+      }
       // Resolve a client-supplied cwd to a KNOWN repo before we ever chdir into
       // it for a compose/enhance pass. Unknown/blank → undefined (repo-blind,
       // tool-less generation) rather than a hard error or an arbitrary chdir.

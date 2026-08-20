@@ -25,6 +25,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useFocusEffect } from "expo-router";
+import type { OmgClient } from "@omg-dev/client";
 
 import { useOmg } from "./provider";
 
@@ -74,6 +75,30 @@ export function botPreviewText(bot: Pick<Bot, "lastMessagePreview">): string {
   const raw = bot.lastMessagePreview?.trim();
   if (!raw) return "Say hi to get started.";
   return raw.replace(/\s+/g, " ").slice(0, 140);
+}
+
+/**
+ * Send one chat message to a bot, over the minimal `POST /api/bots/:id/messages`
+ * this PR adds (see src/commands/serve.ts's own note on that route — it is a
+ * placeholder composed from the existing session endpoints, flagged there for
+ * the pending server-side bot-messaging reconciliation). Returns the bot's
+ * conversation session id — unchanged for an existing conversation, freshly
+ * minted for a bot's first-ever message.
+ */
+export async function sendBotMessage(
+  client: OmgClient,
+  botId: string,
+  text: string,
+  mode: "steer" | "queue" = "queue",
+): Promise<{ sessionId: string }> {
+  return client.transport.request<{ sessionId: string }>(
+    `/api/bots/${encodeURIComponent(botId)}/messages`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, mode }),
+    },
+  );
 }
 
 export function useBots(): {
