@@ -148,7 +148,7 @@ export function formatBotAttribution(author: string, botName: string): string {
  *
  * An unresolvable author is not an error and must not be filled in.
  */
-export function botAuthorIdFromText(text: string): string | undefined {
+export function botAuthorEmailFromText(text: string): string | undefined {
   const match = ATTRIBUTION_AT_START.exec(text);
   if (!match) return undefined;
   const email = normalizeEmail(match[1]);
@@ -159,7 +159,19 @@ export function botAuthorIdFromText(text: string): string | undefined {
   // an OMG_USER value here, which may be a bare name, and a bare name is not
   // an identity the roster can resolve.
   if (!email.includes("@")) return undefined;
-  return botAuthorId(email);
+  return email;
+}
+
+/**
+ * The author of a stored turn, as the opaque id a client payload may carry.
+ *
+ * This is the ONLY form the surface is allowed to receive. The email stays on
+ * the box; see the module note on why the digest is a scope claim and not a
+ * secrecy claim.
+ */
+export function botAuthorIdFromText(text: string): string | undefined {
+  const email = botAuthorEmailFromText(text);
+  return email ? botAuthorId(email) : undefined;
 }
 
 /**
