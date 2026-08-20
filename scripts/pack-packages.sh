@@ -12,6 +12,7 @@
 # These used to be rewritten to immutable GitHub release asset URLs, because the
 # packages were not on npm. They are now published to the public registry under
 # @omg-dev, so a plain semver dependency resolves for everyone.
+# @omg-dev/cli is packed after these four and keeps its own version.
 
 set -euo pipefail
 
@@ -27,6 +28,7 @@ if [ "${SKIP_PACKAGE_BUILD:-}" != "1" ]; then
     bun run --cwd "packages/$package" build
   done
   bun run --cwd web build:lib
+  bun run --cwd packages/cli build
 fi
 
 if [ "${1:-}" = "--build-only" ]; then
@@ -93,3 +95,24 @@ fs.writeFileSync(manifest, JSON.stringify(json, null, 2) + "\n");
 '
 
 npm pack "$app_stage" --pack-destination "$OUT_DIR" --silent
+
+# @omg-dev/cli is versioned independently. The runtime packages follow the
+# repository tag (0.2.x). npm latest for this name is the retired vibes
+# prompt-to-app CLI at 0.4.42, so this bootstrapper must pack its own 0.5.0+
+# number or `bun install --global @omg-dev/cli` would keep resolving 0.4.42.
+cli_stage="$STAGE/cli"
+mkdir -p "$cli_stage"
+cp -r packages/cli/dist "$cli_stage/dist"
+cp packages/cli/package.json "$cli_stage/package.json"
+cp packages/cli/README.md "$cli_stage/README.md"
+cp LICENSE "$cli_stage/LICENSE"
+
+MANIFEST="$cli_stage/package.json" bun -e '
+const fs = require("node:fs");
+const json = JSON.parse(fs.readFileSync(process.env.MANIFEST, "utf8"));
+delete json.scripts;
+delete json.devDependencies;
+fs.writeFileSync(process.env.MANIFEST, JSON.stringify(json, null, 2) + "\n");
+'
+
+npm pack "$cli_stage" --pack-destination "$OUT_DIR" --silent

@@ -79,7 +79,12 @@ export function findBotMainSession<T extends BotSessionCandidate>(
   const saved = bot.sessionId?.trim();
   if (saved) {
     const exact = findById(sessions, saved);
-    if (exact && !isDelegatedSession(exact)) return exact;
+    // A live, non-delegated session sharing the saved id is the bot's own
+    // conversation only when it actually carries this bot's `botId`. Ids are
+    // handed out to ordinary chats too — trusting the id alone once let a
+    // stray collision (or a stale saved id that now names someone else's
+    // session) hand back an ordinary session as "the bot's own."
+    if (exact && exact.botId === bot.id && !isDelegatedSession(exact)) return exact;
   }
   return sessions.find(
     (session) => session.botId === bot.id && !isDelegatedSession(session),
@@ -124,7 +129,18 @@ export function botConversationRef(
   if (!saved) return {};
 
   const exact = findById(sessions, saved);
-  if (!exact || !isDelegatedSession(exact)) return { sessionId: saved };
+  // Not live at all: nothing else could have taken the id, so the saved id
+  // still names the bot's own transcript on disk.
+  if (!exact) return { sessionId: saved };
+  if (!isDelegatedSession(exact)) {
+    // Live and not delegated — but only this bot's own conversation if it
+    // actually carries this bot's `botId`. A live session that merely shares
+    // the saved id (a stray collision, or a saved id a corrupt write pointed
+    // at someone else's conversation) must never be handed back as safe to
+    // attach to: that is exactly what let a bot's process, and its chat
+    // header, land on an ordinary session that was never its own.
+    return exact.botId === bot.id ? { sessionId: saved } : {};
+  }
 
   const seen = new Set<string>([saved]);
   let current: BotSessionCandidate = exact;
@@ -140,4 +156,67 @@ export function botConversationRef(
     current = parent;
   }
   return {};
+}
+
+/**
+ * The single conversation a bot's roster row is backed by.
+ *
+ * The roster invariant is one row per persistent bot. Getting there needs more
+ * than "pick a session with this botId", because child sessions inherit
+ * `botId` (see the note at the top of this file). A bot that delegated three
+ * subagents matched four sessions, and both the API and the list view turned
+ * each one into its own row — the roster showed "Bot Improver" twice, "iOS
+ * Manager" twice, and so on, each duplicate carrying a subagent's last line as
+ * if the bot had said it.
+ *
+ * Resolution order, and why:
+ *
+ * 1. The configured primary, when it names a real conversation that is not
+ *    delegated. This is the binding the bot's own record owns.
+ * 2. A configured primary that names a delegated child is a corrupt binding,
+ *    so it is repaired to that child's root ancestor rather than trusted.
+ *    `botConversationRef` owns that walk.
+ * 3. Otherwise the bot's own top-level sessions, lowest id first. Sorting
+ *    matters: `find` returns whatever the session list happened to order
+ *    first, so two stale top-level sessions could alternate between refreshes
+ *    and read as a moving duplicate. A stable key makes the choice the same on
+ *    every request and on every client.
+ * 4. Otherwise the saved id even though nothing live matches it. The
+ *    transcript is filed on disk under that id, so it still names the right
+ *    history.
+ *
+ * Returns null only for a bot that has never held a conversation, which the
+ * roster renders as a single "say hi" row.
+ */
+export function botCanonicalSessionId(
+  bot: BotSessionRef,
+  sessions: readonly BotSessionCandidate[],
+): string | null {
+  const saved = bot.sessionId?.trim();
+  const own = sessions
+    .filter((session) => session.botId === bot.id && !isDelegatedSession(session))
+    .map((session) => session.sessionId)
+    .filter((id): id is string => !!id)
+    .sort();
+
+  if (saved) {
+    const exact = findById(sessions, saved);
+    if (exact && exact.botId === bot.id) {
+      if (!isDelegatedSession(exact)) return exact.sessionId ?? saved;
+      // Present but delegated: repair rather than adopt the child.
+      const repaired = botConversationRef(bot, sessions).sessionId;
+      if (repaired) return repaired;
+    } else if (exact) {
+      // Live at the saved id, but owned by someone else (or no one): a
+      // reused/stray id collision, never this bot's row just because it
+      // matches. Falling through to `saved` below — the "transcript is
+      // still filed under that id" case — would be wrong here, because the
+      // id is not idle: something else's live conversation is sitting on
+      // it. Prefer this bot's own live session if it has one, else this bot
+      // has nothing to show rather than borrowing someone else's chat.
+      return own.length ? own[0] : null;
+    }
+  }
+  if (own.length) return own[0];
+  return saved || null;
 }

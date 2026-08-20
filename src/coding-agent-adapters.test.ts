@@ -43,6 +43,7 @@ import {
   isJcodeBusy,
   parsePrompt,
 } from "./tmux.ts";
+import { agentTmpEnv } from "./tmp-reclaim.ts";
 
 function sorted(values: Iterable<string>): string[] {
   return [...values].sort((a, b) => a.localeCompare(b));
@@ -300,6 +301,9 @@ describe("coding agent adapter contract", () => {
     expect(argv).toContain("--setenv=AGENT_BROWSER_SESSION=lfg-test");
     expect(argv).toContain(`--setenv=AGENT_BROWSER_IDLE_TIMEOUT_MS=${AGENT_BROWSER_IDLE_TIMEOUT_MS}`);
     expect(argv.some((part) => part.startsWith("--setenv=DBUS_SESSION_BUS_ADDRESS="))).toBe(true);
+    for (const [key, value] of Object.entries(agentTmpEnv())) {
+      expect(argv).toContain(`--setenv=${key}=${value}`);
+    }
     expect(argv.slice(-3)).toEqual(["/usr/bin/example-agent", "--task", "hello"]);
   });
 

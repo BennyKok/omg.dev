@@ -76,7 +76,7 @@ import {
   type BotColorway,
   type BotShape,
 } from "../bots/store.ts";
-import { botConversationRef, findBotMainSession } from "../bots/session.ts";
+import { botCanonicalSessionId, botConversationRef, findBotMainSession } from "../bots/session.ts";
 import {
   BOT_SELF_CREATE_FIELDS,
   BOT_SELF_UPDATE_FIELDS,
@@ -95,6 +95,19 @@ import {
   releaseBotPeerMessage,
   reserveBotPeerMessage,
 } from "../bots/messaging.ts";
+import {
+  botReadUser,
+  conversationUnread,
+  ensureBotConversationReadBaseline,
+  markBotConversationRead,
+} from "../bots/unread.ts";
+import {
+  assertBotConversationAccess,
+  botViewerFromRequest,
+  localUserSplitEnabled,
+  // Aliased: the route already binds `visibleBots` to its own result.
+  visibleBots as visibleBotsForViewer,
+} from "../bots/access.ts";
 import { startAutoScheduler, setBotRoutineDelivery } from "../auto/scheduler.ts";
 import { handleWakeTick } from "../auto/wake-tick.ts";
 import { pushWakeHooksNow, setWakeHooksBootId } from "../auto/wake-hooks-push.ts";
@@ -176,6 +189,7 @@ import {
   indexedArtifactPlacement,
   indexTranscript,
   lastIndexedAssistantMessage,
+  latestIndexedAssistantCursor,
   prepareFileHistoryForResume,
   removeIndexedArtifact,
   sessionHasIndexedMessages,
@@ -243,7 +257,6 @@ import {
   assignUser,
   gravatar,
   iconIdentityKey,
-  machineMembers,
   resolveSessionUserTag,
   rosterBoxAccount,
   rosterEmails,
@@ -287,6 +300,7 @@ import {
   resolveInputCwd,
 } from "../repo-resolve.ts";
 import { WORKTREE_ROOT, resolveSessionCwd, startWorktreeSweep } from "../worktree.ts";
+import { ensureDiskBackedTmpdir, startTmpSweep } from "../tmp-reclaim.ts";
 import {
   FolderDeleteError,
   deleteFolder,
@@ -2701,6 +2715,10 @@ function prepareLoginTerminal(kind: string, command: string): string {
 }
 
 export async function cmdServe() {
+  const diskTmp = ensureDiskBackedTmpdir();
+  if (diskTmp) {
+    console.log(`lfg tmp → ${diskTmp} (disk-backed; /tmp is RAM)`);
+  }
   const liveWs = createLiveWsSupport({
     evlog,
     getAgentRun: agentRunSnapshot,
@@ -3271,10 +3289,6 @@ a{color:#60a5fa}
           avatar: gravatar(identity.key),
           users: userRoster(),
         });
-      }
-      // ---- machine membership (facepile source of truth) ----
-      if (path === "/api/machine/members" && req.method === "GET") {
-        return json({ members: machineMembers() });
       }
       // Clone a git repository into LFG_REPOS_ROOT — the onboarding "set up
       // your repo" step for installs that have no repos yet.
@@ -4056,13 +4070,71 @@ a{color:#60a5fa}
           // bot is idle between turns by definition and its harness may not be
           // running at all, and reading the last turn off the fleet made a bot
           // with a year of history show "Say hi to get started" after a reboot.
-          const bots = (await listBots()).map((bot) => {
+          const requestedUser = url.searchParams.get("user");
+          const allBots = await listBots();
+          // bots/access.ts owns who may see what. `?user=` is an identity for
+          // read state, never an authorization input — conflating the two is
+          // what hid a shared Computer's bots from everyone authorized on it.
+          const viewer = botViewerFromRequest(req, requestedUser);
+          const visibleBots = visibleBotsForViewer(allBots, viewer, rosterEmails(), requestedUser);
+          const bots = visibleBots.map((bot) => {
             const last = bot.sessionId ? lastIndexedAssistantMessage(bot.sessionId) : null;
             return last?.text
               ? { ...bot, lastMessagePreview: last.text.slice(0, 400), lastMessageTs: last.ts ?? null }
               : bot;
           });
-          return json({ bots });
+          // Exactly one conversation per bot — the roster invariant, decided
+          // here rather than left to the client.
+          //
+          // This used to key off every session carrying the bot's `botId`.
+          // Delegated children inherit `botId`, so a bot that had spawned
+          // background work contributed one conversation per subagent and the
+          // roster showed it two or three times, each duplicate captioned with
+          // a child's last line. `botCanonicalSessionId` owns the choice and
+          // never returns a delegated session.
+          //
+          // Collapsing here is also what makes the roster cheap. The per
+          // conversation body below reads the read-watermark file and runs two
+          // index queries, so the old fan-out paid that for every subagent a
+          // bot had ever spawned; on this machine that was 39 conversations
+          // for 9 bots.
+          const sessions = await listSessionsCached();
+          // Read state is per person, so it keys on the VIEWER — Angel's unread
+          // on a shared bot is hers, not a copy of the bot owner's. The trusted
+          // header decides this whenever control-plane supplied one.
+          const user = viewer.identity;
+          const conversations = visibleBots.flatMap((bot) => {
+            const sessionId = botCanonicalSessionId(bot, sessions);
+            if (!sessionId) return [];
+            // Ownership is anchored to the bot we already resolved from, so a
+            // repaired binding that names a session the fleet no longer lists
+            // still reports under its own bot instead of dropping out.
+            const session = sessions.find((row) => row.sessionId === sessionId);
+            const assigned = session?.assignedUser?.trim();
+            const botOwner = bot.owner?.trim();
+            // Both of these are the same owner-scoped view filter as the bot
+            // list above, and they have to fall away on exactly the same terms.
+            // Left unconditional they re-hid every conversation the list had
+            // just decided was visible: on a shared machine the backing session
+            // is stamped with whoever drove it, so `assigned` and `botOwner`
+            // routinely disagree and the whole roster came back empty-handed.
+            const scoped = !viewer.managed && localUserSplitEnabled(rosterEmails());
+            if (scoped && assigned && botOwner && botReadUser(assigned) !== botReadUser(botOwner)) return [];
+            const conversationUser = botReadUser(assigned || botOwner);
+            if (scoped && requestedUser != null && conversationUser !== user) return [];
+            const cursor = latestIndexedAssistantCursor(sessionId);
+            ensureBotConversationReadBaseline(user, sessionId, cursor?.rowid ?? null);
+            const last = lastIndexedAssistantMessage(sessionId);
+            return [{
+              sessionId,
+              botId: bot.id,
+              assignedUser: assigned ?? bot.owner ?? null,
+              unread: conversationUnread(user, sessionId, cursor?.rowid ?? null),
+              lastMessagePreview: last?.text?.slice(0, 400),
+              lastMessageTs: last?.ts ?? null,
+            }];
+          });
+          return json({ bots, conversations });
         }
         if (req.method === "POST") {
           const body = (await req.json().catch(() => null)) as {
@@ -4113,6 +4185,32 @@ a{color:#60a5fa}
             throw error;
           }
           return json({ bot });
+        }
+      }
+      {
+        const match = path.match(/^\/api\/bot-conversations\/([^/]+)\/read$/);
+        if (match && req.method === "POST") {
+          const sessionId = decodeURIComponent(match[1]);
+          const body = (await req.json().catch(() => null)) as { user?: unknown } | null;
+          const requestedUser = typeof body?.user === "string" ? body.user : undefined;
+          const sessions = await listSessionsCached();
+          const bots = await listBots();
+          try {
+            const owner = assertBotConversationAccess(
+              botViewerFromRequest(req, requestedUser),
+              rosterEmails(),
+              requestedUser,
+              sessionId,
+              sessions,
+              bots,
+            );
+            const cursor = latestIndexedAssistantCursor(sessionId);
+            const read = markBotConversationRead(owner.user, sessionId, cursor?.rowid ?? null);
+            return json({ ok: true, sessionId, readThroughRowid: read.readThroughRowid });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            return err(message.includes("another user") ? 403 : 404, message);
+          }
         }
       }
       {
@@ -8059,6 +8157,7 @@ a{color:#60a5fa}
   }
   startModelDiscoveryScheduler((l) => console.log(l));
   startWorktreeSweep((l) => console.log(l));
+  startTmpSweep((l) => console.log(l));
   startIdleAgentArchiveSweep();
   // Watch the fleet for busy -> idle transitions and fan "completed" events out
   // to fleet subscribers (Web Push). Idempotent + best-effort.

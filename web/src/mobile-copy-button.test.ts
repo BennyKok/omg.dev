@@ -17,7 +17,12 @@ const APP = readFileSync(join(WEB, "src/App.tsx"), "utf8");
 
 describe("mobile message copy button", () => {
   test("is hidden by default (revealed only on hover/focus, for pointer-precise devices)", () => {
-    const rule = /\.message-copy-button\s*\{\s*opacity:\s*0;\s*\}/;
+    // The rule also turns pointer-events off now that the button is
+    // positioned out of flow beside the bubble — see
+    // message-copy-button-layout.test.ts. Match the opacity declaration
+    // inside the rule rather than the whole rule body, so adding a
+    // hidden-state property here is not a test failure.
+    const rule = /\.message-copy-button\s*\{[^}]*\bopacity:\s*0;[^}]*\}/;
     expect(CSS).toMatch(rule);
   });
 

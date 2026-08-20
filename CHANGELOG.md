@@ -2,6 +2,131 @@
 
 Recent product updates and deployment notes.
 
+## August 20, 2026 - The desktop Chat/Bots switch could disappear after selecting a bot (v0.2.13)
+
+- **On desktop, opening a bot's conversation hid the Chat/Bots switch bar in
+  the rail, with no way back to the session list short of a reload.** A fix
+  that correctly took the switch out of the mobile full-screen bot chat (once
+  that view got its own "Back to bots" button, making the switch redundant
+  there) copied the same `selectedBotId` guard onto the desktop rail's own
+  switch. Desktop never gets that full-screen takeover — the rail keeps
+  showing the roster regardless of which bot or session is open in the stage
+  — so the guard just stranded desktop users on the Bots surface. The desktop
+  rail now always renders its switch; mobile's behavior is unchanged.
+
+## August 20, 2026 - A selected bot could render as a plain session
+
+- **A persistent bot's chat could show the plain session header instead of
+  the bot's own avatar, settings button, and composer.** The bot resolution
+  shared by the server and the web client trusted a bot's saved session id as
+  soon as a live, non-delegated session existed at that id — without checking
+  that session actually belonged to the bot. A stale saved id, or an ordinary
+  session that later reused the same id, was enough to make the roster point
+  at someone else's session, and the bot's identity dropped silently because
+  the render path read `botId` straight off that unrelated session record.
+  `findBotMainSession`, `botConversationRef`, and `botCanonicalSessionId`
+  (`src/bots/session.ts`) now require the found session to carry the bot's
+  own id before they trust it. The desktop stage column also stamps the
+  selected bot's identity onto its rendered session directly, instead of
+  trusting whatever `botId` (if any) the raw session record carries.
+
+## August 20, 2026 - First-run installs the local control plane (v0.2.12)
+
+- **The documented install no longer goes through the retired `@omg-dev/cli`
+  0.4.x line.** That package is published from `BennyKok/vibes` and is the old
+  prompt-to-app CLI (`create` / `deploy` to `*.omgs.app`). A new user who
+  followed the previous README got that CLI, and often two `omg` binaries.
+  The README first command is now this repository's `scripts/setup.sh`. After
+  setup, open http://localhost:8766.
+- **This repository now owns `@omg-dev/cli` starting at 0.5.0.** That version
+  is required because 0.4.42 is already `latest` on npm; publishing 0.2.x would
+  not replace it. The new package only installs and forwards to the local
+  control plane. It rejects `create` / `deploy`. `lfg` stays a compatibility
+  alias. A release after this change must publish 0.5.0, and `BennyKok/vibes`
+  must stop publishing 0.4.x onto the same name.
+- **Hosted one-click points at `/sandbox/templates/omg` and `omg serve`.**
+  `lfg` remains a compatibility alias for the same product.
+
+## August 20, 2026 - See which versions you are actually running (v0.2.11)
+
+- **Settings shows the app build and the Computer's runtime side by side.**
+  Settings > Computer now has two rows, `Frontend` and `Computer`. The first is
+  the version of the app you are looking at right now; the second is the
+  version the selected Computer is really executing. Tap either to copy it.
+  When they disagree, a short line under them says which side is behind. This
+  is what you read to tell whether an update actually reached the box.
+- **The two numbers cannot agree by accident.** They are read from two separate
+  places: the app build stamps its own version at build time, and the Computer
+  value only ever comes from that Computer's own reply. Neither one falls back
+  to the other, so a matching pair is real evidence and not an assumption.
+- **Honest when it does not know.** A Computer that cannot be reached reads
+  `Disconnected`, and one running a version too old to report itself reads
+  `Unavailable`. Neither shows a guessed number. Self-hosted installs are
+  unchanged.
+- **The Computer row keeps up with restarts and machine switches.** Updating and
+  restarting a Computer used to leave the old version on screen until you
+  reloaded the page, which is the one moment the number has to be right. It now
+  corrects itself. Switching to a different Computer no longer shows the
+  previous machine's version under the new machine's name.
+- **Fixed: everyone with access to a shared Computer can see and open that
+  Computer's bots again.**
+
+## August 19, 2026 - One row per bot, and faster bot chats (v0.2.10)
+
+- **The Bots list shows each bot once.** A bot that had handed work to a
+  background session appeared two or three times, and each duplicate was
+  captioned with that background session's last line rather than the bot's. A
+  background session inherits the bot's identity for attribution, and both the
+  API and the list treated it as its own conversation. The list is now built
+  from one canonical conversation for each bot, decided by the server, and a
+  background session can never become a row. If a bot's saved conversation had
+  been rebound to one of its background sessions, that binding is repaired to
+  the original conversation, so the history comes back instead of a background
+  task's thread.
+- **Unread dots follow the same single conversation.** The dot on a row, and
+  the aggregate dot on the Chat/Bots switch, come from that bot's own
+  conversation only. Opening a bot still clears that one conversation and no
+  others.
+- **Bot chats open faster.** Opening a bot waited on a read receipt and then a
+  full rebuild of the list before the messages could be served, and the list
+  re-opened a live channel for every bot conversation each time any bot
+  replied. The receipt is now written behind the paint, and the channels stay
+  put unless the set of conversations actually changes.
+
+## August 19, 2026 - Unread bot conversations, and a calmer transcript (v0.2.9)
+
+- **Bot conversations now show unread activity, and it survives a reload.** A
+  quiet dot marks each conversation with a new bot reply, with one aggregate dot
+  on the Chat/Bots switch and the desktop bot rail. Read state is stored per
+  user and per conversation on the server, so it follows you between reloads and
+  devices. Your own messages never mark a conversation unread, and a message
+  from another bot marks only the conversation it arrived in. Opening a
+  conversation clears that one conversation and no others.
+- **An open bot conversation no longer carries the Chat/Bots switch.** The
+  switch belongs to the bot list and the Live list. Inside a conversation it sat
+  above the composer and took a row away from the messages, so it is gone; the
+  header Back button is the way out.
+- **Replies sit together again instead of drifting apart.** The per-message copy
+  button used to reserve an empty row under every turn, which pushed consecutive
+  messages about 36px apart and flashed a stray band on hover. It now sits in
+  the margin beside its own message, so the gap is 8px between messages from the
+  same speaker and 18px when the speaker changes, and revealing it shifts
+  nothing.
+- **Settings no longer shows the "Who's on this machine" row.** The local
+  facepile was showing machine accounts rather than anything you manage, so it
+  has been removed along with the endpoint behind it.
+
+## August 19, 2026 - Agents stop filling RAM-backed /tmp (v0.2.8)
+
+- **Agent temp files go to disk when `/tmp` is tmpfs.** Leftover bun installs
+  and checkouts in RAM-backed `/tmp` filled 7.8G on one box, which then stalled
+  in memory reclaim and looked like a CPU melt. Serve and every agent launch
+  now use `~/.cache/lfg/tmp` (or `LFG_TMPDIR`) so those files cost disk, not
+  RAM.
+- **Unused leftovers in tmpfs `/tmp` are swept.** Entries older than two hours
+  with no open process are removed. Live names such as `lfg-uploads`, Claude
+  caches, tmux, and ssh sockets stay. The disk cache is swept after a day.
+
 ## August 19, 2026 - An affected bot shows its own history right away (v0.2.7)
 
 - **A bot whose chat had been taken over by one of its tasks now recovers its

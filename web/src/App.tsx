@@ -30,8 +30,21 @@ import {
   isPlanLimitError,
   omgAssetUrl,
   omgFetch,
+  omgTransportGeneration,
   omgUpload,
 } from "./lib/omg-client";
+import {
+  FRONTEND_VERSION,
+  formatComputerVersion,
+  formatVersion,
+  copyableVersion,
+  isVersionMismatch,
+  normalizeVersion,
+  resolveComputerVersion,
+  versionMismatchNote,
+  versionRelation,
+  type ComputerVersionState,
+} from "./lib/version-diagnostics";
 import { cacheProjectFilter, readCachedProjectFilter } from "./lib/project-filter";
 import {
   MOBILE_BOT_ROSTER_ROW_CLASS,
@@ -41,7 +54,16 @@ import {
   shouldShowInlineBotsSurfaceToggle,
   shouldShowMobileSurfaceToggle,
 } from "./lib/mobile-bots-nav";
-import { botChatSessionId, findBotMainSession } from "./lib/bot-session";
+import { botChatSessionId, botStageSession, findBotMainSession } from "./lib/bot-session";
+import {
+  BOT_UNREAD_DOT_CLASS,
+  botConversationRows,
+  botUnreadActionForTranscript,
+  botConversationSubscriptionIds,
+  clearBotConversationUnread,
+  hasUnreadBotConversation,
+  type BotConversationUnread,
+} from "./lib/bot-unread";
 import { resolveRosterUser } from "./lib/roster-user";
 import {
   botVisibleUserText as botVisibleUserTextFor,
@@ -64,8 +86,6 @@ import {
   type BotShape,
 } from "./components/BotAvatar";
 import { EmbeddedConnectGate } from "./components/embedded-connect-gate";
-import { UserFacepile } from "./components/UserFacepile";
-import { facepileLabel, type FacepileMember } from "./lib/facepile";
 import {
   AuthenticatedArtifactImage,
   AuthenticatedArtifactVideo,
@@ -258,7 +278,6 @@ import {
   Trash2,
   TriangleAlert,
   UserRound,
-  Users,
   Camera,
   X,
   Ellipsis,
@@ -669,6 +688,7 @@ export type PersistentBot = {
 };
 
 const BotDirectoryContext = createContext<Map<string, PersistentBot>>(new Map());
+const BotUnreadContext = createContext<{ conversations: BotConversationUnread[]; any: boolean; selectedConversationId: string | null }>({ conversations: [], any: false, selectedConversationId: null });
 const OpenBotContext = createContext<(id: string) => void>(() => {});
 /**
  * Editing a bot from wherever its chat is open. The bot chat is a session card
@@ -944,6 +964,13 @@ type SessionUsage = {
 
 type BootstrapPayload = {
   version?: string | null;
+  /**
+   * Identifies the server PROCESS, so it changes on every restart. `version`
+   * alone cannot detect a restart (two builds can share a version), and a
+   * restart is exactly when the running version changes underneath a tab that
+   * is already open — see the reconnect check that re-bootstraps on a change.
+   */
+  bootId?: string | null;
   agents?: Agent[] | null;
   codingAgents?: CodingAgentInfo[] | null;
   models?: ModelCatalogItem[] | null;
@@ -5503,7 +5530,19 @@ export function App() {
   // full-screen onboarding flow is showing. See loadCore for the gate.
   const [onboarding, setOnboarding] = useState<OnboardingState | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [omgVersion, setOmgVersion] = useState("unknown");
+  // What the SELECTED Computer said it is running, tagged with the transport it
+  // said it over. The tag is what makes the claim falsifiable: a host switches
+  // Computers by swapping the transport in place, without remounting this tree,
+  // so an untagged version string would silently keep describing the previous
+  // machine. null = no bootstrap has returned yet.
+  const [computerVersionReport, setComputerVersionReport] = useState<
+    { version: string | null; generation: number; bootId: string | null } | null
+  >(null);
+  // Read by the reconnect check below. A ref, not a dep: depending on the state
+  // would re-arm that effect every time a bootstrap lands, and the effect's job
+  // is to fire on a connection EDGE, not on new data.
+  const computerVersionReportRef = useRef(computerVersionReport);
+  computerVersionReportRef.current = computerVersionReport;
   const [repos, setRepos] = useState<Repo[]>([]);
   const [loading, setLoading] = useState(true);
   // STARTUP failures only — "the app could not load its own state". Every other
@@ -5538,6 +5577,7 @@ export function App() {
   // switching pages re-renders here rather than remounting the whole app.
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const routeSearch = useRouterState({ select: (s) => s.location.search as AppSearch });
   const tab: string = pathnameToTab(pathname);
   // `/bots/<id>` is a chat. `/bots/new` and `/bots/<id>/edit` are the editor,
   // which is a PAGE and not a sheet over the list: a form with a name, a
@@ -5550,6 +5590,7 @@ export function App() {
   const botEditorTarget: string | null =
     botPathId === "new" ? "new" : botPathSegments[2] === "edit" ? botPathId : null;
   const selectedBotId = botPathId && botPathId !== "new" ? botPathId : null;
+  const selectedBotConversationId = selectedBotId ? routeSearch.conversation ?? null : null;
   // A terminal is on screen — as the Terminal tab, or pulled up over any tab.
   // Both need the same soft-keyboard treatment: the shell pinned to the visible
   // band and translated past the scroll iOS applies to reveal the focused field.
@@ -5580,7 +5621,7 @@ export function App() {
     [navigate],
   );
   const openBot = useCallback(
-    (botId: string) => {
+    (botId: string, conversationId?: string | null) => {
       const keepHostMode = (prev: AppSearch): AppSearch => ({
         ...(prev.embed ? { embed: prev.embed } : {}),
         ...(prev.embedOrigin ? { embedOrigin: prev.embedOrigin } : {}),
@@ -5588,7 +5629,7 @@ export function App() {
       void navigate({
         to: "/bots/$botId",
         params: { botId },
-        search: keepHostMode,
+        search: (prev) => ({ ...keepHostMode(prev), ...(conversationId ? { conversation: conversationId } : {}) }),
       });
     },
     [navigate],
@@ -5688,6 +5729,7 @@ export function App() {
   }, [loading]);
   const [autoAgents, setAutoAgents] = useState<AutoAgent[]>([]);
   const [bots, setBots] = useState<PersistentBot[]>([]);
+  const [botConversations, setBotConversations] = useState<BotConversationUnread[]>([]);
   const botDirectory = useMemo(
     () => new Map(bots.map((bot) => [bot.id, bot])),
     [bots],
@@ -5739,6 +5781,12 @@ export function App() {
   const [identity, setIdentity] = useState<string | null>(() =>
     localStorage.getItem("lfg_user"),
   );
+  // Hosted surfaces do not show the profile picker. Their one-user roster is
+  // still the assigned identity for server-owned bot read state.
+  const botUnreadIdentity = identity ??
+    (userFilter !== "__all" && userFilter !== "__unassigned"
+      ? userFilter
+      : users.length === 1 ? users[0].email : "");
   // The mobile Live header introduces the product mark, then gives that prime
   // strip of screen back to the person using it. Start the two-second hold only
   // once bootstrap is ready so a slow connection does not consume the intro
@@ -5948,16 +5996,30 @@ export function App() {
   }, [bare, isMobile, loading, tab, terminalSurface]);
 
   const refreshBots = useCallback(async () => {
-    const payload = await api<{ bots: PersistentBot[] }>("/api/bots", { cache: "no-store" });
+    const payload = await api<{ bots: PersistentBot[]; conversations?: BotConversationUnread[] }>(
+      `/api/bots?user=${encodeURIComponent(botUnreadIdentity)}`,
+      { cache: "no-store" },
+    );
     setBots(payload.bots ?? []);
-  }, []);
+    setBotConversations(payload.conversations ?? []);
+  }, [botUnreadIdentity]);
 
   const loadCore = useCallback(async () => {
     const [payload, botPayload] = await Promise.all([
       fetchBootstrap<BootstrapPayload>(),
-      api<{ bots: PersistentBot[] }>("/api/bots", { cache: "no-store" }),
+      api<{ bots: PersistentBot[]; conversations?: BotConversationUnread[] }>(
+        `/api/bots?user=${encodeURIComponent(botUnreadIdentity)}`,
+        { cache: "no-store" },
+      ),
     ]);
-    setOmgVersion(payload.version || "unknown");
+    // Stored raw, including absent/blank. Settings needs to tell "an older
+    // runtime that sends no version marker" apart from "we have not asked yet",
+    // and `|| "unknown"` collapsed both into one unreadable string.
+    setComputerVersionReport({
+      version: typeof payload.version === "string" ? payload.version : null,
+      generation: omgTransportGeneration(),
+      bootId: typeof payload.bootId === "string" ? payload.bootId : null,
+    });
     setOnboarding(payload.onboarding ?? null);
     // First-run gate: a brand-new install has no roster (env or stored
     // profiles), no sessions, and no completed onboarding. The flag is sticky
@@ -5992,6 +6054,7 @@ export function App() {
     setRepos(payload.repos ?? []);
     setAutoAgents(payload.auto?.agents ?? []);
     setBots(botPayload.bots ?? []);
+    setBotConversations(botPayload.conversations ?? []);
     setSchedTz(payload.settings?.timeZone ?? payload.auto?.tz ?? DEFAULT_SCHED_TZ);
     const findingList = payload.auto?.findings ?? [];
     setFindings(findingList);
@@ -6001,7 +6064,7 @@ export function App() {
     // since succeeded, so retire it — a stale "could not load" over a screen
     // full of freshly loaded state is just noise the reader has to disbelieve.
     setError(null);
-  }, [embedded]);
+  }, [botUnreadIdentity, embedded]);
 
   // Sessions the user just deleted. The server's list can lag a beat (tmux pane
   // still tearing down), and the 5s poll below would otherwise resurrect a card
@@ -6745,6 +6808,99 @@ export function App() {
     onStatusRows: applyLiveStatusRows,
   });
   const liveStream = useWsLive ? wsLiveStream : sseLiveStream;
+
+  // A box that restarts under an open tab keeps serving, so nothing else here
+  // notices — but the version it runs has just changed, and Settings would go
+  // on showing the pre-restart number indefinitely. That is the worst possible
+  // direction for this row to fail: it is the exact signal people use to
+  // confirm a deploy landed (see the RUNNING_VERSION note in src/config.ts).
+  //
+  // bootId is the existing owner of "this is a different process", so a
+  // reconnect asks the cheap /api/install?ready=1 for it and re-bootstraps only
+  // when it actually changed. An ordinary network blip costs one tiny request
+  // and re-fetches nothing.
+  const liveStatus = wsLiveStream.connection?.status ?? null;
+  const wasLiveRef = useRef(false);
+  useEffect(() => {
+    if (!useWsLive) return;
+    const wasLive = wasLiveRef.current;
+    wasLiveRef.current = liveStatus === "live";
+    if (liveStatus !== "live" || wasLive) return;
+    let cancelled = false;
+    void api<{ bootId?: string | null }>("/api/install?ready=1", { cache: "no-store" })
+      .then((payload) => {
+        if (cancelled) return;
+        const seen = computerVersionReportRef.current?.bootId ?? null;
+        const now = typeof payload.bootId === "string" ? payload.bootId : null;
+        if (!seen || !now || seen === now) return;
+        void loadCore().catch(() => {});
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [useWsLive, liveStatus, loadCore]);
+
+  const selectedConversationSid = selectedBotConversationId ??
+    (selectedBotId ? bots.find((bot) => bot.id === selectedBotId)?.sessionId ?? null : null);
+  // Clearing a dot must not sit in front of the conversation the human just
+  // opened. This used to await the POST and then await a full `/api/bots`
+  // refetch, so every bot open queued a roster rebuild behind a write on the
+  // same server before the transcript request could be served. The row state
+  // is the only thing the POST changes, so it is applied locally first and the
+  // write goes out behind the paint.
+  const markBotConversationVisible = useCallback(async (sessionId: string) => {
+    setBotConversations((prev) => clearBotConversationUnread(prev, sessionId));
+    await api(`/api/bot-conversations/${encodeURIComponent(sessionId)}/read`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user: botUnreadIdentity }),
+    });
+  }, [botUnreadIdentity]);
+
+  // Selection is committed before this effect runs, so a route preload or a
+  // tap that never revealed the conversation cannot clear its watermark.
+  useEffect(() => {
+    if (tab !== "bots" || !selectedConversationSid || document.visibilityState !== "visible") return;
+    void markBotConversationVisible(selectedConversationSid).catch(() => {});
+  }, [markBotConversationVisible, selectedConversationSid, tab]);
+
+  // Reuse the transcript websocket. Every committed assistant row refreshes
+  // the server-owned watermark view. The open conversation advances its own
+  // watermark; background conversations only gain an unread dot.
+  // Which conversations to watch, as a value that only changes when the set
+  // does. `botConversations` is a fresh array on every roster refresh, and a
+  // refresh happens on every assistant message, so keying the effect on the
+  // payload tore down and re-established every bot transcript channel each
+  // time — on the same socket the open chat streams its own transcript over.
+  const botConversationSidKey = botConversationSubscriptionIds(botConversations).join(",");
+  const botConversationSids = useMemo(
+    () => (botConversationSidKey ? botConversationSidKey.split(",") : []),
+    [botConversationSidKey],
+  );
+  // Read through a ref so changing the open conversation re-targets the
+  // existing subscriptions instead of replacing all of them.
+  const botUnreadViewRef = useRef({ selectedConversationSid, tab });
+  botUnreadViewRef.current = { selectedConversationSid, tab };
+  useEffect(() => {
+    if (!useWsLive) return;
+    const unsubs = botConversationSids.map((sessionId) =>
+      wsLiveStream.subscribeTranscript(sessionId, (event) => {
+        if (event.type !== "message") return;
+        const view = botUnreadViewRef.current;
+        const action = botUnreadActionForTranscript({
+          role: event.message.role,
+          text: event.message.text,
+          conversationId: sessionId,
+          selectedConversationId: view.selectedConversationSid,
+          botsVisible: view.tab === "bots" && document.visibilityState === "visible",
+        });
+        if (action === "mark-read") void markBotConversationVisible(sessionId).catch(() => {});
+        if (action === "refresh") void refreshBots().catch(() => {});
+      })
+    );
+    return () => unsubs.forEach((unsubscribe) => unsubscribe());
+  }, [botConversationSids, markBotConversationVisible, refreshBots, useWsLive, wsLiveStream.subscribeTranscript]);
 
   function toggleTheme() {
     setThemePreference(!document.documentElement.classList.contains("dark"));
@@ -7713,7 +7869,7 @@ export function App() {
     return (
       <OnboardingFlow
         onboarding={onboarding}
-        version={omgVersion}
+        version={normalizeVersion(computerVersionReport?.version)}
         codingAgents={codingAgents}
         repos={repos}
         identity={identity}
@@ -7816,6 +7972,7 @@ export function App() {
     <SessionTerminalContext.Provider value={setTerminalSid}>
     <OpenSettingsPageContext.Provider value={setTab}>
     <BotDirectoryContext.Provider value={botDirectory}>
+    <BotUnreadContext.Provider value={{ conversations: botConversations, any: hasUnreadBotConversation(botConversations), selectedConversationId: selectedBotConversationId }}>
     <OpenBotContext.Provider value={openBot}>
     <EditBotContext.Provider value={openBotEditor}>
     <div
@@ -8218,6 +8375,7 @@ export function App() {
             bots={bots}
             sessions={sessions}
             selectedBotId={selectedBotId}
+            selectedConversationId={selectedBotConversationId}
             busyBySid={liveStream.busyBySid}
             onSubscribeTranscript={useWsLive ? wsLiveStream.subscribeTranscript : undefined}
             onOpen={openBot}
@@ -8243,7 +8401,7 @@ export function App() {
             onEditRoutine={setEditingAgent}
             onClose={() => {
               if (botEditor === "new") closeBot();
-              else openBot(botEditor.id);
+              else openBot(botEditor.id, selectedBotConversationId);
             }}
             onSave={saveBot}
             onDelete={deletePersistentBot}
@@ -8370,12 +8528,13 @@ export function App() {
             settings={settings}
             onSettingsChange={updateSettings}
             connection={useWsLive ? wsLiveStream.connection : null}
+            computerVersionReport={computerVersionReport}
           />
         ) : null}
         </>}
       </main>
 
-      {shouldShowMobileSurfaceToggle(isMobile, tab) && !(tab === "bots" && selectedBotId) ? (
+      {shouldShowMobileSurfaceToggle(isMobile, tab, selectedBotId) ? (
         <MobileSurfaceDock
           active={mobileSurfaceToggleActive(tab)}
           aboveComposer={mobileComposerVisible}
@@ -8555,6 +8714,7 @@ export function App() {
     ) : null}
     </EditBotContext.Provider>
     </OpenBotContext.Provider>
+    </BotUnreadContext.Provider>
     </BotDirectoryContext.Provider>
     </OpenSettingsPageContext.Provider>
     </SessionTerminalContext.Provider>
@@ -9468,7 +9628,8 @@ function OnboardingFlow({
   onDone,
 }: {
   onboarding: OnboardingState | null;
-  version: string;
+  /** Null when the box reported no usable version — the chip is dropped, not faked. */
+  version: string | null;
   codingAgents: CodingAgentInfo[];
   repos: Repo[];
   identity: string | null;
@@ -9747,9 +9908,11 @@ function OnboardingFlow({
               alt="omg"
               className="size-7 shrink-0"
             />
-            <span className="text-xs font-medium text-muted-foreground">
-              v{version}
-            </span>
+            {version ? (
+              <span className="text-xs font-medium text-muted-foreground">
+                v{version}
+              </span>
+            ) : null}
           </div>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             {labels.map(([key, label], i) => (
@@ -10547,7 +10710,7 @@ function LiveView({
   railSurface?: "sessions" | "chat";
   bots?: PersistentBot[];
   selectedBotId?: string | null;
-  onOpenBot?: (id: string) => void;
+  onOpenBot?: (id: string, conversationId?: string | null) => void;
   onNewBot?: () => void;
   onEditBot?: (bot: PersistentBot) => void;
   onRefreshBots?: () => Promise<void>;
@@ -11078,7 +11241,7 @@ function RailStage({
   railSurface?: "sessions" | "chat";
   bots?: PersistentBot[];
   selectedBotId?: string | null;
-  onOpenBot?: (id: string) => void;
+  onOpenBot?: (id: string, conversationId?: string | null) => void;
   onNewBot?: () => void;
   onEditBot?: (bot: PersistentBot) => void;
   onRefreshBots?: () => Promise<void>;
@@ -11109,6 +11272,7 @@ function RailStage({
   onNew: () => void;
 }) {
   const appDialog = useAppDialog();
+  const { conversations: botConversationsForRail, selectedConversationId: selectedBotConversationForRail } = useContext(BotUnreadContext);
   const MAX_COLUMNS = 4;
   const layoutScope = projectFilter || "__all";
   const layoutKey = encodeURIComponent(layoutScope);
@@ -11454,12 +11618,11 @@ function RailStage({
    */
   const botsBySid = useMemo(() => {
     const map = new Map<string, PersistentBot>();
-    for (const bot of bots) {
-      const sid = botChatSessionId(bot, sessions);
-      if (sid) map.set(sid, bot);
+    for (const row of botConversationRows(bots, sessions, botConversationsForRail)) {
+      if (row.sessionId) map.set(row.sessionId, row.bot);
     }
     return map;
-  }, [bots, sessions]);
+  }, [botConversationsForRail, bots, sessions]);
   const sidForBot = useCallback(
     (botId: string) => {
       for (const [sid, bot] of botsBySid) if (bot.id === botId) return sid;
@@ -11471,7 +11634,9 @@ function RailStage({
     () => (selectedBotId ? bots.find((bot) => bot.id === selectedBotId) ?? null : null),
     [bots, selectedBotId],
   );
-  const selectedBotSid = selectedBotId ? sidForBot(selectedBotId) : null;
+  const selectedBotSid = selectedBotId
+    ? selectedBotConversationForRail ?? sidForBot(selectedBotId)
+    : null;
 
   // Selecting a bot in the rail is selecting its session on the stage. Runs on
   // the sid too, not just the id: a brand-new bot's session appears only after
@@ -12077,12 +12242,15 @@ function RailStage({
   // Stage pins belong to the session surface; carrying them over would answer
   // "open this bot" with someone else's session sitting next to it.
   const botStageColumns = useMemo(() => {
-    if (railSurface !== "chat" || !selectedBotSid) return [];
+    if (railSurface !== "chat" || !selectedBotSid || !selectedBot) return [];
     const node = railTree.nodeForSessionId(selectedBotSid);
-    const session =
+    const rawSession =
       node?.session ?? sessions.find((item) => item.sessionId === selectedBotSid) ?? null;
-    return session ? [{ sid: selectedBotSid, session }] : [];
-  }, [railSurface, selectedBotSid, railTree, sessions]);
+    if (!rawSession) return [];
+    // Found by sessionId alone — stamp this bot's identity on rather than
+    // trust whatever `botId` the raw record carries. See botStageSession.
+    return [{ sid: selectedBotSid, session: botStageSession(selectedBot, rawSession) }];
+  }, [railSurface, selectedBotSid, selectedBot, railTree, sessions]);
   const activeStageColumns = railSurface === "chat" ? botStageColumns : stageColumns;
 
   // The bot list is the session list's sibling, not a page: same rail, same
@@ -12102,12 +12270,13 @@ function RailStage({
           <span className="truncate">New bot</span>
         </button>
       ) : null}
-      {bots.map((bot) => {
-        const sid = sidForBot(bot.id);
-        const session = sid ? sessions.find((item) => item.sessionId === sid) : undefined;
+      {botConversationRows(bots, sessions, botConversationsForRail).map((row) => {
+        const bot = row.bot;
+        const sid = row.sessionId;
+        const session = row.session;
         const busy = !!(sid && busyBySid[sid]);
-        const active = selectedBotId === bot.id;
-        const rawPreview = session?.last?.text || session?.lastUserText || bot.lastMessagePreview || "";
+        const active = selectedBotId === bot.id && (!selectedBotConversationForRail || selectedBotConversationForRail === sid);
+        const rawPreview = session?.last?.text || session?.lastUserText || row.lastMessagePreview || bot.lastMessagePreview || "";
         // A background task's report is machinery, not conversation: it is
         // hidden inside the chat, so it must not surface as the roster preview
         // either — the row would read `[subagent complete] …`.
@@ -12118,15 +12287,15 @@ function RailStage({
             : plainPreviewText(botVisibleUserText(rawPreview, bot));
         return (
           <button
-            key={bot.id}
+            key={row.key}
             type="button"
             title={railCollapsed ? bot.name : undefined}
             onClick={() => {
-              onOpenBot?.(bot.id);
+              onOpenBot?.(bot.id, sid);
               if (sid) activate(sid, false);
             }}
             className={cn(
-              "flex w-full items-center rounded-lg text-left transition-colors",
+              "relative flex w-full items-center rounded-lg text-left transition-colors",
               railCollapsed ? "justify-center px-1 py-1.5" : "gap-2 px-2 py-1.5",
               active ? "bg-muted" : "hover:bg-muted/60",
             )}
@@ -12147,9 +12316,14 @@ function RailStage({
                 </span>
               </span>
             ) : null}
-            {!railCollapsed && bot.lastMessageAt ? (
+            {row.unread ? (
+              <span role="status" aria-label={`Unread conversation with ${bot.name}`} className={railCollapsed ? "absolute translate-x-2 -translate-y-2" : undefined}>
+                <span className={BOT_UNREAD_DOT_CLASS} aria-hidden="true" />
+              </span>
+            ) : null}
+            {!railCollapsed && (row.lastMessageTs || bot.lastMessageAt) ? (
               <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/70">
-                {relTime(bot.lastMessageAt)}
+                {relTime(row.lastMessageTs || bot.lastMessageAt!)}
               </span>
             ) : null}
           </button>
@@ -12280,7 +12454,13 @@ function RailStage({
             </div>
             {/* Sits below the actions, directly above the list it switches.
                 Above the brand row it read as app-level navigation; what it
-                actually does is change which list the rail is showing. */}
+                actually does is change which list the rail is showing.
+                Unlike the mobile dock, this never sits inside a full-screen
+                bot conversation — the desktop rail always keeps showing the
+                roster, with the stage panes doing the switching. Hiding it
+                once a bot is selected (`selectedBotId`, mirroring the mobile
+                guard added in 1b3ca7d) stranded desktop users on the Bots
+                surface with no way back to Chat. Always render it here. */}
             <SurfaceToggle active={railSurface} onOpenSessions={onOpenSessions} onOpenBots={onOpenBots} />
           </div>
         )}
@@ -17094,8 +17274,19 @@ function MessageActions({
         // percentage collapsed and long user turns grew full-width / looked
         // left-aligned. Short turns still hug the trailing edge via items-end
         // + Message's justify-end.
-        "message-actions-wrap flex min-w-0 flex-col",
-        isUser ? "max-w-[85%] items-end" : "max-w-[92%] items-start",
+        //
+        // relative: the copy button below is absolutely positioned against
+        // this box, so it never adds a row of its own to the transcript. That
+        // out-of-flow button sits in the 2.25rem gutter beside the bubble
+        // (1.75rem button + 0.25rem offset + 0.25rem slack), so the cap also
+        // subtracts that gutter from the row: without it a bubble at the
+        // percentage cap would push the button past the scroll container and
+        // trade a vertical gap for a horizontal one. The percentage still
+        // wins on wide viewports, where it is the smaller of the two.
+        "message-actions-wrap relative flex min-w-0 flex-col",
+        isUser
+          ? "max-w-[min(85%,calc(100%-2.25rem))] items-end"
+          : "max-w-[min(92%,calc(100%-2.25rem))] items-start",
         selecting && "is-selecting",
       )}
       onPointerDown={onPointerDown}
@@ -17113,7 +17304,17 @@ function MessageActions({
         <button
           type="button"
           onClick={() => void copy()}
-          className="message-copy-button mt-1 flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none"
+          // Absolute, bottom-aligned in the gutter beside the bubble: in flow
+          // (the old `mt-1` block) it reserved a full 28px row under every
+          // single turn, so two replies in a row sat ~36px apart and the
+          // transcript's vertical rhythm read as a stray empty band whenever
+          // hover revealed the icon. Out of flow it stays attached to its own
+          // message, costs no height, and — because it is never added or
+          // removed on hover — shifts nothing when it appears.
+          className={cn(
+            "message-copy-button absolute bottom-0 flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none",
+            isUser ? "right-full mr-1" : "left-full ml-1",
+          )}
           aria-label={copied ? "Message copied" : "Copy message"}
           title={copied ? "Copied" : "Copy message"}
         >
@@ -23592,48 +23793,6 @@ export type ShipPost = {
   code?: ShipProvenance;
 };
 
-// Backend shape from GET /api/machine/members (src/users.ts's machineMembers()).
-// Roster emails on a shared box, or the box's one paired omg account on a
-// roster-less hosted Computer — never empty unless the box is both
-// roster-less and unpaired.
-function MachineMembersRow() {
-  const [members, setMembers] = useState<FacepileMember[] | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    void omgFetch("/api/machine/members")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { members?: FacepileMember[] } | null) => {
-        if (alive) setMembers(d?.members ?? []);
-      })
-      .catch(() => {
-        if (alive) setMembers([]);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  return (
-    <div className="flex w-full items-center justify-between gap-4 px-4 py-2.5">
-      <div className="flex items-center gap-3">
-        <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
-          <Users className="size-4" />
-        </span>
-        <span className="text-sm font-medium">Who&apos;s on this machine</span>
-      </div>
-      {members === null ? (
-        <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground/60" />
-      ) : (
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-xs text-muted-foreground">{facepileLabel(members)}</span>
-          <UserFacepile members={members} size={22} maxVisible={4} />
-        </div>
-      )}
-    </div>
-  );
-}
-
 /**
  * Settings-configurable icon: upload, replace, remove. Works identically on a
  * roster box (icon keyed by the selected profile, `identityEmail`) and a
@@ -23754,6 +23913,94 @@ function UserIconSettingsSection({ identityEmail }: { identityEmail: string | nu
   );
 }
 
+/**
+ * One version row in Settings > Computer.
+ *
+ * Copy is offered only when there is a real version behind it. "Unavailable"
+ * and "Disconnected" are states, not values, and putting either on someone's
+ * clipboard to paste into a bug report would be worse than offering nothing.
+ */
+function VersionRow({
+  icon,
+  iconClassName,
+  label,
+  detail,
+  value,
+  copyValue,
+}: {
+  icon: ReactNode;
+  iconClassName: string;
+  label: string;
+  detail: string;
+  value: string;
+  copyValue: string | null;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+    const id = setTimeout(() => setCopied(false), 1200);
+    return () => clearTimeout(id);
+  }, [copied]);
+
+  // min-w-0 + truncate on the label column and shrink-0 on the value keeps a
+  // long label from pushing the number off a 320px screen.
+  const body = (
+    <>
+      <div className="flex min-w-0 items-center gap-3">
+        <span
+          className={cn(
+            "flex size-7 shrink-0 items-center justify-center rounded-[7px]",
+            iconClassName,
+          )}
+        >
+          {icon}
+        </span>
+        <span className="min-w-0">
+          <span className="block text-sm font-medium">{label}</span>
+          <span className="block truncate text-xs text-muted-foreground">{detail}</span>
+        </span>
+      </div>
+      <span className="flex shrink-0 items-center gap-2">
+        <span
+          className={cn(
+            "text-sm font-semibold tabular-nums",
+            copyValue ? "font-mono" : "text-muted-foreground",
+          )}
+        >
+          {value}
+        </span>
+        {copyValue ? (
+          copied ? (
+            <Check className="size-3.5 text-success" />
+          ) : (
+            <Copy className="size-3.5 text-muted-foreground/60" />
+          )
+        ) : null}
+      </span>
+    </>
+  );
+
+  if (!copyValue) {
+    return <div className="flex items-center justify-between gap-3 px-4 py-2.5">{body}</div>;
+  }
+
+  return (
+    <button
+      type="button"
+      aria-label={`Copy ${label} version ${copyValue}`}
+      onClick={() => {
+        void copyMessageText(copyValue)
+          .then(() => setCopied(true))
+          .catch(() => toast.error("Could not copy the version"));
+      }}
+      className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
+    >
+      {body}
+    </button>
+  );
+}
+
 function SettingsView({
   user,
   settings,
@@ -23763,6 +24010,7 @@ function SettingsView({
   onOpenStorage,
   onOpenMore,
   connection,
+  computerVersionReport,
 }: {
   user: string | null;
   settings: GlobalSettings;
@@ -23772,12 +24020,30 @@ function SettingsView({
   onOpenStorage: () => void;
   onOpenMore: () => void;
   connection: ConnectionState | null;
+  computerVersionReport: { version: string | null; generation: number } | null;
 }) {
   const initial = (user ?? "").trim().slice(0, 1).toUpperCase() || "?";
   // A host mounting this page renders the signed-in account itself — and its
   // account is the real one, where ours is only a per-device session tag. Two
   // identity blocks on one page is worse than none.
   const bare = useBareSurface();
+
+  // The two halves of "what am I actually looking at", resolved from two
+  // independent sources: FRONTEND_VERSION is stamped into this bundle at build
+  // time, and the Computer value comes only from that box's own bootstrap
+  // response. Neither falls back to the other — see version-diagnostics.ts.
+  const computerVersion = resolveComputerVersion({
+    reported: computerVersionReport?.version,
+    loaded: computerVersionReport != null,
+    connection: connection?.status ?? null,
+    // A number captured over a previous transport describes the machine we
+    // just switched away from, so it is dropped rather than relabelled.
+    stale:
+      computerVersionReport != null &&
+      computerVersionReport.generation !== omgTransportGeneration(),
+  });
+  const versionSkew = versionRelation(FRONTEND_VERSION, computerVersion);
+  const versionNote = versionMismatchNote(versionSkew);
 
   return (
     <div className="mx-auto max-w-xl space-y-8 pb-10" data-lfg-page-column>
@@ -23902,8 +24168,36 @@ function SettingsView({
             </div>
             <ChevronRight className="size-4 text-muted-foreground/60" />
           </button>
-          <MachineMembersRow />
+          {/* Two independent facts, side by side, so a skew is visible without
+              reading logs: which UI build is rendering, and what the selected
+              Computer is really executing. */}
+          <VersionRow
+            icon={<Layers className="size-4" />}
+            iconClassName="bg-muted text-foreground/70"
+            label="Frontend"
+            detail="This app build"
+            value={formatVersion(FRONTEND_VERSION)}
+            copyValue={FRONTEND_VERSION ? `v${FRONTEND_VERSION}` : null}
+          />
+          <VersionRow
+            icon={<Cpu className="size-4" />}
+            iconClassName="bg-foreground text-background"
+            label="Computer"
+            detail="Runtime on this machine"
+            value={formatComputerVersion(computerVersion)}
+            copyValue={copyableVersion(computerVersion)}
+          />
         </div>
+        {versionNote ? (
+          <p
+            className={cn(
+              "px-4 text-xs text-pretty",
+              isVersionMismatch(versionSkew) ? "text-warning" : "text-muted-foreground",
+            )}
+          >
+            {versionNote}
+          </p>
+        ) : null}
       </section>
 
       <AgentConcurrencySettingsSection
@@ -24213,6 +24507,7 @@ function SurfaceToggle({
   onOpenBots: () => void;
   compact?: boolean;
 }) {
+  const { any: botsUnread } = useContext(BotUnreadContext);
   // This is the one segmented-toggle component both the desktop rail header
   // (RailStage, isWide-only) and the mobile Chat/Bots header render — one
   // navigation idiom, two mount points, instead of a second control. It used
@@ -24273,7 +24568,12 @@ function SurfaceToggle({
           {compact ? (
             value === "sessions" ? <MessageSquare className="size-3.5" /> : <Bot className="size-3.5" />
           ) : null}
-          {label}
+          <span>{label}</span>
+          {value === "chat" && botsUnread ? (
+            <span className="ml-1 flex items-center" role="status" aria-label="Bots have unread conversations">
+              <span className={BOT_UNREAD_DOT_CLASS} aria-hidden="true" />
+            </span>
+          ) : null}
         </button>
       ))}
     </div>
@@ -24557,6 +24857,7 @@ function BotsView({
   bots,
   sessions,
   selectedBotId,
+  selectedConversationId,
   busyBySid,
   onSubscribeTranscript,
   onOpen,
@@ -24572,7 +24873,8 @@ function BotsView({
   selectedBotId: string | null;
   busyBySid: Record<string, boolean>;
   onSubscribeTranscript?: OmgTranscriptSubscribe;
-  onOpen: (id: string) => void;
+  selectedConversationId: string | null;
+  onOpen: (id: string, conversationId?: string | null) => void;
   onBack: () => void;
   onOpenSessions: () => void;
   onNew: () => void;
@@ -24581,6 +24883,7 @@ function BotsView({
   onRefreshSessions: () => Promise<void>;
 }) {
   const isMobile = useIsMobile();
+  const { conversations } = useContext(BotUnreadContext);
   const bot = selectedBotId ? bots.find((item) => item.id === selectedBotId) ?? null : null;
   useEffect(() => {
     if (!isMobile || !bot) return;
@@ -24592,8 +24895,12 @@ function BotsView({
   }, [bot, isMobile]);
 
   if (bot) {
-    const backingSession = findBotMainSession(bot, sessions);
-    const sid = botChatSessionId(bot, sessions);
+    const mainSid = botChatSessionId(bot, sessions);
+    const sid = selectedConversationId ?? mainSid;
+    const backingSession =
+      sid === mainSid
+        ? findBotMainSession(bot, sessions)
+        : sessions.find((session) => session.sessionId === sid);
     const session: Session | null = sid
       ? backingSession ?? {
           sessionId: sid,
@@ -24608,16 +24915,6 @@ function BotsView({
         }
       : null;
     const busy = !!(sid && busyBySid[sid]);
-    const mobileNavigation = isMobile ? (
-      <div className="flex shrink-0 justify-center bg-background px-4 py-2">
-        <SurfaceToggle
-          compact
-          active="sessions"
-          onOpenSessions={onOpenSessions}
-          onOpenBots={onBack}
-        />
-      </div>
-    ) : null;
     const chat = session ? (
       <SessionChat
         session={session}
@@ -24627,7 +24924,6 @@ function BotsView({
         error={null}
         onError={reportBotChatError}
         onSubscribeTranscript={onSubscribeTranscript}
-        beforeComposer={mobileNavigation}
         onRefresh={async () => {
           await Promise.all([onRefreshBots(), onRefreshSessions()]);
         }}
@@ -24640,7 +24936,6 @@ function BotsView({
           <BotAvatar bot={bot} size={96} />
           <span>Say hi to start your conversation with {bot.name}.</span>
         </div>
-        {mobileNavigation}
         <FirstBotMessageComposer
           bot={bot}
           onStarted={async () => {
@@ -24655,7 +24950,6 @@ function BotsView({
             This bot is disabled. Re-enable it in settings to keep talking to it.
           </div>
         </div>
-        {mobileNavigation}
       </>
     );
 
@@ -24674,9 +24968,10 @@ function BotsView({
               style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.75rem)" }}
             >
               {/* This chat is a full-screen portal above the app shell, so its
-                  own header is the only way out. The surface toggle above the
-                  composer switches products; it is not a way back to the
-                  roster, which left the bot chat with no exit at all. */}
+                  own header is the only way out. An open conversation owns the
+                  surface: the Chat/Bots switch belongs to the roster and the
+                  list pages, never inside a conversation, so this Back button
+                  is the exit. */}
               <button
                 type="button"
                 onClick={onBack}
@@ -24759,10 +25054,11 @@ function BotsView({
         </span>
         <span className="truncate">New bot</span>
       </button>
-      {bots.length ? bots.map((item) => {
-        const session = findBotMainSession(item, sessions);
+      {bots.length ? botConversationRows(bots, sessions, conversations).map((row) => {
+        const item = row.bot;
+        const session = row.session;
         const working = !!(session?.sessionId && busyBySid[session.sessionId]);
-        const rawPreview = session?.last?.text || session?.lastUserText || item.lastMessagePreview || "";
+        const rawPreview = session?.last?.text || session?.lastUserText || row.lastMessagePreview || item.lastMessagePreview || "";
         // See the rail roster: a `[subagent …]` report is not preview material.
         const preview = !rawPreview
           ? "Say hi to get started."
@@ -24771,9 +25067,10 @@ function BotsView({
             : plainPreviewText(botVisibleUserText(rawPreview, item));
         return (
           <button
-            key={item.id}
+            key={row.key}
             type="button"
-            onClick={() => onOpen(item.id)}
+            onClick={() => onOpen(item.id, row.sessionId)}
+            aria-label={`${item.name}${row.unread ? ", unread conversation" : ""}`}
             className={MOBILE_BOT_ROSTER_ROW_CLASS}
           >
             <BotAvatar bot={item} working={working} size={44} />
@@ -24781,8 +25078,13 @@ function BotsView({
               <span className={cn("truncate text-[13px] font-semibold", !item.enabled && "text-muted-foreground")}>{item.name}</span>
               <span className="truncate text-xs text-muted-foreground">{working ? `Working — ${preview}` : preview}</span>
             </span>
-            {item.lastMessageAt ? (
-              <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/70">{relTime(item.lastMessageAt)}</span>
+            {row.unread ? (
+              <span role="status" aria-label={`Unread conversation with ${item.name}`}>
+                <span className={BOT_UNREAD_DOT_CLASS} aria-hidden="true" />
+              </span>
+            ) : null}
+            {row.lastMessageTs || item.lastMessageAt ? (
+              <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/70">{relTime(row.lastMessageTs || item.lastMessageAt!)}</span>
             ) : null}
             {!item.enabled ? <Badge variant="secondary">Disabled</Badge> : null}
             <ChevronRight className="size-4 shrink-0 text-muted-foreground/60" />

@@ -8,25 +8,18 @@
 # Why this exists: the quick start is the one code path every new user runs,
 # and it is the one path no test covered. It is not testable from a developer
 # box — every machine we own already has Bun, Node, an ~/omg install, or all
-# three, and each of those hides a different failure. On 2026-08-18 the
-# documented `bun install --global @omg-dev/cli && omg computer setup` died on
-# a clean box with
+# three, and each of those hides a different failure.
 #
-#     /usr/bin/env: 'node': No such file or directory
-#
-# because the published CLI's shebang named a runtime the quick start never
-# installs. Nothing caught it: unit tests ran the CLI's JavaScript, which only
-# executes after an interpreter has been chosen, and every dev box had Node.
+# The documented first-run is this repository's setup.sh. The npm package
+# @omg-dev/cli 0.4.x is the retired vibes CLI and must not be the path under
+# test. --cli-dist DIR overlays a locally built @omg-dev/cli 0.5.0+ dist on
+# top of a global install so the npm bootstrapper can be proven before publish.
 #
 # So this rents a fresh Firecracker VM from the OMG sandbox API, runs the
-# documented commands verbatim as an ordinary sudo-capable user, and asserts
-# the finish line a user cares about: setup exits 0, `serve` listens, and the
-# web UI answers 200 with real HTML. The VM is destroyed afterwards unless
-# --keep is passed.
-#
-# --cli-dist DIR overlays a locally built @omg-dev/cli `dist/` on top of the
-# published package, so a fix can be proven against a clean machine before it
-# is released. Everything else still runs exactly as documented.
+# documented commands as an ordinary sudo-capable user, and asserts the finish
+# line a user cares about: setup exits 0, `serve` listens, and the web UI
+# answers 200 with real HTML. The VM is destroyed afterwards unless --keep is
+# passed.
 #
 # Requirements:
 #   VIBES_INFRA_SERVICE_TOKEN  - infra service token (or _CI variant via ENVF)
@@ -143,17 +136,22 @@ ok "user $VM_USER ready"
 # 2. The documented quick start, verbatim
 # ---------------------------------------------------------------------------
 
-# An unreleased fix is applied between the two documented commands, in the same
-# place the next npm publish would land it, so the rest of the run is unchanged.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+staging="$(mktemp -d)"
+# Stage this checkout's setup.sh so the VM follows the README against the
+# PR's installer, not whatever is currently on main.
+jq -nc --rawfile c <(base64 -w0 "$ROOT/scripts/setup.sh") --arg p /tmp/setup.sh \
+  '[{path:$p,content:$c}]' > "$staging/setup.json"
+api POST "/v1/sandboxes/$SANDBOX/files" "@$staging/setup.json" >/dev/null \
+  || fail "could not stage setup.sh in the VM"
+
+# An unreleased @omg-dev/cli 0.5.0+ fix is applied on top of a global install
+# in the same place the next npm publish would land it.
 overlay=""
 if [[ -n "$CLI_DIST" ]]; then
   log "overlaying local cli dist from $CLI_DIST"
-  staging="$(mktemp -d)"
-  # Pack it as `dist/` so it lands exactly where the published package keeps
-  # its own, whatever the local directory happens to be called.
   mkdir "$staging/dist" && cp "$CLI_DIST"/* "$staging/dist/"
   tar czf "$staging/cli-dist.tgz" -C "$staging" dist
-  # The files API base64-decodes `content` and writes the raw bytes.
   jq -nc --rawfile c <(base64 -w0 "$staging/cli-dist.tgz") --arg p /tmp/cli-dist.tgz \
     '[{path:$p,content:$c}]' > "$staging/body.json"
   api POST "/v1/sandboxes/$SANDBOX/files" "@$staging/body.json" >/dev/null \
@@ -163,17 +161,22 @@ if [[ -n "$CLI_DIST" ]]; then
 fi
 
 log "running README.md's quick start as $VM_USER"
+if [[ -n "$CLI_DIST" ]]; then
+  inner_install="bun install --global @omg-dev/cli
+echo \"INSTALL_EXIT=\$?\"
+$overlay
+omg computer setup"
+else
+  inner_install="bash /tmp/setup.sh"
+fi
 vm "
-cat > /home/$VM_USER/quickstart.sh <<'INNER'
+cat > /home/$VM_USER/quickstart.sh <<INNER
 #!/usr/bin/env bash
 set -x
 export PATH=\"\$HOME/.bun/bin:\$PATH\"
 export OMG_INSTALL_SYSTEM_DEPS=1
 export OMG_PORT=$PORT
-bun install --global @omg-dev/cli
-echo \"INSTALL_EXIT=\$?\"
-$overlay
-omg computer setup
+$inner_install
 echo \"SETUP_EXIT=\$?\"
 echo '=== QUICKSTART DONE ==='
 INNER

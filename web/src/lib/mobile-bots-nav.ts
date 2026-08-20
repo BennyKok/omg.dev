@@ -31,8 +31,9 @@ export const MOBILE_BOT_ROSTER_ROW_CLASS =
 export function shouldShowMobileSurfaceToggle(
   isMobile: boolean,
   tab: string,
+  selectedBotId: string | null = null,
 ): tab is PrimaryMobileTab {
-  return isMobile && (tab === "live" || tab === "bots");
+  return isMobile && (tab === "live" || (tab === "bots" && !selectedBotId));
 }
 
 /** Maps the current tab to `SurfaceToggle`'s active-segment value. */
