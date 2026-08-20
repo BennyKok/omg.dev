@@ -26,6 +26,13 @@
         "typescript": "^7.0.0",
       },
     },
+    "packages/cli": {
+      "name": "@omg-dev/cli",
+      "version": "0.5.0",
+      "bin": {
+        "omg": "./dist/omg.mjs",
+      },
+    },
     "packages/client": {
       "name": "@omg-dev/client",
       "version": "0.1.84",
@@ -520,6 +527,8 @@
     "@number-flow/react": ["@number-flow/react@0.6.2", "", { "dependencies": { "esm-env": "^1.1.4", "number-flow": "0.6.2" }, "peerDependencies": { "react": "^18 || ^19", "react-dom": "^18 || ^19" } }, "sha512-WjZuV4aA+vhRCgCF+adGLgFVVAJ8vdvq6EchRT2FiBIgElTXtDOA3YgkcMr9UHpvpS9v4H70AB5wZv0D9jc3QA=="],
 
     "@omg-dev/app": ["@omg-dev/app@workspace:web"],
+
+    "@omg-dev/cli": ["@omg-dev/cli@workspace:packages/cli"],
 
     "@omg-dev/client": ["@omg-dev/client@workspace:packages/client"],
 

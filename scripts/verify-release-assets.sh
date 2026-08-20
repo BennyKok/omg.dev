@@ -15,7 +15,7 @@
 # the patterns in sync with .github/workflows/release.yml. Platform bundles
 # can be legitimately absent — release.sh skips a platform whose cross-install
 # fails, and setup.sh falls back to the neutral bundle — so they are checked
-# when staged, never demanded. The neutral bundles and the four @omg-dev
+# when staged, never demanded. The neutral bundles and the five @omg-dev
 # packages are unconditional build products and are demanded outright.
 #
 # Env:
@@ -47,6 +47,7 @@ staged=(
   "$dist"/omg-dev-client-*.tgz
   "$dist"/omg-dev-react-*.tgz
   "$dist"/omg-dev-app-*.tgz
+  "$dist"/omg-dev-cli-*.tgz
 )
 
 if ((${#staged[@]} == 0)); then
@@ -61,7 +62,8 @@ for pat in \
   "$dist"/omg-bundle.tar.gz "$dist"/omg-bundle.tar.gz.sha256 \
   "$dist"/lfg-bundle.tar.gz "$dist"/lfg-bundle.tar.gz.sha256 \
   "$dist"/omg-dev-protocol-*.tgz "$dist"/omg-dev-client-*.tgz \
-  "$dist"/omg-dev-react-*.tgz "$dist"/omg-dev-app-*.tgz; do
+  "$dist"/omg-dev-react-*.tgz "$dist"/omg-dev-app-*.tgz \
+  "$dist"/omg-dev-cli-*.tgz; do
   if ! compgen -G "$pat" >/dev/null; then
     err "core asset $pat was never staged"
     core_ok=0

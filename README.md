@@ -11,7 +11,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/BennyKok/omg.dev?style=flat)](https://github.com/BennyKok/omg.dev/stargazers)
-[![npm](https://img.shields.io/npm/v/@omg-dev/cli?label=%40omg-dev%2Fcli)](https://www.npmjs.com/package/@omg-dev/cli)
+[![GitHub release](https://img.shields.io/github/v/release/BennyKok/omg.dev?label=release)](https://github.com/BennyKok/omg.dev/releases)
 [![Discord](https://img.shields.io/badge/Discord-join%20the%20community-5865F2?logo=discord&logoColor=white)](https://omg.dev/discord)
 
 [Quick start](#quick-start) · [Join the Discord](https://omg.dev/discord) · [Why omg.dev](#why-omgdev) · [Agents](#connect-a-coding-agent) · [Remote access](#reach-it-from-your-phone) · [Security](#security)
@@ -40,23 +40,25 @@ authenticate. It does not resell tokens and has no model of its own.
 
 ## Quick start
 
-The `omg` CLI is the supported way to install and manage omg.dev. Use whichever
-package manager you already have:
+The supported install is this repository's installer. It puts one `omg`
+command on your `PATH` — the local control plane — and starts it for you:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/BennyKok/omg.dev/main/scripts/setup.sh | bash
+```
+
+Then open **http://localhost:8766**.
+
+Do not install the npm package `@omg-dev/cli` at 0.4.x. That line is the
+retired prompt-to-app CLI published from `BennyKok/vibes` (`create` / `deploy`
+to `*.omgs.app`). This repository publishes the control-plane bootstrapper as
+`@omg-dev/cli` 0.5.0+. After that version is on npm, this is the same install:
 
 ```bash
 bun install --global @omg-dev/cli && omg computer setup
 ```
 
-```bash
-npm install --global @omg-dev/cli && omg computer setup
-```
-
-> The published CLI is currently shebanged `#!/usr/bin/env bun`, so an `npm`
-> install still needs `bun` on your `PATH` to run. The `bun` line above always
-> works; if you install with `npm` and see
-> `env: bun: No such file or directory`, install [Bun](https://bun.sh) and retry.
-
-Then open **http://localhost:8766**.
+`lfg` remains a compatibility alias for the same command.
 
 No omg.dev account is needed for this — `omg computer setup` provisions a purely
 local install. The CLI installs Bun, `tmux`, and `git`, fetches the latest
@@ -201,13 +203,14 @@ OMG_RELAY_URL=wss://your-relay.example/connect omg connect ABC123   # outbound o
 ```
 
 No relay ships with omg.dev itself; the protocol is generic and any operator can
-implement it. [omg.dev](https://omg.dev) runs one, and the CLI configures the
-pairing for you:
+implement it. Pair with a one-time code from the relay operator:
 
 ```bash
-omg login
-omg connect        # installs omg.dev if needed, then pairs and connects
+OMG_RELAY_URL=wss://your-relay.example/connect omg connect ABC123
 ```
+
+The hosted `omg login && omg connect` convenience path is owned by
+`BennyKok/vibes`. It is not this repository's first-run command.
 
 Full comparison, the pairing flow, and opt-in session lifecycle events:
 **[docs/remote-access.md](./docs/remote-access.md)**.
@@ -226,7 +229,7 @@ privately through Tailscale.
 
 ## Don't want to run a box?
 
-[![Deploy on omg.dev](https://omg.dev/deploy-badge.svg?v=2)](https://omg.dev/sandbox/templates/lfg)
+[![Deploy on omg.dev](https://omg.dev/deploy-badge.svg?v=2)](https://omg.dev/sandbox/templates/omg)
 
 [omg.dev](https://omg.dev) is the hosted version, run by the same author — a
 cloud machine with omg.dev already running, so there's nothing to install and no
@@ -240,7 +243,9 @@ hibernate when idle and wake on the same URL.
 > repos and authenticated CLIs already on your machine — that is what omg.dev is
 > for. Use omg.dev to try it in seconds, or when you would rather not run a box
 > at all. A fresh hosted workspace has no agent CLIs signed in, and agents work
-> on repos you clone *into* it. More detail in [deploy/omg](./deploy/omg/README.md).
+> on repos you clone *into* it. The live start command is `omg serve`.
+> `lfg serve` remains a compatibility alias. More detail in
+> [deploy/omg](./deploy/omg/README.md).
 
 ## Managing an install
 
@@ -310,7 +315,8 @@ agent installed, or none signed in.
 ## MCP tools
 
 `omg mcp` talks to the local `omg serve` API and exposes omg.dev's session tools to
-any MCP client. Prefer omg.dev's own subagent tools over a client's generic "spawn
+any MCP client. These tools drive local coding-agent sessions. They do not create
+or deploy apps. Prefer omg.dev's own subagent tools over a client's generic "spawn
 agent" helper so children stay visible in the UI, inherit parent and user
 context, and can run on any configured harness.
 
@@ -414,9 +420,10 @@ locally the old way.
 
 ## Embedding omg.dev in your own product
 
-Every release publishes `@omg-dev/protocol`, `@omg-dev/client`, `@omg-dev/react`,
-and `@omg-dev/app` to npm — the last being the exact full application the
-standalone web UI runs. React hosts mount it with their own transport and asset
+Every release publishes `@omg-dev/cli`, `@omg-dev/protocol`, `@omg-dev/client`,
+`@omg-dev/react`, and `@omg-dev/app` to npm — the last being the exact full
+application the standalone web UI runs. `@omg-dev/cli` 0.5.0+ is the
+control-plane bootstrapper. Do not install 0.4.x. React hosts mount it with their own transport and asset
 origin:
 
 ```bash
@@ -430,8 +437,9 @@ See **[docs/embedding.md](./docs/embedding.md)**.
 ```text
 src/                 CLI, server, sessions, tmux, agents, MCP, integrations
 web/                 React/Vite PWA
+packages/cli         @omg-dev/cli 0.5.0+ control-plane bootstrapper
 agents/              Example markdown-defined insight agents
-scripts/setup.sh     Installer / provisioning
+scripts/setup.sh     Installer / provisioning (documented first-run)
 scripts/             Release, fleet, and smoke helpers
 scripts-internal/    Operator-only helpers (gitignored — see CONTRIBUTING.md)
 deploy/              Cloud, voice, STT, and ops deployments

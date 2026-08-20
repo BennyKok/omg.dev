@@ -720,8 +720,10 @@ fi
 
 # ---- 6. expose the command on PATH ----
 # `lfg` is the unambiguous name for this CLI and is always installed: existing
-# scripts, cron entries and muscle memory keep working, and the npm CLI
-# (@omg-dev/cli) resolves `lfg` when it forwards a command here.
+# scripts, cron entries and muscle memory keep working, and the npm bootstrapper
+# (@omg-dev/cli 0.5.0+, published from this repository) resolves `lfg` when it
+# forwards a command here. @omg-dev/cli 0.4.x is the retired vibes CLI and does
+# not contain the forward-probe phrase below.
 mkdir -p "$HOME/.local/bin"
 link_command lfg "$LFG_DIR/src/cli.ts"
 

@@ -15,6 +15,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { HELP_BANNER } from "../packages/cli/src/help.ts";
 import { SETUP_SH } from "./setup-script-helpers.ts";
 
 const roots: string[] = [];
@@ -121,6 +122,14 @@ function exposeCommands(
 }
 
 describe("setup.sh: which command names it installs", () => {
+  test("the forward probe still matches @omg-dev/cli 0.5.0+ help", () => {
+    // setup.sh greps the npm CLI's output for this phrase. If help.ts changes
+    // the banner, setup would keep a second `omg` and the two-binary surprise
+    // comes back.
+    expect(HELP_BANNER).toContain("run and manage your AI coding agents");
+    expect(readFileSync(SETUP_SH, "utf8")).toContain("run and manage your AI coding agents");
+  });
+
   test("claims omg when nothing else holds the name", () => {
     const result = exposeCommands();
     expect(result.lfg).toBe(true);

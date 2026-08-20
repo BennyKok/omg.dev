@@ -48,7 +48,7 @@ function assetNames(version: string): string[] {
       `omg-${p}.tar.gz`,
       `omg-${p}.tar.gz.sha256`,
     ]),
-    ...["protocol", "client", "react", "app"].map((p) => `omg-dev-${p}-${version}.tgz`),
+    ...["protocol", "client", "react", "app", "cli"].map((p) => `omg-dev-${p}-${version}.tgz`),
   ];
 }
 
@@ -96,7 +96,7 @@ describe("verify-release-assets.sh", () => {
   test("passes when every staged asset is on the release with matching size", () => {
     const r = run();
     expect(r.code).toBe(0);
-    expect(r.out).toContain("all 16 staged assets present");
+    expect(r.out).toContain("all 17 staged assets present");
   });
 
   test("verify-only mode fails and names assets missing from the release", () => {
@@ -156,6 +156,6 @@ describe("verify-release-assets.sh", () => {
     }
     const r = run();
     expect(r.code).toBe(0);
-    expect(r.out).toContain("all 12 staged assets present");
+    expect(r.out).toContain("all 13 staged assets present");
   });
 });
