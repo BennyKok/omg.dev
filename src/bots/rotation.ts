@@ -41,7 +41,7 @@ import { stripBotLaunchEnvelope } from "./transcript.ts";
 import type { Bot } from "./store.ts";
 
 /** Why a rotation was asked for. Recorded so the UI can be truthful. */
-export type BotRotationReason = "config" | "compaction";
+export type BotRotationReason = "config" | "compaction" | "restart";
 
 /**
  * Where a bot is in the rotation lifecycle.
@@ -207,13 +207,17 @@ export function botHasPendingConfig(
 export function botConfigStatus(
   bot: Pick<
     Bot,
-    "configRevision" | "appliedConfigRevision" | "rotationState"
+    "configRevision" | "appliedConfigRevision" | "rotationState" | "rotationReason"
   >,
 ): BotConfigStatus {
-  if (bot.rotationState === "rotating") return "refreshing";
-  if (bot.rotationState === "failed") return "failed";
+  // Restart and compaction are runtime lifecycle states, not configuration
+  // status. Letting either turn the editor into "Refresh failed" would merge
+  // the three actions back together in the one place their distinction matters.
+  const applyingConfig = bot.rotationReason === "config";
+  if (applyingConfig && bot.rotationState === "rotating") return "refreshing";
+  if (applyingConfig && bot.rotationState === "failed") return "failed";
   if (!botHasPendingConfig(bot)) return "current";
-  return bot.rotationState === "queued" ? "queued" : "update-available";
+  return applyingConfig && bot.rotationState === "queued" ? "queued" : "update-available";
 }
 
 // ---------------------------------------------------------------------------
@@ -718,9 +722,13 @@ export function formatHandoffCheckpoint(checkpoint: BotHandoffCheckpoint): strin
  * that was about something else. One sentence, stated once, at the top.
  */
 export function rotationNoticeText(reason: BotRotationReason): string {
-  return reason === "config"
-    ? "[This conversation continues with your updated configuration. Earlier history is preserved and searchable.]"
-    : "[This conversation continues in a fresh context window. Earlier history is preserved and searchable.]";
+  if (reason === "config") {
+    return "[This conversation continues with your updated configuration. Earlier history is preserved and searchable.]";
+  }
+  if (reason === "restart") {
+    return "[This conversation continues after a runtime restart. Earlier history is preserved and searchable.]";
+  }
+  return "[This conversation continues in a fresh context window. Earlier history is preserved and searchable.]";
 }
 
 /**
@@ -754,6 +762,25 @@ export function rotationCompareAndSwap(
   if (expectedRevision <= applied) return { proceed: false, outcome: "already-applied" };
   if (expectedRevision !== current) return { proceed: false, outcome: "stale" };
   return { proceed: true };
+}
+
+/**
+ * Compare the runtime a manual restart was requested against with the current
+ * primary binding. The per-bot mutex prevents overlap; this comparison prevents
+ * a duplicate request that waited on that mutex from restarting the replacement
+ * a second time.
+ */
+export function runtimeRotationCompareAndSwap(
+  bot: Pick<Bot, "sessionId">,
+  expectedSessionId: string | null | undefined,
+): { proceed: true } | { proceed: false; outcome: "already-rotated" } {
+  // Server-owned automatic rotations do not use this CAS. A manual route must
+  // always send the runtime identity it observed, including null.
+  if (expectedSessionId === undefined) return { proceed: true };
+  const current = bot.sessionId?.trim() || null;
+  return current === expectedSessionId
+    ? { proceed: true }
+    : { proceed: false, outcome: "already-rotated" };
 }
 
 /** Translate the old deferred-refresh flag without losing its requested edit. */
