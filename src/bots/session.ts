@@ -79,7 +79,12 @@ export function findBotMainSession<T extends BotSessionCandidate>(
   const saved = bot.sessionId?.trim();
   if (saved) {
     const exact = findById(sessions, saved);
-    if (exact && !isDelegatedSession(exact)) return exact;
+    // A live, non-delegated session sharing the saved id is the bot's own
+    // conversation only when it actually carries this bot's `botId`. Ids are
+    // handed out to ordinary chats too — trusting the id alone once let a
+    // stray collision (or a stale saved id that now names someone else's
+    // session) hand back an ordinary session as "the bot's own."
+    if (exact && exact.botId === bot.id && !isDelegatedSession(exact)) return exact;
   }
   return sessions.find(
     (session) => session.botId === bot.id && !isDelegatedSession(session),
@@ -124,7 +129,18 @@ export function botConversationRef(
   if (!saved) return {};
 
   const exact = findById(sessions, saved);
-  if (!exact || !isDelegatedSession(exact)) return { sessionId: saved };
+  // Not live at all: nothing else could have taken the id, so the saved id
+  // still names the bot's own transcript on disk.
+  if (!exact) return { sessionId: saved };
+  if (!isDelegatedSession(exact)) {
+    // Live and not delegated — but only this bot's own conversation if it
+    // actually carries this bot's `botId`. A live session that merely shares
+    // the saved id (a stray collision, or a saved id a corrupt write pointed
+    // at someone else's conversation) must never be handed back as safe to
+    // attach to: that is exactly what let a bot's process, and its chat
+    // header, land on an ordinary session that was never its own.
+    return exact.botId === bot.id ? { sessionId: saved } : {};
+  }
 
   const seen = new Set<string>([saved]);
   let current: BotSessionCandidate = exact;
@@ -177,20 +193,30 @@ export function botCanonicalSessionId(
   sessions: readonly BotSessionCandidate[],
 ): string | null {
   const saved = bot.sessionId?.trim();
-  if (saved) {
-    const exact = findById(sessions, saved);
-    if (exact && !isDelegatedSession(exact)) return exact.sessionId ?? saved;
-    // Present but delegated: repair rather than adopt the child.
-    if (exact) {
-      const repaired = botConversationRef(bot, sessions).sessionId;
-      if (repaired) return repaired;
-    }
-  }
   const own = sessions
     .filter((session) => session.botId === bot.id && !isDelegatedSession(session))
     .map((session) => session.sessionId)
     .filter((id): id is string => !!id)
     .sort();
+
+  if (saved) {
+    const exact = findById(sessions, saved);
+    if (exact && exact.botId === bot.id) {
+      if (!isDelegatedSession(exact)) return exact.sessionId ?? saved;
+      // Present but delegated: repair rather than adopt the child.
+      const repaired = botConversationRef(bot, sessions).sessionId;
+      if (repaired) return repaired;
+    } else if (exact) {
+      // Live at the saved id, but owned by someone else (or no one): a
+      // reused/stray id collision, never this bot's row just because it
+      // matches. Falling through to `saved` below — the "transcript is
+      // still filed under that id" case — would be wrong here, because the
+      // id is not idle: something else's live conversation is sitting on
+      // it. Prefer this bot's own live session if it has one, else this bot
+      // has nothing to show rather than borrowing someone else's chat.
+      return own.length ? own[0] : null;
+    }
+  }
   if (own.length) return own[0];
   return saved || null;
 }

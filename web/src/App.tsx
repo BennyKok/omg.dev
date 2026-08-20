@@ -54,7 +54,7 @@ import {
   shouldShowInlineBotsSurfaceToggle,
   shouldShowMobileSurfaceToggle,
 } from "./lib/mobile-bots-nav";
-import { botChatSessionId, findBotMainSession } from "./lib/bot-session";
+import { botChatSessionId, botStageSession, findBotMainSession } from "./lib/bot-session";
 import {
   BOT_UNREAD_DOT_CLASS,
   botConversationRows,
@@ -12242,12 +12242,15 @@ function RailStage({
   // Stage pins belong to the session surface; carrying them over would answer
   // "open this bot" with someone else's session sitting next to it.
   const botStageColumns = useMemo(() => {
-    if (railSurface !== "chat" || !selectedBotSid) return [];
+    if (railSurface !== "chat" || !selectedBotSid || !selectedBot) return [];
     const node = railTree.nodeForSessionId(selectedBotSid);
-    const session =
+    const rawSession =
       node?.session ?? sessions.find((item) => item.sessionId === selectedBotSid) ?? null;
-    return session ? [{ sid: selectedBotSid, session }] : [];
-  }, [railSurface, selectedBotSid, railTree, sessions]);
+    if (!rawSession) return [];
+    // Found by sessionId alone — stamp this bot's identity on rather than
+    // trust whatever `botId` the raw record carries. See botStageSession.
+    return [{ sid: selectedBotSid, session: botStageSession(selectedBot, rawSession) }];
+  }, [railSurface, selectedBotSid, selectedBot, railTree, sessions]);
   const activeStageColumns = railSurface === "chat" ? botStageColumns : stageColumns;
 
   // The bot list is the session list's sibling, not a page: same rail, same

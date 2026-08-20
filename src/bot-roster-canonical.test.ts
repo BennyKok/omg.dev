@@ -80,4 +80,20 @@ describe("botCanonicalSessionId", () => {
     expect(isDelegatedSession(delegated)).toBe(true);
     expect(botCanonicalSessionId({ id: "bot-1", sessionId: "main" }, [delegated, main])).toBe("main");
   });
+
+  // The reported routing bug: an ordinary chat already open under a sessionId
+  // that now happens to equal the bot's saved (stale) id must never be
+  // adopted as the bot's roster row just because the id matches and the
+  // session is live and not delegated.
+  test("never adopts an already-open regular chat that reuses the saved id", () => {
+    const regularChat = { sessionId: "main" };
+    expect(botCanonicalSessionId({ id: "bot-1", sessionId: "main" }, [regularChat])).toBeNull();
+  });
+
+  test("falls through to the bot's own live session when the saved id was reused elsewhere", () => {
+    const regularChat = { sessionId: "main" };
+    const own = { sessionId: "own-live", botId: "bot-1" };
+    expect(botCanonicalSessionId({ id: "bot-1", sessionId: "main" }, [regularChat, own]))
+      .toBe("own-live");
+  });
 });

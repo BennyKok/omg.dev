@@ -63,6 +63,26 @@ describe("findBotMainSession", () => {
 
     expect(findBotMainSession({ id: "bot-1" }, [child, conversation])).toBe(conversation);
   });
+
+  // The reported bug: a bot's saved id can outlive the conversation it once
+  // named. If an ordinary, unrelated chat is later opened under that exact
+  // same id, matching on the id alone would hand that stranger's session back
+  // as "the bot's own conversation" — the bot's face and composer disappear
+  // in favour of a regular session header, even though the session found is
+  // live and not delegated.
+  test("never adopts a live, non-delegated session that isn't this bot's own", () => {
+    const strangersChat = { sessionId: CONVERSATION, botId: undefined };
+
+    expect(findBotMainSession({ id: "bot-1", sessionId: CONVERSATION }, [strangersChat]))
+      .toBeUndefined();
+  });
+
+  test("never adopts a live session owned by a different bot", () => {
+    const otherBotsChat = { sessionId: CONVERSATION, botId: "bot-2" };
+
+    expect(findBotMainSession({ id: "bot-1", sessionId: CONVERSATION }, [otherBotsChat]))
+      .toBeUndefined();
+  });
 });
 
 describe("botConversationRef", () => {
@@ -117,6 +137,16 @@ describe("botConversationRef", () => {
   test("a bot nobody has talked to yet has no conversation to repair", () => {
     expect(botConversationRef({ id: "bot-1" }, [])).toEqual({});
     expect(botConversationRef({ id: "bot-1", sessionId: "   " }, [])).toEqual({});
+  });
+
+  // Same failure as findBotMainSession, at the relaunch/reattach layer: a
+  // saved id that now names a live, unrelated, non-delegated session must
+  // never be handed back as safe to attach the bot's next process to.
+  test("refuses to attach to a live session that isn't this bot's own", () => {
+    const strangersChat = { sessionId: CONVERSATION };
+
+    expect(botConversationRef({ id: "bot-1", sessionId: CONVERSATION }, [strangersChat]))
+      .toEqual({});
   });
 });
 
