@@ -9,6 +9,16 @@ import prefixSelector from "postcss-prefix-selector";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// The version Settings shows as "Frontend" on a HOSTED surface. app.omg.dev
+// pins this package as a release tarball, and pack-packages.sh stamps that
+// tarball's manifest with the root version — so reading the root package.json
+// here makes the number the bundle reports identical to the number the pin
+// resolves to. Without this define the hosted surface would have no honest way
+// to name its own build. See web/src/lib/version-diagnostics.ts.
+const ROOT_VERSION: string = JSON.parse(
+  fs.readFileSync(path.resolve(dirname, "../package.json"), "utf8"),
+).version;
+
 const HOST_SHARED_EXTERNALS = [
   "react",
   "react-dom",
@@ -108,6 +118,9 @@ export default defineConfig({
     tailwindcss(),
     ...(process.env.ANALYZE === "1" ? [moduleReportPlugin()] : []),
   ],
+  define: {
+    __OMG_FRONTEND_VERSION__: JSON.stringify(ROOT_VERSION),
+  },
   css: {
     postcss: {
       plugins: [
