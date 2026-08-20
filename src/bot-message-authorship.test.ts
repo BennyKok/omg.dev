@@ -277,6 +277,6 @@ describe("server-side author, for the rotation checkpoint handoff", () => {
 
   test("the two readers never disagree about who wrote a turn", () => {
     const stored = delivered(CARLA, "Scout", "ship it");
-    expect(botAuthorId(botAuthorEmailFromText(stored)!)).toBe(botAuthorIdFromText(stored));
+    expect(botAuthorId(botAuthorEmailFromText(stored)!)).toBe(botAuthorIdFromText(stored)!);
   });
 });
