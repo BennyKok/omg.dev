@@ -695,6 +695,8 @@ export type PersistentBot = {
   configRevision?: number;
   appliedConfigRevision?: number;
   configStatus?: "current" | "update-available" | "queued" | "refreshing" | "failed";
+  rotationState?: "idle" | "queued" | "rotating" | "failed";
+  rotationReason?: "config" | "compaction" | "restart";
   rotationError?: string;
   createdAt: number;
   lastMessageAt?: number;
@@ -16420,20 +16422,17 @@ const onTouchStart = (e: ReactTouchEvent) => {
             <Pin className="size-3.5" fill="currentColor" />
           </span>
         ) : null}
-        {/* The badge is a way back to a bot you are not looking at. Once the
-            header wears the bot's own face, it would only link here — so it
-            becomes the way into that bot's settings instead. */}
+        {/* A bot-backed card is the authoritative desktop bot conversation.
+            Keep its lifecycle menu on the same header instead of exposing the
+            regular session menu or a settings-only shortcut. */}
         {!collapsedView && headerBot && editBot ? (
-          <Button
-            variant="tint"
-            size="icon-sm"
-            onClick={() => editBot(headerBot)}
-            aria-label={`${headerBot.name} settings`}
-            title={`${headerBot.name} settings`}
-            className="shrink-0"
-          >
-            <Settings className="size-4" />
-          </Button>
+          <BotConversationMenu
+            bot={headerBot}
+            runtimeHealthy
+            busy={busy}
+            onEdit={() => editBot(headerBot)}
+            onRefresh={onRefresh}
+          />
         ) : null}
         {!collapsedView && !headerBot && session.botId && session.botName ? (
           <DrivenByBotBadge session={session} />
@@ -25081,6 +25080,126 @@ function reportBotChatError(message: string | null) {
   if (message) toast.error(message);
 }
 
+type BotRestartResponse = {
+  ok: true;
+  state: "restarted" | "queued" | "already-restarted";
+  conversationId: string | null;
+  runtimeSessionId: string | null;
+  previousRuntimeSessionId?: string | null;
+  blocked?: "primary-busy" | "children-active";
+  activeChildren?: number;
+};
+
+/** The bot-chat-only lifecycle menu, shared by desktop and mobile headers. */
+function BotConversationMenu({
+  bot,
+  runtimeHealthy,
+  busy,
+  onEdit,
+  onRefresh,
+}: {
+  bot: PersistentBot;
+  runtimeHealthy: boolean;
+  busy: boolean;
+  onEdit: () => void;
+  onRefresh: () => Promise<void>;
+}) {
+  const [restarting, setRestarting] = useState(false);
+  const restart = useCallback(async () => {
+    if (restarting) return;
+    setRestarting(true);
+    const toastId = `bot-restart-${bot.id}`;
+    toast.loading("Restarting the bot runtime…", { id: toastId });
+    try {
+      const result = await api<BotRestartResponse>(`/api/bots/${encodeURIComponent(bot.id)}/restart`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedRuntimeSessionId: bot.sessionId ?? null }),
+      });
+      // The lifecycle response is authoritative. A transient roster refresh
+      // failure must not turn a completed restart into a false failure toast;
+      // the normal poll/live stream will reconcile the view.
+      await onRefresh().catch(() => {});
+      if (result.state === "queued") {
+        const detail = result.blocked === "children-active"
+          ? ` after ${result.activeChildren || 1} active child task${result.activeChildren === 1 ? "" : "s"} finish`
+          : " after the current work and queued messages finish";
+        toast.success(`Restart queued${detail}.`, { id: toastId });
+      } else if (result.state === "already-restarted") {
+        toast.success("The runtime was already restarted.", { id: toastId });
+      } else {
+        toast.success("Runtime restarted. Conversation and history were preserved.", { id: toastId });
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not restart the bot runtime", { id: toastId });
+    } finally {
+      setRestarting(false);
+    }
+  }, [bot, onRefresh, restarting]);
+  const unavailable = !bot.enabled
+    ? "Restart unavailable — bot is disabled"
+    : !bot.conversationId && !bot.sessionId
+      ? "Restart unavailable — start the conversation first"
+      : null;
+  const persistedRestartState = bot.rotationReason === "restart" ? bot.rotationState : null;
+  const restartItem = unavailable ? (
+    <DropdownMenuItem disabled aria-label={unavailable}>
+      <RotateCcw className="size-4" />
+      {unavailable}
+    </DropdownMenuItem>
+  ) : restarting || persistedRestartState === "rotating" ? (
+    <DropdownMenuItem disabled aria-label="Restarting session">
+      <Loader2 className="size-4 animate-spin" />
+      Restarting…
+    </DropdownMenuItem>
+  ) : persistedRestartState === "queued" ? (
+    <DropdownMenuItem disabled aria-label="Restart queued">
+      <Clock3 className="size-4" />
+      Restart queued
+    </DropdownMenuItem>
+  ) : runtimeHealthy ? (
+    <DoubleConfirmAction
+      resetKey={`${bot.id}:${bot.sessionId ?? "none"}:${busy ? "busy" : "idle"}`}
+      label="Restart session"
+      confirmLabel={busy ? "Queue restart after current work" : "Confirm restart"}
+      pendingLabel={busy ? "Queuing restart…" : "Restarting…"}
+      icon={<RotateCcw className="size-4" />}
+      confirmIcon={<RotateCcw className="size-4" />}
+      render={<DropdownMenuItem />}
+      onConfirm={restart}
+    />
+  ) : (
+    <DropdownMenuItem onClick={() => void restart()} aria-label="Restart session">
+      <RotateCcw className="size-4" />
+      Restart session
+    </DropdownMenuItem>
+  );
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+            aria-label={`${bot.name} conversation menu`}
+          />
+        }
+      >
+        <MoreVertical className="size-4" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-56">
+        <DropdownMenuItem onClick={onEdit} aria-label="Bot settings">
+          <Settings className="size-4" />
+          Bot settings
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {restartItem}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function BotsView({
   bots,
   sessions,
@@ -25222,15 +25341,15 @@ function BotsView({
                 </span>
                 {session ? <ConversationParticipantRow session={session} compact /> : null}
               </span>
-              <Button
-                variant="tint"
-                size="icon-sm"
-                onClick={() => onEdit(bot)}
-                aria-label="Bot settings"
-                className="size-9 shrink-0"
-              >
-                <Settings className="size-4" />
-              </Button>
+              <BotConversationMenu
+                bot={bot}
+                runtimeHealthy={!!backingSession}
+                busy={busy}
+                onEdit={() => onEdit(bot)}
+                onRefresh={async () => {
+                  await Promise.all([onRefreshBots(), onRefreshSessions()]);
+                }}
+              />
             </header>
             <div className="flex min-h-0 flex-1 flex-col">{chat}</div>
           </section>
@@ -25253,9 +25372,15 @@ function BotsView({
             </span>
             {session ? <ConversationParticipantRow session={session} /> : null}
           </span>
-          <Button variant="tint" size="icon-sm" onClick={() => onEdit(bot)} aria-label="Bot settings">
-            <Settings className="size-4" />
-          </Button>
+          <BotConversationMenu
+            bot={bot}
+            runtimeHealthy={!!backingSession}
+            busy={busy}
+            onEdit={() => onEdit(bot)}
+            onRefresh={async () => {
+              await Promise.all([onRefreshBots(), onRefreshSessions()]);
+            }}
+          />
         </header>
         {chat}
       </section>

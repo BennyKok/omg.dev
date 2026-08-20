@@ -103,6 +103,7 @@ import {
   queueBlocksBotRotation,
   rotationCompareAndSwap,
   rotationNoticeText,
+  runtimeRotationCompareAndSwap,
   sessionBoundConfigChanged,
   sessionBoundConfigOf,
   type BotHandoffCheckpoint,
@@ -1731,7 +1732,14 @@ function json(obj: unknown, init?: ResponseInit) {
  * runtime or memory refusal. The response also carries the typed quota
  * snapshot, so clients do not have to parse this code or the prose for counts.
  */
-export type ApiErrorCode = "plan_limit" | "agent_limit" | "bot_quota_limit";
+export type ApiErrorCode =
+  | "plan_limit"
+  | "agent_limit"
+  | "bot_quota_limit"
+  | "bot_restart_forbidden"
+  | "bot_restart_unavailable"
+  | "bot_restart_conflict"
+  | "bot_restart_failed";
 
 function err(status: number, message: string, code?: ApiErrorCode) {
   return json(code ? { error: message, code } : { error: message }, { status });
@@ -1990,13 +1998,20 @@ export async function checkBotCompactionOnce(now = Date.now()): Promise<number> 
     // Keep a real hysteresis gap even when the operator lowers the threshold.
     rearmPercent: Math.min(defaults.rearmPercent, threshold - 10),
   };
-  if (!settings.enabled) return 0;
-
   const [bots, sessions] = await Promise.all([listBots(), listSessions().catch(() => [])]);
   let rotated = 0;
   for (const bot of bots) {
     if (!bot.enabled || bot.rotationState === "rotating" || bot.rotationState === "failed") continue;
     if (bot.rotationState === "queued" && bot.rotationReason === "config") continue;
+
+    if (bot.rotationState === "queued" && bot.rotationReason === "restart") {
+      const outcome = await rotateBotSession(bot.id, {
+        reason: "restart",
+        expectedRuntimeSessionId: bot.rotationExpectedSessionId,
+      });
+      if (outcome.ok && outcome.rotated) rotated++;
+      continue;
+    }
 
     if (bot.rotationState === "queued" && bot.rotationReason === "compaction") {
       const outcome = await rotateBotSession(bot.id, { reason: "compaction" });
@@ -2752,7 +2767,7 @@ export type BotRotationOutcome =
       previousSessionId: string | null;
       appliedConfigRevision: number;
     }
-  | { ok: true; rotated: false; reason: "already-applied"; sessionId: string | null }
+  | { ok: true; rotated: false; reason: "already-applied" | "already-rotated"; sessionId: string | null }
   | { ok: false; deferred: true; blocked: BotRotationBlock; children: string[] }
   | { ok: false; deferred?: false; status: number; error: string };
 
@@ -2789,17 +2804,35 @@ async function rotateBotSession(
   opts: {
     reason: BotRotationReason;
     expectedRevision?: number;
+    expectedRuntimeSessionId?: string | null;
   },
 ): Promise<BotRotationOutcome> {
   return serializeBotWork(botId, async () => {
     const bot = await getBot(botId);
     if (!bot) return { ok: false, status: 404, error: "bot not found" };
 
-    const cas = rotationCompareAndSwap(bot, opts.expectedRevision);
+    const cas = opts.reason === "restart"
+      ? runtimeRotationCompareAndSwap(bot, opts.expectedRuntimeSessionId)
+      : rotationCompareAndSwap(bot, opts.expectedRevision);
     if (!cas.proceed) {
-      if (cas.outcome === "already-applied") {
-        evlog("bot_rotation_noop", { botId, reason: opts.reason, revision: opts.expectedRevision });
-        return { ok: true, rotated: false, reason: "already-applied", sessionId: bot.sessionId ?? null };
+      if (cas.outcome === "already-applied" || cas.outcome === "already-rotated") {
+        if (cas.outcome === "already-rotated" && bot.rotationState === "queued") {
+          mutateBot(bot.id, (current) => ({
+            ...current,
+            rotationState: "idle",
+            rotationReason: undefined,
+            rotationExpectedSessionId: undefined,
+            rotationError: undefined,
+            rotationUpdatedAt: Date.now(),
+          }));
+        }
+        evlog("bot_rotation_noop", {
+          botId,
+          reason: opts.reason,
+          revision: opts.expectedRevision,
+          expectedRuntimeSessionId: opts.expectedRuntimeSessionId,
+        });
+        return { ok: true, rotated: false, reason: cas.outcome, sessionId: bot.sessionId ?? null };
       }
       return {
         ok: false,
@@ -2816,6 +2849,7 @@ async function rotateBotSession(
         ...current,
         rotationState: "queued",
         rotationReason: opts.reason,
+        rotationExpectedSessionId: opts.reason === "restart" ? opts.expectedRuntimeSessionId : undefined,
         rotationError: undefined,
         rotationUpdatedAt: Date.now(),
       }));
@@ -2837,6 +2871,7 @@ async function rotateBotSession(
           ...current,
           rotationState: "queued",
           rotationReason: opts.reason,
+          rotationExpectedSessionId: opts.reason === "restart" ? opts.expectedRuntimeSessionId : undefined,
           rotationError: undefined,
           rotationUpdatedAt: Date.now(),
         }));
@@ -2862,6 +2897,7 @@ async function rotateBotSession(
       ...current,
       rotationState: "rotating",
       rotationReason: opts.reason,
+      rotationExpectedSessionId: opts.reason === "restart" ? opts.expectedRuntimeSessionId : undefined,
       rotationError: undefined,
       rotationUpdatedAt: now,
     }));
@@ -3004,6 +3040,7 @@ async function rotateBotSession(
       ...current,
       rotationState: "idle",
       rotationReason: undefined,
+      rotationExpectedSessionId: undefined,
       rotationError: undefined,
       rotationUpdatedAt: Date.now(),
       lastRotatedAt: Date.now(),
@@ -3055,9 +3092,11 @@ async function applyPendingBotRotation(bot: Bot): Promise<Bot> {
   // human has not decided yet, and quietly restarting their conversation the
   // next time they say hello is precisely the surprise this design removes.
   if (bot.rotationState !== "queued") return bot;
+  const reason = bot.rotationReason ?? "config";
   await rotateBotSession(bot.id, {
-    reason: bot.rotationReason ?? "config",
-    expectedRevision: botConfigRevision(bot),
+    reason,
+    expectedRevision: reason === "config" ? botConfigRevision(bot) : undefined,
+    expectedRuntimeSessionId: reason === "restart" ? bot.rotationExpectedSessionId : undefined,
   });
   // Re-read either way. A rotation that lands moves the binding; one that
   // defers again refreshes the pending state; one that fails records why.
@@ -4555,7 +4594,9 @@ a{color:#60a5fa}
                   409,
                   target.rotationState === "failed"
                     ? `target bot refresh failed: ${target.rotationError || "retry the refresh"}`
-                    : "target bot refresh is still settling; retry after its current turn completes",
+                    : target.rotationReason === "restart"
+                      ? "target bot restart is queued; retry after its current work completes"
+                      : "target bot refresh is still settling; retry after its current turn completes",
                 );
               }
 
@@ -5007,10 +5048,19 @@ a{color:#60a5fa}
             if (activeBot.rotationState === "queued") {
               return err(
                 409,
-                "bot refresh is waiting for the current turn to finish; retry in a moment",
+                activeBot.rotationReason === "restart"
+                  ? "bot restart is queued; retry after the current work completes"
+                  : "bot refresh is waiting for the current turn to finish; retry in a moment",
               );
             }
-            if (activeBot.rotationState === "rotating") return err(409, "bot refresh is in progress; retry in a moment");
+            if (activeBot.rotationState === "rotating") {
+              return err(
+                409,
+                activeBot.rotationReason === "restart"
+                  ? "bot restart is in progress; retry in a moment"
+                  : "bot refresh is in progress; retry in a moment",
+              );
+            }
             if (activeBot.rotationState === "failed" && activeBot.rotationReason === "config") {
               return err(409, `bot refresh failed: ${activeBot.rotationError || "apply the update again"}`);
             }
@@ -5042,6 +5092,75 @@ a{color:#60a5fa}
             }
             return json({ sessionId: delivery.sessionId });
           });
+        }
+      }
+      {
+        // Explicit runtime lifecycle action for a persistent bot conversation.
+        // This is not the configuration Apply route below. Both converge on
+        // rotateBotSession so locking, safe-state admission, continuity and
+        // rollback have one owner.
+        const match = path.match(/^\/api\/bots\/([^/]+)\/restart$/);
+        if (match && req.method === "POST") {
+          const id = decodeURIComponent(match[1]);
+          const existing = await getBot(id);
+          if (!existing) return err(404, "bot not found", "bot_restart_unavailable");
+
+          // Managed access was already verified by the Computer proxy, which
+          // supplies this viewer header. The request body cannot choose an
+          // identity. Local installs keep the same machine-level control policy
+          // as every existing bot mutation.
+          const viewer = botViewerFromRequest(req, undefined);
+          if (!visibleBotsForViewer([existing], viewer, rosterEmails(), undefined).length) {
+            return err(403, "you cannot control this bot conversation", "bot_restart_forbidden");
+          }
+          if (!existing.enabled) {
+            return err(409, "enable this bot before restarting its runtime", "bot_restart_unavailable");
+          }
+          if (!existing.conversationId?.trim() && !existing.sessionId?.trim()) {
+            return err(409, "start this bot conversation before restarting its runtime", "bot_restart_unavailable");
+          }
+
+          const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+          const allowed = new Set(["expectedRuntimeSessionId"]);
+          const unknown = Object.keys(body ?? {}).filter((key) => !allowed.has(key)).sort();
+          if (unknown.length) {
+            return err(400, `unsupported restart fields: ${unknown.join(", ")}`, "bot_restart_conflict");
+          }
+          if (!body || !Object.hasOwn(body, "expectedRuntimeSessionId")) {
+            return err(400, "expectedRuntimeSessionId is required", "bot_restart_conflict");
+          }
+          const rawExpected = body.expectedRuntimeSessionId;
+          if (rawExpected !== null && (typeof rawExpected !== "string" || !rawExpected.trim())) {
+            return err(400, "expectedRuntimeSessionId must be a non-empty string or null", "bot_restart_conflict");
+          }
+          const expectedRuntimeSessionId = typeof rawExpected === "string" ? rawExpected.trim() : null;
+          const outcome = await rotateBotSession(id, {
+            reason: "restart",
+            expectedRuntimeSessionId,
+          });
+          const after = (await getBot(id)) ?? existing;
+          const conversationId = after.conversationId?.trim() || existing.conversationId?.trim() || null;
+
+          if (outcome.ok) {
+            return json({
+              ok: true,
+              state: outcome.rotated ? "restarted" : "already-restarted",
+              conversationId,
+              runtimeSessionId: outcome.sessionId,
+              previousRuntimeSessionId: outcome.rotated ? outcome.previousSessionId : null,
+            });
+          }
+          if (outcome.deferred) {
+            return json({
+              ok: true,
+              state: "queued",
+              conversationId,
+              runtimeSessionId: after.sessionId ?? expectedRuntimeSessionId,
+              blocked: outcome.blocked,
+              activeChildren: outcome.children.length,
+            }, { status: 202 });
+          }
+          return err(outcome.status, outcome.error, "bot_restart_failed");
         }
       }
       {
@@ -5182,6 +5301,7 @@ a{color:#60a5fa}
                     // the wrong revision's error against the new edit.
                     rotationState: "idle" as const,
                     rotationReason: undefined,
+                    rotationExpectedSessionId: undefined,
                     rotationError: undefined,
                     rotationUpdatedAt: Date.now(),
                   }

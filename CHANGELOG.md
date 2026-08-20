@@ -2,6 +2,21 @@
 
 Recent product updates and deployment notes.
 
+## August 20, 2026 - Persistent bot chats can restart their runtime (v0.2.18)
+
+- **A persistent bot conversation now has an explicit Restart session action.**
+  It replaces the execution runtime while it keeps the same conversation ID,
+  route, transcript, participants, verified authors, unread state, and queued
+  messages. The action is separate from Apply changes, Stop, automatic context
+  refresh, and starting a fresh conversation.
+- **Restart waits for a safe lifecycle boundary.** Active primary work, child
+  work, and queued messages defer the restart. A per-bot lock and runtime
+  compare-and-swap prevent duplicate replacements. Failed staging or shutdown
+  restores the old primary when it remains usable.
+- **The action is limited to the persistent bot conversation menu.** Verified
+  shared-Computer access uses the existing bot control policy. Regular session
+  and child task controls and APIs are unchanged.
+
 ## August 20, 2026 - Codex sessions could not start after a Computer update (v0.2.17)
 
 - **Release bundles contain the Codex runtime again.** The bundle removed

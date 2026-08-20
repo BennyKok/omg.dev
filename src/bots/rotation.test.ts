@@ -14,6 +14,8 @@ import {
   queueBlocksBotRotation,
   redactForCheckpoint,
   rotationCompareAndSwap,
+  rotationNoticeText,
+  runtimeRotationCompareAndSwap,
   sessionBoundConfigChanged,
   sessionBoundConfigOf,
 } from "./rotation.ts";
@@ -53,6 +55,35 @@ describe("bot configuration revisions", () => {
       .toEqual({ proceed: false, outcome: "stale" });
   });
 
+  test("runtime CAS makes a repeated manual restart a no-op", () => {
+    expect(runtimeRotationCompareAndSwap({ sessionId: "runtime-old" }, "runtime-old"))
+      .toEqual({ proceed: true });
+    expect(runtimeRotationCompareAndSwap({ sessionId: "runtime-new" }, "runtime-old"))
+      .toEqual({ proceed: false, outcome: "already-rotated" });
+    expect(runtimeRotationCompareAndSwap({}, null)).toEqual({ proceed: true });
+  });
+
+  test("manual restart has a distinct continuity notice", () => {
+    expect(rotationNoticeText("restart")).toContain("runtime restart");
+    expect(rotationNoticeText("restart")).not.toBe(rotationNoticeText("config"));
+    expect(rotationNoticeText("restart")).not.toBe(rotationNoticeText("compaction"));
+  });
+
+  test("manual restart state does not impersonate Apply changes in the editor", () => {
+    expect(botConfigStatus({
+      configRevision: 2,
+      appliedConfigRevision: 2,
+      rotationState: "failed",
+      rotationReason: "restart",
+    })).toBe("current");
+    expect(botConfigStatus({
+      configRevision: 3,
+      appliedConfigRevision: 2,
+      rotationState: "queued",
+      rotationReason: "restart",
+    })).toBe("update-available");
+  });
+
   test("legacy pending refresh becomes one queued revision on the stable conversation", () => {
     const migrated = migrateLegacyBotRotationState(bot({
       sessionId: "legacy-session",
@@ -87,6 +118,29 @@ describe("safe rotation admission", () => {
     expect(queueBlocksBotRotation([{ status: "pending" }, { status: "delivered" }])).toBe(true);
     expect(queueBlocksBotRotation([{ status: "queued" }])).toBe(true);
     expect(queueBlocksBotRotation([{ status: "delivered" }, { status: "failed" }])).toBe(false);
+  });
+});
+
+describe("manual restart lifecycle", () => {
+  test("accepts a healthy idle primary", () => {
+    expect(runtimeRotationCompareAndSwap({ sessionId: "runtime-live" }, "runtime-live"))
+      .toEqual({ proceed: true });
+    expect(botRotationAdmission("bot_one", { sessionId: "runtime-live", busy: false, pid: 10 }, []))
+      .toEqual({ ready: true });
+  });
+
+  test("accepts a dead primary binding for clean relaunch", () => {
+    expect(runtimeRotationCompareAndSwap({ sessionId: "runtime-dead" }, "runtime-dead"))
+      .toEqual({ proceed: true });
+    expect(botRotationAdmission("bot_one", undefined, [])).toEqual({ ready: true });
+  });
+
+  test("queues instead of interrupting busy work or promoting a child", () => {
+    expect(botRotationAdmission("bot_one", { sessionId: "runtime-live", busy: true }, []))
+      .toEqual({ ready: false, blocked: "primary-busy", children: [] });
+    expect(botRotationAdmission("bot_one", { sessionId: "runtime-live", busy: false }, [
+      { sessionId: "child-live", botId: "bot_one", parentSessionId: "runtime-live", pid: 11 },
+    ])).toEqual({ ready: false, blocked: "children-active", children: ["child-live"] });
   });
 });
 
