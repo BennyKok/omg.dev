@@ -121,10 +121,11 @@ export function localUserSplitEnabled(roster: readonly string[]): boolean {
  *   1. A managed caller sees every bot. Control-plane already proved they hold
  *      an active share for this exact machine, and sharing is per machine, so
  *      there is nothing left to scope down to.
- *   2. A box with no local roster has no user split (see above), so it shows
- *      its bots to whoever the box already answered. This is the hosted
- *      Computer case, and it is also the single-user self-hosted case, whose
- *      behaviour is unchanged because there was never more than one person.
+ *   2. A box with fewer than two local users has no split to make (see above),
+ *      so it shows its bots to whoever the box already answered. This covers
+ *      the hosted Computer, whose local roster is the owner alone, and the
+ *      single-user self-hosted box, whose behaviour is unchanged because there
+ *      was never more than one person to divide anything between.
  *   3. A self-hosted box WITH a configured roster keeps its existing
  *      owner-scoped view verbatim, including "no `?user=` means show all".
  *      That is a view preference between people who already share the box and
