@@ -98,6 +98,22 @@ export function isOtherHumanMessageAuthor(
 }
 
 /**
+ * First/last row of a same-speaker run. Other-human name chrome uses the
+ * first; the face uses the last. A one-row run is both. Speakers must already
+ * be resolved (see chatRenderItemSpeaker) — this never guesses identity.
+ */
+export function speakerRunEdges(
+  speakers: readonly string[],
+  index: number,
+): { firstOfRun: boolean; lastOfRun: boolean } {
+  const speaker = speakers[index];
+  return {
+    firstOfRun: index === 0 || speakers[index - 1] !== speaker,
+    lastOfRun: index === speakers.length - 1 || speakers[index + 1] !== speaker,
+  };
+}
+
+/**
  * The botId a render should trust for bot chrome (header avatar/settings,
  * composer, message-send endpoint) — the single place that decides between
  * "trust the caller" and "derive it from this session's own data."

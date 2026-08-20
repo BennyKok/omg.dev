@@ -7,6 +7,7 @@ import {
   isOtherHumanMessageAuthor,
   productBotId,
   renderedBotId,
+  speakerRunEdges,
   unknownConversationParticipant,
 } from "./conversation-ui";
 import type { Conversation, MessageAuthorRef } from "../../../src/conversation-contract";
@@ -118,6 +119,36 @@ describe("own-vs-other-human message authorship (message-level avatar split)", (
     // the viewer's own turns would grow a redundant avatar.
     expect(isOtherHumanMessageAuthor(VERIFIED_HUMAN("human:member"), null)).toBe(false);
     expect(isOtherHumanMessageAuthor(VERIFIED_HUMAN("human:member"), undefined)).toBe(false);
+  });
+});
+
+describe("speakerRunEdges — first/last-of-run vs a single-message run", () => {
+  test("a single beat is both first and last", () => {
+    expect(speakerRunEdges(["user:angel"], 0)).toEqual({ firstOfRun: true, lastOfRun: true });
+  });
+
+  test("two consecutive beats from one person split name (first) and face (last)", () => {
+    const run = ["user:angel", "user:angel"];
+    expect(speakerRunEdges(run, 0)).toEqual({ firstOfRun: true, lastOfRun: false });
+    expect(speakerRunEdges(run, 1)).toEqual({ firstOfRun: false, lastOfRun: true });
+  });
+
+  test("a middle beat of a longer run hides both name and face", () => {
+    const run = ["user:angel", "user:angel", "user:angel"];
+    expect(speakerRunEdges(run, 1)).toEqual({ firstOfRun: false, lastOfRun: false });
+  });
+
+  test("a different speaker breaks the run so each side is last/first again", () => {
+    const speakers = ["user:angel", "user:angel", "assistant", "user:angel"];
+    expect(speakerRunEdges(speakers, 1)).toEqual({ firstOfRun: false, lastOfRun: true });
+    expect(speakerRunEdges(speakers, 2)).toEqual({ firstOfRun: true, lastOfRun: true });
+    expect(speakerRunEdges(speakers, 3)).toEqual({ firstOfRun: true, lastOfRun: true });
+  });
+
+  test("two different verified humans never share a run", () => {
+    const speakers = ["user:angel", "user:ben"];
+    expect(speakerRunEdges(speakers, 0)).toEqual({ firstOfRun: true, lastOfRun: true });
+    expect(speakerRunEdges(speakers, 1)).toEqual({ firstOfRun: true, lastOfRun: true });
   });
 });
 

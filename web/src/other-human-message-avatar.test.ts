@@ -129,8 +129,10 @@ describe("OtherHumanMessageBubble: avatar, accessible name, and bot-reply separa
     expect(component).not.toContain("rounded-[18px] border border-border bg-card");
   });
 
-  test("carries an accessible sender name, both as an aria-label and as visible text", () => {
+  test("carries an accessible sender name on every bubble, even when the visible caption is hidden", () => {
     expect(component).toContain("aria-label={`Message from ${name}`}");
+    // Visible name is first-of-run only; the aria-label is unconditional.
+    expect(component).toContain("firstOfRun ? (");
     expect(component).toContain("{name}");
   });
 
@@ -162,6 +164,55 @@ describe("grouping: consecutive turns from different humans still get the speake
 
   test("every non-user-authored row still collapses to one 'assistant' bucket", () => {
     expect(fn).toContain('if (item.type !== "msg" || item.message.role !== "user") return "assistant";');
+  });
+});
+
+describe("grouping: consecutive other-human beats hide repeated name+face", () => {
+  const loop = APP.slice(APP.indexOf("{items.map((item, index) =>"), APP.indexOf("<TypingIndicator"));
+  const bubble = APP.slice(APP.indexOf("function MessageBubble("), APP.indexOf("function botVisibleUserText("));
+  const component = APP.slice(APP.indexOf("function OtherHumanMessageBubble("), APP.indexOf("function botVisibleUserText("));
+
+  test("ChatStream derives run edges from chatRenderItemSpeaker, then speakerRunEdges", () => {
+    expect(APP).toContain("const speakers = useMemo(() => items.map(chatRenderItemSpeaker), [items]);");
+    expect(loop).toContain("const { firstOfRun, lastOfRun } = speakerRunEdges(speakers, index);");
+    expect(loop).toContain("const speakerChanged = index > 0 && firstOfRun;");
+    expect(loop).toContain('speakerChanged ? "pt-2.5" : undefined');
+    expect(loop).toContain("firstOfRun={firstOfRun}");
+    expect(loop).toContain("lastOfRun={lastOfRun}");
+    expect(loop).not.toMatch(/bot\.owner|currentBot|displayName/);
+  });
+
+  test("MessageBubble forwards the edges only to OtherHumanMessageBubble", () => {
+    const otherBranch = bubble.slice(
+      bubble.indexOf("if (otherHumanSender)"),
+      bubble.indexOf('const isUser = message.role === "user";'),
+    );
+    expect(otherBranch).toContain("firstOfRun={firstOfRun}");
+    expect(otherBranch).toContain("lastOfRun={lastOfRun}");
+    const ownBranch = bubble.slice(
+      bubble.indexOf('const isUser = message.role === "user";'),
+      bubble.indexOf("// A bot's turn reads as somebody talking"),
+    );
+    expect(ownBranch).not.toContain("firstOfRun");
+    expect(ownBranch).not.toContain("lastOfRun");
+    expect(ownBranch).not.toContain("HumanParticipantAvatar");
+  });
+
+  test("name is first-of-run only; avatar is last-of-run only; a spacer keeps the column", () => {
+    expect(component).toContain("firstOfRun = true");
+    expect(component).toContain("lastOfRun = true");
+    expect(component).toContain("firstOfRun ? (");
+    expect(component).toContain("lastOfRun ? (");
+    expect(component).toContain("<HumanParticipantAvatar");
+    expect(component).toContain('className="mb-0.5 size-[22px] shrink-0"');
+    expect(component).toContain("items-end");
+  });
+
+  test("queued rows omit the edges so the defaults still show both name and face", () => {
+    const queued = APP.slice(APP.indexOf("{queuedItems.map"), APP.indexOf("</ConversationContent>"));
+    expect(queued).toContain("<MessageBubble");
+    expect(queued).not.toContain("firstOfRun");
+    expect(queued).not.toContain("lastOfRun");
   });
 });
 

@@ -68,6 +68,7 @@ import {
   isOtherHumanMessageAuthor,
   productBotId,
   renderedBotId,
+  speakerRunEdges,
   unknownConversationParticipant,
 } from "./lib/conversation-ui";
 import {
@@ -16673,6 +16674,7 @@ const ChatStream = memo(function ChatStream({
     () => splitQueuedRenderItems(buildChatRenderItems(visibleMessages)),
     [visibleMessages],
   );
+  const speakers = useMemo(() => items.map(chatRenderItemSpeaker), [items]);
   // Historical reasoning can remain in the transcript after its turn is done.
   // Only let reasoning at the active tail replace the typing dots; otherwise an
   // old thinking block would make a newly-busy session look idle. The tail here
@@ -16791,8 +16793,8 @@ const ChatStream = memo(function ChatStream({
             // follow-up sits close to the turn before it, the way a real chat
             // reads. ConversationContent's own gap is the tight same-speaker
             // baseline — this only adds the extra space on top of it.
-            const speakerChanged =
-              index > 0 && chatRenderItemSpeaker(items[index - 1]) !== chatRenderItemSpeaker(item);
+            const { firstOfRun, lastOfRun } = speakerRunEdges(speakers, index);
+            const speakerChanged = index > 0 && firstOfRun;
             return (
               <div key={item.key} className={speakerChanged ? "pt-2.5" : undefined}>
                 {item.type === "tools" ? (
@@ -16805,6 +16807,8 @@ const ChatStream = memo(function ChatStream({
                     onRetryQueued={onRetryQueued}
                     bot={bot}
                     conversation={conversation}
+                    firstOfRun={firstOfRun}
+                    lastOfRun={lastOfRun}
                   />
                 )}
               </div>
@@ -17609,6 +17613,8 @@ function MessageBubble({
   onRetryQueued,
   bot,
   conversation,
+  firstOfRun,
+  lastOfRun,
 }: {
   message: Message;
   // Whether the session is actively working on THIS turn — drives the thinking
@@ -17621,6 +17627,10 @@ function MessageBubble({
   onRetryQueued?: (message: Message) => void;
   bot?: PersistentBot;
   conversation?: ProductConversation | null;
+  // Same-speaker run edges from ChatStream. Only OtherHumanMessageBubble
+  // reads these; own-turn and bot replies ignore them.
+  firstOfRun?: boolean;
+  lastOfRun?: boolean;
 }) {
   const openArtifact = useContext(ArtifactViewerContext);
   const viewerParticipantId = useContext(ViewerIdentityContext);
@@ -17795,6 +17805,8 @@ function MessageBubble({
         attachments={userContent.attachments}
         participant={otherHumanSender}
         entering={entering}
+        firstOfRun={firstOfRun}
+        lastOfRun={lastOfRun}
       />
     );
   }
@@ -17980,6 +17992,14 @@ function HumanParticipantAvatar({
  * the viewer's own turns — this is still plain user prose, just not the
  * viewer's) with an `otherAuthor` tint so the two remain visually distinct at
  * a glance even though they share a shape.
+ *
+ * Consecutive beats from the same verified person share one caption: the
+ * name on the first of the run, the face on the last (items-end, so a
+ * multi-line run still pins the avatar to the bottom bubble). A single
+ * message is both edges and still shows both. The aria-label keeps the
+ * sender name on every bubble, including the ones that hide the visible
+ * caption. Defaults keep both chrome when the caller has no siblings
+ * (queued rows).
  */
 function OtherHumanMessageBubble({
   message,
@@ -17987,12 +18007,16 @@ function OtherHumanMessageBubble({
   attachments,
   participant,
   entering,
+  firstOfRun = true,
+  lastOfRun = true,
 }: {
   message: Message;
   html: string;
   attachments: MessageAttachment[];
   participant: ConversationParticipant;
   entering?: boolean;
+  firstOfRun?: boolean;
+  lastOfRun?: boolean;
 }) {
   const name = conversationParticipantDisplayName(participant);
   return (
@@ -18003,9 +18027,15 @@ function OtherHumanMessageBubble({
       aria-label={`Message from ${name}`}
     >
       <div className="flex w-full min-w-0 items-end gap-2">
-        <HumanParticipantAvatar participant={participant} size={22} className="mb-0.5" />
+        {lastOfRun ? (
+          <HumanParticipantAvatar participant={participant} size={22} className="mb-0.5" />
+        ) : (
+          <span aria-hidden="true" className="mb-0.5 size-[22px] shrink-0" />
+        )}
         <div className="flex min-w-0 max-w-[calc(100%-1.75rem)] flex-col items-start gap-1">
-          <span className="px-0.5 text-[11px] font-medium leading-none text-muted-foreground">{name}</span>
+          {firstOfRun ? (
+            <span className="px-0.5 text-[11px] font-medium leading-none text-muted-foreground">{name}</span>
+          ) : null}
           {attachments.length > 0 ? <UserAttachments attachments={attachments} /> : null}
           {html ? (
             <MessageActions text={message.text || ""} isUser={false}>
