@@ -124,7 +124,12 @@ export function BotCreateFlow() {
         }),
       });
       if (!res?.bot) throw new Error("No bot came back");
-      toast.show(`${res.bot.name} joined the roster.`);
+      // `toast.show` defaults to intent "error" (toast.tsx) — every prior
+      // call site in the bot sheet inherited that silently, which is why
+      // "joined the roster" used to render with a warning triangle. This is
+      // the one line that fixes it: the final action of an onboarding flow
+      // has to read as unmistakably good news, not a caution.
+      toast.show(`${res.bot.name} joined the roster.`, { intent: "success" });
       router.back();
     } catch (e) {
       toast.show(e instanceof Error ? e.message : "Could not create bot");

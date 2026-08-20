@@ -130,11 +130,37 @@ export function BotEditScreen({ bot }: { bot: Bot }) {
           colorway,
           agent,
           cwd,
+          // Caught on-device: PATCH with no `enabled` key silently disabled
+          // the bot being edited — the roster started showing Nova as
+          // "Disabled" after an ordinary colorway change. Not a regression
+          // from this rebuild (the sheet's payload omitted it too), but this
+          // form is the one place that edits an existing bot, so it is the
+          // one place that can carry the current value forward. The actual
+          // enable/disable merge behavior lives in src/bots/store.ts, which
+          // this task does not touch (see AGENTS.md — a separate
+          // reconciliation is pending there).
+          enabled: bot.enabled,
           user: user?.email,
         }),
       });
       if (!res?.bot) throw new Error("No bot came back");
-      toast.show(`Saved ${res.bot.name}.`);
+      // Move the dirty-check's baseline up to what was just saved, BEFORE
+      // navigating away. Without this, `dirty` keeps comparing against the
+      // bot's state from when this screen opened — still true right after a
+      // successful save — and `router.back()` immediately below walks
+      // straight into this same screen's own `beforeRemove` guard, which
+      // then asks "Discard changes?" about an edit that is already saved.
+      // Caught on-device: the alert appeared over the just-fired success
+      // toast on the very first real save.
+      initial.name = name;
+      initial.persona = persona;
+      initial.shape = shape;
+      initial.colorway = colorway;
+      initial.agent = agent;
+      initial.cwd = cwd;
+      // See bot-create-flow.tsx's identical note: `toast.show` defaults to
+      // intent "error", and a save confirmation must not read as a caution.
+      toast.show(`Saved ${res.bot.name}.`, { intent: "success" });
       router.back();
     } catch (e) {
       toast.show(e instanceof Error ? e.message : "Could not save bot");
