@@ -404,6 +404,7 @@ import {
   isOpencodeAuthProviderId,
   setOpencodeProviderApiKey,
 } from "../opencode-auth.ts";
+import { deleteJcodeCredential, isJcodeAuthProviderId } from "../jcode-auth.ts";
 import { listToolConnections } from "../tool-connections.ts";
 import {
   bindClaudeSessionAccount,
@@ -4337,10 +4338,10 @@ a{color:#60a5fa}
             } | null;
             const claudeAccountId =
               typeof body?.claudeAccountId === "string" ? body.claudeAccountId : undefined;
-            // pi is signed in per model provider rather than once per agent, so
-            // it is the one kind that needs to be told which one.
-            const piProvider = typeof body?.provider === "string" ? body.provider : undefined;
-            return json(await startCodingAgentAuth(kind, { claudeAccountId, piProvider }));
+            // pi and jcode are signed in per model provider rather than once
+            // per agent, so those kinds need to be told which one.
+            const provider = typeof body?.provider === "string" ? body.provider : undefined;
+            return json(await startCodingAgentAuth(kind, { claudeAccountId, piProvider: provider, provider }));
           } catch (e) {
             return err(502, e instanceof Error ? e.message : "failed to start login");
           }
@@ -4379,13 +4380,16 @@ a{color:#60a5fa}
         }
       }
       {
-        const m = path.match(/^\/api\/coding-agents\/(pi|opencode)\/providers\/([a-z0-9-]+)$/);
+        const m = path.match(/^\/api\/coding-agents\/(pi|opencode|jcode)\/providers\/([a-z0-9-]+)$/);
         if (m && req.method === "DELETE") {
           const [, agent, provider] = m;
           try {
             if (agent === "pi") {
               if (!isPiAuthProviderId(provider)) return err(404, "unknown pi provider");
               await deletePiCredential(provider);
+            } else if (agent === "jcode") {
+              if (!isJcodeAuthProviderId(provider)) return err(404, "unknown jcode provider");
+              deleteJcodeCredential(provider);
             } else {
               if (!isOpencodeAuthProviderId(provider)) return err(404, "unknown opencode provider");
               deleteOpencodeCredential(provider);

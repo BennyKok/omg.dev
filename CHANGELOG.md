@@ -2,6 +2,20 @@
 
 Recent product updates and deployment notes.
 
+## August 20, 2026 - jcode Claude and Codex login in the UI
+
+- **jcode Claude and Codex sign-in now uses the same in-app login as the
+  other providers.** The jcode row in Settings lists Claude and Codex.
+  Connect opens the existing browser login dialog. It does not send you to
+  a terminal-only `jcode login` picker.
+- **The real Codex flag is `--provider openai`.** There is no
+  `--provider codex`. Claude is `jcode login --provider claude`. The UI
+  starts those with `--print-auth-url --json`, then finishes with
+  `--auth-code` or `--callback-url`. After that, a jcode session can run
+  with the signed-in provider, the same way other signed-in harnesses do.
+- omg.dev still drives the jcode CLI you already own. It does not resell
+  tokens.
+
 ## August 20, 2026 - A new account saw no onboarding steps at all (v0.2.20)
 
 - **A brand new hosted account landed on an empty home screen.** After

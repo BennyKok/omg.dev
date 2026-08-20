@@ -517,9 +517,9 @@ export type CodingAgentInfo = {
 };
 
 /**
- * A model provider the pi agent can sign into. pi is the only agent where
- * "connected" is per provider rather than one account for the whole kind, so it
- * gets its own row list instead of reusing the Claude account shape.
+ * A model provider an agent signs into on its own. pi, OpenCode, and jcode all
+ * work this way, so they share this row shape instead of the Claude account
+ * list.
  */
 export type PiProviderInfo = {
   id: string;
@@ -543,7 +543,16 @@ export type ClaudeAccountInfo = {
 
 const AgentAccessModeContext = createContext<AgentAccessMode>("configured");
 
-type AuthProvider = "claude" | "codex" | "grok" | "fx" | "github" | "pi-anthropic" | "pi-codex";
+type AuthProvider =
+  | "claude"
+  | "codex"
+  | "grok"
+  | "fx"
+  | "github"
+  | "pi-anthropic"
+  | "pi-codex"
+  | "jcode-claude"
+  | "jcode-openai";
 
 const AUTH_PROVIDER_LABELS: Record<AuthProvider, string> = {
   claude: "Claude",
@@ -553,6 +562,8 @@ const AUTH_PROVIDER_LABELS: Record<AuthProvider, string> = {
   github: "GitHub",
   "pi-anthropic": "Claude",
   "pi-codex": "ChatGPT",
+  "jcode-claude": "Claude",
+  "jcode-openai": "Codex",
 };
 
 
@@ -7772,15 +7783,21 @@ export function App() {
     return startBrowserAuth(key, `/api/connections/${key}/auth`, undefined, {}, "GitHub");
   }
 
-  // pi and OpenCode both sign in per model provider, so the request carries
-  // which one — and which agent, since the two id namespaces overlap and write
-  // to different credential stores. The browser flow past this point is
-  // identical to every other provider's.
+  // pi, OpenCode, and jcode sign in per model provider, so the request carries
+  // which one — and which agent, since the id namespaces overlap and write to
+  // different credential stores. The browser flow past this point is identical
+  // to every other provider's.
   async function loginAgentProvider(kind: AgentKind, provider: PiProviderInfo) {
     if (provider.method === "api-key") return connectApiKeyProvider(kind, provider);
-    // Only pi has browser-flow providers today. Naming it rather than passing
-    // `kind` through keeps a future OAuth provider on another agent from
-    // silently running pi's flow against the wrong credential store.
+    if (kind === "jcode") {
+      return startBrowserAuth(
+        "jcode",
+        "/api/coding-agents/jcode/auth",
+        undefined,
+        { provider: provider.id },
+        provider.label,
+      );
+    }
     if (kind !== "pi") {
       toast.error(`Connect ${provider.label} with \`opencode auth login\` in a terminal`);
       return;
@@ -7818,7 +7835,7 @@ export function App() {
   }
 
   async function disconnectAgentProvider(kind: AgentKind, provider: PiProviderInfo) {
-    const agentLabel = kind === "opencode" ? "OpenCode" : "pi";
+    const agentLabel = kind === "opencode" ? "OpenCode" : kind === "jcode" ? "jcode" : "pi";
     const confirmed = await appDialog.confirm({
       title: `Disconnect ${provider.label}?`,
       description: `${agentLabel} will stop offering this provider's models until you connect it again.`,
@@ -24051,7 +24068,11 @@ function CodingAgentAuthPanel({
           {session.needsCode ? (
             <form className="space-y-2" onSubmit={(event) => void submitCode(event)}>
               <label className="block text-xs font-medium text-muted-foreground" htmlFor={`claude-auth-code-${inline ? "inline" : "dialog"}`}>
-                Paste the code Claude shows after approval
+                {session.provider === "jcode-openai"
+                  ? "Paste the callback URL from the address bar after approval"
+                  : session.provider === "jcode-claude"
+                    ? "Paste the code or callback URL Claude shows after approval"
+                    : "Paste the code Claude shows after approval"}
               </label>
               <div className="flex gap-2">
                 <input
@@ -24061,7 +24082,11 @@ function CodingAgentAuthPanel({
                   autoComplete="off"
                   autoCapitalize="none"
                   spellCheck={false}
-                  placeholder="Authorization code"
+                  placeholder={
+                    session.provider === "jcode-openai"
+                      ? "http://localhost:1455/auth/callback?..."
+                      : "Authorization code"
+                  }
                   className="min-w-0 flex-1 rounded-2xl border border-border bg-input/30 px-3 py-2 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
                 />
                 <Button type="submit" disabled={!code.trim() || submitting}>

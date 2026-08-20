@@ -125,8 +125,8 @@ function ExpandableRow({
 
 /**
  * One model provider an agent can sign into, with its connect/disconnect
- * control. pi and OpenCode both authenticate per provider rather than once per
- * agent, so both render through this row.
+ * control. pi, OpenCode, and jcode authenticate per provider rather than once
+ * per agent, so they render through this row.
  */
 function AgentProviderRow({
   provider,
