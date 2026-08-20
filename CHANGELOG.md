@@ -13,6 +13,13 @@ Recent product updates and deployment notes.
   stays dismissed on every device, and Settings > Setup guide replays it.
 - Each step completes on its own when you do the thing, so the panel never
   asks you to start a first session while you are looking at one.
+- **A shared persistent-bot conversation's header showed a human avatar and
+  name chip** next to the bot's own identity, reading as who created or owns
+  the bot. The header now shows only the bot's identity and settings.
+- **Messages from other people in a shared bot conversation now show whose
+  they are.** A verified message from someone other than you shows their
+  avatar and name beside it, like a group chat inside the bot conversation.
+  Your own messages and the bot's replies look exactly as they did before.
 
 ## August 20, 2026 - Opening a bot from the roster could show the wrong chat surface (v0.2.19)
 
