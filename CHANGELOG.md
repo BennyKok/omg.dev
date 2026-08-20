@@ -2,6 +2,26 @@
 
 Recent product updates and deployment notes.
 
+## August 20, 2026 - Persistent bots rotate without losing the conversation (v0.2.16)
+
+- **Persona and runtime changes now start a fresh model runtime instead of
+  appending another launch prompt to the old thread.** The bot editor shows an
+  explicit Apply action and reports queued, refreshing, current, and failed
+  states. One durable conversation ID keeps the route, transcript, unread
+  state, shared participants, and verified message authors stable while the
+  primary runtime changes beneath it.
+- **Long-lived bots now refresh before measured context use reaches the model
+  limit.** Automatic refresh defaults to 78 percent, can be disabled or set
+  from 40 to 95 percent in Settings, and uses hysteresis plus a minimum interval
+  to prevent loops. The server waits for active primary work, child sessions,
+  and queued messages before it rotates.
+- **Each replacement receives a bounded, structured continuity checkpoint.**
+  The checkpoint keeps explicit goals, decisions, open tasks, preferences,
+  artifacts, verified human authors, and `legacy:unknown` attribution without
+  copying secrets or old runtime contracts. Revision compare-and-swap and the
+  per-bot lock prevent duplicate rotations. A failed stage or close restores
+  the still-live old primary and exposes the error for retry.
+
 ## August 20, 2026 - Persistent bot quotas are owner-aware and default to 20 (v0.2.15)
 
 - **Each verified owner can store 20 persistent bots by default.** Disabled and
