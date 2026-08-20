@@ -2,6 +2,22 @@
 
 Recent product updates and deployment notes.
 
+## August 20, 2026 - A selected bot could render as a plain session
+
+- **A persistent bot's chat could show the plain session header instead of
+  the bot's own avatar, settings button, and composer.** The bot resolution
+  shared by the server and the web client trusted a bot's saved session id as
+  soon as a live, non-delegated session existed at that id — without checking
+  that session actually belonged to the bot. A stale saved id, or an ordinary
+  session that later reused the same id, was enough to make the roster point
+  at someone else's session, and the bot's identity dropped silently because
+  the render path read `botId` straight off that unrelated session record.
+  `findBotMainSession`, `botConversationRef`, and `botCanonicalSessionId`
+  (`src/bots/session.ts`) now require the found session to carry the bot's
+  own id before they trust it. The desktop stage column also stamps the
+  selected bot's identity onto its rendered session directly, instead of
+  trusting whatever `botId` (if any) the raw session record carries.
+
 ## August 20, 2026 - First-run installs the local control plane (v0.2.12)
 
 - **The documented install no longer goes through the retired `@omg-dev/cli`
