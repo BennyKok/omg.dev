@@ -36,6 +36,7 @@ export const LUCIDE_FONT_FAMILY = "Lucide";
 export const LUCIDE = {
   monitor: 0xe11d,
   settings: 0xe154,
+  bot: 0xe1bb,
 } as const;
 
 export type LucideName = keyof typeof LUCIDE;
