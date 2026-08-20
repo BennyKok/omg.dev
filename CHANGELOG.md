@@ -2,6 +2,18 @@
 
 Recent product updates and deployment notes.
 
+## August 20, 2026 - A new account saw no onboarding steps at all (v0.2.20)
+
+- **A brand new hosted account landed on an empty home screen.** After
+  finishing (or skipping) the connect screens, there was nothing on the page
+  that said what the Computer could do: no steps, no suggestions, only "No
+  running sessions". The first-run steps existed on the server the whole
+  time, but no screen ever showed them. There is now a "Getting started"
+  panel on the home screen with the remaining steps. It can be dismissed, it
+  stays dismissed on every device, and Settings > Setup guide replays it.
+- Each step completes on its own when you do the thing, so the panel never
+  asks you to start a first session while you are looking at one.
+
 ## August 20, 2026 - Opening a bot from the roster could show the wrong chat surface (v0.2.19)
 
 - **Selecting a persistent bot on the desktop layout could render a plain
