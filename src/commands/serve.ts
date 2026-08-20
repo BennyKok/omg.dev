@@ -96,12 +96,18 @@ import {
   reserveBotPeerMessage,
 } from "../bots/messaging.ts";
 import {
-  assertConversationAccess,
   botReadUser,
   conversationUnread,
   ensureBotConversationReadBaseline,
   markBotConversationRead,
 } from "../bots/unread.ts";
+import {
+  assertBotConversationAccess,
+  botViewerFromRequest,
+  localUserSplitEnabled,
+  // Aliased: the route already binds `visibleBots` to its own result.
+  visibleBots as visibleBotsForViewer,
+} from "../bots/access.ts";
 import { startAutoScheduler, setBotRoutineDelivery } from "../auto/scheduler.ts";
 import { handleWakeTick } from "../auto/wake-tick.ts";
 import { pushWakeHooksNow, setWakeHooksBootId } from "../auto/wake-hooks-push.ts";
@@ -4066,9 +4072,11 @@ a{color:#60a5fa}
           // with a year of history show "Say hi to get started" after a reboot.
           const requestedUser = url.searchParams.get("user");
           const allBots = await listBots();
-          const visibleBots = requestedUser == null
-            ? allBots
-            : allBots.filter((bot) => botReadUser(bot.owner) === botReadUser(requestedUser));
+          // bots/access.ts owns who may see what. `?user=` is an identity for
+          // read state, never an authorization input — conflating the two is
+          // what hid a shared Computer's bots from everyone authorized on it.
+          const viewer = botViewerFromRequest(req, requestedUser);
+          const visibleBots = visibleBotsForViewer(allBots, viewer, rosterEmails(), requestedUser);
           const bots = visibleBots.map((bot) => {
             const last = bot.sessionId ? lastIndexedAssistantMessage(bot.sessionId) : null;
             return last?.text
@@ -4091,7 +4099,10 @@ a{color:#60a5fa}
           // bot had ever spawned; on this machine that was 39 conversations
           // for 9 bots.
           const sessions = await listSessionsCached();
-          const user = botReadUser(requestedUser);
+          // Read state is per person, so it keys on the VIEWER — Angel's unread
+          // on a shared bot is hers, not a copy of the bot owner's. The trusted
+          // header decides this whenever control-plane supplied one.
+          const user = viewer.identity;
           const conversations = visibleBots.flatMap((bot) => {
             const sessionId = botCanonicalSessionId(bot, sessions);
             if (!sessionId) return [];
@@ -4101,9 +4112,16 @@ a{color:#60a5fa}
             const session = sessions.find((row) => row.sessionId === sessionId);
             const assigned = session?.assignedUser?.trim();
             const botOwner = bot.owner?.trim();
-            if (assigned && botOwner && botReadUser(assigned) !== botReadUser(botOwner)) return [];
+            // Both of these are the same owner-scoped view filter as the bot
+            // list above, and they have to fall away on exactly the same terms.
+            // Left unconditional they re-hid every conversation the list had
+            // just decided was visible: on a shared machine the backing session
+            // is stamped with whoever drove it, so `assigned` and `botOwner`
+            // routinely disagree and the whole roster came back empty-handed.
+            const scoped = !viewer.managed && localUserSplitEnabled(rosterEmails());
+            if (scoped && assigned && botOwner && botReadUser(assigned) !== botReadUser(botOwner)) return [];
             const conversationUser = botReadUser(assigned || botOwner);
-            if (requestedUser != null && conversationUser !== user) return [];
+            if (scoped && requestedUser != null && conversationUser !== user) return [];
             const cursor = latestIndexedAssistantCursor(sessionId);
             ensureBotConversationReadBaseline(user, sessionId, cursor?.rowid ?? null);
             const last = lastIndexedAssistantMessage(sessionId);
@@ -4178,7 +4196,14 @@ a{color:#60a5fa}
           const sessions = await listSessionsCached();
           const bots = await listBots();
           try {
-            const owner = assertConversationAccess(requestedUser, sessionId, sessions, bots);
+            const owner = assertBotConversationAccess(
+              botViewerFromRequest(req, requestedUser),
+              rosterEmails(),
+              requestedUser,
+              sessionId,
+              sessions,
+              bots,
+            );
             const cursor = latestIndexedAssistantCursor(sessionId);
             const read = markBotConversationRead(owner.user, sessionId, cursor?.rowid ?? null);
             return json({ ok: true, sessionId, readThroughRowid: read.readThroughRowid });

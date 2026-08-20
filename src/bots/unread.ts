@@ -71,18 +71,6 @@ export function conversationOwner(
   return { bot, user: botReadUser(assigned || owner) };
 }
 
-export function assertConversationAccess(
-  requestedUser: string | null | undefined,
-  sessionId: string,
-  sessions: BotConversationOwnerRow[],
-  bots: Bot[],
-): { bot: Bot; user: string } {
-  const owner = conversationOwner(sessionId, sessions, bots);
-  if (!owner) throw new Error("bot conversation not found");
-  if (owner.user !== botReadUser(requestedUser)) throw new Error("bot conversation belongs to another user");
-  return owner;
-}
-
 export function conversationUnread(user: string, sessionId: string, latestAssistantRowid: number | null): boolean {
   if (latestAssistantRowid == null) return false;
   const key = botReadUser(user);
