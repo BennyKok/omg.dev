@@ -378,6 +378,19 @@ function RootNavigator() {
               reasoning and why this is a header icon button, not a rail
               toggle. */}
           <Stack.Screen name="bots/index" options={{ title: "Bots", headerLargeTitle: true }} />
+          {/* Full-page, onboarding-style create and edit — no system header;
+              each screen draws its own back control (+ progress, on create)
+              via FlowHeader in bot-fields.tsx.
+              `gestureEnabled: false` ONLY on the wizard, and only because its
+              header chevron means "back one step" while the OS swipe gesture
+              would mean something else — two controls disagreeing about what
+              "back" means on the same screen. See bot-create-flow.tsx.
+              Edit is an ordinary full-page screen and keeps the native
+              swipe-back gesture; it guards unsaved changes itself
+              (`beforeRemove` in bot-edit-screen.tsx) rather than by
+              disabling a gesture iOS users reach for reflexively. */}
+          <Stack.Screen name="bots/new" options={{ headerShown: false, gestureEnabled: false }} />
+          <Stack.Screen name="bots/[id]/edit" options={{ headerShown: false }} />
           {/* In-app purchase. Pushed from the blocked cloud computer and from
               Settings — the two places someone learns they need to pay. It is
               a normal pushed screen rather than a modal so the back gesture
