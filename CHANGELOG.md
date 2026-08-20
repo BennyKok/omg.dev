@@ -2,6 +2,32 @@
 
 Recent product updates and deployment notes.
 
+## August 20, 2026 - Opening a bot from the roster could show the wrong chat surface (v0.2.19)
+
+- **Selecting a persistent bot on the desktop layout could render a plain
+  session instead of the bot's own chat.** The header showed a generic agent
+  icon and model badge instead of the bot's avatar and settings, and the
+  composer read "Add a note" instead of the bot's name. The bot the roster
+  resolved is now trusted for the whole surface — header, composer, and
+  message routing — instead of being re-derived from data that could lag
+  behind a rotated, nested, or same-named session.
+- **The bot chat back button on mobile is now a single chevron**, dropping
+  the "Bots" label text (still announced as "Back to bots" for screen
+  readers).
+- **Bot replies are chat-shaped instead of essay-shaped.** Short replies,
+  separate message beats, confident framing, and no more bolded lead-ins,
+  markdown headings, bulleted recaps, or "want me to do X or Y?" closers.
+- **A session with a dead harness can be resumed again.** Two bugs combined
+  to make some dead sessions permanently stuck: a liveness check misread pid
+  0 as "running," and the resume endpoint trusted that same misread to skip
+  restarting them. Messages sent to a stuck session now reach a running
+  process again.
+- **Fewer "database is locked" errors during heavy concurrent use.**
+  Transcript search no longer maintains a full-text mirror of every message;
+  it now scans the same per-session index search already needed, which
+  removed a second write on every message ingested while the write lock was
+  held.
+
 ## August 20, 2026 - Persistent bot chats can restart their runtime (v0.2.18)
 
 - **A persistent bot conversation now has an explicit Restart session action.**
