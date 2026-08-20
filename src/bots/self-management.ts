@@ -1,4 +1,5 @@
 import type { Bot } from "./store.ts";
+import { botPatchTouchesSessionBoundField } from "./rotation.ts";
 
 export type BotRuntimeSession = {
   sessionId?: string | null;

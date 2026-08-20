@@ -29,6 +29,21 @@ const assistant = (id: string, text = id) => ({ id, role: "assistant" as const, 
 const user = (id: string, text = id) => ({ id, role: "user" as const, kind: "text" as const, text, ts: Date.now() });
 
 describe("persistent bot conversation unread watermarks", () => {
+  test("keeps one unread watermark when the primary runtime rotates", () => {
+    const conversationId = "durable-conversation";
+    ensureBotConversationReadBaseline("owner@example.com", conversationId, null, 1);
+    indexSessionMessagesDirect("runtime-old", [assistant("old-reply")]);
+    const oldCursor = latestIndexedAssistantCursor("runtime-old")!;
+    markBotConversationRead("owner@example.com", conversationId, oldCursor.rowid, 2);
+
+    indexSessionMessagesDirect("runtime-new", [assistant("new-reply")]);
+    const newCursor = latestIndexedAssistantCursor("runtime-new")!;
+    expect(newCursor.rowid).toBeGreaterThan(oldCursor.rowid);
+    expect(conversationUnread("owner@example.com", conversationId, newCursor.rowid)).toBe(true);
+    markBotConversationRead("owner@example.com", conversationId, newCursor.rowid, 3);
+    expect(conversationUnread("owner@example.com", conversationId, newCursor.rowid)).toBe(false);
+  });
+
   test("creates unread only for new assistant output and clears it when viewed", async () => {
     const bot = await createBot({ name: "Scout", persona: "Scout", owner: "owner@example.com" });
     await updateBot(bot.id, { sessionId: "conversation-a" });

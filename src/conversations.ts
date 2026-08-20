@@ -409,6 +409,67 @@ export function attachRuntimeSession(input: {
   return conversation;
 }
 
+export function detachRuntimeSession(
+  conversationId: string,
+  sessionId: string,
+  detachedAt = Date.now(),
+): Conversation | null {
+  const rows = readStore();
+  const conversation = rows.find((row) => row.id === conversationId);
+  const runtime = conversation?.runtimeSessions.find((row) => row.sessionId === sessionId);
+  if (!conversation || !runtime) return conversation ?? null;
+  runtime.detachedAt = detachedAt;
+  conversation.updatedAt = detachedAt;
+  writeStore(rows);
+  return conversation;
+}
+
+/**
+ * Move one participant's canonical runtime inside a durable conversation.
+ *
+ * The conversation is written once. Child executions remain attached, while
+ * every older active primary for this participant receives the same detach
+ * timestamp. Calling this again with the same session is idempotent.
+ */
+export function replaceConversationPrimaryRuntime(input: {
+  conversationId: string;
+  sessionId: string;
+  participantId: string;
+  attachedAt?: number;
+  now?: number;
+}): Conversation | null {
+  const rows = readStore();
+  const conversation = rows.find((row) => row.id === input.conversationId);
+  if (!conversation) return null;
+  const now = input.now ?? Date.now();
+  for (const runtime of conversation.runtimeSessions) {
+    if (
+      runtime.kind === "primary" &&
+      runtime.participantId === input.participantId &&
+      runtime.sessionId !== input.sessionId &&
+      !runtime.detachedAt
+    ) {
+      runtime.detachedAt = now;
+    }
+  }
+  const existing = conversation.runtimeSessions.find((row) => row.sessionId === input.sessionId);
+  if (existing) {
+    existing.participantId = input.participantId;
+    existing.kind = "primary";
+    existing.detachedAt = null;
+  } else {
+    conversation.runtimeSessions.push({
+      sessionId: input.sessionId,
+      participantId: input.participantId,
+      kind: "primary",
+      attachedAt: input.attachedAt ?? now,
+    });
+  }
+  conversation.updatedAt = now;
+  writeStore(rows);
+  return conversation;
+}
+
 export function upsertConversationParticipant(
   conversationId: string,
   participant: ConversationParticipant,
