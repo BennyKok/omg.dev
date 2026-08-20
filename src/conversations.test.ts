@@ -21,6 +21,7 @@ import {
   migrateLegacyConversations,
   replaceConversationPrimaryRuntime,
   upsertConversationParticipant,
+  viewerConversationParticipantId,
 } from "./conversations.ts";
 import { formatBotAttribution } from "./bots/authorship.ts";
 import {
@@ -321,5 +322,40 @@ describe("persisted message authors", () => {
       participantId: "legacy:unknown",
       verified: false,
     });
+  });
+});
+
+describe("the bootstrap viewer identity", () => {
+  // What GET /api/bootstrap stamps as `viewer.participantId` — the id the UI
+  // compares each verified human MessageAuthorRef against to decide "is this
+  // my own turn" (see isOtherHumanMessageAuthor on the client). It must agree
+  // with the id a verified human turn actually resolves to, or a shared bot
+  // conversation would draw a redundant avatar on the viewer's own messages,
+  // or (worse) skip drawing one on someone else's.
+  test("resolves the same id a verified human turn resolves to", () => {
+    expect(viewerConversationParticipantId("member@example.com")).toBe(
+      conversationHumanParticipantId("member@example.com"),
+    );
+  });
+
+  test("is case/whitespace-insensitive, matching the access boundary", () => {
+    expect(viewerConversationParticipantId("  MEMBER@Example.com ")).toBe(
+      conversationHumanParticipantId("member@example.com"),
+    );
+  });
+
+  test("a non-email placeholder resolves to null, not a hash of the placeholder", () => {
+    // botViewer's unmanaged-with-nothing-selected fallback is a fixed
+    // sentinel string ("__local__"), never an address. Hashing it would
+    // produce a stable id that happens to name nobody real — worse than null,
+    // because a caller could mistake it for a resolved identity.
+    expect(viewerConversationParticipantId("__local__")).toBeNull();
+    expect(viewerConversationParticipantId("")).toBeNull();
+  });
+
+  test("two different local placeholders never collide with each other or a real member", () => {
+    const real = viewerConversationParticipantId("member@example.com");
+    expect(viewerConversationParticipantId("__local__")).not.toBe(real);
+    expect(viewerConversationParticipantId("also-not-an-email")).toBeNull();
   });
 });

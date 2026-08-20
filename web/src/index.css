@@ -984,6 +984,19 @@ html.lfg-keyboard-open {
     color: var(--foreground);
   }
 
+  /* Another human's turn in a shared bot conversation (OtherHumanMessageBubble).
+     Same glass-bubble shape as the viewer's own turn — reusing UserBubble keeps
+     the clamp/attachments/copy affordances identical — but a muted fill instead
+     of the bright glass tint, so it reads as "someone else" at a glance even
+     though it sits on the opposite (left) side of the transcript already. */
+  .user-bubble.markdown.is-other {
+    --user-bubble-fill: color-mix(in oklab, var(--muted) 82%, transparent);
+  }
+
+  .dark .user-bubble.markdown.is-other {
+    --user-bubble-fill: color-mix(in oklab, var(--muted) 88%, transparent);
+  }
+
   /* In-flight user message: transition.dev's organic-shimmer language adapted
      to the chat bubble. The steady glass fill remains on the bubble while a
      turbulence-warped colour wash and its edge glow travel together above it.

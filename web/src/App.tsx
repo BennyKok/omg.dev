@@ -62,8 +62,12 @@ import {
 import { botChatSessionId, botStageSession, findBotMainSession } from "./lib/bot-session";
 import {
   activeConversationParticipants,
+  conversationParticipantById,
+  conversationParticipantDisplayName,
   isBotConversation,
+  isOtherHumanMessageAuthor,
   productBotId,
+  unknownConversationParticipant,
 } from "./lib/conversation-ui";
 import {
   BOT_UNREAD_DOT_CLASS,
@@ -711,6 +715,15 @@ export type PersistentBot = {
 };
 
 const BotDirectoryContext = createContext<Map<string, PersistentBot>>(new Map());
+/**
+ * "Me", as a conversation participant id — see the `viewerParticipantId`
+ * state in App and BootstrapPayload["viewer"]. Read by the transcript
+ * renderer to skip drawing a redundant avatar on the viewer's own turns in a
+ * shared bot conversation. Null means "unknown", never "nobody" — a message
+ * whose author cannot be compared against this renders unattributed rather
+ * than guessed either way.
+ */
+const ViewerIdentityContext = createContext<string | null>(null);
 const BotUnreadContext = createContext<{ conversations: BotConversationUnread[]; any: boolean; selectedConversationId: string | null }>({ conversations: [], any: false, selectedConversationId: null });
 const OpenBotContext = createContext<(id: string) => void>(() => {});
 /**
@@ -1003,6 +1016,8 @@ type BootstrapPayload = {
   settings?: GlobalSettings | null;
   sessions?: Session[] | null;
   conversations?: ProductConversation[] | null;
+  /** Which conversation participant, if any, "I" am — see fetchBootstrap. */
+  viewer?: { managed: boolean; participantId: string | null } | null;
   users?: User[] | null;
   repos?: Repo[] | null;
   auto?: { agents?: AutoAgent[] | null; tz?: string; findings?: AutoFinding[] | null };
@@ -2604,9 +2619,14 @@ function sessionReference(sessionId: string): string {
 // Which "speaker" a chat row reads as, for grouping consecutive same-speaker
 // rows closer together than a change of speaker (see the transcript render
 // loop). Tool calls/results and any non-user message all read as the
-// assistant talking, same as MessageBubble's own user/assistant split.
-function chatRenderItemSpeaker(item: ChatRenderItem<Message>): "user" | "assistant" {
-  return item.type === "msg" && item.message.role === "user" ? "user" : "assistant";
+// assistant talking, same as MessageBubble's own user/assistant split. A
+// verified human author further splits "user" by participant, so two
+// different people's turns in a shared bot conversation still get the
+// speaker-changed spacing between them instead of reading as one run.
+function chatRenderItemSpeaker(item: ChatRenderItem<Message>): string {
+  if (item.type !== "msg" || item.message.role !== "user") return "assistant";
+  const author = item.message.author;
+  return author?.kind === "human" && author.verified ? `user:${author.participantId}` : "user";
 }
 
 // The most recent activity condensed to one line — used as the collapsed-card
@@ -5553,6 +5573,11 @@ export function App() {
   // vanishes on the first refresh whose snapshot predates it.
   const seededSessionsRef = useRef(new Map<string, { session: Session; at: number }>());
   const [users, setUsers] = useState<User[]>([]);
+  // "Me", as a conversation participant id — resolved server-side (trusted
+  // header on a managed Computer, the selected local profile otherwise) and
+  // used only to skip drawing a redundant avatar on the viewer's own turns in
+  // a shared bot conversation. Never an authorization signal.
+  const [viewerParticipantId, setViewerParticipantId] = useState<string | null>(null);
   // Server-side first-run state (profiles/steps/completion) + whether the
   // full-screen onboarding flow is showing. See loadCore for the gate.
   const [onboarding, setOnboarding] = useState<OnboardingState | null>(null);
@@ -6037,7 +6062,7 @@ export function App() {
 
   const loadCore = useCallback(async () => {
     const [payload, botPayload] = await Promise.all([
-      fetchBootstrap<BootstrapPayload>(),
+      fetchBootstrap<BootstrapPayload>(botUnreadIdentity),
       api<{ bots: PersistentBot[]; conversations?: BotConversationUnread[]; quota?: PersistentBotQuota }>(
         `/api/bots?user=${encodeURIComponent(botUnreadIdentity)}`,
         { cache: "no-store" },
@@ -6083,6 +6108,7 @@ export function App() {
     // call `.filter()` unconditionally on render, so a malformed/empty payload
     // must degrade to an empty live view rather than crash.
     setSessions(payload.sessions ?? []);
+    setViewerParticipantId(payload.viewer?.participantId ?? null);
     setUsers(payload.users ?? []);
     setRepos(payload.repos ?? []);
     setAutoAgents(payload.auto?.agents ?? []);
@@ -8044,6 +8070,7 @@ export function App() {
     <SessionTerminalContext.Provider value={setTerminalSid}>
     <OpenSettingsPageContext.Provider value={setTab}>
     <BotDirectoryContext.Provider value={botDirectory}>
+    <ViewerIdentityContext.Provider value={viewerParticipantId}>
     <BotUnreadContext.Provider value={{ conversations: botConversations, any: hasUnreadBotConversation(botConversations), selectedConversationId: selectedBotConversationId }}>
     <OpenBotContext.Provider value={openBot}>
     <EditBotContext.Provider value={openBotEditor}>
@@ -8808,6 +8835,7 @@ export function App() {
     </EditBotContext.Provider>
     </OpenBotContext.Provider>
     </BotUnreadContext.Provider>
+    </ViewerIdentityContext.Provider>
     </BotDirectoryContext.Provider>
     </OpenSettingsPageContext.Provider>
     </SessionTerminalContext.Provider>
@@ -14228,6 +14256,7 @@ function SessionChatBody({
         onLoadOlderMessages={loadOlderMessages}
         onRetryQueued={retryQueued}
         bot={bot}
+        conversation={session.conversation}
       />
 
       <SessionQuestionPanel sessionIds={[session.sessionId, session.nativeSessionId]} />
@@ -16409,7 +16438,13 @@ const onTouchStart = (e: ReactTouchEvent) => {
                     {latest}
                   </div>
                 ) : null}
-                <ConversationParticipantRow session={session} compact={isMobile} />
+                {/* A persistent bot conversation's header shows the bot's own
+                    identity and settings only — never who created or owns it.
+                    ConversationParticipantRow's human chip belongs beside each
+                    message that sender actually wrote (see
+                    OtherHumanMessageBubble), not on the card that represents
+                    the bot itself. */}
+                {headerBot ? null : <ConversationParticipantRow session={session} compact={isMobile} />}
               </div>
             </button>
           )}
@@ -16552,6 +16587,7 @@ const ChatStream = memo(function ChatStream({
   onLoadOlderMessages,
   onRetryQueued,
   bot,
+  conversation,
 }: {
   sid: string | null;
   messages: Message[];
@@ -16560,6 +16596,10 @@ const ChatStream = memo(function ChatStream({
   onLoadOlderMessages: LoadOlderMessages;
   onRetryQueued?: (message: Message) => void;
   bot?: PersistentBot;
+  // Only present for a shared bot conversation — see MessageBubble's own-vs-
+  // other-human split. A plain session never has more than one human
+  // participant, so there is nothing here to resolve.
+  conversation?: ProductConversation | null;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const transcriptView = useContext(TranscriptViewContext);
@@ -16739,6 +16779,7 @@ const ChatStream = memo(function ChatStream({
                     entering={!!item.message.id && enteringIdsRef.current.has(item.message.id)}
                     onRetryQueued={onRetryQueued}
                     bot={bot}
+                    conversation={conversation}
                   />
                 )}
               </div>
@@ -16754,6 +16795,7 @@ const ChatStream = memo(function ChatStream({
                 message={item.message}
                 onRetryQueued={onRetryQueued}
                 bot={bot}
+                conversation={conversation}
               />
             ) : null,
           )}
@@ -17190,11 +17232,16 @@ function UserBubble({
   pending,
   queued,
   failed,
+  otherAuthor,
 }: {
   html: string;
   pending?: boolean;
   queued?: boolean;
   failed?: boolean;
+  // Someone else's turn in a shared bot conversation, not the viewer's own —
+  // see OtherHumanMessageBubble. Same shape, a different tint (is-other in
+  // index.css) so the two remain visually distinct at a glance.
+  otherAuthor?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
@@ -17230,6 +17277,7 @@ function UserBubble({
         pending && !queued && "is-pending",
         queued && "is-queued",
         failed && "is-failed",
+        otherAuthor && "is-other",
       )}
     >
       {/* The organic shimmer means "in flight". A queued turn is deliberately
@@ -17535,6 +17583,7 @@ function MessageBubble({
   entering = false,
   onRetryQueued,
   bot,
+  conversation,
 }: {
   message: Message;
   // Whether the session is actively working on THIS turn — drives the thinking
@@ -17546,8 +17595,21 @@ function MessageBubble({
   // Retry a failed queue send through the server queue's retry endpoint.
   onRetryQueued?: (message: Message) => void;
   bot?: PersistentBot;
+  conversation?: ProductConversation | null;
 }) {
   const openArtifact = useContext(ArtifactViewerContext);
+  const viewerParticipantId = useContext(ViewerIdentityContext);
+  // A group-chat-style human turn: authored by someone other than the current
+  // viewer, per the server-verified MessageAuthorRef — never inferred from the
+  // bot's owner/creator, the current bot, or anything client-supplied. A
+  // historical turn with no verified author (message.author is undefined or
+  // `legacy`) falls through to the unchanged "own" rendering below rather than
+  // guessing whose it was.
+  const otherHumanSender =
+    message.role === "user" && isOtherHumanMessageAuthor(message.author, viewerParticipantId)
+      ? (conversationParticipantById(conversation, message.author!.participantId) ??
+        unknownConversationParticipant(message.author!.participantId))
+      : null;
   // Must run before the early returns below — hooks can't be conditional. The
   // effect itself no-ops for anything that isn't a just-sent user turn.
   const sendMorphRef = useSendMorph<HTMLDivElement>(
@@ -17700,6 +17762,17 @@ function MessageBubble({
     );
   }
 
+  if (otherHumanSender) {
+    return (
+      <OtherHumanMessageBubble
+        message={message}
+        html={userContent.html}
+        attachments={userContent.attachments}
+        participant={otherHumanSender}
+        entering={entering}
+      />
+    );
+  }
   const isUser = message.role === "user";
   if (isUser) {
     const queued = !!message.queued && !!message.pending;
@@ -17824,6 +17897,98 @@ function MessageBubble({
       from="assistant"
     >
       {body}
+    </AiMessage>
+  );
+}
+
+/**
+ * A round face for one human conversation participant — the same visual
+ * language as the header's (removed) participant row and the desktop card's
+ * ConversationParticipantRow, so a sender reads consistently wherever their
+ * face shows up. Falls back to their initial when there is no avatar, or the
+ * avatar 404s (a deleted upload, a profile removed after the message was
+ * sent): the fallback letter sits underneath the image the whole time, so a
+ * broken <img> just uncovers it instead of leaving a blank circle.
+ */
+function HumanParticipantAvatar({
+  participant,
+  size = 20,
+  className,
+}: {
+  participant: ConversationParticipant;
+  size?: number;
+  className?: string;
+}) {
+  const name = conversationParticipantDisplayName(participant);
+  const initial = name.slice(0, 1).toUpperCase() || "M";
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "relative grid shrink-0 place-items-center overflow-hidden rounded-full bg-primary/12 text-[10px] font-semibold text-primary",
+        className,
+      )}
+      style={{ width: size, height: size }}
+    >
+      {initial}
+      {participant.display.avatar ? (
+        <img
+          src={participant.display.avatar}
+          alt=""
+          className="absolute inset-0 size-full object-cover"
+          onError={(event) => event.currentTarget.remove()}
+        />
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * A human turn authored by someone other than the current viewer, in a shared
+ * bot conversation — the "group chat inside a bot conversation" case (spec:
+ * message-level sender avatars, never a header identity chip). Left-aligned
+ * like an assistant turn so it never collides with the viewer's own
+ * right-aligned turns, and carries its own name label + avatar so it can't be
+ * mistaken for either "my message" or the bot's reply.
+ *
+ * The bubble reuses UserBubble (same clamp/attachments/pending affordances as
+ * the viewer's own turns — this is still plain user prose, just not the
+ * viewer's) with an `otherAuthor` tint so the two remain visually distinct at
+ * a glance even though they share a shape.
+ */
+function OtherHumanMessageBubble({
+  message,
+  html,
+  attachments,
+  participant,
+  entering,
+}: {
+  message: Message;
+  html: string;
+  attachments: MessageAttachment[];
+  participant: ConversationParticipant;
+  entering?: boolean;
+}) {
+  const name = conversationParticipantDisplayName(participant);
+  return (
+    <AiMessage
+      className={cn("msg", entering && "lfg-msg-in")}
+      from="assistant"
+      role="group"
+      aria-label={`Message from ${name}`}
+    >
+      <div className="flex w-full min-w-0 items-end gap-2">
+        <HumanParticipantAvatar participant={participant} size={22} className="mb-0.5" />
+        <div className="flex min-w-0 max-w-[calc(100%-1.75rem)] flex-col items-start gap-1">
+          <span className="px-0.5 text-[11px] font-medium leading-none text-muted-foreground">{name}</span>
+          {attachments.length > 0 ? <UserAttachments attachments={attachments} /> : null}
+          {html ? (
+            <MessageActions text={message.text || ""} isUser={false}>
+              <UserBubble html={html} otherAuthor />
+            </MessageActions>
+          ) : null}
+        </div>
+      </div>
     </AiMessage>
   );
 }
@@ -25334,12 +25499,15 @@ function BotsView({
                 <span>Bots</span>
               </button>
               <BotAvatar bot={bot} working={busy} size={28} />
+              {/* This header is the bot's identity and settings — never who
+                  created or owns the conversation. A shared thread's other
+                  humans get their face beside the messages they actually
+                  wrote (see OtherHumanMessageBubble), not a chip up here. */}
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[15px] font-semibold leading-tight">{bot.name}</span>
                 <span className="block truncate text-xs text-muted-foreground">
                   {bot.enabled ? (busy ? "working" : "idle") : "disabled"}
                 </span>
-                {session ? <ConversationParticipantRow session={session} compact /> : null}
               </span>
               <BotConversationMenu
                 bot={bot}
@@ -25365,12 +25533,13 @@ function BotsView({
             <ChevronLeft className="size-5" />
           </Button>
           <BotAvatar bot={bot} working={busy} size={32} />
+          {/* Bot identity + settings only — see the note on the mobile header
+              above. */}
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[15px] font-semibold leading-tight">{bot.name}</span>
             <span className="block truncate text-xs text-muted-foreground">
               {bot.persona.slice(0, 60)} · {bot.enabled ? (busy ? "working" : "idle") : "disabled"}
             </span>
-            {session ? <ConversationParticipantRow session={session} /> : null}
           </span>
           <BotConversationMenu
             bot={bot}
