@@ -82,6 +82,9 @@ import {
   VoiceMeter,
 } from "../../src/components";
 import { useAttachments } from "../../src/omg/attachments";
+import { BotAvatar } from "../../src/omg/bot-avatar";
+import { filterBotChatEntries, stripBotLaunchEnvelope } from "../../src/omg/bot-transcript";
+import type { Bot } from "../../src/omg/bots";
 import { useDictation } from "../../src/omg/dictation";
 import { GlassSurface, LIQUID_GLASS } from "../../src/omg/glass";
 import { DropdownMenu, type MenuOption } from "../../src/omg/menu";
@@ -141,6 +144,47 @@ const BAR_ITEM = 44;
 
 export default function SessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  return <SessionScreenBody sessionId={id ?? null} />;
+}
+
+/**
+ * The actual session screen — transcript, header bar, composer, streaming.
+ * Pulled out from the default export so a bot's chat (app/bots/[id]/index.tsx)
+ * can mount the SAME screen instead of a second implementation of it: bot
+ * chat is a normal session under the hood (see serve.ts's `POST
+ * /api/bots/:id/messages`), and the design brief for it is explicit that it
+ * is not a new transcript component. `sessionId` replaces every use of route
+ * param `id` below (the two really are the underlying session id, one just
+ * comes from the URL and one from a bot's own record); `bot` and `onDeliver`
+ * are the only two bot-specific seams, and everything below that is not
+ * behind one of them behaves exactly as it did for a normal session.
+ */
+export function SessionScreenBody({
+  sessionId,
+  bot = null,
+  onDeliver,
+}: {
+  sessionId: string | null;
+  /**
+   * Present only for a bot's own conversation. Swaps the header identity for
+   * the bot's face and name, hides fork/close/continue (a bot session never
+   * ends), adds "Edit bot" to the overflow, and wraps the bot's own turns in
+   * a bubble instead of bare markdown — see docs/design/bot-mode/spec.md §4,
+   * and bot-transcript.ts's header for where the shipped web behavior moved
+   * past what that spec still describes.
+   */
+  bot?: Bot | null;
+  /**
+   * How a bot chat's composer actually delivers a message: the new
+   * `POST /api/bots/:id/messages`, via app/bots/[id]/index.tsx, instead of
+   * the plain-session send/resume path below. Bot chat also has to cover one
+   * case a normal session never hits — sending the very first message before
+   * any backing session exists (`sessionId` is null) — so this is what makes
+   * that legal; see the guard at the top of `submit`.
+   */
+  onDeliver?: (text: string, mode: "steer" | "queue") => Promise<{ sessionId?: string } | undefined>;
+}) {
+  const id = sessionId;
   const navigation = useNavigation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -200,7 +244,11 @@ export default function SessionScreen() {
   useEffect(() => {
     if (dictation.error) toast.show(dictation.error, { intent: "error" });
   }, [dictation.error, toast]);
-  const [loading, setLoading] = useState(true);
+  // Starts false when there is no id yet — a bot's first-ever chat, before
+  // any message has minted a backing session (see the `onDeliver` doc
+  // above). Every existing call site always has an id from the route, so
+  // this is `true` exactly as it always was for a normal session.
+  const [loading, setLoading] = useState(!!id);
   /**
    * THE TRANSCRIPT STAYS INVISIBLE UNTIL IT HAS SOMETHING SETTLED TO SHOW.
    *
@@ -398,14 +446,23 @@ export default function SessionScreen() {
              * a local fact about how it was sent, so it is carried onto the
              * echo rather than expected back from the server.
              */
-            const confirmed = prev.find(
-              (m) => isOptimisticId(m.id) && m.text === event.message.text,
-            );
+            /**
+             * `stripBotLaunchEnvelope` here (not just at render time) is what
+             * keeps a bot's very first message from showing up twice. Its
+             * echo comes back as the whole launch prompt — the plumbing
+             * envelope plus the human's own line, folded together so the
+             * agent's boot and the first message can't race (see serve.ts's
+             * `POST /api/bots/:id/messages`) — which would otherwise never
+             * text-match the plain line the composer sent optimistically. A
+             * pure, namespace-marked no-op for every non-bot message.
+             */
+            const echoText = stripBotLaunchEnvelope(event.message.text ?? "");
+            const confirmed = prev.find((m) => isOptimisticId(m.id) && m.text === echoText);
             const incoming: Entry = confirmed?.queued
               ? { ...event.message, queued: true }
               : event.message;
             const withoutOptimistic = prev.filter(
-              (m) => !(isOptimisticId(m.id) && m.text === event.message.text),
+              (m) => !(isOptimisticId(m.id) && m.text === echoText),
             );
             if (incoming.id) liveKeysRef.current.add(incoming.id);
             if (incoming.id && withoutOptimistic.some((m) => m.id === incoming.id)) {
@@ -462,8 +519,13 @@ export default function SessionScreen() {
           { id: "__streaming__", role: "assistant", text: streamText, streaming: true },
         ]
       : messages;
-    return buildTranscriptItems(entries);
-  }, [messages, streamText]);
+    // Bot chat reads as a conversation, not a session log — tool calls,
+    // results and thinking blocks are hidden, and the launch envelope
+    // folded into the first turn is stripped back to what the human
+    // actually typed. See bot-transcript.ts. A normal session (bot === null)
+    // never runs this filter.
+    return buildTranscriptItems(bot ? filterBotChatEntries(entries) : entries);
+  }, [messages, streamText, bot]);
 
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -593,7 +655,15 @@ export default function SessionScreen() {
    */
   const pinnedForRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!data.length || !id) return;
+    // A bot's first-ever chat opens with no id and nothing to pin to (see the
+    // `onDeliver` doc above) — reveal the empty transcript immediately rather
+    // than holding the opening spinner for a page that has no reason to
+    // arrive until the first message mints one.
+    if (!id) {
+      setContentReady(true);
+      return;
+    }
+    if (!data.length) return;
     if (pinnedForRef.current === id) return;
     pinnedForRef.current = id;
     setContentReady(false);
@@ -631,7 +701,11 @@ export default function SessionScreen() {
   const submit = useCallback(
     async (text: string, mode: "steer" | "queue" = "steer") => {
       const trimmed = text.trim();
-      if (!trimmed || !client || !id) return;
+      // A bot's first-ever message has no id yet — nothing has minted its
+      // backing session — so `onDeliver` is what's allowed to send with one
+      // missing. Every other caller (every normal session, and a bot after
+      // its first turn) always has both, unchanged from before.
+      if (!trimmed || !client || (!id && !onDeliver)) return;
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       const optimisticId = `local-${++localSeq}`;
       const optimistic: Entry = {
@@ -650,6 +724,32 @@ export default function SessionScreen() {
       setMessages((prev) => [...prev, optimistic]);
       setSending(true);
       try {
+        if (onDeliver) {
+          /**
+           * BOT CHAT'S ONE DELIVERY SEAM. Everything below this branch is the
+           * plain-session send/resume path, untouched.
+           *
+           * A cold start here (`!id`) is a bot that has never been talked to:
+           * same "waking the agent" beat a resumed session gets, because the
+           * server mints and launches a whole new session underneath this
+           * send (see serve.ts's `POST /api/bots/:id/messages`).
+           */
+          const coldStart = !id;
+          if (coldStart) setResuming(true);
+          const delivered = await onDeliver(trimmed, mode);
+          if (!delivered?.sessionId) throw new Error("the bot did not return a conversation");
+          setLive(true);
+          setError(null);
+          // No `router.replace` — a bot chat's URL names the BOT
+          // (`/bots/[id]`), not its backing session, and the parent screen
+          // owns that session id as its own state, re-rendering this one
+          // with it. See app/bots/[id]/index.tsx.
+          setMessages((prev) =>
+            prev.map((m) => (m.id === optimistic.id ? { ...m, pending: false } : m)),
+          );
+          return;
+        }
+        if (!id) return; // unreachable — the guard above requires id when onDeliver is absent
         if (live === false) {
           /**
            * SENDING IS WHAT RESUMES IT — one gesture, not a Resume button
@@ -723,7 +823,7 @@ export default function SessionScreen() {
         setResuming(false);
       }
     },
-    [client, id, live, router],
+    [client, id, live, router, onDeliver],
   );
 
   /** Shown for a beat after a long-press send, so the gesture confirms itself. */
@@ -941,6 +1041,33 @@ export default function SessionScreen() {
    * by how often they are wanted, with the destructive one last and alone.
    */
   const menuOptions = useMemo<MenuOption[]>(() => {
+    /**
+     * A BOT SESSION NEVER CLOSES. Fork, Continue-with (which archives the
+     * source — effectively a close) and Archive session all end in the
+     * normal session's transcript being retired; a bot's session is the
+     * bot's one persistent conversation, and none of those verbs make sense
+     * pointed at it — see docs/design/bot-mode/spec.md §4.1: "no fork
+     * button... no close/archive control." Its only entry point is editing
+     * the bot itself, which was previously the roster's whole reason to push
+     * a full-page screen (app/bots/index.tsx) — now that tapping a bot opens
+     * this chat instead, edit moves in here as the one overflow item, same
+     * idiom the rest of this menu already uses for a screen's secondary
+     * actions. Copy reference and stopping a run in progress are unrelated
+     * to closing/forking, so both stay.
+     */
+    if (bot) {
+      const options: MenuOption[] = [];
+      if (busy) {
+        options.push({ label: "Stop the agent", icon: "stop.fill", onPress: () => void stop() });
+      }
+      options.push({
+        label: "Edit bot",
+        icon: "pencil",
+        onPress: () => router.push(`/bots/${encodeURIComponent(bot.id)}/edit`),
+      });
+      options.push({ label: "Copy reference", icon: "link", onPress: copyReference });
+      return options;
+    }
     const options: MenuOption[] = [];
     if (busy) {
       options.push({ label: "Stop the agent", icon: "stop.fill", onPress: () => void stop() });
@@ -1007,7 +1134,19 @@ export default function SessionScreen() {
      * used verb on the sheet: a phone is not where anyone copies a thousand
      * lines of transcript.
      */
-  }, [agents, busy, stop, archive, rename, continueWithAgent, fork, copyReference, sessionInfo]);
+  }, [
+    agents,
+    bot,
+    busy,
+    stop,
+    archive,
+    rename,
+    continueWithAgent,
+    fork,
+    copyReference,
+    sessionInfo,
+    router,
+  ]);
 
   /**
    * The native bar: system back on the left (this is a pushed screen, so the
@@ -1132,7 +1271,20 @@ export default function SessionScreen() {
             with its spinner. Two lines of chrome in a navigation bar for one
             piece of information, and the title got 190pt to fit in because of
             it. One line now, and the title has the room. */}
-        <AgentAvatar agent={agentLabel} size={26} busy={busy} plain />
+        {/**
+         * A BOT CHAT'S HEADER IS A FACE AND A NAME, not the agent running it
+         * or a prompt-derived title — spec §4.1: "Avatar: same rounded-full
+         * emoji avatar as the roster row... Title line: bot name." The
+         * mascot mark (bot-avatar.tsx) is this app's native equivalent of
+         * that avatar, and its own pulsing dot already carries "working" the
+         * same way AgentAvatar's spinner does, so nothing else about this
+         * capsule has to change to say it.
+         */}
+        {bot ? (
+          <BotAvatar shape={bot.shape} colorway={bot.colorway} size={26} working={busy} />
+        ) : (
+          <AgentAvatar agent={agentLabel} size={26} busy={busy} plain />
+        )}
         <Text
           numberOfLines={1}
           ellipsizeMode="tail"
@@ -1143,11 +1295,11 @@ export default function SessionScreen() {
             maxWidth: 210,
           }}
         >
-          {title}
+          {bot ? bot.name : title}
         </Text>
       </GlassSurface>
     ),
-    [agentLabel, busy, colors, radius.pill, space, title, type],
+    [agentLabel, bot, busy, colors, radius.pill, space, title, type],
   );
 
   /**
@@ -1388,9 +1540,15 @@ export default function SessionScreen() {
         scrollEventThrottle={16}
         onContentSizeChange={handleContentSizeChange}
         renderItem={({ item }) => (
-          <TranscriptRow item={item} fresh={contentReady && liveKeysRef.current.has(item.key)} />
+          <TranscriptRow
+            item={item}
+            fresh={contentReady && liveKeysRef.current.has(item.key)}
+            bot={bot}
+          />
         )}
-        ListFooterComponent={thinking ? <ThinkingPill /> : null}
+        ListFooterComponent={
+          thinking ? bot ? <BotWorkingIndicator bot={bot} /> : <ThinkingPill /> : null
+        }
         ListEmptyComponent={
           // The spinner lives INSIDE the list so it inherits the content
           // inset; a plain View above the list would start under the
@@ -1917,6 +2075,27 @@ export default function SessionScreen() {
             the session's other verbs already are. */}
       </Reanimated.View>
     </Reanimated.View>
+  );
+}
+
+/**
+ * The wait state, for a bot instead of a task session.
+ *
+ * A named creature already has a face and a working pose (`BotAvatar`'s
+ * pulsing corner dot), so standing an anonymous three-dot pill in for it is a
+ * worse answer to "what is happening" than just showing the bot at work —
+ * this mirrors the web's `TypingIndicator` for a bot chat (App.tsx), which is
+ * the ONE place its avatar appears in the stream: not on every settled bubble
+ * (a face beside every reply read as several speakers, not one bot saying
+ * several things — see bot-transcript.ts's header for that same shipped-code-
+ * over-spec call), only here, where the header's identity is not enough
+ * because the header cannot say "happening right now".
+ */
+function BotWorkingIndicator({ bot }: { bot: Bot }) {
+  return (
+    <View style={{ alignSelf: "flex-start", marginTop: 16, marginLeft: 4 }}>
+      <BotAvatar shape={bot.shape} colorway={bot.colorway} size={40} working />
+    </View>
   );
 }
 

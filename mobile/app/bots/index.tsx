@@ -23,19 +23,19 @@
  *
  * Master-detail lives under the same route family the web uses (`/bots`
  * roster, `/bots/[id]` chat) rather than two unrelated tabs — mirrors how
- * `session/[id]` nests under the sessions surface. `/bots/[id]` itself
- * (bot chat) is a later phase; `/bots/[id]/edit` exists now — see
- * bot-edit-screen.tsx — and is nested a level under the reserved chat route
- * rather than sitting flat at `/bots/[id]` for exactly that reason.
+ * `session/[id]` nests under the sessions surface. `/bots/[id]` is the chat
+ * (app/bots/[id]/index.tsx) — it reuses session/[id].tsx's `SessionScreenBody`
+ * rather than a new transcript implementation, because a bot's conversation
+ * is a normal managed session underneath (see serve.ts's `POST
+ * /api/bots/:id/messages`). `/bots/[id]/edit` (bot-edit-screen.tsx) is still
+ * a route, nested a level under chat exactly because chat is now the level
+ * above it — edit is reached from the chat's own overflow menu instead of
+ * from this roster.
  *
  * "+ New bot" is visually present (both the header action and, empty-roster
  * only, EmptyState's action slot — same pattern as home's "Choose a
  * computer") and pushes the full-page create flow (`/bots/new`,
- * bot-create-flow.tsx). Bot chat is still a later phase — tapping a roster
- * row pushes the full-page edit screen (`/bots/[id]/edit`,
- * bot-edit-screen.tsx) instead of routing to bot chat, because that screen
- * does not exist yet and editing is a truthful stand-in for "tap a bot"
- * while a dead toast was not.
+ * bot-create-flow.tsx).
  */
 
 import { useFocusEffect, useNavigation, useRouter } from "expo-router";
@@ -100,10 +100,11 @@ export default function BotsScreen() {
   const animateEntry = Date.now() - mountedAtRef.current >= COLD_LOAD_WINDOW_MS;
 
   const openBot = (bot: Bot) => {
-    // TODO(bot chat): route to /bots/[id] once that screen exists. Until
-    // then, the full-page edit screen is a truthful stand-in — you can at
-    // least see and change what you made — rather than a dead toast.
-    router.push(`/bots/${encodeURIComponent(bot.id)}/edit`);
+    // Bot chat (app/bots/[id]/index.tsx): the point of a bot is talking to
+    // it, so tapping a roster row opens the conversation now, not the edit
+    // form that used to stand in for it. Edit is still one tap away — the
+    // "Edit bot" item in the chat's own overflow menu.
+    router.push(`/bots/${encodeURIComponent(bot.id)}`);
   };
 
   const createBot = () => {
