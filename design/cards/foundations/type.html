@@ -1,0 +1,42 @@
+<!-- @dsCard group="Foundations" name="Typography" subtitle="System stack, 15px base, one heading style" width="720" height="520" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Typography</title>
+<!-- @tokens -->
+<style>
+  .spec { display: grid; grid-template-columns: 150px 1fr; gap: 6px 20px; align-items: baseline; }
+  .spec dt { font-size: 11px; color: var(--muted-foreground); font-family: ui-monospace, monospace; margin: 0; }
+  .spec dd { margin: 0 0 14px; }
+</style>
+</head>
+<body>
+<div class="pane pane--light">
+  <dl class="spec">
+    <dt>page title · 20/700</dt>
+    <dd><span style="font-size:20px;font-weight:700;letter-spacing:-0.02em">Settings</span></dd>
+    <dt>section · 12/600 caps</dt>
+    <dd><span class="section-label" style="padding:0">Notifications</span></dd>
+    <dt>body · 15/400</dt>
+    <dd>The default reading size for chat and content surfaces.</dd>
+    <dt>row title · 14/500</dt>
+    <dd><span class="row-title">Coding agents</span></dd>
+    <dt>row subtitle · 12/400</dt>
+    <dd><span class="row-sub">Tools, appearance, notifications, voice, help</span></dd>
+    <dt>meta · 11/400 tnum</dt>
+    <dd><span class="row-meta">2m ago</span></dd>
+    <dt>value · 14/600 tnum</dt>
+    <dd><span class="row-value">42 ms</span></dd>
+    <dt>metric · 22/700 tnum</dt>
+    <dd><span class="metric-value">7.2 GB</span> <span class="metric-unit">of 32 GB</span></dd>
+    <dt>mono · code</dt>
+    <dd><code style="font-size:13px;background:var(--code-bg);padding:2px 6px;border-radius:6px">bun run typecheck</code></dd>
+  </dl>
+  <p class="footnote" style="padding:0">
+    One heading style per level, everywhere. Page titles and section labels are the only headings;
+    no surface introduces its own. Numbers are always tabular.
+  </p>
+</div>
+</body>
+</html>

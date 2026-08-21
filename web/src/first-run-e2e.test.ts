@@ -13,11 +13,43 @@
 // let this file certify code that is no longer in the tree — precisely the
 // "green while proving nothing" failure its own header warns about.
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { Window } from "happy-dom";
 
 const REPO = join(import.meta.dir, "..", "..");
+
+// web/src/embedded.tsx imports @omg-dev/client, a workspace package that is
+// only resolvable once its dist/ exists. A clean checkout has node_modules but
+// no built packages, so without this the test dies on "Cannot find module
+// '@omg-dev/client'" — a failure about the checkout, not about the product.
+//
+// Building is the right move rather than skipping. This file is the only guard
+// that mounts the real surface, so a skip on a fresh clone or a CI runner would
+// silently retire the exact coverage the blank-home bug proved we needed. Same
+// reasoning, and same shape, as ensureLibBuild() in embedded-lib-smoke.test.ts.
+function ensureWorkspacePackages(): void {
+  if (existsSync(join(REPO, "packages", "client", "dist", "index.js"))) return;
+  const result = spawnSync("bash", ["scripts/pack-packages.sh", "--build-only"], {
+    cwd: REPO,
+    encoding: "utf8",
+    timeout: 300_000,
+  });
+  if (!existsSync(join(REPO, "packages", "client", "dist", "index.js"))) {
+    throw new Error(
+      [
+        "first-run app-surface test requires the workspace packages and will not skip.",
+        "bun run build:packages failed:",
+        result.stdout ?? "",
+        result.stderr ?? "",
+        result.error ? String(result.error) : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
+  }
+}
 
 const win = new Window({ url: "https://app.omg.dev/" });
 
@@ -148,6 +180,10 @@ afterEach(async () => {
 
 describe("a fresh hosted account is shown its onboarding steps", () => {
   test("the real app surface renders the getting-started panel on an empty home", async () => {
+    // Inside the test, not in beforeAll: a cold build takes longer than bun's
+    // 5s hook timeout, and a hook that times out reports as an anonymous
+    // failure with no clue which check broke.
+    ensureWorkspacePackages();
     const React = await import("react");
     const { createRoot } = await import("react-dom/client");
     const { act } = await import("react");
@@ -189,5 +225,5 @@ describe("a fresh hosted account is shown its onboarding steps", () => {
     const rows = panel!.querySelectorAll("ol button");
     expect(rows.length).toBe(serverCoachKeys().length);
     expect(panel!.textContent ?? "").toContain(`0 of ${serverCoachKeys().length} done`);
-  }, 60_000);
+  }, 420_000);
 });

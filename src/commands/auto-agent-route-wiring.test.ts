@@ -17,24 +17,60 @@ function block(marker: string, len = 900): string {
 }
 
 describe("POST /api/auto/agents (create/edit)", () => {
-  const handler = block('if (path === "/api/auto/agents") {', 4200);
+  const handler = block('if (path === "/api/auto/agents") {', 6000);
 
   test("edits look up the existing row and run it through the ownership guard before saving", () => {
     expect(handler).toContain("existingForEdit = await getAutoAgent(b.id)");
     expect(handler).toContain("await assertCanModifyAutoAgent(existingForEdit, callerBot)");
   });
 
+  // A bot caller is forced onto itself inside resolveRequestedAutoAgentOwner
+  // (see auto-agent-ownership.test.ts). What this pins is that the route reaches
+  // that resolver instead of trusting the body's owner directly.
   test("a bot caller can never mint a row for a different owner — always forced to itself", () => {
-    expect(handler).toContain('{ kind: "bot", botId: callerBot }');
+    expect(handler).toContain("resolveRequestedAutoAgentOwner(callerBot, b.owner)");
+    expect(SERVE).toContain('if (callerBot) return { ok: true, owner: { kind: "bot", botId: callerBot } };');
   });
 
-  test("the per-bot cap is checked on create, before saving", () => {
-    expect(handler).toContain("countAutoAgentsOwnedByBot(callerBot)");
+  test("the per-bot cap is checked before saving", () => {
+    expect(handler).toContain("countAutoAgentsOwnedByBot(");
     expect(handler).toContain("current >= settings.maxBotSchedules");
   });
 
-  test("the minimum-interval floor is checked for a bot caller", () => {
+  test("the minimum-interval floor is checked for any row that ends up bot-owned", () => {
     expect(handler).toContain("exceedsMaxFrequency(b.schedule");
+  });
+
+  // §8 migration wiring. The cap and the frequency ceiling are properties of a
+  // row that ENDS UP bot-owned, not of the caller — otherwise a human-driven
+  // migration would be a hole straight past the limits omg_schedule_routine
+  // enforces on the bots themselves.
+  test("owner resolution goes through the single exported resolver, not inline per-caller rules", () => {
+    expect(handler).toContain("resolveRequestedAutoAgentOwner(callerBot, b.owner)");
+    expect(handler).toContain("if (!resolvedOwner.ok) return err(resolvedOwner.status, resolvedOwner.error)");
+  });
+
+  test("the cap and frequency ceiling key off the resulting owner, not the caller", () => {
+    expect(handler).toContain('const becomesBotOwned = owner?.kind === "bot" ? owner.botId : null');
+    expect(handler).toContain("countAutoAgentsOwnedByBot(becomesBotOwned)");
+    const gateAt = handler.indexOf("if (becomesBotOwned) {");
+    const freqAt = handler.indexOf("exceedsMaxFrequency(b.schedule");
+    expect(gateAt).toBeGreaterThanOrEqual(0);
+    // The frequency check now lives INSIDE the becomes-bot-owned gate.
+    expect(freqAt).toBeGreaterThan(gateAt);
+  });
+
+  test("a human-assigned owner bot must exist and be enabled before the row saves", () => {
+    expect(handler).toContain("const target = await getBot(becomesBotOwned)");
+    expect(handler).toContain('if (!target) return err(404, `unknown bot "${becomesBotOwned}"`)');
+    expect(handler).toContain("if (!target.enabled)");
+  });
+
+  // Editing a routine in place must not be rejected by the cap it already
+  // occupies a slot in.
+  test("re-saving a row already owned by the target bot is exempt from the cap", () => {
+    expect(handler).toContain("alreadyOwnedByTarget");
+    expect(handler).toContain("!alreadyOwnedByTarget && current >= settings.maxBotSchedules");
   });
 
   test("GET scopes the listing to the caller's own rows when a bot is calling", () => {

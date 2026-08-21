@@ -7,6 +7,7 @@ import type {
   SetupCheckGroup,
 } from "../App";
 import { agentIconAlt, agentIconSrc } from "../lib/session-ui";
+import { agentStatusNote, binaryMissing } from "../lib/coding-agent-status-note";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/lib/notify";
@@ -26,15 +27,13 @@ import {
 import { useState } from "react";
 
 /**
- * The page used to print everything it knew about every agent at once: two
- * badges, every check with its resolved binary path, an instructions sentence,
- * an install command and a login command — per agent, times seven. The state
- * that actually matters is binary (does this work, is it in the composer), so
- * that is all a row shows now; the diagnostics live one tap down, where you
- * only go when something is wrong.
+ * Collapsed agent rows are icon, name, toggle, and at most one word. The
+ * expanded row is only the action that is still missing: provider Connect
+ * rows, one Install when the binary is gone, or a single Login when this
+ * agent has no provider/account rows of its own.
  */
 
-/** A working agent says nothing; a broken one says what is missing. */
+/** Setup groups still name the failing check. Agent rows do not. */
 function statusNote(checks: { label: string; ok: boolean }[]): string | null {
   const failing = checks.filter((check) => !check.ok);
   if (!failing.length) return null;
@@ -71,6 +70,7 @@ function ExpandableRow({
   title,
   note,
   ok,
+  showDot = true,
   control,
   open,
   onToggle,
@@ -80,6 +80,7 @@ function ExpandableRow({
   title: string;
   note: string | null;
   ok: boolean;
+  showDot?: boolean;
   control?: React.ReactNode;
   open: boolean;
   onToggle: () => void;
@@ -100,8 +101,8 @@ function ExpandableRow({
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-2">
               <span className="truncate text-sm font-medium">{title}</span>
-              {/* Green means nothing needs saying, so nothing is said. */}
-              {!ok ? (
+              {/* Agent rows never use the dot. Setup groups still do. */}
+              {showDot && !ok ? (
                 <span className="size-1.5 shrink-0 rounded-full bg-destructive" aria-hidden />
               ) : null}
             </span>
@@ -281,6 +282,8 @@ export default function CodingAgentsPage({
           const accounts = agent.key === "aisdk" ? (status.accounts ?? []) : [];
           const providers = status.providers ?? [];
           const hasConnectedAccount = accounts.some((account) => account.connected);
+          const hasProviderOrAccountRows = accounts.length > 0 || providers.length > 0;
+          const needsBinary = binaryMissing(status.checks);
           return (
             <ExpandableRow
               key={agent.key}
@@ -288,20 +291,25 @@ export default function CodingAgentsPage({
                 <img src={agentIconSrc(agent.key)} alt={agentIconAlt(agent.key)} className="size-5" />
               }
               title={agent.label}
-              note={statusNote(status.checks)}
+              note={agentStatusNote(status.checks)}
               ok={status.configured}
+              showDot={false}
               open={expanded === `agent:${agent.key}`}
               onToggle={() => toggle(`agent:${agent.key}`)}
               control={
                 <Switch
                   checked={agent.visible}
-                  onCheckedChange={(visible) => onVisibleChange(agent.key, visible)}
+                  onCheckedChange={(visible) => {
+                    if (visible && !status.configured) {
+                      setExpanded(`agent:${agent.key}`);
+                      return;
+                    }
+                    onVisibleChange(agent.key, visible);
+                  }}
                   aria-label={`${agent.label} visible in composer`}
                 />
               }
             >
-              <CheckList checks={status.checks} />
-
               {accounts.length ? (
                 <div className="space-y-1.5">
                   {accounts.map((account) => (
@@ -353,7 +361,9 @@ export default function CodingAgentsPage({
                       key={provider.id}
                       provider={provider}
                       onConnect={(p) => {
-                        if (agent.key === "jcode" && !status.configured) {
+                        // jcode cannot produce an auth URL without its CLI.
+                        // Install instead of opening the empty login dialog.
+                        if (agent.key === "jcode" && needsBinary) {
                           onSetup(agent.key);
                           return;
                         }
@@ -365,33 +375,8 @@ export default function CodingAgentsPage({
                 </div>
               ) : null}
 
-              {status.instructions.map((instruction) => (
-                <p key={instruction} className="text-xs text-muted-foreground">
-                  {instruction}
-                </p>
-              ))}
-
-              {/* Copy-paste commands are a fix, so they only appear when
-                  something is broken. A working agent has nothing to fix. */}
-              {!status.configured &&
-              (status.installCommand ||
-                (status.loginCommand && !BROWSER_AUTH_KINDS.has(agent.key))) ? (
-                <div className="space-y-1 text-xs text-muted-foreground">
-                  {status.installCommand ? (
-                    <div className="truncate">
-                      Install: <code>{status.installCommand}</code>
-                    </div>
-                  ) : null}
-                  {status.loginCommand && !BROWSER_AUTH_KINDS.has(agent.key) ? (
-                    <div className="truncate">
-                      Login: <code>{status.loginCommand}</code>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-
               <div className="flex flex-wrap items-center gap-2">
-                {status.canAutoSetup ? (
+                {status.canAutoSetup && needsBinary ? (
                   <Button
                     size="sm"
                     variant="outline"
@@ -407,18 +392,24 @@ export default function CodingAgentsPage({
                     {status.setupRunning ? "Running…" : "Install"}
                   </Button>
                 ) : null}
-                {/* pi has no agent-wide login — its sign-in is the provider rows
-                    above — so the button that would always be disabled is gone. */}
-                {status.canLoginInTerminal ? (
+                {accounts.length && hasConnectedAccount ? (
                   <Button
                     size="sm"
                     variant="outline"
                     disabled={status.setupRunning}
-                    onClick={() =>
-                      agent.key === "aisdk" && hasConnectedAccount
-                        ? onAddClaudeAccount()
-                        : onLogin(agent.key)
-                    }
+                    onClick={() => onAddClaudeAccount()}
+                    title="Add another Claude account"
+                  >
+                    <Globe className="size-4" />
+                    Add account
+                  </Button>
+                ) : null}
+                {status.canLoginInTerminal && !hasProviderOrAccountRows ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={status.setupRunning}
+                    onClick={() => onLogin(agent.key)}
                     title={
                       BROWSER_AUTH_KINDS.has(agent.key)
                         ? `Sign in to ${agent.label} in your browser`
@@ -430,12 +421,9 @@ export default function CodingAgentsPage({
                     ) : (
                       <TerminalSquare className="size-4" />
                     )}
-                    {agent.key === "aisdk" && hasConnectedAccount ? "Add account" : "Login"}
+                    Login
                   </Button>
                 ) : null}
-                <span className="text-[11px] text-muted-foreground/70">
-                  {status.omgCapabilityAccess === "mcp" ? "OMG tools" : "OMG prompt only"}
-                </span>
               </div>
             </ExpandableRow>
           );

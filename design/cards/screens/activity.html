@@ -1,0 +1,95 @@
+<!-- @dsCard group="Screens" name="Activity" subtitle="Notification Center + Shipped merged into one surface" width="880" height="760" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Activity — merged notifications and shipped</title>
+<!-- @tokens -->
+<style>
+  body { padding: 24px; display: flex; gap: 24px; justify-content: center; }
+  .arow { align-items: flex-start; padding-top: 12px; padding-bottom: 12px; }
+  .arow .row-sub { white-space: normal; }
+  .unread-rail { flex-shrink: 0; width: 8px; display: flex; justify-content: center; padding-top: 12px; }
+</style>
+</head>
+<body>
+  <div class="phone pane--light">
+    <div class="phone-header">
+      <span class="phone-title">Activity</span>
+      <button class="btn btn--tint btn--sm">Mark all read</button>
+    </div>
+    <div class="phone-body">
+      <div class="t-tabs" role="tablist" style="align-self:flex-start">
+        <button class="t-tab" role="tab" aria-selected="true">All</button>
+        <button class="t-tab" role="tab" aria-selected="false">Asks</button>
+        <button class="t-tab" role="tab" aria-selected="false">Shipped</button>
+      </div>
+      <div>
+        <p class="section-label" style="padding:0 4px">Today</p>
+        <div class="group-card">
+          <button class="row arow">
+            <span class="avatar"><span class="avatar-fill">🤖</span></span>
+            <span class="row-body">
+              <span style="display:flex;align-items:baseline;gap:8px">
+                <span class="row-title" style="flex:1">Needs a decision</span>
+                <span class="row-meta">14m</span>
+              </span>
+              <span class="row-sub">Ask · Delete the legacy table, or keep the migration path?</span>
+              <span style="display:flex;gap:6px;margin-top:8px">
+                <button class="btn btn--primary btn--xs">Answer</button>
+                <button class="btn btn--tint btn--xs">Open session</button>
+              </span>
+            </span>
+            <span class="unread-rail"><span class="dot dot--unread"></span></span>
+          </button>
+          <button class="row arow">
+            <span class="avatar"><span class="avatar-fill">🤖</span><span class="avatar-badge">✓</span></span>
+            <span class="row-body">
+              <span style="display:flex;align-items:baseline;gap:8px">
+                <span class="row-title" style="flex:1">Dark mode for the artifact viewer</span>
+                <span class="row-meta">2m</span>
+              </span>
+              <span class="row-sub">Shipped · Fixed contrast on code blocks.</span>
+            </span>
+            <span class="activity-thumb"><img alt="" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='52' height='52'%3E%3Crect width='52' height='52' fill='%231c1c1e'/%3E%3Crect x='8' y='10' width='36' height='6' rx='3' fill='%230a84ff'/%3E%3Crect x='8' y='22' width='28' height='4' rx='2' fill='%23555'/%3E%3C/svg%3E"></span>
+            <span class="unread-rail"><span class="dot dot--unread"></span></span>
+          </button>
+          <button class="row arow">
+            <span class="avatar"><span class="avatar-fill">🕐</span></span>
+            <span class="row-body">
+              <span style="display:flex;align-items:baseline;gap:8px">
+                <span class="row-title" style="flex:1;font-weight:400">Nightly audit: 0 new advisories</span>
+                <span class="row-meta">6h</span>
+              </span>
+              <span class="row-sub">Finding · dependency-audit ran on schedule.</span>
+            </span>
+            <span class="unread-rail"></span>
+          </button>
+        </div>
+      </div>
+      <div>
+        <p class="section-label" style="padding:0 4px">Yesterday</p>
+        <div class="group-card">
+          <button class="row arow">
+            <span class="avatar"><span class="avatar-fill">🤖</span><span class="avatar-badge">✓</span></span>
+            <span class="row-body">
+              <span style="display:flex;align-items:baseline;gap:8px">
+                <span class="row-title" style="flex:1;font-weight:400">Session usage panel v2</span>
+                <span class="row-meta">1d</span>
+              </span>
+              <span class="row-sub">Shipped · Per-session token bars.</span>
+            </span>
+            <span class="unread-rail"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="pane--light" style="max-width:280px;font-size:13px;color:var(--muted-foreground);align-self:center">
+    <p style="margin:0 0 10px"><strong style="color:var(--foreground)">What changed vs. today</strong></p>
+    <p style="margin:0 0 8px">The Notification Center tab and the Shipped page are one surface. Asks, shipped posts, and auto-agent findings share the activity row; a segmented filter replaces separate destinations.</p>
+    <p style="margin:0 0 8px">Read state is visual weight + the right-rail dot, nothing else. "Mark all read" is the only bulk action.</p>
+    <p style="margin:0">Day headers group the feed; artifacts stay on their own gallery page.</p>
+  </div>
+</body>
+</html>

@@ -1,0 +1,55 @@
+<!-- @dsCard group="Foundations" name="Colors" subtitle="Semantic palette, light + dark" width="920" height="560" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Colors — semantic palette</title>
+<!-- @tokens -->
+<style>
+  .swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .swatch { border-radius: var(--radius-row); border: 1px solid var(--border); overflow: hidden; background: var(--card); }
+  .swatch-fill { height: 44px; }
+  .swatch-name { font-size: 11px; font-weight: 600; padding: 6px 8px 1px; }
+  .swatch-val { font-size: 10px; color: var(--muted-foreground); padding: 0 8px 6px; font-family: ui-monospace, monospace; }
+  .pane-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted-foreground); margin: 0 0 12px; }
+</style>
+</head>
+<body>
+<div class="panes">
+  <div class="pane pane--light">
+    <p class="pane-label">Light</p>
+    <div class="swatches">
+      <div class="swatch"><div class="swatch-fill" style="background:var(--background)"></div><div class="swatch-name">background</div><div class="swatch-val">#f2f2f7</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:var(--card); border-bottom:1px solid var(--border)"></div><div class="swatch-name">card</div><div class="swatch-val">#ffffff</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:var(--primary)"></div><div class="swatch-name">primary / brand</div><div class="swatch-val">#007aff</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:var(--foreground)"></div><div class="swatch-name">foreground</div><div class="swatch-val">#000000</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:var(--success)"></div><div class="swatch-name">success</div><div class="swatch-val">#34c759</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:var(--warning)"></div><div class="swatch-name">warning</div><div class="swatch-val">#ff9500</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:var(--destructive)"></div><div class="swatch-name">destructive</div><div class="swatch-val">#ff3b30</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:var(--accent)"></div><div class="swatch-name">accent (chip)</div><div class="swatch-val">120 120 128 / 12%</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:var(--muted)"></div><div class="swatch-name">muted</div><div class="swatch-val">#f9f9fb</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:var(--muted-foreground)"></div><div class="swatch-name">muted-foreground</div><div class="swatch-val">60 60 67 / 60%</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:var(--border)"></div><div class="swatch-name">border</div><div class="swatch-val">60 60 67 / 12%</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:var(--border-strong)"></div><div class="swatch-name">border-strong</div><div class="swatch-val">60 60 67 / 29%</div></div>
+    </div>
+  </div>
+  <div class="pane pane--dark">
+    <p class="pane-label">Dark</p>
+    <div class="swatches">
+      <div class="swatch"><div class="swatch-fill" style="background:var(--background)"></div><div class="swatch-name">background</div><div class="swatch-val">#000000</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:var(--card)"></div><div class="swatch-name">card</div><div class="swatch-val">#1c1c1e</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:var(--primary)"></div><div class="swatch-name">primary / brand</div><div class="swatch-val">#0a84ff</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:var(--foreground)"></div><div class="swatch-name">foreground</div><div class="swatch-val">#ffffff</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:var(--success)"></div><div class="swatch-name">success</div><div class="swatch-val">#30d158</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:var(--warning)"></div><div class="swatch-name">warning</div><div class="swatch-val">#ff9f0a</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:var(--destructive)"></div><div class="swatch-name">destructive</div><div class="swatch-val">#ff453a</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:var(--accent)"></div><div class="swatch-name">accent (chip)</div><div class="swatch-val">118 118 128 / 24%</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:var(--muted)"></div><div class="swatch-name">muted</div><div class="swatch-val">#2c2c2e</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:var(--muted-foreground)"></div><div class="swatch-name">muted-foreground</div><div class="swatch-val">235 235 245 / 60%</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:var(--border)"></div><div class="swatch-name">border</div><div class="swatch-val">84 84 88 / 35%</div></div>
+      <div class="swatch"><div class="swatch-fill" style="background:var(--border-strong)"></div><div class="swatch-name">border-strong</div><div class="swatch-val">84 84 88 / 65%</div></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

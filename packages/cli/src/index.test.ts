@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { HELP_BANNER, RETIRED_APP_COMMANDS } from "./help.ts";
+import { APP_COMMANDS } from "./apps.ts";
+import { HELP_BANNER } from "./help.ts";
 import { runCli } from "./index.ts";
 import manifest from "../package.json" with { type: "json" };
 
@@ -18,21 +19,23 @@ function capture() {
 }
 
 describe("published version can replace the retired 0.4.x line", () => {
-  test("this package is 0.5.0 or newer so npm latest is not 0.4.42", () => {
-    const [major, minor] = String(manifest.version).split(".").map(Number);
-    expect(major * 100 + minor).toBeGreaterThanOrEqual(5);
+  test("this package is 0.5.1 or newer so npm latest is not 0.4.42 or 0.5.0", () => {
+    const [major, minor, patch] = String(manifest.version).split(".").map(Number);
+    expect(major * 10000 + minor * 100 + patch).toBeGreaterThanOrEqual(501);
   });
 });
 
-describe("omg help is the control plane, not the retired app CLI", () => {
+describe("omg help names the control plane and the hosted app verbs", () => {
   test("help prints the probe phrase setup.sh greps for", async () => {
     const log = capture();
     expect(await runCli(["help"], log)).toBe(0);
     expect(log.text()).toContain(HELP_BANNER);
     expect(log.text()).toContain("computer setup");
     expect(log.text()).toContain("localhost:8766");
-    expect(log.text()).not.toContain("omg create");
-    expect(log.text()).not.toContain("omg deploy");
+    expect(log.text()).toContain("omg create");
+    expect(log.text()).toContain("omg deploy");
+    expect(log.text()).toContain("omg login");
+    expect(log.text()).not.toContain("omg-apps");
   });
 
   test("the forward probe is the same help, so setup.sh can surrender omg", async () => {
@@ -41,21 +44,22 @@ describe("omg help is the control plane, not the retired app CLI", () => {
     expect(log.text()).toContain("run and manage your AI coding agents");
   });
 
-  test("retired prompt-to-app verbs are rejected, not forwarded", async () => {
-    for (const command of RETIRED_APP_COMMANDS) {
+  test("hosted app verbs start the old app flow on this same omg", async () => {
+    for (const command of APP_COMMANDS) {
       const log = capture();
       const spawned: string[][] = [];
-      const code = await runCli([command], {
+      const code = await runCli([command, "arg"], {
         ...log,
+        env: { OMG_APPS_BIN: "/tmp/apps-cli" },
         which: () => "/tmp/lfg",
         spawn: async (argv) => {
           spawned.push(argv);
           return 0;
         },
       });
-      expect(code, command).toBe(1);
-      expect(log.text(), command).toContain("not part of the current omg.dev product");
-      expect(spawned, command).toEqual([]);
+      expect(code, command).toBe(0);
+      expect(spawned, command).toEqual([["/tmp/apps-cli", command, "arg"]]);
+      expect(log.text(), command).not.toContain("not part of the current omg.dev product");
     }
   });
 });
@@ -96,6 +100,23 @@ describe("omg computer", () => {
     expect(code).toBe(0);
     expect(fetched).toBe(false);
     expect(log.text()).toContain("already set up");
+  });
+
+  test("computer setup does not start the hosted app CLI", async () => {
+    const spawned: string[][] = [];
+    const log = capture();
+    await runCli(["computer", "setup"], {
+      ...log,
+      env: { OMG_APPS_BIN: "/tmp/apps-cli" },
+      which: () => "/tmp/lfg",
+      spawn: async (argv) => {
+        spawned.push(argv);
+        return 0;
+      },
+    });
+    expect(spawned).toEqual([]);
+    expect(log.text()).toContain("already set up");
+    expect(log.text()).toContain("localhost:8766");
   });
 
   test("update and uninstall go to the install, not to setup.sh", async () => {

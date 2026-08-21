@@ -9,10 +9,12 @@
 //
 // So the rules live in src/bots/transcript.ts and both sides use them.
 export {
+  botRosterPreview,
   botVisibleUserText,
   isBotHiddenLogKind,
   isBotLaunchOnlyText,
   isBotRotationNoticeText,
+  isCodingAgentStoppedText,
   isSubagentUpdateText,
   stripBotLaunchEnvelope,
 } from "../../../src/bots/transcript.ts";
