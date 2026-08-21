@@ -1,42 +1,66 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
+import {
+  browseFolderWithRecovery,
+  folderRecoveryNotice,
+} from "../web/src/lib/folder-browser-recovery.ts";
 
-// The picker opens on the last-used project path, which is remembered in
-// localStorage ("lfg_v2_repo") and never revalidated. Once that folder is
-// deleted or renamed (a pruned worktree, say), /api/filesystem/directories
-// answers 400 "folder does not exist" — and before the fallback below that
-// left the drawer stranded: header stuck on "Opening…", no listing, and both
-// "New Folder" and "Use This Folder" disabled, because they gate on `browser`
-// being non-null. Close was the only way out, and reopening hit the same path.
-async function projectFolderBrowser() {
-  const app = await readFile("web/src/App.tsx", "utf8");
-  const start = app.indexOf("function ProjectFolderBrowser(");
-  expect(start).toBeGreaterThan(-1);
-  const end = app.indexOf("\nfunction ", start + 1);
-  return app.slice(start, end === -1 ? undefined : end);
-}
+describe("project folder browser recovery", () => {
+  test("recovers to the parent when a listed folder is deleted before navigation", async () => {
+    const requested = "/home/user/repos/Test/Test";
+    const attempts: (string | undefined)[] = [];
+    const existing = new Set(["/home/user/repos/Test"]);
 
-describe("project folder browser: unavailable starting folder", () => {
-  test("falls back to the default root when the remembered folder is gone", async () => {
-    const component = await projectFolderBrowser();
+    const result = await browseFolderWithRecovery(requested, async (path) => {
+      attempts.push(path);
+      if (!path || !existing.has(path)) throw new Error("folder does not exist");
+      return { current: path };
+    });
 
-    // The initial open opts into the fallback...
-    expect(component).toMatch(/void browse\(initialPath,\s*true\)/);
-    // ...and the failure path re-requests the endpoint with no path, which the
-    // server answers with the repos root.
-    const cat = component.indexOf("} catch (e) {");
-    const handler = component.slice(cat, component.indexOf("} finally {", cat));
-    expect(handler).toMatch(/api<FolderBrowserPayload>\("\/api\/filesystem\/directories"\)/);
-    expect(handler).toContain("setBrowser(");
+    expect(attempts).toEqual([requested, "/home/user/repos/Test"]);
+    expect(result).toEqual({
+      payload: { current: "/home/user/repos/Test" },
+      unavailablePath: requested,
+      recoveryLocation: "parent",
+    });
   });
 
-  test("keeps the fallback opt-in so manual navigation still reports failure", async () => {
-    const component = await projectFolderBrowser();
+  test("falls back from a missing parent to projects root, then home", async () => {
+    const requested = "/home/user/repos/Test/Test";
+    const attempts: (string | undefined)[] = [];
 
-    // Clicking into a folder must not silently teleport the user to the root —
-    // only the initial open passes the flag.
-    expect(component).toMatch(/const browse = useCallback\(\s*async \(path\?: string, fallbackToRoot = false\)/);
-    expect(component).toMatch(/onClick=\{\(\) => void browse\(browser\.parent!\)\}/);
-    expect(component).toMatch(/onClick=\{\(\) => void browse\(directory\.path\)\}/);
+    const result = await browseFolderWithRecovery(requested, async (path) => {
+      attempts.push(path);
+      if (path !== "~") throw new Error("not found");
+      return { current: "/home/user" };
+    });
+
+    expect(attempts).toEqual([
+      requested,
+      "/home/user/repos/Test",
+      undefined,
+      "~",
+    ]);
+    expect(result.recoveryLocation).toBe("home");
+    expect(result.payload.current).toBe("/home/user");
+  });
+
+  test("names the missing path and tells the user what to do", () => {
+    expect(folderRecoveryNotice("/home/user/repos/Test/Test", "projects")).toBe(
+      "Folder “/home/user/repos/Test/Test” is no longer available. Choose another folder. Showing your projects folder instead.",
+    );
+  });
+
+  test("clears the stale payload and disables folder actions on an unrecovered error", async () => {
+    const app = await readFile("web/src/App.tsx", "utf8");
+    const start = app.indexOf("function ProjectFolderBrowser(");
+    const end = app.indexOf("\nfunction ", start + 1);
+    const component = app.slice(start, end);
+
+    expect(component.indexOf("setBrowser(null)")).toBeLessThan(
+      component.indexOf("browseFolderWithRecovery(path"),
+    );
+    expect(component).toContain("disabled={loading || !!error || !folderName.trim() || !browser}");
+    expect(component).toContain("disabled={!browser || loading || !!error}");
   });
 });

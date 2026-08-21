@@ -221,6 +221,10 @@ import {
 import { findingReference } from "./lib/finding-reference";
 import { buildAutoTriagePrompt, resolveAutoTriageCwd } from "./lib/auto-triage";
 import { resolveComposerRepo } from "./lib/composer-repo";
+import {
+  browseFolderWithRecovery,
+  folderRecoveryNotice,
+} from "./lib/folder-browser-recovery";
 import { setThemePreference, THEME_CHANGE_EVENT } from "./lib/theme";
 import { startsInBottomSystemGestureZone } from "./lib/touch-gestures";
 import {
@@ -10428,6 +10432,9 @@ function OnboardingFlow({
                   ]);
                   setCwd(project.cwd);
                 }}
+                onUnavailablePath={(path) => {
+                  setCwd((current) => (current === path ? "" : current));
+                }}
                 onReposChanged={(deletedPath) => {
                   // Onboarding holds the list locally (no bootstrap refetch on
                   // this step), so drop the row here and un-select it if it was
@@ -12763,6 +12770,9 @@ function RailStage({
             onSelected={async (repo) => {
               onProjectChange?.(repoProject(repo));
               await onReposChanged?.();
+            }}
+            onUnavailablePath={(path) => {
+              if (filterRepo?.cwd === path) onProjectChange?.("__all");
             }}
             onReposChanged={onReposChanged}
           />
@@ -18383,6 +18393,7 @@ function ProjectFolderBrowser({
   onOpenChange,
   onSelected,
   onReposChanged,
+  onUnavailablePath,
 }: {
   open: boolean;
   initialPath?: string;
@@ -18394,13 +18405,20 @@ function ProjectFolderBrowser({
    *  deleted path so callers holding a local list can drop the row without a
    *  round trip; callers that refetch can ignore it. */
   onReposChanged?: (deletedPath: string) => void | Promise<void>;
+  /** Clear an in-memory selection that still names a path which disappeared. */
+  onUnavailablePath?: (path: string) => void;
 }) {
   const [browser, setBrowser] = useState<FolderBrowserPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [folderName, setFolderName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ path: string; name: string } | null>(null);
+  const onUnavailablePathRef = useRef(onUnavailablePath);
+  useEffect(() => {
+    onUnavailablePathRef.current = onUnavailablePath;
+  }, [onUnavailablePath]);
 
   // `browser?.directories` only guards the null payload, not a payload that
   // came back without the list (an error envelope, an older/proxied backend, a
@@ -18409,29 +18427,30 @@ function ProjectFolderBrowser({
   // the router crash boundary over a folder list. Default to empty instead.
   const directories = browser?.directories ?? [];
 
-  const browse = useCallback(async (path?: string, fallbackToRoot = false) => {
+  const browse = useCallback(async (path?: string) => {
     setLoading(true);
     setError(null);
+    setNotice(null);
+    // Never leave the previous path actionable while the server is deciding
+    // whether the requested path still exists.
+    setBrowser(null);
     try {
-      const query = path ? `?path=${encodeURIComponent(path)}` : "";
-      setBrowser(await api<FolderBrowserPayload>(`/api/filesystem/directories${query}`));
+      const result = await browseFolderWithRecovery(path, async (candidate) => {
+        const query = candidate ? `?path=${encodeURIComponent(candidate)}` : "";
+        return api<FolderBrowserPayload>(`/api/filesystem/directories${query}`);
+      });
+      setBrowser(result.payload);
+      if (result.unavailablePath && result.recoveryLocation) {
+        if (localStorage.getItem("lfg_v2_repo") === result.unavailablePath) {
+          localStorage.removeItem("lfg_v2_repo");
+        }
+        onUnavailablePathRef.current?.(result.unavailablePath);
+        setNotice(folderRecoveryNotice(result.unavailablePath, result.recoveryLocation));
+      }
     } catch (e) {
       const message = e instanceof Error ? e.message : "Couldn't open this folder";
-      // The picker opens on the last-used project path, which may have since
-      // been deleted or moved (a pruned worktree, a renamed repo). Without a
-      // fallback that 400 strands the drawer on an empty list with every
-      // action disabled — no listing, no way back, only Close. Drop to the
-      // default root so the user can still navigate somewhere real.
-      if (path && fallbackToRoot) {
-        try {
-          setBrowser(await api<FolderBrowserPayload>("/api/filesystem/directories"));
-          setError(`${path} is unavailable (${message}) — showing your projects folder instead.`);
-          return;
-        } catch {
-          // Root is unreachable too; report the original failure below.
-        }
-      }
-      setError(message);
+      const target = path ?? "your projects folder";
+      setError(`Folder “${target}” could not be opened (${message}). Close this picker and check that the Computer is online.`);
     } finally {
       setLoading(false);
     }
@@ -18442,7 +18461,7 @@ function ProjectFolderBrowser({
     setCreating(startCreating);
     setFolderName("");
     setDeleteTarget(null);
-    void browse(initialPath, true);
+    void browse(initialPath);
   }, [browse, initialPath, open, startCreating]);
 
   async function finish(endpoint: string, body: object) {
@@ -18565,6 +18584,7 @@ function ProjectFolderBrowser({
             ) : null}
           </div>
 
+          {notice ? <p className="mt-2 text-sm text-muted-foreground">{notice}</p> : null}
           {error ? <p className="mt-2 text-sm text-destructive">{error}</p> : null}
           {creating ? (
             <div className="mt-3 flex gap-2">
@@ -18577,7 +18597,7 @@ function ProjectFolderBrowser({
               />
               <Button
                 type="button"
-                disabled={loading || !folderName.trim() || !browser}
+                disabled={loading || !!error || !folderName.trim() || !browser}
                 onClick={() => browser && void finish("/api/projects/create-folder", { parent: browser.current, name: folderName })}
               >
                 Create
@@ -18585,12 +18605,12 @@ function ProjectFolderBrowser({
             </div>
           ) : (
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <Button type="button" variant="outline" onClick={() => setCreating(true)} disabled={!browser || loading}>
+              <Button type="button" variant="outline" onClick={() => setCreating(true)} disabled={!browser || loading || !!error}>
                 <Plus className="size-4" /> New Folder
               </Button>
               <Button
                 type="button"
-                disabled={!browser || loading}
+                disabled={!browser || loading || !!error}
                 onClick={() => browser && void finish("/api/projects/use-folder", { path: browser.current })}
               >
                 <Check className="size-4" /> Use This Folder
@@ -20105,6 +20125,9 @@ function NewSessionDialog({
         onSelected={async (project) => {
           chooseComposerRepo(project);
           await onReposChanged();
+        }}
+        onUnavailablePath={(path) => {
+          setRepo((current) => (current === path ? "" : current));
         }}
         onReposChanged={onReposChanged}
       />
