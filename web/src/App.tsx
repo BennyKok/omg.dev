@@ -25677,14 +25677,14 @@ function BotsView({
   }
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-3" data-lfg-page-column>
+    <div className="mx-auto flex max-w-3xl flex-col gap-2" data-lfg-page-column>
       {/* Tablet band only (no persistent header toggle there yet) — real
           mobile gets the pinned Chat/Bot toggle in the app shell's mobile
           chrome instead, so it isn't doubled here. */}
       {shouldShowInlineBotsSurfaceToggle(isMobile) ? (
         <SurfaceToggle active="chat" onOpenSessions={onOpenSessions} onOpenBots={() => {}} />
       ) : null}
-      <div className="flex items-center gap-3 px-2 pb-3 pt-5">
+      <div className="flex items-center gap-3 px-2 pb-2 pt-4">
         <h1 className="min-w-0 flex-1 text-[32px] font-bold leading-tight tracking-tight">Bots</h1>
         <button
           type="button"

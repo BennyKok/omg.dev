@@ -17,9 +17,15 @@ export type PrimaryMobileTab = "live" | "bots";
 /** `SurfaceToggle`'s own active-segment vocabulary (desktop rail history). */
 export type SurfaceToggleActive = "sessions" | "chat";
 
-/** Flat roster treatment on the Bots page — airier than the compact rail. */
+/**
+ * Flat roster treatment on the Bots page — larger than the compact rail, but
+ * not airier. The row keeps its 56px avatar; the padding and gap come from the
+ * bot-mode mockup (docs/design/bot-mode/mockup.html `.roster-row`: 10px
+ * vertical padding, 12px gap). `py-4` here put the row pitch at 100px, which
+ * read as a settings list with four items rather than a roster you scan.
+ */
 export const MOBILE_BOT_ROSTER_ROW_CLASS =
-  "flex w-full items-center gap-3.5 rounded-lg px-2 py-4 text-left transition-colors hover:bg-muted";
+  "flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left transition-colors hover:bg-muted";
 
 /**
  * The persistent mobile bottom toggle shows only at real mobile widths, and
