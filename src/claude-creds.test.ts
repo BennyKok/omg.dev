@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claudeOauthToken, resetClaudeCredsCacheForTests } from "./claude-creds.ts";
+import {
+  claudeOauthToken,
+  claudeSignInIsDead,
+  resetClaudeCredsCacheForTests,
+} from "./claude-creds.ts";
 
 describe("Claude account credentials", () => {
   const originalHome = process.env.HOME;
@@ -56,5 +60,43 @@ describe("Claude account credentials", () => {
     expect(
       claudeOauthToken(undefined, () => ({ claudeAiOauth: { accessToken: "from-keychain" } })),
     ).toBe("from-file");
+  });
+
+  // "Dead" has to mean unrecoverable, not merely expired: the Claude CLI renews
+  // an expired access token from the refresh token on its next run, so calling
+  // that state dead would tell every idle account to sign in again each morning.
+  function writeCreds(oauth: Record<string, unknown>): void {
+    testHome = testHome || mkdtempSync(join(tmpdir(), "lfg-claude-creds-"));
+    process.env.HOME = testHome;
+    mkdirSync(join(testHome, ".claude"), { recursive: true });
+    writeFileSync(
+      join(testHome, ".claude", ".credentials.json"),
+      JSON.stringify({ claudeAiOauth: oauth }),
+    );
+  }
+
+  test("an expired token with a refresh token is not a dead sign-in", () => {
+    writeCreds({
+      accessToken: "stale",
+      refreshToken: "renewable",
+      expiresAt: Date.now() - 60_000,
+    });
+
+    expect(claudeSignInIsDead(undefined, noKeychain)).toBe(false);
+  });
+
+  test("an expired token with no refresh token is a dead sign-in", () => {
+    writeCreds({ accessToken: "stale", expiresAt: Date.now() - 60_000 });
+
+    expect(claudeSignInIsDead(undefined, noKeychain)).toBe(true);
+  });
+
+  test("an account with no credential at all is not a dead sign-in", () => {
+    testHome = mkdtempSync(join(tmpdir(), "lfg-claude-creds-"));
+    process.env.HOME = testHome;
+
+    // Nothing stored is "never connected", which the UI already renders as
+    // Connect. Only a stored-but-unusable credential earns Reconnect.
+    expect(claudeSignInIsDead(undefined, noKeychain)).toBe(false);
   });
 });

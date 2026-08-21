@@ -15,7 +15,7 @@ type ClaudeOauth = {
 };
 type ClaudeCreds = { claudeAiOauth?: ClaudeOauth };
 
-let cached: { token: string | null; at: number } | null = null;
+let cached: { record: ClaudeOauth | null; at: number } | null = null;
 const TTL_MS = 60_000;
 
 // Claude Code's own OAuth client. Access tokens live ~8h; the CLI silently
@@ -83,22 +83,56 @@ export function claudeOauthToken(
   configDir?: string,
   readKeychain: () => ClaudeCreds | null = readCredsKeychain,
 ): string | null {
+  return claudeOauthRecord(configDir, readKeychain)?.accessToken ?? null;
+}
+
+/**
+ * The whole stored OAuth record for an account, or null when nothing is stored.
+ *
+ * `claudeOauthToken` is this, narrowed to the access token. Callers that must
+ * tell "signed in" from "sign-in is dead" need the expiry and the refresh token
+ * too, and reading the file twice through two slightly different code paths is
+ * how those two answers drift apart.
+ */
+export function claudeOauthRecord(
+  configDir?: string,
+  readKeychain: () => ClaudeCreds | null = readCredsKeychain,
+): ClaudeOauth | null {
   // The Linux credentials file is cheap to read and can appear while LFG is
   // running after a browser login. Read it before the Keychain cache so a
   // completed first-run connection is visible on the very next status poll.
-  const fileToken = readCredsFile(configDir)?.claudeAiOauth?.accessToken ?? null;
-  if (fileToken) return fileToken;
+  const fromFile = readCredsFile(configDir)?.claudeAiOauth ?? null;
+  if (fromFile?.accessToken) return fromFile;
   // Custom config directories are intentionally file-backed. Falling through
   // to the one machine-wide Keychain entry would make every isolated account
   // resolve to the same login on macOS.
   if (configDir && configDir !== defaultConfigDir()) return null;
   if (process.platform !== "darwin") return null;
 
-  if (cached && Date.now() - cached.at < TTL_MS) return cached.token;
+  if (cached && Date.now() - cached.at < TTL_MS) return cached.record;
   const creds = readKeychain();
-  const token = creds?.claudeAiOauth?.accessToken ?? null;
-  cached = { token, at: Date.now() };
-  return token;
+  const record = creds?.claudeAiOauth?.accessToken ? creds.claudeAiOauth : null;
+  cached = { record, at: Date.now() };
+  return record;
+}
+
+/**
+ * Whether a stored sign-in can still be used without the browser.
+ *
+ * A stored access token expires in about eight hours, and the Claude CLI renews
+ * it from the refresh token whenever it runs — so an expired access token alone
+ * is normal and says nothing. A record that is both expired AND has no refresh
+ * token can never recover on its own: that account needs the user to sign in
+ * again, and the UI has to say so.
+ */
+export function claudeSignInIsDead(
+  configDir?: string,
+  readKeychain: () => ClaudeCreds | null = readCredsKeychain,
+): boolean {
+  const record = claudeOauthRecord(configDir, readKeychain);
+  if (!record?.accessToken) return false;
+  if (record.refreshToken) return false;
+  return typeof record.expiresAt === "number" && record.expiresAt <= Date.now();
 }
 
 // One refresh per config dir at a time. The usage endpoint is polled from
