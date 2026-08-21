@@ -463,7 +463,6 @@ import {
 import { deleteImagePreview, getOrCreateImagePreview } from "../artifact-previews.ts";
 import { resolveUploadRequest, uploadsDir } from "../uploads.ts";
 import { addShipPost, listShipPosts, resolveShipProject } from "../shipped.ts";
-import { shippedCloseDecision } from "../shipped-lifecycle.ts";
 import { verifySelfRepoLanding } from "../session-landing.ts";
 import { collectShipProvenance, shipBlockReason } from "../ship-provenance.ts";
 import {
@@ -2049,49 +2048,6 @@ export function startBotCompactionSweep(): void {
       });
   }, BOT_COMPACTION_SWEEP_MS);
   botCompactionTimer.unref?.();
-}
-
-// When an agent explicitly chooses to close after publishing, the POST response
-// has to reach it before its tmux session disappears. Persist the resumable
-// record synchronously at the call site, then close from a short deferred task.
-// Publishing without that decision leaves the live session untouched.
-const SHIPPED_CLOSE_DELAY_MS = 1_500;
-
-function scheduleShippedSessionClose(sessionId: string): void {
-  setTimeout(() => {
-    void (async () => {
-      const sess = (await listSessions()).find(
-        (session) =>
-          session.sessionId === sessionId || session.nativeSessionId === sessionId,
-      );
-      if (!sess) {
-        evlog("shipped_session_close_skipped", {
-          sessionId,
-          source: "shipped_terminal_state",
-          reason: "not_live",
-        });
-        return;
-      }
-      const outcome = await closeLiveSession(sess, sess.sessionId ?? sessionId, {
-        sessionId: sess.sessionId ?? sessionId,
-        source: "shipped_terminal_state",
-      });
-      if (!outcome.ok) {
-        evlog("shipped_session_close_failed", {
-          sessionId: sess.sessionId ?? sessionId,
-          source: "shipped_terminal_state",
-          reason: outcome.reason,
-          status: outcome.status,
-        });
-      }
-    })().catch((error) => {
-      evlog("shipped_session_close_failed", {
-        sessionId,
-        source: "shipped_terminal_state",
-        reason: error instanceof Error ? error.message : String(error),
-      });
-    });
-  }, SHIPPED_CLOSE_DELAY_MS);
 }
 
 type ParentableSession = {
@@ -7882,7 +7838,6 @@ a{color:#60a5fa}
             project?: string;
             mediaPaths?: Array<{ path: string; caption?: string }>;
             artifactIds?: string[];
-            closeSession?: boolean;
           } | null;
           const shipTitle = body?.title?.trim();
           if (!body || !shipTitle) return err(400, "title required");
@@ -7946,7 +7901,6 @@ a{color:#60a5fa}
                     session.nativeSessionId === body.sessionId,
                 )
               : undefined;
-            const closeSession = shippedCloseDecision(body.closeSession);
             const notificationUser =
               sourceSession?.assignedUser ??
               (body.sessionId ? getCachedResumableSession(body.sessionId)?.assignedUser : undefined);
@@ -7961,29 +7915,9 @@ a{color:#60a5fa}
                 tag: `shipped-${post.id}-${post.rev}`,
               },
             }).catch(() => {});
-            if (sourceSession && body.sessionId && closeSession) {
-              // Make the resumable row durable before acknowledging the ship.
-              // The deferred close repeats this defensively, but doing it now
-              // guarantees the finished session is recoverable even if serve
-              // restarts during the response-flush grace period.
-              persistManagedResume(sourceSession);
-              scheduleShippedSessionClose(body.sessionId);
-              evlog("shipped_session_close_scheduled", {
-                sessionId: sourceSession.sessionId ?? body.sessionId,
-                source: "shipped_terminal_state",
-                delayMs: SHIPPED_CLOSE_DELAY_MS,
-              });
-            }
-            return json({
-              ok: true,
-              post,
-              session: sourceSession
-                ? {
-                    status: closeSession ? "closing" : "active",
-                    resumable: closeSession,
-                  }
-                : undefined,
-            });
+            // Publishing is not a lifecycle event: the source session stays
+            // exactly as it was, so there is no session outcome to report.
+            return json({ ok: true, post });
           } catch (e) {
             return err(400, e instanceof Error ? e.message : "could not add shipped post");
           }

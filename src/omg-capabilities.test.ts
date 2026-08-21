@@ -25,8 +25,10 @@ describe("omg.dev runtime capabilities", () => {
     // shipping for two days while CI stayed green. Shipping is how finished
     // work reaches the human — it must never fall out of the contract again.
     expect(prompt).toContain("omg_ship");
-    expect(prompt).toContain("closeSession:true");
-    expect(prompt).toContain("closeSession:false");
+    // Publishing is no longer a lifecycle event. The contract must not tell
+    // agents to close a session by shipping it.
+    expect(prompt).not.toContain("closeSession");
+    expect(prompt).toContain("Publishing does not close the session");
     expect(prompt).toContain("Shipped is not deployed");
     // Landing is a local self-repo concern. The ship endpoint owns that gate
     // and returns its exact recovery command only to an affected LFG session.
