@@ -1,11 +1,13 @@
-import { HELP, HELP_BANNER, RETIRED_APP_COMMANDS, retiredAppMessage } from "./help.ts";
+import { APP_COMMANDS, runAppCommand, type AppCommandDependencies } from "./apps.ts";
+import { HELP, HELP_BANNER } from "./help.ts";
 import { forwardToInstall, type ForwardDependencies } from "./forward.ts";
 import { runComputerForward, runComputerSetup, type InstallDependencies } from "./install.ts";
 
 export { HELP, HELP_BANNER };
 
 export type CliDependencies = InstallDependencies &
-  ForwardDependencies & {
+  ForwardDependencies &
+  AppCommandDependencies & {
     output?: (line: string) => void;
     error?: (line: string) => void;
   };
@@ -28,13 +30,12 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
 
   if (cmd === "version" || cmd === "--version" || cmd === "-v") {
     const manifest = await Bun.file(new URL("../package.json", import.meta.url)).json();
-    out(typeof manifest.version === "string" ? manifest.version : "0.5.0");
+    out(typeof manifest.version === "string" ? manifest.version : "0.5.1");
     return 0;
   }
 
-  if (RETIRED_APP_COMMANDS.has(cmd)) {
-    err(retiredAppMessage(cmd));
-    return 1;
+  if (APP_COMMANDS.has(cmd)) {
+    return await runAppCommand(argv, { ...dependencies, error: err });
   }
 
   if (cmd === "computer") {

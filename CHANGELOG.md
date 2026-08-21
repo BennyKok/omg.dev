@@ -2,6 +2,22 @@
 
 Recent product updates and deployment notes.
 
+## August 21, 2026 - One `omg` for computer setup and create / deploy
+
+- **`@omg-dev/cli` 0.5.1 keeps one public `omg` binary.** `0.5.0` rejected
+  `create` / `deploy` / `login` after it replaced the vibes 0.4.42 line.
+  `@omg-dev/apps` was never published, so a fresh `npm i -g @omg-dev/cli`
+  lost those verbs. This version starts the hosted app flow again on the
+  same command.
+- **`omg computer setup` is still the local control plane.** It still
+  installs this repository's runtime and still opens
+  http://localhost:8766. You still bring your own agent accounts. omg.dev
+  does not resell tokens.
+- **`omg create`, `omg deploy`, and `omg login` start the last published
+  hosted app CLI (`@omg-dev/cli@0.4.42`).** The user does not type a second
+  command. A maintainer can point `OMG_APPS_BIN` at another runner, or put
+  `omg-apps` on PATH after `@omg-dev/apps` is published.
+
 ## August 20, 2026 - Coding agent toggles follow readiness
 
 - **A coding agent is on only when it can run.** The Settings list used to
