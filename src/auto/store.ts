@@ -18,8 +18,18 @@ export type AutoAgentBackend =
   | "codex-aisdk"
   | "grok"
   | "cursor"
+  | "fx"
   | "opencode"
   | "hermes";
+
+/**
+ * Who this automation belongs to — creator, delivery target, and the UI's
+ * ownership column all at once, deliberately. v1 has no use case where those
+ * three differ: a bot always notifies itself, and a human creating a routine
+ * "for" a bot is modeled as the human picking `owner: bot X`, identical in
+ * shape to the bot creating it itself. One field, one meaning.
+ */
+export type AutoAgentOwner = { kind: "user" } | { kind: "bot"; botId: string };
 
 export type AutoAgent = {
   id: string;
@@ -27,6 +37,10 @@ export type AutoAgent = {
   prompt: string; // the entire agent
   schedule: string; // 5-field cron expression
   enabled: boolean;
+  // Who owns this automation: the human, or a specific bot. Bot-owned rows
+  // fire as a nudge into the bot's own conversation instead of running
+  // headless — see src/auto/bot-routine.ts and the scheduler's dispatch.
+  owner: AutoAgentOwner;
   cwd?: string; // where the Claude session runs; defaults to repo root
   agent?: AutoAgentBackend; // omitted for old rows = "aisdk" (Claude AI SDK)
   // Which Claude account a scheduled run bills to. Only the "aisdk" backend has
@@ -40,6 +54,37 @@ export type AutoAgent = {
   tools?: string[];
   lastRunAt?: number;
 };
+
+/**
+ * Keep old Hermes rows visible, but never schedule them again.
+ *
+ * This is a read migration. It avoids rewriting the store during a status read,
+ * and the next normal edit persists the disabled value.
+ */
+export function autoAgentEnabledForBackend(
+  enabled: boolean,
+  backend: AutoAgentBackend | undefined,
+): boolean {
+  return backend === "hermes" ? false : enabled;
+}
+
+/**
+ * Read migration for two independent, additive changes to stored rows:
+ *
+ *  - Hermes rows are force-disabled (pre-existing).
+ *  - Any row with no `owner` (every row written before bot-owned automations
+ *    shipped) silently becomes `{ kind: "user" }`. This avoids rewriting the
+ *    store during a status read; the next normal edit persists the value.
+ */
+export function normalizeStoredAutoAgents(agents: AutoAgent[]): AutoAgent[] {
+  return agents.map((agent) => {
+    let next = agent;
+    if (!next.owner) next = { ...next, owner: { kind: "user" } };
+    if (next.enabled !== autoAgentEnabledForBackend(next.enabled, next.agent))
+      next = { ...next, enabled: false };
+    return next;
+  });
+}
 
 // "resolved" is TERMINAL and is the only status that means the underlying
 // problem is actually gone. Everything else — including "session" — only
@@ -102,7 +147,7 @@ export async function listAutoAgents(): Promise<AutoAgent[]> {
   const f = Bun.file(agentsPath());
   if (!(await f.exists())) return [];
   try {
-    return JSON.parse(await f.text()) as AutoAgent[];
+    return normalizeStoredAutoAgents(JSON.parse(await f.text()) as AutoAgent[]);
   } catch {
     return [];
   }
@@ -120,7 +165,7 @@ export async function getAutoAgent(id: string): Promise<AutoAgent | null> {
  */
 export function sanitizeThinkingLevel(
   level: string | undefined,
-  backend: AutoAgentBackend | undefined,
+  backend: string | undefined,
 ): string | undefined {
   if (!level) return undefined;
   const allowed = thinkingLevelsForAgent(backend ?? "aisdk");
@@ -160,6 +205,13 @@ export async function saveAutoAgent(input: {
   prompt: string;
   schedule: string;
   enabled: boolean;
+  /**
+   * Omitted on a plain edit = carry the existing row's owner forward. Omitted
+   * on create = defaults to `{ kind: "user" }`. Callers that must enforce who
+   * is allowed to set this (a bot can never mint a row for another owner) do
+   * so before calling in — this layer just persists what it's given.
+   */
+  owner?: AutoAgentOwner;
   cwd?: string;
   agent?: AutoAgentBackend;
   /** undefined = leave the stored pin alone; null/"" = clear it. */
@@ -183,7 +235,8 @@ export async function saveAutoAgent(input: {
     name: input.name,
     prompt: input.prompt,
     schedule: input.schedule,
-    enabled: input.enabled,
+    enabled: autoAgentEnabledForBackend(input.enabled, backend),
+    owner: input.owner ?? existing?.owner ?? { kind: "user" },
     cwd: input.cwd ?? existing?.cwd,
     agent: backend,
     claudeAccountId: claudeAccountForBackend(
@@ -222,6 +275,23 @@ export async function deleteAutoAgent(id: string): Promise<void> {
     ),
   );
   scheduleWakeHooksPush();
+}
+
+/** Everything a bot owns, permanently gone. Called when the bot itself is deleted. */
+export async function deleteAutoAgentsOwnedByBot(botId: string): Promise<number> {
+  await ensure();
+  const list = await listAutoAgents();
+  const keep = list.filter((a) => !(a.owner.kind === "bot" && a.owner.botId === botId));
+  await Bun.write(agentsPath(), JSON.stringify(keep, null, 2));
+  scheduleWakeHooksPush();
+  return list.length - keep.length;
+}
+
+/** How many routines a given bot currently owns — the input to the per-bot cap. */
+export async function countAutoAgentsOwnedByBot(botId: string): Promise<number> {
+  return (await listAutoAgents()).filter(
+    (a) => a.owner.kind === "bot" && a.owner.botId === botId,
+  ).length;
 }
 
 export async function setLastRun(id: string, ts: number): Promise<void> {

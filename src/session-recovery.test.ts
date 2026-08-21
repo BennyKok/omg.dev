@@ -7,6 +7,7 @@ import { currentBootId, readEntry, writeEntry } from "./aisdk-registry.ts";
 import { addManaged, listManaged, resetManagedRegistryForTests } from "./managed.ts";
 import { reconcileCommandFileSessions } from "./session-recovery.ts";
 import { managedLaunchRow } from "./sessions.ts";
+import { indexSessionMessagesDirect } from "./transcript-index.ts";
 
 describe("command-file session boot recovery", () => {
   const originalData = PATHS.data;
@@ -23,7 +24,7 @@ describe("command-file session boot recovery", () => {
 
   afterEach(() => {
     delete process.env.LFG_TEST_HARNESS_CAPTURE;
-    delete process.env.LFG_COMPUTER_PLAN;
+    delete process.env.LFG_COMPUTER_ENTITLEMENT;
     resetManagedRegistryForTests();
     PATHS.data = originalData;
     rmSync(root, { recursive: true, force: true });
@@ -105,6 +106,42 @@ describe("command-file session boot recovery", () => {
     expect(launch.cmd).toContain("--recovered-at");
   });
 
+  test("adopts an alive same-boot harness without relaunching it", async () => {
+    const key = "34343434-3434-4434-8434-343434343434";
+    addManaged({
+      tmuxName: "lfg-same-boot",
+      cwd: root,
+      createdAt: 1,
+      agent: "aisdk",
+      sessionId: key,
+      nativeSessionId: key,
+      model: "opus",
+      launchState: "running",
+    });
+    writeEntry({
+      sessionId: key,
+      agent: "claude",
+      harnessPid: process.pid,
+      tmuxName: "lfg-same-boot",
+      supervisor: "process",
+      bootId: currentBootId(),
+      cwd: root,
+      model: "opus",
+      busy: false,
+      createdAt: 1,
+    });
+
+    const result = await reconcileCommandFileSessions(() => {});
+
+    expect(result.adopted).toBe(1);
+    expect(result.recovered).toBe(0);
+    expect(() => readFileSync(capture, "utf8")).toThrow();
+    expect(readEntry(key)).toEqual(expect.objectContaining({
+      harnessPid: process.pid,
+      recoveryClaimBootId: null,
+    }));
+  });
+
   test("does not surface a dead registry entry as an already-live managed session", () => {
     const key = "44444444-4444-4444-8444-444444444444";
     const managed = {
@@ -174,8 +211,50 @@ describe("command-file session boot recovery", () => {
     expect(managedLaunchRow(managed, {}, {})).toBeNull();
   });
 
+  // The counterpart to the drop above, and the second half of a real report: a
+  // user on a fresh install sent "hi", watched the thinking dots for the boot
+  // grace window, and then the session VANISHED from the list. Its agent could
+  // not start, so no harness ever registered — but it had written the reason to
+  // its transcript on the way out, and dropping the row threw that away. The
+  // user was left with no session and no explanation.
+  //
+  // A dead harness with something to say stays listed, is not "launching", and
+  // reports blocked with its own words.
+  test("keeps a dead command-file session that recorded why it died", () => {
+    const key = "88888888-8888-4888-8888-888888888888";
+    const managed = {
+      tmuxName: "lfg-died-explaining",
+      cwd: root,
+      createdAt: Date.now() - 5 * 60_000,
+      agent: "aisdk" as const,
+      sessionId: key,
+      nativeSessionId: key,
+      model: "sonnet",
+      launchState: "running" as const,
+    };
+
+    // Exactly what the harness now writes before exiting.
+    indexSessionMessagesDirect(key, [{
+      id: "explain-1",
+      role: "assistant",
+      kind: "text",
+      text: "Claude could not start: the Claude CLI is not installed and no Claude account is connected. Open Settings → Coding agents to install it and sign in.",
+      ts: Date.now(),
+    }]);
+
+    const row = managedLaunchRow(managed, {}, {});
+    expect(row).not.toBeNull();
+    // The spinner is the bug. A dead session is not launching.
+    expect(row?.launching).toBe(false);
+    expect(row?.status).toBe("blocked");
+    expect(row?.statusDetail).toContain("Claude could not start");
+    // The reason has to reach the card, not just the row.
+    expect(row?.last?.text).toContain("Coding agents");
+  });
+
   test("does not relaunch a scheduled run after boot on a Computer", async () => {
-    process.env.LFG_COMPUTER_PLAN = "computer_5";
+    process.env.LFG_COMPUTER_ENTITLEMENT =
+      '{"plan":"computer_5","limit":5,"scheduleLimit":2}';
     const key = "88888888-8888-4888-8888-888888888888";
     addManaged({
       tmuxName: "lfg-schedule-fire",
@@ -209,12 +288,12 @@ describe("command-file session boot recovery", () => {
       expect(readEntry(key)?.recoveryClaimBootId).toBe(currentBootId());
       expect(() => readFileSync(capture, "utf8")).toThrow();
     } finally {
-      delete process.env.LFG_COMPUTER_PLAN;
+      delete process.env.LFG_COMPUTER_ENTITLEMENT;
     }
   });
 
   test("self-hosted LFG still recovers a spawnedBy=schedule session", async () => {
-    delete process.env.LFG_COMPUTER_PLAN;
+    delete process.env.LFG_COMPUTER_ENTITLEMENT;
     const key = "99999999-9999-4999-8999-999999999999";
     addManaged({
       tmuxName: "lfg-self-hosted-schedule",
@@ -290,6 +369,42 @@ describe("command-file session boot recovery", () => {
 
     expect(result.recoveredTmux).toBe(0);
     expect(existsSync(capture)).toBe(false);
+  });
+
+  test("marks a dead first-launch SDK row failed when startup never minted a thread id", async () => {
+    const key = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    addManaged({
+      tmuxName: "lfg-grok-killed",
+      cwd: root,
+      createdAt: 1,
+      agent: "grok",
+      runtime: "command-file",
+      sessionId: key,
+      model: "grok-code-fast-1",
+      launchState: "running",
+    });
+    writeEntry({
+      sessionId: key,
+      agent: "grok",
+      threadId: null,
+      harnessPid: 2147483647,
+      tmuxName: "lfg-grok-killed",
+      supervisor: "process",
+      bootId: "prior-boot",
+      cwd: root,
+      model: "grok-code-fast-1",
+      busy: false,
+      createdAt: 1,
+    });
+
+    const result = await reconcileCommandFileSessions(() => {});
+    expect(result.failed).toBe(1);
+    expect(result.recovered).toBe(0);
+    expect(listManaged()[0]).toEqual(expect.objectContaining({
+      tmuxName: "lfg-grok-killed",
+      launchState: "failed",
+      launchError: "grok recovery handle missing",
+    }));
   });
 
   test("leaves a jcode row alone when its worktree was reclaimed", async () => {

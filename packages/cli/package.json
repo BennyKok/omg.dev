@@ -1,0 +1,33 @@
+{
+  "name": "@omg-dev/cli",
+  "version": "0.5.1",
+  "description": "Install and manage the local omg.dev agent control plane.",
+  "license": "MIT",
+  "homepage": "https://github.com/BennyKok/omg.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BennyKok/omg.dev.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/BennyKok/omg.dev/issues"
+  },
+  "type": "module",
+  "bin": {
+    "omg": "./dist/omg.mjs"
+  },
+  "exports": {
+    ".": "./dist/omg.mjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "bun build src/index.ts --target=bun --outfile=dist/omg-bun.mjs && cp src/bin-shim.mjs dist/omg.mjs && chmod +x dist/omg.mjs",
+    "test": "bun test",
+    "typecheck": "bun x tsc -p tsconfig.json --noEmit"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

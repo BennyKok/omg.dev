@@ -11,20 +11,19 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
+import { WORKTREE_ROOT } from "./config.ts";
 import { MAIN_REF } from "./agents/collectors/git-fresh.ts";
 import { listManaged } from "./managed.ts";
+import { deleteMergedSessionBranch } from "./project-maintenance.ts";
 import { recentlyActiveCwds } from "./resume-cache.ts";
 import { tmuxHasSession } from "./tmux.ts";
 
 // Persistent, env-overridable. Never default to /tmp: it is cleared on reboot
 // (systemd-tmpfiles), which silently destroys every live session's worktree —
-// including uncommitted work. Keep this in sync with the same default in
-// projects.ts (a shared import would create a projects→worktree→tmux cycle).
-export const WORKTREE_ROOT = resolve(
-  process.env.LFG_WORKTREE_ROOT ?? `${homedir()}/lfg-worktrees`,
-);
+// including uncommitted work. config.ts owns this path for creation, project
+// identity, sweeping, and maintenance.
+export { WORKTREE_ROOT };
 
 export type SessionWorktree = {
   repoRoot: string;
@@ -270,7 +269,9 @@ async function repoRootFromWorktree(wtPath: string): Promise<string | null> {
   return dirname(common);
 }
 
-// Best-effort cleanup — only removes the worktree directory, not the branch.
+// Best-effort cleanup. Unmerged branches remain as the recovery copy. A branch
+// already contained in main is stale state, so remove it after its worktree is
+// gone and cannot need it as a checked-out ref.
 export async function removeSessionWorktree(
   repoRoot: string | null,
   sessionName: string,
@@ -283,7 +284,10 @@ export async function removeSessionWorktree(
   const root = repoRoot ? resolve(repoRoot) : await repoRootFromWorktree(wtPath);
   if (!root) return false;
   const ok = (await git(root, ["worktree", "remove", "--force", wtPath])).ok;
-  if (ok) clearWorktreeOwned(sessionName);
+  if (ok) {
+    clearWorktreeOwned(sessionName);
+    await deleteMergedSessionBranch(root, `session_${sessionName}`).catch(() => false);
+  }
   return ok;
 }
 

@@ -1,0 +1,65 @@
+<!-- @dsCard group="Components" name="Inputs & controls" subtitle="Field, textarea, switch, segmented tabs" width="760" height="560" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Inputs &amp; controls</title>
+<!-- @tokens -->
+</head>
+<body>
+<div class="panes">
+  <div class="pane pane--light">
+    <p class="demo-title">Text field</p>
+    <input class="field" placeholder="Session title">
+    <p class="demo-title">Textarea (composer)</p>
+    <textarea class="field" rows="3" placeholder="Message the agent, / for skills"></textarea>
+    <p class="demo-title">Segmented tabs</p>
+    <div class="t-tabs" role="tablist">
+      <button class="t-tab" role="tab" aria-selected="true">All</button>
+      <button class="t-tab" role="tab" aria-selected="false">Asks</button>
+      <button class="t-tab" role="tab" aria-selected="false">Shipped</button>
+    </div>
+    <p class="demo-title">Switch, in its row</p>
+    <div class="group-card">
+      <div class="row row--static">
+        <span class="icon-chip"><svg viewBox="0 0 16 16" fill="none"><path d="M8 2a4 4 0 0 0-4 4v3l-1.2 2h10.4L12 9V6a4 4 0 0 0-4-4Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M6.6 13a1.6 1.6 0 0 0 2.8 0" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
+        <span class="row-body">
+          <span class="row-title">Notifications</span>
+          <span class="row-sub">Push when a session ships or asks</span>
+        </span>
+        <button class="switch" role="switch" aria-checked="true" aria-label="Notifications"></button>
+      </div>
+      <div class="row row--static">
+        <span class="icon-chip icon-chip--muted"><svg viewBox="0 0 16 16" fill="none"><path d="M3 10.5c1.5 1.2 3.2 1.2 5 0s3.5-1.2 5 0" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M3 6.5c1.5 1.2 3.2 1.2 5 0s3.5-1.2 5 0" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
+        <span class="row-body">
+          <span class="row-title">Haptics</span>
+        </span>
+        <button class="switch" role="switch" aria-checked="false" aria-label="Haptics"></button>
+      </div>
+    </div>
+  </div>
+  <div class="pane pane--dark">
+    <p class="demo-title">Dark</p>
+    <input class="field" placeholder="Session title">
+    <p class="demo-title">&nbsp;</p>
+    <div class="t-tabs" role="tablist">
+      <button class="t-tab" role="tab" aria-selected="false">Live</button>
+      <button class="t-tab" role="tab" aria-selected="true">Activity</button>
+      <button class="t-tab" role="tab" aria-selected="false">Settings</button>
+    </div>
+    <p class="demo-title">&nbsp;</p>
+    <div class="group-card">
+      <div class="row row--static">
+        <span class="icon-chip"><svg viewBox="0 0 16 16" fill="none"><path d="M8 2a4 4 0 0 0-4 4v3l-1.2 2h10.4L12 9V6a4 4 0 0 0-4-4Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></span>
+        <span class="row-body"><span class="row-title">Notifications</span></span>
+        <button class="switch" role="switch" aria-checked="true" aria-label="Notifications"></button>
+      </div>
+    </div>
+    <p class="footnote" style="padding:0;margin-top:16px">
+      A switch never floats alone: it always lives on the trailing edge of a standard row.
+      Focus ring is 3px primary at 20%.
+    </p>
+  </div>
+</div>
+</body>
+</html>

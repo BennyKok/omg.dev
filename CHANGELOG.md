@@ -2,6 +2,846 @@
 
 Recent product updates and deployment notes.
 
+## August 21, 2026 - One `omg` for computer setup and create / deploy
+
+- **`@omg-dev/cli` 0.5.1 keeps one public `omg` binary.** `0.5.0` rejected
+  `create` / `deploy` / `login` after it replaced the vibes 0.4.42 line.
+  `@omg-dev/apps` was never published, so a fresh `npm i -g @omg-dev/cli`
+  lost those verbs. This version starts the hosted app flow again on the
+  same command.
+- **`omg computer setup` is still the local control plane.** It still
+  installs this repository's runtime and still opens
+  http://localhost:8766. You still bring your own agent accounts. omg.dev
+  does not resell tokens.
+- **`omg create`, `omg deploy`, and `omg login` start the last published
+  hosted app CLI (`@omg-dev/cli@0.4.42`).** The user does not type a second
+  command. A maintainer can point `OMG_APPS_BIN` at another runner, or put
+  `omg-apps` on PATH after `@omg-dev/apps` is published.
+
+## August 20, 2026 - Coding agent toggles follow readiness
+
+- **A coding agent is on only when it can run.** The Settings list used to
+  default every toggle on, even when the CLI was missing or no account was
+  connected. A fresh box now shows those agents off, with one word:
+  Install or Connect. A ready agent stays on. An agent you turned off stays
+  off.
+- Turning an unready agent on no longer enables it. The row opens to the
+  missing action instead.
+- The expanded row no longer repeats the failure, dumps install commands, or
+  labels OMG tools. Provider Connect rows and a single Install or Login
+  control stay.
+
+## August 20, 2026 - Move an existing schedule onto a bot
+
+- **An auto agent could not be handed to a bot.** A bot-owned routine could
+  only be created by the bot itself, from scratch. Moving one of the existing
+  schedules to a bot meant retyping its whole prompt and losing its id, run
+  history and findings. You can now reassign an existing schedule in place:
+  `lfg agents auto assign <id> --bot <botId>`, and `--user` moves it back to
+  the headless runner.
+- `lfg agents auto list` and `show` now name each schedule's owner. A
+  bot-owned routine produces no findings, because its results go to that
+  bot's conversation instead, so this is the difference between quiet
+  because healthy and quiet because nobody is watching the right surface.
+- The per-bot routine cap, the frequency ceiling, and the check that the
+  target bot exists and is enabled now apply to any schedule that ends up
+  bot-owned, not only to ones a bot created. Re-saving a routine the bot
+  already owns no longer trips its own cap.
+- Documented which of the existing auto agents can move to which existing
+  bot, and which should stay headless, in
+  `docs/bot-owned-automations-plan.md`.
+
+## August 20, 2026 - A new account saw no onboarding steps at all (v0.2.20)
+
+- **A brand new hosted account landed on an empty home screen.** After
+  finishing (or skipping) the connect screens, there was nothing on the page
+  that said what the Computer could do: no steps, no suggestions, only "No
+  running sessions". The first-run steps existed on the server the whole
+  time, but no screen ever showed them. There is now a "Getting started"
+  panel on the home screen with the remaining steps. It can be dismissed, it
+  stays dismissed on every device, and Settings > Setup guide replays it.
+- Each step completes on its own when you do the thing, so the panel never
+  asks you to start a first session while you are looking at one.
+- **A shared persistent-bot conversation's header showed a human avatar and
+  name chip** next to the bot's own identity, reading as who created or owns
+  the bot. The header now shows only the bot's identity and settings.
+- **Messages from other people in a shared bot conversation now show whose
+  they are.** A verified message from someone other than you shows their
+  avatar and name beside it, like a group chat inside the bot conversation.
+  Your own messages and the bot's replies look exactly as they did before.
+
+## August 20, 2026 - Opening a bot from the roster could show the wrong chat surface (v0.2.19)
+
+- **Selecting a persistent bot on the desktop layout could render a plain
+  session instead of the bot's own chat.** The header showed a generic agent
+  icon and model badge instead of the bot's avatar and settings, and the
+  composer read "Add a note" instead of the bot's name. The bot the roster
+  resolved is now trusted for the whole surface — header, composer, and
+  message routing — instead of being re-derived from data that could lag
+  behind a rotated, nested, or same-named session.
+- **The bot chat back button on mobile is now a single chevron**, dropping
+  the "Bots" label text (still announced as "Back to bots" for screen
+  readers).
+- **Bot replies are chat-shaped instead of essay-shaped.** Short replies,
+  separate message beats, confident framing, and no more bolded lead-ins,
+  markdown headings, bulleted recaps, or "want me to do X or Y?" closers.
+- **A session with a dead harness can be resumed again.** Two bugs combined
+  to make some dead sessions permanently stuck: a liveness check misread pid
+  0 as "running," and the resume endpoint trusted that same misread to skip
+  restarting them. Messages sent to a stuck session now reach a running
+  process again.
+- **Fewer "database is locked" errors during heavy concurrent use.**
+  Transcript search no longer maintains a full-text mirror of every message;
+  it now scans the same per-session index search already needed, which
+  removed a second write on every message ingested while the write lock was
+  held.
+
+## August 20, 2026 - Persistent bot chats can restart their runtime (v0.2.18)
+
+- **A persistent bot conversation now has an explicit Restart session action.**
+  It replaces the execution runtime while it keeps the same conversation ID,
+  route, transcript, participants, verified authors, unread state, and queued
+  messages. The action is separate from Apply changes, Stop, automatic context
+  refresh, and starting a fresh conversation.
+- **Restart waits for a safe lifecycle boundary.** Active primary work, child
+  work, and queued messages defer the restart. A per-bot lock and runtime
+  compare-and-swap prevent duplicate replacements. Failed staging or shutdown
+  restores the old primary when it remains usable.
+- **The action is limited to the persistent bot conversation menu.** Verified
+  shared-Computer access uses the existing bot control policy. Regular session
+  and child task controls and APIs are unchanged.
+
+## August 20, 2026 - Codex sessions could not start after a Computer update (v0.2.17)
+
+- **Release bundles contain the Codex runtime again.** The bundle removed
+  `@openai/codex` to save space, because a coding agent runtime is expected to
+  come from the CLI on your own machine. The Codex backend does not use a
+  global CLI. It uses the runtime that the SDK pins, unless you set
+  `LFG_CODEX_PATH`. A Computer that updated to a recent release could therefore
+  not start any Codex session, and reported "Unable to locate Codex CLI
+  binaries". Scheduled agents that use Codex failed for the same reason.
+  Bundles are approximately 336 MB larger.
+- **A Codex session that goes silent now stops with a clear reason.** If the
+  Codex process stopped during a turn, the event stream could stop without an
+  error. The session stayed busy, gave no reason, and did not answer new
+  messages. Interrupt could not stop it. The session now ends the turn, writes
+  the reason in the transcript, keeps the conversation, and accepts the next
+  message.
+
+## August 20, 2026 - Persistent bots rotate without losing the conversation (v0.2.16)
+
+- **Persona and runtime changes now start a fresh model runtime instead of
+  appending another launch prompt to the old thread.** The bot editor shows an
+  explicit Apply action and reports queued, refreshing, current, and failed
+  states. One durable conversation ID keeps the route, transcript, unread
+  state, shared participants, and verified message authors stable while the
+  primary runtime changes beneath it.
+- **Long-lived bots now refresh before measured context use reaches the model
+  limit.** Automatic refresh defaults to 78 percent, can be disabled or set
+  from 40 to 95 percent in Settings, and uses hysteresis plus a minimum interval
+  to prevent loops. The server waits for active primary work, child sessions,
+  and queued messages before it rotates.
+- **Each replacement receives a bounded, structured continuity checkpoint.**
+  The checkpoint keeps explicit goals, decisions, open tasks, preferences,
+  artifacts, verified human authors, and `legacy:unknown` attribution without
+  copying secrets or old runtime contracts. Revision compare-and-swap and the
+  per-bot lock prevent duplicate rotations. A failed stage or close restores
+  the still-live old primary and exposes the error for retry.
+
+## August 20, 2026 - Persistent bot quotas are owner-aware and default to 20 (v0.2.15)
+
+- **Each verified owner can store 20 persistent bots by default.** Disabled and
+  idle bots count because they remain stored. Ownerless legacy bots stay in a
+  separate pool and do not consume a personal allowance. The API returns a
+  structured quota snapshot, and the bot editor shows current usage and a clear
+  limit state. This quota is separate from the live-agent admission limit.
+- **Managed Computers use trusted viewer identity for quota attribution.** A
+  host-provided `persistentBotLimit` entitlement overrides the local
+  `LFG_PERSISTENT_BOT_LIMIT`, which overrides the default of 20. The default
+  works without a host change. Plan-specific limits require the host to write
+  `persistentBotLimit` into the trusted entitlement.
+
+## August 20, 2026 - The hosted Computer/Settings switcher could float over the page instead of docking (v0.2.14)
+
+- **On a host running `@omg-dev/app`'s native mount (`app.omg.dev`) at a
+  tablet-portrait or narrow-desktop width (roughly 768-1023px), the host's
+  Computer/Settings pill lost its usual anchor point and fell back to
+  floating a differently-styled pill over the top of the page** — visible as
+  a small, foreign-looking capsule overlapping other chrome. LFG's embedded
+  header renders a `data-lfg-host-slot="header-actions"` node the host docks
+  into at every breakpoint; that node existed on the mobile header (<768px)
+  and the desktop rail footer (>=1024px) but was missing from the one header
+  branch in between. The generic/tablet header now carries the same slot and
+  host-settings capability flag as the mobile header. See
+  `docs/hosted-shell-inventory.md` for the full shell inventory and root
+  cause. Ships to the hosted product once `vibes` bumps its `@omg-dev/app`
+  pin past this release.
+
+## August 20, 2026 - The desktop Chat/Bots switch could disappear after selecting a bot (v0.2.13)
+
+- **On desktop, opening a bot's conversation hid the Chat/Bots switch bar in
+  the rail, with no way back to the session list short of a reload.** A fix
+  that correctly took the switch out of the mobile full-screen bot chat (once
+  that view got its own "Back to bots" button, making the switch redundant
+  there) copied the same `selectedBotId` guard onto the desktop rail's own
+  switch. Desktop never gets that full-screen takeover — the rail keeps
+  showing the roster regardless of which bot or session is open in the stage
+  — so the guard just stranded desktop users on the Bots surface. The desktop
+  rail now always renders its switch; mobile's behavior is unchanged.
+
+## August 20, 2026 - A selected bot could render as a plain session
+
+- **A persistent bot's chat could show the plain session header instead of
+  the bot's own avatar, settings button, and composer.** The bot resolution
+  shared by the server and the web client trusted a bot's saved session id as
+  soon as a live, non-delegated session existed at that id — without checking
+  that session actually belonged to the bot. A stale saved id, or an ordinary
+  session that later reused the same id, was enough to make the roster point
+  at someone else's session, and the bot's identity dropped silently because
+  the render path read `botId` straight off that unrelated session record.
+  `findBotMainSession`, `botConversationRef`, and `botCanonicalSessionId`
+  (`src/bots/session.ts`) now require the found session to carry the bot's
+  own id before they trust it. The desktop stage column also stamps the
+  selected bot's identity onto its rendered session directly, instead of
+  trusting whatever `botId` (if any) the raw session record carries.
+
+## August 20, 2026 - First-run installs the local control plane (v0.2.12)
+
+- **The documented install no longer goes through the retired `@omg-dev/cli`
+  0.4.x line.** That package is published from `BennyKok/vibes` and is the old
+  prompt-to-app CLI (`create` / `deploy` to `*.omgs.app`). A new user who
+  followed the previous README got that CLI, and often two `omg` binaries.
+  The README first command is now this repository's `scripts/setup.sh`. After
+  setup, open http://localhost:8766.
+- **This repository now owns `@omg-dev/cli` starting at 0.5.0.** That version
+  is required because 0.4.42 is already `latest` on npm; publishing 0.2.x would
+  not replace it. The new package only installs and forwards to the local
+  control plane. It rejects `create` / `deploy`. `lfg` stays a compatibility
+  alias. A release after this change must publish 0.5.0, and `BennyKok/vibes`
+  must stop publishing 0.4.x onto the same name.
+- **Hosted one-click points at `/sandbox/templates/omg` and `omg serve`.**
+  `lfg` remains a compatibility alias for the same product.
+
+## August 20, 2026 - See which versions you are actually running (v0.2.11)
+
+- **Settings shows the app build and the Computer's runtime side by side.**
+  Settings > Computer now has two rows, `Frontend` and `Computer`. The first is
+  the version of the app you are looking at right now; the second is the
+  version the selected Computer is really executing. Tap either to copy it.
+  When they disagree, a short line under them says which side is behind. This
+  is what you read to tell whether an update actually reached the box.
+- **The two numbers cannot agree by accident.** They are read from two separate
+  places: the app build stamps its own version at build time, and the Computer
+  value only ever comes from that Computer's own reply. Neither one falls back
+  to the other, so a matching pair is real evidence and not an assumption.
+- **Honest when it does not know.** A Computer that cannot be reached reads
+  `Disconnected`, and one running a version too old to report itself reads
+  `Unavailable`. Neither shows a guessed number. Self-hosted installs are
+  unchanged.
+- **The Computer row keeps up with restarts and machine switches.** Updating and
+  restarting a Computer used to leave the old version on screen until you
+  reloaded the page, which is the one moment the number has to be right. It now
+  corrects itself. Switching to a different Computer no longer shows the
+  previous machine's version under the new machine's name.
+- **Fixed: everyone with access to a shared Computer can see and open that
+  Computer's bots again.**
+
+## August 19, 2026 - One row per bot, and faster bot chats (v0.2.10)
+
+- **The Bots list shows each bot once.** A bot that had handed work to a
+  background session appeared two or three times, and each duplicate was
+  captioned with that background session's last line rather than the bot's. A
+  background session inherits the bot's identity for attribution, and both the
+  API and the list treated it as its own conversation. The list is now built
+  from one canonical conversation for each bot, decided by the server, and a
+  background session can never become a row. If a bot's saved conversation had
+  been rebound to one of its background sessions, that binding is repaired to
+  the original conversation, so the history comes back instead of a background
+  task's thread.
+- **Unread dots follow the same single conversation.** The dot on a row, and
+  the aggregate dot on the Chat/Bots switch, come from that bot's own
+  conversation only. Opening a bot still clears that one conversation and no
+  others.
+- **Bot chats open faster.** Opening a bot waited on a read receipt and then a
+  full rebuild of the list before the messages could be served, and the list
+  re-opened a live channel for every bot conversation each time any bot
+  replied. The receipt is now written behind the paint, and the channels stay
+  put unless the set of conversations actually changes.
+
+## August 19, 2026 - Unread bot conversations, and a calmer transcript (v0.2.9)
+
+- **Bot conversations now show unread activity, and it survives a reload.** A
+  quiet dot marks each conversation with a new bot reply, with one aggregate dot
+  on the Chat/Bots switch and the desktop bot rail. Read state is stored per
+  user and per conversation on the server, so it follows you between reloads and
+  devices. Your own messages never mark a conversation unread, and a message
+  from another bot marks only the conversation it arrived in. Opening a
+  conversation clears that one conversation and no others.
+- **An open bot conversation no longer carries the Chat/Bots switch.** The
+  switch belongs to the bot list and the Live list. Inside a conversation it sat
+  above the composer and took a row away from the messages, so it is gone; the
+  header Back button is the way out.
+- **Replies sit together again instead of drifting apart.** The per-message copy
+  button used to reserve an empty row under every turn, which pushed consecutive
+  messages about 36px apart and flashed a stray band on hover. It now sits in
+  the margin beside its own message, so the gap is 8px between messages from the
+  same speaker and 18px when the speaker changes, and revealing it shifts
+  nothing.
+- **Settings no longer shows the "Who's on this machine" row.** The local
+  facepile was showing machine accounts rather than anything you manage, so it
+  has been removed along with the endpoint behind it.
+
+## August 19, 2026 - Agents stop filling RAM-backed /tmp (v0.2.8)
+
+- **Agent temp files go to disk when `/tmp` is tmpfs.** Leftover bun installs
+  and checkouts in RAM-backed `/tmp` filled 7.8G on one box, which then stalled
+  in memory reclaim and looked like a CPU melt. Serve and every agent launch
+  now use `~/.cache/lfg/tmp` (or `LFG_TMPDIR`) so those files cost disk, not
+  RAM.
+- **Unused leftovers in tmpfs `/tmp` are swept.** Entries older than two hours
+  with no open process are removed. Live names such as `lfg-uploads`, Claude
+  caches, tmux, and ssh sockets stay. The disk cache is swept after a day.
+
+## August 19, 2026 - An affected bot shows its own history right away (v0.2.7)
+
+- **A bot whose chat had been taken over by one of its tasks now recovers its
+  real conversation as soon as you open it.** Before, the chat waited until the
+  next message to show the right thread.
+
+## August 19, 2026 - A bot can no longer be replaced by its own task (v0.2.6)
+
+- **A bot chat always shows the bot's own conversation.** When a bot's chat
+  process ended while one of its background tasks kept running, the bot could be
+  permanently rebound to that task. Its chat then opened the task instead, new
+  messages waited behind work that was never yours, and there was no way back to
+  the real conversation. A bot now keeps its own thread, and a bot already
+  affected recovers its full history on the next message.
+- **The mobile bot chat has a Back button again.** The chat opens as a full
+  screen, so the switch above the composer was the only exit. The header now
+  returns you straight to the bot list.
+
+## August 19, 2026 - Bot switch stays above the composer (v0.2.5)
+
+- **The mobile Chat/Bots switch no longer floats over bot messages.** It now
+  occupies real layout space directly above the bot composer.
+
+## August 19, 2026 - Bot channel media stays in chat (v0.2.4)
+
+- **Images and videos sent back through a bot's originating channel now also
+  appear in the bot chat.** The media joins the same ordered transcript, and a
+  delivery retry updates the existing row instead of adding a duplicate.
+
+## August 19, 2026 - Custom user icons and a machine facepile (v0.2.3)
+
+- **You can now upload your own icon in Settings.** PNG, JPEG, WebP, or GIF,
+  up to 5MB, instead of relying on your Gravatar. Replacing or removing it
+  takes effect immediately, with no stale cached copy lingering.
+- **Settings now shows who is on this machine.** A new "Who's on this
+  machine" row displays a facepile of everyone sharing this machine — or the
+  one account it is paired to — each with their own icon.
+
+## August 19, 2026 - Bot chats keep root mobile navigation (v0.2.2)
+
+- **A selected bot chat now stays at the mobile root.** The header no longer
+  shows a Back button, and the compact Chat/Bots switch remains available above
+  the composer so Bots returns directly to the flat bot list.
+
+## August 19, 2026 - Mobile bot navigation stays in its lane (v0.2.1)
+
+- **Chat and Bots now have separate mobile lists.** Chat shows coding sessions,
+  while Bots shows one persistent row per bot without delegated child tasks.
+- **Opening a bot now always opens its main conversation.** A background task
+  can no longer take the place of the bot's saved thread.
+- **The mobile Chat/Bots switch now sits above the composer.** The compact,
+  labeled control frees header space and keeps both destinations within thumb
+  reach, with a reduced-motion mode for the sliding indicator.
+
+## August 19, 2026 - Bots can schedule themselves (v0.2.0)
+
+- **A bot can now set up its own recurring check.** Ask it to check something
+  every morning, and it schedules a routine on itself with `omg_schedule_routine`
+  — no trip through the web UI. When it fires, the bot gets a message in the
+  same conversation and does the checking itself, in its own voice, then
+  replies like it would to anything else. It can list its own schedules and
+  remove one just as easily.
+- **Every schedule now says who it belongs to** — you, or a named bot — and the
+  Schedules page and each bot's own settings show it. A bot's chat header
+  carries a small "Schedules" count too.
+- **A bot is capped at 5 self-scheduled routines by default**, configurable in
+  Settings, and a schedule that would fire more than roughly every 30 minutes
+  is rejected outright — a runaway bot cannot spam itself into a corner.
+- **Fixed: a bot could edit or delete another bot's — or your own — schedule.**
+  The generic schedule tools had no ownership check at all; a bot's tools are
+  now restricted to its own rows, enforced on the server, not just by which
+  tool it happens to call.
+- **Deleting a bot now cleans up after itself**, removing any routines it
+  owned instead of leaving them behind with nothing to deliver to.
+- **Fixed: a bot's reply could show up twice.** If a turn was still streaming
+  when the tab went to the background, the half-written bubble stuck around
+  next to the finished one when you came back.
+- **Bot chats are tighter to read.** Messages from the same speaker now sit
+  close together, with breathing room only when the speaker changes, instead
+  of the same wide gap everywhere.
+- **Fixed: a short message could break mid-word.** A one-word reply like
+  "Waiting." was squeezed into a bubble narrower than the word itself.
+- **Fixed: paused-session guidance now matches the agent you are actually
+  running**, instead of showing instructions for a different provider.
+
+## August 19, 2026 - Bots can send secure messages to each other (v0.1.411)
+
+- **Your bots can now coordinate without exposing their private setup.** A bot
+  can send a durable message only to another enabled bot that you own. The
+  receiving bot sees the verified sender, while private instructions and
+  credentials stay out of the message.
+- **Replies stay explicit and bounded.** A reply keeps its conversation link,
+  stops after four handoffs, and never forwards model output automatically.
+  Each bot can send at most ten peer messages per minute.
+- **Messages keep their order through restarts.** The queue stores every
+  accepted message before delivery and keeps audit details for both accepted
+  and rejected attempts.
+
+## August 19, 2026 - Bots can manage themselves, and mobile puts them first (v0.1.410)
+
+- **Bots can safely update their own profile and create a new bot.** The server
+  derives ownership from the running bot session, limits each owner to ten
+  bots, and never accepts credentials, runtime control or another bot's
+  identity through these tools.
+- **Chat and Bot are now one tap apart on mobile.** The pinned switch matches
+  the desktop rail, and the Bots page now uses a compact, flat roster with one
+  clear New bot row.
+- **A bot conversation now keeps the bot's own face in its mobile header.** A
+  normal coding-agent icon appears only when the session is not owned by a
+  resolved bot.
+- **Mobile message bubbles no longer show a duplicate copy icon.** Long press
+  still opens Copy and Select text, while mouse hover and keyboard focus keep
+  the desktop control available.
+
+## August 19, 2026 - Cursor stops asking before every tool (v0.1.409)
+
+- **A Cursor session gets on with the work.** It used to stop and ask you to
+  approve tool calls one at a time, so a session you left running would sit
+  there waiting on a question instead of finishing. Cursor now runs the same
+  way every other agent here already did, and it does it without a terminal
+  pane in the background.
+
+## August 19, 2026 - Your bot remembers the conversation (v0.1.408)
+
+- **A bot that goes away and comes back still has your chat.** Its history used
+  to vanish: a restart, a reboot or a crash gave the bot a new conversation,
+  and everything you had said to it was orphaned. The conversation now belongs
+  to the bot rather than to whichever process happened to be running it, so it
+  picks up exactly where you left off — and on the default provider the bot
+  itself remembers the thread too, instead of being handed a summary of it.
+- **The roster shows what your bot last said, even when it is not running.** A
+  bot with months of history could greet you with "Say hi to get started"
+  simply because nothing was awake to ask.
+- **Fixed: some bots could not be typed to at all once their session ended.**
+  The composer was waiting for a running process — the one your message was
+  about to start.
+- **A background task's report now says which task it is from**, so a bot
+  running two of them can tell you which one finished.
+
+## August 19, 2026 - The bot's face shows up when something is happening (v0.1.407)
+
+- **Fixed: bot messages sat oddly indented.** Space was being reserved beside
+  every reply for the bot's face, including the replies that did not show one,
+  so the whole column was pushed right with nothing in the gap.
+- **The face appears in one place now: while the bot is working.** It used to
+  mark the first reply of every run, which put a row of faces down the chat and
+  read as several speakers rather than one bot — and the header already tells
+  you who you are talking to. Down in the conversation it now says the thing
+  the header cannot: this is happening right now.
+- **And it is bigger there** — 40px, up from 30.
+
+## August 19, 2026 - Vercel fx joins the roster (v0.1.406)
+
+- **fx is a supported coding agent.** Vercel Labs' fx runs as a full session
+  like any other agent: durable resume, the omg.dev MCP toolset, permission
+  prompts in the dashboard, and scheduled auto-agent runs. It is driven over
+  its native ACP server, the same route Grok and Cursor already use.
+- **Sign in from the browser, not a terminal.** `fx login` is a Vercel device
+  flow, so the fx card offers the same one-time-code sign-in as Claude, Codex
+  and Grok, instead of Cursor's terminal-only login.
+- **The whole gateway catalog, useful models first.** The picker reads the live
+  Vercel AI Gateway list — 229 models — and leads with a curated slice. `auto`
+  keeps whatever `~/.fx/settings.json` already selects.
+- **Know what fx bills.** Every fx credential resolves to Vercel AI Gateway, so
+  running `anthropic/claude-opus-5` under fx spends Gateway credit rather than a
+  Claude subscription. Claude, Codex and Cursor stay the subscription-backed
+  agents. Attach your own provider keys with Vercel BYOK to bill those instead.
+
+## August 19, 2026 - Stale session branches can be cleaned up (v0.1.405)
+
+- **New `omg projects status` and `omg projects clean`.** The worktree sweeper
+  removes a session's directory but leaves its Git branch behind, and those
+  accumulate: across the projects on this box there are over 600 stale session
+  branches and 627 ownership markers. `status` reports what is removable and
+  changes nothing. `clean` removes only session branches already contained in
+  that project's local `main`, worktree records whose directories are gone, and
+  ownership markers whose directories are gone. It keeps unmerged and
+  checked-out branches, and never touches working files.
+- This work was written and tested two days ago, was reported as finished, and
+  then sat unmerged on an abandoned branch. It has now been recovered onto
+  main — which is the class of problem the shipping gate above exists to
+  prevent.
+
+## August 19, 2026 - A session cannot ship work it never committed (v0.1.404)
+
+- **Shipping now refuses when the code is not in.** A session with uncommitted
+  files, or with commits that never reached main, cannot post to Shipped at
+  all. It gets told which branch, how many files or commits, and what to do
+  about it. Previously only omg.dev's own repo was checked, so sessions in
+  every other project could post a finished result while the work sat in a
+  dirty worktree — and there was no way to tell those posts apart from real
+  ones.
+- **Sessions with no code still ship freely.** Operations, research, deploys
+  and plain conversations have nothing to land, and the gate never fires on
+  them. It only blocks work that exists and did not land.
+- Every post also records the branch and commit it was made from, so a result
+  can be traced back to the code long after the session is gone. Refusals are
+  logged too.
+
+## August 19, 2026 - A bot chat shows the conversation, not the machinery (v0.1.403)
+
+- **Tool calls, their results and reasoning blocks no longer appear in a bot
+  chat.** It was still the session log with a chat bubble drawn on it: every
+  bash line the bot ran scrolled past in the middle of it answering you. A bot
+  chat is a conversation now. What the bot handed you stays — words, images,
+  video, dashboards.
+- **The header is the bot.** Its face, its name, its persona and the settings
+  gear. Gone: the model chip (which harness it runs on is a session detail),
+  the actions menu offering fork, close and archive (a bot session is not
+  closed from the UI — deleting the bot is), and the floating "files changed /
+  Review" bar.
+- **Nothing is lost.** A bot's session is still an ordinary session: open it
+  from the sessions rail and the whole log is there, tools and reasoning
+  included. Heavy work does not run in the chat any more either — it runs in a
+  background session with its own row in the fleet.
+## August 19, 2026 - Hosted questions have a visible inbox button (v0.1.402)
+
+- **Hosted omg.dev now shows the question button when an agent needs input.**
+  The button opens the Notifications inbox. The hosted layout still keeps
+  self-hosted update controls out of the host-owned chrome.
+
+## August 19, 2026 - Existing hosted questions return to the inbox (v0.1.401)
+
+- **Questions created before v0.1.400 now appear again.** The inbox recovers an
+  older question through its assigned session when the question itself has no
+  user. It still hides questions owned by another user and questions with no
+  owner at all.
+
+## August 19, 2026 - Questions stay visible, and shipped work shows its code state (v0.1.400)
+
+- **Fixed: a question from a hosted coding agent could disappear.** The shared
+  agent server kept the session id but lost the assigned user, so the signed-in
+  question feed filtered the question out. Questions now inherit the owner of
+  the session that asked them.
+- **Shipped posts now show whether their code is committed and landed.** Each
+  post records its branch, commit, uncommitted files, and commits that have not
+  reached the base branch. Research and operations work can still ship without
+  code, but the feed no longer implies that every result is committed.
+
+## August 19, 2026 - Bots hold a conversation, and the work happens in the background (v0.1.399)
+
+- **A bot answers you in the turn you asked.** Ask one a plain question and it
+  used to do a coding agent's entire job before saying anything: one spent four
+  minutes on 25+ tool calls, picked up an unrelated status skill, went reading
+  production databases, and only then replied with a status report. A bot is a
+  conversation, so its instructions now say so — answer first, keep it short,
+  look things up briefly, and stay inside your own repo.
+- **Anything bigger goes to a background session, and that session reports back
+  into the chat.** The bot says in one line what it is handing off, ends its
+  turn, and tells you what happened in its own words when the work lands. The
+  machinery stays out of the conversation.
+- **Fixed: a background session's report could be lost completely.** If the
+  bot's session had gone away — a reboot, a memory reclaim — the report was
+  dropped on the floor, the work was never mentioned, and the task session was
+  left running forever holding a slot. The report now brings the bot back and
+  gets delivered.
+- **Fixed: background updates cut the bot off mid-reply.** They now wait their
+  turn. You keep the right to interrupt it yourself.
+- **Fixed: a bot could be shut down to make room for another session**, despite
+  being the one kind of session that is meant to stay. Coming back gave it a
+  new session, so your chat history with it looked empty.
+- **Fixed: raw internal reports showed up in your chat with a bot**, in the
+  message list and in the roster preview, as though you had typed them.
+- **A bot's replies now sit in a bubble, with its face on the first message of
+  each run** — so the chat reads as talking to someone rather than reading a
+  log. Your side is unchanged.
+
+## August 19, 2026 - The bot's face leads its own editor (v0.1.398)
+
+- **The avatar preview on the bot page is now the size of the thing you are
+  choosing.** It was a 56px thumbnail beside the name field, with shape and
+  colour rows underneath picking details too small to actually see. It now
+  leads the page at 112px, centred, with the name field full width below it.
+
+## August 18, 2026 - Connecting a coding agent shows you a dialog, not a browser tab (v0.1.397)
+
+- **Fixed: the sign-in tab still opened on `about:blank` before redirecting.**
+  The previous release stopped that tab from being empty, but the address bar
+  still read `about:blank` for the whole wait, because writing a page into a
+  tab does not change its URL. Pressing Connect now opens a **dialog** instead,
+  right on the click, with its own "Preparing your sign-in link…" state while
+  your Computer starts the provider CLI. When the link is ready the dialog
+  offers a button, and that button opens the provider directly — the correct
+  address from the first frame, with no redirect.
+- **The sign-in can no longer be eaten by a pop-up blocker.** The tab is now
+  opened by your own click on that button, instead of by code running after a
+  network round trip, which is the case browsers block.
+- **Instructions are where you are looking.** The one-time code, the paste
+  field and the approval spinner all live in the dialog, so a login that fails
+  says so on the screen you are on rather than behind a window that took focus.
+
+## August 18, 2026 - Making a bot is a page now (v0.1.396)
+
+- **Creating or editing a bot is a real page with its own URL** (`/bots/new`,
+  `/bots/<id>/edit`) instead of a sheet drawn over the bots list. It was made
+  full height, then edge to edge, but it was still a drawer the browser had
+  never heard of: the phone's back gesture skipped past it to whatever page
+  came before the list, and the form could not be linked to or reloaded. Back
+  now leaves the editor, forward returns to it, and saving a bot's settings
+  drops you back into that bot's chat rather than on the list.
+- **Delete moved off the header row** to the bottom of the form, out from
+  under the thumb that reaches for Save.
+- Fixed: deleting a bot from its settings left you sitting on the editor for a
+  bot that no longer existed.
+
+## August 18, 2026 - The hosted "⋮" menu actually gets its Settings entry (v0.1.395)
+
+- **Fixed: the Settings entry added to the hosted "⋮" menu in v0.1.393 never
+  appeared.** The menu item, and the flag that tells a host its own Settings
+  gear is now redundant, were both gated on an `onOpenHostSettings` callback —
+  but `OmgAppSurface` never accepted that prop, so no host could supply one. It
+  was reachable from inside the surface and unreachable from outside it. The
+  surface now takes the callback and passes it down, so hosted mobile shows
+  Settings in the menu and hosts can drop their own control instead of sitting
+  at three chips in one island for two destinations.
+
+## August 18, 2026 - Making a bot takes the whole screen (v0.1.394)
+
+- **Creating or editing a bot now fills the phone screen edge to edge.** It was
+  already full height, but still drawn as a rounded card inset from every edge
+  with a drag handle on top, so it read as a sheet sitting on the app rather
+  than a screen of its own. Desktop keeps the centred dialog.
+
+## August 18, 2026 - Settings goes where Settings went (v0.1.393)
+
+- **Fixed: Settings in the hosted "⋮" menu opened the machine's settings**, a
+  per-computer page with a machine picker, instead of the app settings the
+  gear used to open. The menu now uses a separate host callback for the
+  settings root; the machine pages keep their own, for deep links like the
+  coding-agent picker.
+- **The machine switcher now sits before the "⋮" menu** in the hosted island.
+  An overflow menu ahead of the control people actually reach for read as the
+  main event.
+
+## August 18, 2026 - A new install could not start a session, and never said why (v0.1.392)
+
+- **Fixed: on a fresh install, sending a message showed the thinking dots
+  forever.** The session was not slow — it was already dead. The agent harness
+  could not start and exited having printed nothing at all: no output, no
+  transcript, no error. A session with no agent connected now says so, and
+  points at Settings → Coding agents instead of spinning.
+- **Fixed: a session whose agent died then vanished from the list entirely**,
+  taking the explanation with it. A dead session that recorded a reason stays
+  visible and reports what happened.
+- **New: `omg doctor`.** One command that prints a pasteable summary of this
+  install — version, which agent CLIs exist, which accounts are connected,
+  whether the server answers, and recent errors — for bug reports. It runs
+  even when omg.dev is broken, and strips keys, tokens, and your home
+  directory so the output is safe to post in public.
+- **New: the documented quick start is tested on a genuinely clean machine.**
+  `scripts/test-install-clean-vm.sh` runs the README's install on a fresh VM
+  and checks the UI actually serves. It found a real break: the published CLI
+  needed Node, which the documented `bun install` never installs, so
+  `omg computer setup` died on the first command a new user runs.
+
+## August 18, 2026 - Two controls in the corner, not three (v0.1.391)
+
+- **The hosted mobile menu is tidier.** Settings now lives inside the "⋮" menu
+  instead of taking its own chip beside it, so the island carries two controls
+  for two destinations. On a hosted surface the item opens the host's own
+  settings, and it only appears when the host actually mounts those pages.
+
+## August 18, 2026 - Host chrome stays in its corner (v0.1.390)
+
+- **Fixed: on a hosted phone, Bots/Notifications/Artifacts moved the app's
+  Computer and Settings buttons to the top-left**, fused onto the end of the
+  "Live" back button. Yesterday's island merge landed them correctly on Live
+  and incorrectly everywhere else; they now stay in the top-right corner on
+  every page.
+
+## August 18, 2026 - One island in the corner, not two (v0.1.389)
+
+- **Fixed: on a hosted phone, the app's own chrome overlapped ours** in the
+  top-right corner. The two were kept apart by a hand-maintained width
+  constant shared across two repos; it drifted, and they collided. The header
+  now offers the host a slot to render into, so there is one island and no gap
+  to keep in sync. Hosts that still float their own chrome are unaffected.
+- **Fixed: a bot card on mobile no longer wears an idle dot.** The creature
+  already shows what the bot is doing; the dot said it again, and said "idle"
+  for every bot you simply were not talking to.
+- **A host can see when this box is waiting on a browser login**, so it can say
+  so instead of looking stuck.
+
+## August 18, 2026 - Connecting a coding agent no longer opens a blank page (v0.1.388)
+
+- **Fixed: "Connect Claude" during Computer first-run opened a blank tab.**
+  The sign-in tab has to be opened inside the click (browsers only trust it
+  there), but the sign-in link itself takes a server round trip — starting the
+  provider CLI and reading the link out of its output. The tab was parked on
+  `about:blank` for that entire wait, which is several seconds on a Computer
+  that just booted. The tab now opens with its own page, showing a spinner and
+  "Opening Claude sign in…", and turns into the provider's page the moment the
+  link arrives. Same fix for Codex, Grok, GitHub and pi's providers.
+- **A login that cannot start now says so where you are looking.** It used to
+  close the tab and put the reason on the page behind it — behind the popup
+  that had just taken focus — so a failure was indistinguishable from a blank
+  tab that vanished. The reason is now printed in the tab itself.
+
+## August 18, 2026 - Bots stay recognizable everywhere, even before they load (v0.1.387)
+
+- **Fixed: a bot's chat header briefly showed the generic Claude mark instead
+  of its own face.** If the bot directory hadn't finished loading yet, the
+  header fell all the way back to the default harness icon even though the
+  session was clearly bot-driven. It now shows a neutral creature placeholder
+  instead of a mark that names the wrong agent.
+- **Fixed: no way to create a bot from mobile web when embedded.** The Pages
+  menu that leads to Bots was fully hidden on embedded mobile, with no
+  substitute, so there was no path to a "New bot" button at all. A trimmed
+  Pages menu is back in the embedded mobile header.
+
+## August 18, 2026 - Bots look like bots in the list (v0.1.386)
+
+- **A bot-backed row now wears the bot's face.** It used to show the harness
+  mark at full size with the creature shrunk to a 14px corner badge, so a row
+  named "Scout" was a Claude mark with a dot on it and looked like every other
+  session. The creature is the avatar now, slightly larger than a harness mark
+  so the two weigh the same, and it carries working in its own posture instead
+  of wearing a busy dot on top.
+- **Bots are their own category**, above the fleet in the rail and on mobile,
+  and out of the project groups. They are not part of the working/idle split:
+  that describes work in flight, and a bot you have not spoken to in a week is
+  not idle in that sense.
+
+## August 17, 2026 - Short replies read like sentences again (v0.1.385)
+
+- **Fixed: a short assistant reply wrapped its last word onto its own line.**
+  "Hi Benny!" rendered as "Hi" / "Benny!". The bubble was capped at 92% twice
+  over, and the inner cap resolved against the text's own width, so any reply
+  that fit on one line was forced onto two. Long replies were quietly losing
+  8% of the pane to the same bug. Most visible in bot chats, because that is
+  where one-line answers are normal.
+- **Making or editing a bot opens full height on mobile.** It is a form with an
+  autofocused name field, so it no longer starts as a short card that the
+  keyboard shoves around before it grows. Desktop keeps the centred dialog.
+
+## August 17, 2026 - Bot Mode: agents you talk to (v0.1.384)
+
+- **Bots are persistent agents you keep a conversation with**, beside the
+  sessions you launch and close. A bot has a name, a persona, one long-lived
+  chat and a face. You don't launch it, you talk to it. Create one from the
+  rail's Bot list; it picks a repo, an agent and a model like a session does.
+- **A bot lives in the rail, next to your sessions.** The Chat/Bot switch sits
+  under "New session" and changes which list the rail shows. Picking a bot
+  opens its chat in the main pane exactly like opening a session, with the same
+  composer and the same chrome — because it *is* a session underneath, one that
+  never ships and never closes.
+- **The mascot is the bot's face, and it carries state.** One eye, a home shape
+  and a colorway make each bot recognisable at a glance; it works while its
+  session works and sleeps when the bot is disabled. While you wait for a
+  reply, the creature itself is the wait indicator rather than three anonymous
+  dots. The avatar is the shape alone — no card behind it.
+- **A session driven by a bot says so wherever you meet it**, and opening one
+  from the session list now shows the bot's face and name in the header, with
+  its settings a click away.
+- **Bot sessions survive idle cleanup.** They are exempt from idle archiving and
+  from the live-agent cap, so a bot you have not spoken to in a week is still
+  there when you come back.
+- **Fixed: the first message to a new bot was swallowed.** The greeting rode in
+  the same turn as the launch envelope, so it went unanswered and only your
+  second message worked.
+
+## August 16, 2026 - App sessions get the correct owner (v0.1.383)
+
+- **A root session started from the account-scoped app is now assigned to the
+  account that paired the box.** The server uses the email claim already stored
+  in the box credential, but only when that email is an existing roster member.
+  Explicit session owners and inherited parent owners still take priority.
+- **Missing, corrupt, expired, or unknown credentials fail safely.** They leave
+  the session unassigned, and the existing web fallback keeps it visible.
+
+## August 16, 2026 - Sessions started from the app stay visible on the web (v0.1.382)
+
+- **Filtering the live view by a person no longer hides sessions that have no
+  owner.** A session started from the mobile app is created without one, so a
+  browser set to your own name silently dropped it: the agent was running and
+  visible on your phone, absent on the web, with nothing on screen saying it
+  had been filtered out. Picking a person now shows their sessions plus every
+  unclaimed one. The "Unassigned" option still isolates them, and "Everyone" is
+  unchanged.
+
+## August 15, 2026 - One session, one row (v0.1.381)
+
+- **A delegated Codex session no longer appears twice in the session list.**
+  The per-turn engine process the harness spawns internally was being listed
+  as a session of its own, so one conversation showed up as two rows that both
+  opened the same transcript.
+- **Delegated sessions are titled by the actual ask.** They were showing
+  "=== LFG SUBAGENT OPERATING CONTRACT === - You are an LFG-managed subage…"
+  because a subagent prompt carries two nested envelopes and only the outer one
+  was being stripped for display.
+
+## August 15, 2026 - Connect OpenCode Go without a terminal (v0.1.380)
+
+- **OpenCode's Go plan and Zen now connect with an API key in Settings →
+  Coding agents.** Paste the key on the provider row and it is stored with
+  OpenCode's own credentials. Previously the only way in was running
+  `opencode auth login` in a terminal, which a hosted Computer may not have.
+- **The OpenCode row now shows which providers are connected**, including ones
+  signed in earlier from the CLI, instead of only reporting that OpenCode is
+  signed in somewhere.
+- **Connecting or disconnecting one provider leaves the others untouched**, so
+  adding a Go key no longer risks the ChatGPT login `opencode auth login`
+  wrote.
+
+## August 15, 2026 - Plans run the agents they advertise (v0.1.378)
+
+- **Starter and Starter Plus Computers now run three agents at once**, as their
+  plan says. They were admitting one.
+- **Free and trial Computers also run three**, matching the pricing page. The
+  second session used to fail with "1 of 1 agents live".
+- **Plan limits now come from the control plane instead of a table baked into
+  this bundle.** A plan launched after a release used to be unknown to that
+  table and fell back to a single agent, silently. New plans no longer need an
+  LFG release to work.
+
+## August 15, 2026 - Durable coding-agent runtimes (v0.1.377)
+
+- **New coding-agent sessions no longer need terminal panes.** Claude, Codex,
+  Grok, Cursor, Jcode, Copilot, OpenCode, and Pi now use their SDK, ACP, or RPC
+  runtime through one shared interface. Existing terminal-pane sessions remain
+  visible and controllable during the migration.
+- **Queued messages now survive navigation and server restarts.** The server
+  stores each send in SQLite immediately, restores its UI state, preserves
+  order, and keeps failed sends available for retry.
+- **Agent launch and archive are faster.** The new runtimes avoid terminal
+  startup and remove the old archive grace delay. Recovery keeps the native
+  provider session and the selected model.
+- **Hermes is removed.** Stored Hermes schedules are disabled safely, and new
+  Hermes sessions cannot start.
+- **Long Claude sessions recover from silent network stalls.** The SDK runtime
+  restarts its stream without replaying the accepted prompt.
+
+## August 15, 2026 - Cursor joins the usage page (v0.1.376)
+
+- **The Settings → Usage page now includes Cursor.** It reads included spend
+  and the on-demand spending cap from the Cursor dashboard with the CLI's
+  sign-in, and shows each as its own ring next to Claude, Codex, Grok, and
+  OpenCode. An expired token asks you to run `cursor-agent login` instead of
+  showing a raw HTTP status.
+
 ## August 14, 2026 - Jcode mark matches upstream gray (v0.1.375)
 
 - **Jcode's agent icon no longer wears an invented blue tint.** The torus

@@ -1,0 +1,37 @@
+<!-- @dsCard group="Foundations" name="Shape & motion" subtitle="Radius scale, iOS curve, duration scale" width="720" height="480" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shape &amp; motion</title>
+<!-- @tokens -->
+<style>
+  .shapes { display: flex; gap: 16px; align-items: flex-end; }
+  .shape { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 11px; color: var(--muted-foreground); font-family: ui-monospace, monospace; }
+  .shape > i { display: block; background: var(--card); border: 1px solid var(--border-strong); }
+  .mrow { display: grid; grid-template-columns: 130px 1fr 90px; gap: 12px; align-items: center; font-size: 12px; margin-bottom: 8px; }
+  .mrow code { font-family: ui-monospace, monospace; color: var(--muted-foreground); }
+  .mbar { height: 8px; border-radius: 999px; background: var(--primary); }
+</style>
+</head>
+<body>
+<div class="pane pane--light">
+  <p class="demo-title">Radius</p>
+  <div class="shapes">
+    <div class="shape"><i style="width:44px;height:44px;border-radius:7px"></i>7px chip</div>
+    <div class="shape"><i style="width:64px;height:52px;border-radius:12px"></i>12px row/thumb</div>
+    <div class="shape"><i style="width:96px;height:60px;border-radius:16px"></i>16px card</div>
+    <div class="shape"><i style="width:110px;height:36px;border-radius:48px"></i>48px pill</div>
+  </div>
+  <p class="demo-title" style="margin-top:24px">Motion — house curve <code>cubic-bezier(0.32, 0.72, 0, 1)</code>, press scale 0.97</p>
+  <div class="mrow"><code>--duration-quick</code><div class="mbar" style="width:15%"></div><span>150ms · close, text swap</span></div>
+  <div class="mrow"><code>--duration-fast</code><div class="mbar" style="width:25%"></div><span>250ms · open, page slide</span></div>
+  <div class="mrow"><code>--duration-medium</code><div class="mbar" style="width:35%"></div><span>350ms · panel/toast close</span></div>
+  <div class="mrow"><code>--duration-slow</code><div class="mbar" style="width:40%"></div><span>400ms · panel open</span></div>
+  <p class="footnote" style="padding:0;margin-top:16px">
+    Every interactive element presses to scale(0.97) with no transition on the way down.
+    Reduced motion disables all of it.
+  </p>
+</div>
+</body>
+</html>

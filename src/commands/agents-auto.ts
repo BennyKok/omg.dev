@@ -47,6 +47,8 @@ Lifecycle:
   lfg agents auto show <id> [--json]        Show one agent, prompt included
   lfg agents auto edit <id> [flags]         Change any field
   lfg agents auto enable|disable <id>       Flip the schedule on/off
+  lfg agents auto assign <id> --bot <botId>  Hand it to a bot as an owned routine
+  lfg agents auto assign <id> --user         Take it back off the bot (headless)
   lfg agents auto run <id> [--local]        Run now (via serve when it's up)
   lfg agents auto rm <id>                   Delete it
 
@@ -68,6 +70,7 @@ Examples:
   lfg agents auto new "watch our deps for CVEs and tell me only if one hits us"
   lfg agents auto new "flag flaky tests" --schedule "0 */4 * * *" --backend codex-aisdk
   lfg agents auto edit dep-cve-watch --schedule "0 8 * * 1-5" --enable
+  lfg agents auto assign design-review --bot bot_designer
   lfg agents auto findings --status open --json`;
 
 // ---------- flag parsing ----------
@@ -280,6 +283,8 @@ export async function cmdAutoAgents(args: string[]): Promise<void> {
     case "disable":
     case "pause":
       return autoToggle(rest, false);
+    case "assign":
+      return autoAssign(rest);
     case "run":
       return autoRun(rest);
     case "rm":
@@ -486,6 +491,14 @@ async function requireAgent(id: string | undefined, usage: string): Promise<Auto
   return fail(`unknown auto agent "${id}" — see: lfg agents auto list`);
 }
 
+// Where a row's results actually go. A bot-owned row produces no findings at
+// all — it nudges the bot's conversation instead — so during the §8 migration
+// this column is the difference between "quiet because healthy" and "quiet
+// because nobody is watching the right surface."
+export function ownerLabel(agent: AutoAgent): string {
+  return agent.owner.kind === "bot" ? `bot:${agent.owner.botId}` : "headless";
+}
+
 async function autoList(args: string[]): Promise<void> {
   const agents = await listAutoAgents();
   if (hasFlag(args, "--json")) {
@@ -501,7 +514,7 @@ async function autoList(args: string[]): Promise<void> {
   for (const agent of agents) {
     const open = findings.filter((f) => f.agentId === agent.id).length;
     console.log(
-      `${agent.enabled ? "on " : "OFF"} ${agent.id.padEnd(24)} ${agent.schedule.padEnd(16)} ${backendLabel(agent).padEnd(24)} last ${relTime(agent.lastRunAt).padEnd(10)} next ${formatNext(agent, tz)}${open ? `  (${open} open)` : ""}`,
+      `${agent.enabled ? "on " : "OFF"} ${agent.id.padEnd(24)} ${agent.schedule.padEnd(16)} ${ownerLabel(agent).padEnd(18)} ${backendLabel(agent).padEnd(24)} last ${relTime(agent.lastRunAt).padEnd(10)} next ${formatNext(agent, tz)}${open ? `  (${open} open)` : ""}`,
     );
   }
   console.log(`\ntimezone: ${tz}`);
@@ -517,6 +530,9 @@ async function autoShow(args: string[]): Promise<void> {
   const mine = (await listFindings()).filter((f) => f.agentId === agent.id);
   console.log(`${agent.id} — ${agent.name}`);
   console.log(`  status:   ${agent.enabled ? "enabled" : "disabled"}`);
+  console.log(
+    `  owner:    ${ownerLabel(agent)}${agent.owner.kind === "bot" ? " (fires into that bot's chat; produces no findings)" : ""}`,
+  );
   console.log(`  schedule: ${agent.schedule} (${tz})  next: ${formatNext(agent, tz)}`);
   console.log(`  last run: ${relTime(agent.lastRunAt)}`);
   console.log(`  backend:  ${backendLabel(agent)}${agent.thinkingLevel ? ` thinking:${agent.thinkingLevel}` : ""}`);
@@ -560,6 +576,78 @@ async function autoEdit(args: string[]): Promise<void> {
     tools: selection.tools ?? agent.tools,
   });
   await printSaved(saved, args, "updated");
+}
+
+// ---------- ownership migration ----------
+//
+// Moving an EXISTING schedule onto a bot (docs/bot-owned-automations-plan.md
+// §8). Without this the only bot-owned rows were ones a bot minted from
+// scratch, so migrating the pre-existing schedules meant retyping every prompt
+// and losing the row's id, history and findings.
+//
+// This deliberately goes over HTTP to a live `lfg serve` rather than writing
+// the store directly, unlike every other write in this module. The per-bot cap,
+// the frequency ceiling and the bot-exists/enabled checks all live in the POST
+// /api/auto/agents route, and that route is their single owner. A direct
+// saveAutoAgent() here would be a second, unguarded path to the same state
+// change — exactly the drift this file's header warns about. When serve is down
+// we say so instead of silently bypassing the guards.
+async function autoAssign(args: string[]): Promise<void> {
+  const usage =
+    "Usage: lfg agents auto assign <id> --bot <botId> | --user";
+  const agent = await requireAgent(positional(args), usage);
+  const toUser = hasFlag(args, "--user", "--human", "--headless");
+  const botId = option(args, "--bot", "--bot-id")?.trim();
+  if (toUser && botId) fail("pass either --bot <botId> or --user, not both");
+  if (!toUser && !botId) fail(usage);
+
+  const owner = toUser ? { kind: "user" as const } : { kind: "bot" as const, botId: botId! };
+  let res: Response;
+  try {
+    res = await fetch(`http://127.0.0.1:${servePort()}/api/auto/agents`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // Every field is echoed back because the route treats POST as a full
+      // upsert; sending only the owner would blank the rest of the row.
+      body: JSON.stringify({
+        id: agent.id,
+        name: agent.name,
+        prompt: agent.prompt,
+        schedule: agent.schedule,
+        enabled: agent.enabled,
+        cwd: agent.cwd,
+        agent: agent.agent,
+        model: agent.model,
+        thinkingLevel: agent.thinkingLevel,
+        tools: agent.tools,
+        owner,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    return fail(
+      "could not reach `lfg serve` on port " +
+        servePort() +
+        " — ownership changes are validated there (bot exists/enabled, per-bot cap, frequency ceiling). Start serve and retry.",
+    );
+  }
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    return fail(body?.error || `assign failed with HTTP ${res.status}`);
+  }
+  const saved = ((await res.json()) as { agent: AutoAgent }).agent;
+  if (hasFlag(args, "--json")) {
+    console.log(JSON.stringify({ agent: saved }, null, 2));
+    return;
+  }
+  if (saved.owner.kind === "bot") {
+    console.log(`assigned ${saved.id} to bot ${saved.owner.botId} as an owned routine`);
+    console.log("  it now fires as a nudge into that bot's conversation, not as a headless run");
+    console.log("  findings: none — results land in the bot chat instead");
+  } else {
+    console.log(`returned ${saved.id} to the headless auto-agent runner`);
+  }
+  console.log(`  schedule: ${saved.schedule}`);
 }
 
 async function autoToggle(args: string[], enabled: boolean): Promise<void> {

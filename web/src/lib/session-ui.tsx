@@ -6,14 +6,14 @@
 // module's whole graph into the entry chunk, which is exactly how a code split
 // ends up saving nothing.
 import { createContext, useContext, useMemo } from "react";
-import type { ClaudeAccountInfo, CodingAgentInfo, Session } from "../App";
+import type { ClaudeAccountInfo, CodingAgentInfo, PersistentBot, Session } from "../App";
 import { omgAssetUrl } from "./omg-client";
 import { cn } from "./utils";
 
 // Bump whenever an agent mark in web/public changes: versioned icon URLs are
 // served `immutable, max-age=1y`, so a redrawn SVG at the same `?v=` keeps
 // serving the old art out of the browser cache forever.
-export const AGENT_ICON_VERSION = "20260814b";
+export const AGENT_ICON_VERSION = "20260819a";
 
 /**
  * The session-card / picker icon for an agent kind. Codex variants share the
@@ -24,6 +24,7 @@ export function agentIconSrc(agent?: string): string {
   if (agent === "codex" || agent === "codex-aisdk") return omgAssetUrl(`/agent-codex.svg${v}`);
   if (agent === "grok") return omgAssetUrl(`/agent-grok.svg${v}`);
   if (agent === "cursor") return omgAssetUrl(`/agent-cursor.svg${v}`);
+  if (agent === "fx") return omgAssetUrl(`/agent-fx.svg${v}`);
   if (agent === "hermes") return omgAssetUrl(`/agent-hermes.svg${v}`);
   if (agent === "opencode") return omgAssetUrl(`/agent-opencode.svg${v}`);
   if (agent === "jcode") return omgAssetUrl(`/agent-jcode.svg${v}`);
@@ -36,12 +37,24 @@ export function agentIconAlt(agent?: string): string {
   if (agent === "codex" || agent === "codex-aisdk") return "Codex";
   if (agent === "grok") return "Grok";
   if (agent === "cursor") return "Cursor";
+  if (agent === "fx") return "fx";
   if (agent === "hermes") return "Hermes";
   if (agent === "opencode") return "OpenCode";
   if (agent === "jcode") return "Jcode";
   if (agent === "pi") return "pi";
   if (agent === "copilot") return "Copilot";
   return "Claude";
+}
+
+/** Recovery copy for a provider failure, scoped to the session that failed. */
+export function pausedProviderErrorDetail(
+  session: Pick<Session, "agent" | "statusDetail">,
+): string {
+  const detail = session.statusDetail || "The selected provider failed the request.";
+  if (session.agent === "opencode") {
+    return `${detail} Check the OpenCode provider logs or switch models.`;
+  }
+  return `${detail} Retry the session or switch models.`;
 }
 
 export function timeAgo(value?: number | null): string {
@@ -89,15 +102,59 @@ export function titleForSession(session: Session): string {
   );
 }
 
-/** Agent kinds whose CLI login can be driven from the browser (see
- *  authProviderFor in src/coding-agents.ts). Everything else is terminal-only. */
-export const BROWSER_AUTH_KINDS = new Set<string>([
-  "claude",
-  "aisdk",
-  "codex",
-  "codex-aisdk",
-  "grok",
-]);
+/**
+ * Which face a session's header should wear. A bot-backed session wears the
+ * bot's own creature once the bot directory has resolved it; while it hasn't
+ * (fetch in flight, race on mount) it gets a neutral loading creature rather
+ * than the harness's agent mark, which would claim a harness that isn't
+ * actually running the session. A session with no bot at all gets the
+ * harness's agent icon — the safe fallback, never the default.
+ *
+ * Pulled out as a pure function (rather than duplicated JSX per surface) so
+ * the card header and the mobile session sheet header both derive from the
+ * one BotDirectoryContext lookup instead of each tracking its own copy of
+ * "which bot is this".
+ */
+export type SessionHeaderIdentity =
+  | { kind: "bot"; bot: PersistentBot }
+  | { kind: "bot-loading" }
+  | { kind: "agent" };
+
+export function resolveSessionHeaderIdentity(
+  session: Pick<Session, "botId">,
+  botDirectory: Map<string, PersistentBot>,
+): SessionHeaderIdentity {
+  if (!session.botId) return { kind: "agent" };
+  const bot = botDirectory.get(session.botId);
+  return bot ? { kind: "bot", bot } : { kind: "bot-loading" };
+}
+
+/**
+ * Agent kinds whose CLI login can be driven from the browser, and the account
+ * each one signs into (see authProviderFor in src/coding-agents.ts). Everything
+ * else is terminal-only.
+ *
+ * The provider name lives HERE, beside the kind, because the sign-in tab has to
+ * name it BEFORE the server answers — the tab opens inside the click, the
+ * server's `provider` arrives a round trip later, and a tab that cannot say
+ * what it is opening is the blank tab this map exists to prevent. Keeping it in
+ * one table means a new browser-loginable agent cannot be added to the login
+ * path while leaving its tab unlabelled.
+ */
+export const BROWSER_AUTH_PROVIDER_LABELS: Record<string, string> = {
+  claude: "Claude",
+  aisdk: "Claude",
+  codex: "Codex",
+  "codex-aisdk": "Codex",
+  grok: "Grok",
+  // `fx login` is itself the Vercel device flow — there is no --device-auth
+  // variant to pick, so the browser path is the only sensible one.
+  fx: "Vercel",
+};
+
+export const BROWSER_AUTH_KINDS = new Set<string>(
+  Object.keys(BROWSER_AUTH_PROVIDER_LABELS),
+);
 
 export const CodingAgentsContext = createContext<CodingAgentInfo[] | undefined>(undefined);
 

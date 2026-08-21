@@ -117,5 +117,8 @@ describe("worktree sweeper", () => {
 
     expect(r.recentlyActive).not.toContain(name);
     expect(r.removed).toContain(name);
+    expect(
+      Bun.spawnSync(["git", "-C", join(dataRoot, "repo"), "show-ref", "--verify", `refs/heads/session_${name}`]).exitCode,
+    ).not.toBe(0);
   });
 });

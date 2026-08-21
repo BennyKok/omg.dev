@@ -2,6 +2,8 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { PATHS } from "./config.ts";
+import type { ImageArtifact } from "./artifacts.ts";
+import { indexArtifactMessage } from "./transcript-index.ts";
 
 const UUID = /^[0-9a-fA-F-]{36}$/;
 const MAX_ROWS = 1_000;
@@ -21,6 +23,24 @@ export type OriginDelivery = {
   media: OriginDeliveryMedia[];
   createdAt: number;
 };
+
+/**
+ * Media sent to an external origin is still part of the bot conversation.
+ * Index each artifact into the owning transcript before the channel adapter
+ * delivers it. `indexArtifactMessage` is idempotent, so a media id that was
+ * already displayed in omg.dev is updated in place instead of duplicated.
+ */
+export function indexOriginDeliveryMedia(input: {
+  indexPath: string;
+  sessionId: string;
+  artifacts: ImageArtifact[];
+}): number {
+  return input.artifacts.reduce(
+    (indexed, artifact) =>
+      indexed + indexArtifactMessage(input.indexPath, input.sessionId, artifact),
+    0,
+  );
+}
 
 function storePath(): string {
   return join(PATHS.data, "origin-deliveries.json");

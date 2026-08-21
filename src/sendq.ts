@@ -23,10 +23,21 @@ import {
   feedbackPromptOpen,
   tmuxDismissFeedback,
 } from "./tmux.ts";
-import { resolveTranscript } from "./sessions.ts";
+import { resolveTranscript, type SessionMsg } from "./sessions.ts";
 import { listSessionsCached } from "./session-cache.ts";
-import { enqueueTranscriptIndex, indexedRecentMessages } from "./transcript-index.ts";
+import {
+  enqueueTranscriptIndex,
+  indexedMessagePage,
+  indexedRecentMessages,
+} from "./transcript-index.ts";
 import { traceLog } from "./trace-log.ts";
+import {
+  actionableStoredQueueSessionIds,
+  deleteStoredQueueMessages,
+  readStoredQueue,
+  resetSendQueueStoreConnectionForTests,
+  writeStoredQueueMessage,
+} from "./sendq-store.ts";
 
 export type QueuedMsg = {
   id: string;
@@ -40,36 +51,54 @@ export type QueuedMsg = {
   attempts: number;
   createdAt: number;
   updatedAt: number;
+  /** The agent was still on an earlier turn when this message was accepted. */
+  queuedBehindTurn?: boolean;
 };
 
 type SessionQueue = { msgs: QueuedMsg[]; running: boolean };
 
 const queues = new Map<string, SessionQueue>();
 
-// Keep the per-session list from growing unbounded; terminal rows older than
+// Keep the per-session list from growing unbounded; resolved rows older than
 // this many are pruned on each enqueue.
 const KEEP_TERMINAL = 12;
 
 function q(sessionId: string): SessionQueue {
   let s = queues.get(sessionId);
   if (!s) {
-    s = { msgs: [], running: false };
+    s = { msgs: readStoredQueue(sessionId), running: false };
     queues.set(sessionId, s);
   }
   return s;
 }
 
 export function listQueue(sessionId: string): QueuedMsg[] {
-  return queues.get(sessionId)?.msgs ?? [];
+  return q(sessionId).msgs;
 }
 
 export function getMessage(sessionId: string, id: string): QueuedMsg | null {
-  return queues.get(sessionId)?.msgs.find((m) => m.id === id) ?? null;
+  return q(sessionId).msgs.find((m) => m.id === id) ?? null;
 }
 
-export function enqueueMessage(sessionId: string, text: string): QueuedMsg {
+function persist(sessionId: string, message: QueuedMsg): void {
+  writeStoredQueueMessage(sessionId, message);
+}
+
+// SQLite restores a queue by (created_at, id). random ids are not an ordering
+// key, so two accepts in the same millisecond could reverse after a restart.
+// Keep creation time strictly increasing inside each session queue.
+function nextCreatedAt(s: SessionQueue): number {
+  const previous = s.msgs.at(-1)?.createdAt ?? 0;
+  return Math.max(Date.now(), previous + 1);
+}
+
+export function enqueueMessage(
+  sessionId: string,
+  text: string,
+  opts: { queuedBehindTurn?: boolean } = {},
+): QueuedMsg {
   const s = q(sessionId);
-  const now = Date.now();
+  const now = nextCreatedAt(s);
   const msg: QueuedMsg = {
     id: randomBytes(8).toString("hex"),
     text,
@@ -77,23 +106,61 @@ export function enqueueMessage(sessionId: string, text: string): QueuedMsg {
     attempts: 0,
     createdAt: now,
     updatedAt: now,
+    ...(opts.queuedBehindTurn ? { queuedBehindTurn: true } : {}),
   };
   s.msgs.push(msg);
+  persist(sessionId, msg);
   traceLog("sendq_enqueue", { sessionId, messageId: msg.id, chars: text.length });
-  pruneTerminal(s);
+  pruneTerminal(sessionId, s);
   kick(sessionId);
   return msg;
 }
 
+/**
+ * Record a message accepted by a command-file harness.
+ *
+ * The harness owns delivery and ordering, so this skips the tmux delivery
+ * worker. Keeping the row as `queued` lets a fresh UI connection hydrate it
+ * until reconcileQueued observes the matching user transcript row.
+ */
+export function recordCommandFileMessage(
+  sessionId: string,
+  text: string,
+  queuedBehindTurn = false,
+): QueuedMsg {
+  const s = q(sessionId);
+  const now = nextCreatedAt(s);
+  const msg: QueuedMsg = {
+    id: randomBytes(8).toString("hex"),
+    text,
+    status: "queued",
+    attempts: 0,
+    createdAt: now,
+    updatedAt: now,
+    ...(queuedBehindTurn ? { queuedBehindTurn: true } : {}),
+  };
+  s.msgs.push(msg);
+  persist(sessionId, msg);
+  traceLog("sendq_command_file_accepted", {
+    sessionId,
+    messageId: msg.id,
+    chars: text.length,
+    queuedBehindTurn,
+  });
+  pruneTerminal(sessionId, s);
+  return msg;
+}
+
 export function retryMessage(sessionId: string, id: string): QueuedMsg | null {
-  const s = queues.get(sessionId);
-  const msg = s?.msgs.find((m) => m.id === id);
-  if (!s || !msg) return null;
+  const s = q(sessionId);
+  const msg = s.msgs.find((m) => m.id === id);
+  if (!msg) return null;
   if (msg.status !== "failed") return msg;
   msg.status = "pending";
   msg.error = undefined;
   msg.attempts = 0;
   msg.updatedAt = Date.now();
+  persist(sessionId, msg);
   kick(sessionId);
   return msg;
 }
@@ -102,23 +169,29 @@ export function retryMessage(sessionId: string, id: string): QueuedMsg | null {
 // terminal state (delivered/queued/failed). In-flight messages (pending/
 // sending) stay so a clear never silently abandons a send mid-delivery.
 export function clearResolved(sessionId: string): number {
-  const s = queues.get(sessionId);
-  if (!s) return 0;
+  const s = q(sessionId);
   const before = s.msgs.length;
+  const removed = s.msgs
+    .filter((m) => m.status !== "pending" && m.status !== "sending")
+    .map((m) => m.id);
   s.msgs = s.msgs.filter((m) => m.status === "pending" || m.status === "sending");
+  deleteStoredQueueMessages(sessionId, removed);
   return before - s.msgs.length;
 }
 
-function pruneTerminal(s: SessionQueue) {
-  const terminal = s.msgs.filter(
-    (m) => m.status === "delivered" || m.status === "queued" || m.status === "failed",
-  );
+// Bounded retention applies only to truly resolved rows. A `queued` row is
+// still waiting to be reconciled against the transcript, and a `failed` row is
+// still waiting for the user to retry or clear it — pruning either would
+// silently drop a send the UI is expected to keep showing.
+function pruneTerminal(sessionId: string, s: SessionQueue) {
+  const terminal = s.msgs.filter((m) => m.status === "delivered");
   if (terminal.length <= KEEP_TERMINAL) return;
   const drop = new Set(
     terminal
       .sort((a, b) => a.updatedAt - b.updatedAt)
       .slice(0, terminal.length - KEEP_TERMINAL),
   );
+  deleteStoredQueueMessages(sessionId, [...drop].map((m) => m.id));
   s.msgs = s.msgs.filter((m) => !drop.has(m));
 }
 
@@ -134,6 +207,7 @@ function kick(sessionId: string) {
         if (!next) break;
         next.status = "sending";
         next.updatedAt = Date.now();
+        persist(sessionId, next);
         try {
           await deliver(sessionId, next);
         } catch (e) {
@@ -141,6 +215,7 @@ function kick(sessionId: string) {
           next.error = e instanceof Error ? e.message : String(e);
         }
         next.updatedAt = Date.now();
+        persist(sessionId, next);
       }
     } finally {
       s.running = false;
@@ -148,8 +223,45 @@ function kick(sessionId: string) {
   })();
 }
 
+/**
+ * Resume queue work after the serve process restarts.
+ *
+ * A `pending` row has not entered the terminal composer and is safe to retry.
+ * A `sending` row may already have submitted immediately before the old serve
+ * process stopped. Mark it failed instead of risking a duplicate user turn.
+ */
+export function resumePersistedQueues(): number {
+  let resumed = 0;
+  for (const sessionId of actionableStoredQueueSessionIds()) {
+    const s = q(sessionId);
+    for (const message of s.msgs) {
+      if (message.status === "sending") {
+        message.status = "failed";
+        message.error = "delivery was interrupted by an LFG server restart; check the transcript before retrying";
+        message.updatedAt = Date.now();
+        persist(sessionId, message);
+      } else if (message.status === "pending") {
+        resumed++;
+      }
+    }
+    if (s.msgs.some((message) => message.status === "pending")) kick(sessionId);
+  }
+  return resumed;
+}
+
+export function resetSendQueueForTests(): void {
+  queues.clear();
+  resetSendQueueStoreConnectionForTests();
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+
+export function jcodeAcceptedStatus(
+  queuedBehindTurn: boolean,
+): "queued" | "delivered" {
+  return queuedBehindTurn ? "queued" : "delivered";
+}
 
 // We match a normalized prefix rather than the whole message: the composer
 // wraps long input across lines, so a full-string compare against the capture
@@ -267,35 +379,87 @@ async function transcriptUserMatchCount(
 // for minutes. So we reconcile lazily: whenever the UI polls, promote any
 // queued message that has since shown up in the transcript to "delivered" (the
 // UI then drops it). Returns true if anything changed so the caller re-emits.
+//
+// The scan pages backwards instead of reading one fixed "recent" window: once
+// the queued message is read, the turn it starts can bury its user row under
+// hundreds of tool rows before the next reconcile tick, and a 40-row window
+// never sees it. Paging stops once rows predate the oldest unreconciled send.
+const RECONCILE_PAGE_ROWS = 200;
+const RECONCILE_MAX_ROWS = 4000;
+// The transcript row is stamped by the harness when it writes the line, which
+// can land a beat before this process stamped the queue row — allow that much
+// skew when a repeated identical message must claim its OWN row.
+const RECONCILE_TS_SKEW_MS = 5_000;
+
+async function collectReconcileRows(
+  transcriptPath: string,
+  sessionId: string,
+  oldestCreatedAt: number,
+): Promise<SessionMsg[]> {
+  const collected: SessionMsg[] = [];
+  let before: number | null = null;
+  for (;;) {
+    const page = await indexedMessagePage(transcriptPath, sessionId, {
+      ...(before == null ? {} : { before }),
+      limit: RECONCILE_PAGE_ROWS,
+    });
+    collected.unshift(...page.messages);
+    const oldestRow = page.messages[0];
+    const covered =
+      !page.nextBefore ||
+      (oldestRow?.ts != null && oldestRow.ts < oldestCreatedAt - RECONCILE_TS_SKEW_MS);
+    if (covered || collected.length >= RECONCILE_MAX_ROWS || !page.messages.length) {
+      return collected;
+    }
+    before = page.nextBefore;
+  }
+}
+
 export async function reconcileQueued(sessionId: string): Promise<boolean> {
-  const s = queues.get(sessionId);
-  if (!s) return false;
+  const s = q(sessionId);
   const pending = s.msgs.filter((m) => m.status === "queued");
   if (!pending.length) return false;
+  // Delivered rows must also claim their transcript rows. Otherwise a second
+  // identical follow-up can reuse the first row on a later reconcile tick and
+  // become delivered before the agent reads it.
+  const matchable = s.msgs.filter(
+    (m) => m.status === "queued" || m.status === "delivered",
+  );
   const transcriptPath = await resolveTranscript(sessionId);
   if (!transcriptPath) return false;
-  let recent;
+  let rows: SessionMsg[];
   try {
     enqueueTranscriptIndex(transcriptPath, sessionId);
-    recent = await indexedRecentMessages(transcriptPath, sessionId, 40);
+    rows = await collectReconcileRows(
+      transcriptPath,
+      sessionId,
+      Math.min(...matchable.map((m) => m.createdAt)),
+    );
   } catch {
     return false;
   }
+  // Match one-to-one, oldest queue row first: two identical queued messages
+  // must each claim their own transcript user row. Sharing one would promote a
+  // follow-up the agent has not actually read yet.
+  const candidates = rows.filter((r) => r.role === "user" && r.kind === "text");
+  const claimed = new Set<number>();
   let changed = false;
-  for (const m of pending) {
+  for (const m of matchable) {
     const { head, tail } = messageNeedles(norm(m.text));
-    const found = recent.some(
-      (r) =>
-        r.role === "user" &&
-        r.kind === "text" &&
+    const index = candidates.findIndex(
+      (r, i) =>
+        !claimed.has(i) &&
+        (r.ts == null || r.ts >= m.createdAt - RECONCILE_TS_SKEW_MS) &&
         textHasMessageNeedles(r.text, head, tail),
     );
-    if (found) {
-      m.status = "delivered";
-      m.updatedAt = Date.now();
-      traceLog("sendq_reconciled", { sessionId, messageId: m.id });
-      changed = true;
-    }
+    if (index < 0) continue;
+    claimed.add(index);
+    if (m.status === "delivered") continue;
+    m.status = "delivered";
+    m.updatedAt = Date.now();
+    persist(sessionId, m);
+    traceLog("sendq_reconciled", { sessionId, messageId: m.id });
+    changed = true;
   }
   return changed;
 }
@@ -356,12 +520,16 @@ async function deliver(sessionId: string, msg: QueuedMsg): Promise<void> {
       traceLog("sendq_failed", { sessionId, messageId: msg.id, error: msg.error });
       return;
     }
-    msg.status = "delivered";
+    // Jcode accepts complete lines into stdin while a turn is running, but it
+    // does not read them until that turn ends. Keep that line visible as queued
+    // until reconcileQueued() sees its later user row in the journal.
+    msg.status = jcodeAcceptedStatus(msg.queuedBehindTurn === true);
     msg.error = undefined;
-    traceLog("sendq_delivered", {
+    traceLog(msg.status === "queued" ? "sendq_accepted" : "sendq_delivered", {
       sessionId,
       messageId: msg.id,
       via: "jcode_repl",
+      status: msg.status,
       attempts: 1,
       durationMs: Math.round((performance.now() - started) * 1000) / 1000,
     });

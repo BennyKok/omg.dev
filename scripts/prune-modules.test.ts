@@ -59,8 +59,6 @@ describe("telling agent runtimes from real dependencies", () => {
     for (const name of [
       "@anthropic-ai/claude-agent-sdk-linux-x64",
       "@anthropic-ai/claude-agent-sdk-darwin-arm64",
-      "@openai/codex",
-      "@openai/codex-linux-x64",
       "opencode-ai",
       "opencode-linux-x64",
       "opencode-linux-x64-baseline",
@@ -88,6 +86,15 @@ describe("telling agent runtimes from real dependencies", () => {
     expect(isAgentRuntime("@earendil-works/pi-coding-agent")).toBe(false);
   });
 
+  // The codex backend does not fall back to a global CLI - it needs an explicit
+  // LFG_CODEX_PATH - so the bundled runtime is the only way a codex session
+  // starts. Pruning it shipped in v0.2.11 and wedged a running bot.
+  test("codex stays bundled, runtime and platform binary alike", () => {
+    expect(isAgentRuntime("@openai/codex")).toBe(false);
+    expect(isAgentRuntime("@openai/codex-linux-x64")).toBe(false);
+    expect(isAgentRuntime("@openai/codex-darwin-arm64")).toBe(false);
+  });
+
   test("ordinary dependencies are untouched", () => {
     for (const name of ["zod", "yaml", "sharp", "marked", "playwright", "@modelcontextprotocol/sdk"]) {
       expect(isAgentRuntime(name)).toBe(false);
@@ -106,9 +113,10 @@ describe("pruning agent runtimes", () => {
       writeFileSync(join(dir, "bin.bin"), "x".repeat(2048));
       return dir;
     };
-    const runtime = mk("@openai+codex@1.0.0", "@openai/codex");
+    const runtime = mk("opencode-ai@1.0.0", "opencode-ai");
     const client = mk("@openai+codex-sdk@1.0.0", "@openai/codex-sdk");
     const pi = mk("@earendil-works+pi@1.0.0", "@earendil-works/pi-coding-agent");
+    const codex = mk("@openai+codex@1.0.0", "@openai/codex");
 
     // Default behaviour must not touch them.
     prune(modules, GLIBC_X64);
@@ -119,6 +127,8 @@ describe("pruning agent runtimes", () => {
     expect(existsSync(runtime)).toBe(false);
     expect(existsSync(client)).toBe(true);
     expect(existsSync(pi)).toBe(true);
+    // The whole point of the v0.2.11 regression: this must survive the sweep.
+    expect(existsSync(codex)).toBe(true);
   });
 });
 
