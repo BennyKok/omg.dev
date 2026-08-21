@@ -96,11 +96,10 @@ Page shell matches `AutoManageView`: `mx-auto flex max-w-3xl flex-col gap-2` wit
 
 ```
 Bots
-Persistent agents you talk to, not tasks you launch.
 ```
-- `h1`: `text-lg font-semibold leading-tight`
-- subtitle: `text-sm text-muted-foreground`
-- Place a flat **New bot** row directly below the heading. It uses the same compact rail-list rhythm as the bot rows: a dashed circular icon shell, the `Plus` icon, and a text label. Do not add a separate card-style or header CTA.
+- `h1`: `text-[22px] font-bold leading-tight tracking-tight` — the page name carries the header alone.
+- No subtitle. The roster explains itself.
+- Place a flat **New bot** row at the **bottom** of the roster, after the last bot. It uses the same compact rail-list rhythm as the bot rows: a dashed circular icon shell, the `Plus` icon, and a text label. Do not add a separate card-style or header CTA.
 
 ### 3.2 Roster row (populated, default state)
 
