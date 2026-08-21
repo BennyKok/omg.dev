@@ -333,9 +333,8 @@
 
   /* ── Bots roster page (§3) ────────────────────────────────────────── */
   .page-col { padding: 16px 14px 24px; overflow-y: auto; flex: 1; }
-  .page-head { padding: 2px 2px 14px; display: flex; align-items: flex-start; gap: 10px; }
-  .page-head h1 { margin: 0; font-size: 18px; font-weight: 700; line-height: 1.25; }
-  .page-head p { margin: 2px 0 0; font-size: 13px; color: var(--muted-foreground); }
+  .page-head { padding: 2px 2px 8px; display: flex; align-items: center; gap: 10px; }
+  .page-head h1 { margin: 0; font-size: 22px; font-weight: 700; line-height: 1.2; letter-spacing: -0.02em; }
   .btn {
     appearance: none;
     border: 1px solid transparent;
@@ -776,14 +775,7 @@
 
               <div class="page-col">
                 <div class="page-head">
-                  <div style="flex:1">
-                    <h1>Bots</h1>
-                    <p>Persistent agents you talk to, not tasks you launch.</p>
-                  </div>
-                  <button class="btn btn-sm btn-brand" type="button">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-                    New bot
-                  </button>
+                  <h1 style="flex:1">Bots</h1>
                 </div>
 
                 <!-- read row -->
@@ -862,6 +854,13 @@
                     </span>
                   </span>
                 </button>
+
+                <!-- create lives after the roster, never above it: the bots you
+                     already have are the point of the page. -->
+                <div class="dashed-row">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                  New bot
+                </div>
               </div>
             </div>
           </div>
@@ -886,10 +885,7 @@
               </div>
               <div class="page-col">
                 <div class="page-head">
-                  <div style="flex:1">
-                    <h1>Bots</h1>
-                    <p>Persistent agents you talk to, not tasks you launch.</p>
-                  </div>
+                  <h1 style="flex:1">Bots</h1>
                 </div>
                 <div class="empty-card">
                   <strong>No bots yet.</strong>
