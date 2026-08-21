@@ -38,7 +38,7 @@ describe("questions live inside the Notification Center", () => {
     expect(center).not.toContain("Show more");
   });
 
-  test("the owning session renders and answers its ask-user questions in place", async () => {
+  test("the owning session renders its ask-user questions in place", async () => {
     const source = await app();
     const center = await askCenter();
     expect(source).toContain(
@@ -46,11 +46,63 @@ describe("questions live inside the Notification Center", () => {
     );
     expect(center).toContain("export function SessionQuestionPanel({");
     expect(center).toContain("aliases.has(q.sessionId)");
-    expect(center).toContain('<QuestionNotification key={q.id} q={q} compactPreview={false} />');
-    // The shared card owns both suggested answers and a freeform composer, so
-    // the in-session surface cannot drift from the Notification Center path.
+    expect(center).toContain(
+      "<QuestionNotification key={q.id} q={q} compactPreview={false} showReplyBox={false} />",
+    );
+    // Suggested answers stay in the card: one tap is not a second input.
     expect(center).toContain("onClick={() => void answer(q, o)}");
-    expect(center).toContain("onClick={() => void answer(q, draft)}");
+    // One matcher decides which questions belong to a session, so the panel,
+    // the composer, and the live card cannot disagree.
+    expect(center).toContain("export function useSessionQuestions(");
+  });
+
+  // The bug: a question inside its own conversation drew a reply box directly
+  // on top of the session composer. Two identical inputs, no way to tell which
+  // one the agent hears.
+  test("a question inside its session has no reply box of its own", async () => {
+    const source = await app();
+    const center = await askCenter();
+    // The card's textarea exists for the Notification Center only.
+    expect(center).toContain("{open && showReplyBox ? (");
+    expect(center).toContain("showReplyBox = true,");
+    expect(center).toContain("showReplyBox?: boolean;");
+    // The session composer says it is the reply box for the open question.
+    expect(source).toContain('? "Reply to the question"');
+  });
+
+  test("sending in the composer answers the question without a second delivery", async () => {
+    const source = await app();
+    const center = await askCenter();
+    const serve = await readFile("src/commands/serve.ts", "utf8");
+    // The composer resolves every question this session raised.
+    expect(source).toContain("const { answerInSession } = useAsk();");
+    expect(source).toContain("for (const q of sessionQuestions) void answerInSession(q, text);");
+    // answerInSession records the answer but asks the server NOT to inject it:
+    // the same text is already going to the agent through the normal send.
+    expect(center).toContain('via: "web", deliver: false');
+    expect(serve).toContain("if (b.deliver === false) {");
+    expect(serve).toContain("await markHandled(q.id);");
+  });
+
+  test("a session waiting on an answer is marked in the live view", async () => {
+    const source = await app();
+    expect(source).toContain(
+      "const pendingQuestions = useSessionQuestions([session.sessionId, session.nativeSessionId]);",
+    );
+    expect(source).toContain("const needsYou = pendingQuestions.length > 0;");
+    // Card border plus a header badge, so the blocked session is visible in a
+    // grid of running ones without opening it.
+    expect(source).toContain("            : needsYou");
+    expect(source).toContain("            Needs you");
+  });
+
+  test("a question in the Notification Center always opens its session", async () => {
+    const center = await askCenter();
+    // Collapsed: the preview line and the title both navigate.
+    expect(center).toContain("if (q.sessionId && onOpenSession) onOpenSession(q.sessionId);");
+    // Expanded: the preview is gone, so an explicit action carries the link.
+    expect(center).toContain("              Open session");
+    expect(center.match(/onOpenSession\(q\.sessionId as string\)/g)?.length).toBe(2);
   });
 
   test("a question can always be dismissed, on any device", async () => {

@@ -277,6 +277,7 @@ import {
   KeyRound,
   LayoutDashboard,
   Loader2,
+  MessageCircleQuestion,
   MessageSquare,
   Mic,
   Bell,
@@ -448,6 +449,7 @@ import {
   SessionQuestionPanel,
   stripMd,
   useAsk,
+  useSessionQuestions,
 } from "./components/ask-center";
 import { PwaInstallCallout, PwaInstallSettingsSection } from "./components/pwa-install";
 import {
@@ -14078,6 +14080,11 @@ function SessionChatBody({
 }: SessionChatProps) {
   const sid = session.sessionId;
   const reviewingShipped = !!session.shippedReview;
+  // Open ask-user questions raised BY this session. The conversation shows them
+  // above the composer (SessionQuestionPanel) and the composer is their reply
+  // box — there is no second input, so what you type here is the answer.
+  const sessionQuestions = useSessionQuestions([session.sessionId, session.nativeSessionId]);
+  const { answerInSession } = useAsk();
   const stashContext = sid ? `session:${sid}` : "session:missing";
   const [messageText, setMessageTextState] = useState(
     () => readPromptDraft(stashContext)?.text ?? "",
@@ -14351,6 +14358,12 @@ function SessionChatBody({
           setMessageTextState((current) => current || text);
           onError(err instanceof Error ? err.message : String(err));
         });
+      // Typing here IS the answer to any question this session is waiting on:
+      // the agent receives the text through the send above, so the ask store
+      // only has to record it and take the badge, the card, and the sticky push
+      // down. It must not inject the same sentence a second time, which is why
+      // this goes through answerInSession rather than the delivering answer().
+      for (const q of sessionQuestions) void answerInSession(q, text);
       for (const att of files) {
         if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
       }
@@ -14507,7 +14520,11 @@ function SessionChatBody({
                       ? `Message ${bot.name}…`
                       : reviewingShipped
                       ? "Message to resume"
-                      : "Message"
+                      : // One question, one input: the composer says it is the
+                        // reply box so the card above does not need its own.
+                        sessionQuestions.length
+                        ? "Reply to the question"
+                        : "Message"
                 }
                 disabled={sending}
                 rows={1}
@@ -16276,6 +16293,12 @@ const SessionCard = memo(function SessionCard({
   const editBot = useContext(EditBotContext);
 
   const sid = session.sessionId;
+  // An ask-user question raised by this session is the one state on the live
+  // grid that is blocked on a PERSON rather than on an agent. The card says so
+  // itself — border, header badge — so a waiting session is findable without
+  // opening each one to check.
+  const pendingQuestions = useSessionQuestions([session.sessionId, session.nativeSessionId]);
+  const needsYou = pendingQuestions.length > 0;
 
   const startRename = useCallback(() => {
     if (!sid) return;
@@ -16540,10 +16563,14 @@ const onTouchStart = (e: ReactTouchEvent) => {
           entering && "lfg-card-in",
           variant === "stage" ? "md:h-full" : "md:h-[clamp(30rem,72vh,46rem)]",
           // Listening: soften the border to primary and throw a faint glow ring.
+          // Waiting on an answer gets the same primary edge, one step quieter,
+          // so a blocked session stands out in a grid of running ones.
           // Otherwise the flat border gives way to a glass gradient edge.
           dictating
             ? "border-primary/60 shadow-[0_0_0_1px_var(--primary),0_0_16px_2px_color-mix(in_srgb,var(--primary)_35%,transparent)]"
-            : "border-transparent lfg-gborder",
+            : needsYou
+              ? "border-primary/50 shadow-[0_0_0_1px_color-mix(in_srgb,var(--primary)_45%,transparent)]"
+              : "border-transparent lfg-gborder",
         )}
       >
         <div
@@ -16609,6 +16636,21 @@ const onTouchStart = (e: ReactTouchEvent) => {
               </div>
             </button>
           )}
+        {/* Reads on the card itself, next to the shipped/model chips, because
+            the live grid is where a person scans for what needs them. */}
+        {needsYou ? (
+          <span
+            title={
+              pendingQuestions.length === 1
+                ? "This session is waiting for your answer"
+                : `${pendingQuestions.length} questions are waiting for your answer`
+            }
+            className="flex shrink-0 items-center gap-1 rounded-full bg-primary/12 px-2 py-0.5 text-[10px] font-semibold text-primary"
+          >
+            <MessageCircleQuestion className="size-3" />
+            Needs you
+          </span>
+        ) : null}
         {pinned ? (
           <span
             aria-label="Pinned to top"
