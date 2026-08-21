@@ -5,21 +5,23 @@
 // that OmgAppSurface still mounts a real router tree — not just that vite
 // printed "built in Ns".
 //
-// The mount tests are not optional. If dist-lib/index.js is missing they
-// build it; if the build fails they fail the suite. A silent skip reports
-// green while proving nothing.
+// The mount tests are not optional. `bun run test` builds dist-lib before Bun
+// discovers tests. A direct run of this file fails before registration with
+// one actionable prerequisite error when the output is absent. A silent skip
+// would report green while proving nothing.
 
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Window } from "happy-dom";
+import { assertTestBuilds } from "../../scripts/test-builds";
 
 const WEB = join(import.meta.dir, "..");
 const REPO = join(WEB, "..");
 const DIST = join(WEB, "dist-lib");
-const INDEX = join(DIST, "index.js");
 const MANIFEST = join(WEB, "package.json");
+
+assertTestBuilds(REPO);
 
 const EXPECTED_PEERS = {
   "@base-ui/react": "^1.6.0",
@@ -30,28 +32,6 @@ const EXPECTED_PEERS = {
   "react-dom": "^19.2.4",
   vaul: "^1.1.2",
 } as const;
-
-function ensureLibBuild(): void {
-  if (existsSync(INDEX)) return;
-  const result = spawnSync("bun", ["run", "--cwd", "web", "build:lib"], {
-    cwd: REPO,
-    encoding: "utf8",
-    timeout: 180_000,
-  });
-  if (result.status !== 0 || !existsSync(INDEX)) {
-    throw new Error(
-      [
-        "embed smoke test requires web/dist-lib/index.js and will not skip.",
-        "bun run --cwd web build:lib failed:",
-        result.stdout ?? "",
-        result.stderr ?? "",
-        result.error ? String(result.error) : "",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    );
-  }
-}
 
 const win = new Window({ url: "https://app.omg.dev/" });
 beforeAll(() => {
@@ -159,8 +139,6 @@ describe("vite.lib.config host-shared externals", () => {
 });
 
 describe("built embed resolves host externals and mounts", () => {
-  beforeAll(ensureLibBuild);
-
   let host: HTMLElement | null = null;
   let reactRoot: { unmount: () => void } | null = null;
 
