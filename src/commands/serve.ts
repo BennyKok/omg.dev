@@ -5908,10 +5908,20 @@ a{color:#60a5fa}
           const b = (await req.json().catch(() => null)) as {
             answer?: string;
             via?: "voice" | "web";
+            deliver?: boolean;
           } | null;
           if (!b?.answer?.trim()) return err(400, "missing answer");
           const q = await answerQuestion(m[1], { answer: b.answer.trim(), via: b.via });
           if (!q) return err(404, "unknown or already-answered question");
+          // `deliver: false` — the person answered by typing in the owning
+          // session's own composer, so that message is ALREADY on its way to
+          // the agent. Record the answer (this also wakes a blocked long-poll)
+          // and stop: injecting it here as well would say the same sentence
+          // twice, in two different shapes, to an agent that asked once.
+          if (b.deliver === false) {
+            await markHandled(q.id);
+            return json({ question: q, delivered: false });
+          }
           // Deliver the reply to the target session NOW (the answer IS the
           // user's consent), deterministically — don't wait for the supervisor's
           // next run to re-interpret it. Reuse the validated /send and /close

@@ -10,13 +10,15 @@
 //   • useAsk()               — questions + answer/dismiss for the feed
 //   • <AskNavButton/>        — urgency badge; opens the Notification Center
 //   • <QuestionNotification/>— one answerable question card
-//   • <SessionQuestionPanel/>— the owning session's in-conversation reply surface
+//   • <SessionQuestionPanel/>— the question, shown inside the session that asked
+//   • useSessionQuestions()  — which questions belong to a session (one matcher)
 
 import {
   createContext,
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -58,6 +60,7 @@ type AskContextValue = {
   questions: Question[];
   busy: boolean;
   answer: (q: Question, text: string) => Promise<void>;
+  answerInSession: (q: Question, text: string) => Promise<void>;
   dismiss: (q: Question) => Promise<void>;
   dismissAll: () => Promise<void>;
 };
@@ -154,6 +157,28 @@ export function AskProvider({ children }: { children: React.ReactNode }) {
     [busy],
   );
 
+  // The person answered by typing in the owning session's own composer. That
+  // text is already on its way to the agent through the normal send path, so
+  // this call only RESOLVES the question: it records the answer, wakes any
+  // blocked long-poll, and takes the push banner down. `deliver: false` stops
+  // the server from injecting the same sentence into the session a second time.
+  // It stays quiet on purpose — the composer already showed the send.
+  const answerInSession = useCallback(async (q: Question, text: string) => {
+    const body = text.trim();
+    if (!body) return;
+    setQuestions((prev) => prev.filter((x) => x.id !== q.id));
+    void closePushNotification(`ask-${q.id}`);
+    try {
+      await omgFetch(`/api/ask/${q.id}/answer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answer: body, via: "web", deliver: false }),
+      });
+    } catch {
+      // The message itself still went to the agent; the next poll reconciles.
+    }
+  }, []);
+
   // Dismissing is how a person says "I'm not answering this" — the asking agent
   // stops waiting and moves on. Clear the cell locally, and take the sticky OS
   // banner down with it so the notification doesn't outlive the question.
@@ -208,7 +233,9 @@ export function AskProvider({ children }: { children: React.ReactNode }) {
   }, [busy, questions, dismissOne, refresh]);
 
   return (
-    <AskContext.Provider value={{ questions, busy, answer, dismiss, dismissAll }}>
+    <AskContext.Provider
+      value={{ questions, busy, answer, answerInSession, dismiss, dismissAll }}
+    >
       {children}
     </AskContext.Provider>
   );
@@ -251,17 +278,39 @@ export function AskNavButton({
   );
 }
 
-// Keep an ask-user question in the conversation that raised it. The same
-// session can have an LFG id and a provider-native id (especially after resume),
-// so callers pass both aliases and either one owns the question.
+// Which open questions belong to one session. The same session can have an LFG
+// id and a provider-native id (especially after resume), so callers pass both
+// aliases and either one owns the question. This is the single matcher: the
+// in-conversation panel, the composer, and the live card all read it, so the
+// three surfaces cannot disagree about whether a session is waiting on you.
+export function useSessionQuestions(
+  sessionIds: Array<string | null | undefined>,
+): Question[] {
+  const { questions } = useAsk();
+  // Join to a primitive so a fresh array literal per render does not re-run
+  // the filter (SessionCard is memoized and renders on every transcript tick).
+  const key = sessionIds.filter((id): id is string => !!id).join("\u0000");
+  return useMemo(() => {
+    if (!key) return [];
+    const aliases = new Set(key.split("\u0000"));
+    return questions.filter((q) => !!q.sessionId && aliases.has(q.sessionId));
+  }, [questions, key]);
+}
+
+// Keep an ask-user question in the conversation that raised it.
+//
+// This surface has NO reply box. The session already owns one — its composer
+// sits directly below — and rendering a second text field on top of it gave a
+// question two identical inputs stacked one above the other, with no way to
+// tell which one the agent would hear. So the card here shows the question and
+// its one-tap options; anything typed goes in the composer, which resolves the
+// question as it sends (see SessionChatBody).
 export function SessionQuestionPanel({
   sessionIds,
 }: {
   sessionIds: Array<string | null | undefined>;
 }) {
-  const { questions } = useAsk();
-  const aliases = new Set(sessionIds.filter((id): id is string => !!id));
-  const matching = questions.filter((q) => !!q.sessionId && aliases.has(q.sessionId));
+  const matching = useSessionQuestions(sessionIds);
 
   if (!matching.length) return null;
   return (
@@ -272,7 +321,7 @@ export function SessionQuestionPanel({
       className="max-h-80 shrink-0 overflow-y-auto border-t border-primary/20 bg-primary/5"
     >
       {matching.map((q) => (
-        <QuestionNotification key={q.id} q={q} compactPreview={false} />
+        <QuestionNotification key={q.id} q={q} compactPreview={false} showReplyBox={false} />
       ))}
     </section>
   );
@@ -282,13 +331,19 @@ export function SessionQuestionPanel({
 // collapsed at two lines; tapping the question returns to its conversation,
 // while the explicit More action opens the full text and reply box in place.
 // Suggested options stay visible because they are the one-tap path.
+//
+// `showReplyBox` is false wherever the surface around the card already owns a
+// reply input — the session conversation. Two reply boxes for one question is
+// the bug this flag exists to prevent.
 export function QuestionNotification({
   q,
   compactPreview = true,
+  showReplyBox = true,
   onOpenSession,
 }: {
   q: Question;
   compactPreview?: boolean;
+  showReplyBox?: boolean;
   onOpenSession?: (sessionId: string) => void;
 }) {
   const { busy, answer, dismiss } = useAsk();
@@ -309,7 +364,20 @@ export function QuestionNotification({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-1.5 text-[13px]">
-            <span className="min-w-0 truncate font-semibold">Needs your input</span>
+            {/* The whole cell reads as "go here", not only its preview line:
+                the title is the first thing tapped on a phone. */}
+            {q.sessionId && onOpenSession ? (
+              <button
+                type="button"
+                onClick={() => onOpenSession(q.sessionId as string)}
+                title="Open the session that asked"
+                className="min-w-0 truncate font-semibold underline-offset-2 hover:underline"
+              >
+                Needs your input
+              </button>
+            ) : (
+              <span className="min-w-0 truncate font-semibold">Needs your input</span>
+            )}
             <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground">
               {timeAgo(q.createdAt)}
             </span>
@@ -377,7 +445,7 @@ export function QuestionNotification({
             </div>
           ) : null}
 
-          {open ? (
+          {open && showReplyBox ? (
             <div className="mt-2 flex items-end gap-1.5">
               <Textarea
                 value={draft}
@@ -402,15 +470,34 @@ export function QuestionNotification({
                 <Send className="size-4" />
               </Button>
             </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setOpen(true)}
-              className="mt-1.5 text-[11px] font-medium text-primary transition-opacity hover:opacity-80"
-            >
-              More
-            </button>
-          )}
+          ) : null}
+
+          {/* Footer actions. "Open session" is here as well as on the preview
+              line, because an expanded card has no preview left to tap and the
+              answer often needs the conversation to make sense. */}
+          {!open || (q.sessionId && onOpenSession) ? (
+            <div className="mt-1.5 flex items-center gap-3 text-[11px] font-medium text-primary">
+              {!open ? (
+                <button
+                  type="button"
+                  onClick={() => setOpen(true)}
+                  className="transition-opacity hover:opacity-80"
+                >
+                  More
+                </button>
+              ) : null}
+              {q.sessionId && onOpenSession ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenSession(q.sessionId as string)}
+                  title="Open the session that asked"
+                  className="transition-opacity hover:opacity-80"
+                >
+                  Open session
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
     </article>
