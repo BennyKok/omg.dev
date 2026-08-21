@@ -6776,7 +6776,10 @@ a{color:#60a5fa}
           });
           if (assignedUser) assignUser(tmuxName, assignedUser);
           const prompt = body?.prompt?.trim() || undefined;
-          const spawned = agent === "grok"
+          // `await` covers both arms: spawnManagedCursorSession is async (it
+          // must not block this thread — see createCursorChat), and awaiting
+          // the sync grok result is a no-op.
+          const spawned = await (agent === "grok"
             ? spawnManagedGrokSession({
                 name: tmuxName,
                 cwd,
@@ -6794,7 +6797,7 @@ a{color:#60a5fa}
                 nativeSessionId: sessionId,
                 omgSessionId: sessionId,
                 omgUser: assignedUser,
-              });
+              }));
           if (!spawned.ok) {
             removeManaged(tmuxName);
             assignUser(tmuxName, null);
