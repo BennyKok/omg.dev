@@ -12,7 +12,11 @@ test("the mobile bot roster uses a flat rail-style row", () => {
   expect(MOBILE_BOT_ROSTER_ROW_CLASS).toContain("hover:bg-muted");
   expect(MOBILE_BOT_ROSTER_ROW_CLASS).not.toContain("border-border");
   expect(MOBILE_BOT_ROSTER_ROW_CLASS).not.toContain("bg-card");
-  expect(MOBILE_BOT_ROSTER_ROW_CLASS).toContain("py-4");
+  // Density is the mockup's `.roster-row`: 10px vertical padding, 12px gap.
+  // py-4 made the row pitch 100px against a 56px avatar.
+  expect(MOBILE_BOT_ROSTER_ROW_CLASS).toContain("py-2.5");
+  expect(MOBILE_BOT_ROSTER_ROW_CLASS).toContain("gap-3");
+  expect(MOBILE_BOT_ROSTER_ROW_CLASS).not.toContain("py-4");
 });
 
 describe("shouldShowMobileSurfaceToggle", () => {

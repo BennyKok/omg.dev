@@ -28,8 +28,11 @@ function openBotConversationBranch(): string {
   expect(view).toBeGreaterThan(-1);
   const start = APP.indexOf("\n  if (bot) {", view);
   expect(start).toBeGreaterThan(-1);
-  // The branch ends where the roster (non-selected) render begins.
-  const end = APP.indexOf('\n    <div className="mx-auto flex max-w-3xl flex-col gap-3" data-lfg-page-column>', start);
+  // The branch ends where the roster (non-selected) render begins. Anchor on
+  // the page-column shell only, not on its spacing utilities: the roster's gap
+  // is a design value that moves, and pinning it here made a padding tweak
+  // look like a SurfaceToggle regression.
+  const end = APP.indexOf('\n    <div className="mx-auto flex max-w-3xl', start);
   expect(end).toBeGreaterThan(start);
   return APP.slice(start, end);
 }
