@@ -217,7 +217,6 @@ import {
 import {
   refreshShippedHead,
   SHIPPED_HEAD_LIMIT,
-  subscribeShippedHead,
 } from "./lib/shipped-feed";
 import { findingReference } from "./lib/finding-reference";
 import { buildAutoTriagePrompt, resolveAutoTriageCwd } from "./lib/auto-triage";
@@ -229,7 +228,6 @@ import {
   smartClearSessionIds,
 } from "./lib/pinned-sessions";
 import { pendingLiveFocusRequest } from "./lib/live-focus";
-import { latestDistinctShippedSessions } from "./lib/recent-shipped";
 import { ConnectionStatusToasts } from "./ConnectionStatus";
 import type {
   ClipboardEvent,
@@ -5756,7 +5754,6 @@ export function App() {
   // item out entirely rather than guessing a destination.
   const { onOpenHostSettings } = useEmbeddedHostOptions();
   const hostSettingsInMenu = embedded && !!onOpenHostSettings;
-  const openShipped = useCallback(() => setTab("notifications"), [setTab]);
   // Keep the session list + Shipped/Artifacts mounted after first visit so
   // tab switches don't remount, re-fetch, or reboot gallery iframes. Hidden
   // pages set `active=false` to pause polling. First paint of Shipped/Artifacts
@@ -6698,10 +6695,10 @@ export function App() {
   }, [allLiveSessions, loading, userFilter, projectFilter, identityGateOpen, setTab]);
 
   // ...and if it never shows up, open it as a FINISHED session instead of
-  // reporting the link dead. A ship with closeSession:true tears the session
-  // down ~1.5s after the push goes out, so by the time anyone taps the
-  // notification the id is legitimately gone from the live fleet — the old
-  // "no longer running" toast fired on the single most common shipped tap.
+  // reporting the link dead. A shipped post outlives its session — the human
+  // closes it, serve restarts, or the registry prunes it — so by the time
+  // anyone taps the notification the id can legitimately be gone from the live
+  // fleet, and the old "no longer running" toast fired on a normal shipped tap.
   // This is the same historical review the in-app Shipped row opens.
   useEffect(() => {
     if (!sessionDeepLinkRef.current || loading || identityGateOpen) return;
@@ -8548,7 +8545,6 @@ export function App() {
               onNewBot={() => openBotEditor("new")}
               onEditBot={(bot) => openBotEditor(bot)}
               onRefreshBots={refreshBots}
-              onOpenShipped={openShipped}
               // Built here rather than inside RailStage: the shell owns the tab
               // state and the extension registry, and the rail should not have to
               // know either to render a menu.
@@ -8560,7 +8556,6 @@ export function App() {
                   showSettings={!embedded}
                 />
               }
-              onOpenRecentShipped={openShippedSession}
               repos={repos}
               onReposChanged={loadCore}
               messagesBySid={liveStream.messagesBySid}
@@ -10806,98 +10801,6 @@ function buildSessionTree(
   return { roots, effectiveBusy, flatten, nodeForSessionId, rootForSessionId };
 }
 
-function useRecentShippedSessions(
-  projectFilter: string,
-  enabled: boolean,
-): ShipPost[] {
-  const [posts, setPosts] = useState<ShipPost[]>(
-    () => readFeedCache<ShipPost>(SHIPPED_FEED_KEY)?.items ?? [],
-  );
-
-  // Shares the Notification Center's poller rather than running a second one:
-  // the head page it scans (for five *distinct* finished sessions) is the same
-  // data the feed already fetches. Subscribing only while `enabled` also means
-  // a closed sidebar stops polling, which it never used to.
-  useEffect(() => {
-    if (!enabled) return;
-    return subscribeShippedHead<ShipPost>((result) => {
-      // Keep the last cached paint on failure; the Shipped page is the fallback.
-      if (result.ok) setPosts(result.posts);
-    });
-  }, [enabled]);
-
-  return useMemo(
-    () => latestDistinctShippedSessions(posts, 5, projectFilter),
-    [posts, projectFilter],
-  );
-}
-
-function RecentShippedRow({
-  post,
-  onOpen,
-  mobile = false,
-}: {
-  post: ShipPost;
-  onOpen: (post: ShipPost) => void;
-  mobile?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => onOpen(post)}
-      title={`Open shipped session: ${post.title}`}
-      className={cn(
-        "group flex w-full items-center text-left outline-none transition-[transform,background-color] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/60",
-        mobile
-          ? "live-pane lfg-gborder gap-3 rounded-xl border border-transparent bg-card px-3 py-2.5 active:scale-[0.99]"
-          : "gap-2 rounded-xl border border-transparent px-2 py-1.5 hover:bg-muted/70",
-      )}
-    >
-      <span
-        className={cn(
-          "relative flex shrink-0 items-center justify-center",
-          mobile ? "size-8" : "size-6",
-        )}
-      >
-        <img
-          src={agentIconSrc(post.agent)}
-          alt={agentIconAlt(post.agent)}
-          className={cn("rounded-md", mobile ? "size-8" : "size-6")}
-        />
-        <span
-          aria-hidden
-          className="absolute -bottom-0.5 -right-0.5 flex size-2.5 items-center justify-center rounded-full bg-emerald-500 ring-2 ring-card"
-        >
-          <Check className="size-1.5 text-white" strokeWidth={3} />
-        </span>
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="flex items-baseline gap-1.5">
-          <span
-            className={cn(
-              "min-w-0 flex-1 truncate font-medium leading-tight",
-              mobile ? "text-sm" : "text-[13px]",
-            )}
-          >
-            {post.title}
-          </span>
-          <span className="shrink-0 text-[10px] leading-tight tabular-nums text-muted-foreground/70">
-            {timeAgo(post.ts)}
-          </span>
-        </span>
-        <span
-          className={cn(
-            "truncate leading-tight text-muted-foreground",
-            mobile ? "mt-0.5 text-xs" : "text-[11px]",
-          )}
-        >
-          {post.sessionTitle || "Finished session"}
-        </span>
-      </span>
-    </button>
-  );
-}
-
 function LiveView({
   // Defense-in-depth: `sessions`/`findings`/`autoAgents` are read via `.length`
   // unconditionally below (the original `findings.length` crash site). The fetch
@@ -10937,9 +10840,7 @@ function LiveView({
   onNewBot,
   onEditBot,
   onRefreshBots,
-  onOpenShipped,
   pagesMenu,
-  onOpenRecentShipped,
   onManageSessions,
   onClearIdle,
   repos = [],
@@ -10969,10 +10870,8 @@ function LiveView({
   onNewBot?: () => void;
   onEditBot?: (bot: PersistentBot) => void;
   onRefreshBots?: () => Promise<void>;
-  onOpenShipped?: (post?: ShipPost) => void;
   /** Rail overflow menu, built by the shell so RailStage stays unaware of tabs. */
   pagesMenu?: ReactNode;
-  onOpenRecentShipped?: (post: ShipPost) => void;
   onManageSessions: (template: ManageSessionPromptTemplate) => void;
   onClearIdle: () => void;
   repos?: Repo[];
@@ -11000,10 +10899,6 @@ function LiveView({
 }) {
   const isWide = useIsWide();
   const isMobile = useIsMobile();
-  const recentShipped = useRecentShippedSessions(
-    projectFilter,
-    !!onOpenRecentShipped,
-  );
   // Full-height detail sheet (mobile tap). Held here, above every card,
   // so it can switch which session it shows without unmounting. `origin` anchors
   // the open/close morph to the title the user tapped.
@@ -11135,8 +11030,7 @@ function LiveView({
     !working.length &&
     !idle.length &&
     !findings.length &&
-    !shippedReview &&
-    !recentShipped.length
+    !shippedReview
   ) {
     return (
       <div className="flex flex-col gap-5">
@@ -11280,7 +11174,6 @@ function LiveView({
         onEditBot={onEditBot}
         onRefreshBots={onRefreshBots}
         pagesMenu={pagesMenu}
-        onOpenRecentShipped={onOpenRecentShipped}
         onManageSessions={onManageSessions}
         onClearIdle={onClearIdle}
         repos={repos}
@@ -11290,7 +11183,6 @@ function LiveView({
         focus={focus}
         topPinned={topPinned}
         onToggleTopPin={toggleTopPin}
-        recentShipped={recentShipped}
       />
     );
   }
@@ -11384,37 +11276,6 @@ function LiveView({
           </div>
         </section>
       ) : null}
-      {onOpenRecentShipped && recentShipped.length ? (
-        <section data-recent-shipped="true">
-          <CategoryHeader
-            label="Recently shipped"
-            count={recentShipped.length}
-            dotClass="bg-emerald-500"
-            action={
-              onOpenShipped ? (
-                <button
-                  type="button"
-                  onClick={() => onOpenShipped()}
-                  className="flex items-center gap-0.5 rounded-full px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  View all
-                  <ChevronRight className="size-3" />
-                </button>
-              ) : null
-            }
-          />
-          <div className="flex flex-col gap-2">
-            {recentShipped.map((post) => (
-              <RecentShippedRow
-                key={post.id}
-                post={post}
-                onOpen={onOpenRecentShipped}
-                mobile
-              />
-            ))}
-          </div>
-        </section>
-      ) : null}
     </div>
     {sheet && sheetSession ? (
       <SessionTitleSheet
@@ -11478,7 +11339,6 @@ function RailStage({
   onEditBot,
   onRefreshBots,
   pagesMenu,
-  onOpenRecentShipped,
   onManageSessions,
   onClearIdle,
   repos = [],
@@ -11488,7 +11348,6 @@ function RailStage({
   focus,
   topPinned,
   onToggleTopPin,
-  recentShipped,
 }: {
   sessions: Session[];
   shippedReview?: Session | null;
@@ -11511,7 +11370,6 @@ function RailStage({
   onRefreshBots?: () => Promise<void>;
   /** Rail overflow menu, built by the shell so RailStage stays unaware of tabs. */
   pagesMenu?: ReactNode;
-  onOpenRecentShipped?: (post: ShipPost) => void;
   onManageSessions?: (template: ManageSessionPromptTemplate) => void;
   onClearIdle?: () => void;
   repos?: Repo[];
@@ -11522,7 +11380,6 @@ function RailStage({
   focus?: { sid: string; n: number } | null;
   topPinned: string[];
   onToggleTopPin: (sid: string) => void;
-  recentShipped: ShipPost[];
   messagesBySid: Record<string, Message[]>;
   busyBySid: Record<string, boolean>;
   promptsBySid: Record<string, SessionPrompt | null>;
@@ -12792,21 +12649,6 @@ function RailStage({
               ) : null}
             </>
           )}
-          {!railCollapsed && onOpenRecentShipped && recentShipped.length ? (
-            <RailGroup
-              label="Recently shipped"
-              count={recentShipped.length}
-              collapsed={false}
-            >
-              {recentShipped.map((post) => (
-                <RecentShippedRow
-                  key={post.id}
-                  post={post}
-                  onOpen={onOpenRecentShipped}
-                />
-              ))}
-            </RailGroup>
-          ) : null}
           </>}
         </div>
         {/* Host-owned footer. A host embedding LFG as its whole desktop surface

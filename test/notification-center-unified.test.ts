@@ -183,15 +183,17 @@ describe("the notification row is compact", () => {
 });
 
 describe("one poller for the shipped head", () => {
-  test("both surfaces subscribe instead of running their own interval", async () => {
+  test("the feed subscribes instead of running its own interval", async () => {
     const source = await app();
     const feed = await readFile("web/src/lib/shipped-feed.ts", "utf8");
     expect(feed).toContain("export function subscribeShippedHead");
     expect(feed).toContain("if (inFlight) return inFlight;");
-    // Neither consumer may re-introduce a private interval on this endpoint.
+    // No consumer may re-introduce a private interval on this endpoint.
     expect(source).not.toContain('api<{ posts: ShipPost[] }>("/api/shipped?limit=25"');
     expect(source).not.toContain("`/api/shipped?limit=${FEED_PAGE}`");
-    expect(source.match(/subscribeShippedHead<ShipPost>/g)?.length).toBe(2);
+    // The Live sidebar's "recently shipped" rows were the second subscriber.
+    // That category is gone, so the Notification Center is the only one left.
+    expect(source.match(/subscribeShippedHead<ShipPost>/g)?.length).toBe(1);
   });
 
   test("a hidden tab stops polling", async () => {
