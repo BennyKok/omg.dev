@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,11 +9,13 @@ import {
   getCodingAgentAuth,
   isLoginPending,
   listCodingAgents,
+  loginCommandFor,
   parseAuthOutput,
   pendingCodingAgentLogins,
   setCodingAgentVisibility,
   startCodingAgentAuth,
   startToolAuth,
+  submitCodingAgentAuthCode,
   withCursorOmgMcp,
   withJcodeOmgMcp,
   withOpencodeOmgMcp,
@@ -484,6 +486,46 @@ describe("coding agent auth detection", () => {
     expect(agents.find((agent) => agent.key === "jcode")?.status.accountConnected).toBe(true);
   });
 
+  test("Jcode always lists Claude and Codex provider rows", async () => {
+    const home = useTmpHome();
+    setEnv("PATH", home);
+    const jcode = join(home, "jcode");
+    writeFileSync(jcode, "#!/bin/sh\nexit 1\n");
+    chmodSync(jcode, 0o755);
+    setEnv("LFG_JCODE_PATH", jcode);
+
+    const agents = await listCodingAgents();
+    const providers = agents.find((agent) => agent.key === "jcode")?.status.providers ?? [];
+    expect(providers.map((provider) => provider.id)).toEqual(["claude", "openai"]);
+    expect(providers.every((provider) => provider.method === "oauth")).toBe(true);
+    expect(agents.find((agent) => agent.key === "jcode")?.status.canLoginInTerminal).toBe(false);
+  });
+
+  test("a missing jcode CLI fails both the binary and provider checks", async () => {
+    const home = useTmpHome();
+    setEnv("PATH", home);
+    setEnv("LFG_JCODE_PATH", join(home, "missing-jcode"));
+
+    const agents = await listCodingAgents();
+    const status = agents.find((agent) => agent.key === "jcode")?.status;
+    // The provider check is what keeps an installed-but-unauthenticated jcode
+    // from defaulting its Settings toggle on: `configured` is
+    // `checks.every(ok)`, so binary presence alone must not read as ready.
+    expect(status?.checks.map((check) => check.label)).toEqual([
+      "Jcode CLI",
+      "Jcode provider",
+    ]);
+    expect(status?.checks.every((check) => !check.ok)).toBe(true);
+    expect(status?.configured).toBe(false);
+    expect(status?.instructions).toEqual(["Connect Claude or Codex above."]);
+    expect(status?.loginCommand).toBeUndefined();
+    expect(status?.providers?.map((provider) => provider.id)).toEqual(["claude", "openai"]);
+  });
+
+  test("jcode has no quoted terminal login command", () => {
+    expect(loginCommandFor("jcode")).toBeNull();
+  });
+
   test("a platform OpenAI key makes Codex runnable without claiming the account is connected", async () => {
     const home = useTmpHome();
     const codex = join(home, "codex");
@@ -595,6 +637,102 @@ describe("pi provider sign-in", () => {
 
   test("agents with no browser login still say so", async () => {
     expect(startCodingAgentAuth("cursor")).rejects.toThrow(/does not support browser login/i);
+  });
+});
+
+describe("jcode provider sign-in", () => {
+  const savedEnv: Record<string, string | undefined> = {};
+  let tmpHome = "";
+
+  const setEnv = (key: string, value: string | undefined) => {
+    savedEnv[key] ??= process.env[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  };
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+      delete savedEnv[key];
+    }
+    if (tmpHome) rmSync(tmpHome, { recursive: true, force: true });
+    tmpHome = "";
+  });
+
+  const installFakeJcode = () => {
+    tmpHome = mkdtempSync(join(tmpdir(), "lfg-jcode-login-"));
+    setEnv("HOME", tmpHome);
+    setEnv("PATH", tmpHome);
+    const binary = join(tmpHome, "jcode");
+    writeFileSync(
+      binary,
+      [
+        "#!/bin/sh",
+        'printf "%s\\n" "$*" >> "$HOME/jcode-args.log"',
+        'case " $* " in',
+        '  *" --print-auth-url "*)',
+        '    printf "%s\\n" \'{"status":"pending","provider":"claude","auth_url":"https://claude.ai/oauth?state=1","input_kind":"auth_code_or_callback_url"}\'',
+        "    exit 0",
+        "    ;;",
+        '  *" --auth-code "*|*" --callback-url "*)',
+        '    printf "%s\\n" \'{"status":"authenticated","provider":"claude"}\'',
+        "    exit 0",
+        "    ;;",
+        "esac",
+        "exit 1",
+      ].join("\n"),
+    );
+    chmodSync(binary, 0o755);
+    setEnv("LFG_JCODE_PATH", binary);
+    return { binary, home: tmpHome };
+  };
+
+  test("an unknown jcode provider is refused rather than passed through", async () => {
+    expect(startCodingAgentAuth("jcode", { provider: "codex" })).rejects.toThrow(
+      /Unknown jcode provider/i,
+    );
+    expect(startCodingAgentAuth("jcode", { provider: "../../etc/passwd" })).rejects.toThrow(
+      /Unknown jcode provider/i,
+    );
+  });
+
+  test("starts Claude login through jcode's print-auth-url API", async () => {
+    installFakeJcode();
+    const session = await startCodingAgentAuth("jcode", { provider: "claude" });
+    expect(session.kind).toBe("jcode");
+    expect(session.provider).toBe("jcode-claude");
+    expect(session.status).toBe("waiting");
+    expect(session.needsCode).toBe(true);
+    expect(session.authorizationUrl).toBe("https://claude.ai/oauth?state=1");
+    const args = readFileSync(join(tmpHome, "jcode-args.log"), "utf8");
+    expect(args).toContain("--provider claude");
+    expect(args).toContain("--print-auth-url");
+    expect(args).toContain("--json");
+  });
+
+  test("completes Claude login with --auth-code", async () => {
+    installFakeJcode();
+    const session = await startCodingAgentAuth("jcode", { provider: "claude" });
+    const next = await submitCodingAgentAuthCode(session.id, "abc123");
+    expect(next.status).toBe("complete");
+    const args = readFileSync(join(tmpHome, "jcode-args.log"), "utf8");
+    expect(args).toContain("--auth-code abc123");
+  });
+
+  test("Codex completion uses --provider openai and --callback-url", async () => {
+    installFakeJcode();
+    const session = await startCodingAgentAuth("jcode", { provider: "openai" });
+    expect(session.provider).toBe("jcode-openai");
+    const next = await submitCodingAgentAuthCode(
+      session.id,
+      "http://localhost:1455/auth/callback?code=xyz",
+    );
+    expect(next.status).toBe("complete");
+    const args = readFileSync(join(tmpHome, "jcode-args.log"), "utf8");
+    expect(args).toContain("--provider openai");
+    expect(args).not.toContain("--provider codex");
+    expect(args).toContain("--callback-url http://localhost:1455/auth/callback?code=xyz");
   });
 });
 
