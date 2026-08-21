@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { resolveSessionUserTag } from "../src/users.ts";
+import { resolveSessionUserTag, rosterBoxAccount } from "../src/users.ts";
 
 const ROSTER = ["benny@omg.dev", "angel@omg.dev"];
 
@@ -50,5 +50,17 @@ describe("resolveSessionUserTag", () => {
       ok: true,
       user: "benny@omg.dev",
     });
+  });
+});
+
+describe("rosterBoxAccount", () => {
+  test("returns the paired account when it is on the roster", () => {
+    expect(rosterBoxAccount(ROSTER, "benny@omg.dev")).toBe("benny@omg.dev");
+  });
+
+  test("does not invent an owner for an unknown, missing, or roster-less account", () => {
+    expect(rosterBoxAccount(ROSTER, "stranger@example.com")).toBeUndefined();
+    expect(rosterBoxAccount(ROSTER, null)).toBeUndefined();
+    expect(rosterBoxAccount([], "benny@omg.dev")).toBeUndefined();
   });
 });

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   readNewCmdLines,
   initialCmdOffset,
+  managedSdkStartupCmdOffset,
   readCursor,
   writeCursor,
   removeCursor,
@@ -147,6 +148,38 @@ describe("initialCmdOffset", () => {
     append(send("only line"));
     writeCursor(cmdFile, 10_000);
     expect(initialCmdOffset(cmdFile)).toBe(0);
+  });
+});
+
+describe("managedSdkStartupCmdOffset", () => {
+  test("first launch consumes commands already in the file", () => {
+    append(send("queued while connecting"));
+    expect(managedSdkStartupCmdOffset(cmdFile, null)).toBe(0);
+  });
+
+  test("first launch still honors a persisted cursor", () => {
+    append(send("already delivered"));
+    const consumed = readNewCmdLines(cmdFile, 0);
+    writeCursor(cmdFile, consumed.offset);
+    append(send("queued during reconnect"));
+    expect(managedSdkStartupCmdOffset(cmdFile, null)).toBe(consumed.offset);
+    expect(readNewCmdLines(cmdFile, consumed.offset).lines.map((l) => JSON.parse(l).text))
+      .toEqual(["queued during reconnect"]);
+  });
+
+  test("recovery without a cursor seeds from the end so old rows do not replay", () => {
+    append(send("historical"));
+    expect(managedSdkStartupCmdOffset(cmdFile, Date.now())).toBe(statSync(cmdFile).size);
+  });
+
+  test("recovery with a cursor delivers only the backlog", () => {
+    append(send("delivered before crash"));
+    const consumed = readNewCmdLines(cmdFile, 0);
+    writeCursor(cmdFile, consumed.offset);
+    append(send("sent while down"));
+    const offset = managedSdkStartupCmdOffset(cmdFile, Date.now());
+    expect(readNewCmdLines(cmdFile, offset).lines.map((l) => JSON.parse(l).text))
+      .toEqual(["sent while down"]);
   });
 });
 

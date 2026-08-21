@@ -36,6 +36,11 @@ import { makeDraftPublisher } from "./draft.ts";
 import { codexOmgMcpConfig, type CodexConfigValue } from "../../codex-mcp-config.ts";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { initialCmdOffset, readNewCmdLines, writeCursor } from "./cmd-tail.ts";
+import {
+  AISDK_STREAM_STALL_MS,
+  AISDK_STREAM_WATCHDOG_TICK_MS,
+  isAisdkStreamStalled,
+} from "./aisdk-session.ts";
 
 function arg(argv: string[], name: string): string | undefined {
   const i = argv.indexOf(name);
@@ -55,6 +60,60 @@ function resolveCodexPathOverride(): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * A stalled Codex stream is indistinguishable from a working one. The harness
+ * sits in `await iterator.next()` with no child process and no socket, `busy`
+ * stays true forever, and `abort()` does NOT unwind it: the SDK's async
+ * iterator neither yields nor rejects, so the AbortSignal has nothing to
+ * cancel. Nothing in the transcript says anything is wrong.
+ *
+ * That is not hypothetical. v0.2.11 pruned `@openai/codex` out of the release
+ * bundle, a self-update swapped node_modules underneath a running session, the
+ * codex child died mid-turn, and the turn hung for 93 minutes until the process
+ * was killed by hand. Two queued user messages were lost with it.
+ *
+ * So bound the WAIT BETWEEN EVENTS, never the turn. A turn may legitimately run
+ * for hours; what it may not do is go completely silent.
+ *
+ * `isAisdkStreamStalled` and its bound are shared with the Claude harness, so
+ * both answer "is this stream stalled" identically. Only the REMEDY differs:
+ * the Claude harness restarts its runtime, whereas here the dead handle is the
+ * async iterator itself, so the in-flight wait has to be rejected out from
+ * under it. An AbortSignal cannot do that — it is what already failed.
+ */
+export class CodexStallError extends Error {}
+
+/**
+ * The lever the stall watchdog pulls to interrupt a stream wait that will never
+ * settle on its own.
+ *
+ * Only one wait is ever in flight per harness — codex turns are strictly
+ * request/response — so a single slot is enough. `trip` before any `race`, or
+ * after the wait already settled, is a deliberate no-op: the watchdog ticks on
+ * a timer and can always fire into an idle moment.
+ */
+export function createStallGate() {
+  let reject: ((error: Error) => void) | null = null;
+  return {
+    race<T>(p: Promise<T>): Promise<T> {
+      let disarm: (() => void) | null = null;
+      const stalled = new Promise<never>((_, rej) => {
+        reject = rej;
+        disarm = () => {
+          if (reject === rej) reject = null;
+        };
+      });
+      return Promise.race([p, stalled]).finally(() => disarm?.());
+    },
+    trip(error: Error): void {
+      reject?.(error);
+    },
+    get armed(): boolean {
+      return reject !== null;
+    },
+  };
 }
 
 /**
@@ -248,6 +307,9 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
     ...omgMcpConfig(),
   });
   let threadThinkingLevel = thinkingLevel;
+  // Set when a stream stalls: the SDK handle is unusable afterwards, so the
+  // next turn must rebuild it from threadId instead of inheriting the wedge.
+  let threadNeedsRebuild = false;
   let thread = resumeThreadId
     ? codex.resumeThread(resumeThreadId, threadOptions(model, cwd, thinkingLevel ?? undefined))
     : codex.startThread(threadOptions(model, cwd, thinkingLevel ?? undefined));
@@ -279,6 +341,13 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
   let currentAc: AbortController | null = null;
   let draining = false;
   let closing = false;
+  // Stall detection state, read by the watchdog below. `busy` mirrors the
+  // registry flag; keeping a local copy avoids a file read every tick.
+  let busy = false;
+  let lastSdkEventAt = Date.now();
+  // Interrupts whichever stream wait is in flight. The watchdog decides WHEN
+  // (shared predicate); this is only the lever that acts on that decision.
+  const stallGate = createStallGate();
 
   const publishDraft = makeDraftPublisher(key);
 
@@ -295,45 +364,68 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
       // Thread options are fixed on a Codex SDK Thread. Recreate the handle
       // only after an effort change; once the first turn has supplied its id,
       // resume preserves the same persisted conversation.
-      if (thinkingLevel !== threadThinkingLevel) {
+      if (threadNeedsRebuild || thinkingLevel !== threadThinkingLevel) {
         const opts = threadOptions(model, cwd, thinkingLevel ?? undefined);
         thread = threadId ? codex.resumeThread(threadId, opts) : codex.startThread(opts);
         threadThinkingLevel = thinkingLevel;
+        threadNeedsRebuild = false;
       }
-      const { events } = await thread.runStreamed(prompt, { signal });
+      // Starting the turn is itself a stream wait: the SDK resolves and spawns
+      // its codex binary here, so a broken install hangs on this line.
+      lastSdkEventAt = Date.now();
+      const { events } = await stallGate.race(thread.runStreamed(prompt, { signal }));
       publishDraft("", true);
-      for await (const event of events) {
-        if (event.type === "thread.started") {
-          if (event.thread_id && event.thread_id !== threadId) {
-            threadId = event.thread_id;
-            patchEntry(key, { threadId });
-          }
-        } else if (
-          (event.type === "item.updated" || event.type === "item.completed") &&
-          event.item.type === "agent_message"
-        ) {
-          // The draft is only the in-progress message. Completed items are
-          // indexed directly (and published as real msg frames), so keeping
-          // them in the draft — as the JSONL-lag era code did — would render
-          // an ever-growing blob duplicating the finalized messages.
-          if (event.type === "item.completed") {
+      // Manual iteration so each wait for the NEXT event can be interrupted.
+      // `for await` offers no way to break out of a hung next().
+      const iterator = events[Symbol.asyncIterator]();
+      try {
+        for (;;) {
+          const next = await stallGate.race(iterator.next());
+          lastSdkEventAt = Date.now();
+          if (next.done) break;
+          const event = next.value;
+          if (event.type === "thread.started") {
+            if (event.thread_id && event.thread_id !== threadId) {
+              threadId = event.thread_id;
+              patchEntry(key, { threadId });
+            }
+          } else if (
+            (event.type === "item.updated" || event.type === "item.completed") &&
+            event.item.type === "agent_message"
+          ) {
+            // The draft is only the in-progress message. Completed items are
+            // indexed directly (and published as real msg frames), so keeping
+            // them in the draft — as the JSONL-lag era code did — would render
+            // an ever-growing blob duplicating the finalized messages.
+            if (event.type === "item.completed") {
+              const message = codexCompletedItemMessage(event.item as Record<string, unknown>, turnNonce);
+              if (message) indexSessionMessagesDirect(key, [message]);
+              publishDraft("", true);
+            } else if (event.item.text) {
+              publishDraft(event.item.text);
+            }
+          } else if (event.type === "item.completed") {
             const message = codexCompletedItemMessage(event.item as Record<string, unknown>, turnNonce);
             if (message) indexSessionMessagesDirect(key, [message]);
-            publishDraft("", true);
-          } else if (event.item.text) {
-            publishDraft(event.item.text);
+          } else if (event.type === "turn.failed") {
+            throw new Error(String(event.error?.message ?? "turn failed").slice(0, 800));
+          } else if (event.type === "error") {
+            throw new Error(String(event.message ?? "thread error").slice(0, 800));
           }
-        } else if (event.type === "item.completed") {
-          const message = codexCompletedItemMessage(event.item as Record<string, unknown>, turnNonce);
-          if (message) indexSessionMessagesDirect(key, [message]);
-        } else if (event.type === "turn.failed") {
-          throw new Error(String(event.error?.message ?? "turn failed").slice(0, 800));
-        } else if (event.type === "error") {
-          throw new Error(String(event.message ?? "thread error").slice(0, 800));
         }
+      } finally {
+        // Close the stream on every exit — stall, turn.failed, interrupt — so a
+        // dead iterator cannot keep the codex child attached. Never awaited: the
+        // whole point is that this handle may not settle.
+        void (async () => iterator.return?.(undefined))().catch(() => {});
       }
     } catch (e) {
-      if (signal.aborted) return; // interrupted on purpose — not an error
+      if (e instanceof CodexStallError) {
+        // Deliberately ahead of the aborted check: a stall must stay visible
+        // even when an interrupt raced it. Nothing else reports this failure,
+        // because the SDK never rejected.
+        threadNeedsRebuild = true;
+      } else if (signal.aborted) return; // interrupted on purpose — not an error
       const msg = (e instanceof Error ? e.message : String(e)).trim() || "unknown error";
       console.error(`codex-aisdk-session turn failed: ${msg}`);
       // Surface the failure in the transcript — a turn that dies silently
@@ -361,11 +453,14 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
       while (queue.length && !closing) {
         const prompt = queue.shift()!;
         currentAc = new AbortController();
+        busy = true;
+        lastSdkEventAt = Date.now();
         patchEntry(key, { busy: true, draftText: null, draftUpdatedAt: null });
         try {
           await runTurn(prompt, currentAc.signal);
         } finally {
           currentAc = null;
+          busy = false;
           patchEntry(key, { busy: false, draftText: null, draftUpdatedAt: null });
         }
       }
@@ -399,6 +494,26 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
     }
   }
 
+  // Same silence bound and tick as the Claude harness. `restartRequested` is
+  // always false here: this harness has no runtime to restart, it ends the
+  // stalled turn instead and rebuilds the thread on the next one.
+  const stallWatchdog = setInterval(() => {
+    if (!isAisdkStreamStalled({
+      busy,
+      closing,
+      restartRequested: false,
+      lastSdkEventAt,
+      now: Date.now(),
+    })) return;
+    const minutes = Math.round(AISDK_STREAM_STALL_MS / 60_000);
+    stallGate.trip(
+      new CodexStallError(
+        `Codex sent no stream events for ${minutes} min, so the turn was ended. ` +
+          `The session is ready for a new message; the conversation is intact.`,
+      ),
+    );
+  }, AISDK_STREAM_WATCHDOG_TICK_MS);
+
   // Tail the command file by byte offset — same polling approach as the Claude
   // harness (simple + reliable across filesystems; 250ms is interactive enough).
   const cmdFile = cmdPath(key);
@@ -429,6 +544,7 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
     const exitWatch = setInterval(() => {
       if (closing) {
         clearInterval(poll);
+        clearInterval(stallWatchdog);
         clearInterval(exitWatch);
         resolve();
       }

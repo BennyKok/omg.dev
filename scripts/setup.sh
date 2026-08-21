@@ -82,6 +82,12 @@ fi
 #   source            - git clone + `bun install` (for development / forks that
 #                       can resolve the private provider themselves).
 LFG_INSTALL_MODE="${LFG_INSTALL_MODE:-release}"
+# Background service installation:
+#   auto (default) - use systemd/launchd when the host provides it; otherwise
+#                    leave process supervision to the hosting platform.
+#   1              - require and install the native user service.
+#   0              - install the application without a native user service.
+LFG_INSTALL_SERVICE="${LFG_INSTALL_SERVICE:-auto}"
 # Which release to pull in release mode: "latest" or a tag like v0.1.0.
 LFG_RELEASE="${LFG_RELEASE:-latest}"
 # Non-destructive defaults:
@@ -102,6 +108,7 @@ LFG_INSTALL_OPENCODE="${LFG_INSTALL_OPENCODE:-0}"
 LFG_INSTALL_JCODE="${LFG_INSTALL_JCODE:-0}"
 LFG_INSTALL_GROK="${LFG_INSTALL_GROK:-0}"
 LFG_INSTALL_CURSOR="${LFG_INSTALL_CURSOR:-0}"
+LFG_INSTALL_FX="${LFG_INSTALL_FX:-0}"
 LFG_INSTALL_COPILOT="${LFG_INSTALL_COPILOT:-0}"
 # pi is not bundled any more: its provider layer pulls eleven SDKs (Anthropic,
 # OpenAI, Google GenAI, Mistral, Bedrock) totalling ~115MB, for one optional
@@ -130,6 +137,23 @@ say()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[!]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31m[x]\033[0m %s\n' "$*" >&2; exit 1; }
 
+resolve_service_mode() {
+  case "$LFG_INSTALL_SERVICE" in
+    auto)
+      if [ "$OS_NAME" = "Darwin" ]; then
+        LFG_INSTALL_SERVICE=1
+      elif [ -d "${LFG_SYSTEMD_RUNTIME_DIR:-/run/systemd/system}" ] \
+        && command -v systemctl >/dev/null 2>&1; then
+        LFG_INSTALL_SERVICE=1
+      else
+        LFG_INSTALL_SERVICE=0
+      fi
+      ;;
+    0|1) ;;
+    *) die "LFG_INSTALL_SERVICE must be auto, 0, or 1." ;;
+  esac
+}
+
 on_err() { die "setup failed at line $1. Fix the issue above and re-run - it resumes safely."; }
 trap 'on_err $LINENO' ERR
 
@@ -140,7 +164,6 @@ case "$OS_NAME" in
   Linux)
     command -v sudo >/dev/null   || die "sudo is required."
     command -v apt-get >/dev/null || die "This script targets Debian/Ubuntu on Linux (apt-get not found)."
-    command -v systemctl >/dev/null || die "systemd (systemctl) is required on Linux."
     ;;
   Darwin)
     ;;
@@ -148,6 +171,10 @@ case "$OS_NAME" in
     die "Unsupported OS: $OS_NAME. This script supports Debian/Ubuntu Linux and macOS."
     ;;
 esac
+resolve_service_mode
+if [ "$OS_NAME" = "Linux" ] && [ "$LFG_INSTALL_SERVICE" = "1" ]; then
+  command -v systemctl >/dev/null || die "systemd (systemctl) is required when LFG_INSTALL_SERVICE=1."
+fi
 
 # If invoked from inside an existing checkout (i.e. via `omg setup`), use it.
 SCRIPT_SRC="${BASH_SOURCE[0]:-}"
@@ -496,6 +523,7 @@ run_agent_installer() {
     jcode)    curl -fsSL https://jcode.sh/install | bash ;;
     grok)     curl -fsSL https://x.ai/cli/install.sh | bash ;;
     cursor)   curl -fsSL https://cursor.com/install | bash ;;
+    fx)       curl -fsSL https://fx.sh/setup.sh | bash ;;
     pi)
       # Installed into the install directory, which is where the harness and
       # detection both look for it.
@@ -549,6 +577,7 @@ ensure_agent opencode "$LFG_INSTALL_OPENCODE" command -v opencode
 ensure_agent jcode    "$LFG_INSTALL_JCODE"    command -v jcode
 ensure_agent grok     "$LFG_INSTALL_GROK"     command -v grok
 ensure_agent cursor   "$LFG_INSTALL_CURSOR"   has_cursor_cli
+ensure_agent fx       "$LFG_INSTALL_FX"       command -v fx
 ensure_agent copilot  "$LFG_INSTALL_COPILOT"  command -v copilot
 ensure_agent pi       "$LFG_INSTALL_PI"       test -f "$LFG_DIR/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"
 
@@ -567,9 +596,18 @@ if [ "$LFG_INSTALL_MODE" = "source" ]; then
     say "Cloning omg.dev into ${LFG_DIR} (git)..."
     git clone "$LFG_REPO_URL" "$LFG_DIR"
   fi
-  # The web UI ships prebuilt in web/dist, so no web build is needed here.
   say "Installing dependencies..."
   ( cd "$LFG_DIR" && "$BUN_BIN" install )
+  # The app UI imports @omg-dev/client, whose declarations import protocol.
+  # Build only that dependency chain here. The release/package workflow still
+  # builds React and web/dist-lib; a source server install does not use them.
+  say "Building web UI dependencies..."
+  ( cd "$LFG_DIR" && "$BUN_BIN" run --cwd packages/protocol build )
+  ( cd "$LFG_DIR" && "$BUN_BIN" run --cwd packages/client build )
+  say "Building the web UI..."
+  # Installed bundles do not use source maps. Avoid generating them here: the
+  # Rollup graph otherwise approaches the memory limit on a standard 2 GB VM.
+  ( cd "$LFG_DIR" && LFG_WEB_SOURCEMAP=0 "$BUN_BIN" run --cwd web build )
 else
   # Release mode: download source + prebuilt web UI + optional vendor tarballs,
   # extract them over $LFG_DIR, then install public deps on this target platform.
@@ -682,8 +720,10 @@ fi
 
 # ---- 6. expose the command on PATH ----
 # `lfg` is the unambiguous name for this CLI and is always installed: existing
-# scripts, cron entries and muscle memory keep working, and the npm CLI
-# (@omg-dev/cli) resolves `lfg` when it forwards a command here.
+# scripts, cron entries and muscle memory keep working, and the npm bootstrapper
+# (@omg-dev/cli 0.5.0+, published from this repository) resolves `lfg` when it
+# forwards a command here. @omg-dev/cli 0.4.x is the retired vibes CLI and does
+# not contain the forward-probe phrase below.
 mkdir -p "$HOME/.local/bin"
 link_command lfg "$LFG_DIR/src/cli.ts"
 
@@ -885,7 +925,7 @@ Environment=PATH=$HOME/.local/bin:$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bi
 Environment=LFG_HOST=127.0.0.1
 Environment=OMG_HOST=127.0.0.1
 # agent-browser defaults idle off; without this, headless Chrome orphans pile up
-# when agents forget `close`. Inherited by every managed agent spawn.
+# when agents forget to close it. Inherited by every managed agent spawn.
 Environment=AGENT_BROWSER_IDLE_TIMEOUT_MS=300000
 ExecStart=$BUN_BIN run $LFG_DIR/src/cli.ts serve
 Restart=on-failure
@@ -959,7 +999,9 @@ PLIST
 }
 
 # ---- 9. background user service ----
-if [ "$OS_NAME" = "Linux" ]; then
+if [ "$LFG_INSTALL_SERVICE" != "1" ]; then
+  say "Skipping the native background service; the host platform must supervise omg.dev."
+elif [ "$OS_NAME" = "Linux" ]; then
   install_linux_service
 else
   install_macos_service
@@ -1006,7 +1048,9 @@ if [ "$LOCAL_HOSTNAME_READY" = "1" ]; then
 fi
 
 echo
-if [ "$OS_NAME" = "Linux" ]; then
+if [ "$LFG_INSTALL_SERVICE" != "1" ]; then
+  say "omg.dev is installed. The host platform must start and supervise it."
+elif [ "$OS_NAME" = "Linux" ]; then
   say "omg.dev is running as a systemd user service."
 else
   say "omg.dev is running as a launchd user service."
@@ -1030,7 +1074,9 @@ fi
 if [ "$TAILSCALE_SERVE_CONFIGURED" != "1" ]; then
   printf '    Remote     OMG_TAILSCALE_SERVE=1 omg setup\n'
 fi
-if [ "$OS_NAME" = "Linux" ]; then
+if [ "$LFG_INSTALL_SERVICE" != "1" ]; then
+  printf '    Start      cd %s && %s run %s/src/cli.ts serve\n' "$LFG_DIR" "$BUN_BIN" "$LFG_DIR"
+elif [ "$OS_NAME" = "Linux" ]; then
   printf '    Service    systemctl --user restart %s\n' "$SERVICE"
   printf '    Logs       journalctl --user -u %s -f\n' "$SERVICE"
 else

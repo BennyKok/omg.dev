@@ -14,6 +14,7 @@ import {
   claudeAccountConfigDir,
   resolveClaudeAccount,
 } from "./claude-accounts.ts";
+import { agentTmpEnv } from "./tmp-reclaim.ts";
 
 // Known-good Claude model alias to launch with when a caller doesn't specify
 // one. Never launch a managed `claude` bare — see spawnManagedSession. Opus is
@@ -130,6 +131,9 @@ function addSessionEnv(
   } else {
     env.push("-e", `AGENT_BROWSER_IDLE_TIMEOUT_MS=${AGENT_BROWSER_IDLE_TIMEOUT_MS}`);
   }
+  for (const [key, value] of Object.entries(agentTmpEnv())) {
+    env.push("-e", `${key}=${value}`);
+  }
   if (env.length) argv.splice(i + 1, 0, ...env);
 }
 
@@ -175,6 +179,9 @@ export function containedAgentCommand(
   if (opts.omgSessionId) argv.push(`--setenv=LFG_SESSION_ID=${opts.omgSessionId}`);
   argv.push(`--setenv=OMG_CAPABILITY_VERSION=${OMG_CAPABILITY_VERSION}`);
   if (opts.omgUser) argv.push(`--setenv=LFG_USER=${opts.omgUser}`);
+  for (const [key, value] of Object.entries(agentTmpEnv())) {
+    argv.push(`--setenv=${key}=${value}`);
+  }
   return [...argv, "--", ...command];
 }
 
@@ -210,6 +217,7 @@ function spawnManagedHarness(
   // Always name + idle-timeout the browser, including parent (non-slice) harness
   // spawns. containInAgentSlice still only wraps subagents in systemd-run.
   Object.assign(env, agentBrowserEnv(opts.name));
+  Object.assign(env, agentTmpEnv());
   const cmd = opts.containInAgentSlice
     ? containedAgentCommand(command, opts, { pty: false })
     : command;
@@ -340,6 +348,24 @@ export function grokBin(): string {
   return (_grokBin = "grok");
 }
 
+let _fxBin: string | null = null;
+export function fxBin(): string {
+  if (_fxBin) return _fxBin;
+  const onPath = Bun.which("fx");
+  if (onPath) return (_fxBin = onPath);
+  const home = process.env.HOME ?? homedir();
+  // The published installer defaults to ~/.local/bin, honouring FX_INSTALL_DIR.
+  for (const p of [
+    process.env.LFG_FX_PATH ?? "",
+    `${home}/.local/bin/fx`,
+    `${home}/.bun/bin/fx`,
+    "/usr/local/bin/fx",
+  ]) {
+    if (p && existsSync(p)) return (_fxBin = p);
+  }
+  return (_fxBin = "fx");
+}
+
 let _copilotBin: string | null = null;
 export function copilotBin(): string {
   if (_copilotBin) return _copilotBin;
@@ -404,23 +430,6 @@ export function cursorBin(): string {
     if (p && existsSync(p) && !isGrokAgentPath(p)) return (_cursorBin = p);
   }
   return (_cursorBin = "cursor-agent");
-}
-
-let _hermesBin: string | null = null;
-export function hermesBin(): string {
-  if (_hermesBin) return _hermesBin;
-  const onPath = Bun.which("hermes");
-  if (onPath) return (_hermesBin = onPath);
-  const home = process.env.HOME ?? homedir();
-  for (const p of [
-    process.env.LFG_HERMES_PATH ?? "",
-    `${home}/.local/bin/hermes`,
-    `${home}/.bun/bin/hermes`,
-    "/usr/local/bin/hermes",
-  ]) {
-    if (p && existsSync(p)) return (_hermesBin = p);
-  }
-  return (_hermesBin = "hermes");
 }
 
 // Spawned agents run with cwd set to one repo, but Claude Code scopes tool
@@ -1066,37 +1075,6 @@ export function cursorRelaunchArgv(opts: {
   ];
 }
 
-export function spawnManagedHermesSession(opts: {
-  name: string;
-  cwd: string;
-  model?: string;
-  provider?: string;
-  omgSessionId?: string;
-  omgUser?: string | null;
-}): { ok: boolean; error?: string } {
-  const dec = new TextDecoder();
-  const argv = [
-    "tmux",
-    "new-session",
-    "-d",
-    "-s",
-    opts.name,
-    "-c",
-    opts.cwd,
-    hermesBin(),
-    "--yolo",
-    "--cli",
-    "chat",
-  ];
-  if (opts.model) argv.push("--model", opts.model);
-  if (opts.provider) argv.push("--provider", opts.provider);
-  addSessionEnv(argv, opts.omgSessionId, opts.omgUser, opts.name);
-  const create = Bun.spawnSync(argv);
-  if (create.exitCode !== 0)
-    return { ok: false, error: dec.decode(create.stderr) || "new-session failed" };
-  return { ok: true };
-}
-
 // Spawn a headless "aisdk" session directly. I/O and lifecycle are registry /
 // command-file driven; no tmux pane is involved.
 export function spawnManagedAisdkSession(opts: {
@@ -1282,6 +1260,62 @@ export function spawnManagedOpencodeAisdkSession(opts: {
     containInAgentSlice: opts.containInAgentSlice,
   });
 }
+
+type ManagedStructuredSessionOptions = {
+  name: string;
+  cwd: string;
+  prompt?: string;
+  model: string;
+  key: string;
+  thinkingLevel?: string;
+  omgSessionId?: string;
+  omgUser?: string | null;
+  containInAgentSlice?: boolean;
+  resume?: string;
+  recoveredAt?: number;
+};
+
+function spawnManagedStructuredSession(
+  moduleName: "grok-acp-session" | "cursor-acp-session" | "fx-acp-session" | "copilot-sdk-session" | "jcode-sdk-session",
+  opts: ManagedStructuredSessionOptions,
+): ManagedHarnessSpawnResult {
+  const harnessPath = `${import.meta.dir}/agents/backends/${moduleName}.ts`;
+  const argv = [
+    process.execPath,
+    harnessPath,
+    "--key", opts.key,
+    "--model", opts.model,
+    "--cwd", opts.cwd,
+    "--managed-name", opts.name,
+  ];
+  if (opts.thinkingLevel) argv.push("--thinking-level", opts.thinkingLevel);
+  if (opts.resume) argv.push("--resume", opts.resume);
+  if (opts.recoveredAt) argv.push("--recovered-at", String(opts.recoveredAt));
+  const prompt = withOmgRuntimeContract(opts.prompt);
+  if (prompt?.trim()) argv.push("--", prompt);
+  return spawnManagedHarness(argv, {
+    name: opts.name,
+    cwd: opts.cwd,
+    omgSessionId: opts.omgSessionId ?? opts.key,
+    omgUser: opts.omgUser,
+    containInAgentSlice: opts.containInAgentSlice,
+  });
+}
+
+export const spawnManagedGrokAcpSession = (opts: ManagedStructuredSessionOptions) =>
+  spawnManagedStructuredSession("grok-acp-session", opts);
+
+export const spawnManagedCursorAcpSession = (opts: ManagedStructuredSessionOptions) =>
+  spawnManagedStructuredSession("cursor-acp-session", opts);
+
+export const spawnManagedFxAcpSession = (opts: ManagedStructuredSessionOptions) =>
+  spawnManagedStructuredSession("fx-acp-session", opts);
+
+export const spawnManagedCopilotSdkSession = (opts: ManagedStructuredSessionOptions) =>
+  spawnManagedStructuredSession("copilot-sdk-session", opts);
+
+export const spawnManagedJcodeSdkSession = (opts: ManagedStructuredSessionOptions) =>
+  spawnManagedStructuredSession("jcode-sdk-session", opts);
 
 // Codex 0.135 can show an update selector before the composer, which strands a
 // dashboard-spawned pane until someone manually presses "Skip". Dismiss only

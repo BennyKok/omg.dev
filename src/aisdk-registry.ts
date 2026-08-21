@@ -50,6 +50,9 @@ export type AisdkEntry = {
   bootId?: string | null;
   recoveryClaimBootId?: string | null;
   recoveredAt?: number | null;
+  // New harnesses can wake their command-file reader immediately. Older rows
+  // omit this and continue to rely on the bounded polling fallback.
+  commandWakeSignal?: "SIGUSR1";
   thinkingLevel?: string | null;
   cwd: string;
   model: string;
@@ -65,7 +68,7 @@ export type AisdkEntry = {
   createdAt: number;
   // Which AI-SDK backend this entry drives. Absent on legacy Claude entries —
   // treat a missing value as "claude" so old entries keep working unchanged.
-  agent?: "claude" | "codex" | "opencode" | "pi";
+  agent?: "claude" | "codex" | "opencode" | "pi" | "grok" | "cursor" | "fx" | "copilot" | "jcode";
   // Resume-handle slot, reused by the backends that can't pick their transcript
   // id up front:
   //   - codex: the app-server-assigned thread id, which is ALSO the rollout
@@ -262,6 +265,12 @@ export function appendCmd(sessionId: string, cmd: AisdkCommand): void {
 
 // Liveness: a harness entry is only real if its process is still running.
 export function isPidAlive(pid: number): boolean {
+  // process.kill() reads 0 and negatives as PROCESS GROUPS, not processes:
+  // kill(0, 0) signals the caller's own group and kill(-N, 0) signals group N,
+  // so both return true and report a dead harness as alive. A dead or
+  // unrecorded harness is exactly the pid 0 case, so without this guard the
+  // function answers "alive" precisely when it matters most.
+  if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
@@ -296,6 +305,48 @@ export function terminateHarnessProcess(entry: AisdkEntry): boolean {
   } catch {
     return !isPidAlive(entry.harnessPid);
   }
+}
+
+/** Wake a compatible harness after appending a command. */
+export function wakeHarnessCommandReader(
+  entry: AisdkEntry,
+  sendSignal: (pid: number, signal: "SIGUSR1") => unknown = process.kill,
+): boolean {
+  if (entry.commandWakeSignal !== "SIGUSR1") return false;
+  try {
+    sendSignal(entry.harnessPid, "SIGUSR1");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Wait only while a harness remains alive, up to the old fixed grace window.
+ * Dependency hooks keep the timing policy deterministic in unit tests.
+ */
+export async function waitForHarnessExit(
+  pid: number,
+  opts: {
+    timeoutMs?: number;
+    pollMs?: number;
+    isAlive?: (candidate: number) => boolean;
+    sleep?: (milliseconds: number) => Promise<unknown>;
+    now?: () => number;
+  } = {},
+): Promise<boolean> {
+  const timeoutMs = opts.timeoutMs ?? 300;
+  const pollMs = opts.pollMs ?? 10;
+  const alive = opts.isAlive ?? isPidAlive;
+  const pause = opts.sleep ?? Bun.sleep;
+  const now = opts.now ?? performance.now.bind(performance);
+  const deadline = now() + timeoutMs;
+  while (alive(pid)) {
+    const remaining = deadline - now();
+    if (remaining <= 0) return false;
+    await pause(Math.min(pollMs, remaining));
+  }
+  return true;
 }
 
 // Authoritative "is this session actually working right now" check. The harness

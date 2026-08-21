@@ -49,7 +49,7 @@ cd web && bun run build       # typecheck + build the UI (commit web/dist)
 
 Drop a `name.md` in `agents/` with YAML frontmatter (`name`, `title`,
 `schedule`, `enabled`, `inputs`) and a prompt body. See the existing examples and
-`lfg agents --help`.
+`omg agents --help`. `lfg` remains a compatibility alias.
 
 ## House rules
 

@@ -1,8 +1,11 @@
 import {
   spawnManagedAisdkSession,
   spawnManagedCodexAisdkSession,
-  spawnManagedCursorSession,
-  spawnManagedGrokSession,
+  spawnManagedCopilotSdkSession,
+  spawnManagedCursorAcpSession,
+  spawnManagedFxAcpSession,
+  spawnManagedGrokAcpSession,
+  spawnManagedJcodeSdkSession,
   spawnManagedOpencodeAisdkSession,
   spawnManagedPiSession,
 } from "../tmux.ts";
@@ -54,15 +57,35 @@ const result = await (agent === "claude" || agent === "aisdk"
             resume,
           })
         : agent === "grok"
-          ? spawnManagedGrokSession({
+          ? spawnManagedGrokAcpSession({
               ...common,
+              key: `key-${resume}`,
               resume,
             })
           : agent === "cursor"
-            ? spawnManagedCursorSession({
+            ? spawnManagedCursorAcpSession({
                 ...common,
-                nativeSessionId: resume,
+                key: `key-${resume}`,
+                resume,
               })
+            : agent === "fx"
+              ? spawnManagedFxAcpSession({
+                  ...common,
+                  key: `key-${resume}`,
+                  resume,
+                })
+            : agent === "copilot"
+              ? spawnManagedCopilotSdkSession({
+                  ...common,
+                  key: `key-${resume}`,
+                  resume,
+                })
+              : agent === "jcode"
+                ? spawnManagedJcodeSdkSession({
+                    ...common,
+                    key: `key-${resume}`,
+                    resume,
+                  })
             : { ok: false, error: `${agent} has no durable recovery launcher` });
 
 console.log(JSON.stringify(result));

@@ -35,6 +35,12 @@ describe("Computer agent admission", () => {
     expect(isScheduleSpawned("subagent")).toBe(false);
   });
 
+  test("persistent bots stay visible but do not fill the interactive cap", () => {
+    const sessions = [{ persistent: true, spawnedBy: "bot" }, { busy: false }];
+    expect(residentAgentCount(sessions)).toBe(2);
+    expect(interactiveResidentCount(sessions)).toBe(1);
+  });
+
   test("an idle-only fleet can still fill the cap", () => {
     const controller = new AgentAdmissionController();
     const idle = [{ busy: false }, { busy: false }];
@@ -43,37 +49,20 @@ describe("Computer agent admission", () => {
     expect(controller.tryAcquire(3, idle).ok).toBe(true);
   });
 
-  test("denies at the plan limit and exposes plan context", () => {
-    expect(computerAgentAdmissionContext("free")).toEqual({
-      plan: "free",
-      limit: 1,
-      scheduleLimit: 1,
-    });
-    expect(computerAgentAdmissionContext("computer_5")).toEqual({
-      plan: "computer_5",
-      limit: 5,
-      scheduleLimit: 2,
-    });
-    expect(computerAgentAdmissionContext("computer_10")).toEqual({
-      plan: "computer_10",
-      limit: 16,
-      scheduleLimit: 3,
-    });
-    expect(computerAgentAdmissionContext("computer_20")).toEqual({
-      plan: "computer_20",
-      limit: 24,
-      scheduleLimit: 4,
-    });
-    expect(computerAgentAdmissionContext("computer_early")).toEqual({
-      plan: "computer_early",
-      limit: 24,
-      scheduleLimit: 4,
-    });
-    expect(computerAgentAdmissionContext("computer_trial")).toEqual({
-      plan: "computer_trial",
-      limit: 1,
-      scheduleLimit: 1,
-    });
+  test("takes the limit from the control plane, whatever the plan is called", () => {
+    expect(
+      computerAgentAdmissionContext('{"plan":"computer_10","limit":16,"scheduleLimit":3}'),
+    ).toEqual({ plan: "computer_10", limit: 16, scheduleLimit: 3 });
+    // The regression this replaced: computer_s20 shipped after the last LFG
+    // release, so the baked plan table did not know the name and demoted a
+    // paid Computer to a single agent. A name is no longer a decision.
+    expect(
+      computerAgentAdmissionContext('{"plan":"computer_s20","limit":3,"scheduleLimit":1}'),
+    ).toEqual({ plan: "computer_s20", limit: 3, scheduleLimit: 1 });
+    // A plan invented after this bundle was built needs no LFG release at all.
+    expect(
+      computerAgentAdmissionContext('{"plan":"computer_unheard_of","limit":7,"scheduleLimit":2}'),
+    ).toEqual({ plan: "computer_unheard_of", limit: 7, scheduleLimit: 2 });
     const admission = new AgentAdmissionController();
     expect(admission.tryAcquire(1, [{ busy: true }])).toMatchObject({
       ok: false,
@@ -194,13 +183,41 @@ describe("Computer agent admission", () => {
     }
   });
 
-  test("fails safe to free when a cloud plan is unknown", () => {
-    expect(computerAgentAdmissionContext("retired-plan")).toEqual({
-      plan: "free",
-      limit: 1,
-      scheduleLimit: 1,
-    });
+  test("an unreadable entitlement holds at one agent rather than guessing", () => {
+    for (const bad of [
+      "retired-plan",
+      '{"limit":0,"scheduleLimit":1}',
+      '{"limit":3}',
+      '{"limit":2.5,"scheduleLimit":1}',
+      '"computer_5"',
+    ]) {
+      expect(computerAgentAdmissionContext(bad), bad).toEqual({
+        plan: "unknown",
+        limit: 1,
+        scheduleLimit: 1,
+      });
+    }
+    // No entitlement at all is an ordinary self-hosted box, not a broken
+    // Computer, and it keeps its own local setting policy.
     expect(computerAgentAdmissionContext("")).toBeNull();
+  });
+
+  test("clamps an absurd supplied limit instead of disabling admission", () => {
+    expect(
+      computerAgentAdmissionContext('{"plan":"x","limit":99999,"scheduleLimit":99999}'),
+    ).toEqual({ plan: "x", limit: 64, scheduleLimit: 64 });
+  });
+
+  test("accepts an additive persistent-bot entitlement without deriving it from plan", () => {
+    expect(computerAgentAdmissionContext(
+      '{"plan":"custom","limit":4,"scheduleLimit":2,"persistentBotLimit":37}',
+    )).toEqual({ plan: "custom", limit: 4, scheduleLimit: 2, persistentBotLimit: 37 });
+    expect(computerAgentAdmissionContext(
+      '{"plan":"custom","limit":4,"scheduleLimit":2}',
+    )).toEqual({ plan: "custom", limit: 4, scheduleLimit: 2 });
+    expect(computerAgentAdmissionContext(
+      '{"plan":"custom","limit":4,"scheduleLimit":2,"persistentBotLimit":"team"}',
+    )).toEqual({ plan: "custom", limit: 4, scheduleLimit: 2 });
   });
 
   test("NO_AGENT_LIMIT waives the count, and ONLY the count", () => {
@@ -236,20 +253,21 @@ describe("Computer agent admission", () => {
     });
   });
 
-  test("the managed plan file can change a live process admission limit", () => {
-    const dir = mkdtempSync(join(tmpdir(), "lfg-computer-plan-"));
-    const path = join(dir, "computer-plan");
+  test("the entitlement file can change a live process admission limit", () => {
+    const dir = mkdtempSync(join(tmpdir(), "lfg-computer-entitlement-"));
+    const path = join(dir, "computer-entitlement.json");
     try {
-      writeFileSync(path, "computer_5\n");
+      writeFileSync(path, '{"plan":"computer_5","limit":5,"scheduleLimit":2}\n');
       expect(computerAgentAdmissionContext(undefined, path)).toEqual({
         plan: "computer_5",
         limit: 5,
         scheduleLimit: 2,
       });
-      writeFileSync(path, "free\n");
+      // A downgrade lands on the next admission, with no restart.
+      writeFileSync(path, '{"plan":"free","limit":3,"scheduleLimit":1}\n');
       expect(computerAgentAdmissionContext(undefined, path)).toEqual({
         plan: "free",
-        limit: 1,
+        limit: 3,
         scheduleLimit: 1,
       });
     } finally {

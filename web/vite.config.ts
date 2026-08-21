@@ -89,15 +89,32 @@ function precompressAssets(): Plugin {
 // lfg's Bun server (serve.ts) owns process-control + streams under /api/*.
 // In dev the Vite server proxies them through so the SPA stays single-origin.
 const API_TARGET = process.env.LFG_API_TARGET ?? "http://localhost:8766";
+const BUILD_SOURCEMAP = process.env.LFG_WEB_SOURCEMAP === "0" ? false : "hidden";
+
+// The version Settings shows as "Frontend". Read from the ROOT package.json,
+// never from web/package.json: scripts/pack-packages.sh rewrites every
+// published manifest to the root version at pack time, so the root number is
+// what a released bundle actually ships as. web/package.json's own version is
+// never published and has drifted (0.1.366 against a 0.2.x root).
+//
+// Read here, at config load, so the stamp is the version of the tree being
+// built. The release workflow builds from the tag checkout, which is exactly
+// when root package.json already holds the release version.
+const ROOT_VERSION: string = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, "../package.json"), "utf8"),
+).version;
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), stampServiceWorkerVersion(), precompressAssets()],
+  define: {
+    __OMG_FRONTEND_VERSION__: JSON.stringify(ROOT_VERSION),
+  },
   // Emit source maps so the auto-fix agent can map a minified production stack
   // frame back to the original source in web/src. "hidden" keeps the .map files
   // out of the served bundle's sourceMappingURL (no end-user devtools exposure),
   // while still writing web/dist/assets/*.js.map for server-side / agent use.
   build: {
-    sourcemap: "hidden",
+    sourcemap: BUILD_SOURCEMAP,
     rollupOptions: {
       output: {
         // Pin React + ReactDOM into their own chunk. They change only on a React

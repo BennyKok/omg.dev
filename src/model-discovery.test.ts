@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   providersDueForRetry,
+  parseFxModels,
   parseJcodeModels,
   retryDelayMs,
   type ModelDiscoveryCache,
@@ -39,6 +40,7 @@ function cache(
       codex: provider("codex"),
       grok: provider("grok"),
       cursor: provider("cursor"),
+      fx: provider("fx"),
       opencode: provider("opencode"),
       jcode: provider("jcode"),
       ...providers,
@@ -97,7 +99,7 @@ describe("model discovery retry policy", () => {
       timeZone: "UTC",
       providers: { codex: provider("codex") },
     };
-    expect(providersDueForRetry(older, 0)).toEqual(["grok", "cursor", "opencode", "jcode"]);
+    expect(providersDueForRetry(older, 0)).toEqual(["grok", "cursor", "fx", "opencode", "jcode"]);
   });
 
   test("no cache means the initial full refresh owns it, not the retry path", () => {
@@ -112,6 +114,32 @@ describe("model discovery retry policy", () => {
     });
     expect(providersDueForRetry(c, 2 * MINUTE)).toEqual(["opencode"]);
     expect(providersDueForRetry(c, 30 * MINUTE)).toEqual(["cursor", "opencode"]);
+  });
+});
+
+describe("fx model discovery", () => {
+  // Shape captured from `fx models --json` against fx 0.0.3. It needs no
+  // credential, so discovery answers before the user has signed in.
+  test("reads the gateway id list and puts LFG's own auto placeholder first", () => {
+    expect(
+      parseFxModels(
+        JSON.stringify({
+          kind: "models",
+          count: 3,
+          ids: ["anthropic/claude-opus-5", "openai/gpt-5.6-sol", "zai/glm-5.2"],
+        }),
+      ),
+    ).toEqual({
+      models: ["auto", "anthropic/claude-opus-5", "openai/gpt-5.6-sol", "zai/glm-5.2"],
+      labels: {},
+    });
+  });
+
+  test("survives a catalog with no ids at all", () => {
+    expect(parseFxModels(JSON.stringify({ kind: "models", count: 0 }))).toEqual({
+      models: ["auto"],
+      labels: {},
+    });
   });
 });
 

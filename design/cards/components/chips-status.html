@@ -1,0 +1,49 @@
+<!-- @dsCard group="Components" name="Chips, badges & status" subtitle="Icon chips, status dots, badges, agent avatar" width="760" height="520" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Chips, badges &amp; status</title>
+<!-- @tokens -->
+<style>
+  .legend { display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; align-items: center; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="pane pane--light">
+  <p class="demo-title">Icon chips — 28px, 7px radius. Tone = subject, not decoration.</p>
+  <div class="demo-grid">
+    <span class="icon-chip" title="primary: product features"><svg viewBox="0 0 16 16" fill="none"><rect x="2.5" y="2.5" width="11" height="11" rx="2" stroke="currentColor" stroke-width="1.4"/></svg></span>
+    <span class="icon-chip icon-chip--fg" title="foreground: the machine"><svg viewBox="0 0 16 16" fill="none"><rect x="2.5" y="4" width="11" height="8" rx="2" stroke="currentColor" stroke-width="1.4"/><path d="M6 14h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
+    <span class="icon-chip icon-chip--muted" title="muted: secondary"><svg viewBox="0 0 16 16" fill="none"><circle cx="4" cy="8" r="1.1" fill="currentColor"/><circle cx="8" cy="8" r="1.1" fill="currentColor"/><circle cx="12" cy="8" r="1.1" fill="currentColor"/></svg></span>
+    <span class="icon-chip icon-chip--success" title="success"><svg viewBox="0 0 16 16" fill="none"><path d="M3.5 8.5l3 3 6-6.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+    <span class="icon-chip icon-chip--warning" title="warning"><svg viewBox="0 0 16 16" fill="none"><path d="M8 3v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="8" cy="12" r="1" fill="currentColor"/></svg></span>
+    <span class="icon-chip icon-chip--destructive" title="destructive"><svg viewBox="0 0 16 16" fill="none"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+  </div>
+  <p class="demo-title">Status dots — the only session-state vocabulary</p>
+  <div class="legend">
+    <span class="dot dot--busy"></span><span>busy — warning, pulsing</span>
+    <span class="dot dot--idle"></span><span>idle — success ring at 30%</span>
+    <span class="dot dot--unread"></span><span>unread — primary, solid</span>
+    <span class="dot dot--off"></span><span>offline / unavailable</span>
+  </div>
+  <p class="demo-title">Badges</p>
+  <div class="demo-grid">
+    <span class="badge">Default</span>
+    <span class="badge badge--primary">Driven by bot</span>
+    <span class="badge badge--success">Shipped</span>
+    <span class="badge badge--warning">Paused</span>
+    <span class="badge badge--destructive">Failed</span>
+    <span class="badge badge--count">3</span>
+  </div>
+  <p class="demo-title">Agent avatar — 32px, 8px radius, shipped check badge</p>
+  <div class="demo-grid">
+    <span class="avatar"><span class="avatar-fill">🤖</span><span class="avatar-badge">✓</span></span>
+    <span class="avatar"><span class="avatar-fill">🤖</span></span>
+  </div>
+  <p class="footnote" style="padding:0;margin-top:14px">
+    Count badges appear only on the Activity entry point. No other surface renders its own badge shape.
+  </p>
+</div>
+</body>
+</html>

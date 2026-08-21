@@ -12,6 +12,8 @@ import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 import { PATHS } from "./config.ts";
 import { onboardingProfilesSync } from "./onboarding.ts";
+import { boxAccountEmail } from "./box-account.ts";
+import { userIconsSync, iconUrl } from "./user-icons.ts";
 
 // Roster config. Each LFG_USERS entry is `email` or `email:displayname` — the
 // optional name is what the UI shows (raw emails are hard to scan). Parse once
@@ -41,6 +43,18 @@ const NAMES: Record<string, string> = Object.fromEntries(
 // onboarding flow adds profiles at runtime.
 export function rosterEmails(): string[] {
   return [...new Set([...USERS, ...onboardingProfilesSync().map((p) => p.email)])];
+}
+
+/**
+ * Return the paired box account only when it is already a roster member.
+ * This gives an ownerless root session a safe last-resort attribution without
+ * inventing a user or assigning it to the first configured person.
+ */
+export function rosterBoxAccount(
+  roster: string[] = rosterEmails(),
+  accountEmail: string | null = boxAccountEmail(),
+): string | undefined {
+  return accountEmail && roster.includes(accountEmail) ? accountEmail : undefined;
 }
 
 export type SessionUserTag =
@@ -93,19 +107,61 @@ export function gravatar(email: string): string {
   return `https://www.gravatar.com/avatar/${h}?d=identicon&s=80&_=${bucket}`;
 }
 
+// Legacy fallback: avatars uploaded during onboarding before user-icons.ts
+// existed are still recorded on the profile itself (data/onboarding.json).
+// Nothing writes this field anymore (see onboarding.ts's setProfileAvatar) —
+// it is read-only, kept so an already-uploaded photo doesn't disappear out
+// from under an existing install just because the storage was refactored.
+function legacyOnboardingAvatarUrl(email: string): string | undefined {
+  const file = onboardingProfilesSync().find((p) => p.email === email)?.avatar;
+  return file ? `/api/avatars/${file}` : undefined;
+}
+
 export function userRoster(): { email: string; name: string; avatar: string }[] {
-  // Photo uploaded during onboarding beats Gravatar; served by
+  // A settings-uploaded icon (user-icons.ts) beats a legacy onboarding photo,
+  // which beats Gravatar. Both upload paths are served by
   // GET /api/avatars/<file> out of data/avatars/.
-  const uploaded = new Map(
-    onboardingProfilesSync()
-      .filter((p) => p.avatar)
-      .map((p) => [p.email, `/api/avatars/${p.avatar}`]),
-  );
+  const icons = userIconsSync();
   return rosterEmails().map((email) => ({
     email,
     name: displayName(email),
-    avatar: uploaded.get(email) ?? gravatar(email),
+    avatar: iconUrl(icons, email) ?? legacyOnboardingAvatarUrl(email) ?? gravatar(email),
   }));
+}
+
+/**
+ * Which identity key an icon upload/replace/remove for `requested` should
+ * act on, or why it can't be resolved. THE hosted-side identity decision:
+ *
+ * A box with a configured roster (LFG_USERS / onboarding profiles) keys the
+ * icon by a roster email, exactly like every other roster-scoped action
+ * (assignUser, resolveSessionUserTag) — several people can share one box, so
+ * "whose icon" has to name one of them, and an unrecognized email is a hard
+ * error for the same reason a typo'd session tag is.
+ *
+ * A hosted Computer is provisioned with its roster intentionally empty (see
+ * onboarding.ts's HostedFirstRun doc) — there is no roster to validate an
+ * email against, but unlike session tagging (where an empty roster correctly
+ * means "the feature is off"), an icon is never actually ownerless on a
+ * hosted box: it is paired to exactly one omg account (box-account.ts), and
+ * that account IS the identity. So a roster-less box ignores whatever email
+ * the caller sent (there is no roster identity to have sent) and keys the
+ * icon by the paired account instead. The only real failure is a roster-less,
+ * unpaired box — a bare local dev checkout with nobody signed in at all.
+ */
+export function iconIdentityKey(
+  requested: string | null | undefined,
+  roster: string[] = rosterEmails(),
+  accountEmail: string | null = boxAccountEmail(),
+): { ok: true; key: string } | { ok: false; reason: string } {
+  if (roster.length > 0) {
+    const wanted = requested?.trim().toLowerCase() || undefined;
+    if (!wanted) return { ok: false, reason: "expected an email" };
+    if (!roster.includes(wanted)) return { ok: false, reason: "unknown user" };
+    return { ok: true, key: wanted };
+  }
+  if (accountEmail) return { ok: true, key: accountEmail };
+  return { ok: false, reason: "no identity available on this box" };
 }
 
 const FILE = `${PATHS.data}/session-users.json`;
