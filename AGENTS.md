@@ -59,6 +59,11 @@ risk and delivery scope.
 - Dependency audit: `bun run audit`
 - Chat ingestion smoke test: `bun run chat:smoke`
 
+Run full tests and typecheck sequentially. Package-build tests can temporarily
+replace workspace artifacts and cause false module-resolution errors.
+Use a real install in each worktree. Do not share or symlink `node_modules`
+between checkouts because stale dependencies cause false test and type errors.
+
 Do not run the full suite after every small edit. Run it before delivery when
 the change crosses subsystems or affects a release. If a check cannot run,
 report the exact reason and the unverified risk.
