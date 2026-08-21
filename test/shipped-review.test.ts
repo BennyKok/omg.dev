@@ -4,9 +4,9 @@ import { readFileSync } from "node:fs";
 describe("shipped session review flow", () => {
   const app = readFileSync("web/src/App.tsx", "utf8");
 
-  test("recent shipped shortcuts open inside the live workspace without resuming", () => {
+  test("shipped shortcuts open inside the live workspace without resuming", () => {
     expect(app).toContain(
-      "onOpenRecentShipped={openShippedSession}",
+      "onReviewSession={openShippedSession}",
     );
     expect(app).toContain("shippedReview={shippedReview}");
     expect(app).toContain('setTab("live")');
@@ -23,30 +23,18 @@ describe("shipped session review flow", () => {
     );
   });
 
-  test("mobile live view shows the shared recently shipped list", () => {
-    const liveView = app.slice(
-      app.indexOf("function LiveView("),
-      app.indexOf("function RailStage("),
-    );
-
-    expect(liveView).toContain("useRecentShippedSessions(");
-    expect(liveView).toContain('<section data-recent-shipped="true">');
-    expect(liveView).toContain('label="Recently shipped"');
-    expect(liveView).toContain("onOpen={onOpenRecentShipped}");
-    expect(liveView).toContain("mobile");
+  // The "Recently shipped" category was removed from the Live view on both
+  // surfaces. Reviewing a shipped session still works, but it is reached from
+  // the Shipped feed rather than from a category in the live sidebar/rail.
+  test("the live view no longer carries a recently shipped category", () => {
+    expect(app).not.toContain("useRecentShippedSessions(");
+    expect(app).not.toContain('data-recent-shipped="true"');
+    expect(app).not.toContain('label="Recently shipped"');
+    expect(app).not.toContain("function RecentShippedRow(");
+    expect(app).not.toContain("onOpenRecentShipped");
   });
 
-  test("scoped recently shipped rows show session context, not the project", () => {
-    const row = app.slice(
-      app.indexOf("function RecentShippedRow("),
-      app.indexOf("function LiveView("),
-    );
-
-    expect(row).toContain('{post.sessionTitle || "Finished session"}');
-    expect(row).not.toContain("shortProject(post.project)");
-  });
-
-  test("mobile session headers match the recently shipped row height", () => {
+  test("mobile session headers keep their compact row height", () => {
     expect(app).toContain(
       'className="flex min-h-[3.75rem] min-w-0 items-center gap-2 border-b border-border px-3 py-2"',
     );

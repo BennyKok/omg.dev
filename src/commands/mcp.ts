@@ -15,7 +15,6 @@ import {
   OMG_MCP_INSTRUCTIONS,
   SHORT_SESSION_ID_LENGTH,
 } from "../omg-capabilities.ts";
-import { shippedCloseDecision } from "../shipped-lifecycle.ts";
 import { BOT_COLORWAYS, BOT_SHAPES } from "../bots/store.ts";
 import { BOT_PEER_MESSAGE_MAX_CHARS } from "../bots/messaging.ts";
 
@@ -995,7 +994,7 @@ export function buildOmgMcpServer(): McpServer {
     {
       title: "Post To The omg.dev Shipped Channel",
       description:
-        "Post a verified result in the omg.dev Shipped feed, then explicitly decide whether its source session should close. A Shipped post does not itself prove production deployment. Set closeSession true only when the requested outcome (including deployment when requested) and conversation are genuinely finished; that call is terminal and leaves the session resumable. Set it false for quick chats or likely follow-up, and the session stays live. Never use this for planning, partial, blocked, or still-unverified work. Write it like a launch tweet: a punchy headline + at most 1-2 short sentences on the outcome and why it matters. To update an earlier post, pass its id.",
+        "Post a verified result in the omg.dev Shipped feed. Publishing is not a lifecycle event: the source session stays live for chat or follow-up. A Shipped post does not itself prove production deployment; when deployment was requested, verify it before you claim it. Never use this for planning, partial, blocked, or still-unverified work. Write it like a launch tweet: a punchy headline + at most 1-2 short sentences on the outcome and why it matters. To update an earlier post, pass its id.",
       inputSchema: {
         title: z.string().min(1).describe("Short headline for what shipped (e.g. 'WhatsApp reconnect loop fixed')."),
         id: z.string().optional().describe("Existing ship post id to update in place (returned when the post was created)."),
@@ -1012,18 +1011,13 @@ export function buildOmgMcpServer(): McpServer {
         artifactIds: z.array(z.string()).optional().describe("Existing artifact ids to embed (e.g. a published html dashboard)."),
         project: z.string().optional().describe("Project label shown on the post. Must name an existing project (see omg_list_repos); anything else is ignored in favour of the posting session's own project."),
         sessionId: z.string().optional().describe("Source omg.dev session id. Defaults to OMG_SESSION_ID."),
-        closeSession: z
-          .boolean()
-          .describe("Explicit lifecycle decision: true closes this genuinely finished conversation after posting; false keeps it live for chat or follow-up."),
       },
     },
-    async ({ title, id, summary, mediaPaths, artifactIds, project, sessionId, closeSession }) => {
+    async ({ title, id, summary, mediaPaths, artifactIds, project, sessionId }) => {
       const sid = await activeSessionId(sessionId);
-      const shouldClose = shippedCloseDecision(closeSession, { required: true });
       const data = await api<{
         ok: boolean;
         post: unknown;
-        session?: { status: "active" | "closing"; resumable: boolean };
       }>("/api/shipped", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1035,10 +1029,9 @@ export function buildOmgMcpServer(): McpServer {
           artifactIds,
           project,
           sessionId: sid,
-          closeSession: shouldClose,
         }),
       });
-      return result({ shipped: true, post: data.post, session: data.session });
+      return result({ shipped: true, post: data.post });
     },
   );
 

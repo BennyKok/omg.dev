@@ -10,12 +10,12 @@ describe("shipped notifications", () => {
     expect(server).toContain("user: notificationUser");
   });
 
-  // A ship with closeSession:true schedules the session's teardown ~1.5s after
-  // the push is queued, so by the time anyone taps the notification the id is
-  // legitimately gone from the live fleet. The deep-link resolver only searched
-  // live sessions and then gave up with "That session is no longer running" —
-  // firing on the single most common shipped tap, while the notification body
-  // said "Tap to review the finished session."
+  // A shipped post outlives its session: the human closes it, serve restarts,
+  // or the registry prunes it, so by the time anyone taps the notification the
+  // id can legitimately be gone from the live fleet. The deep-link resolver
+  // only searched live sessions and then gave up with "That session is no
+  // longer running", while the notification body said "Tap to review the
+  // finished session."
   test("opens a shipped deep link as a finished session instead of erroring", async () => {
     const app = await readFile("web/src/App.tsx", "utf8");
     expect(app).not.toContain("That session is no longer running");

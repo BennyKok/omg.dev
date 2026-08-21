@@ -25,6 +25,32 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "r
 
 /** The account number to stamp on a Claude mark, or null when there's nothing to tell apart. */
 
+// History rows now carry the same identity signals as a Live row: the agent
+// mark, the project and the folder the session ran in. The old row showed a
+// small mark above two lines of text that were frequently the same string --
+// `title` is derived from the first prompt and `lastUserText` IS that prompt.
+// A roster of autonomous agents therefore rendered as a wall of identical rows
+// ("You are an autonomous watch agent..."), which is exactly the case where the
+// folder is the only thing that tells two sessions apart.
+
+/** The worktree/checkout name, which is what distinguishes sibling sessions. */
+function folderName(cwd: string | null): string {
+  if (!cwd) return "";
+  const parts = cwd.split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? "";
+}
+
+/** Drop the preview when it only repeats the title back to the reader. */
+function sessionPreview(title: string, lastUserText: string | null): string {
+  const preview = (lastUserText ?? "").trim();
+  if (!preview) return "";
+  const normalise = (value: string) => value.replace(/\s+/g, " ").trim().toLowerCase();
+  const a = normalise(preview);
+  const b = normalise(title);
+  if (!b || a === b || a.startsWith(b) || b.startsWith(a)) return "";
+  return preview;
+}
+
 type ResumableResponse = {
   sessions: ResumableSession[];
   total: number;
@@ -354,13 +380,17 @@ export default function ResumeSessionSheet({
                 </div>
               )
             ) : showSkeleton ? (
-              <div className="animate-pulse space-y-1" aria-hidden>
+              <div className="animate-pulse space-y-1.5" aria-hidden>
                 {Array.from({ length: 6 }).map((_, index) => (
-                  <div key={index} className="flex items-center gap-2.5 px-2 py-2.5">
-                    <div className="size-7 shrink-0 rounded-lg bg-muted" />
+                  <div
+                    key={index}
+                    className="flex items-center gap-3 rounded-xl border border-transparent bg-card px-3 py-2.5"
+                  >
+                    <div className="size-8 shrink-0 rounded-md bg-muted" />
                     <div className="min-w-0 flex-1 space-y-1.5">
                       <div className="h-3 w-1/2 rounded bg-muted" />
                       <div className="h-2.5 w-3/4 rounded bg-muted/60" />
+                      <div className="h-2.5 w-1/4 rounded-full bg-muted/60" />
                     </div>
                   </div>
                 ))}
@@ -385,34 +415,53 @@ export default function ResumeSessionSheet({
               </div>
             ) : (
               <>
-                <div className={cn("space-y-0.5 transition-opacity", loading && "opacity-60")}>
-                  {items.map((session) => (
-                    <button
-                      key={session.sessionId}
-                      type="button"
-                      onClick={() => onPick(session)}
-                      className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition hover:bg-muted active:scale-[0.99]"
-                    >
-                      <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-muted">
-                        <SessionAgentIcon session={session} className="size-4" size="sm" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium">{session.title}</span>
-                        <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                          {session.lastUserText ? (
-                            <>
-                              <span className="max-w-[60%] truncate">{session.lastUserText}</span>
-                              <span>·</span>
-                            </>
+                <div className={cn("space-y-1.5 transition-opacity", loading && "opacity-60")}>
+                  {items.map((session) => {
+                    const folder = folderName(session.cwd);
+                    const preview = sessionPreview(session.title, session.lastUserText);
+                    return (
+                      <button
+                        key={session.sessionId}
+                        type="button"
+                        onClick={() => onPick(session)}
+                        title={session.cwd || session.title}
+                        className="lfg-gborder flex w-full items-center gap-3 rounded-xl border border-transparent bg-card px-3 py-2.5 text-left transition hover:border-border hover:bg-muted/60 active:scale-[0.99]"
+                      >
+                        <SessionAgentIcon
+                          session={session}
+                          className="size-8 rounded-md"
+                          size="md"
+                          wrapperClassName="shrink-0"
+                        />
+                        <span className="flex min-w-0 flex-1 flex-col gap-1">
+                          <span className="flex items-baseline gap-1.5">
+                            <span className="min-w-0 flex-1 truncate text-sm font-medium leading-tight">
+                              {session.title}
+                            </span>
+                            <span className="shrink-0 text-[10px] leading-tight tabular-nums text-muted-foreground/70">
+                              {timeAgo(session.lastActivityAt)}
+                            </span>
+                          </span>
+                          {preview ? (
+                            <span className="truncate text-xs leading-tight text-muted-foreground">
+                              {preview}
+                            </span>
                           ) : null}
-                          <span className="truncate">{session.project}</span>
-                          <span>·</span>
-                          <span className="shrink-0 tabular-nums">{timeAgo(session.lastActivityAt)}</span>
+                          <span className="flex min-w-0 items-center gap-1">
+                            <span className="max-w-[50%] truncate rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                              {session.project}
+                            </span>
+                            {folder && folder !== session.project ? (
+                              <span className="max-w-[50%] truncate rounded-full bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/80">
+                                {folder}
+                              </span>
+                            ) : null}
+                          </span>
                         </span>
-                      </span>
-                      <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/60" />
-                    </button>
-                  ))}
+                        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/60" />
+                      </button>
+                    );
+                  })}
                 </div>
                 {hasMore ? (
                   <button

@@ -304,11 +304,6 @@ describe("mobile overlay scroll contract", () => {
     expect(app).toContain('value="artifacts"');
     expect(app).toContain("projects={projectOptions}");
     expect(app).toContain("onChange={changeProjectFilter}");
-    expect(app).toContain("onOpenShipped={openShipped}");
-    expect(app).toContain("onOpenRecentShipped={openShippedSession}");
-    expect(app).not.toContain(
-      "onOpenShipped={embedded ? undefined : openShipped}",
-    );
   });
 
   test("every mobile page scrolls behind the shared top chrome", () => {
