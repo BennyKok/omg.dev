@@ -20,6 +20,8 @@ const OTHER = "99999999-2222-4222-8222-222222222222";
 const originalFetch = globalThis.fetch;
 const originalBase = process.env.LFG_BASE;
 const originalSessionId = process.env.LFG_SESSION_ID;
+const originalLfgUser = process.env.LFG_USER;
+const originalOmgUser = process.env.OMG_USER;
 
 /** Outbound API calls the tool made, in order. */
 let calls: string[] = [];
@@ -29,6 +31,8 @@ beforeEach(() => {
   process.env.LFG_BASE = "http://127.0.0.1:9876";
   // The serve process answers every session and belongs to none of them.
   delete process.env.LFG_SESSION_ID;
+  delete process.env.LFG_USER;
+  delete process.env.OMG_USER;
   globalThis.fetch = (async (url: string | URL | Request) => {
     calls.push(String(url));
     return Response.json({ artifact: { id: "art-1" }, sessions: [] });
@@ -41,6 +45,10 @@ afterEach(() => {
   else process.env.LFG_BASE = originalBase;
   if (originalSessionId === undefined) delete process.env.LFG_SESSION_ID;
   else process.env.LFG_SESSION_ID = originalSessionId;
+  if (originalLfgUser === undefined) delete process.env.LFG_USER;
+  else process.env.LFG_USER = originalLfgUser;
+  if (originalOmgUser === undefined) delete process.env.OMG_USER;
+  else process.env.OMG_USER = originalOmgUser;
 });
 
 type ToolReply = { text: string; isError: boolean };
@@ -79,7 +87,71 @@ async function callTool(
   };
 }
 
+async function listToolNames(): Promise<string[]> {
+  const res = await serveOmgMcpRequest(new Request("http://127.0.0.1:8766/mcp", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+  }));
+  const body = await res.json() as { result?: { tools?: Array<{ name: string }> } };
+  return (body.result?.tools ?? []).map((tool) => tool.name);
+}
+
 describe("caller identity over the shared MCP endpoint", () => {
+  test("input questions inherit the calling session owner", async () => {
+    const requests: Array<{ url: string; method: string; body: unknown }> = [];
+    globalThis.fetch = (async (
+      url: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const href = String(url);
+      requests.push({
+        url: href,
+        method: init?.method ?? "GET",
+        body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
+      });
+      if (href.endsWith("/api/sessions")) {
+        return Response.json({
+          sessions: [{ sessionId: SESSION, assignedUser: "owner@example.com" }],
+        });
+      }
+      if (href.endsWith("/api/ask")) {
+        return Response.json({ id: "question-1", status: "open" });
+      }
+      return Response.json({}, { status: 404 });
+    }) as typeof fetch;
+
+    const reply = await callTool(
+      "omg_input",
+      { prompt: "Which release should I deploy?", options: ["Stable", "Canary"] },
+      { session: SESSION },
+    );
+
+    expect(reply.isError).toBe(false);
+    expect(requests).toEqual([
+      {
+        url: "http://127.0.0.1:9876/api/sessions",
+        method: "GET",
+        body: null,
+      },
+      {
+        url: "http://127.0.0.1:9876/api/ask",
+        method: "POST",
+        body: {
+          question: "Which release should I deploy?",
+          options: ["Stable", "Canary"],
+          sessionId: SESSION,
+          user: "owner@example.com",
+          pushback: true,
+          wait: false,
+        },
+      },
+    ]);
+  });
+
   test("display_image publishes to the calling session named on the request", async () => {
     const reply = await callTool(
       "omg_display_image",
@@ -144,5 +216,99 @@ describe("caller identity over the shared MCP endpoint", () => {
 
     expect(reply.isError).toBe(true);
     expect(reply.text).toContain("can only target their owning omg.dev session");
+  });
+
+  test("exposes the four narrow persistent-bot capabilities", async () => {
+    const names = await listToolNames();
+    expect(names).toContain("omg_create_owned_bot");
+    expect(names).toContain("omg_update_self");
+    expect(names).toContain("omg_list_owned_bots");
+    expect(names).toContain("omg_send_message_to_peer");
+  });
+
+  test("bot tools send only caller identity to the dedicated server routes", async () => {
+    const requests: Array<{ url: string; method: string; headers: Headers; body: unknown }> = [];
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      requests.push({
+        url: String(url),
+        method: init?.method ?? "GET",
+        headers: new Headers(init?.headers),
+        body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
+      });
+      return Response.json({ bot: { id: "bot-created" }, bots: [] });
+    }) as typeof fetch;
+
+    const created = await callTool("omg_create_owned_bot", {
+      name: "Builder",
+      persona: "Build carefully",
+      description: "Builds packages",
+      capabilities: ["build"],
+    }, { session: SESSION });
+    const peers = await callTool("omg_list_owned_bots", {}, { session: SESSION });
+    const sent = await callTool("omg_send_message_to_peer", {
+      targetBotId: "bot-peer",
+      text: "Please verify the package.",
+      replyToMessageId: "bmsg_parent",
+    }, { session: SESSION });
+    const updated = await callTool("omg_update_self", {
+      persona: "Updated persistent instructions",
+    }, { session: SESSION });
+
+    expect(created.isError).toBe(false);
+    expect(peers.isError).toBe(false);
+    expect(sent.isError).toBe(false);
+    expect(updated.isError).toBe(false);
+    expect(requests.map(({ url, method }) => ({ url, method }))).toEqual([
+      { url: "http://127.0.0.1:9876/api/runtime/bots/owned", method: "POST" },
+      { url: "http://127.0.0.1:9876/api/runtime/bots/peers", method: "GET" },
+      { url: "http://127.0.0.1:9876/api/runtime/bots/peer-messages", method: "POST" },
+      { url: "http://127.0.0.1:9876/api/runtime/bots/self", method: "PATCH" },
+    ]);
+    for (const request of requests) {
+      expect(request.headers.get("x-omg-session-id")).toBe(SESSION);
+    }
+    expect(requests[0].body).not.toHaveProperty("owner");
+    expect(requests[0].body).not.toHaveProperty("botId");
+    expect(requests[2].body).toEqual({
+      targetBotId: "bot-peer",
+      text: "Please verify the package.",
+      replyToMessageId: "bmsg_parent",
+    });
+    expect(requests[2].body).not.toHaveProperty("sourceBotId");
+    expect(requests[2].body).not.toHaveProperty("user");
+    expect(requests[3].body).toEqual({ persona: "Updated persistent instructions" });
+  });
+
+  test("bot self-update schema rejects peer and ownership selectors", async () => {
+    const reply = await callTool("omg_update_self", {
+      botId: "peer-bot",
+      owner: "attacker@example.com",
+      persona: "Take over",
+    }, { session: SESSION });
+
+    expect(reply.isError).toBe(true);
+    expect(calls).toEqual([]);
+
+    const createReply = await callTool("omg_create_owned_bot", {
+      name: "Escalated bot",
+      persona: "Read unrelated files",
+      cwd: "/",
+    }, { session: SESSION });
+    expect(createReply.isError).toBe(true);
+    expect(calls).toEqual([]);
+  });
+
+  test("peer messaging schema rejects spoofed sender, owner, correlation, and depth", async () => {
+    const reply = await callTool("omg_send_message_to_peer", {
+      targetBotId: "bot-peer",
+      text: "spoofed",
+      sourceBotId: "bot-admin",
+      user: "attacker@example.com",
+      correlationId: "chosen-correlation",
+      depth: 0,
+    }, { session: SESSION });
+
+    expect(reply.isError).toBe(true);
+    expect(calls).toEqual([]);
   });
 });

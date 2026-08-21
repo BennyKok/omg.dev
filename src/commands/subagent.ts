@@ -19,7 +19,7 @@ Usage:
   lfg subagent create --prompt-file task.md --agent aisdk --model opus --cwd /path/to/repo
 
 Options:
-  --agent aisdk|codex-aisdk|opencode|grok|claude|codex|jcode
+  --agent aisdk|codex-aisdk|opencode|grok|cursor|fx|claude|codex|jcode
   --model MODEL
   --thinking-level LEVEL
   --cwd PATH
@@ -193,7 +193,7 @@ async function cmdCreate(args: string[]) {
   }
   const agent = option(args, "--agent")?.trim() || "aisdk";
   if (agent === "hermes") {
-    console.error('agent "hermes" is temporarily unavailable');
+    console.error('agent "hermes" has been removed');
     process.exit(1);
   }
   if (!MODEL_OPTIONS[agent as keyof typeof MODEL_OPTIONS]) {

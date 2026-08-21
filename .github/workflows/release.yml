@@ -101,8 +101,11 @@ jobs:
           REG="https://registry.npmjs.org/"
           # Job-local userconfig, never the shared ~/.npmrc: the private-registry
           # step above owns that file, and this token must not end up as the
-          # default credential for every later command. Mirrors the same pattern
-          # in BennyKok/vibes, which publishes @omg-dev/cli into this scope.
+          # default credential for every later command.
+          #
+          # This repository now publishes @omg-dev/cli 0.5.0+ (the control-plane
+          # bootstrapper). BennyKok/vibes used to publish 0.4.x — the retired
+          # prompt-to-app CLI — into the same name. Do not publish 0.4.x again.
           NPMRC="$RUNNER_TEMP/.npmrc.publish"
           printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_PUBLISH_TOKEN" > "$NPMRC"
           chmod 600 "$NPMRC"
@@ -115,7 +118,7 @@ jobs:
           # first, whose pinned dependency on protocol does not exist on the
           # registry yet. npm does not validate that at publish time, so the
           # result is a window where a published package cannot be installed.
-          for pkg in protocol client react app; do
+          for pkg in protocol client react app cli; do
             # "./" is load-bearing. `npm publish dist/omg-dev-protocol-1.0.0.tgz`
             # parses as the GitHub shorthand <owner>/<repo> — npm resolves it to
             # ssh://git@github.com/dist/omg-dev-protocol-1.0.0.tgz.git and fails
@@ -180,6 +183,7 @@ jobs:
             dist/omg-dev-client-*.tgz
             dist/omg-dev-react-*.tgz
             dist/omg-dev-app-*.tgz
+            dist/omg-dev-cli-*.tgz
           fail_on_unmatched_files: true
           generate_release_notes: true
 

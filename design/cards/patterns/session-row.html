@@ -1,0 +1,72 @@
+<!-- @dsCard group="Patterns" name="Session row" subtitle="Rail rows with status dots and tree children" width="720" height="520" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Session row</title>
+<!-- @tokens -->
+<style>
+  .srow { border-radius: var(--radius-row); padding: 8px 10px; min-height: 0; }
+  .srow .row-title { font-size: 13px; }
+  .rail { display: flex; flex-direction: column; gap: 2px; }
+  .tree { position: relative; margin-left: 22px; }
+  .tree::before {
+    content: ""; position: absolute; left: -12px; top: -6px; bottom: 10px;
+    width: 12px; border-left: 1.5px solid var(--border-strong);
+    border-bottom: 1.5px solid var(--border-strong); border-bottom-left-radius: 8px;
+  }
+</style>
+</head>
+<body>
+<div class="pane pane--light" style="max-width:380px">
+  <p class="section-label">Live sessions</p>
+  <div class="rail">
+    <button class="row srow">
+      <span class="dot dot--busy"></span>
+      <span class="row-body">
+        <span style="display:flex;align-items:baseline;gap:8px">
+          <span class="row-title" style="flex:1">Unify settings and dashboard</span>
+          <span class="row-meta">now</span>
+        </span>
+        <span class="row-sub">lfg · claude · editing App.tsx</span>
+      </span>
+    </button>
+    <div class="tree">
+      <button class="row srow">
+        <span class="dot dot--busy"></span>
+        <span class="row-body">
+          <span class="row-title">Explore: find row variants</span>
+          <span class="row-sub">subagent</span>
+        </span>
+      </button>
+    </div>
+    <button class="row srow">
+      <span class="dot dot--idle"></span>
+      <span class="row-body">
+        <span style="display:flex;align-items:baseline;gap:8px">
+          <span class="row-title" style="flex:1">Fix push registration retry</span>
+          <span class="row-meta">18m</span>
+        </span>
+        <span class="row-sub">lfg · codex · waiting for you</span>
+      </span>
+    </button>
+    <button class="row srow">
+      <span class="avatar" style="width:24px;height:24px"><span class="avatar-fill" style="font-size:11px">🤖</span><span class="avatar-badge">✓</span></span>
+      <span class="row-body">
+        <span style="display:flex;align-items:baseline;gap:8px">
+          <span class="row-title" style="flex:1">Dark mode for artifact viewer</span>
+          <span class="row-meta">2m</span>
+        </span>
+        <span class="row-sub">Shipped · tap to review</span>
+      </span>
+    </button>
+  </div>
+  <p class="footnote" style="margin-top:14px">
+    Same body/meta anatomy as the activity row, compacted: 13px title, 24px leading slot.
+    The leading slot is a status dot for live sessions and the shipped avatar for finished ones —
+    the sidebar no longer needs its own "recently shipped" card style.
+    Tree children indent 22px under a rounded connector.
+  </p>
+</div>
+</body>
+</html>

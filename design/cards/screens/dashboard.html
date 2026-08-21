@@ -1,0 +1,115 @@
+<!-- @dsCard group="Screens" name="Dashboard (Live)" subtitle="One rail, one Activity entry point, no inline shipped feed" width="880" height="760" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dashboard — Live</title>
+<!-- @tokens -->
+<style>
+  body { padding: 24px; display: flex; gap: 24px; justify-content: center; }
+  .srow { border-radius: var(--radius-row); padding: 8px 10px; min-height: 0; }
+  .srow .row-title { font-size: 13px; }
+  .bell { position: relative; }
+  .bell .badge--count { position: absolute; top: -4px; right: -4px; }
+</style>
+</head>
+<body class="pane--light">
+  <div class="phone">
+    <div class="phone-header">
+      <span class="phone-title">omg.dev</span>
+      <span style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn--tint btn--icon btn--sm bell" aria-label="Activity, 3 unread">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2a4 4 0 0 0-4 4v3l-1.2 2h10.4L12 9V6a4 4 0 0 0-4-4Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M6.6 13a1.6 1.6 0 0 0 2.8 0" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          <span class="badge badge--count">3</span>
+        </button>
+        <button class="btn btn--tint btn--icon btn--sm" aria-label="Account">B</button>
+      </span>
+    </div>
+    <div class="phone-body">
+      <div>
+        <input class="field" placeholder="Start something — / for skills">
+        <div style="display:flex;gap:6px;margin-top:8px;align-items:center">
+          <span class="badge">lfg</span>
+          <span class="badge">claude · fable</span>
+          <span style="flex:1"></span>
+          <button class="btn btn--primary btn--sm">Start</button>
+        </div>
+      </div>
+      <div>
+        <p class="section-label" style="padding:0 4px">Live</p>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <button class="row srow">
+            <span class="dot dot--busy"></span>
+            <span class="row-body">
+              <span style="display:flex;align-items:baseline;gap:8px">
+                <span class="row-title" style="flex:1">Unify settings and dashboard</span>
+                <span class="row-meta">now</span>
+              </span>
+              <span class="row-sub">lfg · claude · editing App.tsx</span>
+            </span>
+          </button>
+          <button class="row srow">
+            <span class="dot dot--idle"></span>
+            <span class="row-body">
+              <span style="display:flex;align-items:baseline;gap:8px">
+                <span class="row-title" style="flex:1">Fix push registration retry</span>
+                <span class="row-meta">18m</span>
+              </span>
+              <span class="row-sub">lfg · codex · waiting for you</span>
+            </span>
+          </button>
+          <button class="row srow">
+            <span class="dot dot--idle"></span>
+            <span class="row-body">
+              <span style="display:flex;align-items:baseline;gap:8px">
+                <span class="row-title" style="flex:1">Mobile: haptics on ship</span>
+                <span class="row-meta">1h</span>
+              </span>
+              <span class="row-sub">mobile · claude · idle</span>
+            </span>
+          </button>
+        </div>
+      </div>
+      <div>
+        <p class="section-label" style="padding:0 4px">Recently shipped</p>
+        <div class="group-card">
+          <button class="row srow" style="border-radius:0">
+            <span class="avatar" style="width:24px;height:24px"><span class="avatar-fill" style="font-size:11px">🤖</span><span class="avatar-badge">✓</span></span>
+            <span class="row-body">
+              <span style="display:flex;align-items:baseline;gap:8px">
+                <span class="row-title" style="flex:1">Dark mode for artifact viewer</span>
+                <span class="row-meta">2m</span>
+              </span>
+            </span>
+          </button>
+          <button class="row srow" style="border-radius:0">
+            <span class="avatar" style="width:24px;height:24px"><span class="avatar-fill" style="font-size:11px">🤖</span><span class="avatar-badge">✓</span></span>
+            <span class="row-body">
+              <span style="display:flex;align-items:baseline;gap:8px">
+                <span class="row-title" style="flex:1">Session usage panel v2</span>
+                <span class="row-meta">3h</span>
+              </span>
+            </span>
+          </button>
+          <button class="row" style="justify-content:center;padding:8px">
+            <span style="font-size:13px;font-weight:600;color:var(--primary)">All activity</span>
+          </button>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:center;padding-top:4px">
+        <div class="t-tabs" role="tablist">
+          <button class="t-tab" role="tab" aria-selected="true">Live</button>
+          <button class="t-tab" role="tab" aria-selected="false">Activity</button>
+          <button class="t-tab" role="tab" aria-selected="false">Settings</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="max-width:280px;font-size:13px;color:var(--muted-foreground);align-self:center">
+    <p style="margin:0 0 10px"><strong style="color:var(--foreground)">What changed vs. today</strong></p>
+    <p style="margin:0 0 8px">Notifications and the shipped feed no longer add chrome here. One bell with a count is the only notification surface on the dashboard.</p>
+    <p style="margin:0 0 8px">"Recently shipped" is capped at two rows in the standard group card, ending in a single "All activity" link — not a second feed.</p>
+    <p style="margin:0">Three top-level tabs: Live, Activity, Settings. Term, usage, storage and pages all live inside those three.</p>
+  </div>
+</body>
+</html>

@@ -23,7 +23,7 @@ import {
 import { compressedAssetResponse, maybeCompressResponse } from "../http-compress.ts";
 import { serveOmgMcpRequest } from "../mcp-http.ts";
 import * as pwaBootLog from "../pwa-boot-log.ts";
-import { shortSessionId } from "../omg-capabilities.ts";
+import { botRuntimeContract, shortSessionId } from "../omg-capabilities.ts";
 import {
   getCachedResumableSession,
   updateResumableUser,
@@ -49,14 +49,122 @@ import {
   getAutoAgent,
   saveAutoAgent,
   deleteAutoAgent,
+  deleteAutoAgentsOwnedByBot,
+  countAutoAgentsOwnedByBot,
   isRunning,
   listFindings,
   updateFinding,
   logFindingAction,
+  type AutoAgent,
+  type AutoAgentOwner,
   type FindingActionPath,
 } from "../auto/store.ts";
 import { runAutoAgent } from "../auto/runner.ts";
-import { startAutoScheduler } from "../auto/scheduler.ts";
+import { routineNudgeText, exceedsMaxFrequency } from "../auto/bot-routine.ts";
+import {
+  BOT_COLORWAYS,
+  BOT_SHAPES,
+  BotOwnerQuotaError,
+  createBot,
+  deleteBot,
+  getBot,
+  listBots,
+  mutateBot,
+  updateBot,
+  type Bot,
+  type BotColorway,
+  type BotShape,
+} from "../bots/store.ts";
+import {
+  botQuotaLimitPayload,
+  persistentBotQuota,
+  persistentBotQuotaPolicy,
+} from "../bots/quota.ts";
+import { botCanonicalSessionId, botConversationRef, findBotMainSession } from "../bots/session.ts";
+import { botVisibleUserText } from "../bots/transcript.ts";
+import {
+  CHECKPOINT_MAX_TURNS,
+  MAX_BOT_COMPACTION_THRESHOLD_PERCENT,
+  MIN_BOT_COMPACTION_THRESHOLD_PERCENT,
+  appendArchivedSession,
+  botCompactionDecision,
+  botAppliedConfigRevision,
+  botConfigRevision,
+  botConfigStatus,
+  botHasPendingConfig,
+  botRotationAdmission,
+  buildHandoffCheckpoint,
+  checkpointIsEmpty,
+  defaultBotCompactionSettings,
+  extractCheckpointSections,
+  formatHandoffCheckpoint,
+  migrateLegacyBotRotationState,
+  nextBotConfigRevision,
+  queueBlocksBotRotation,
+  rotationCompareAndSwap,
+  rotationNoticeText,
+  runtimeRotationCompareAndSwap,
+  sessionBoundConfigChanged,
+  sessionBoundConfigOf,
+  type BotHandoffCheckpoint,
+  type BotRotationBlock,
+  type BotRotationReason,
+  type CheckpointTurn,
+} from "../bots/rotation.ts";
+import {
+  BOT_SELF_CREATE_FIELDS,
+  BOT_SELF_UPDATE_FIELDS,
+  BotSelfManagementError,
+  botPatchRequiresRuntimeRefresh,
+  ownedBotPeers,
+  readDeclaredCapabilities,
+  resolveBotRuntimeActor,
+  unknownBotFields,
+} from "../bots/self-management.ts";
+import {
+  BotPeerMessageError,
+  formatBotPeerMessage,
+  markBotPeerMessageEnqueued,
+  releaseBotPeerMessage,
+  reserveBotPeerMessage,
+} from "../bots/messaging.ts";
+import {
+  botReadUser,
+  conversationUnread,
+  ensureBotConversationReadBaseline,
+  markBotConversationRead,
+} from "../bots/unread.ts";
+import {
+  assertBotConversationAccess,
+  botCreationOwner,
+  botViewerFromRequest,
+  localUserSplitEnabled,
+  // Aliased: the route already binds `visibleBots` to its own result.
+  visibleBots as visibleBotsForViewer,
+} from "../bots/access.ts";
+import {
+  botAuthorEmailFromText,
+  formatBotAttribution,
+  resolveBotMessageAuthor,
+} from "../bots/authorship.ts";
+import {
+  attachRuntimeSession,
+  botParticipantId,
+  canManageConversation,
+  canReadConversation,
+  conversationBotParticipant,
+  conversationHumanParticipantId,
+  detachRuntimeSession,
+  ensureBotConversation,
+  ensureConversationHuman,
+  getConversation,
+  leaveConversationParticipant,
+  listConversations,
+  replaceConversationPrimaryRuntime,
+  upsertConversationParticipant,
+  viewerConversationParticipantId,
+} from "../conversations.ts";
+import { startAutoScheduler, setBotRoutineDelivery } from "../auto/scheduler.ts";
 import { handleWakeTick } from "../auto/wake-tick.ts";
 import { pushWakeHooksNow, setWakeHooksBootId } from "../auto/wake-hooks-push.ts";
 import {
@@ -94,6 +202,7 @@ import {
   waitForAnswer,
   sweepExpiredQuestions,
   formatPushbackAnswerText,
+  questionVisibleToUser,
 } from "../ask/store.ts";
 import {
   listSessions,
@@ -124,17 +233,22 @@ import {
   idleArchiveCandidates,
   idleMsFor,
   MAX_IDLE_ARCHIVE_MINUTES,
+  memoryReclaimCandidates,
   MIN_IDLE_ARCHIVE_MINUTES,
 } from "../idle-archive.ts";
-import { isCommandFileAgent } from "../coding-agent-adapters.ts";
+import { CODING_AGENT_ADAPTERS, resolveActiveSessionAgent, usesCommandFileRuntime } from "../coding-agent-adapters.ts";
+import { launchCodingAgentSession } from "../coding-agent-provider.ts";
 import {
   enqueueTranscriptIndex,
   indexedMessagePage,
   indexArtifactMessage,
   indexedArtifactPlacement,
   indexTranscript,
+  lastIndexedAssistantMessage,
+  latestIndexedAssistantCursor,
   prepareFileHistoryForResume,
   removeIndexedArtifact,
+  sessionHasIndexedMessages,
   sessionIndexKey,
   searchTranscriptIndex,
   subscribeIndexedArtifactMessages,
@@ -156,9 +270,7 @@ import {
   tmuxKillPane,
   tmuxKillSession,
   closeAgentBrowserSession,
-  spawnManagedSession,
   relaunchSessionWithModel,
-  spawnManagedCodexSession,
   spawnManagedGrokSession,
   spawnManagedCursorSession,
   relaunchCursorSessionWithModel,
@@ -168,7 +280,6 @@ import {
   spawnManagedPiSession,
   spawnManagedCopilotSession,
   spawnManagedJcodeSession,
-  dismissCodexUpdatePrompt,
   dismissCursorTrustPrompt,
   dismissResumeSummaryGate,
   panePidForSession,
@@ -196,19 +307,34 @@ import {
   liveTransportMode,
   type LiveWsSocketData,
 } from "../live-ws.ts";
-import { appendCmd as appendAisdkCmd, removeEntry as removeAisdkEntry, readEntry as readAisdkEntry, findEntryByAnyId as findAisdkEntryByAnyId, isEntryBusy as isAisdkEntryBusy, isPidAlive as isAisdkPidAlive, patchEntry as patchAisdkEntry, terminateHarnessProcess } from "../aisdk-registry.ts";
+import { appendCmd as appendAisdkCmd, removeEntry as removeAisdkEntry, readEntry as readAisdkEntry, findEntryByAnyId as findAisdkEntryByAnyId, isEntryBusy as isAisdkEntryBusy, isPidAlive as isAisdkPidAlive, patchEntry as patchAisdkEntry, terminateHarnessProcess, waitForHarnessExit, wakeHarnessCommandReader } from "../aisdk-registry.ts";
 import { markClosed } from "../closing.ts";
-import { assignUser, resolveSessionUserTag, rosterEmails, userAssignments, userRoster } from "../users.ts";
+import {
+  assignUser,
+  gravatar,
+  iconIdentityKey,
+  resolveSessionUserTag,
+  rosterBoxAccount,
+  rosterEmails,
+  userAssignments,
+  userRoster,
+} from "../users.ts";
 import {
   addOnboardingProfile,
   getOnboarding,
   patchOnboarding,
   setProfileAvatar,
-  AVATARS_DIR,
-  AVATAR_MIME_BY_EXT,
   type HostedFirstRun,
   type OnboardingSteps,
 } from "../onboarding.ts";
+import {
+  AVATARS_DIR,
+  AVATAR_MIME_BY_EXT,
+  iconUrl,
+  removeUserIcon,
+  setUserIcon,
+  userIconsSync,
+} from "../user-icons.ts";
 import {
   listCustomRepos,
   listHiddenRepos,
@@ -221,7 +347,7 @@ import {
   useProjectFolder,
 } from "../repos-store.ts";
 import { projectName, reposRoot } from "../projects.ts";
-import { buildRepoList } from "../repo-list.ts";
+import { listConfiguredRepos } from "../repo-list.ts";
 import {
   cwdIsWithin,
   repoContainingCwd,
@@ -230,6 +356,7 @@ import {
   resolveInputCwd,
 } from "../repo-resolve.ts";
 import { WORKTREE_ROOT, resolveSessionCwd, startWorktreeSweep } from "../worktree.ts";
+import { ensureDiskBackedTmpdir, startTmpSweep } from "../tmp-reclaim.ts";
 import {
   FolderDeleteError,
   deleteFolder,
@@ -257,6 +384,7 @@ import {
   getCodingAgentAuth,
   getCodingAgentSetupLog,
   loginCommandFor,
+  pendingCodingAgentLogins,
   registerClaudeMcpForAccount,
   runCodingAgentSetup,
   runCodingAgentSetups,
@@ -271,6 +399,11 @@ import {
   isPiAuthProviderId,
   setPiProviderApiKey,
 } from "../pi-auth.ts";
+import {
+  deleteOpencodeCredential,
+  isOpencodeAuthProviderId,
+  setOpencodeProviderApiKey,
+} from "../opencode-auth.ts";
 import { listToolConnections } from "../tool-connections.ts";
 import {
   bindClaudeSessionAccount,
@@ -295,6 +428,7 @@ import {
   startModelDiscoveryScheduler,
 } from "../model-discovery.ts";
 import {
+  BOT_SCHEDULE_LIMIT,
   DEFAULT_TIME_ZONE,
   getGlobalSettings,
   getGlobalSettingsSync,
@@ -321,6 +455,7 @@ import {
 } from "../artifacts.ts";
 import {
   createOriginDelivery,
+  indexOriginDeliveryMedia,
   listOriginDeliveries,
   type OriginDeliveryMedia,
 } from "../origin-deliveries.ts";
@@ -329,6 +464,7 @@ import { resolveUploadRequest, uploadsDir } from "../uploads.ts";
 import { addShipPost, listShipPosts, resolveShipProject } from "../shipped.ts";
 import { shippedCloseDecision } from "../shipped-lifecycle.ts";
 import { verifySelfRepoLanding } from "../session-landing.ts";
+import { collectShipProvenance, shipBlockReason } from "../ship-provenance.ts";
 import {
   artifactRefreshManager,
   prepareArtifactRefreshConfig,
@@ -344,6 +480,34 @@ const SELF_REPO = PATHS.root;
 const EVLOG_DIR = join(PATHS.data, "evlogs");
 const SERVER_INSTANCE_ID = randomBytes(8).toString("hex");
 let selfUpdateRunning = false;
+
+// Everything that can start, stop, or rebind one bot's backing session shares a
+// single critical section per bot.
+//
+// It began as peer-delivery-only: two offline sends could otherwise launch
+// duplicate backing sessions and scramble enqueue order. Rotation joins the
+// same lock rather than taking its own, because a separate lock would not be a
+// lock at all — a rotation tearing a session down while a peer delivery is
+// bringing one up interleaves two writers on `bot.sessionId`, and the loser's
+// write silently wins. One queue per bot makes "which session is this bot's"
+// answerable at every instant.
+const botWorkTails = new Map<string, Promise<void>>();
+
+async function serializeBotWork<T>(botId: string, task: () => Promise<T>): Promise<T> {
+  const previous = botWorkTails.get(botId) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  botWorkTails.set(botId, current);
+  await previous;
+  try {
+    return await task();
+  } finally {
+    release();
+    if (botWorkTails.get(botId) === current) botWorkTails.delete(botId);
+  }
+}
 
 function evlog(event: string, fields: Record<string, unknown> = {}) {
   traceLog(event, fields);
@@ -501,7 +665,16 @@ const OPENCODE_DISABLED_MODELS = new Set<string>([
   "novita-ai/zai-org/glm-5.2",
   "novita-ai/zai-org/glm-5.1",
 ]);
-import { enqueueMessage, listQueue, retryMessage, clearResolved, reconcileQueued, getMessage } from "../sendq.ts";
+import {
+  enqueueMessage,
+  listQueue,
+  retryMessage,
+  clearResolved,
+  reconcileQueued,
+  getMessage,
+  recordCommandFileMessage,
+  resumePersistedQueues,
+} from "../sendq.ts";
 import { startFleetWatcher } from "../voice-bus.ts";
 import { startSessionPushBridge } from "../session-push.ts";
 
@@ -566,7 +739,7 @@ function formatMemory(bytes: number): string {
 // when granted, the memory budget below still has to clear, so an override
 // can oversubscribe the setting but never the machine.
 async function activationGate(
-  options?: { overLimit?: boolean; kind?: "interactive" | "schedule" },
+  options?: { overLimit?: boolean; kind?: "interactive" | "schedule" | "bot" },
 ): Promise<Response | { release: () => void; reclaimed?: number }> {
   const settings = getGlobalSettingsSync();
   if (settings.agentsPaused) {
@@ -582,16 +755,18 @@ async function activationGate(
       : (computer?.limit ?? settings.maxLiveAgents);
   if (limit === 0) return { release: () => {} };
   const overLimit = !computer && options?.overLimit === true;
+  const exemptFromCount = options?.kind === "bot";
   const reservation = await agentAdmission.acquire(
-    overLimit ? NO_AGENT_LIMIT : limit,
+    overLimit || exemptFromCount ? NO_AGENT_LIMIT : limit,
     async () => {
       const available = hostAvailableMemory();
       const sessions = await listSessions().catch(() => []);
-      const pool = !computer
+      const pool = (!computer
         ? sessions
         : kind === "schedule"
           ? sessions.filter((session) => session.spawnedBy === "schedule")
-          : sessions.filter((session) => session.spawnedBy !== "schedule");
+          : sessions.filter((session) => session.spawnedBy !== "schedule"))
+        .filter((session) => !session.persistent);
       return {
         sessions: pool,
         // Always measured, so every launch books its share of memory even on
@@ -799,18 +974,7 @@ function renderReportHtml(raw: string): string {
 // ---------- legacy: pre-agents flat reports ----------
 
 async function listRepos() {
-  let root: string;
-  try {
-    root = await realpath(REPOS_ROOT);
-  } catch {
-    root = REPOS_ROOT;
-  }
-  return buildRepoList({
-    reposRoot: root,
-    selfRepo: SELF_REPO,
-    customRepos: await listCustomRepos(),
-    hidden: await listHiddenRepos(),
-  });
+  return listConfiguredRepos({ reposRoot: REPOS_ROOT, selfRepo: SELF_REPO });
 }
 
 type RepoEntry = Awaited<ReturnType<typeof listRepos>>[number];
@@ -954,6 +1118,9 @@ function persistManagedResume(session: Session): void {
         ? "opencode"
         : session.agent === "pi"
           ? "pi"
+          : session.runtime === "command-file" &&
+              (session.agent === "grok" || session.agent === "cursor" || session.agent === "fx" || session.agent === "copilot" || session.agent === "jcode")
+            ? session.agent
           : null;
   if (!backend && !session.transcriptPath) return;
   const fileBackedId =
@@ -979,6 +1146,8 @@ function persistManagedResume(session: Session): void {
         ? "opencode"
         : backend === "pi"
           ? "pi"
+          : backend === "grok" || backend === "cursor" || backend === "fx" || backend === "copilot" || backend === "jcode"
+            ? backend
           : session.agent === "grok"
             ? "grok"
             : session.agent === "cursor"
@@ -1314,6 +1483,7 @@ const STATIC_FILES: Record<string, { path: string; type: string }> = {
   "/agent-claude.svg": { path: join(WEB_DIR, "agent-claude.svg"), type: "image/svg+xml" },
   "/agent-codex.svg": { path: join(WEB_DIR, "agent-codex.svg"), type: "image/svg+xml" },
   "/agent-cursor.svg": { path: join(WEB_DIR, "agent-cursor.svg"), type: "image/svg+xml" },
+  "/agent-fx.svg": { path: join(WEB_DIR, "agent-fx.svg"), type: "image/svg+xml" },
   "/agent-opencode.svg": { path: join(WEB_DIR, "agent-opencode.svg"), type: "image/svg+xml" },
   "/agent-jcode.svg": { path: join(WEB_DIR, "agent-jcode.svg"), type: "image/svg+xml" },
   "/agent-grok.svg": { path: join(WEB_DIR, "agent-grok.svg"), type: "image/svg+xml" },
@@ -1558,8 +1728,19 @@ function json(obj: unknown, init?: ResponseInit) {
  * offers to start the agent anyway (`overLimit`) or to go and edit the number.
  * Kept apart from `plan_limit` precisely so a host cannot mistake one for the
  * other and try to sell an upgrade to someone who owns the hardware.
+ *
+ * `bot_quota_limit`: a stored-bot owner allowance. It is never a concurrent
+ * runtime or memory refusal. The response also carries the typed quota
+ * snapshot, so clients do not have to parse this code or the prose for counts.
  */
-export type ApiErrorCode = "plan_limit" | "agent_limit";
+export type ApiErrorCode =
+  | "plan_limit"
+  | "agent_limit"
+  | "bot_quota_limit"
+  | "bot_restart_forbidden"
+  | "bot_restart_unavailable"
+  | "bot_restart_conflict"
+  | "bot_restart_failed";
 
 function err(status: number, message: string, code?: ApiErrorCode) {
   return json(code ? { error: message, code } : { error: message }, { status });
@@ -1616,7 +1797,7 @@ async function closeLiveSession(
   // agent-browser daemons reparent under user systemd and outlive tmux/harness
   // exit; idle timeout is the backstop, this is the explicit teardown path.
   closeAgentBrowserSession(sess.tmuxName);
-  if (isCommandFileAgent(sess.agent)) {
+  if (usesCommandFileRuntime(sess.agent, sess.runtime)) {
     // Ask the harness to shut down, then tear down its supervisor pane and
     // control-plane files. markClosed tombstones the harness pid so the
     // session drops out of the list immediately. For codex-aisdk the
@@ -1625,7 +1806,13 @@ async function closeLiveSession(
     const entry = findAisdkEntryByAnyId(id);
     const key = entry?.sessionId ?? id;
     appendAisdkCmd(key, { type: "close" });
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    if (entry) {
+      wakeHarnessCommandReader(entry);
+      // Return as soon as the harness exits. Old harnesses have no wake
+      // capability and keep their 250 ms command poll; the 300 ms bound still
+      // preserves the previous force-stop behavior for a stuck SDK close.
+      await waitForHarnessExit(entry.harnessPid);
+    }
     if (entry && isAisdkPidAlive(entry.harnessPid)) {
       if (entry.supervisor === "process") terminateHarnessProcess(entry);
       else if (sess.tmuxName) tmuxKillSession(sess.tmuxName);
@@ -1710,22 +1897,11 @@ async function closeLiveSession(
 // owner until the launch budget is healthy: each transcript is indexed for
 // Resume before its process is stopped. Busy, launching, and process-bound
 // sessions are never touched.
+//
+// Neither are persistent ones. The selection is memoryReclaimCandidates, beside
+// the idle-archive policy it has to agree with — see src/idle-archive.ts.
 async function archiveIdleDurableAgentsForMemory(): Promise<number> {
-  const sessions = await listSessions();
-  const candidates = sessions
-    .filter(
-      (session) =>
-        !!session.sessionId &&
-        session.managed &&
-        isCommandFileAgent(session.agent) &&
-        !session.busy &&
-        !session.launching,
-    )
-    .sort(
-      (a, b) =>
-        (a.lastActivityAt ?? a.startedAt ?? 0) -
-        (b.lastActivityAt ?? b.startedAt ?? 0),
-    );
+  const candidates = memoryReclaimCandidates(await listSessions());
   let archived = 0;
   for (const session of candidates) {
     const sessionId = session.sessionId as string;
@@ -1807,6 +1983,73 @@ export function startIdleAgentArchiveSweep(): void {
   idleArchiveTimer.unref?.();
 }
 
+const BOT_COMPACTION_SWEEP_MS = 15_000;
+let botCompactionTimer: ReturnType<typeof setInterval> | null = null;
+let botCompactionRunning = false;
+
+/** Check measured context usage and rotate eligible persistent bots. */
+export async function checkBotCompactionOnce(now = Date.now()): Promise<number> {
+  const global = getGlobalSettingsSync();
+  const defaults = defaultBotCompactionSettings();
+  const threshold = global.botCompactionThresholdPercent;
+  const settings = {
+    ...defaults,
+    enabled: global.botAutoCompactionEnabled,
+    thresholdPercent: threshold,
+    // Keep a real hysteresis gap even when the operator lowers the threshold.
+    rearmPercent: Math.min(defaults.rearmPercent, threshold - 10),
+  };
+  const [bots, sessions] = await Promise.all([listBots(), listSessions().catch(() => [])]);
+  let rotated = 0;
+  for (const bot of bots) {
+    if (!bot.enabled || bot.rotationState === "rotating" || bot.rotationState === "failed") continue;
+    if (bot.rotationState === "queued" && bot.rotationReason === "config") continue;
+
+    if (bot.rotationState === "queued" && bot.rotationReason === "restart") {
+      const outcome = await rotateBotSession(bot.id, {
+        reason: "restart",
+        expectedRuntimeSessionId: bot.rotationExpectedSessionId,
+      });
+      if (outcome.ok && outcome.rotated) rotated++;
+      continue;
+    }
+
+    if (bot.rotationState === "queued" && bot.rotationReason === "compaction") {
+      const outcome = await rotateBotSession(bot.id, { reason: "compaction" });
+      if (outcome.ok && outcome.rotated) rotated++;
+      continue;
+    }
+
+    const primary = findBotMainSession(bot, sessions);
+    const sessionId = primary?.sessionId ?? bot.sessionId?.trim();
+    if (!sessionId) continue;
+    const transcriptPath = await resolveTranscript(sessionId).catch(() => null);
+    const usage = await sessionTokenUsage(sessionId, transcriptPath);
+    const decision = botCompactionDecision({ usage, bot, settings, now });
+    if (decision.armed !== (bot.compactionArmed !== false)) {
+      mutateBot(bot.id, (current) => ({ ...current, compactionArmed: decision.armed }));
+    }
+    if (!decision.rotate) continue;
+    const outcome = await rotateBotSession(bot.id, { reason: "compaction" });
+    if (outcome.ok && outcome.rotated) rotated++;
+  }
+  return rotated;
+}
+
+export function startBotCompactionSweep(): void {
+  if (botCompactionTimer) return;
+  botCompactionTimer = setInterval(() => {
+    if (botCompactionRunning) return;
+    botCompactionRunning = true;
+    void checkBotCompactionOnce()
+      .catch((error) => console.error(`[bot-compaction] ${error instanceof Error ? error.message : String(error)}`))
+      .finally(() => {
+        botCompactionRunning = false;
+      });
+  }, BOT_COMPACTION_SWEEP_MS);
+  botCompactionTimer.unref?.();
+}
+
 // When an agent explicitly chooses to close after publishing, the POST response
 // has to reach it before its tmux session disappears. Persist the resumable
 // record synchronously at the call site, then close from a short deferred task.
@@ -1861,6 +2104,55 @@ function sessionMatchesId(session: ParentableSession, id: string): boolean {
   return session.sessionId === id || session.nativeSessionId === id;
 }
 
+/**
+ * How an inbound /send reaches its target.
+ *
+ * `steer` interrupts the running turn, which is right for a human correcting an
+ * agent mid-flight and wrong for a background child reporting home. A bot's
+ * backing session is a conversation someone is reading in real time: a
+ * `[subagent progress]` update steering into it cuts the bot off mid-reply, and
+ * the human sees their answer truncated by machinery they never asked about.
+ *
+ * So an agent-authored update (it carries `fromSessionId`) into a persistent
+ * session always queues — it waits its turn like any other message. A human
+ * sending to the same session keeps steer, because interrupting is the whole
+ * point of the composer's Enter key.
+ */
+/**
+ * Say who an inbound agent message is from.
+ *
+ * A human's message to a bot has always carried `[Message from <who> to bot
+ * <name>]`. An agent's did not, so a bot running two background tasks got two
+ * anonymous `[subagent complete] …` reports and could not tell which was which
+ * — it had to hope the child described its own work well enough to be
+ * identifiable. Hermes tags every inbound bot-to-bot message with its sender
+ * for exactly this reason.
+ *
+ * The wrapper goes on the same envelope seam the human path uses, and the bot
+ * chat hides it the same way. Only for persistent (bot) targets: a task session
+ * receiving a child's report is reading a log, where the parenthetical would be
+ * noise, and its transcript already renders the sender.
+ */
+export function attributedAgentUpdate(
+  text: string,
+  from: { fromSessionId?: string; senderTitle?: string | null; targetPersistent?: boolean },
+): string {
+  if (!from.fromSessionId || !from.targetPersistent) return text;
+  const title = (from.senderTitle ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+  const who = title
+    ? `${title} · ${shortSessionId(from.fromSessionId)}`
+    : shortSessionId(from.fromSessionId);
+  return `[Background task ${who}]\n\n${text}`;
+}
+
+export function agentUpdateSendMode(
+  requested: "steer" | "queue" | undefined,
+  target: { fromSessionId?: string; targetPersistent?: boolean },
+): "steer" | "queue" {
+  if (target.fromSessionId && target.targetPersistent) return "queue";
+  return requested === "queue" ? "queue" : "steer";
+}
+
 function sessionParentId(session: ParentableSession): string | undefined {
   return session.parentSessionId ?? session.parentNativeSessionId ?? undefined;
 }
@@ -1879,15 +2171,22 @@ function childSubagentDepth(parent: ParentableSession, sessions: ParentableSessi
   return depth;
 }
 
-function withOmgSubagentContract(
+export function withOmgSubagentContract(
   prompt: string | undefined,
   opts: { parentSessionId?: string; depth?: number | null },
 ): string {
   const depthText = opts.depth ? ` Current child depth: ${opts.depth}/${MAX_LFG_SUBAGENT_DEPTH}.` : "";
-  // Short (8-char) id: LFG's MCP layer resolves any unambiguous id prefix back
-  // to the full session id, so the child never needs the whole uuid.
+  // Short (8-char) id: the MCP layer resolves any unambiguous id prefix back to
+  // the full session id, so the child never needs the whole uuid.
+  //
+  // The tool names here are the `omg_*` ones the server actually registers. They
+  // used to be spelled `lfg_*`: inbound calls under that name are still aliased
+  // at the wire (rewriteLegacyToolCall), but a name that appears in no tool
+  // catalog is not something a model can call — it has to guess the real one
+  // first. Naming an unlisted tool in the one instruction that carries a child's
+  // result home is how background work reports nothing and looks like silence.
   const parentLine = opts.parentSessionId
-    ? `- Parent session id: ${shortSessionId(opts.parentSessionId)}. Send progress and terminal-state updates there with MCP tool \`lfg_send_session_message\`.`
+    ? `- Parent session id: ${shortSessionId(opts.parentSessionId)}. Send progress and terminal-state updates there with MCP tool \`omg_send_session_message\`.`
     : "- No parent session id was supplied. If one becomes available, send progress and terminal-state updates there.";
   const reportLines = opts.parentSessionId
     ? [
@@ -1900,7 +2199,7 @@ function withOmgSubagentContract(
   return [
     "=== LFG SUBAGENT OPERATING CONTRACT ===",
     "- You are an LFG-managed subagent.",
-    "- For any further delegation, use LFG MCP tools (`lfg_create_subagent` or `lfg_delegate_*`) instead of generic or harness-native subagent/delegation tools.",
+    "- For any further delegation, use the omg.dev MCP tools (`omg_create_subagent` or `omg_delegate_*`) instead of generic or harness-native subagent/delegation tools.",
     `- Nested LFG subagents are allowed only through depth ${MAX_LFG_SUBAGENT_DEPTH}.${depthText} Do not create another child if it would exceed this limit.`,
     parentLine,
     ...reportLines,
@@ -2000,7 +2299,10 @@ function sendAiTextDeltaPart(
 function interruptLiveSession(session: Session): { ok: boolean; error?: string; status?: number } {
   const sid = session.sessionId;
   if (!sid) return { ok: false, error: "live session has no id", status: 409 };
-  if (isCommandFileAgent(session.agent)) {
+  if (session.agent === "hermes") {
+    return { ok: false, error: "Hermes has been removed", status: 410 };
+  }
+  if (usesCommandFileRuntime(session.agent, session.runtime)) {
     const key = findAisdkEntryByAnyId(sid)?.sessionId ?? sid;
     appendAisdkCmd(key, { type: "interrupt" });
     return { ok: true };
@@ -2023,6 +2325,7 @@ function sendPromptToLiveSession(
   if (!prompt) return { ok: true };
   const sid = session.sessionId;
   if (!sid) return { ok: false, error: "live session has no id" };
+  if (session.agent === "hermes") return { ok: false, error: "Hermes has been removed" };
   traceLog("session_send_request", {
     sessionId: sid,
     agent: session.agent,
@@ -2034,7 +2337,7 @@ function sendPromptToLiveSession(
     const interrupted = interruptLiveSession(session);
     if (!interrupted.ok) return interrupted;
   }
-  if (isCommandFileAgent(session.agent)) {
+  if (usesCommandFileRuntime(session.agent, session.runtime)) {
     const key = findAisdkEntryByAnyId(sid)?.sessionId ?? sid;
     patchAisdkEntry(key, { recoveredAt: null });
     if (session.tmuxName) patchManaged(session.tmuxName, { interruptedAt: undefined });
@@ -2042,12 +2345,947 @@ function sendPromptToLiveSession(
     traceLog("session_send_aisdk_cmd", { sessionId: sid, key, chars: prompt.length });
     return {
       ok: true,
-      msg: { id: randomBytes(8).toString("hex"), text: prompt, status: "delivered" },
+      msg: recordCommandFileMessage(sid, prompt, !!session.busy),
     };
   }
   if (!session.tmuxTarget) return { ok: false, error: "session is not in a tmux pane — cannot send" };
   const transportPrompt = session.agent === "jcode" ? prompt.replace(/\s+/g, " ").trim() : prompt;
-  return { ok: true, msg: enqueueMessage(sid, transportPrompt) };
+  return {
+    ok: true,
+    msg: enqueueMessage(sid, transportPrompt, {
+      // Jcode's REPL buffers a complete stdin line while its current turn is
+      // active. It accepted the line, but the agent has not read it yet.
+      queuedBehindTurn: session.agent === "jcode" && !!session.busy,
+    }),
+  };
+}
+
+/** Avatar geometry is a closed set — anything else would render as no creature at all. */
+function readBotAvatar(
+  body: { shape?: unknown; colorway?: unknown } | null,
+): { shape?: BotShape; colorway?: BotColorway } | { error: string } {
+  const shape = typeof body?.shape === "string" ? body.shape.trim() : undefined;
+  const colorway = typeof body?.colorway === "string" ? body.colorway.trim() : undefined;
+  if (shape && !BOT_SHAPES.includes(shape as BotShape))
+    return { error: `unknown bot shape "${shape}" (expected one of ${BOT_SHAPES.join(", ")})` };
+  if (colorway && !BOT_COLORWAYS.includes(colorway as BotColorway))
+    return { error: `unknown bot colorway "${colorway}" (expected one of ${BOT_COLORWAYS.join(", ")})` };
+  return { shape: shape as BotShape | undefined, colorway: colorway as BotColorway | undefined };
+}
+
+function validateBotAgent(
+  agentValue: string | undefined,
+  model: string | undefined,
+  thinkingLevel: string | undefined,
+): { agent: NonNullable<ReturnType<typeof resolveActiveSessionAgent>> } | { error: string } {
+  const agent = resolveActiveSessionAgent(agentValue || "aisdk");
+  if (!agent) return { error: `unknown coding agent "${agentValue ?? ""}"` };
+  if ((agent === "aisdk" || agent === "grok" || agent === "pi" || agent === "copilot") && model) {
+    const allowed = modelsForAgent(agent);
+    if (!allowed.includes(model))
+      return { error: `unknown model "${model}" (expected one of ${allowed.join(", ")})` };
+  }
+  if (agent === "codex-aisdk" && model && !/^[A-Za-z0-9_.:-]{1,80}$/.test(model))
+    return { error: "invalid codex model name" };
+  if ((agent === "cursor" || agent === "opencode" || agent === "fx") && model && !/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
+    return { error: `invalid ${agent} model name` };
+  if (agent === "jcode" && model && !/^[A-Za-z0-9_.:\/\-[\],=]{1,160}$/.test(model))
+    return { error: "invalid jcode model name" };
+  if (thinkingLevel) {
+    const allowed = thinkingLevelsForAgent(agent);
+    if (!allowed) return { error: `thinkingLevel is not supported for ${agent} bots` };
+    if (!allowed.includes(thinkingLevel))
+      return { error: `unknown thinking level "${thinkingLevel}" for ${agent} (expected one of ${allowed.join(", ")})` };
+  }
+  return { agent };
+}
+
+async function botContinuitySummary(sessionId: string): Promise<string | null> {
+  try {
+    const transcript = await resolveTranscript(sessionId) ?? sessionIndexKey(sessionId);
+    const page = await indexedMessagePage(transcript, sessionId, { limit: 40 });
+    const lines = page.messages
+      .filter((message) => message.role === "user" || message.role === "assistant")
+      .slice(-24)
+      .map((message) => {
+        const text = message.text.replace(/\s+/g, " ").trim().slice(0, 600);
+        return text ? `${message.role}: ${text}` : "";
+      })
+      .filter(Boolean);
+    if (!lines.length) return null;
+    return lines.join("\n").slice(-10_000);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the live backing session for a bot, launching one if it is gone.
+ *
+ * `firstMessage` is delivered *inside the launch prompt* rather than sent
+ * after it. Sending separately raced the boot: the agent batched the setup
+ * envelope and the message into one turn and answered neither. Bundling makes
+ * the first turn well-defined, and `delivered` tells the caller not to send
+ * the message a second time.
+ */
+async function ensureBotSession(
+  bot: Bot,
+  firstMessage?: string,
+): Promise<{ session: Session; delivered: boolean } | Response> {
+  const sessions = await listSessions();
+  const live = findBotMainSession(bot, sessions);
+  if (live) {
+    // Heal a record an older broad `botId` match rebound to a delegated child,
+    // so the corrupt id stops being handed to the next reader.
+    const conversationId = bot.conversationId?.trim() || live.conversationId?.trim() || bot.sessionId?.trim();
+    if (
+      live.sessionId &&
+      (live.sessionId !== bot.sessionId || (conversationId && conversationId !== bot.conversationId))
+    ) {
+      await updateBot(bot.id, { sessionId: live.sessionId, conversationId });
+    }
+    return { session: live, delivered: false };
+  }
+  // botConversationRef repairs a saved id that names one of this bot's own
+  // subagents, recovering the conversation the human has actually been talking
+  // to instead of resuming a delegated task's thread.
+  return launchBotSession(bot, {
+    conversationId: bot.conversationId?.trim() || botConversationRef(bot, sessions).sessionId,
+    runtimeSessionId: botConversationRef(bot, sessions).sessionId,
+    firstMessage,
+  });
+}
+
+/**
+ * Start one backing process for a bot and bind the record to it.
+ *
+ * Split out of `ensureBotSession` so cold start and rotation cannot drift.
+ * They differ in exactly two ways — which conversation id the process attaches
+ * to, and what continuity material rides in the launch prompt — and everything
+ * else (agent validation, repo resolution, the activation gate, account
+ * picking, the managed-registry rows, user assignment, the spawn, the binding
+ * write) is identical. Two copies of that would be two places to forget
+ * `assignUser`, and the first Scout session already went missing once for
+ * exactly that reason.
+ *
+ * Rotation changes `runtimeSessionId` while preserving `conversationId`.
+ * Cold restart preserves both. The two ids were historically the same, so an
+ * old bot record is migrated by treating its saved session id as both values.
+ */
+async function launchBotSession(
+  bot: Bot,
+  opts: {
+    /** Durable product conversation. */
+    conversationId?: string;
+    /** Runtime transcript/provider thread. Omitted mints a fresh runtime. */
+    runtimeSessionId?: string;
+    /** Rotation commits the binding itself after all preparation succeeds. */
+    bindRecord?: boolean;
+    /** Keep the old primary live while a replacement is prepared. */
+    preserveExistingPrimary?: boolean;
+    /** Revision loaded into this runtime's launch contract. */
+    appliedConfigRevision?: number;
+    /** Pre-rendered blocks injected after the contract, in order. */
+    injectedBlocks?: readonly string[];
+    /** Skip the automatic prior-conversation summary (rotation brings its own). */
+    skipContinuity?: boolean;
+    firstMessage?: string;
+  } = {},
+): Promise<{ session: Session; delivered: boolean } | Response> {
+  const firstMessage = opts.firstMessage;
+  const config = validateBotAgent(bot.agent, bot.model, bot.thinkingLevel);
+  if ("error" in config) return err(400, config.error);
+  const repos = await listRepos();
+  const repo = bot.cwd
+    ? repos.find((item) => item.cwd === bot.cwd)
+    : (repos.find((item) => item.cwd === SELF_REPO) ?? repos[0]);
+  if (!repo) return err(400, bot.cwd ? "unknown repo" : "no repo is available");
+
+  const gate = await activationGate({ kind: "bot" });
+  if (gate instanceof Response) return gate;
+  try {
+    const agent = config.agent;
+    const selectedClaudeAccount = agent === "aisdk"
+      ? await pickClaudeAccountForNewSession({
+          readCapacity: (account) => getProviderUsage(`claude:${account.id}`),
+        })
+      : null;
+    const claudeAccountId = selectedClaudeAccount?.id;
+    const resolvedModel = resolveModelForAgent(agent, bot.model, bot.thinkingLevel);
+    const launchModel = agent === "grok"
+      ? resolvedModel ?? GROK_DEFAULT_MODEL()
+      : agent === "cursor" || agent === "jcode" || agent === "copilot" || agent === "fx"
+        ? resolvedModel ?? "auto"
+        : agent === "opencode"
+          ? resolvedModel ?? defaultModelForAgent("opencode")
+          : agent === "codex-aisdk"
+            ? resolvedModel ?? "gpt-5.5"
+            : agent === "aisdk"
+              ? resolvedModel ?? "opus"
+              : agent === "pi"
+                ? resolvedModel ?? PI_DEFAULT_MODEL
+                : resolvedModel;
+    const legacyId = bot.sessionId?.trim();
+    const sessionId = opts.runtimeSessionId?.trim() || crypto.randomUUID();
+    const conversationId = opts.conversationId?.trim() || bot.conversationId?.trim() || legacyId || sessionId;
+    const durableConversation = ensureBotConversation({
+      conversationId,
+      bot,
+      ownerIdentity: bot.owner,
+      roster: userRoster(),
+    });
+    const botParticipant = durableConversation.participants.find((row) => row.id === botParticipantId(bot.id));
+    upsertConversationParticipant(
+      conversationId,
+      conversationBotParticipant(bot, {
+        role: botParticipant?.role,
+        joinedAt: botParticipant?.joinedAt,
+        historyAccess: botParticipant?.historyAccess,
+      }),
+    );
+    // aisdk decides resume-vs-fresh by asking the index itself
+    // (sessionHasIndexedMessages, aisdk-session.ts), so reusing the id restores
+    // the model's own thread too and a summary would only repeat what it can
+    // already read. Every other harness gets the summary, because for them the
+    // reused id restores what the *human* sees but not what the model recalls.
+    const resumesOwnThread = agent === "aisdk" && sessionHasIndexedMessages(sessionId);
+    // Claude files conversations under a cwd-derived directory. A bot whose
+    // repo changed, or whose file was pruned, would otherwise fail its resume
+    // and answer with a harness error instead of a sentence.
+    if (resumesOwnThread) {
+      try {
+        ensureConversationVisibleFrom(repo.cwd, sessionId);
+      } catch {}
+    }
+    // Summarize the repaired conversation, never the corrupt id: a bot rebound
+    // to its own subagent would otherwise be reintroduced to that task's
+    // transcript as if it were its own history.
+    const continuity = !opts.skipContinuity && !resumesOwnThread && legacyId
+      ? await botContinuitySummary(legacyId)
+      : null;
+    const prompt = [
+      // Regenerated from the bot record on every launch, which is the whole
+      // reason a config change needs a new session: this text is read once, at
+      // boot, and nothing can revise it afterwards.
+      botRuntimeContract(bot.name, bot.persona, {
+        awaitingFirstMessage: !firstMessage,
+        description: bot.description,
+        capabilities: bot.capabilities,
+        maxBotSchedules: getGlobalSettingsSync().maxBotSchedules,
+      }),
+      continuity ? `=== PRIOR CONVERSATION SUMMARY ===\n${continuity}\n=== END PRIOR CONVERSATION SUMMARY ===` : "",
+      ...(opts.injectedBlocks ?? []),
+      firstMessage ?? "",
+    ].filter(Boolean).join("\n\n");
+    if (!opts.preserveExistingPrimary) {
+      for (const stale of listManaged().filter((row) =>
+        row.botId === bot.id &&
+        !row.parentSessionId &&
+        !row.parentNativeSessionId &&
+        row.spawnedBy !== "subagent"
+      )) {
+        removeManaged(stale.tmuxName);
+        assignUser(stale.tmuxName, null);
+      }
+    }
+    const tmuxName = `lfg-${randomBytes(3).toString("hex")}`;
+    const createdAt = Date.now();
+    addManaged({
+      tmuxName,
+      cwd: repo.cwd,
+      createdAt,
+      agent,
+      runtime: CODING_AGENT_ADAPTERS[agent].transport,
+      sessionId,
+      nativeSessionId: agent === "aisdk" || agent === "opencode" ? sessionId : undefined,
+      launchState: "launching",
+      model: launchModel,
+      thinkingLevel: bot.thinkingLevel,
+      claudeAccountId,
+      title: bot.name,
+      project: repo.project,
+      spawnedBy: "bot",
+      conversationId,
+      appliedConfigRevision: opts.appliedConfigRevision ?? botConfigRevision(bot),
+      botId: bot.id,
+      persistent: true,
+    });
+    // Attach provisionally before the harness can write its launch turn. This
+    // gives transcript indexing a verified bot author without selecting this
+    // runtime as the product surface before startup succeeds.
+    attachRuntimeSession({
+      conversationId,
+      sessionId,
+      participantId: botParticipantId(bot.id),
+      kind: "execution",
+      attachedAt: createdAt,
+    });
+    // Tag before spawn, same as /api/sessions/new: an unassigned bot session is
+    // invisible under the rail's default per-user filter, which is exactly how
+    // the first Scout session went missing.
+    if (bot.owner) assignUser(tmuxName, bot.owner);
+    invalidateListSessionsCache();
+    const launched = launchCodingAgentSession({
+      agent,
+      name: tmuxName,
+      cwd: repo.cwd,
+      prompt,
+      model: launchModel,
+      thinkingLevel: bot.thinkingLevel,
+      sessionId,
+      omgUser: bot.owner,
+      containInAgentSlice: true,
+      claudeAccountId,
+    });
+    if (!launched.ok) {
+      removeManaged(tmuxName);
+      assignUser(tmuxName, null);
+      detachRuntimeSession(conversationId, sessionId);
+      return err(502, launched.error || "failed to start bot session");
+    }
+    if (launched.nativeSessionId) patchManaged(tmuxName, { nativeSessionId: launched.nativeSessionId });
+    if (CODING_AGENT_ADAPTERS[agent].transport === "command-file")
+      patchManaged(tmuxName, { launchState: "running" });
+    if (opts.bindRecord !== false) {
+      const attached = replaceConversationPrimaryRuntime({
+        conversationId,
+        sessionId,
+        participantId: botParticipantId(bot.id),
+        attachedAt: createdAt,
+      });
+      if (!attached) {
+        removeManaged(tmuxName);
+        assignUser(tmuxName, null);
+        detachRuntimeSession(conversationId, sessionId);
+        return err(502, "bot conversation could not attach the runtime");
+      }
+      const saved = await updateBot(bot.id, {
+        conversationId,
+        sessionId,
+        appliedConfigRevision: opts.appliedConfigRevision ?? botConfigRevision(bot),
+      });
+      if (!saved) return err(404, "bot not found");
+    }
+    invalidateListSessionsCache();
+    const record = listManaged().find((row) => row.tmuxName === tmuxName);
+    const row = record
+      ? managedLaunchRow(record, await readTitleOverrides(), userAssignments())
+      : null;
+    if (!row) return err(502, "bot session did not become available");
+    return { session: row, delivered: !!firstMessage };
+  } finally {
+    gate.release();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Bot session rotation
+// ---------------------------------------------------------------------------
+
+/**
+ * Commit-ish and link-ish references worth naming in a handoff.
+ *
+ * Deliberately high-precision and low-recall. A checkpoint that invents context
+ * is worse than one that omits it, because the bot will state the invention as
+ * fact on its first turn.
+ */
+function extractCheckpointArtifacts(turns: readonly CheckpointTurn[]): string[] {
+  const found: string[] = [];
+  const push = (value: string) => {
+    if (value && !found.includes(value)) found.push(value);
+  };
+  for (const turn of turns) {
+    for (const url of turn.text.match(/https?:\/\/[^\s)>\]]+/g) ?? []) push(url);
+    for (const ref of turn.text.match(/\B#\d{1,6}\b/g) ?? []) push(ref);
+    for (const sha of turn.text.match(/\b[0-9a-f]{7,40}\b/g) ?? []) {
+      // A run of hex that is all digits is a number, not a sha, and a 12-digit
+      // timestamp would otherwise be reported as a commit.
+      if (/[a-f]/.test(sha) && /\d/.test(sha)) push(sha);
+    }
+  }
+  return found;
+}
+
+/**
+ * Read a bounded tail of a conversation and assemble the handoff.
+ *
+ * Only user and assistant prose is eligible. Tool calls, tool results and
+ * reasoning are excluded at the source rather than filtered later — they are
+ * the bulk of a long session, they are the most likely place for a credential
+ * or a customer record to appear, and none of them is the thread a human is
+ * trying to keep.
+ *
+ * The structured sections are populated only from what a caller supplies. This
+ * build extracts artifacts deterministically and carries the recent turns
+ * verbatim-but-clamped, and leaves goals/decisions/tasks/preferences empty
+ * rather than guessing them from keyword heuristics: a regex that reports
+ * "durable decision: we will not use Postgres" because someone typed the words
+ * produces a briefing that is confidently wrong, and the bot has no way to
+ * check it. Recent turns carry the real continuity; an empty section renders as
+ * nothing at all.
+ */
+async function buildBotHandoffCheckpoint(
+  sessionId: string,
+  input: { reason: BotRotationReason; configRevision: number; now: number },
+): Promise<BotHandoffCheckpoint> {
+  const transcript = await resolveTranscript(sessionId) ?? sessionIndexKey(sessionId);
+  const page = await indexedMessagePage(transcript, sessionId, { limit: 60 });
+  const turns: CheckpointTurn[] = page.messages
+    .filter((message) =>
+      (message.role === "user" || message.role === "assistant") &&
+      (!message.kind || message.kind === "text")
+    )
+    .map((message) => ({
+      role: message.role as "user" | "assistant",
+      text: botVisibleUserText(message.text ?? ""),
+      ...(message.role === "user"
+        ? {
+            author:
+              botAuthorEmailFromText(message.text ?? "") ||
+              (message.author?.kind === "legacy" ? "legacy:unknown" : undefined),
+          }
+        : {}),
+    }))
+    .filter((turn) => !!turn.text.trim());
+  const sections = extractCheckpointSections(turns.slice(-CHECKPOINT_MAX_TURNS));
+
+  return buildHandoffCheckpoint({
+    sourceSessionId: sessionId,
+    reason: input.reason,
+    configRevision: input.configRevision,
+    createdAt: input.now,
+    ...sections,
+    artifacts: extractCheckpointArtifacts(turns.slice(-CHECKPOINT_MAX_TURNS)),
+    turns,
+  });
+}
+
+export type BotRotationOutcome =
+  | {
+      ok: true;
+      rotated: true;
+      sessionId: string;
+      previousSessionId: string | null;
+      appliedConfigRevision: number;
+    }
+  | { ok: true; rotated: false; reason: "already-applied" | "already-rotated"; sessionId: string | null }
+  | { ok: false; deferred: true; blocked: BotRotationBlock; children: string[] }
+  | { ok: false; deferred?: false; status: number; error: string };
+
+/**
+ * Move a bot onto a brand new canonical session carrying its current config.
+ *
+ * The one server-owned rotation primitive. Manual apply and automatic
+ * compaction both come through here, so the ordering guarantees below are
+ * stated once and hold for both.
+ *
+ * Order is the whole design:
+ *
+ *  1. Serialize on the bot. Two browser tabs clicking Apply cannot produce two
+ *     primaries, because the second one runs after the first has committed and
+ *     then finds its revision already applied.
+ *  2. Compare-and-swap the revision. A request naming a revision that is
+ *     already live is a no-op *success* — the caller asked for "revision N is
+ *     running" and it is, so spawning a second session to satisfy it would cost
+ *     the user their thread for nothing. A request naming a revision that no
+ *     longer exists is stale and is rejected so the client re-reads.
+ *  3. Admit or defer. Busy primary or live delegated children means queue, not
+ *     kill. The pending state is persisted so the UI can say so.
+ *  4. Build the checkpoint BEFORE anything is torn down. A checkpoint failure
+ *     here costs nothing: the old session is still running and still bound.
+ *  5. Launch and provisionally attach the replacement while the old primary
+ *     remains live. A failed spawn changes no canonical binding.
+ *  6. Promote and stage the replacement binding while the old process remains
+ *     live. A staging failure restores the old attachment and stops the candidate.
+ *  7. Close the old primary, then finalize. A close failure rolls the staged
+ *     binding back to the still-live old runtime.
+ */
+async function rotateBotSession(
+  botId: string,
+  opts: {
+    reason: BotRotationReason;
+    expectedRevision?: number;
+    expectedRuntimeSessionId?: string | null;
+  },
+): Promise<BotRotationOutcome> {
+  return serializeBotWork(botId, async () => {
+    const bot = await getBot(botId);
+    if (!bot) return { ok: false, status: 404, error: "bot not found" };
+
+    const cas = opts.reason === "restart"
+      ? runtimeRotationCompareAndSwap(bot, opts.expectedRuntimeSessionId)
+      : rotationCompareAndSwap(bot, opts.expectedRevision);
+    if (!cas.proceed) {
+      if (cas.outcome === "already-applied" || cas.outcome === "already-rotated") {
+        if (cas.outcome === "already-rotated" && bot.rotationState === "queued") {
+          mutateBot(bot.id, (current) => ({
+            ...current,
+            rotationState: "idle",
+            rotationReason: undefined,
+            rotationExpectedSessionId: undefined,
+            rotationError: undefined,
+            rotationUpdatedAt: Date.now(),
+          }));
+        }
+        evlog("bot_rotation_noop", {
+          botId,
+          reason: opts.reason,
+          revision: opts.expectedRevision,
+          expectedRuntimeSessionId: opts.expectedRuntimeSessionId,
+        });
+        return { ok: true, rotated: false, reason: cas.outcome, sessionId: bot.sessionId ?? null };
+      }
+      return {
+        ok: false,
+        status: 409,
+        error: "bot configuration has changed since this request was made; re-read the bot and retry",
+      };
+    }
+
+    const sessions = await listSessions();
+    const primary = findBotMainSession(bot, sessions);
+    const admission = botRotationAdmission(bot.id, primary, sessions);
+    if (!admission.ready) {
+      mutateBot(bot.id, (current) => ({
+        ...current,
+        rotationState: "queued",
+        rotationReason: opts.reason,
+        rotationExpectedSessionId: opts.reason === "restart" ? opts.expectedRuntimeSessionId : undefined,
+        rotationError: undefined,
+        rotationUpdatedAt: Date.now(),
+      }));
+      evlog("bot_rotation_deferred", {
+        botId,
+        reason: opts.reason,
+        blocked: admission.blocked,
+        children: admission.children.length,
+      });
+      return { ok: false, deferred: true, blocked: admission.blocked, children: admission.children };
+    }
+
+    const queueSessionId = primary?.sessionId ?? botCanonicalSessionId(bot, sessions);
+    if (queueSessionId) {
+      await reconcileQueued(queueSessionId).catch(() => false);
+      const queueBusy = queueBlocksBotRotation(listQueue(queueSessionId));
+      if (queueBusy) {
+        mutateBot(bot.id, (current) => ({
+          ...current,
+          rotationState: "queued",
+          rotationReason: opts.reason,
+          rotationExpectedSessionId: opts.reason === "restart" ? opts.expectedRuntimeSessionId : undefined,
+          rotationError: undefined,
+          rotationUpdatedAt: Date.now(),
+        }));
+        return { ok: false, deferred: true, blocked: "primary-busy", children: [] };
+      }
+    }
+
+    // The revision this rotation is applying. Captured before any await, and
+    // used verbatim at commit time: an edit that lands WHILE the rotation runs
+    // bumps configRevision again, and that newer edit is genuinely not in the
+    // session being launched. Committing `botConfigRevision(current)` instead
+    // would mark it applied and the user would never be offered the button.
+    const targetRevision = botConfigRevision(bot);
+    const previousSessionId = botCanonicalSessionId(bot, sessions);
+    const conversationId =
+      bot.conversationId?.trim() ||
+      primary?.conversationId?.trim() ||
+      previousSessionId ||
+      crypto.randomUUID();
+    const now = Date.now();
+
+    mutateBot(bot.id, (current) => ({
+      ...current,
+      rotationState: "rotating",
+      rotationReason: opts.reason,
+      rotationExpectedSessionId: opts.reason === "restart" ? opts.expectedRuntimeSessionId : undefined,
+      rotationError: undefined,
+      rotationUpdatedAt: now,
+    }));
+
+    const fail = (status: number, error: string): BotRotationOutcome => {
+      mutateBot(bot.id, (current) => ({
+        ...current,
+        rotationState: "failed",
+        rotationReason: opts.reason,
+        rotationError: error.slice(0, 400),
+        rotationUpdatedAt: Date.now(),
+      }));
+      evlog("bot_rotation_failed", { botId, reason: opts.reason, error: error.slice(0, 200) });
+      return { ok: false, status, error };
+    };
+
+    // 4. Checkpoint first, while the old session is still intact.
+    let injectedBlocks: string[];
+    try {
+      const checkpoint = previousSessionId
+        ? await buildBotHandoffCheckpoint(previousSessionId, {
+            reason: opts.reason,
+            configRevision: targetRevision,
+            now,
+          })
+        : null;
+      injectedBlocks = [
+        ...(checkpoint && !checkpointIsEmpty(checkpoint) ? [formatHandoffCheckpoint(checkpoint)] : []),
+        rotationNoticeText(opts.reason),
+      ];
+    } catch (error) {
+      // A bot with no readable history is not a failure — it has nothing to
+      // carry. A checkpoint that throws is, because it means the transcript
+      // read model is unhealthy and continuing would silently drop the thread.
+      return fail(
+        502,
+        `handoff checkpoint could not be generated: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    // 5. Prepare a fresh runtime under the same durable conversation while the
+    // old primary remains live. A spawn failure therefore leaves the old bot
+    // fully usable, not merely resumable from disk.
+    // The checkpoint is aboard. The record and conversation binding remain unchanged
+    // until the process has started successfully.
+    const launched = await launchBotSession(bot, {
+      conversationId,
+      injectedBlocks,
+      skipContinuity: true,
+      bindRecord: false,
+      preserveExistingPrimary: true,
+      appliedConfigRevision: targetRevision,
+    });
+    if (launched instanceof Response) {
+      const body = (await launched.json().catch(() => null)) as { error?: string } | null;
+      return fail(launched.status, body?.error ?? "failed to start the replacement session");
+    }
+    const newSessionId = launched.session.sessionId;
+    if (!newSessionId) return fail(502, "replacement session did not report an id");
+
+    const stopReplacement = async (source: string): Promise<void> => {
+      await closeLiveSession(launched.session, newSessionId, {
+        sessionId: newSessionId,
+        source,
+        botId: bot.id,
+      }).catch(() => undefined);
+    };
+
+    const attached = replaceConversationPrimaryRuntime({
+      conversationId,
+      sessionId: newSessionId,
+      participantId: botParticipantId(bot.id),
+      attachedAt: Date.now(),
+    });
+    if (!attached) {
+      await stopReplacement("bot_rotation_attach_rollback");
+      return fail(502, "replacement runtime could not attach to the bot conversation");
+    }
+
+    // 6. Stage the canonical record while the old process is still live. This
+    // closes the old rollback gap: if the record write fails, no live runtime
+    // has been destroyed and the old attachment can remain canonical.
+    const staged = mutateBot(bot.id, (current) => ({
+      ...current,
+      conversationId,
+      sessionId: newSessionId,
+      appliedConfigRevision: targetRevision,
+      configRevision: botConfigRevision(current),
+      rotationState: "rotating",
+      rotationReason: opts.reason,
+      rotationError: undefined,
+      rotationUpdatedAt: Date.now(),
+    }));
+    if (!staged) {
+      if (previousSessionId) {
+        replaceConversationPrimaryRuntime({
+          conversationId,
+          sessionId: previousSessionId,
+          participantId: botParticipantId(bot.id),
+        });
+      }
+      await stopReplacement("bot_rotation_record_stage_rollback");
+      return fail(404, "bot not found");
+    }
+
+    // 7. Retire the old process only after its replacement is running,
+    // attached, and staged. A close failure restores both durable pointers to
+    // the still-live old primary before the candidate is stopped.
+    if (primary?.sessionId) {
+      const outcome = await closeLiveSession(primary, primary.sessionId, {
+        sessionId: primary.sessionId,
+        source: `bot_rotation_${opts.reason}`,
+        botId: bot.id,
+      });
+      if (!outcome.ok) {
+        replaceConversationPrimaryRuntime({
+          conversationId,
+          sessionId: primary.sessionId,
+          participantId: botParticipantId(bot.id),
+        });
+        mutateBot(bot.id, (current) => ({
+          ...current,
+          conversationId,
+          sessionId: previousSessionId ?? bot.sessionId,
+          appliedConfigRevision: botAppliedConfigRevision(bot),
+          rotationState: "failed",
+          rotationReason: opts.reason,
+          rotationError: outcome.reason.slice(0, 400),
+          rotationUpdatedAt: Date.now(),
+        }));
+        await stopReplacement("bot_rotation_close_rollback");
+        return fail(outcome.status, outcome.reason);
+      }
+    }
+
+    // Finalize only after the new process is live and the old process has
+    // retired. Session-bound edits that arrived while rotation ran remain a
+    // newer configRevision, so the UI still offers their unapplied revision.
+    const committed = mutateBot(bot.id, (current) => ({
+      ...current,
+      rotationState: "idle",
+      rotationReason: undefined,
+      rotationExpectedSessionId: undefined,
+      rotationError: undefined,
+      rotationUpdatedAt: Date.now(),
+      lastRotatedAt: Date.now(),
+      runtimeRefreshPending: false,
+      archivedSessionIds: previousSessionId && previousSessionId !== newSessionId
+        ? appendArchivedSession(current.archivedSessionIds, previousSessionId)
+        : current.archivedSessionIds,
+      ...(opts.reason === "compaction"
+        ? { compactionArmed: false, lastCompactionAt: Date.now() }
+        : {}),
+    }));
+    if (!committed) {
+      // Deletion uses the same bot critical section, so this branch only
+      // protects against a store failure. The replacement stays attached and
+      // running because the staged record already names it.
+      return fail(404, "bot not found");
+    }
+
+    evlog("bot_rotation_done", {
+      botId,
+      reason: opts.reason,
+      previousSessionId,
+      sessionId: newSessionId,
+      conversationId,
+      appliedConfigRevision: targetRevision,
+      archived: committed.archivedSessionIds?.length ?? 0,
+    });
+    return {
+      ok: true,
+      rotated: true,
+      sessionId: newSessionId,
+      previousSessionId,
+      appliedConfigRevision: targetRevision,
+    };
+  });
+}
+
+/**
+ * Run a rotation that was deferred, if the bot is now able to take it.
+ *
+ * Called on the paths that already know a bot just became reachable — a human
+ * message, a peer delivery — so a queued rotation lands at the first safe
+ * moment instead of waiting for a poll. Returns the (possibly refreshed) bot so
+ * the caller keeps using a current record.
+ */
+async function applyPendingBotRotation(bot: Bot): Promise<Bot> {
+  // Only a rotation somebody actually asked for resumes here. A bot merely
+  // sitting on an unapplied edit is left alone: "Update available" means the
+  // human has not decided yet, and quietly restarting their conversation the
+  // next time they say hello is precisely the surprise this design removes.
+  if (bot.rotationState !== "queued") return bot;
+  const reason = bot.rotationReason ?? "config";
+  await rotateBotSession(bot.id, {
+    reason,
+    expectedRevision: reason === "config" ? botConfigRevision(bot) : undefined,
+    expectedRuntimeSessionId: reason === "restart" ? bot.rotationExpectedSessionId : undefined,
+  });
+  // Re-read either way. A rotation that lands moves the binding; one that
+  // defers again refreshes the pending state; one that fails records why.
+  return (await getBot(bot.id)) ?? bot;
+}
+
+/**
+ * Migrate a record written before configuration was versioned.
+ *
+ * An older build's `runtimeRefreshPending` is a real, unapplied user edit. It
+ * has no revision attached, so it is translated into one: bump the revision so
+ * the gap exists, and mark it queued so it applies the way its author expected
+ * rather than silently evaporating on upgrade.
+ */
+function migrateLegacyBotRefreshFlag(bot: Bot): Bot {
+  if (!bot.runtimeRefreshPending) return bot;
+  return mutateBot(bot.id, (current) => migrateLegacyBotRotationState(current)) ?? bot;
+}
+
+/** Pure half of callerBotId, split out so the id-matching logic is testable
+ *  without standing up the full session-listing machinery. */
+export function resolveCallerBotId(
+  sessions: Pick<Session, "sessionId" | "nativeSessionId" | "botId">[],
+  sid: string | null,
+): string | null {
+  if (!sid) return null;
+  const row = sessions.find((s) => s.sessionId === sid || s.nativeSessionId === sid);
+  return row?.botId ?? null;
+}
+
+/**
+ * Which bot (if any) is calling this request, from the caller-identity header
+ * `mcp.ts`'s own `api()` sets on every outgoing call
+ * (`X-Omg-Caller-Session-Id`). Purely ambient — never accepts a client-
+ * supplied override — so a bot cannot claim to be a different bot.
+ *
+ * `null` means "no header" == the human/browser caller, which stays
+ * unrestricted (see assertCanModifyAutoAgent): the human is always the
+ * backstop over every automation, bot-owned included.
+ *
+ * This header is trusted at the same trust boundary as everything else on
+ * this local API (no auth token anywhere on /api/* today) — not a new hole,
+ * just worth naming.
+ */
+async function callerBotId(req: Request): Promise<string | null> {
+  const sid = req.headers.get("x-omg-caller-session-id")?.trim() || null;
+  if (!sid) return null;
+  return resolveCallerBotId(await listSessions(), sid);
+}
+
+/**
+ * The single authorization policy for touching an existing automation.
+ *
+ * A human/browser caller (callerBotId === null) is always admin. A bot may
+ * only touch its own rows — guessing another automation's id gets a 403, not
+ * a silent no-op or a content leak, because this checks the row's *actual*
+ * owner, never anything the request claims.
+ */
+export async function assertCanModifyAutoAgent(
+  agent: AutoAgent,
+  callerBot: string | null,
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  if (callerBot === null) return { ok: true };
+  if (agent.owner.kind === "bot" && agent.owner.botId === callerBot) return { ok: true };
+  return { ok: false, status: 403, error: "not your automation" };
+}
+
+/**
+ * The single place that decides which owner a POST /api/auto/agents write ends
+ * up with. Split out of the route so the migration rules are unit-testable and
+ * so there is one owner of "who may set which owner," not a rule per caller.
+ *
+ * Two asymmetric callers share one function:
+ *
+ *  - A BOT caller is always forced onto itself. Any `owner` in the body is
+ *    ignored outright rather than validated, so a bot can never mint or move a
+ *    row for a sibling bot even if it guesses a real bot id.
+ *  - A HUMAN/browser caller may name any owner. This is what makes migrating
+ *    an existing user-owned schedule onto an existing bot possible at all
+ *    (docs/bot-owned-automations-plan.md §8) — without it, the only way to get
+ *    a bot-owned row is for the bot itself to create one from scratch, which
+ *    loses the prompt history of the 38 rows already in the store.
+ *
+ * An ABSENT body owner means "do not touch the owner": undefined, which
+ * `saveAutoAgent` resolves to the existing row's owner on an edit and to
+ * `{ kind: "user" }` on a create. That tri-state is load-bearing, because
+ * every existing writer (the CLI, the refine endpoint, the browser form) posts
+ * no owner at all and must not silently re-home a bot's routine.
+ */
+export function resolveRequestedAutoAgentOwner(
+  callerBot: string | null,
+  requested: { kind?: unknown; botId?: unknown } | null | undefined,
+):
+  | { ok: true; owner: AutoAgentOwner | undefined }
+  | { ok: false; status: number; error: string } {
+  if (callerBot) return { ok: true, owner: { kind: "bot", botId: callerBot } };
+  if (requested === undefined || requested === null) return { ok: true, owner: undefined };
+  const kind = typeof requested.kind === "string" ? requested.kind.trim() : "";
+  if (kind === "user") return { ok: true, owner: { kind: "user" } };
+  if (kind === "bot") {
+    const botId = typeof requested.botId === "string" ? requested.botId.trim() : "";
+    if (!botId)
+      return { ok: false, status: 400, error: "owner.botId is required for a bot-owned routine" };
+    return { ok: true, owner: { kind: "bot", botId } };
+  }
+  return {
+    ok: false,
+    status: 400,
+    error: `unknown owner kind "${kind}" (expected "user" or "bot")`,
+  };
+}
+
+/**
+ * Deliver `text` into a bot's own conversation, cold-starting its session if
+ * needed. The single primitive every path that puts a message into a bot's
+ * conversation goes through — a human's `/api/bots/:id/messages` POST, a
+ * fired bot-owned routine, and a peer-to-peer delivery from another bot — one
+ * owner of "how a message reaches a bot," not two or three.
+ *
+ * `mode: "queue"` (not "steer") is load-bearing here: it is what makes it safe
+ * for a routine nudge or a peer message to arrive while the bot is mid-turn on
+ * something else — it waits its turn instead of interrupting.
+ *
+ * `asFirstMessage` (default true) controls whether `text` is allowed to ride
+ * along inside the launch prompt itself when the session is cold-starting.
+ * Peer messages pass `false`: the envelope has to go through the durable send
+ * queue every time so the caller gets back the queued message's id (needed to
+ * record `queueMessageId` for the peer-message ledger), never silently folded
+ * into the launch prompt where no message id exists to hand back.
+ */
+async function deliverBotMessage(
+  bot: Bot,
+  text: string,
+  opts: { asFirstMessage?: boolean } = {},
+): Promise<{ sessionId: string; queueMessageId?: string } | { error: string; status: number }> {
+  const asFirstMessage = opts.asFirstMessage ?? true;
+  const ensured = await ensureBotSession(bot, asFirstMessage ? text : undefined);
+  if (ensured instanceof Response) {
+    const body = (await ensured.json().catch(() => null)) as { error?: string } | null;
+    return { error: body?.error ?? "failed to start bot session", status: ensured.status };
+  }
+  const { session, delivered } = ensured;
+  let queueMessageId: string | undefined;
+  if (!delivered) {
+    const sent = sendPromptToLiveSession(session, text, { mode: "queue" });
+    if (!sent.ok) return { error: sent.error || "failed to send bot message", status: 502 };
+    const id = (sent.msg as { id?: unknown } | undefined)?.id;
+    if (typeof id === "string") queueMessageId = id;
+  }
+  await updateBot(bot.id, {
+    sessionId: session.sessionId ?? bot.sessionId,
+    lastMessageAt: Date.now(),
+  });
+  return { sessionId: session.sessionId!, queueMessageId };
+}
+
+/**
+ * A background task session reporting home to a bot whose session is gone.
+ *
+ * Heavy work is supposed to leave the conversation: the bot spawns a task
+ * session and ends its turn. That session can easily outlive the harness
+ * process behind the chat — a bot idles between turns, and the box reboots,
+ * reclaims memory, or the harness dies. The report then arrived at /send,
+ * found no live session, and was dropped on a 404. The work was done and the
+ * human never heard about it; the child was also left running, because the
+ * auto-close that follows a terminal report only runs on a successful send.
+ *
+ * A bot is exactly the kind of target that is *supposed* to come back, and the
+ * machinery to relaunch it already exists — it is what the next human message
+ * would have done. So do it here too, and let the report ride in on the launch
+ * prompt the way a first message does.
+ *
+ * Only for agent-authored sends (the caller passes `fromSessionId`): a human
+ * posting to a dead session id should still get the 404 that tells them so.
+ */
+async function reviveBotSessionForReport(
+  targetSessionId: string,
+  text: string,
+): Promise<{ session: Session; delivered: boolean } | null> {
+  const bot = (await listBots()).find((candidate) => candidate.sessionId === targetSessionId);
+  if (!bot?.enabled) return null;
+  const ensured = await ensureBotSession(bot, text);
+  if (ensured instanceof Response) return null;
+  await updateBot(bot.id, {
+    sessionId: ensured.session.sessionId ?? bot.sessionId,
+    lastMessageAt: Date.now(),
+  });
+  return ensured;
 }
 
 function liveSessionIds(sessions: Session[]): Set<string> {
@@ -2201,6 +3439,10 @@ function prepareLoginTerminal(kind: string, command: string): string {
 }
 
 export async function cmdServe() {
+  const diskTmp = ensureDiskBackedTmpdir();
+  if (diskTmp) {
+    console.log(`lfg tmp → ${diskTmp} (disk-backed; /tmp is RAM)`);
+  }
   const liveWs = createLiveWsSupport({
     evlog,
     getAgentRun: agentRunSnapshot,
@@ -2735,6 +3977,43 @@ a{color:#60a5fa}
           return err(400, e instanceof Error ? e.message : "invalid image");
         }
       }
+      // ---- user icon (settings-configurable, not just onboarding-once) ----
+      // `email` in the query names which roster member the caller is acting
+      // as; a roster-less hosted box ignores it and keys by its paired omg
+      // account instead (see iconIdentityKey in users.ts — this is the
+      // hosted-side identity decision for the whole feature).
+      if (path === "/api/settings/icon" && req.method === "GET") {
+        const identity = iconIdentityKey(url.searchParams.get("email"));
+        if (!identity.ok) return err(400, identity.reason);
+        const custom = iconUrl(userIconsSync(), identity.key);
+        return json({
+          key: identity.key,
+          avatar: custom ?? gravatar(identity.key),
+          hasCustomIcon: !!custom,
+        });
+      }
+      if (path === "/api/settings/icon" && req.method === "POST") {
+        const identity = iconIdentityKey(url.searchParams.get("email"));
+        if (!identity.ok) return err(400, identity.reason);
+        const mime = (req.headers.get("content-type") ?? "").split(";")[0]!.trim();
+        try {
+          const bytes = new Uint8Array(await req.arrayBuffer());
+          const { url: avatar } = await setUserIcon(identity.key, bytes, mime);
+          return json({ key: identity.key, avatar, users: userRoster() });
+        } catch (e) {
+          return err(400, e instanceof Error ? e.message : "invalid image");
+        }
+      }
+      if (path === "/api/settings/icon" && req.method === "DELETE") {
+        const identity = iconIdentityKey(url.searchParams.get("email"));
+        if (!identity.ok) return err(400, identity.reason);
+        await removeUserIcon(identity.key);
+        return json({
+          key: identity.key,
+          avatar: gravatar(identity.key),
+          users: userRoster(),
+        });
+      }
       // Clone a git repository into LFG_REPOS_ROOT — the onboarding "set up
       // your repo" step for installs that have no repos yet.
       if (path === "/api/onboarding/repo" && req.method === "POST") {
@@ -2761,10 +4040,20 @@ a{color:#60a5fa}
         if (m && req.method === "GET") {
           const file = Bun.file(join(AVATARS_DIR(), `${m[1]}.${m[2]}`));
           if (!(await file.exists())) return err(404, "avatar not found");
+          // A request carrying `?v=` (user-icons.ts's version cache-buster)
+          // names a URL that can only ever resolve to this exact image — a
+          // replace bumps the version and therefore the URL, it never
+          // overwrites one a client already cached. That makes it safe to
+          // cache indefinitely, unlike the unversioned legacy onboarding URLs
+          // (no `?v=`), which stay on the conservative short TTL because the
+          // same URL really can change under a client's feet.
+          const versioned = url.searchParams.has("v");
           return new Response(file, {
             headers: {
               "Content-Type": AVATAR_MIME_BY_EXT[m[2]!] ?? "application/octet-stream",
-              "Cache-Control": "private, max-age=3600",
+              "Cache-Control": versioned
+                ? "private, max-age=31536000, immutable"
+                : "private, max-age=3600",
               "X-Content-Type-Options": "nosniff",
             },
           });
@@ -2851,6 +4140,12 @@ a{color:#60a5fa}
               return err(400, `maxLiveAgents must be an integer from 0 to ${MAX_LIVE_AGENTS_LIMIT} (0 = unlimited)`);
             patch.maxLiveAgents = max;
           }
+          if (b?.maxBotSchedules !== undefined) {
+            const max = Number(b.maxBotSchedules);
+            if (!Number.isInteger(max) || max < 1 || max > BOT_SCHEDULE_LIMIT)
+              return err(400, `maxBotSchedules must be an integer from 1 to ${BOT_SCHEDULE_LIMIT}`);
+            patch.maxBotSchedules = max;
+          }
           if (b?.agentsPaused !== undefined) {
             if (typeof b.agentsPaused !== "boolean")
               return err(400, "agentsPaused must be a boolean");
@@ -2879,6 +4174,25 @@ a{color:#60a5fa}
               );
             patch.idleAgentArchiveMinutes = minutes;
           }
+          if (b?.botAutoCompactionEnabled !== undefined) {
+            if (typeof b.botAutoCompactionEnabled !== "boolean")
+              return err(400, "botAutoCompactionEnabled must be a boolean");
+            patch.botAutoCompactionEnabled = b.botAutoCompactionEnabled;
+          }
+          if (b?.botCompactionThresholdPercent !== undefined) {
+            const threshold = Number(b.botCompactionThresholdPercent);
+            if (
+              !Number.isInteger(threshold) ||
+              threshold < MIN_BOT_COMPACTION_THRESHOLD_PERCENT ||
+              threshold > MAX_BOT_COMPACTION_THRESHOLD_PERCENT
+            ) {
+              return err(
+                400,
+                `botCompactionThresholdPercent must be an integer from ${MIN_BOT_COMPACTION_THRESHOLD_PERCENT} to ${MAX_BOT_COMPACTION_THRESHOLD_PERCENT}`,
+              );
+            }
+            patch.botCompactionThresholdPercent = threshold;
+          }
           if (b?.skippedUpdateVersion !== undefined) {
             if (typeof b.skippedUpdateVersion !== "string" || b.skippedUpdateVersion.length > 100)
               return err(400, "skippedUpdateVersion must be a string of 100 characters or fewer");
@@ -2895,6 +4209,26 @@ a{color:#60a5fa}
           warmChatTranscripts(sessions);
           return sessions;
         });
+        // Unmanaged callers have no trusted header, so the client tells us which
+        // locally-selected roster profile it's using (the same identity it
+        // already sends to /api/bots?user= and to bot message sends) — this
+        // is a view preference on a box that already has no auth between its
+        // local users, not a new trust boundary. A managed caller's trusted
+        // header always wins over this regardless (see botViewer).
+        const viewer = botViewerFromRequest(req, url.searchParams.get("user"));
+        const conversationsTask = sessionsTask.then(() => {
+          let conversations = listConversations();
+          if (viewer.managed && viewer.identity) {
+            const participantId = conversationHumanParticipantId(viewer.identity);
+            conversations = conversations.filter((conversation) =>
+              canReadConversation(conversation, participantId),
+            );
+          }
+          return conversations;
+        });
+        // Which participant, if any, the *messages* the UI is about to render
+        // belong to "me" — see viewerConversationParticipantId.
+        const viewerParticipantId = viewerConversationParticipantId(viewer.identity);
         const reposTask = listRepos();
         const codingAgentsTask = listCodingAgentsCached();
         const settingsTask = getGlobalSettings();
@@ -2904,6 +4238,7 @@ a{color:#60a5fa}
           models: codingAgentsTask.then((agents) => listModelCatalog(agents)),
           settings: settingsTask,
           sessions: sessionsTask,
+          conversations: conversationsTask,
           users: Promise.resolve(userRoster()),
           repos: reposTask,
           autoAgents: listAutoAgents(),
@@ -2923,6 +4258,7 @@ a{color:#60a5fa}
           models?: ReturnType<typeof listModelCatalog> | null;
           settings?: GlobalSettings | null;
           sessions?: Awaited<ReturnType<typeof listSessionsCached>> | null;
+          conversations?: Awaited<typeof conversationsTask> | null;
           users?: ReturnType<typeof userRoster> | null;
           repos?: Awaited<ReturnType<typeof listRepos>> | null;
           autoAgents?: Awaited<ReturnType<typeof listAutoAgents>> | null;
@@ -2936,6 +4272,14 @@ a{color:#60a5fa}
             models: boot.models ?? null,
             settings: boot.settings ?? null,
             sessions: boot.sessions ? boot.sessions.map(sessionListRow) : null,
+            conversations: boot.conversations ?? null,
+            // Not an authorization signal — never gates what the UI is allowed
+            // to show. It only tells the transcript renderer which already-
+            // delivered MessageAuthorRef.participantId is "mine", so a shared
+            // bot conversation's message list can skip drawing a redundant
+            // avatar on the viewer's own turns. See conversation-ui.ts on the
+            // client for the comparison.
+            viewer: { managed: viewer.managed, participantId: viewerParticipantId },
             users: boot.users ?? null,
             repos: boot.repos ?? null,
             auto: {
@@ -3047,30 +4391,50 @@ a{color:#60a5fa}
           }
         }
       }
-      // pi's key-based providers (OpenCode Zen) have no browser flow to run —
-      // the user pastes a key and we hand it to pi's credential store.
-      if (path === "/api/coding-agents/pi/api-key" && req.method === "POST") {
-        const body = (await req.json().catch(() => null)) as {
-          provider?: unknown;
-          key?: unknown;
-        } | null;
-        if (typeof body?.provider !== "string" || !isPiAuthProviderId(body.provider)) {
-          return err(400, "unknown pi provider");
-        }
-        if (typeof body.key !== "string") return err(400, "expected { key: string }");
-        try {
-          await setPiProviderApiKey(body.provider, body.key);
-          return json({ ok: true, agents: await listCodingAgents() });
-        } catch (e) {
-          return err(400, e instanceof Error ? e.message : "could not save API key");
+      // Key-based providers (pi's OpenCode Zen; OpenCode's own Go and Zen) have
+      // no browser flow to run — the user pastes a key and we hand it to that
+      // agent's credential store. Both agents sign in per provider rather than
+      // once per kind, so the agent owns the route and the body names which.
+      //
+      // The two id namespaces overlap — `opencode` is a provider of pi's AND of
+      // OpenCode's, pointing at different credential files — so the agent in the
+      // path, never the provider id, decides which store is written.
+      {
+        const m = path.match(/^\/api\/coding-agents\/(pi|opencode)\/api-key$/);
+        if (m && req.method === "POST") {
+          const agent = m[1];
+          const body = (await req.json().catch(() => null)) as {
+            provider?: unknown;
+            key?: unknown;
+          } | null;
+          const provider = typeof body?.provider === "string" ? body.provider : "";
+          if (typeof body?.key !== "string") return err(400, "expected { key: string }");
+          try {
+            if (agent === "pi") {
+              if (!isPiAuthProviderId(provider)) return err(400, "unknown pi provider");
+              await setPiProviderApiKey(provider, body.key);
+            } else {
+              if (!isOpencodeAuthProviderId(provider)) return err(400, "unknown opencode provider");
+              setOpencodeProviderApiKey(provider, body.key);
+            }
+            return json({ ok: true, agents: await listCodingAgents() });
+          } catch (e) {
+            return err(400, e instanceof Error ? e.message : "could not save API key");
+          }
         }
       }
       {
-        const m = path.match(/^\/api\/coding-agents\/pi\/providers\/([a-z0-9-]+)$/);
+        const m = path.match(/^\/api\/coding-agents\/(pi|opencode)\/providers\/([a-z0-9-]+)$/);
         if (m && req.method === "DELETE") {
-          if (!isPiAuthProviderId(m[1])) return err(404, "unknown pi provider");
+          const [, agent, provider] = m;
           try {
-            await deletePiCredential(m[1]);
+            if (agent === "pi") {
+              if (!isPiAuthProviderId(provider)) return err(404, "unknown pi provider");
+              await deletePiCredential(provider);
+            } else {
+              if (!isOpencodeAuthProviderId(provider)) return err(404, "unknown opencode provider");
+              deleteOpencodeCredential(provider);
+            }
             return json({ ok: true, agents: await listCodingAgents() });
           } catch (e) {
             return err(500, e instanceof Error ? e.message : "could not disconnect provider");
@@ -3230,18 +4594,844 @@ a{color:#60a5fa}
         }
       }
 
+      // ---- bot runtime self-management ----
+      // These routes accept no owner or current-bot id. The authenticated MCP
+      // session header is resolved against the server's live session registry,
+      // then cross-checked with the persisted bot owner before any data moves.
+      if (path === "/api/runtime/bots/peers" && req.method === "GET") {
+        try {
+          const sessions = await listSessions();
+          const bots = await listBots();
+          const actor = resolveBotRuntimeActor(callerSessionHeader(req), sessions, bots);
+          return json({ bots: ownedBotPeers(actor, bots, sessions) });
+        } catch (error) {
+          if (error instanceof BotSelfManagementError) return err(error.status, error.message);
+          throw error;
+        }
+      }
+      if (path === "/api/runtime/bots/peer-messages" && req.method === "POST") {
+        const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+        if (!body || Array.isArray(body)) return err(400, "invalid peer message");
+        const allowed = new Set(["targetBotId", "text", "replyToMessageId"]);
+        const unknown = Object.keys(body).filter((field) => !allowed.has(field)).sort();
+        if (unknown.length) return err(400, `unsupported peer message fields: ${unknown.join(", ")}`);
+        const targetBotId = typeof body.targetBotId === "string" ? body.targetBotId.trim() : "";
+        const text = typeof body.text === "string" ? body.text : "";
+        const replyToMessageId = body.replyToMessageId === undefined
+          ? undefined
+          : typeof body.replyToMessageId === "string" ? body.replyToMessageId.trim() : null;
+        if (replyToMessageId === null) return err(400, "replyToMessageId must be a string");
+
+        try {
+          return await serializeBotWork(targetBotId, async () => {
+            const sessions = await listSessions();
+            const bots = await listBots();
+            const actor = resolveBotRuntimeActor(callerSessionHeader(req), sessions, bots);
+            const { message, target: reservedTarget } = reserveBotPeerMessage({
+              actor,
+              bots,
+              targetBotId,
+              text,
+              replyToMessageId,
+            });
+            let enqueued = false;
+            try {
+              // Same rule as a human message: apply a rotation the owner
+              // already requested before the peer turn is enqueued, so the
+              // envelope is answered under the current configuration.
+              //
+              // Note this runs INSIDE the per-bot critical section already held
+              // by this delivery, and `rotateBotSession` takes that same lock.
+              // It is called through `applyPendingBotRotation` only on paths
+              // that do not already hold it; here the pending state is checked
+              // and the rotation is left to the message path, because
+              // re-entering the lock would deadlock.
+              let target = migrateLegacyBotRefreshFlag(reservedTarget);
+              if (
+                target.rotationState === "queued" ||
+                target.rotationState === "rotating" ||
+                (target.rotationState === "failed" && target.rotationReason === "config")
+              ) {
+                throw new BotPeerMessageError(
+                  409,
+                  target.rotationState === "failed"
+                    ? `target bot refresh failed: ${target.rotationError || "retry the refresh"}`
+                    : target.rotationReason === "restart"
+                      ? "target bot restart is queued; retry after its current work completes"
+                      : "target bot refresh is still settling; retry after its current turn completes",
+                );
+              }
+
+              // Start or revive the persistent conversation, then hand the
+              // envelope to deliverBotMessage — the same primitive a human
+              // message and a fired routine go through. `asFirstMessage:
+              // false` keeps a peer turn out of the launch prompt so it
+              // always enters the durable send queue, which is where
+              // queueMessageId (recorded on the peer-message ledger below)
+              // comes from.
+              const envelope = formatBotPeerMessage(message, actor.bot, target);
+              const delivery = await deliverBotMessage(target, envelope, { asFirstMessage: false });
+              if ("error" in delivery) {
+                throw new BotPeerMessageError(delivery.status, delivery.error || "failed to start target bot");
+              }
+              if (!delivery.queueMessageId) {
+                throw new BotPeerMessageError(502, "failed to durably enqueue peer message");
+              }
+              const accepted = markBotPeerMessageEnqueued(
+                message.id,
+                delivery.sessionId,
+                delivery.queueMessageId,
+              );
+              enqueued = true;
+              evlog("bot_peer_message_enqueued", {
+                messageId: accepted.id,
+                correlationId: accepted.correlationId,
+                replyToMessageId: accepted.replyToMessageId,
+                sourceBotId: actor.bot.id,
+                targetBotId: target.id,
+                owner: actor.user,
+                depth: accepted.depth,
+                chars: accepted.text.length,
+                queueMessageId: delivery.queueMessageId,
+              });
+              return json({
+                message: {
+                  id: accepted.id,
+                  correlationId: accepted.correlationId,
+                  replyToMessageId: accepted.replyToMessageId ?? null,
+                  sourceBotId: actor.bot.id,
+                  targetBotId: target.id,
+                  targetName: target.name,
+                  depth: accepted.depth,
+                  status: "enqueued",
+                },
+              }, { status: 202 });
+            } finally {
+              if (!enqueued) releaseBotPeerMessage(message.id);
+            }
+          });
+        } catch (error) {
+          if (error instanceof BotSelfManagementError || error instanceof BotPeerMessageError) {
+            evlog("bot_peer_message_rejected", {
+              targetBotId: targetBotId || null,
+              status: error.status,
+              reason: error.message,
+              chars: text.length,
+            });
+            return err(error.status, error.message);
+          }
+          throw error;
+        }
+      }
+      if (path === "/api/runtime/bots/owned" && req.method === "POST") {
+        try {
+          const sessions = await listSessions();
+          const bots = await listBots();
+          const actor = resolveBotRuntimeActor(callerSessionHeader(req), sessions, bots);
+          const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+          if (!body || Array.isArray(body)) return err(400, "invalid bot definition");
+          const unknown = unknownBotFields(body, BOT_SELF_CREATE_FIELDS);
+          if (unknown.length) return err(400, `unsupported bot fields: ${unknown.join(", ")}`);
+          const name = typeof body.name === "string" ? body.name.trim() : "";
+          const persona = typeof body.persona === "string" ? body.persona.trim() : "";
+          if (!name || !persona) return err(400, "name and persona are required");
+          if (name.length > 80) return err(400, "name must be at most 80 characters");
+          if (persona.length > 20_000) return err(400, "persona must be at most 20000 characters");
+          const description = body.description === undefined
+            ? undefined
+            : typeof body.description === "string" ? body.description.trim() : null;
+          if (description === null) return err(400, "description must be a string");
+          if (description && description.length > 500)
+            return err(400, "description must be at most 500 characters");
+          const capabilities = readDeclaredCapabilities(body.capabilities);
+          if (capabilities && !Array.isArray(capabilities)) return err(400, capabilities.error);
+          const agentValue = typeof body.agent === "string" ? body.agent.trim() || undefined : undefined;
+          const model = typeof body.model === "string" ? body.model.trim() || undefined : undefined;
+          const thinkingLevel = typeof body.thinkingLevel === "string"
+            ? body.thinkingLevel.trim() || undefined
+            : undefined;
+          const config = validateBotAgent(agentValue, model, thinkingLevel);
+          if ("error" in config) return err(400, config.error);
+          const cwd = actor.bot.cwd;
+          if (cwd && !(await listRepos()).some((repo) => repo.cwd === cwd))
+            return err(409, "calling bot workspace is no longer approved");
+          const avatar = readBotAvatar(body);
+          if ("error" in avatar) return err(400, avatar.error);
+          const quotaPolicy = persistentBotQuotaPolicy();
+          const bot = await createBot({
+            name,
+            persona,
+            description,
+            capabilities,
+            shape: avatar.shape,
+            colorway: avatar.colorway,
+            agent: config.agent,
+            model,
+            thinkingLevel,
+            cwd,
+            owner: actor.user,
+            ownerQuota: quotaPolicy,
+          });
+          evlog("bot_created_by_bot", {
+            actorBotId: actor.bot.id,
+            createdBotId: bot.id,
+            owner: actor.user,
+          });
+          const quota = persistentBotQuota(await listBots(), actor.user, quotaPolicy);
+          return json({ bot, quota }, { status: 201 });
+        } catch (error) {
+          if (error instanceof BotSelfManagementError) return err(error.status, error.message);
+          if (error instanceof BotOwnerQuotaError)
+            return json(botQuotaLimitPayload(error), { status: 409 });
+          throw error;
+        }
+      }
+      if (path === "/api/runtime/bots/self" && req.method === "PATCH") {
+        try {
+          const sessions = await listSessions();
+          const bots = await listBots();
+          const actor = resolveBotRuntimeActor(callerSessionHeader(req), sessions, bots);
+          const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+          if (!body || Array.isArray(body)) return err(400, "invalid bot profile patch");
+          const unknown = unknownBotFields(body, BOT_SELF_UPDATE_FIELDS);
+          if (unknown.length) return err(400, `unsupported bot fields: ${unknown.join(", ")}`);
+          if (!Object.keys(body).length) return err(400, "at least one editable profile field is required");
+          const name = body.name === undefined
+            ? actor.bot.name
+            : typeof body.name === "string" ? body.name.trim() : "";
+          const persona = body.persona === undefined
+            ? actor.bot.persona
+            : typeof body.persona === "string" ? body.persona.trim() : "";
+          if (!name || !persona) return err(400, "name and persona are required");
+          if (name.length > 80) return err(400, "name must be at most 80 characters");
+          if (persona.length > 20_000) return err(400, "persona must be at most 20000 characters");
+          const description = body.description === undefined
+            ? actor.bot.description
+            : typeof body.description === "string" ? body.description.trim() : null;
+          if (description === null) return err(400, "description must be a string");
+          if (description && description.length > 500)
+            return err(400, "description must be at most 500 characters");
+          const capabilities = body.capabilities === undefined
+            ? actor.bot.capabilities
+            : readDeclaredCapabilities(body.capabilities);
+          if (capabilities && !Array.isArray(capabilities)) return err(400, capabilities.error);
+          const avatar = readBotAvatar(body);
+          if ("error" in avatar) return err(400, avatar.error);
+          const nextConfig = {
+            ...sessionBoundConfigOf(actor.bot),
+            name,
+            persona,
+            description,
+            capabilities,
+          };
+          const refreshRuntime = botPatchRequiresRuntimeRefresh(body) &&
+            sessionBoundConfigChanged(sessionBoundConfigOf(actor.bot), nextConfig);
+          const bot = await updateBot(actor.bot.id, {
+            ...nextConfig,
+            shape: body.shape === undefined ? actor.bot.shape : avatar.shape,
+            colorway: body.colorway === undefined ? actor.bot.colorway : avatar.colorway,
+            ...(refreshRuntime
+              ? {
+                  configRevision: nextBotConfigRevision(actor.bot),
+                  rotationState: "queued" as const,
+                  rotationReason: "config" as const,
+                  rotationError: undefined,
+                  rotationUpdatedAt: Date.now(),
+                  runtimeRefreshPending: false,
+                }
+              : {}),
+          });
+          if (!bot) return err(404, "bot not found");
+          evlog("bot_updated_self", {
+            botId: actor.bot.id,
+            owner: actor.user,
+            fields: Object.keys(body).sort(),
+          });
+          return json({ bot });
+        } catch (error) {
+          if (error instanceof BotSelfManagementError) return err(error.status, error.message);
+          throw error;
+        }
+      }
+
+      // ---- persistent bots ----
+      if (path === "/api/bots") {
+        if (req.method === "GET") {
+          // The roster line comes from the index, not from a live session. A
+          // bot is idle between turns by definition and its harness may not be
+          // running at all, and reading the last turn off the fleet made a bot
+          // with a year of history show "Say hi to get started" after a reboot.
+          const requestedUser = url.searchParams.get("user");
+          const allBots = await listBots();
+          // bots/access.ts owns who may see what. `?user=` is an identity for
+          // read state, never an authorization input — conflating the two is
+          // what hid a shared Computer's bots from everyone authorized on it.
+          const viewer = botViewerFromRequest(req, requestedUser);
+          const visibleBots = visibleBotsForViewer(allBots, viewer, rosterEmails(), requestedUser);
+          const quotaOwner = botCreationOwner(viewer, requestedUser, rosterEmails());
+          const quota = persistentBotQuota(
+            allBots,
+            quotaOwner.ok ? quotaOwner.owner : undefined,
+            persistentBotQuotaPolicy(),
+          );
+          const bots = visibleBots.map((bot) => {
+            const last = bot.sessionId ? lastIndexedAssistantMessage(bot.sessionId) : null;
+            // The status is derived here rather than in the client so every
+            // surface agrees on one answer. A client computing it from the
+            // revision pair alone would miss an in-flight or failed rotation
+            // and cheerfully render "Update available" over a running one.
+            const decorated = {
+              ...bot,
+              configRevision: botConfigRevision(bot),
+              appliedConfigRevision: botAppliedConfigRevision(bot),
+              configStatus: botConfigStatus(bot),
+              rotationError: bot.rotationError,
+            };
+            return last?.text
+              ? { ...decorated, lastMessagePreview: last.text.slice(0, 400), lastMessageTs: last.ts ?? null }
+              : decorated;
+          });
+          // Exactly one conversation per bot — the roster invariant, decided
+          // here rather than left to the client.
+          //
+          // This used to key off every session carrying the bot's `botId`.
+          // Delegated children inherit `botId`, so a bot that had spawned
+          // background work contributed one conversation per subagent and the
+          // roster showed it two or three times, each duplicate captioned with
+          // a child's last line. `botCanonicalSessionId` owns the choice and
+          // never returns a delegated session.
+          //
+          // Collapsing here is also what makes the roster cheap. The per
+          // conversation body below reads the read-watermark file and runs two
+          // index queries, so the old fan-out paid that for every subagent a
+          // bot had ever spawned; on this machine that was 39 conversations
+          // for 9 bots.
+          const sessions = await listSessionsCached();
+          // Read state is per person, so it keys on the VIEWER — Angel's unread
+          // on a shared bot is hers, not a copy of the bot owner's. The trusted
+          // header decides this whenever control-plane supplied one.
+          const user = viewer.identity;
+          const conversations = visibleBots.flatMap((bot) => {
+            const sessionId = botCanonicalSessionId(bot, sessions);
+            if (!sessionId) return [];
+            // Ownership is anchored to the bot we already resolved from, so a
+            // repaired binding that names a session the fleet no longer lists
+            // still reports under its own bot instead of dropping out.
+            const session = sessions.find((row) => row.sessionId === sessionId);
+            const assigned = session?.assignedUser?.trim();
+            const botOwner = bot.owner?.trim();
+            // Both of these are the same owner-scoped view filter as the bot
+            // list above, and they have to fall away on exactly the same terms.
+            // Left unconditional they re-hid every conversation the list had
+            // just decided was visible: on a shared machine the backing session
+            // is stamped with whoever drove it, so `assigned` and `botOwner`
+            // routinely disagree and the whole roster came back empty-handed.
+            const scoped = !viewer.managed && localUserSplitEnabled(rosterEmails());
+            if (scoped && assigned && botOwner && botReadUser(assigned) !== botReadUser(botOwner)) return [];
+            const conversationUser = botReadUser(assigned || botOwner);
+            if (scoped && requestedUser != null && conversationUser !== user) return [];
+            const conversationId =
+              bot.conversationId?.trim() ||
+              session?.conversationId?.trim() ||
+              sessionId;
+            const cursor = latestIndexedAssistantCursor(sessionId);
+            ensureBotConversationReadBaseline(user, conversationId, cursor?.rowid ?? null);
+            const last = lastIndexedAssistantMessage(sessionId);
+            return [{
+              sessionId,
+              conversationId,
+              botId: bot.id,
+              assignedUser: assigned ?? bot.owner ?? null,
+              unread: conversationUnread(user, conversationId, cursor?.rowid ?? null),
+              lastMessagePreview: last?.text?.slice(0, 400),
+              lastMessageTs: last?.ts ?? null,
+            }];
+          });
+          return json({ bots, conversations, quota });
+        }
+        if (req.method === "POST") {
+          const body = (await req.json().catch(() => null)) as {
+            name?: unknown;
+            persona?: unknown;
+            agent?: unknown;
+            model?: unknown;
+            thinkingLevel?: unknown;
+            cwd?: unknown;
+            user?: unknown;
+            shape?: unknown;
+            colorway?: unknown;
+          } | null;
+          const name = typeof body?.name === "string" ? body.name.trim() : "";
+          const persona = typeof body?.persona === "string" ? body.persona.trim() : "";
+          if (!name || !persona) return err(400, "name and persona are required");
+          const agentValue = typeof body?.agent === "string" ? body.agent.trim() || undefined : undefined;
+          const model = typeof body?.model === "string" ? body.model.trim() || undefined : undefined;
+          const thinkingLevel = typeof body?.thinkingLevel === "string"
+            ? body.thinkingLevel.trim() || undefined
+            : undefined;
+          const config = validateBotAgent(agentValue, model, thinkingLevel);
+          if ("error" in config) return err(400, config.error);
+          const cwd = typeof body?.cwd === "string" ? body.cwd.trim() || undefined : undefined;
+          if (cwd && !(await listRepos()).some((repo) => repo.cwd === cwd))
+            return err(400, "unknown repo");
+          const requestedUser = typeof body?.user === "string" ? body.user : undefined;
+          const viewer = botViewerFromRequest(req, requestedUser);
+          const ownerTag = botCreationOwner(viewer, requestedUser, rosterEmails());
+          if (!ownerTag.ok)
+            return err(400, `unknown user "${ownerTag.unknown}" (expected one of the roster emails)`);
+          const avatar = readBotAvatar(body);
+          if ("error" in avatar) return err(400, avatar.error);
+          let bot: Bot;
+          const quotaPolicy = persistentBotQuotaPolicy();
+          try {
+            bot = await createBot({
+              name,
+              persona,
+              shape: avatar.shape,
+              colorway: avatar.colorway,
+              agent: config.agent,
+              model,
+              thinkingLevel,
+              cwd,
+              owner: ownerTag.owner,
+              ownerQuota: quotaPolicy,
+            });
+          } catch (error) {
+            if (error instanceof BotOwnerQuotaError)
+              return json(botQuotaLimitPayload(error), { status: 409 });
+            throw error;
+          }
+          return json({
+            bot,
+            quota: persistentBotQuota(await listBots(), ownerTag.owner, quotaPolicy),
+          });
+        }
+      }
+      {
+        const match = path.match(/^\/api\/bot-conversations\/([^/]+)\/read$/);
+        if (match && req.method === "POST") {
+          const sessionId = decodeURIComponent(match[1]);
+          const body = (await req.json().catch(() => null)) as { user?: unknown } | null;
+          const requestedUser = typeof body?.user === "string" ? body.user : undefined;
+          const sessions = await listSessionsCached();
+          const bots = await listBots();
+          try {
+            const owner = assertBotConversationAccess(
+              botViewerFromRequest(req, requestedUser),
+              rosterEmails(),
+              requestedUser,
+              sessionId,
+              sessions,
+              bots,
+            );
+            const cursor = latestIndexedAssistantCursor(sessionId);
+            const conversationId =
+              owner.bot.conversationId?.trim() ||
+              sessions.find((row) => row.sessionId === sessionId)?.conversationId?.trim() ||
+              sessionId;
+            const read = markBotConversationRead(owner.user, conversationId, cursor?.rowid ?? null);
+            return json({ ok: true, sessionId, conversationId, readThroughRowid: read.readThroughRowid });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            return err(message.includes("another user") ? 403 : 404, message);
+          }
+        }
+      }
+      {
+        const match = path.match(/^\/api\/conversations\/([^/]+)\/participants(?:\/([^/]+))?$/);
+        if (match) {
+          const conversationId = decodeURIComponent(match[1]);
+          const participantPathId = match[2] ? decodeURIComponent(match[2]) : null;
+          const conversation = getConversation(conversationId);
+          if (!conversation) return err(404, "conversation not found");
+          const viewer = botViewerFromRequest(req, undefined);
+          if (viewer.managed) {
+            const viewerParticipantId = conversationHumanParticipantId(viewer.identity);
+            if (!canManageConversation(conversation, viewerParticipantId)) {
+              return err(403, "conversation management access denied");
+            }
+          }
+          if (req.method === "POST" && !participantPathId) {
+            const body = (await req.json().catch(() => null)) as {
+              botId?: unknown;
+              historyAccess?: unknown;
+            } | null;
+            const botId = typeof body?.botId === "string" ? body.botId.trim() : "";
+            if (!botId) return err(400, "botId is required");
+            const bot = await getBot(botId);
+            if (!bot || !bot.enabled) return err(404, "bot not found");
+            const historyAccess = body?.historyAccess === "from_join" ? "from_join" : "all";
+            const updated = upsertConversationParticipant(
+              conversationId,
+              conversationBotParticipant(bot, { historyAccess }),
+            );
+            return json({ conversation: updated });
+          }
+          if (req.method === "DELETE" && participantPathId) {
+            const participant = conversation.participants.find((row) => row.id === participantPathId);
+            if (!participant) return err(404, "participant not found");
+            if (participant.role === "owner") return err(409, "conversation owner cannot leave");
+            return json({
+              conversation: leaveConversationParticipant(conversationId, participantPathId),
+            });
+          }
+          return err(405, "method not allowed");
+        }
+      }
+      {
+        const match = path.match(/^\/api\/bots\/([^/]+)\/messages$/);
+        if (match && req.method === "POST") {
+          let bot = await getBot(decodeURIComponent(match[1]));
+          if (!bot) return err(404, "bot not found");
+          if (!bot.enabled) return err(409, "bot is disabled");
+          const body = (await req.json().catch(() => null)) as { text?: unknown; user?: unknown } | null;
+          const text = typeof body?.text === "string" ? body.text.trim() : "";
+          if (!text) return err(400, "text is required");
+          const requestedUser = typeof body?.user === "string" ? body.user : undefined;
+          // The write route now asks the same question the read routes ask.
+          // When control-plane vouched for this caller, their email decides
+          // authorship and `body.user` is never consulted — see
+          // bots/authorship.ts for why that ordering is the security property.
+          const viewer = botViewerFromRequest(req, requestedUser);
+          const tag = resolveSessionUserTag(requestedUser);
+          // A managed caller's `body.user` is inert, so validating it can only
+          // produce a spurious 400 on a shared Computer that also happens to
+          // have a local roster. Unmanaged callers keep the original contract.
+          if (!tag.ok && !viewer.managed)
+            return err(400, `unknown user "${tag.unknown}" (expected one of the roster emails)`);
+          // A rotation the human already asked for lands here, at the first
+          // moment the bot is demonstrably reachable. Rotating before the
+          // message is sent is what guarantees the message is answered under
+          // the new configuration rather than the old one.
+          bot = await applyPendingBotRotation(migrateLegacyBotRefreshFlag(bot));
+          const botId = bot.id;
+          return serializeBotWork(botId, async () => {
+            const activeBot = (await getBot(botId)) ?? bot!;
+            if (activeBot.rotationState === "queued") {
+              return err(
+                409,
+                activeBot.rotationReason === "restart"
+                  ? "bot restart is queued; retry after the current work completes"
+                  : "bot refresh is waiting for the current turn to finish; retry in a moment",
+              );
+            }
+            if (activeBot.rotationState === "rotating") {
+              return err(
+                409,
+                activeBot.rotationReason === "restart"
+                  ? "bot restart is in progress; retry in a moment"
+                  : "bot refresh is in progress; retry in a moment",
+              );
+            }
+            if (activeBot.rotationState === "failed" && activeBot.rotationReason === "config") {
+              return err(409, `bot refresh failed: ${activeBot.rotationError || "apply the update again"}`);
+            }
+            // Attribute before launching: when the session has to be started,
+            // this text rides inside the launch prompt instead of racing it.
+            const { author, trusted } = resolveBotMessageAuthor({
+              viewer,
+              rosterTagUser: tag.ok ? tag.user : undefined,
+              botOwner: activeBot.owner,
+              envUser: process.env.OMG_USER,
+            });
+            const attributed = `${formatBotAttribution(author, activeBot.name)}\n\n${text}`;
+            const delivery = await deliverBotMessage(activeBot, attributed);
+            if ("error" in delivery) return err(delivery.status, delivery.error);
+            if (trusted) {
+              const profile = userRoster().find(
+                (user) => user.email.trim().toLowerCase() === author.trim().toLowerCase(),
+              );
+              ensureConversationHuman({
+                conversationId:
+                  activeBot.conversationId?.trim() ||
+                  (await getBot(botId))?.conversationId?.trim() ||
+                  delivery.sessionId,
+                identity: author,
+                name: profile?.name,
+                avatar: profile?.avatar,
+                role: "member",
+              });
+            }
+            return json({ sessionId: delivery.sessionId });
+          });
+        }
+      }
+      {
+        // Explicit runtime lifecycle action for a persistent bot conversation.
+        // This is not the configuration Apply route below. Both converge on
+        // rotateBotSession so locking, safe-state admission, continuity and
+        // rollback have one owner.
+        const match = path.match(/^\/api\/bots\/([^/]+)\/restart$/);
+        if (match && req.method === "POST") {
+          const id = decodeURIComponent(match[1]);
+          const existing = await getBot(id);
+          if (!existing) return err(404, "bot not found", "bot_restart_unavailable");
+
+          // Managed access was already verified by the Computer proxy, which
+          // supplies this viewer header. The request body cannot choose an
+          // identity. Local installs keep the same machine-level control policy
+          // as every existing bot mutation.
+          const viewer = botViewerFromRequest(req, undefined);
+          if (!visibleBotsForViewer([existing], viewer, rosterEmails(), undefined).length) {
+            return err(403, "you cannot control this bot conversation", "bot_restart_forbidden");
+          }
+          if (!existing.enabled) {
+            return err(409, "enable this bot before restarting its runtime", "bot_restart_unavailable");
+          }
+          if (!existing.conversationId?.trim() && !existing.sessionId?.trim()) {
+            return err(409, "start this bot conversation before restarting its runtime", "bot_restart_unavailable");
+          }
+
+          const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+          const allowed = new Set(["expectedRuntimeSessionId"]);
+          const unknown = Object.keys(body ?? {}).filter((key) => !allowed.has(key)).sort();
+          if (unknown.length) {
+            return err(400, `unsupported restart fields: ${unknown.join(", ")}`, "bot_restart_conflict");
+          }
+          if (!body || !Object.hasOwn(body, "expectedRuntimeSessionId")) {
+            return err(400, "expectedRuntimeSessionId is required", "bot_restart_conflict");
+          }
+          const rawExpected = body.expectedRuntimeSessionId;
+          if (rawExpected !== null && (typeof rawExpected !== "string" || !rawExpected.trim())) {
+            return err(400, "expectedRuntimeSessionId must be a non-empty string or null", "bot_restart_conflict");
+          }
+          const expectedRuntimeSessionId = typeof rawExpected === "string" ? rawExpected.trim() : null;
+          const outcome = await rotateBotSession(id, {
+            reason: "restart",
+            expectedRuntimeSessionId,
+          });
+          const after = (await getBot(id)) ?? existing;
+          const conversationId = after.conversationId?.trim() || existing.conversationId?.trim() || null;
+
+          if (outcome.ok) {
+            return json({
+              ok: true,
+              state: outcome.rotated ? "restarted" : "already-restarted",
+              conversationId,
+              runtimeSessionId: outcome.sessionId,
+              previousRuntimeSessionId: outcome.rotated ? outcome.previousSessionId : null,
+            });
+          }
+          if (outcome.deferred) {
+            return json({
+              ok: true,
+              state: "queued",
+              conversationId,
+              runtimeSessionId: after.sessionId ?? expectedRuntimeSessionId,
+              blocked: outcome.blocked,
+              activeChildren: outcome.children.length,
+            }, { status: 202 });
+          }
+          return err(outcome.status, outcome.error, "bot_restart_failed");
+        }
+      }
+      {
+        // Apply a pending configuration change by rotating the bot onto a fresh
+        // canonical session. The explicit half of the feature: the human decides
+        // when their conversation restarts, and gets told what happened.
+        const match = path.match(/^\/api\/bots\/([^/]+)\/rotate$/);
+        if (match && req.method === "POST") {
+          const id = decodeURIComponent(match[1]);
+          const existing = await getBot(id);
+          if (!existing) return err(404, "bot not found");
+          const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+          const allowed = new Set(["expectedRevision"]);
+          const unknown = Object.keys(body ?? {}).filter((key) => !allowed.has(key)).sort();
+          if (unknown.length) return err(400, `unsupported rotate fields: ${unknown.join(", ")}`);
+          if (
+            body?.expectedRevision !== undefined &&
+            (!Number.isInteger(body.expectedRevision) || (body.expectedRevision as number) < 1)
+          ) {
+            return err(400, "expectedRevision must be a positive integer");
+          }
+          const bot = migrateLegacyBotRefreshFlag(existing);
+          const retryingCompaction =
+            bot.rotationReason === "compaction" &&
+            !botHasPendingConfig(bot);
+          const outcome = await rotateBotSession(id, {
+            reason: retryingCompaction ? "compaction" : "config",
+            expectedRevision: retryingCompaction
+              ? undefined
+              : body?.expectedRevision as number | undefined,
+          });
+          const after = (await getBot(id)) ?? bot;
+          if (outcome.ok) {
+            return json({
+              ok: true,
+              rotated: outcome.rotated,
+              sessionId: outcome.rotated ? outcome.sessionId : outcome.sessionId,
+              previousSessionId: outcome.rotated ? outcome.previousSessionId : null,
+              configStatus: botConfigStatus(after),
+              configRevision: botConfigRevision(after),
+            });
+          }
+          if (outcome.deferred) {
+            // 202: accepted and pending, not refused. The rotation is recorded
+            // on the record and applies at the next safe moment.
+            return json(
+              {
+                ok: true,
+                rotated: false,
+                queued: true,
+                blocked: outcome.blocked,
+                activeChildren: outcome.children.length,
+                configStatus: botConfigStatus(after),
+                configRevision: botConfigRevision(after),
+              },
+              { status: 202 },
+            );
+          }
+          return err(outcome.status, outcome.error);
+        }
+      }
+      {
+        const match = path.match(/^\/api\/bots\/([^/]+)$/);
+        if (match) {
+          const id = decodeURIComponent(match[1]);
+          const current = await getBot(id);
+          if (!current) return err(404, "bot not found");
+          if (req.method === "PATCH") {
+            const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+            if (!body) return err(400, "invalid bot patch");
+            const name = body.name === undefined
+              ? current.name
+              : typeof body.name === "string" ? body.name.trim() : "";
+            const persona = body.persona === undefined
+              ? current.persona
+              : typeof body.persona === "string" ? body.persona.trim() : "";
+            if (!name || !persona) return err(400, "name and persona are required");
+            if (body.enabled !== undefined && typeof body.enabled !== "boolean")
+              return err(400, "enabled must be a boolean");
+            const agentValue = body.agent === undefined
+              ? current.agent
+              : typeof body.agent === "string" ? body.agent.trim() : "";
+            const model = body.model === undefined
+              ? current.model
+              : typeof body.model === "string" ? body.model.trim() || undefined : undefined;
+            const thinkingLevel = body.thinkingLevel === undefined
+              ? current.thinkingLevel
+              : typeof body.thinkingLevel === "string" ? body.thinkingLevel.trim() || undefined : undefined;
+            const config = validateBotAgent(agentValue, model, thinkingLevel);
+            if ("error" in config) return err(400, config.error);
+            const cwd = body.cwd === undefined
+              ? current.cwd
+              : typeof body.cwd === "string" ? body.cwd.trim() || undefined : undefined;
+            if (cwd && !(await listRepos()).some((repo) => repo.cwd === cwd))
+              return err(400, "unknown repo");
+            let owner = current.owner;
+            if (body.user !== undefined) {
+              const tag = resolveSessionUserTag(typeof body.user === "string" ? body.user : undefined);
+              if (!tag.ok)
+                return err(400, `unknown user "${tag.unknown}" (expected one of the roster emails)`);
+              owner = tag.user;
+            }
+            const avatar = readBotAvatar(body);
+            if ("error" in avatar) return err(400, avatar.error);
+            // Version the edit by what actually changed, not by which keys the
+            // form happened to submit. A cosmetic-only save must leave the
+            // revision alone so the bot keeps reading "Current" and is never
+            // offered a rotation that would change nothing.
+            const nextConfig = {
+              name,
+              persona,
+              description: current.description,
+              capabilities: current.capabilities,
+              agent: config.agent,
+              model,
+              thinkingLevel,
+              cwd,
+              owner,
+            };
+            const materiallyChanged = sessionBoundConfigChanged(
+              sessionBoundConfigOf(current),
+              nextConfig,
+            );
+            const bot = await updateBot(id, {
+              ...nextConfig,
+              shape: body.shape === undefined ? current.shape : avatar.shape,
+              colorway: body.colorway === undefined ? current.colorway : avatar.colorway,
+              enabled: body.enabled === undefined ? current.enabled : body.enabled,
+              ...(materiallyChanged
+                ? {
+                    configRevision: nextBotConfigRevision(current),
+                    // Editing does NOT start a rotation. The revision gap alone
+                    // makes the status read "Update available", and applying it
+                    // is the human's explicit call — that is the whole point of
+                    // the control. Any queued-or-failed state from a previous
+                    // revision is cleared here rather than left up, because it
+                    // describes a target that no longer exists and would report
+                    // the wrong revision's error against the new edit.
+                    rotationState: "idle" as const,
+                    rotationReason: undefined,
+                    rotationExpectedSessionId: undefined,
+                    rotationError: undefined,
+                    rotationUpdatedAt: Date.now(),
+                  }
+                : {}),
+            });
+            return json({
+              bot,
+              configStatus: bot ? botConfigStatus(bot) : "current",
+              configRevision: bot ? botConfigRevision(bot) : 1,
+            });
+          }
+          if (req.method === "DELETE") {
+            return serializeBotWork(id, async () => {
+              const deleting = await getBot(id);
+              if (!deleting) return err(404, "bot not found");
+              const sessions = await listSessions();
+              const live = sessions.find((session) =>
+                session.botId === id ||
+                (deleting.sessionId && (
+                  session.sessionId === deleting.sessionId ||
+                  session.nativeSessionId === deleting.sessionId
+                ))
+              );
+              if (live?.sessionId) {
+                const outcome = await closeLiveSession(live, live.sessionId, {
+                  sessionId: live.sessionId,
+                  source: "bot_delete",
+                  botId: id,
+                });
+                if (!outcome.ok) return err(outcome.status, outcome.reason);
+              }
+              for (const stale of listManaged().filter((row) => row.botId === id)) {
+                removeManaged(stale.tmuxName);
+                assignUser(stale.tmuxName, null);
+              }
+              // A deleted bot can never receive its own routine nudges again —
+              // leaving its rows behind would otherwise make "deleted bot with
+              // live routines" the steady state instead of the rare transient
+              // window the scheduler already tolerates (missing/disabled bot:
+              // skip, log, stamp lastRunAt so it doesn't retry every tick).
+              const removedRoutines = await deleteAutoAgentsOwnedByBot(id);
+              await deleteBot(id);
+              invalidateListSessionsCache();
+              return json({ ok: true, removedRoutines });
+            });
+          }
+        }
+      }
+
       // ---- auto agents (streamlined: prompt + schedule → findings) ----
       if (path === "/api/auto/agents") {
+        const callerBot = await callerBotId(req);
         if (req.method === "GET") {
           const agents = await listAutoAgents();
           const settings = await getGlobalSettings();
+          // A bot caller only ever sees its own rows — this is the query
+          // surface omg_list_my_routines relies on. The human/browser view
+          // (no caller header) stays unfiltered admin, unchanged.
+          const scoped = callerBot
+            ? agents.filter((a) => a.owner.kind === "bot" && a.owner.botId === callerBot)
+            : agents;
           // `?full=1` opts back into whole prompts for a caller that genuinely
           // needs them. The default is truncated because the two hot callers —
           // the list poll and the MCP listing tool — both only want enough to
           // identify a row, and the MCP one is feeding an LLM context window.
           const full = url.searchParams.get("full") === "1";
           return json({
-            agents: agents.map(full ? withAutoAgentMeta : withAutoAgentListMeta),
+            agents: scoped.map(full ? withAutoAgentMeta : withAutoAgentListMeta),
             tz: settings.timeZone,
           });
         }
@@ -3258,9 +5448,68 @@ a{color:#60a5fa}
             model?: string;
             thinkingLevel?: string;
             tools?: string[];
+            owner?: { kind?: string; botId?: string } | null;
           } | null;
           if (!b?.name || !b?.prompt || !b?.schedule) {
             return err(400, "name, prompt and schedule are required");
+          }
+          // Editing an existing row: look up its CURRENT owner and guard
+          // before saving — the row's actual owner decides this, never
+          // anything the request body claims.
+          let existingForEdit: AutoAgent | null = null;
+          if (b.id) {
+            existingForEdit = await getAutoAgent(b.id);
+            if (!existingForEdit) return err(404, "unknown auto agent");
+            const allowed = await assertCanModifyAutoAgent(existingForEdit, callerBot);
+            if (!allowed.ok) return err(allowed.status, allowed.error);
+          }
+          // A bot caller is forced onto itself; a human/browser caller may name
+          // any owner, which is what makes the §8 migration of an existing
+          // user-owned schedule onto an existing bot possible.
+          const resolvedOwner = resolveRequestedAutoAgentOwner(callerBot, b.owner);
+          if (!resolvedOwner.ok) return err(resolvedOwner.status, resolvedOwner.error);
+          const owner = resolvedOwner.owner;
+          // The per-bot cap and the frequency ceiling are properties of a
+          // bot-owned row, not of the caller. Apply them to any row that ENDS
+          // UP bot-owned, so a human-driven migration cannot smuggle a row
+          // past the same limits omg_schedule_routine enforces. A row already
+          // owned by that same bot is exempt from the cap: editing it in place
+          // does not add a routine.
+          const becomesBotOwned = owner?.kind === "bot" ? owner.botId : null;
+          if (becomesBotOwned) {
+            // A row must never end up owned by a bot that is gone or disabled:
+            // the scheduler's delivery guard drops such an occurrence with only
+            // a server log, so a migration typo would silently stop the job.
+            // Skipped for a bot caller, whose own existence is already proven
+            // by resolving its caller session.
+            if (!callerBot) {
+              const target = await getBot(becomesBotOwned);
+              if (!target) return err(404, `unknown bot "${becomesBotOwned}"`);
+              if (!target.enabled)
+                return err(
+                  400,
+                  `bot "${target.name}" is disabled — enable it before it owns a routine`,
+                );
+            }
+            const settings = await getGlobalSettings();
+            const alreadyOwnedByTarget =
+              existingForEdit?.owner.kind === "bot" &&
+              existingForEdit.owner.botId === becomesBotOwned;
+            const current = await countAutoAgentsOwnedByBot(becomesBotOwned);
+            if (!alreadyOwnedByTarget && current >= settings.maxBotSchedules) {
+              return err(
+                409,
+                callerBot
+                  ? `you already have ${current}/${settings.maxBotSchedules} scheduled routines — delete one with omg_unschedule_routine before creating another`
+                  : `that bot already owns ${current}/${settings.maxBotSchedules} scheduled routines — free a slot before assigning another`,
+              );
+            }
+            if (exceedsMaxFrequency(b.schedule, settings.timeZone)) {
+              return err(
+                400,
+                "that schedule fires too often for a bot-owned routine — the box rejects anything past a fixed frequency ceiling (about every 30 minutes)",
+              );
+            }
           }
           const autoAgent = b.agent?.trim() || undefined;
           if (autoAgent && !AUTO_AGENT_BACKENDS.includes(autoAgent as any)) {
@@ -3300,6 +5549,8 @@ a{color:#60a5fa}
           }
           if (autoBackend === "cursor" && model && !/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
             return err(400, "invalid cursor model name");
+          if (autoBackend === "fx" && model && !/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
+            return err(400, "invalid fx model name");
           if (autoBackend === "opencode" && model && !/^[A-Za-z0-9_.:\/-]{1,80}$/.test(model))
             return err(400, "invalid opencode model name");
           const thinkingLevel = b.thinkingLevel?.trim() || undefined;
@@ -3316,6 +5567,7 @@ a{color:#60a5fa}
             prompt: b.prompt,
             schedule: b.schedule,
             enabled: b.enabled !== false,
+            owner,
             cwd: b.cwd,
             agent: autoAgent as any,
             claudeAccountId,
@@ -3384,6 +5636,10 @@ a{color:#60a5fa}
           return json({ agent: withAutoAgentMeta(agent) });
         }
         if (m && req.method === "DELETE") {
+          const agent = await getAutoAgent(m[1]);
+          if (!agent) return err(404, "unknown auto agent");
+          const allowed = await assertCanModifyAutoAgent(agent, await callerBotId(req));
+          if (!allowed.ok) return err(allowed.status, allowed.error);
           await deleteAutoAgent(m[1]);
           return json({ ok: true });
         }
@@ -3393,6 +5649,19 @@ a{color:#60a5fa}
         if (m && req.method === "POST") {
           const agent = await getAutoAgent(m[1]);
           if (!agent) return err(404, "unknown auto agent");
+          const allowed = await assertCanModifyAutoAgent(agent, await callerBotId(req));
+          if (!allowed.ok) return err(allowed.status, allowed.error);
+          if (agent.owner.kind === "bot") {
+            // A bot-owned row was never meant to run standalone — "run now"
+            // delivers the same nudge the schedule would, immediately,
+            // instead of calling the headless runner against it.
+            const bot = await getBot(agent.owner.botId);
+            if (!bot || !bot.enabled) return err(409, "the owning bot is gone or disabled");
+            void deliverBotMessage(bot, routineNudgeText(agent)).then((result) => {
+              if ("error" in result) console.error(`[auto] manual bot-routine run failed: ${result.error}`);
+            });
+            return json({ ok: true });
+          }
           // fire-and-forget; the finding surfaces via the findings poll
           void runAutoAgent(agent, (l) => console.log(l)).catch((e) =>
             console.error("[auto] manual run failed:", e),
@@ -3517,7 +5786,19 @@ a{color:#60a5fa}
         const notification = endpoint ? await takePushNotification(endpoint) : null;
         await sweepExpiredQuestions();
         const openQs = await listQuestions("open");
-        const questions = me ? openQs.filter((q) => q.user === me) : openQs;
+        let questions = openQs;
+        if (me) {
+          const sessions = await listSessionsCached();
+          const ownedSessionIds = new Set<string>();
+          for (const session of sessions) {
+            if (session.assignedUser !== me) continue;
+            if (session.sessionId) ownedSessionIds.add(session.sessionId);
+            if (session.nativeSessionId) ownedSessionIds.add(session.nativeSessionId);
+          }
+          questions = openQs.filter((question) =>
+            questionVisibleToUser(question, me, ownedSessionIds)
+          );
+        }
         // Findings are global (not user-private), so they pass through as-is.
         const findings = await listFindings("open");
         return json({ user: me, notification, questions, findings });
@@ -4037,7 +6318,21 @@ a{color:#60a5fa}
         // sessionListRow for why the default leaves it out. The one caller
         // that wants it is omg_list_sessions with verbose:true.
         const full = url.searchParams.get("full") === "1";
-        return json({ sessions: full ? sessions : sessions.map(sessionListRow) });
+        // `pendingLogins` is how a HOST learns this box is mid-login.
+        //
+        // The control plane polls this route to decide whether the machine is
+        // idle enough to hibernate, and it only ever counted agent sessions. A
+        // browser login is real work that lives entirely in this process, so a
+        // box with a half-finished Claude sign-in answered "not busy" and was
+        // hibernated under the user (2026-08-17, a paying customer).
+        //
+        // ADDITIVE ON PURPOSE. An older host ignores the extra field, and a
+        // newer host reading an older box sees `undefined` and falls back to
+        // exactly today's behaviour. Neither side needs to ship first.
+        return json({
+          sessions: full ? sessions : sessions.map(sessionListRow),
+          pendingLogins: pendingCodingAgentLogins(),
+        });
       }
 
       if (path === "/api/install") {
@@ -4108,7 +6403,7 @@ a{color:#60a5fa}
       }
 
       // Combined usage/limits across every agent provider (Claude, Codex,
-      // Grok, OpenCode) for the Settings → Usage page. Each provider is
+      // Cursor, Grok, OpenCode) for the Settings → Usage page. Each provider is
       // self-cached for 60s, so this only pays for whatever has gone stale.
       if (path === "/api/usage") {
         return json({ providers: await getAllUsage({ force: url.searchParams.get("force") === "1" }) });
@@ -4255,8 +6550,21 @@ a{color:#60a5fa}
         if (!sessionId) return err(400, "sessionId required");
         const model = body?.model?.trim() || undefined;
         // Already running? Don't double-spawn — point the client at the live one.
+        //
+        // listSessions() returns HISTORICAL sessions too, so identity alone does
+        // not mean "live". A session whose harness died is still listed, with
+        // pid 0. Matching on identity alone made every such session permanently
+        // unresumable: this branch queued the prompt into a command file no
+        // process was tailing, reported alreadyLive, and never cold-started.
+        // That is how a run of `database is locked` harness deaths turned into
+        // sessions that could not be recovered by any supported path.
+        //
+        // The pid is an unambiguous signal here: every live session carries a
+        // running harness pid, and every dead one reports 0.
         const live = (await listSessions()).find(
-          (s) => s.sessionId === sessionId || s.nativeSessionId === sessionId,
+          (s) =>
+            (s.sessionId === sessionId || s.nativeSessionId === sessionId) &&
+            isAisdkPidAlive(s.pid),
         );
         if (live) {
           if (body?.user && live.tmuxName) assignUser(live.tmuxName, body.user);
@@ -4308,6 +6616,7 @@ a{color:#60a5fa}
             cwd,
             createdAt: Date.now(),
             agent: cachedResume.backend,
+            runtime: "command-file",
             sessionId,
             nativeSessionId: resumeHandle,
             launchState: "launching",
@@ -4336,49 +6645,17 @@ a{color:#60a5fa}
             }
           }
           const prompt = body?.prompt?.trim() || undefined;
-          const spawned = cachedResume.backend === "codex-aisdk"
-            ? spawnManagedCodexAisdkSession({
-                name: tmuxName,
-                cwd,
-                prompt,
-                model: resumeModel,
-                key: sessionId,
-                resume: resumeHandle,
-                omgSessionId: sessionId,
-                omgUser: assignedUser,
-              })
-            : cachedResume.backend === "opencode"
-              ? spawnManagedOpencodeAisdkSession({
-                  name: tmuxName,
-                  cwd,
-                  prompt,
-                  model: resumeModel,
-                  key: sessionId,
-                  resume: resumeHandle,
-                  omgSessionId: sessionId,
-                  omgUser: assignedUser,
-                })
-              : cachedResume.backend === "pi"
-                ? spawnManagedPiSession({
-                    name: tmuxName,
-                    cwd,
-                    prompt,
-                    model: resumeModel,
-                    key: sessionId,
-                    resume: resumeHandle,
-                    omgSessionId: sessionId,
-                    omgUser: assignedUser,
-                  })
-                : spawnManagedAisdkSession({
-                    name: tmuxName,
-                    cwd,
-                    prompt,
-                    model: resumeModel,
-                    sessionId,
-                    omgSessionId: sessionId,
-                    omgUser: assignedUser,
-                    claudeAccountId: pinnedClaudeAccountId,
-                  });
+          const spawned = launchCodingAgentSession({
+            agent: cachedResume.backend,
+            name: tmuxName,
+            cwd,
+            prompt,
+            model: resumeModel,
+            sessionId,
+            resume: resumeHandle,
+            omgUser: assignedUser,
+            claudeAccountId: pinnedClaudeAccountId,
+          });
           if (!spawned.ok) {
             removeManaged(tmuxName);
             assignUser(tmuxName, null);
@@ -4760,41 +7037,20 @@ a{color:#60a5fa}
           overLimit?: boolean;
           agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "jcode" | "grok" | "cursor" | "copilot" | "hermes" | "pi";
         } | null;
-        if (body?.agent === "hermes") {
-          return err(400, "agent \"hermes\" is temporarily unavailable");
+        const agent = resolveActiveSessionAgent(body?.agent);
+        if (!agent) {
+          if (body?.agent === "hermes") return err(410, "agent \"hermes\" has been removed");
+          return err(400, `unknown coding agent "${body?.agent ?? ""}"`);
         }
-        // Default flip (Task B): with no agent specified, the default Claude path
-        // now goes through the AI SDK ("aisdk") rather than the Claude CLI. Every
-        // explicit value still works, INCLUDING explicit "claude" for the CLI.
-        const agent =
-          body?.agent === "codex"
-            ? "codex"
-            : body?.agent === "codex-aisdk"
-              ? "codex-aisdk"
-              : body?.agent === "opencode"
-                ? "opencode"
-                : body?.agent === "jcode"
-                  ? "jcode"
-                : body?.agent === "grok"
-                  ? "grok"
-                  : body?.agent === "cursor"
-                    ? "cursor"
-                    : body?.agent === "pi"
-                      ? "pi"
-                      : body?.agent === "copilot"
-                        ? "copilot"
-                        : body?.agent === "claude"
-                          ? "claude"
-                          : "aisdk";
         const requestedClaudeAccountId = body?.claudeAccountId?.trim() || undefined;
         const selectedClaudeAccount =
-          agent === "claude" || agent === "aisdk"
+          agent === "aisdk"
             ? await pickClaudeAccountForNewSession({
                 explicitAccountId: requestedClaudeAccountId,
                 readCapacity: (account) => getProviderUsage(`claude:${account.id}`),
               })
             : null;
-        if ((agent === "claude" || agent === "aisdk") && requestedClaudeAccountId && !selectedClaudeAccount) {
+        if (agent === "aisdk" && requestedClaudeAccountId && !selectedClaudeAccount) {
           return err(400, "Claude account is missing or not connected");
         }
         const claudeAccountId = selectedClaudeAccount?.id;
@@ -4808,13 +7064,6 @@ a{color:#60a5fa}
           agent === "opencode" && requestedModel && OPENCODE_DISABLED_MODELS.has(requestedModel)
             ? opencodeDefault
             : requestedModel;
-        if (agent === "claude" && model) {
-          const allowed = modelsForAgent("claude");
-          if (!allowed.includes(model))
-            return err(400, `unknown model "${model}" (expected one of ${allowed.join(", ")})`);
-        }
-        if (agent === "codex" && model && !/^[A-Za-z0-9_.:-]{1,80}$/.test(model))
-          return err(400, "invalid codex model name");
         if (agent === "aisdk" && model) {
           const allowed = modelsForAgent("aisdk");
           if (!allowed.includes(model))
@@ -4935,6 +7184,11 @@ a{color:#60a5fa}
           }
           assignedUser = cursor?.assignedUser ?? undefined;
         }
+        // Root sessions from the account-scoped relay do not carry a roster
+        // email. Use the paired box account only as a last resort. The helper
+        // returns undefined unless that account is already on this box's roster.
+        // Parent lineage stays authoritative because this runs after the walk.
+        if (!assignedUser) assignedUser = rosterBoxAccount();
         // Global pause / live-agent cap. Applies to every activation — main and
         // subagent alike. Fork reaches here via its internal POST to
         // /api/sessions/new, so it inherits this gate for free.
@@ -4962,35 +7216,10 @@ a{color:#60a5fa}
             depth: subagentDepth,
           });
         }
-        // aisdk sessions own their sessionId up front (deterministic transcript
-        // path), so we generate it here and hand it to the harness.
-        const aisdkSessionId = agent === "aisdk" ? crypto.randomUUID() : null;
-        // codex-aisdk can't pick its transcript id (codex mints the threadId
-        // after turn 1), so we mint a CONTROL-PLANE KEY instead — it names the
-        // registry/command files and is what serve routes sends through until
-        // the threadId is known. (See the codex-aisdk harness header.)
-        const codexAisdkKey = agent === "codex-aisdk" ? crypto.randomUUID() : null;
-        // opencode mints a control-plane KEY that is ALSO the transcript id: the
-        // harness self-persists the Claude-shaped transcript named by this key, so
-        // the returned sessionId == key (no after-turn-1 id to wait for, unlike
-        // codex-aisdk). See the opencode harness header.
-        const opencodeKey = agent === "opencode" ? crypto.randomUUID() : null;
-        // Grok does not write ~/.grok/active_sessions.json until a real
-        // conversation starts, so a newly-opened blank TUI has no native id yet.
-        // Mint a stable lfg id up front; listSessions maps it to Grok's native
-        // transcript later once Grok creates one.
-        const grokKey = agent === "grok" ? crypto.randomUUID() : null;
-        // pi mints its own session id almost immediately (right after the
-        // RpcClient starts, before turn 1) but not synchronously with this
-        // request — same control-plane-key treatment as codex-aisdk.
-        const piKey = agent === "pi" ? crypto.randomUUID() : null;
-        const launchId =
-          aisdkSessionId ??
-          codexAisdkKey ??
-          opencodeKey ??
-          grokKey ??
-          piKey ??
-          crypto.randomUUID();
+        // Every provider receives one stable control-plane id. SDK/RPC drivers
+        // use it as their registry key. TUI drivers use it until they expose a
+        // native transcript id. This keeps provider-specific ids out of serve.
+        const launchId = crypto.randomUUID();
         const createdAt = Date.now();
         const launchModel =
           agent === "grok"
@@ -5014,6 +7243,7 @@ a{color:#60a5fa}
           cwd,
           createdAt,
           agent,
+          runtime: CODING_AGENT_ADAPTERS[agent].transport,
           sessionId: launchId,
           nativeSessionId:
             agent === "aisdk" || agent === "opencode"
@@ -5038,100 +7268,18 @@ a{color:#60a5fa}
         // Tag the new session before spawn so a concurrent /api/sessions refresh
         // can show the durable row under the right user filter immediately.
         if (assignedUser) assignUser(tmuxName, assignedUser);
-        const r: { ok: boolean; error?: string; nativeSessionId?: string } =
-          agent === "codex"
-            ? spawnManagedCodexSession({ name: tmuxName, cwd, prompt, model: resolvedModel, thinkingLevel, omgSessionId: launchId, omgUser: assignedUser, containInAgentSlice: isSubagent })
-            : agent === "grok"
-              ? spawnManagedGrokSession({
-                  name: tmuxName,
-                  cwd,
-                  prompt,
-                  model: resolvedModel ?? GROK_DEFAULT_MODEL(),
-                  thinkingLevel,
-                  omgSessionId: launchId,
-                  omgUser: assignedUser,
-                  containInAgentSlice: isSubagent,
-                })
-            : agent === "cursor"
-              ? spawnManagedCursorSession({
-                  name: tmuxName,
-                  cwd,
-                  prompt,
-                  model: resolvedModel ?? "auto",
-                  omgSessionId: launchId,
-                  omgUser: assignedUser,
-                  containInAgentSlice: isSubagent,
-                })
-            : agent === "copilot"
-              ? spawnManagedCopilotSession({
-                  name: tmuxName,
-                  cwd,
-                  prompt,
-                  model: resolvedModel,
-                  omgSessionId: launchId,
-                  omgUser: assignedUser,
-                  containInAgentSlice: isSubagent,
-                })
-            : agent === "jcode"
-              ? spawnManagedJcodeSession({
-                  name: tmuxName,
-                  cwd,
-                  prompt,
-                  model: resolvedModel ?? "auto",
-                  thinkingLevel,
-                  omgSessionId: launchId,
-                  omgUser: assignedUser,
-                  containInAgentSlice: isSubagent,
-                })
-            : agent === "aisdk"
-              ? spawnManagedAisdkSession({
-                  name: tmuxName,
-                  cwd,
-                  prompt,
-                  model: resolvedModel ?? "opus",
-                  sessionId: aisdkSessionId!,
-                  thinkingLevel,
-                  omgSessionId: launchId,
-                  omgUser: assignedUser,
-                  containInAgentSlice: isSubagent,
-                  claudeAccountId,
-                })
-              : agent === "codex-aisdk"
-                ? spawnManagedCodexAisdkSession({
-                    name: tmuxName,
-                    cwd,
-                    prompt,
-                    model: resolvedModel ?? "gpt-5.5",
-                    key: codexAisdkKey!,
-                    thinkingLevel,
-                    omgSessionId: launchId,
-                    omgUser: assignedUser,
-                    containInAgentSlice: isSubagent,
-                  })
-                : agent === "opencode"
-                  ? spawnManagedOpencodeAisdkSession({
-                      name: tmuxName,
-                      cwd,
-                      prompt,
-                      model: resolvedModel ?? opencodeDefault!,
-                      key: opencodeKey!,
-                      omgSessionId: launchId,
-                      omgUser: assignedUser,
-                      containInAgentSlice: isSubagent,
-                    })
-                  : agent === "pi"
-                    ? spawnManagedPiSession({
-                        name: tmuxName,
-                        cwd,
-                        prompt,
-                        model: resolvedModel ?? PI_DEFAULT_MODEL,
-                        key: piKey!,
-                        thinkingLevel,
-                        omgSessionId: launchId,
-                        omgUser: assignedUser,
-                        containInAgentSlice: isSubagent,
-                      })
-                    : spawnManagedSession({ name: tmuxName, cwd, prompt, model: resolvedModel, thinkingLevel, omgSessionId: launchId, omgUser: assignedUser, containInAgentSlice: isSubagent, claudeAccountId });
+        const r = launchCodingAgentSession({
+          agent,
+          name: tmuxName,
+          cwd,
+          prompt,
+          model: launchModel,
+          thinkingLevel,
+          sessionId: launchId,
+          omgUser: assignedUser,
+          containInAgentSlice: isSubagent,
+          claudeAccountId,
+        });
         if (!r.ok) {
           // The caller received no committed session. Release the claim so a
           // corrected retry can create one; normal closes retain their claim.
@@ -5139,30 +7287,8 @@ a{color:#60a5fa}
           assignUser(tmuxName, null);
           return err(502, r.error || "failed to start session");
         }
-        if (agent === "cursor" && r.nativeSessionId) {
-          patchManaged(tmuxName, { nativeSessionId: r.nativeSessionId });
-        }
-        if (agent === "codex") {
-          void (async () => {
-            for (let i = 0; i < 12; i++) {
-              await new Promise((res) => setTimeout(res, 500));
-              if (dismissCodexUpdatePrompt(`${tmuxName}:0.0`)) break;
-            }
-          })();
-        }
-        // Belt-and-suspenders for the cursor workspace-trust dialog: the marker
-        // pre-write in spawnManagedCursorSession normally suppresses it, but auto-
-        // accept any dialog that still surfaces so the pane never hangs before its
-        // first turn (which is what strands cursor streaming).
-        if (agent === "cursor") {
-          void (async () => {
-            for (let i = 0; i < 12; i++) {
-              await new Promise((res) => setTimeout(res, 500));
-              if (dismissCursorTrustPrompt(`${tmuxName}:0.0`)) break;
-            }
-          })();
-        }
-        if (agent === "aisdk" || agent === "opencode" || agent === "cursor" || agent === "jcode")
+        if (r.nativeSessionId) patchManaged(tmuxName, { nativeSessionId: r.nativeSessionId });
+        if (CODING_AGENT_ADAPTERS[agent].transport === "command-file")
           patchManaged(tmuxName, { launchState: "running" });
         // The spawn (and the launchState patch above) changed what the session
         // list contains, so retire any snapshot taken during it.
@@ -5477,6 +7603,14 @@ a{color:#60a5fa}
               kind: artifact.media === "video" ? "video" : "image",
               mimeType: artifact.mimeType,
             }));
+            if (artifacts.length) {
+              const transcriptPath = await resolveTranscript(m[1]);
+              indexOriginDeliveryMedia({
+                indexPath: transcriptPath ?? sessionIndexKey(m[1]),
+                sessionId: m[1],
+                artifacts,
+              });
+            }
             const delivery = createOriginDelivery({
               sessionId: m[1],
               text: body.text,
@@ -5767,8 +7901,29 @@ a{color:#60a5fa}
             // byline survives registry pruning; the GET hydration still prefers
             // the live registry when the session is known.
             const sourceAgent = sourceManaged?.agent;
+            // Stamp what Git says about the session worktree right now. The
+            // self-repo landing gate above proves delivery for this repo only;
+            // every other project shipped with no source-control record at all,
+            // which is how posts that were never committed became
+            // indistinguishable from posts that landed and deployed.
+            const code = collectShipProvenance(sourceManaged);
+            const unlanded = shipBlockReason(code);
+            if (unlanded && code) {
+              // Refused, not annotated. A post the reader has to distrust is
+              // worse than no post: "shipped" has to mean the code is in.
+              evlog("shipped_unlanded_rejected", {
+                sessionId: body.sessionId,
+                state: code.state,
+                branch: code.branch,
+                head: code.head,
+                dirty: code.dirty,
+                ahead: code.ahead,
+              });
+              return err(409, unlanded);
+            }
             const post = await addShipPost({
               ...body,
+              code,
               agent: body.agent ?? sourceAgent,
               project: resolveShipProject(
                 body.project,
@@ -5918,25 +8073,51 @@ a{color:#60a5fa}
             mode?: "steer" | "queue";
             fromSessionId?: string;
           } | null;
-          const text = body?.text?.trim();
-          if (!text) return err(400, "expected { text }");
-          const mode = body?.mode === "queue" ? "queue" : "steer";
+          const rawText = body?.text?.trim();
+          if (!rawText) return err(400, "expected { text }");
           const sessions = await listSessionsCached();
-          const sess = sessions.find(
+          let sess = sessions.find(
             (s) => s.sessionId === m[1] || s.nativeSessionId === m[1],
           );
+          // Attribute before delivery, so the text that rides into a relaunch
+          // prompt is the same text a live session would have received.
+          const sender = body?.fromSessionId
+            ? sessions.find(
+                (session) =>
+                  session.sessionId === body.fromSessionId ||
+                  session.nativeSessionId === body.fromSessionId,
+              )
+            : undefined;
+          const text = attributedAgentUpdate(rawText, {
+            fromSessionId: body?.fromSessionId,
+            senderTitle: sender?.title,
+            targetPersistent: sess?.persistent ?? true,
+          });
+          // A background child outliving its bot used to end here, with the
+          // report dropped on a 404 — see reviveBotSessionForReport.
+          let deliveredOnLaunch = false;
+          if (!sess && body?.fromSessionId) {
+            const revived = await reviveBotSessionForReport(m[1], text);
+            if (revived) {
+              sess = revived.session;
+              deliveredOnLaunch = revived.delivered;
+            }
+          }
           if (!sess) return err(404, "session not found");
-          const sent = sendPromptToLiveSession(sess, text, { mode });
-          if (!sent.ok) return err(409, sent.error || "couldn't send message");
+          let sentMsg: unknown;
+          if (!deliveredOnLaunch) {
+            const mode = agentUpdateSendMode(body?.mode, {
+              fromSessionId: body?.fromSessionId,
+              targetPersistent: sess.persistent,
+            });
+            const sent = sendPromptToLiveSession(sess, text, { mode });
+            if (!sent.ok) return err(409, sent.error || "couldn't send message");
+            sentMsg = sent.msg;
+          }
           // Terminal reports also end the child lifecycle. Once this response
           // has flushed, close the managed child; its transient service reaps
           // browser/helper descendants and frees the next concurrency slot.
-          if (/^\[subagent (?:complete|blocked|failed)\]/i.test(text) && body?.fromSessionId) {
-            const sender = sessions.find(
-              (session) =>
-                session.sessionId === body.fromSessionId ||
-                session.nativeSessionId === body.fromSessionId,
-            );
+          if (/^\[subagent (?:complete|blocked|failed)\]/i.test(rawText) && body?.fromSessionId) {
             const senderParent = sender?.parentSessionId ?? sender?.parentNativeSessionId;
             if (sender?.managed && sender.spawnedBy === "subagent" && senderParent === m[1]) {
               setTimeout(() => {
@@ -5948,7 +8129,7 @@ a{color:#60a5fa}
               }, 1_500);
             }
           }
-          return json({ ok: true, msg: sent.msg });
+          return json({ ok: true, msg: sentMsg });
         }
       }
 
@@ -5971,6 +8152,16 @@ a{color:#60a5fa}
           if (!model) return err(400, "expected { model }");
           const sess = (await listSessions()).find((s) => s.sessionId === m[1]);
           if (!sess) return err(404, "session not found");
+          if (sess.runtime === "command-file" && (sess.agent === "jcode" || sess.agent === "copilot")) {
+            const allowed = modelsForAgent(sess.agent);
+            if (!allowed.includes(model))
+              return err(400, `unknown model "${model}" (expected one of ${allowed.join(", ")})`);
+            const entry = findAisdkEntryByAnyId(m[1]);
+            if (!entry) return err(409, "session control process is unavailable");
+            appendAisdkCmd(entry.sessionId, { type: "set_model", model });
+            if (sess.tmuxName) patchManaged(sess.tmuxName, { model });
+            return json({ ok: true, model });
+          }
           if (sess.agent === "opencode") {
             if (!/^[A-Za-z0-9_.:\/-]{1,80}$/.test(model))
               return err(400, "invalid opencode model name");
@@ -5979,14 +8170,6 @@ a{color:#60a5fa}
             const key = findAisdkEntryByAnyId(m[1])?.sessionId ?? m[1];
             appendAisdkCmd(key, { type: "set_model", model });
             return json({ ok: true, model });
-          }
-          if (sess.agent === "hermes") {
-            if (!/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
-              return err(400, "invalid hermes model name");
-            if (!sess.tmuxTarget)
-              return err(409, "session is not in a tmux pane — cannot change model");
-            const msg = enqueueMessage(m[1], `/model ${model}`);
-            return json({ ok: true, msg });
           }
           if (sess.agent !== "claude")
             return err(409, "mid-session model change is only supported for Claude sessions");
@@ -6052,7 +8235,7 @@ a{color:#60a5fa}
           if (!allowed.includes(thinkingLevel))
             return err(400, `unknown thinking level "${thinkingLevel}" for ${sess.agent} (expected one of ${allowed.join(", ")})`);
 
-          if (sess.agent === "aisdk" || sess.agent === "codex-aisdk" || sess.agent === "pi") {
+          if (sess.agent === "aisdk" || sess.agent === "codex-aisdk" || sess.agent === "pi" || (sess.agent === "jcode" && sess.runtime === "command-file")) {
             const entry = findAisdkEntryByAnyId(m[1]);
             if (!entry) return err(409, "session control process is unavailable");
             appendAisdkCmd(entry.sessionId, { type: "set_thinking_level", thinkingLevel });
@@ -7032,9 +9215,37 @@ a{color:#60a5fa}
     console.log(`[session-recovery] adopted=${recovered.adopted} recovered=${recovered.recovered} recoveredTmux=${recovered.recoveredTmux} failed=${recovered.failed} skippedLegacy=${recovered.skippedLegacy}`);
     invalidateListSessionsCache();
   }
+  const resumedQueueMessages = resumePersistedQueues();
+  if (resumedQueueMessages) {
+    console.log(`[sendq] resumed=${resumedQueueMessages}`);
+  }
   // Probe the coding agents once at boot so the first dashboard open reads a
   // warm cache instead of paying ~1.5 s of CLI spawns in the foreground.
   warmCodingAgentsCache();
+  // Bot-owned routines fire as a nudge into the owning bot's own conversation
+  // instead of running headless — deliverBotMessage is the same primitive
+  // POST /api/bots/:id/messages uses for a human's message, so both converge
+  // on one "how a message reaches a bot" code path.
+  setBotRoutineDelivery(async (agent) => {
+    if (agent.owner.kind !== "bot") return;
+    const bot = await getBot(agent.owner.botId);
+    if (!bot || !bot.enabled) {
+      console.error(`[auto-sched] routine ${agent.id} owner bot ${agent.owner.botId} is gone or disabled — skipping`);
+      return;
+    }
+    const prepared = await applyPendingBotRotation(migrateLegacyBotRefreshFlag(bot));
+    if (prepared.rotationState === "failed" && prepared.rotationReason === "config") {
+      console.error(`[auto-sched] routine ${agent.id} is waiting for bot ${bot.id} to refresh`);
+      return;
+    }
+    const result = await serializeBotWork(bot.id, async () => {
+      const current = (await getBot(bot.id)) ?? prepared;
+      return deliverBotMessage(current, routineNudgeText(agent));
+    });
+    if ("error" in result) {
+      console.error(`[auto-sched] routine ${agent.id} delivery failed: ${result.error}`);
+    }
+  });
   startAutoScheduler((l) => console.log(l));
   setWakeHooksBootId(SERVER_INSTANCE_ID);
   void pushWakeHooksNow();
@@ -7057,7 +9268,9 @@ a{color:#60a5fa}
   }
   startModelDiscoveryScheduler((l) => console.log(l));
   startWorktreeSweep((l) => console.log(l));
+  startTmpSweep((l) => console.log(l));
   startIdleAgentArchiveSweep();
+  startBotCompactionSweep();
   // Watch the fleet for busy -> idle transitions and fan "completed" events out
   // to fleet subscribers (Web Push). Idempotent + best-effort.
   startFleetWatcher();

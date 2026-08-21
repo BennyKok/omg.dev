@@ -13,11 +13,11 @@ import {
   isEntryBusy as isAisdkEntryBusy,
 } from "./aisdk-registry";
 import { isClosing } from "./closing";
-import { userAssignments } from "./users";
+import { userAssignments, userRoster } from "./users";
 import { PATHS } from "./config";
 import { homedir } from "node:os";
 import { projectName } from "./projects";
-import { isCommandFileAgent } from "./coding-agent-adapters";
+import { usesCommandFileRuntime } from "./coding-agent-adapters";
 import type { CodingAgentKind } from "./coding-agents";
 import { OMG_CAPABILITY_VERSION, stripOmgRuntimeContract } from "./omg-capabilities.ts";
 import {
@@ -39,10 +39,17 @@ import {
   indexSessionMessagesDirect,
   searchTranscriptIndex,
   sessionHasIndexedMessages,
+  lastIndexedAssistantMessage,
   sessionIndexKey,
   isSessionIndexKey,
 } from "./transcript-index";
 import { isProviderAuthError } from "./provider-auth-error";
+import { listBots } from "./bots/store.ts";
+import {
+  migrateLegacyConversations,
+  type Conversation,
+  type MessageAuthorRef,
+} from "./conversations.ts";
 
 const HOME = process.env.HOME ?? homedir();
 const PROJECTS_DIR = join(HOME, ".claude", "projects");
@@ -81,6 +88,11 @@ const DIRECT_INDEX_MANAGED_AGENTS = new Set<ManagedSession["agent"]>([
   "codex-aisdk",
   "opencode",
   "pi",
+  "grok",
+  "cursor",
+  "fx",
+  "copilot",
+  "jcode",
 ]);
 
 type SessionProfile = {
@@ -282,10 +294,13 @@ export type SessionMsg = {
   // exactly what lets computeStatus avoid false "build paused" banners on
   // sessions that are debugging or summarizing those errors.
   apiError?: boolean;
+  /** Persisted product author. Old rows use explicit legacy:unknown. */
+  author?: MessageAuthorRef;
 };
 
 export type Session = {
   agent: CodingAgentKind;
+  runtime?: "tmux" | "command-file";
   // Display-name override from a custom agent profile (see src/agent-profile.ts),
   // or null/absent to fall back to the agent kind. Currently only pi-backed
   // sessions can set this.
@@ -302,6 +317,15 @@ export type Session = {
   parentNativeSessionId?: string | null;
   parentAgent?: string | null;
   spawnedBy?: string | null;
+  /** Durable product identity. This, not the runtime id, selects the surface. */
+  conversationId?: string | null;
+  /** Bot configuration revision loaded when this runtime started. */
+  appliedConfigRevision?: number | null;
+  /** Additive product contract used by clients during the legacy migration. */
+  conversation?: Conversation | null;
+  botId?: string;
+  botName?: string;
+  persistent?: boolean;
   /** Capability contract/tool catalog recorded when this managed session launched. */
   capabilityVersion?: string | null;
   /** True when a long-lived managed session predates the current LFG capability contract. */
@@ -471,7 +495,7 @@ export function managedLaunchRow(
   const sessionId = m.sessionId ?? m.nativeSessionId ?? null;
   if (!sessionId) return null;
   const agent = m.agent ?? "claude";
-  const commandFile = isCommandFileAgent(agent);
+  const commandFile = usesCommandFileRuntime(agent, m.runtime);
   const candidateEntry = commandFile ? findAisdkEntryByAnyId(sessionId) : null;
   const directEntry = candidateEntry && isPidAlive(candidateEntry.harnessPid)
     ? candidateEntry
@@ -487,7 +511,16 @@ export function managedLaunchRow(
   // Keep showing it through a bounded boot window, then let it go so a harness
   // that died on startup does not linger forever.
   const booting = commandFile && !directEntry && Date.now() - m.createdAt < MANAGED_BOOT_GRACE_MS;
-  if (commandFile && m.launchState !== "launching" && !directEntry && !booting) return null;
+  // A harness that died still belongs in the list IF it managed to say why.
+  // Dropping it was the second half of the "stuck on thinking dots" report: a
+  // session whose agent could not start showed the spinner for the boot grace
+  // window and then disappeared from the list entirely, so the reason it had
+  // written to its transcript was never rendered and the user was left with a
+  // vanished session and no explanation at all. Anything with indexed messages
+  // has something to show; only a genuinely empty dead session is dropped.
+  const explained = commandFile && !directEntry && !booting && sessionHasIndexedMessages(sessionId);
+  if (commandFile && m.launchState !== "launching" && !directEntry && !booting && !explained)
+    return null;
   const pid = commandFile ? (directEntry?.harnessPid ?? 0) : (tmux.panePid(m.tmuxName) ?? 0);
   if (pid && isClosing(pid)) return null;
   const tmuxTarget = commandFile
@@ -506,6 +539,8 @@ export function managedLaunchRow(
         ? `grok --model ${m.model ?? ""}`.trim()
         : agent === "cursor"
           ? `agent --model ${m.model ?? ""}`.trim()
+        : agent === "fx"
+          ? `fx acp --model ${m.model ?? ""}`.trim()
           : agent === "jcode"
             ? `jcode --model ${m.model ?? ""} repl`.trim()
           : agent === "hermes"
@@ -518,11 +553,12 @@ export function managedLaunchRow(
   const cmd = pid ? readProcCmd(pid, fallbackCmd) : fallbackCmd;
   const model = m.model ?? cmd.match(/--model\s+(\S+)/)?.[1] ?? null;
   const transcriptPath =
-    m.agent && DIRECT_INDEX_MANAGED_AGENTS.has(m.agent) && sessionId
+    commandFile && m.agent && DIRECT_INDEX_MANAGED_AGENTS.has(m.agent) && sessionId
       ? sessionIndexKey(sessionId)
       : null;
   return {
     agent,
+    runtime: commandFile ? "command-file" : "tmux",
     pid,
     cmd,
     cwd: m.cwd,
@@ -535,16 +571,22 @@ export function managedLaunchRow(
     parentNativeSessionId: m.parentNativeSessionId ?? null,
     parentAgent: m.parentAgent ?? null,
     spawnedBy: m.spawnedBy ?? null,
+    conversationId: m.conversationId ?? null,
+    appliedConfigRevision: m.appliedConfigRevision ?? null,
+    botId: m.botId,
+    persistent: m.persistent,
     capabilityVersion: m.capabilityVersion ?? null,
     capabilitiesStale: m.capabilityVersion !== OMG_CAPABILITY_VERSION,
     // Still booting counts as launching: the record says "running" but the
     // harness has not come up yet, and the card should say so rather than
     // present an agent that cannot take a message yet as ready.
-    launching: m.launchState === "launching" || booting,
+    // A harness that has already died is NOT launching, whatever the record
+    // says — claiming otherwise is what rendered the endless thinking dots.
+    launching: !explained && (m.launchState === "launching" || booting),
     startedAt: m.createdAt,
     transcriptPath,
     lastActivityAt: m.createdAt,
-    last: null,
+    last: explained ? lastIndexedAssistantMessage(sessionId) : null,
     tmuxTarget,
     tmuxName: m.tmuxName,
     managed: true,
@@ -554,7 +596,19 @@ export function managedLaunchRow(
         ? model
         : modelAlias(model),
     thinkingLevel: m.thinkingLevel ?? null,
-    ...computeStatus(null, null),
+    // The harness is gone, so there is nobody left to retry: a dead session
+    // with a recorded reason is blocked, and says so. computeStatus cannot
+    // reach this conclusion on its own — it keys off `apiError`, which lives on
+    // the live SDK envelope and is not carried by the transcript index.
+    ...(explained
+      ? {
+          status: "blocked" as const,
+          statusReason: "provider_error" as const,
+          statusDetail:
+            lastIndexedAssistantMessage(sessionId)?.text?.replace(/\s+/g, " ").trim().slice(0, 180) ||
+            "The coding agent stopped before it could start.",
+        }
+      : computeStatus(null, null)),
   };
 }
 
@@ -564,6 +618,10 @@ function managedLineage(m: ManagedSession | undefined): Pick<
   | "parentNativeSessionId"
   | "parentAgent"
   | "spawnedBy"
+  | "conversationId"
+  | "appliedConfigRevision"
+  | "botId"
+  | "persistent"
   | "capabilityVersion"
   | "capabilitiesStale"
   | "claudeAccountId"
@@ -573,6 +631,10 @@ function managedLineage(m: ManagedSession | undefined): Pick<
     parentNativeSessionId: m?.parentNativeSessionId ?? null,
     parentAgent: m?.parentAgent ?? null,
     spawnedBy: m?.spawnedBy ?? null,
+    conversationId: m?.conversationId ?? null,
+    appliedConfigRevision: m?.appliedConfigRevision ?? null,
+    botId: m?.botId,
+    persistent: m?.persistent,
     capabilityVersion: m?.capabilityVersion ?? null,
     capabilitiesStale: !!m && m.capabilityVersion !== OMG_CAPABILITY_VERSION,
     claudeAccountId: m?.claudeAccountId ?? null,
@@ -2410,10 +2472,17 @@ export async function listSessions(): Promise<Session[]> {
     // would emit a SECOND row with the SAME visible sessionId (via
     // managedVisibleId) whose busy flag comes from the log pane (always idle),
     // clobbering the registry row's live busy state in the client.
+    //
+    // Ancestry is the primary test, mirroring the claude scan above. The tmux
+    // lookup that follows cannot see a codex-aisdk harness at all: it runs
+    // headless under `systemd-run` with no tmux session, so targetForPid()
+    // returns null and the guard silently never fires. That is how the `codex
+    // exec` child surfaced as its own root-level row.
+    if (hasAncestorPid(p.pid, harnessPids)) continue;
     {
       const t = tmux.targetForPid(p.pid);
       const rec = t ? managedByName.get(t.split(":")[0]) : undefined;
-      if (rec && isCommandFileAgent(rec.agent)) continue;
+      if (rec && usesCommandFileRuntime(rec.agent, rec.runtime)) continue;
     }
 
     let cwd: string | null = null;
@@ -2427,6 +2496,12 @@ export async function listSessions(): Promise<Session[]> {
     } catch {}
     profile?.add("codex_proc_reads_sum_ms", performance.now() - procT0);
     let sessionId = p.cmd.match(new RegExp(`(?:resume|fork)\\s+(${UUID.source})`))?.[1] ?? null;
+    // Id backstop, for when the ancestry walk misses (harness restarted, or the
+    // engine reparented away from it). A `resume <uuid>` that names a live
+    // codex-aisdk thread or harness key IS that session, not a second one —
+    // both ids resolve to the same transcript downstream, so emitting a row
+    // here can only ever produce a duplicate.
+    if (sessionId && (claimedCodex.has(sessionId) || aisdkSessionIds.has(sessionId))) continue;
     let thread = sessionId ? codex.find((t) => t.id === sessionId) : null;
     const prompt = codexPromptFromCmd(p.cmd);
     if (!thread && cwd && prompt) {
@@ -2818,8 +2893,9 @@ export async function listSessions(): Promise<Session[]> {
     const isCodex = e.agent === "codex";
     const isOpencode = e.agent === "opencode";
     const isPi = e.agent === "pi";
+    const publicAgent = isCodex ? "codex-aisdk" : (e.agent ?? "claude") === "claude" ? "aisdk" : e.agent!;
     const codexThreadId = isCodex ? (e.threadId ?? null) : null;
-    const nativeSessionId = isCodex || isOpencode || isPi ? (e.threadId ?? null) : e.sessionId;
+    const nativeSessionId = e.agent === "claude" || !e.agent ? e.sessionId : (e.threadId ?? null);
     const managedRec = e.tmuxName ? managedByName.get(e.tmuxName) : undefined;
     rememberNativeSession(managedRec, nativeSessionId);
     const sessionId = managedVisibleId(managedRec, e.sessionId) ?? e.sessionId;
@@ -2857,7 +2933,8 @@ export async function listSessions(): Promise<Session[]> {
       startedAt = statSync(`/proc/${e.harnessPid}`).ctimeMs;
     } catch {}
     out.push({
-      agent: isCodex ? "codex-aisdk" : isOpencode ? "opencode" : isPi ? "pi" : "aisdk",
+      agent: publicAgent,
+      runtime: "command-file",
       // Only pi carries a profile display-name override today; other backends
       // leave it null.
       agentLabel: isPi ? (e.agentLabel ?? null) : null,
@@ -2868,7 +2945,9 @@ export async function listSessions(): Promise<Session[]> {
           ? `lfg opencode-aisdk-session --model ${e.model}`
           : isPi
             ? `lfg pi-session --model ${e.model}`
-            : `lfg aisdk-session --model ${e.model}`,
+            : publicAgent === "aisdk"
+              ? `lfg aisdk-session --model ${e.model}`
+              : `lfg ${publicAgent}-session --model ${e.model}`,
       cwd: e.cwd,
       project,
       title,
@@ -2890,7 +2969,7 @@ export async function listSessions(): Promise<Session[]> {
       // Codex slugs and opencode "provider/model" ids aren't Claude aliases —
       // pass them through raw. modelAlias would leave them unchanged anyway, but
       // be explicit about intent.
-      model: isCodex || isOpencode ? e.model : modelAlias(e.model),
+      model: publicAgent === "aisdk" || isPi ? modelAlias(e.model) : e.model,
       thinkingLevel: e.thinkingLevel ?? managedRec?.thinkingLevel ?? null,
       ...(e.recoveredAt
         ? {
@@ -2948,6 +3027,52 @@ export async function listSessions(): Promise<Session[]> {
     for (const key of busyCache.keys()) if (!live.has(key)) busyCache.delete(key);
     for (const s of out) s.busy = sessionBusy(s);
   });
+  const bots = await listBots();
+  const botById = new Map(bots.map((bot) => [bot.id, bot]));
+  const botBySessionId = new Map<string, (typeof bots)[number]>();
+  for (const bot of bots) {
+    if (bot.sessionId) botBySessionId.set(bot.sessionId, bot);
+  }
+  for (const session of out) {
+    const ownBot = session.botId ? botById.get(session.botId) : undefined;
+    if (ownBot) {
+      session.botName = ownBot.name;
+      if (session.sessionId) botBySessionId.set(session.sessionId, ownBot);
+      if (session.nativeSessionId) botBySessionId.set(session.nativeSessionId, ownBot);
+      continue;
+    }
+    const parentId = session.parentSessionId ?? session.parentNativeSessionId;
+    const parentBot = parentId ? botBySessionId.get(parentId) : undefined;
+    if (parentBot) {
+      session.botId = parentBot.id;
+      session.botName = parentBot.name;
+    }
+  }
+  // Materialize the product model only after lineage has been resolved. Child
+  // runtimes can then inherit the parent's conversation attachment without
+  // ever joining its participant roster or becoming its selected surface.
+  const conversations = migrateLegacyConversations({
+    sessions: out,
+    bots,
+    roster: userRoster(),
+  });
+  const conversationByRuntime = new Map<string, Conversation>();
+  for (const conversation of conversations) {
+    for (const attachment of conversation.runtimeSessions) {
+      conversationByRuntime.set(attachment.sessionId, conversation);
+    }
+  }
+  for (const session of out) {
+    const explicit = session.conversationId
+      ? conversations.find((row) => row.id === session.conversationId)
+      : undefined;
+    const conversation = explicit ?? (session.sessionId
+      ? conversationByRuntime.get(session.sessionId)
+      : undefined);
+    if (!conversation) continue;
+    session.conversationId = conversation.id;
+    session.conversation = conversation;
+  }
   profile?.end(out.length);
   return out;
 }
@@ -3020,6 +3145,35 @@ function ppidOf(pid: number): number | null {
   }
 }
 
+/**
+ * True when any ancestor of `pid` (up to `maxDepth` hops) is in `pids`.
+ *
+ * A direct-ppid check covers a child the harness spawns itself, but engine
+ * processes are not always one hop away — an SDK may put a wrapper in between,
+ * and that distance is a vendored dependency's implementation detail we
+ * shouldn't encode. Walking a few levels keeps the filter correct when it
+ * changes. Bounded so a cycle or a bad /proc read can't spin.
+ *
+ * `parentOf` is injectable for tests; production always reads /proc.
+ */
+export function hasAncestorPid(
+  pid: number,
+  pids: ReadonlySet<number>,
+  maxDepth = 4,
+  parentOf: (pid: number) => number | null = ppidOf,
+): boolean {
+  let cur = pid;
+  for (let i = 0; i < maxDepth; i++) {
+    const parent = parentOf(cur);
+    // pid 1 and below is init/kernel — no harness lives there, and continuing
+    // past it would walk every session into the same shared ancestry.
+    if (parent === null || !Number.isFinite(parent) || parent <= 1) return false;
+    if (pids.has(parent)) return true;
+    cur = parent;
+  }
+  return false;
+}
+
 // A subagent launched via containedAgentCommand runs as a systemd transient
 // service (`systemd-run --user --unit=lfg-agent-<tmuxName> --slice=lfg-agents.slice`),
 // so systemd reparents it out of the tmux pane's process tree and the ppid walk
@@ -3041,11 +3195,18 @@ export async function resolveTranscript(sessionId: string): Promise<string | nul
   const managed = listManaged().find(
     (m) => m.sessionId === sessionId || m.nativeSessionId === sessionId,
   );
+  // Command-file Grok/Cursor/Copilot/JCode (and the older SDK agents) index
+  // directly. Do this before the native-file branches: those agents still have
+  // managed.agent === "cursor"/"jcode"/… on new rows, and hunting ~/.cursor or
+  // ~/.jcode returns null — or worse, another session's journal in the same cwd.
+  if (managed && usesCommandFileRuntime(managed.agent, managed.runtime)) {
+    return sessionIndexKey(managed.sessionId ?? sessionId);
+  }
   // cursor: the transcript lives under ~/.cursor/projects/<enc-cwd>/… named by
   // cursor's own chat id (not lfg's id). Resolve by remembered native id first,
   // else by the newest transcript in the session's cwd. Handle it here so the
   // claude-oriented cwd fallback below (which assumes ~/.claude/projects) never
-  // fires for cursor.
+  // fires for a legacy tmux cursor row.
   if (managed?.agent === "cursor") {
     if (managed.nativeSessionId) {
       const byId = await findCursorTranscriptById(managed.nativeSessionId);
@@ -3070,9 +3231,6 @@ export async function resolveTranscript(sessionId: string): Promise<string | nul
   }
   if (managed?.agent === "codex") {
     return await findManagedCodexTranscript(managed);
-  }
-  if (managed?.agent && DIRECT_INDEX_MANAGED_AGENTS.has(managed.agent)) {
-    return sessionIndexKey(managed.sessionId ?? sessionId);
   }
   const entry = findAisdkEntryByAnyId(sessionId);
   if (entry) return sessionIndexKey(entry.sessionId);
@@ -3160,8 +3318,8 @@ export type ResumableSession = {
   // Which engine the session was recorded with. "claude" resumes via the claude
   // CLI (`claude --resume`); "codex" resumes via a codex-aisdk harness keyed to
   // the rollout's threadId. The serve /resume endpoint branches on this.
-  agent: "claude" | "codex" | "opencode" | "pi" | "grok" | "cursor";
-  backend?: "aisdk" | "codex-aisdk" | "opencode" | "pi";
+  agent: "claude" | "codex" | "opencode" | "pi" | "grok" | "cursor" | "fx" | "copilot" | "jcode";
+  backend?: "aisdk" | "codex-aisdk" | "opencode" | "pi" | "grok" | "cursor" | "fx" | "copilot" | "jcode";
   resumeHandle?: string | null;
   model?: string | null;
   assignedUser?: string | null;
@@ -3455,14 +3613,18 @@ async function refreshResumableCacheOnce(focusSessionId?: string): Promise<void>
         ? "opencode"
         : m.agent === "pi"
           ? "pi"
-          : "aisdk";
+          : m.agent === "grok" || m.agent === "cursor" || m.agent === "copilot" || m.agent === "jcode"
+            ? m.agent
+            : "aisdk";
     const agent = backend === "codex-aisdk"
       ? "codex"
       : backend === "opencode"
         ? "opencode"
-        : backend === "pi"
-          ? "pi"
-          : "claude";
+      : backend === "pi"
+        ? "pi"
+        : backend === "grok" || backend === "cursor" || backend === "copilot" || backend === "jcode"
+          ? backend
+        : "claude";
     const sdkEntry = sdkEntries.get(m.sessionId);
     const resumeHandle = backend === "aisdk"
       ? m.sessionId

@@ -118,3 +118,15 @@ export function initialCmdOffset(cmdFile: string): number {
   if (persisted === null) return size;
   return persisted > size ? 0 : persisted;
 }
+
+// Where a managed SDK harness should begin reading.
+//
+// First launch (no recoveredAt): consume from the persisted cursor, or from
+// byte 0. Commands queued while createRuntime connects — or written before the
+// process even started — must not be skipped. Recovery and old pre-cursor rows
+// keep initialCmdOffset: the durable cursor wins, and a missing cursor seeds
+// from the current end so historical commands are not replayed.
+export function managedSdkStartupCmdOffset(cmdFile: string, recoveredAt: number | null): number {
+  if (recoveredAt) return initialCmdOffset(cmdFile);
+  return readCursor(cmdFile) ?? 0;
+}

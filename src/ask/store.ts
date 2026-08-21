@@ -36,6 +36,22 @@ export type AskQuestion = {
   answeredAt?: number | null;
 };
 
+/**
+ * Decide whether a user-scoped feed may show one question.
+ *
+ * New questions carry `user` directly. Older shared-MCP questions can be
+ * unassigned even though their owning session is assigned, so fall back to
+ * the session relationship without exposing a truly ownerless question.
+ */
+export function questionVisibleToUser(
+  question: Pick<AskQuestion, "user" | "sessionId">,
+  user: string,
+  ownedSessionIds: ReadonlySet<string>,
+): boolean {
+  if (question.user) return question.user === user;
+  return !!question.sessionId && ownedSessionIds.has(question.sessionId);
+}
+
 const dir = () => join(PATHS.data, "ask");
 const path = () => join(dir(), "questions.jsonl");
 

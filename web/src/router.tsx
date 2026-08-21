@@ -65,7 +65,41 @@ const tabRoute = createRoute({
   component: () => null,
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, tabRoute]);
+// Bot chats keep the Bots page selected while adding a durable bot id to the
+// path. App owns the master/detail render so this route remains component-less.
+const botRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "bots/$botId",
+  validateSearch: validateAppSearch,
+  component: () => null,
+});
+
+// Making or editing a bot is its OWN page, at its own URL — not a sheet over
+// the bots list. A form this long (name, persona, face, colour, repo, model) is
+// a place you go to, so back/forward and the phone's back gesture have to leave
+// it the way they leave any other page. Static `bots/new` outranks the
+// `bots/$botId` param route, so "new" can never be read as a bot id.
+const botNewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "bots/new",
+  validateSearch: validateAppSearch,
+  component: () => null,
+});
+
+const botEditRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "bots/$botId/edit",
+  validateSearch: validateAppSearch,
+  component: () => null,
+});
+
+const routeTree = rootRoute.addChildren([
+  indexRoute,
+  tabRoute,
+  botRoute,
+  botNewRoute,
+  botEditRoute,
+]);
 
 export function createOmgRouter(history?: RouterHistory) {
   return createRouter({

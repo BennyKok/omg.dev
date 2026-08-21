@@ -20,6 +20,7 @@ import {
   sweepExpiredQuestions,
   waitForAnswer,
   formatPushbackAnswerText,
+  questionVisibleToUser,
   ASK_TTL_MS,
 } from "../src/ask/store.ts";
 
@@ -40,6 +41,36 @@ beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "lfg-ask-"));
   await mkdir(join(dir, "ask"), { recursive: true });
   PATHS.data = dir;
+});
+
+describe("questionVisibleToUser", () => {
+  const owned = new Set(["session-owned"]);
+
+  test("uses the explicit question owner when present", () => {
+    expect(questionVisibleToUser({ user: "me@example.com" }, "me@example.com", owned)).toBe(true);
+    expect(questionVisibleToUser({ user: "other@example.com" }, "me@example.com", owned)).toBe(false);
+  });
+
+  test("recovers an old unassigned question through its assigned session", () => {
+    expect(
+      questionVisibleToUser(
+        { user: null, sessionId: "session-owned" },
+        "me@example.com",
+        owned,
+      ),
+    ).toBe(true);
+  });
+
+  test("does not expose a truly ownerless or foreign question", () => {
+    expect(questionVisibleToUser({ user: null, sessionId: null }, "me@example.com", owned)).toBe(false);
+    expect(
+      questionVisibleToUser(
+        { user: null, sessionId: "session-foreign" },
+        "me@example.com",
+        owned,
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("dismissQuestion", () => {

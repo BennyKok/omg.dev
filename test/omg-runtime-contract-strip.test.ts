@@ -83,6 +83,47 @@ describe("stripOmgRuntimeContract", () => {
     expect(sessionTitleFromPrompt("   ")).toBeNull();
   });
 
+  // Delegated work carries a SECOND envelope: serve.ts wraps the prompt in the
+  // subagent contract, then the harness wraps that in the runtime contract. Only
+  // stripping the outer one left every subagent card titled
+  // "=== LFG SUBAGENT OPERATING CONTRACT === - You are an LFG-managed subage…".
+  const subagentEnvelope = (task: string) =>
+    [
+      "=== LFG SUBAGENT OPERATING CONTRACT ===",
+      "- You are an LFG-managed subagent.",
+      "- Parent session id: 51e5799d. Send progress there.",
+      "=== USER TASK ===",
+      task,
+    ].join("\n");
+
+  test("strips the subagent envelope, which has no end marker", () => {
+    expect(stripOmgRuntimeContract(subagentEnvelope("Fix the redirect loop"))).toBe(
+      "Fix the redirect loop",
+    );
+  });
+
+  test("strips both envelopes when a subagent prompt is wrapped for launch", () => {
+    const wrapped = withOmgRuntimeContract(subagentEnvelope("Fix the redirect loop"))!;
+    expect(stripOmgRuntimeContract(wrapped)).toBe("Fix the redirect loop");
+    expect(sessionTitleFromPrompt(wrapped)).toBe("Fix the redirect loop");
+  });
+
+  test("strips the subagent envelope after card whitespace collapsing", () => {
+    const flattened = withOmgRuntimeContract(subagentEnvelope("Fix the redirect loop"))!.replace(
+      /\s+/g,
+      " ",
+    );
+    expect(stripOmgRuntimeContract(flattened)).toBe("Fix the redirect loop");
+  });
+
+  test("keeps an unterminated subagent envelope rather than guessing", () => {
+    // No USER_TASK marker means there is no way to tell contract from task.
+    const unterminated = "=== LFG SUBAGENT OPERATING CONTRACT ===\n- You are a subagent.";
+    expect(stripOmgRuntimeContract(unterminated)).toBe(unterminated);
+    const taskless = `${subagentEnvelope("")}`;
+    expect(stripOmgRuntimeContract(taskless)).toBe(taskless);
+  });
+
   test("survives the whitespace collapsing that card previews apply", () => {
     // Titles flatten to one line; the markers must still be findable after it.
     const flattened = withOmgRuntimeContract("Ship the fix")!.replace(/\s+/g, " ");

@@ -5,15 +5,20 @@ import { join } from "node:path";
 import {
   claudeConfigDirs,
   cleanAuthOutput,
+  codingAgentVisible,
   getCodingAgentAuth,
+  isLoginPending,
   listCodingAgents,
   parseAuthOutput,
+  pendingCodingAgentLogins,
+  setCodingAgentVisibility,
   startCodingAgentAuth,
   startToolAuth,
   withCursorOmgMcp,
   withJcodeOmgMcp,
   withOpencodeOmgMcp,
 } from "./coding-agents.ts";
+import { PATHS } from "./config.ts";
 
 const COPILOT_ENV_KEYS = ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"] as const;
 
@@ -124,6 +129,33 @@ describe("coding agent browser auth output", () => {
     expect(parseAuthOutput("codex", output)).toEqual({
       authorizationUrl: "https://auth.openai.com/codex/device",
       userCode: "42DX-1KQLE",
+      needsCode: false,
+    });
+  });
+
+  // Captured verbatim from `fx login` against fx 0.0.3. fx has no
+  // --device-auth flag: `fx login` is itself the Vercel device flow.
+  test("extracts the Vercel verification URL and device code for fx", () => {
+    const output = [
+      "Open https://vercel.com/oauth/device?user_code=XFCJ-ZGNJ",
+      "Code: XFCJ-ZGNJ",
+      "",
+      "Waiting for authentication...",
+    ].join("\n");
+
+    expect(parseAuthOutput("fx", output)).toEqual({
+      authorizationUrl: "https://vercel.com/oauth/device?user_code=XFCJ-ZGNJ",
+      userCode: "XFCJ-ZGNJ",
+      needsCode: false,
+    });
+  });
+
+  test("falls back to the printed Code line when fx omits the code from the URL", () => {
+    const output = ["Open https://vercel.com/oauth/device", "Code: XFCJ-ZGNJ"].join("\n");
+
+    expect(parseAuthOutput("fx", output)).toEqual({
+      authorizationUrl: "https://vercel.com/oauth/device",
+      userCode: "XFCJ-ZGNJ",
       needsCode: false,
     });
   });
@@ -387,6 +419,23 @@ describe("coding agent auth detection", () => {
     expect((await opencodeStatus(home)).accountConnected).toBe(true);
   });
 
+  test("OpenCode offers Go and Zen as connectable rows before any sign-in", async () => {
+    const home = useTmpHome();
+    // The settings page renders `status.providers`, so a box with no auth.json
+    // has to carry the rows or "connect Go" has nowhere to live.
+    const providers = (await opencodeStatus(home)).providers ?? [];
+    expect(providers.map((p) => p.id)).toEqual(["opencode-go", "opencode"]);
+    expect(providers.every((p) => p.method === "api-key" && !p.connected)).toBe(true);
+  });
+
+  test("a stored Go key shows as a connected, disconnectable row", async () => {
+    const home = useTmpHome();
+    writeOpencodeAuth(home, { "opencode-go": { type: "api", key: "sk-test" } });
+    const go = ((await opencodeStatus(home)).providers ?? []).find((p) => p.id === "opencode-go");
+    expect(go?.connected).toBe(true);
+    expect(go?.fromEnv).toBeUndefined();
+  });
+
   test("Jcode reports a configured provider without claiming a connected account", async () => {
     const home = useTmpHome();
     setEnv("PATH", home);
@@ -402,6 +451,22 @@ describe("coding agent auth detection", () => {
     const status = agents.find((agent) => agent.key === "jcode")?.status;
     expect(status?.configured).toBe(true);
     expect(status?.accountConnected).toBe(false);
+  });
+
+  test("a missing jcode CLI still offers Claude and Codex Connect rows", async () => {
+    const home = useTmpHome();
+    setEnv("PATH", home);
+    setEnv("LFG_JCODE_PATH", join(home, "missing-jcode"));
+
+    const agents = await listCodingAgents();
+    const status = agents.find((agent) => agent.key === "jcode")?.status;
+    expect(status?.configured).toBe(false);
+    expect(status?.canLoginInTerminal).toBe(false);
+    expect(status?.providers?.map((provider) => ({ id: provider.id, label: provider.label }))).toEqual([
+      { id: "claude", label: "Claude" },
+      { id: "openai", label: "Codex" },
+    ]);
+    expect(status?.providers?.every((provider) => !provider.connected)).toBe(true);
   });
 
   test("Jcode reports stored provider credentials as a connected account", async () => {
@@ -530,5 +595,158 @@ describe("pi provider sign-in", () => {
 
   test("agents with no browser login still say so", async () => {
     expect(startCodingAgentAuth("cursor")).rejects.toThrow(/does not support browser login/i);
+  });
+});
+
+/**
+ * A login is real work, and this box is the only thing that can see it.
+ *
+ * The host polls GET /api/sessions to decide whether this machine is idle
+ * enough to hibernate, and that answer used to describe agent sessions only. So
+ * a box with a half-finished Claude sign-in reported nothing to hold it up and
+ * was hibernated under the user. That is what happened to a paying customer on
+ * 2026-08-17: he clicked Login, his machine slept, and he never ran an agent.
+ *
+ * This box REPORTS; the host DECIDES. These tests pin the reporting contract,
+ * because it is the input every host-side idle rule is built on.
+ */
+describe("pending login reporting", () => {
+  const TTL = 15 * 60 * 1000;
+  const now = 1_000_000;
+  const live = { status: "waiting", expiresAt: now + TTL };
+
+  test("a login a user could still finish counts as work", () => {
+    expect(isLoginPending(live, now)).toBe(true);
+    // "starting" is the window before the authorization URL has been scraped.
+    // The customer's machine slept while he was mid-flow, so this window must
+    // count exactly as much as "waiting" does.
+    expect(isLoginPending({ status: "starting", expiresAt: now + TTL }, now)).toBe(true);
+  });
+
+  test("a finished login is not work", () => {
+    // Neither ending leaves anything for the user to come back to.
+    expect(isLoginPending({ status: "complete", expiresAt: now + TTL }, now)).toBe(false);
+    expect(isLoginPending({ status: "error", expiresAt: now + TTL }, now)).toBe(false);
+  });
+
+  test("an expired login is an abandoned tab, not work", () => {
+    // The self-limit. Without it a walked-away user could pin a machine awake
+    // indefinitely, which is the cost regression that makes any host-side
+    // policy unsafe to trust.
+    expect(isLoginPending({ ...live, expiresAt: now - 1 }, now)).toBe(false);
+
+    // Exactly at the deadline still counts: the boundary belongs to the user.
+    expect(isLoginPending({ ...live, expiresAt: now }, now)).toBe(true);
+  });
+
+  test("a quiet box reports no pending logins", () => {
+    // The default answer for the overwhelming majority of polls. If this were
+    // ever non-zero at rest, every machine would stop hibernating at all.
+    expect(pendingCodingAgentLogins(now)).toBe(0);
+  });
+});
+
+describe("coding agent visibility", () => {
+  test("defaults on when ready and off when not, and keeps an explicit hide", () => {
+    expect(codingAgentVisible(undefined, false)).toBe(false);
+    expect(codingAgentVisible(undefined, true)).toBe(true);
+    expect(codingAgentVisible(true, false)).toBe(false);
+    expect(codingAgentVisible(true, true)).toBe(true);
+    expect(codingAgentVisible(false, true)).toBe(false);
+    expect(codingAgentVisible(false, false)).toBe(false);
+  });
+
+  const savedEnv: Record<string, string | undefined> = {};
+  const originalData = PATHS.data;
+  let tmpHome = "";
+  let tmpData = "";
+
+  const setEnv = (key: string, value: string | undefined) => {
+    savedEnv[key] ??= process.env[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  };
+
+  const useIsolatedBox = () => {
+    tmpHome = mkdtempSync(join(tmpdir(), "lfg-agent-visible-home-"));
+    tmpData = mkdtempSync(join(tmpdir(), "lfg-agent-visible-data-"));
+    PATHS.data = tmpData;
+    setEnv("HOME", tmpHome);
+    setEnv("PATH", tmpHome);
+    setEnv("ANTHROPIC_API_KEY", undefined);
+    setEnv("OPENAI_API_KEY", undefined);
+    setEnv("XAI_API_KEY", undefined);
+    setEnv("CURSOR_API_KEY", undefined);
+    setEnv("AI_GATEWAY_API_KEY", undefined);
+    setEnv("COPILOT_GITHUB_TOKEN", undefined);
+    setEnv("GH_TOKEN", undefined);
+    setEnv("GITHUB_TOKEN", undefined);
+    setEnv("LFG_OPENCODE_PATH", undefined);
+    setEnv("LFG_GROK_PATH", undefined);
+    setEnv("LFG_JCODE_PATH", undefined);
+    setEnv("LFG_CLAUDE_PATH", undefined);
+    setEnv("LFG_CODEX_PATH", undefined);
+    setEnv("LFG_CURSOR_PATH", undefined);
+    setEnv("LFG_FX_PATH", undefined);
+    setEnv("LFG_COPILOT_PATH", undefined);
+    return { home: tmpHome, data: tmpData };
+  };
+
+  afterEach(() => {
+    PATHS.data = originalData;
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    for (const key of Object.keys(savedEnv)) delete savedEnv[key];
+    if (tmpHome) {
+      rmSync(tmpHome, { recursive: true, force: true });
+      tmpHome = "";
+    }
+    if (tmpData) {
+      rmSync(tmpData, { recursive: true, force: true });
+      tmpData = "";
+    }
+  });
+
+  test("listCodingAgents turns an unready agent off when nothing is saved", async () => {
+    useIsolatedBox();
+    const grok = (await listCodingAgents()).find((agent) => agent.key === "grok");
+    expect(grok?.status.configured).toBe(false);
+    expect(grok?.visible).toBe(false);
+  });
+
+  test("listCodingAgents turns a ready agent on when nothing is saved", async () => {
+    const { home } = useIsolatedBox();
+    const bin = join(home, "opencode");
+    writeFileSync(bin, "#!/bin/sh\nexit 0\n");
+    chmodSync(bin, 0o755);
+    setEnv("LFG_OPENCODE_PATH", bin);
+    const opencode = (await listCodingAgents()).find((agent) => agent.key === "opencode");
+    expect(opencode?.status.configured).toBe(true);
+    expect(opencode?.visible).toBe(true);
+  });
+
+  test("listCodingAgents keeps an explicit hide after the agent is ready", async () => {
+    const { home } = useIsolatedBox();
+    const bin = join(home, "opencode");
+    writeFileSync(bin, "#!/bin/sh\nexit 0\n");
+    chmodSync(bin, 0o755);
+    setEnv("LFG_OPENCODE_PATH", bin);
+    await setCodingAgentVisibility("opencode", false);
+    const opencode = (await listCodingAgents()).find((agent) => agent.key === "opencode");
+    expect(opencode?.status.configured).toBe(true);
+    expect(opencode?.visible).toBe(false);
+  });
+
+  test("an old implicit-on value does not keep an unready agent on", async () => {
+    const { data } = useIsolatedBox();
+    writeFileSync(
+      join(data, "coding-agents.json"),
+      JSON.stringify({ agents: { grok: { visible: true } } }),
+    );
+    const grok = (await listCodingAgents()).find((agent) => agent.key === "grok");
+    expect(grok?.status.configured).toBe(false);
+    expect(grok?.visible).toBe(false);
   });
 });

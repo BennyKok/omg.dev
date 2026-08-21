@@ -188,6 +188,104 @@ describe("host bottom inset contract", () => {
     expect(css).toMatch(/\[data-lfg-host-slot\]:empty\s*\{\s*display:\s*none/);
   });
 
+  test("hosted mobile headers expose a header-actions slot instead of ceding the corner", () => {
+    const app = require("node:fs").readFileSync("web/src/App.tsx", "utf8") as string;
+    const css = require("node:fs").readFileSync("web/src/index.css", "utf8") as string;
+    // Two islands in one corner were held apart by --lfg-host-top-inset, whose
+    // value is a width constant in the HOST's stylesheet that has to equal the
+    // real box of a component in the HOST's tree. Two independently versioned
+    // repos, one hand-maintained number: it drifted ~1rem and the islands
+    // overlapped on a phone. One island cannot overlap itself.
+    expect(app).toContain('data-lfg-host-slot="header-actions"');
+    // Both embedded mobile headers carry it. The tablet header carries the
+    // third slot added in v0.2.14, so host controls stay docked at every width.
+    expect(app.match(/data-lfg-host-slot="header-actions"/g)?.length).toBe(3);
+    // Backward compatibility is the whole design: an older host that still
+    // floats its own island must see no change. The slot is inert until the
+    // host portals into it, and :empty is what makes that continuous.
+    expect(css).toMatch(/\[data-lfg-host-slot\]:empty\s*\{\s*display:\s*none/);
+    // The reservation stays. LFG must not guess that the host has adopted the
+    // slot: an old host floating over a zeroed inset is the same overlap
+    // again, from the other side. Zeroing belongs to whoever fills the slot.
+    expect(app).toContain('pr-[calc(0.75rem+var(--lfg-host-top-inset))]');
+    // Right corner, not appended to the back button. Docking is a layout fix
+    // and must not relocate the host's controls: the first cut of this put
+    // Computer and Settings beside "Live" on the LEFT, which moved a button
+    // across the screen as a side effect. justify-between + a slot that is a
+    // SIBLING of the back island, never a child of it, is what keeps the
+    // corner the corner.
+    expect(app).toMatch(
+      /<header className="z-40 flex shrink-0 items-center justify-between gap-2 pb-3 pl-3 pr-\[calc\(0\.75rem\+var\(--lfg-host-top-inset\)\)\][\s\S]*?<\/NavIsland>\s*\{\/\*[\s\S]*?\*\/\}\s*<span\s*\n\s*data-lfg-host-slot="header-actions"/,
+    );
+  });
+
+  test("embedded Pages menu carries the host's Settings so the island needn't", () => {
+    const app = require("node:fs").readFileSync("web/src/App.tsx", "utf8") as string;
+    // Embedded has no Settings tab of its own — the host mounts those pages —
+    // so the host kept a second control beside our menu just for it: three
+    // chips in one island for two destinations. The menu can carry it, since
+    // the host already hands us onOpenSettingsPage.
+    expect(app).toContain("onOpenHostSettings");
+    // A plain item, never a radio item: choosing it leaves LFG, so marking it
+    // current in a group describing which LFG page you are on would be false
+    // as soon as you came back.
+    expect(app).toMatch(
+      /onOpenHostSettings\(\);[\s\S]{0,120}<Settings className="size-5 shrink-0 text-muted-foreground" \/>/,
+    );
+    // Only when a host actually supplied the callback. Standalone must not
+    // grow a dead row, and `embedded` alone does not prove the host mounts
+    // settings pages.
+    // The host's settings ROOT, never onOpenSettingsPage — that one addresses
+    // the MACHINE's pages (omg routes it to /settings/computer), so wiring
+    // this entry to it swapped a general Settings control for a per-computer
+    // page behind a machine selector.
+    expect(app).toContain("const { onOpenHostSettings } = useEmbeddedHostOptions();");
+    expect(app).toContain("const hostSettingsInMenu = embedded && !!onOpenHostSettings;");
+    // Advertised on the slot so the host drops its gear on capability, not on
+    // an assumed version: docking into an older build that has no such item
+    // must leave the host's own control in place, or the surface has no route
+    // to settings at all.
+    expect(app).toContain('data-lfg-host-settings={hostSettingsInMenu ? "menu" : undefined}');
+    // Switcher first, overflow last: the host's Computer control is what people
+    // reach for, and a "⋮" sitting ahead of it reads as the main event.
+    expect(app).toMatch(
+      /data-lfg-host-slot="header-actions"[\s\S]*?<PagesMenu\s*\n\s*tab=\{tab\}/,
+    );
+  });
+
+  test("OmgAppSurface plumbs onOpenHostSettings through to the host options", () => {
+    // The gap this closes: every assertion above passes against a build where
+    // the entry can never appear. App.tsx reads onOpenHostSettings off the
+    // context, and the context type declares it — but OmgAppSurface, the only
+    // public way in, neither accepted the prop nor forwarded it. So
+    // `hostSettingsInMenu` was false for every host that ever existed: no
+    // Settings item in the Pages menu, and no data-lfg-host-settings flag, so
+    // omg's island kept its own gear and sat at three chips for two
+    // destinations — the exact crowding the menu entry was built to end.
+    //
+    // Assert the whole chain here rather than trusting the props type: a prop
+    // that is declared and destructured but dropped before the provider is the
+    // same dead feature with a green typecheck.
+    const embedded = require("node:fs").readFileSync(
+      "web/src/embedded.tsx",
+      "utf8",
+    ) as string;
+    expect(embedded).toContain("onOpenHostSettings?: () => void;");
+    expect(embedded).toMatch(
+      /export function OmgAppSurface\(\{[\s\S]*?onOpenHostSettings,[\s\S]*?\}: OmgAppSurfaceProps\)/,
+    );
+    expect(embedded).toMatch(
+      /<EmbeddedHostOptionsProvider\s*\n\s*value=\{\{[\s\S]*?onOpenHostSettings,[\s\S]*?\}\}/,
+    );
+    // Shipped types are hand-written here, so a host on the published package
+    // would get a type error for a prop the runtime honours.
+    const dts = require("node:fs").readFileSync(
+      "web/src/embedded.d.ts",
+      "utf8",
+    ) as string;
+    expect(dts).toContain("onOpenHostSettings?: () => void;");
+  });
+
   test("desktop embed zeroes host-bottom-inset (omg nav is top-middle)", () => {
     const css = require("node:fs").readFileSync("web/src/index.css", "utf8") as string;
     // Match omg useIsDesktop (lg = 1024). Mobile keeps the 2.75rem bottom pill.
@@ -275,13 +373,24 @@ describe("mobile overlay scroll contract", () => {
     const app = require("node:fs").readFileSync("web/src/App.tsx", "utf8") as string;
     const css = require("node:fs").readFileSync("web/src/index.css", "utf8") as string;
 
-    expect(app).toContain('tab === "live" || tab === "notifications" || tab === "artifacts"');
+    // Bots is a composer page too, so it reserves the same chrome as Live.
     expect(app).toContain(
-      "pb-[var(--lfg-inline-composer-height,var(--lfg-composer-clear))]",
+      'tab === "live" || tab === "bots" || tab === "notifications" || tab === "artifacts"',
     );
-    expect(app).not.toContain(
-      "pb-[calc(var(--lfg-inline-composer-height,var(--lfg-composer-clear))+var(--lfg-mobile-composer-fade-height))]",
-    );
+    // <main>'s bottom padding must clear the inline composer, but the exact
+    // expression has grown legitimate additive terms since this test was
+    // written (e.g. the bot-nav dock height). What must stay true is the
+    // regression this test exists for: that reserved space never also adds
+    // the fade's height, which would double-count space the fade only
+    // overlays instead of reserving. Match every pb-[...] that clears the
+    // composer and assert none of them fold in the fade height.
+    const composerClearances = [
+      ...app.matchAll(/pb-\[[^\]]*--lfg-inline-composer-height[^\]]*\]/g),
+    ].map((m) => m[0]);
+    expect(composerClearances.length, "no pb-[...] clears the inline composer height").toBeGreaterThan(0);
+    for (const clearance of composerClearances) {
+      expect(clearance).not.toContain("--lfg-mobile-composer-fade-height");
+    }
     expect(app).toContain(
       "mobile-scroll-composer-fade pointer-events-auto relative z-[55] mt-auto",
     );

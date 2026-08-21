@@ -101,7 +101,17 @@ describe("joined artifact + transcript reads", () => {
     expect(columns).toContain("width");
     expect(columns).toContain("height");
     expect(migrated.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version)
-      .toBe(11);
+      .toBe(12);
+    // Migration 12 drops the fts5 mirror. A v10 database carries one, so this
+    // asserts the upgrade path removes it rather than only new databases
+    // skipping it.
+    expect(
+      migrated
+        .query<{ name: string }, []>(
+          "SELECT name FROM sqlite_master WHERE name = 'transcript_messages_fts'",
+        )
+        .all(),
+    ).toEqual([]);
     migrated.close();
   });
 

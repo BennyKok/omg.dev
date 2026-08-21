@@ -30,7 +30,16 @@ export type ResumableCacheRow = ResumableSession & {
   resumable?: boolean;
 };
 
-export type ResumableBackend = "aisdk" | "codex-aisdk" | "opencode" | "pi";
+export type ResumableBackend =
+  | "aisdk"
+  | "codex-aisdk"
+  | "opencode"
+  | "pi"
+  | "grok"
+  | "cursor"
+  | "fx"
+  | "copilot"
+  | "jcode";
 
 export type ResumableQuery = {
   limit?: number;
@@ -195,7 +204,8 @@ function toSession(row: Row): ResumableSession {
       row.agent === "opencode" ||
       row.agent === "pi" ||
       row.agent === "grok" ||
-      row.agent === "cursor"
+      row.agent === "cursor" ||
+      row.agent === "fx"
         ? row.agent
         : "claude"
     ) as ResumableSession["agent"],

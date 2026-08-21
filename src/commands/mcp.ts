@@ -16,6 +16,8 @@ import {
   SHORT_SESSION_ID_LENGTH,
 } from "../omg-capabilities.ts";
 import { shippedCloseDecision } from "../shipped-lifecycle.ts";
+import { BOT_COLORWAYS, BOT_SHAPES } from "../bots/store.ts";
+import { BOT_PEER_MESSAGE_MAX_CHARS } from "../bots/messaging.ts";
 
 type Repo = { name: string; cwd: string; project?: string };
 type SessionRow = {
@@ -35,6 +37,7 @@ type SessionRow = {
   status?: string | null;
   assignedUser?: string | null;
   lastActivityAt?: number | null;
+  botId?: string | null;
   // Only present on /api/sessions?full=1 (the verbose listing); the default
   // list response drops the spawn command line.
   cmd?: string;
@@ -91,8 +94,18 @@ type OriginDeliveryResponse = {
 
 const VERSION = "0.1.21";
 
+// Header name the server reads to resolve "which bot is calling" for the
+// auto-agent ownership guard (assertCanModifyAutoAgent in serve.ts). Only ever
+// set here, from the ambient/request-scoped caller session id — never
+// client-supplied, so a tool argument can't spoof it.
+const CALLER_SESSION_HEADER = "X-Omg-Caller-Session-Id";
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${localServeBaseUrl()}${path}`, init);
+  const sid = callerSessionId();
+  const headers = sid
+    ? { ...(init?.headers ?? {}), [CALLER_SESSION_HEADER]: sid }
+    : init?.headers;
+  const res = await fetch(`${localServeBaseUrl()}${path}`, { ...init, headers });
   const data = (await res.json().catch(() => ({}))) as { error?: string };
   if (!res.ok) throw new Error(data.error || `${res.status} ${res.statusText}`);
   return data as T;
@@ -273,6 +286,43 @@ async function activeSessionId(input?: string): Promise<string> {
   return await resolveSid(sessionId);
 }
 
+/**
+ * Resolve the owner of a question from the session that will receive its answer.
+ *
+ * A stdio MCP child inherits OMG_USER, but the shared HTTP MCP server belongs
+ * to no user. Its request only carries the calling session id. Reading the
+ * shared server's environment there stores the question as unassigned, and a
+ * signed-in device then removes it from its user-scoped pending feed. The
+ * session row is the durable owner in both transports, so use it when no
+ * explicit or ambient user exists.
+ */
+async function questionUser(explicit: string | undefined, sessionId: string): Promise<string | null> {
+  const direct = explicit?.trim() || envValue("USER");
+  if (direct) return direct;
+
+  const { sessions } = await api<{ sessions: SessionRow[] }>("/api/sessions");
+  const session = sessions.find(
+    (row) => row.sessionId === sessionId || row.nativeSessionId === sessionId,
+  );
+  return session?.assignedUser?.trim() || null;
+}
+
+/**
+ * Which bot (if any) this tool call is running as, resolved from the calling
+ * session's own row. Purely ambient — this never accepts a client-supplied
+ * override, so a bot cannot claim to be a different bot by passing an
+ * argument. Used by the bot-scoped routine tools below to both gate
+ * "only available inside a bot conversation" and to force the owner they mint
+ * to their own id.
+ */
+async function callerBotId(): Promise<string | null> {
+  const sid = callerSessionId();
+  if (!sid) return null;
+  const { sessions } = await api<{ sessions: SessionRow[] }>("/api/sessions");
+  const row = sessions.find((s) => s.sessionId === sid || s.nativeSessionId === sid);
+  return row?.botId ?? null;
+}
+
 export async function closeOmgSession(sessionIdInput: string) {
   if (!sessionIdInput.trim()) throw new Error("sessionId required");
   // Resolve before the self-close check so a short id can't slip past it.
@@ -359,7 +409,7 @@ const SUBAGENT_INPUT_SCHEMA = {
     .string()
     .optional()
     .describe(
-      "Runtime harness: claude, aisdk, codex-aisdk, codex, opencode, grok, cursor, or jcode. Defaults to aisdk. Prefer claude for design/frontend polish and codex for backend/server work.",
+      "Runtime harness: claude, aisdk, codex-aisdk, codex, opencode, grok, cursor, fx, or jcode. Defaults to aisdk. Prefer claude for design/frontend polish and codex for backend/server work.",
     ),
   model: z.string().optional().describe("Model name. Defaults to the selected agent default."),
   cwd: z.string().optional().describe("Repository cwd for the child session. Defaults to the parent session's project when there is a parent; otherwise the server's default repo."),
@@ -426,7 +476,7 @@ async function createSubagent({
 }: SubagentArgs, defaults: { agent?: string } = {}) {
   const agent = rawAgent?.trim() || defaults.agent || "aisdk";
   if (agent === "hermes") {
-    throw new Error('agent "hermes" is temporarily unavailable');
+    throw new Error('agent "hermes" has been removed');
   }
   if (!MODEL_OPTIONS[agent as keyof typeof MODEL_OPTIONS]) {
     throw new Error(`unknown agent "${agent}"`);
@@ -725,7 +775,7 @@ export function buildOmgMcpServer(): McpServer {
     },
     async ({ question, options, sessionId, user }) => {
       const sid = await activeSessionId(sessionId);
-      const who = user?.trim() || envValue("USER") || null;
+      const who = await questionUser(user, sid);
       const data = await api<{ id: string; status: string }>("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -993,6 +1043,106 @@ export function buildOmgMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "omg_list_owned_bots",
+    {
+      title: "List Same-Owner Bots",
+      description:
+        "List this persistent bot's same-owner peers using safe coordination metadata only. Returns stable bot ids, names, public descriptions, avatars, enabled/runtime status, and declared capabilities. It never returns peer transcripts, private instructions, runtime contracts, credentials, ownership controls, or peer mutation actions.",
+      inputSchema: {},
+    },
+    async () => {
+      const sid = await activeSessionId();
+      const data = await api<{ bots: unknown[] }>("/api/runtime/bots/peers", {
+        headers: { "X-OMG-Session-ID": sid },
+      });
+      return result(data);
+    },
+  );
+
+  server.registerTool(
+    "omg_send_message_to_peer",
+    {
+      title: "Send A Durable Message To A Same-Owner Bot",
+      description:
+        "Durably enqueue one message to a same-owner persistent bot from omg_list_owned_bots. The server derives sender bot identity and assigned user from the authenticated live runtime session. Use replyToMessageId only for an explicit reply to a peer message you received; the server preserves its correlation and enforces reply depth. Model output is never forwarded and no automatic reply occurs.",
+      inputSchema: z.object({
+        targetBotId: z.string().min(1).describe("Stable same-owner bot id from omg_list_owned_bots."),
+        text: z.string().min(1).max(BOT_PEER_MESSAGE_MAX_CHARS).describe("Message body."),
+        replyToMessageId: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Message ID received from this target. Include it only when explicitly replying."),
+      }).strict(),
+    },
+    async (input) => {
+      const sid = await activeSessionId();
+      const data = await api<{ message: unknown }>("/api/runtime/bots/peer-messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-OMG-Session-ID": sid },
+        body: JSON.stringify(input),
+      });
+      return result(data);
+    },
+  );
+
+  server.registerTool(
+    "omg_create_owned_bot",
+    {
+      title: "Create A Same-Owner Persistent Bot",
+      description:
+        "Create one persistent bot for the same assigned user as the calling bot. The server derives ownership and execution workspace from the authenticated runtime session and enforces a hard limit of 10 bots per user. Agent, model, and thinking level use the existing catalogs. The new bot inherits the caller's approved workspace and cannot expand filesystem access.",
+      inputSchema: z.object({
+        name: z.string().min(1).max(80).describe("Bot display name."),
+        persona: z.string().min(1).max(20_000).describe("Private persistent instructions for the new bot."),
+        description: z.string().max(500).optional().describe("Short public role description visible to same-owner bots."),
+        capabilities: z.array(z.string().min(1).max(64)).max(20).optional().describe("Declared coordination labels. These do not grant tools."),
+        shape: z.enum(BOT_SHAPES).optional().describe("Avatar shape."),
+        colorway: z.enum(BOT_COLORWAYS).optional().describe("Avatar colorway."),
+        agent: z.string().optional().describe("Coding-agent backend from the existing catalog. Defaults to aisdk."),
+        model: z.string().optional().describe("Model from the selected agent's existing catalog."),
+        thinkingLevel: z.string().optional().describe("Thinking level supported by the selected agent."),
+      }).strict(),
+    },
+    async (input) => {
+      const sid = await activeSessionId();
+      const data = await api<{ bot: unknown }>("/api/runtime/bots/owned", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-OMG-Session-ID": sid },
+        body: JSON.stringify(input),
+      });
+      return result(data);
+    },
+  );
+
+  server.registerTool(
+    "omg_update_self",
+    {
+      title: "Update This Persistent Bot",
+      description:
+        "Update only the calling persistent bot's safe editable profile. Editable fields are name, private persona/instructions, public description, declared capability labels, and avatar. Identity, ownership, session ids, runtime security contracts, credentials, agent configuration, and workspace are not editable. Instruction changes persist and take effect on the next idle user turn.",
+      inputSchema: z.object({
+        name: z.string().min(1).max(80).optional().describe("New display name."),
+        persona: z.string().min(1).max(20_000).optional().describe("New private persistent instructions."),
+        description: z.string().max(500).optional().describe("New public role description."),
+        capabilities: z.array(z.string().min(1).max(64)).max(20).optional().describe("New declared coordination labels. These do not grant tools."),
+        shape: z.enum(BOT_SHAPES).optional().describe("New avatar shape."),
+        colorway: z.enum(BOT_COLORWAYS).optional().describe("New avatar colorway."),
+      }).strict(),
+    },
+    async (input) => {
+      if (!Object.keys(input).length) throw new Error("at least one editable profile field is required");
+      const sid = await activeSessionId();
+      const data = await api<{ bot: unknown }>("/api/runtime/bots/self", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "X-OMG-Session-ID": sid },
+        body: JSON.stringify(input),
+      });
+      return result(data);
+    },
+  );
+
+  server.registerTool(
     "omg_list_repos",
     {
       title: "List omg.dev Repos",
@@ -1155,7 +1305,7 @@ export function buildOmgMcpServer(): McpServer {
     },
     async ({ prompt, options, sessionId, user }) => {
       const sid = await activeSessionId(sessionId);
-      const who = user?.trim() || envValue("USER") || null;
+      const who = await questionUser(user, sid);
       const data = await api<{ id: string; status: string }>("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1304,6 +1454,86 @@ export function buildOmgMcpServer(): McpServer {
     },
     async ({ id }) => {
       await api<{ ok?: boolean }>(`/api/auto/agents/${encodeURIComponent(id)}`, { method: "DELETE" });
+      return result({ ok: true, deleted: id });
+    },
+  );
+
+  // ---- Bot-scoped routine tools ---------------------------------------------
+  // Purpose-built self-service surface for a bot's OWN schedules — no
+  // id-guessing, no cross-owner visibility by construction (the server scopes
+  // /api/auto/agents to the caller's own rows once it sees the bot's caller
+  // header). These are additive: omg_list_auto_agents / omg_save_auto_agent /
+  // omg_run_auto_agent / omg_delete_auto_agent above still work for a bot —
+  // they simply enforce the same ownership guard underneath now, so a bot
+  // can't bypass these by using the older, generic names instead.
+  server.registerTool(
+    "omg_list_my_routines",
+    {
+      title: "List My Scheduled Routines",
+      description:
+        "List the scheduled routines this bot owns — name, cron schedule, enabled state, last fired. " +
+        "Only available inside a bot conversation. Call this before creating a new one so you know how " +
+        "close you are to the cap.",
+      inputSchema: {},
+    },
+    async () => {
+      const botId = await callerBotId();
+      if (!botId) throw new Error("omg_list_my_routines is only available inside a bot conversation.");
+      const [agents, settings] = await Promise.all([
+        api<{ agents: unknown[] }>("/api/auto/agents"),
+        api<{ settings: { maxBotSchedules?: number } }>("/api/settings"),
+      ]);
+      return result({ routines: agents.agents, cap: settings.settings.maxBotSchedules ?? null });
+    },
+  );
+
+  server.registerTool(
+    "omg_schedule_routine",
+    {
+      title: "Schedule A Routine For Myself",
+      description:
+        "Create a recurring check that nudges you, in this same conversation, on a cron schedule. " +
+        "It does NOT run headless — when it fires, you get an attributed message here and do the " +
+        "checking yourself, then reply normally. Only available inside a bot conversation. Capped per " +
+        "bot; call omg_list_my_routines first if unsure how many you already have.",
+      inputSchema: {
+        name: z.string().min(1).describe("Short human-readable name."),
+        prompt: z
+          .string()
+          .min(1)
+          .describe("What you should check when this fires — written to yourself."),
+        schedule: z
+          .string()
+          .min(1)
+          .describe("5-field cron expression (minute hour day month weekday), box time zone."),
+        enabled: z.boolean().optional().describe("Whether the schedule is live. Defaults to true."),
+      },
+    },
+    async (input) => {
+      const botId = await callerBotId();
+      if (!botId) throw new Error("omg_schedule_routine is only available inside a bot conversation.");
+      // owner is forced server-side regardless of what's sent, but the intent
+      // is stated here too for clarity when reading a request log.
+      const data = await api<{ agent: { id?: string } }>("/api/auto/agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...input, owner: { kind: "bot", botId } }),
+      });
+      return result({ routine: data.agent });
+    },
+  );
+
+  server.registerTool(
+    "omg_unschedule_routine",
+    {
+      title: "Delete A Routine Of Mine",
+      description: "Permanently delete one of your own scheduled routines. Only available inside a bot conversation.",
+      inputSchema: { id: z.string().min(1) },
+    },
+    async ({ id }) => {
+      const botId = await callerBotId();
+      if (!botId) throw new Error("omg_unschedule_routine is only available inside a bot conversation.");
+      await api(`/api/auto/agents/${encodeURIComponent(id)}`, { method: "DELETE" }); // 403s server-side if not caller's
       return result({ ok: true, deleted: id });
     },
   );

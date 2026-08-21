@@ -6,6 +6,7 @@ import {
   sanitizeIdleArchiveMinutes,
 } from "./idle-archive.ts";
 import { join } from "node:path";
+import { sanitizeBotCompactionThreshold } from "./bots/rotation.ts";
 
 export type GlobalSettings = {
   timeZone: string;
@@ -16,6 +17,11 @@ export type GlobalSettings = {
   // the memory budget). On a hosted Computer the plan's limit replaces this
   // value outright and cannot be overruled from here.
   maxLiveAgents: number;
+  // Per-bot cap on self-scheduled routines (see src/auto/store.ts's
+  // AutoAgentOwner). Unlike maxLiveAgents, 0-as-unlimited is not offered — an
+  // unlimited bot is exactly the runaway-self-scheduling failure mode this
+  // cap exists to bound, so it is always >= 1.
+  maxBotSchedules: number;
   // Drain switch: when true, refuse to activate any new agent (create / cold
   // resume / fork). In-flight agents keep running and can still be messaged.
   agentsPaused: boolean;
@@ -26,6 +32,17 @@ export type GlobalSettings = {
   // Global transcript rendering preference. The focused mode is experimental
   // and projects the loaded transcript down to user turns + lfg_output.
   transcriptView: TranscriptView;
+  // Rotate a persistent bot onto a fresh session before its context window
+  // fills, carrying a handoff summary across. Off means a bot only ever
+  // rotates when a human applies a configuration change, and a long-lived
+  // conversation eventually fails at the wall the way it does today.
+  botAutoCompactionEnabled: boolean;
+  // Share of the model's context window at which that rotation fires. Bounded
+  // well away from both ends: see sanitizeBotCompactionThreshold for why 40 and
+  // 95 are the limits. There is no matching setting for the re-arm mark, which
+  // is derived, because two independently editable water marks can be crossed
+  // over and produce a bot that rotates on every single turn.
+  botCompactionThresholdPercent: number;
   // The update the "What's new" drawer's Skip button last dismissed (a
   // version, tag, or sha — whatever /api/install reported as latestVersion /
   // latestTag / latestSha at the time). "" means nothing has been skipped.
@@ -42,8 +59,23 @@ export const MAX_LIVE_AGENTS_LIMIT = 64;
 // of the box. 0 means unlimited (opt-out); anything unset falls back to this.
 export const DEFAULT_MAX_LIVE_AGENTS = 16;
 
-const LEGACY_SETTINGS_PATH = join(PATHS.data, "settings.json");
-const SETTINGS_DB_PATH = join(PATHS.data, "lfg.sqlite");
+// Hard ceiling on the per-bot schedule cap, same role as MAX_LIVE_AGENTS_LIMIT.
+export const BOT_SCHEDULE_LIMIT = 20;
+// A normal working set for a bot (a morning check, an EOD summary, a weekly
+// report, one or two ad hoc watches) without needing to scroll its Schedules
+// pane. The cap's job is bounding how many concerns a bot tracks at once, not
+// primarily rate-limiting — a single 5-minute cron is worse than eight daily
+// ones, and that is handled separately by the minimum-interval floor.
+export const DEFAULT_MAX_BOT_SCHEDULES = 5;
+
+// Lazy (function, not a top-level const): PATHS.data can be a test isolation
+// hook (see src/auto/store.ts's agentsPath() for the same pattern), and a
+// path baked in at module-eval time would keep pointing at whatever PATHS.data
+// was when this module first got pulled in by some unrelated static import —
+// silently ignoring a test's later reassignment and hitting the real on-disk
+// database instead of a temp one.
+const legacySettingsPath = () => join(PATHS.data, "settings.json");
+const settingsDbPath = () => join(PATHS.data, "lfg.sqlite");
 export const DEFAULT_TIME_ZONE = "Asia/Hong_Kong";
 let db: Database | null = null;
 
@@ -72,6 +104,10 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
   const maxLiveAgents = Number.isInteger(requestedLive) && requestedLive >= 0
     ? Math.min(requestedLive, MAX_LIVE_AGENTS_LIMIT)
     : DEFAULT_MAX_LIVE_AGENTS;
+  const requestedBotSchedules = Number(input?.maxBotSchedules);
+  const maxBotSchedules = Number.isInteger(requestedBotSchedules) && requestedBotSchedules >= 1
+    ? Math.min(requestedBotSchedules, BOT_SCHEDULE_LIMIT)
+    : DEFAULT_MAX_BOT_SCHEDULES;
   const agentsPaused = input?.agentsPaused === true;
   const idleAgentArchiveMinutes = sanitizeIdleArchiveMinutes(
     input?.idleAgentArchiveMinutes ?? DEFAULT_IDLE_ARCHIVE_MINUTES,
@@ -82,12 +118,19 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
   const skippedUpdateVersion = typeof input?.skippedUpdateVersion === "string"
     ? input.skippedUpdateVersion
     : "";
+  const botAutoCompactionEnabled = input?.botAutoCompactionEnabled !== false;
+  const botCompactionThresholdPercent = sanitizeBotCompactionThreshold(
+    input?.botCompactionThresholdPercent,
+  );
   return {
     timeZone,
     maxLiveAgents,
+    maxBotSchedules,
     agentsPaused,
     idleAgentArchiveMinutes,
     transcriptView,
+    botAutoCompactionEnabled,
+    botCompactionThresholdPercent,
     skippedUpdateVersion,
   };
 }
@@ -95,7 +138,7 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
 function settingsDb(): Database {
   if (db) return db;
   mkdirSync(PATHS.data, { recursive: true });
-  const opened = new Database(SETTINGS_DB_PATH, { create: true });
+  const opened = new Database(settingsDbPath(), { create: true });
   opened.exec("PRAGMA journal_mode = WAL");
   opened.exec("PRAGMA busy_timeout = 5000");
   opened.exec(`
@@ -118,7 +161,7 @@ function settingsDb(): Database {
   if (!migrated) {
     let legacy: Partial<GlobalSettings> | null = null;
     try {
-      legacy = JSON.parse(readFileSync(LEGACY_SETTINGS_PATH, "utf8")) as Partial<GlobalSettings>;
+      legacy = JSON.parse(readFileSync(legacySettingsPath(), "utf8")) as Partial<GlobalSettings>;
     } catch {}
     const initial = sanitize(legacy);
     const write = opened.query(
@@ -128,6 +171,7 @@ function settingsDb(): Database {
       const now = Date.now();
       write.run("timeZone", JSON.stringify(initial.timeZone), now);
       write.run("maxLiveAgents", JSON.stringify(initial.maxLiveAgents), now);
+      write.run("maxBotSchedules", JSON.stringify(initial.maxBotSchedules), now);
       write.run("agentsPaused", JSON.stringify(initial.agentsPaused), now);
       write.run(
         "idleAgentArchiveMinutes",
@@ -159,6 +203,18 @@ function readStoredSettings(): Partial<GlobalSettings> {
   return stored as Partial<GlobalSettings>;
 }
 
+/**
+ * Drop the cached db handle so the next call to settingsDb() reopens against
+ * the current PATHS.data. Needed alongside the lazy settingsDbPath() above: a
+ * test that reassigns PATHS.data after some earlier test already opened the
+ * real on-disk database (any static import chain can trigger that) would
+ * otherwise keep reading/writing that same handle regardless.
+ */
+export function resetSettingsDbConnectionForTests(): void {
+  db?.close();
+  db = null;
+}
+
 export function getGlobalSettingsSync(): GlobalSettings {
   return sanitize(readStoredSettings());
 }
@@ -179,9 +235,12 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
     const now = Date.now();
     write.run("timeZone", JSON.stringify(next.timeZone), now);
     write.run("maxLiveAgents", JSON.stringify(next.maxLiveAgents), now);
+    write.run("maxBotSchedules", JSON.stringify(next.maxBotSchedules), now);
     write.run("agentsPaused", JSON.stringify(next.agentsPaused), now);
     write.run("idleAgentArchiveMinutes", JSON.stringify(next.idleAgentArchiveMinutes), now);
     write.run("transcriptView", JSON.stringify(next.transcriptView), now);
+    write.run("botAutoCompactionEnabled", JSON.stringify(next.botAutoCompactionEnabled), now);
+    write.run("botCompactionThresholdPercent", JSON.stringify(next.botCompactionThresholdPercent), now);
     write.run("skippedUpdateVersion", JSON.stringify(next.skippedUpdateVersion), now);
   })();
   return next;
