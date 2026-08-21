@@ -19,13 +19,17 @@ export type SurfaceToggleActive = "sessions" | "chat";
 
 /**
  * Flat roster treatment on the Bots page — larger than the compact rail, but
- * not airier. The row keeps its 56px avatar; the padding and gap come from the
- * bot-mode mockup (docs/design/bot-mode/mockup.html `.roster-row`: 10px
- * vertical padding, 12px gap). `py-4` here put the row pitch at 100px, which
- * read as a settings list with four items rather than a roster you scan.
+ * not airier. PR #208 ported the bot-mode mockup's `.roster-row` density
+ * (10px vertical padding, 12px gap) verbatim and only got the row pitch from
+ * 100px to 84px, because the mockup's own airiness assumes the same large
+ * avatar this page renders (`size={56}` in App.tsx) — padding was never the
+ * dominant term. `py-2` (8px vertical padding) here pairs with the smaller
+ * 44px avatar in App.tsx to bring the row pitch to 68px, in the range of a
+ * scannable native list (iOS Messages runs roughly a 52px avatar in a ~76px
+ * row) rather than a settings screen.
  */
 export const MOBILE_BOT_ROSTER_ROW_CLASS =
-  "flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left transition-colors hover:bg-muted";
+  "flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted";
 
 /**
  * The persistent mobile bottom toggle shows only at real mobile widths, and

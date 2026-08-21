@@ -59,13 +59,17 @@ describe("bots page roster chrome", () => {
 
   test("the page roster is larger than the compact rail", () => {
     expect(ROSTER).toContain("text-[32px] font-bold");
-    expect(ROSTER).toContain("size={56}");
+    // 44px, not the rail's 24/28px — still a page roster, not the compact
+    // rail — but not 56px either: that size (paired with the mockup's
+    // padding) made the row pitch 84px, which read as a settings list on a
+    // phone rather than a scannable roster. See mobile-bots-nav.ts.
+    expect(ROSTER).toContain("size={44}");
     expect(ROSTER).toContain("text-base font-semibold");
     expect(ROSTER).toContain("text-sm");
     expect(ROSTER).toContain("text-xs tabular-nums");
     expect(ROSTER).toContain("isCodingAgentStoppedText(rawPreview)");
     expect(ROSTER).toContain("text-destructive");
-    expect(ROSTER).not.toContain("size={44}");
+    expect(ROSTER).not.toContain("size={56}");
     expect(ROSTER).not.toContain("text-[13px]");
     expect(BOT_RAIL).toContain("size={railCollapsed ? 24 : 28}");
     expect(BOT_RAIL).not.toContain("size={56}");
