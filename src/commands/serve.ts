@@ -6139,7 +6139,10 @@ a{color:#60a5fa}
           if (!requestedPath) await mkdir(REPOS_ROOT, { recursive: true });
           current = await realpath(resolve(requested.replace(/^~(?=\/|$)/, home)));
         } catch {
-          return err(400, "folder does not exist");
+          return err(
+            400,
+            `Folder “${requested}” does not exist. It may have moved or been deleted. Choose another folder.`,
+          );
         }
         if (current !== home && !current.startsWith(`${home}/`)) {
           return err(403, "folder browsing is limited to your home directory");
