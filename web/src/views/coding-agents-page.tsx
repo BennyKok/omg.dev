@@ -323,11 +323,33 @@ export default function CodingAgentsPage({
                           {account.number}
                         </span>
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-xs font-medium">
-                        {account.label}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-medium">{account.label}</span>
+                        {/* A dead sign-in looks exactly like an account that was
+                            never set up unless the row says otherwise. */}
+                        {account.needsReconnect ? (
+                          <span className="block truncate text-[11px] text-destructive">
+                            Sign-in expired
+                          </span>
+                        ) : null}
                       </span>
                       {account.connected ? (
-                        <span className="text-[11px] text-success">Connected</span>
+                        <>
+                          <span className="text-[11px] text-success">Connected</span>
+                          {/* Signing in again is the only repair for an account
+                              whose token the CLI can no longer renew, so the
+                              action stays reachable while it reads Connected —
+                              a row that can only be deleted is a dead end. */}
+                          <button
+                            type="button"
+                            onClick={() => onLogin(agent.key, account.id)}
+                            title={`Sign in to ${account.label} again`}
+                            aria-label={`Sign in to ${account.label} again`}
+                            className="flex size-7 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                          >
+                            <RotateCcw className="size-3.5" />
+                          </button>
+                        </>
                       ) : (
                         <Button
                           size="sm"
@@ -335,7 +357,7 @@ export default function CodingAgentsPage({
                           onClick={() => onLogin(agent.key, account.id)}
                         >
                           <Globe className="size-3.5" />
-                          Connect
+                          {account.needsReconnect ? "Reconnect" : "Connect"}
                         </Button>
                       )}
                       {account.removable ? (
@@ -411,7 +433,9 @@ export default function CodingAgentsPage({
                     disabled={status.setupRunning}
                     onClick={() => onLogin(agent.key)}
                     title={
-                      BROWSER_AUTH_KINDS.has(agent.key)
+                      agent.key === "aisdk" && accounts.length
+                        ? "Add another Claude account"
+                        : BROWSER_AUTH_KINDS.has(agent.key)
                         ? `Sign in to ${agent.label} in your browser`
                         : `Open terminal and run ${status.loginCommand}`
                     }

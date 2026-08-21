@@ -9,7 +9,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { PATHS } from "./config.ts";
-import { claudeOauthToken } from "./claude-creds.ts";
+import { claudeOauthToken, claudeSignInIsDead } from "./claude-creds.ts";
 
 export const DEFAULT_CLAUDE_ACCOUNT_ID = "default";
 
@@ -18,6 +18,12 @@ export type ClaudeAccount = {
   number: number;
   label: string;
   connected: boolean;
+  /**
+   * The account holds a credential that can no longer be renewed, so only a
+   * browser sign-in can revive it. `connected` stays false, but the row must
+   * say why rather than looking like an account that was never set up.
+   */
+  needsReconnect: boolean;
   removable: boolean;
   createdAt: number;
 };
@@ -31,7 +37,10 @@ export type ClaudeAccountCapacityReader = (
   account: ClaudeAccount,
 ) => Promise<ClaudeAccountCapacity | null>;
 
-type StoredClaudeAccount = Omit<ClaudeAccount, "connected" | "removable"> & {
+type StoredClaudeAccount = Omit<
+  ClaudeAccount,
+  "connected" | "needsReconnect" | "removable"
+> & {
   configDir: string;
 };
 
@@ -94,23 +103,39 @@ function defaultAccount(): StoredClaudeAccount {
 }
 
 function publicAccount(account: StoredClaudeAccount): ClaudeAccount {
+  const dead = claudeSignInIsDead(account.configDir);
   return {
     id: account.id,
     number: account.number,
     label: account.label,
-    connected: claudeOauthToken(account.configDir) !== null,
+    connected: !dead && claudeOauthToken(account.configDir) !== null,
+    needsReconnect: dead,
     removable: account.id !== DEFAULT_CLAUDE_ACCOUNT_ID,
     createdAt: account.createdAt,
   };
 }
 
-/** Every known account, including a disconnected custom account that can retry login. */
+/**
+ * Every known account, connected or not, so a broken login always has a row to
+ * reconnect from.
+ *
+ * The default account used to be dropped while disconnected, on the theory that
+ * a machine with no Claude login should not advertise an empty "Claude 1". That
+ * theory only held while `default` was the ONLY account: as soon as a second
+ * account exists, the registry is a fleet the user manages, and hiding the
+ * member whose OAuth just died removes the one control that could fix it. So
+ * the default row is hidden only when it is the sole account AND holds no
+ * credential at all, which is the same empty state as before, and is present in
+ * every case where the user has something to reconnect to.
+ */
 export function listClaudeAccounts(): ClaudeAccount[] {
   const store = readStore();
-  const accounts = [defaultAccount(), ...store.accounts]
-    .map(publicAccount)
-    .filter((account) => account.id !== DEFAULT_CLAUDE_ACCOUNT_ID || account.connected);
-  return accounts.sort((a, b) => a.number - b.number || a.createdAt - b.createdAt);
+  const accounts = [defaultAccount(), ...store.accounts].map(publicAccount);
+  const solitaryEmptyDefault =
+    accounts.length === 1 && !accounts[0]!.connected && !accounts[0]!.needsReconnect;
+  return (solitaryEmptyDefault ? [] : accounts).sort(
+    (a, b) => a.number - b.number || a.createdAt - b.createdAt,
+  );
 }
 
 /** Connected accounts in the stable order used by the numbered composer icons. */
