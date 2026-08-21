@@ -1,21 +1,26 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   claudeConfigDirs,
   cleanAuthOutput,
+  codingAgentVisible,
   getCodingAgentAuth,
   isLoginPending,
   listCodingAgents,
+  loginCommandFor,
   parseAuthOutput,
   pendingCodingAgentLogins,
+  setCodingAgentVisibility,
   startCodingAgentAuth,
   startToolAuth,
+  submitCodingAgentAuthCode,
   withCursorOmgMcp,
   withJcodeOmgMcp,
   withOpencodeOmgMcp,
 } from "./coding-agents.ts";
+import { PATHS } from "./config.ts";
 
 const COPILOT_ENV_KEYS = ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"] as const;
 
@@ -450,6 +455,22 @@ describe("coding agent auth detection", () => {
     expect(status?.accountConnected).toBe(false);
   });
 
+  test("a missing jcode CLI still offers Claude and Codex Connect rows", async () => {
+    const home = useTmpHome();
+    setEnv("PATH", home);
+    setEnv("LFG_JCODE_PATH", join(home, "missing-jcode"));
+
+    const agents = await listCodingAgents();
+    const status = agents.find((agent) => agent.key === "jcode")?.status;
+    expect(status?.configured).toBe(false);
+    expect(status?.canLoginInTerminal).toBe(false);
+    expect(status?.providers?.map((provider) => ({ id: provider.id, label: provider.label }))).toEqual([
+      { id: "claude", label: "Claude" },
+      { id: "openai", label: "Codex" },
+    ]);
+    expect(status?.providers?.every((provider) => !provider.connected)).toBe(true);
+  });
+
   test("Jcode reports stored provider credentials as a connected account", async () => {
     const home = useTmpHome();
     setEnv("PATH", home);
@@ -463,6 +484,46 @@ describe("coding agent auth detection", () => {
 
     const agents = await listCodingAgents();
     expect(agents.find((agent) => agent.key === "jcode")?.status.accountConnected).toBe(true);
+  });
+
+  test("Jcode always lists Claude and Codex provider rows", async () => {
+    const home = useTmpHome();
+    setEnv("PATH", home);
+    const jcode = join(home, "jcode");
+    writeFileSync(jcode, "#!/bin/sh\nexit 1\n");
+    chmodSync(jcode, 0o755);
+    setEnv("LFG_JCODE_PATH", jcode);
+
+    const agents = await listCodingAgents();
+    const providers = agents.find((agent) => agent.key === "jcode")?.status.providers ?? [];
+    expect(providers.map((provider) => provider.id)).toEqual(["claude", "openai"]);
+    expect(providers.every((provider) => provider.method === "oauth")).toBe(true);
+    expect(agents.find((agent) => agent.key === "jcode")?.status.canLoginInTerminal).toBe(false);
+  });
+
+  test("a missing jcode CLI fails both the binary and provider checks", async () => {
+    const home = useTmpHome();
+    setEnv("PATH", home);
+    setEnv("LFG_JCODE_PATH", join(home, "missing-jcode"));
+
+    const agents = await listCodingAgents();
+    const status = agents.find((agent) => agent.key === "jcode")?.status;
+    // The provider check is what keeps an installed-but-unauthenticated jcode
+    // from defaulting its Settings toggle on: `configured` is
+    // `checks.every(ok)`, so binary presence alone must not read as ready.
+    expect(status?.checks.map((check) => check.label)).toEqual([
+      "Jcode CLI",
+      "Jcode provider",
+    ]);
+    expect(status?.checks.every((check) => !check.ok)).toBe(true);
+    expect(status?.configured).toBe(false);
+    expect(status?.instructions).toEqual(["Connect Claude or Codex above."]);
+    expect(status?.loginCommand).toBeUndefined();
+    expect(status?.providers?.map((provider) => provider.id)).toEqual(["claude", "openai"]);
+  });
+
+  test("jcode has no quoted terminal login command", () => {
+    expect(loginCommandFor("jcode")).toBeNull();
   });
 
   test("a platform OpenAI key makes Codex runnable without claiming the account is connected", async () => {
@@ -579,6 +640,102 @@ describe("pi provider sign-in", () => {
   });
 });
 
+describe("jcode provider sign-in", () => {
+  const savedEnv: Record<string, string | undefined> = {};
+  let tmpHome = "";
+
+  const setEnv = (key: string, value: string | undefined) => {
+    savedEnv[key] ??= process.env[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  };
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+      delete savedEnv[key];
+    }
+    if (tmpHome) rmSync(tmpHome, { recursive: true, force: true });
+    tmpHome = "";
+  });
+
+  const installFakeJcode = () => {
+    tmpHome = mkdtempSync(join(tmpdir(), "lfg-jcode-login-"));
+    setEnv("HOME", tmpHome);
+    setEnv("PATH", tmpHome);
+    const binary = join(tmpHome, "jcode");
+    writeFileSync(
+      binary,
+      [
+        "#!/bin/sh",
+        'printf "%s\\n" "$*" >> "$HOME/jcode-args.log"',
+        'case " $* " in',
+        '  *" --print-auth-url "*)',
+        '    printf "%s\\n" \'{"status":"pending","provider":"claude","auth_url":"https://claude.ai/oauth?state=1","input_kind":"auth_code_or_callback_url"}\'',
+        "    exit 0",
+        "    ;;",
+        '  *" --auth-code "*|*" --callback-url "*)',
+        '    printf "%s\\n" \'{"status":"authenticated","provider":"claude"}\'',
+        "    exit 0",
+        "    ;;",
+        "esac",
+        "exit 1",
+      ].join("\n"),
+    );
+    chmodSync(binary, 0o755);
+    setEnv("LFG_JCODE_PATH", binary);
+    return { binary, home: tmpHome };
+  };
+
+  test("an unknown jcode provider is refused rather than passed through", async () => {
+    expect(startCodingAgentAuth("jcode", { provider: "codex" })).rejects.toThrow(
+      /Unknown jcode provider/i,
+    );
+    expect(startCodingAgentAuth("jcode", { provider: "../../etc/passwd" })).rejects.toThrow(
+      /Unknown jcode provider/i,
+    );
+  });
+
+  test("starts Claude login through jcode's print-auth-url API", async () => {
+    installFakeJcode();
+    const session = await startCodingAgentAuth("jcode", { provider: "claude" });
+    expect(session.kind).toBe("jcode");
+    expect(session.provider).toBe("jcode-claude");
+    expect(session.status).toBe("waiting");
+    expect(session.needsCode).toBe(true);
+    expect(session.authorizationUrl).toBe("https://claude.ai/oauth?state=1");
+    const args = readFileSync(join(tmpHome, "jcode-args.log"), "utf8");
+    expect(args).toContain("--provider claude");
+    expect(args).toContain("--print-auth-url");
+    expect(args).toContain("--json");
+  });
+
+  test("completes Claude login with --auth-code", async () => {
+    installFakeJcode();
+    const session = await startCodingAgentAuth("jcode", { provider: "claude" });
+    const next = await submitCodingAgentAuthCode(session.id, "abc123");
+    expect(next.status).toBe("complete");
+    const args = readFileSync(join(tmpHome, "jcode-args.log"), "utf8");
+    expect(args).toContain("--auth-code abc123");
+  });
+
+  test("Codex completion uses --provider openai and --callback-url", async () => {
+    installFakeJcode();
+    const session = await startCodingAgentAuth("jcode", { provider: "openai" });
+    expect(session.provider).toBe("jcode-openai");
+    const next = await submitCodingAgentAuthCode(
+      session.id,
+      "http://localhost:1455/auth/callback?code=xyz",
+    );
+    expect(next.status).toBe("complete");
+    const args = readFileSync(join(tmpHome, "jcode-args.log"), "utf8");
+    expect(args).toContain("--provider openai");
+    expect(args).not.toContain("--provider codex");
+    expect(args).toContain("--callback-url http://localhost:1455/auth/callback?code=xyz");
+  });
+});
+
 /**
  * A login is real work, and this box is the only thing that can see it.
  *
@@ -624,5 +781,110 @@ describe("pending login reporting", () => {
     // The default answer for the overwhelming majority of polls. If this were
     // ever non-zero at rest, every machine would stop hibernating at all.
     expect(pendingCodingAgentLogins(now)).toBe(0);
+  });
+});
+
+describe("coding agent visibility", () => {
+  test("defaults on when ready and off when not, and keeps an explicit hide", () => {
+    expect(codingAgentVisible(undefined, false)).toBe(false);
+    expect(codingAgentVisible(undefined, true)).toBe(true);
+    expect(codingAgentVisible(true, false)).toBe(false);
+    expect(codingAgentVisible(true, true)).toBe(true);
+    expect(codingAgentVisible(false, true)).toBe(false);
+    expect(codingAgentVisible(false, false)).toBe(false);
+  });
+
+  const savedEnv: Record<string, string | undefined> = {};
+  const originalData = PATHS.data;
+  let tmpHome = "";
+  let tmpData = "";
+
+  const setEnv = (key: string, value: string | undefined) => {
+    savedEnv[key] ??= process.env[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  };
+
+  const useIsolatedBox = () => {
+    tmpHome = mkdtempSync(join(tmpdir(), "lfg-agent-visible-home-"));
+    tmpData = mkdtempSync(join(tmpdir(), "lfg-agent-visible-data-"));
+    PATHS.data = tmpData;
+    setEnv("HOME", tmpHome);
+    setEnv("PATH", tmpHome);
+    setEnv("ANTHROPIC_API_KEY", undefined);
+    setEnv("OPENAI_API_KEY", undefined);
+    setEnv("XAI_API_KEY", undefined);
+    setEnv("CURSOR_API_KEY", undefined);
+    setEnv("AI_GATEWAY_API_KEY", undefined);
+    setEnv("COPILOT_GITHUB_TOKEN", undefined);
+    setEnv("GH_TOKEN", undefined);
+    setEnv("GITHUB_TOKEN", undefined);
+    setEnv("LFG_OPENCODE_PATH", undefined);
+    setEnv("LFG_GROK_PATH", undefined);
+    setEnv("LFG_JCODE_PATH", undefined);
+    setEnv("LFG_CLAUDE_PATH", undefined);
+    setEnv("LFG_CODEX_PATH", undefined);
+    setEnv("LFG_CURSOR_PATH", undefined);
+    setEnv("LFG_FX_PATH", undefined);
+    setEnv("LFG_COPILOT_PATH", undefined);
+    return { home: tmpHome, data: tmpData };
+  };
+
+  afterEach(() => {
+    PATHS.data = originalData;
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    for (const key of Object.keys(savedEnv)) delete savedEnv[key];
+    if (tmpHome) {
+      rmSync(tmpHome, { recursive: true, force: true });
+      tmpHome = "";
+    }
+    if (tmpData) {
+      rmSync(tmpData, { recursive: true, force: true });
+      tmpData = "";
+    }
+  });
+
+  test("listCodingAgents turns an unready agent off when nothing is saved", async () => {
+    useIsolatedBox();
+    const grok = (await listCodingAgents()).find((agent) => agent.key === "grok");
+    expect(grok?.status.configured).toBe(false);
+    expect(grok?.visible).toBe(false);
+  });
+
+  test("listCodingAgents turns a ready agent on when nothing is saved", async () => {
+    const { home } = useIsolatedBox();
+    const bin = join(home, "opencode");
+    writeFileSync(bin, "#!/bin/sh\nexit 0\n");
+    chmodSync(bin, 0o755);
+    setEnv("LFG_OPENCODE_PATH", bin);
+    const opencode = (await listCodingAgents()).find((agent) => agent.key === "opencode");
+    expect(opencode?.status.configured).toBe(true);
+    expect(opencode?.visible).toBe(true);
+  });
+
+  test("listCodingAgents keeps an explicit hide after the agent is ready", async () => {
+    const { home } = useIsolatedBox();
+    const bin = join(home, "opencode");
+    writeFileSync(bin, "#!/bin/sh\nexit 0\n");
+    chmodSync(bin, 0o755);
+    setEnv("LFG_OPENCODE_PATH", bin);
+    await setCodingAgentVisibility("opencode", false);
+    const opencode = (await listCodingAgents()).find((agent) => agent.key === "opencode");
+    expect(opencode?.status.configured).toBe(true);
+    expect(opencode?.visible).toBe(false);
+  });
+
+  test("an old implicit-on value does not keep an unready agent on", async () => {
+    const { data } = useIsolatedBox();
+    writeFileSync(
+      join(data, "coding-agents.json"),
+      JSON.stringify({ agents: { grok: { visible: true } } }),
+    );
+    const grok = (await listCodingAgents()).find((agent) => agent.key === "grok");
+    expect(grok?.status.configured).toBe(false);
+    expect(grok?.visible).toBe(false);
   });
 });

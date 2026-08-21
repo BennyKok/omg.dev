@@ -942,11 +942,80 @@ export function cursorChatIdFromOutput(output: string): string | null {
   return output.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i)?.[0] ?? null;
 }
 
-export function spawnManagedCursorSession(opts: ManagedCursorSessionOptions): {
+/** How long to wait for `cursor-agent create-chat` to emit its chat id. */
+export const CURSOR_CREATE_CHAT_TIMEOUT_MS = 30_000;
+
+/**
+ * Allocate a Cursor chat id WITHOUT waiting for `cursor-agent` to exit.
+ *
+ * `cursor-agent create-chat` prints the new chat id and then keeps running —
+ * it never exits on its own. Bun.spawnSync waits for exit, so the previous
+ * code deadlocked the serve process on the very first cursor session: the
+ * main thread blocked forever inside spawnSync, and because that thread also
+ * runs the HTTP server, EVERY request (not just cursor's) hung until the
+ * service was restarted. One cursor launch took the whole box down.
+ *
+ * spawnSync's own `timeout` option is not a fix — it still blocks the thread
+ * for the full duration. So read stdout incrementally, resolve the moment the
+ * id appears, and kill the child. The chat id is durable; the process we kill
+ * is only the allocator, not the session (the TUI is started separately below).
+ */
+export async function createCursorChat(
+  cwd: string,
+  // Injectable so the deadlock regression can be tested against a stand-in that
+  // reproduces cursor-agent's behaviour (print an id, then never exit) without
+  // depending on a real Cursor install.
+  opts: { cmd?: string[]; timeoutMs?: number } = {},
+): Promise<{ nativeSessionId?: string; error?: string }> {
+  const dec = new TextDecoder();
+  const proc = Bun.spawn({
+    cmd: opts.cmd ?? [cursorBin(), "create-chat"],
+    cwd,
+    // Never inherit stdin: an allocator that decides to prompt would otherwise
+    // wait on a terminal this service does not have.
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const readId = (async () => {
+      const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
+      let out = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        // Stream closed without a match — the process exited (likely an error).
+        if (done) return cursorChatIdFromOutput(out);
+        out += dec.decode(value, { stream: true });
+        const id = cursorChatIdFromOutput(out);
+        if (id) return id;
+      }
+    })();
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), opts.timeoutMs ?? CURSOR_CREATE_CHAT_TIMEOUT_MS);
+    });
+    const nativeSessionId = await Promise.race([readId, timeout]);
+    if (nativeSessionId) return { nativeSessionId };
+    // Kill BEFORE draining stderr. On the timeout path the child is still
+    // alive, and reading a live process's stderr to EOF would block exactly as
+    // long as the spawnSync this function replaced — reintroducing the hang on
+    // the one path that exists to escape it.
+    proc.kill();
+    const stderr = await new Response(proc.stderr).text().catch(() => "");
+    return { error: stderr.trim() || "cursor create-chat returned no chat id" };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  } finally {
+    if (timer) clearTimeout(timer);
+    proc.kill();
+  }
+}
+
+export async function spawnManagedCursorSession(opts: ManagedCursorSessionOptions): Promise<{
   ok: boolean;
   error?: string;
   nativeSessionId?: string;
-} {
+}> {
   const dec = new TextDecoder();
   // Pre-accept workspace trust so the TUI doesn't hang on the trust dialog
   // (which would also block the transcript that the live view streams). `--yolo`
@@ -960,17 +1029,11 @@ export function spawnManagedCursorSession(opts: ManagedCursorSessionOptions): {
   // it directly instead of accidentally creating and opening an empty chat.
   let nativeSessionId = opts.nativeSessionId;
   if (!nativeSessionId) {
-    const chat = Bun.spawnSync({
-      cmd: [cursorBin(), "create-chat"],
-      cwd: opts.cwd,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    if (chat.exitCode !== 0) {
-      return { ok: false, error: dec.decode(chat.stderr) || "failed to create cursor chat" };
+    const chat = await createCursorChat(opts.cwd);
+    if (!chat.nativeSessionId) {
+      return { ok: false, error: chat.error || "failed to create cursor chat" };
     }
-    nativeSessionId = cursorChatIdFromOutput(dec.decode(chat.stdout)) ?? undefined;
-    if (!nativeSessionId) return { ok: false, error: "cursor create-chat returned no chat id" };
+    nativeSessionId = chat.nativeSessionId;
   }
   const argv = managedCursorSessionArgv({ ...opts, nativeSessionId });
   containTmuxCommand(argv, cursorBin(), opts.containInAgentSlice, opts);

@@ -404,6 +404,7 @@ import {
   isOpencodeAuthProviderId,
   setOpencodeProviderApiKey,
 } from "../opencode-auth.ts";
+import { deleteJcodeCredential, isJcodeAuthProviderId } from "../jcode-auth.ts";
 import { listToolConnections } from "../tool-connections.ts";
 import {
   bindClaudeSessionAccount,
@@ -3166,6 +3167,51 @@ export async function assertCanModifyAutoAgent(
 }
 
 /**
+ * The single place that decides which owner a POST /api/auto/agents write ends
+ * up with. Split out of the route so the migration rules are unit-testable and
+ * so there is one owner of "who may set which owner," not a rule per caller.
+ *
+ * Two asymmetric callers share one function:
+ *
+ *  - A BOT caller is always forced onto itself. Any `owner` in the body is
+ *    ignored outright rather than validated, so a bot can never mint or move a
+ *    row for a sibling bot even if it guesses a real bot id.
+ *  - A HUMAN/browser caller may name any owner. This is what makes migrating
+ *    an existing user-owned schedule onto an existing bot possible at all
+ *    (docs/bot-owned-automations-plan.md §8) — without it, the only way to get
+ *    a bot-owned row is for the bot itself to create one from scratch, which
+ *    loses the prompt history of the 38 rows already in the store.
+ *
+ * An ABSENT body owner means "do not touch the owner": undefined, which
+ * `saveAutoAgent` resolves to the existing row's owner on an edit and to
+ * `{ kind: "user" }` on a create. That tri-state is load-bearing, because
+ * every existing writer (the CLI, the refine endpoint, the browser form) posts
+ * no owner at all and must not silently re-home a bot's routine.
+ */
+export function resolveRequestedAutoAgentOwner(
+  callerBot: string | null,
+  requested: { kind?: unknown; botId?: unknown } | null | undefined,
+):
+  | { ok: true; owner: AutoAgentOwner | undefined }
+  | { ok: false; status: number; error: string } {
+  if (callerBot) return { ok: true, owner: { kind: "bot", botId: callerBot } };
+  if (requested === undefined || requested === null) return { ok: true, owner: undefined };
+  const kind = typeof requested.kind === "string" ? requested.kind.trim() : "";
+  if (kind === "user") return { ok: true, owner: { kind: "user" } };
+  if (kind === "bot") {
+    const botId = typeof requested.botId === "string" ? requested.botId.trim() : "";
+    if (!botId)
+      return { ok: false, status: 400, error: "owner.botId is required for a bot-owned routine" };
+    return { ok: true, owner: { kind: "bot", botId } };
+  }
+  return {
+    ok: false,
+    status: 400,
+    error: `unknown owner kind "${kind}" (expected "user" or "bot")`,
+  };
+}
+
+/**
  * Deliver `text` into a bot's own conversation, cold-starting its session if
  * needed. The single primitive every path that puts a message into a bot's
  * conversation goes through — a human's `/api/bots/:id/messages` POST, a
@@ -4337,10 +4383,10 @@ a{color:#60a5fa}
             } | null;
             const claudeAccountId =
               typeof body?.claudeAccountId === "string" ? body.claudeAccountId : undefined;
-            // pi is signed in per model provider rather than once per agent, so
-            // it is the one kind that needs to be told which one.
-            const piProvider = typeof body?.provider === "string" ? body.provider : undefined;
-            return json(await startCodingAgentAuth(kind, { claudeAccountId, piProvider }));
+            // pi and jcode are signed in per model provider rather than once
+            // per agent, so those kinds need to be told which one.
+            const provider = typeof body?.provider === "string" ? body.provider : undefined;
+            return json(await startCodingAgentAuth(kind, { claudeAccountId, piProvider: provider, provider }));
           } catch (e) {
             return err(502, e instanceof Error ? e.message : "failed to start login");
           }
@@ -4379,13 +4425,16 @@ a{color:#60a5fa}
         }
       }
       {
-        const m = path.match(/^\/api\/coding-agents\/(pi|opencode)\/providers\/([a-z0-9-]+)$/);
+        const m = path.match(/^\/api\/coding-agents\/(pi|opencode|jcode)\/providers\/([a-z0-9-]+)$/);
         if (m && req.method === "DELETE") {
           const [, agent, provider] = m;
           try {
             if (agent === "pi") {
               if (!isPiAuthProviderId(provider)) return err(404, "unknown pi provider");
               await deletePiCredential(provider);
+            } else if (agent === "jcode") {
+              if (!isJcodeAuthProviderId(provider)) return err(404, "unknown jcode provider");
+              deleteJcodeCredential(provider);
             } else {
               if (!isOpencodeAuthProviderId(provider)) return err(404, "unknown opencode provider");
               deleteOpencodeCredential(provider);
@@ -5403,6 +5452,7 @@ a{color:#60a5fa}
             model?: string;
             thinkingLevel?: string;
             tools?: string[];
+            owner?: { kind?: string; botId?: string } | null;
           } | null;
           if (!b?.name || !b?.prompt || !b?.schedule) {
             return err(400, "name, prompt and schedule are required");
@@ -5417,29 +5467,53 @@ a{color:#60a5fa}
             const allowed = await assertCanModifyAutoAgent(existingForEdit, callerBot);
             if (!allowed.ok) return err(allowed.status, allowed.error);
           }
-          // A bot caller can never mint or move a row to a different owner —
-          // creating (or editing) from a bot conversation is always forced to
-          // `owner: { kind: "bot", botId: callerBot }` server-side, regardless
-          // of any `owner` the request body claims. A human/browser caller's
-          // request is honored as-is (defaults to "user" via saveAutoAgent).
-          const owner: AutoAgentOwner | undefined = callerBot
-            ? { kind: "bot", botId: callerBot }
-            : undefined;
-          if (callerBot && !b.id) {
+          // A bot caller is forced onto itself; a human/browser caller may name
+          // any owner, which is what makes the §8 migration of an existing
+          // user-owned schedule onto an existing bot possible.
+          const resolvedOwner = resolveRequestedAutoAgentOwner(callerBot, b.owner);
+          if (!resolvedOwner.ok) return err(resolvedOwner.status, resolvedOwner.error);
+          const owner = resolvedOwner.owner;
+          // The per-bot cap and the frequency ceiling are properties of a
+          // bot-owned row, not of the caller. Apply them to any row that ENDS
+          // UP bot-owned, so a human-driven migration cannot smuggle a row
+          // past the same limits omg_schedule_routine enforces. A row already
+          // owned by that same bot is exempt from the cap: editing it in place
+          // does not add a routine.
+          const becomesBotOwned = owner?.kind === "bot" ? owner.botId : null;
+          if (becomesBotOwned) {
+            // A row must never end up owned by a bot that is gone or disabled:
+            // the scheduler's delivery guard drops such an occurrence with only
+            // a server log, so a migration typo would silently stop the job.
+            // Skipped for a bot caller, whose own existence is already proven
+            // by resolving its caller session.
+            if (!callerBot) {
+              const target = await getBot(becomesBotOwned);
+              if (!target) return err(404, `unknown bot "${becomesBotOwned}"`);
+              if (!target.enabled)
+                return err(
+                  400,
+                  `bot "${target.name}" is disabled — enable it before it owns a routine`,
+                );
+            }
             const settings = await getGlobalSettings();
-            const current = await countAutoAgentsOwnedByBot(callerBot);
-            if (current >= settings.maxBotSchedules) {
+            const alreadyOwnedByTarget =
+              existingForEdit?.owner.kind === "bot" &&
+              existingForEdit.owner.botId === becomesBotOwned;
+            const current = await countAutoAgentsOwnedByBot(becomesBotOwned);
+            if (!alreadyOwnedByTarget && current >= settings.maxBotSchedules) {
               return err(
                 409,
-                `you already have ${current}/${settings.maxBotSchedules} scheduled routines — delete one with omg_unschedule_routine before creating another`,
+                callerBot
+                  ? `you already have ${current}/${settings.maxBotSchedules} scheduled routines — delete one with omg_unschedule_routine before creating another`
+                  : `that bot already owns ${current}/${settings.maxBotSchedules} scheduled routines — free a slot before assigning another`,
               );
             }
-          }
-          if (callerBot && exceedsMaxFrequency(b.schedule, (await getGlobalSettings()).timeZone)) {
-            return err(
-              400,
-              "that schedule fires too often for a bot-owned routine — the box rejects anything past a fixed frequency ceiling (about every 30 minutes)",
-            );
+            if (exceedsMaxFrequency(b.schedule, settings.timeZone)) {
+              return err(
+                400,
+                "that schedule fires too often for a bot-owned routine — the box rejects anything past a fixed frequency ceiling (about every 30 minutes)",
+              );
+            }
           }
           const autoAgent = b.agent?.trim() || undefined;
           if (autoAgent && !AUTO_AGENT_BACKENDS.includes(autoAgent as any)) {
@@ -6706,7 +6780,10 @@ a{color:#60a5fa}
           });
           if (assignedUser) assignUser(tmuxName, assignedUser);
           const prompt = body?.prompt?.trim() || undefined;
-          const spawned = agent === "grok"
+          // `await` covers both arms: spawnManagedCursorSession is async (it
+          // must not block this thread — see createCursorChat), and awaiting
+          // the sync grok result is a no-op.
+          const spawned = await (agent === "grok"
             ? spawnManagedGrokSession({
                 name: tmuxName,
                 cwd,
@@ -6724,7 +6801,7 @@ a{color:#60a5fa}
                 nativeSessionId: sessionId,
                 omgSessionId: sessionId,
                 omgUser: assignedUser,
-              });
+              }));
           if (!spawned.ok) {
             removeManaged(tmuxName);
             assignUser(tmuxName, null);

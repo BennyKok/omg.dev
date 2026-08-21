@@ -41,6 +41,7 @@ import { makeDraftPublisher } from "./draft.ts";
 import { readFileSync, statSync } from "node:fs";
 import { initialCmdOffset, readNewCmdLines, writeCursor } from "./cmd-tail.ts";
 import { claudeAccountEnv } from "../../claude-creds.ts";
+import { resolveClaudePath } from "./claude-path.ts";
 import { omgMcpServers } from "../../config.ts";
 import {
   claudeAccountConfigDir,
@@ -68,14 +69,6 @@ function effortFor(level?: string): "low" | "medium" | "high" | "xhigh" | "max" 
     return level as "low" | "medium" | "high" | "xhigh" | "max";
   }
   return undefined;
-}
-
-function resolveClaudePath(): string | undefined {
-  try {
-    return process.env.LFG_CLAUDE_PATH ?? Bun.which("claude") ?? undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 function sdkMessageIdentity(msg: Record<string, unknown>): string | null {

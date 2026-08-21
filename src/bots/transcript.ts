@@ -97,6 +97,35 @@ export function isSubagentUpdateText(text: string): boolean {
   return BACKGROUND_ATTRIBUTION.test(text) || SUBAGENT_UPDATE.test(text);
 }
 
+/** Last-line prefixes the coding agent writes when it dies mid-session. */
+const CODING_AGENT_STOPPED_UNEXPECTEDLY = "The coding agent stopped unexpectedly";
+const CODING_AGENT_STOPPED_BEFORE_START = "The coding agent stopped before it could start";
+
+export function isCodingAgentStoppedText(text: string): boolean {
+  const trimmed = text.trim();
+  return (
+    trimmed.startsWith(CODING_AGENT_STOPPED_UNEXPECTEDLY) ||
+    trimmed.startsWith(CODING_AGENT_STOPPED_BEFORE_START)
+  );
+}
+
+/**
+ * One-line preview for a bot roster or rail row.
+ *
+ * An empty last-message is "Say hi". Crash text collapses to "Stopped"
+ * instead of the raw exception. A background-task report stays the
+ * existing "Background task reported in" line. Busy wins over the
+ * last-message text and is always "Working".
+ */
+export function botRosterPreview(rawPreview: string | undefined, busy = false): string {
+  if (busy) return "Working";
+  const raw = (rawPreview ?? "").trim();
+  if (!raw) return "Say hi";
+  if (isCodingAgentStoppedText(raw)) return "Stopped";
+  if (isSubagentUpdateText(raw)) return "Background task reported in";
+  return botVisibleUserText(raw);
+}
+
 /**
  * Transcript kinds a bot chat does not show.
  *

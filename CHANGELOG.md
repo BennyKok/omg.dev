@@ -2,6 +2,73 @@
 
 Recent product updates and deployment notes.
 
+## August 21, 2026 - One `omg` for computer setup and create / deploy
+
+- **`@omg-dev/cli` 0.5.1 keeps one public `omg` binary.** `0.5.0` rejected
+  `create` / `deploy` / `login` after it replaced the vibes 0.4.42 line.
+  `@omg-dev/apps` was never published, so a fresh `npm i -g @omg-dev/cli`
+  lost those verbs. This version starts the hosted app flow again on the
+  same command.
+- **`omg computer setup` is still the local control plane.** It still
+  installs this repository's runtime and still opens
+  http://localhost:8766. You still bring your own agent accounts. omg.dev
+  does not resell tokens.
+- **`omg create`, `omg deploy`, and `omg login` start the last published
+  hosted app CLI (`@omg-dev/cli@0.4.42`).** The user does not type a second
+  command. A maintainer can point `OMG_APPS_BIN` at another runner, or put
+  `omg-apps` on PATH after `@omg-dev/apps` is published.
+
+## August 20, 2026 - jcode Claude and Codex login in the UI
+
+- **jcode Claude and Codex sign-in now uses the same in-app login as the
+  other providers.** The jcode row in Settings lists Claude and Codex.
+  Connect opens the existing browser login dialog. It does not send you to
+  a terminal-only `jcode login` picker.
+- **The real Codex flag is `--provider openai`.** There is no
+  `--provider codex`. Claude is `jcode login --provider claude`. The UI
+  starts those with `--print-auth-url --json`, then finishes with
+  `--auth-code` or `--callback-url`. After that, a jcode session can run
+  with the signed-in provider, the same way other signed-in harnesses do.
+- omg.dev still drives the jcode CLI you already own. It does not resell
+  tokens.
+- **When jcode is not installed, Connect starts setup instead of the login
+  dialog.** The jcode row shows only the missing CLI check. Helper text is
+  "Connect Claude or Codex above." The dialog title says Claude or Codex
+  once the CLI is present.
+
+## August 20, 2026 - Coding agent toggles follow readiness
+
+- **A coding agent is on only when it can run.** The Settings list used to
+  default every toggle on, even when the CLI was missing or no account was
+  connected. A fresh box now shows those agents off, with one word:
+  Install or Connect. A ready agent stays on. An agent you turned off stays
+  off.
+- Turning an unready agent on no longer enables it. The row opens to the
+  missing action instead.
+- The expanded row no longer repeats the failure, dumps install commands, or
+  labels OMG tools. Provider Connect rows and a single Install or Login
+  control stay.
+
+## August 20, 2026 - Move an existing schedule onto a bot
+
+- **An auto agent could not be handed to a bot.** A bot-owned routine could
+  only be created by the bot itself, from scratch. Moving one of the existing
+  schedules to a bot meant retyping its whole prompt and losing its id, run
+  history and findings. You can now reassign an existing schedule in place:
+  `lfg agents auto assign <id> --bot <botId>`, and `--user` moves it back to
+  the headless runner.
+- `lfg agents auto list` and `show` now name each schedule's owner. A
+  bot-owned routine produces no findings, because its results go to that
+  bot's conversation instead, so this is the difference between quiet
+  because healthy and quiet because nobody is watching the right surface.
+- The per-bot routine cap, the frequency ceiling, and the check that the
+  target bot exists and is enabled now apply to any schedule that ends up
+  bot-owned, not only to ones a bot created. Re-saving a routine the bot
+  already owns no longer trips its own cap.
+- Documented which of the existing auto agents can move to which existing
+  bot, and which should stay headless, in
+  `docs/bot-owned-automations-plan.md`.
+
 ## August 20, 2026 - A new account saw no onboarding steps at all (v0.2.20)
 
 - **A brand new hosted account landed on an empty home screen.** After

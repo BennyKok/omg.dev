@@ -2,10 +2,6 @@
   "name": "lfg",
   "version": "0.2.20",
   "type": "module",
-  "workspaces": [
-    "packages/*",
-    "web"
-  ],
   "bin": {
     "omg": "./src/cli.ts",
     "lfg": "./src/cli.ts"
