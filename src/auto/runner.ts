@@ -1,7 +1,13 @@
 // Runs one auto agent: build a prompt from the agent's instruction + the
 // dismiss-feedback block, pipe it to a real headless Claude session with
-// read-only tools, and parse at most ONE finding out of the result. Most runs
-// should return null — silence is the default, not a padded report.
+// read-only tools, and parse the findings out of the result. Most runs should
+// return [] — silence is the default, not a padded report.
+//
+// A run may surface MORE than one finding. It used to be capped at exactly one,
+// which quietly cost coverage: seven agents fire in the same six-minute window
+// each morning, so a day with three simultaneous problems surfaced three of
+// them at best and the rest were discarded with no trace. The cap now lives at
+// MAX_FINDINGS_PER_RUN and drops the least severe, never the outage.
 
 import { PATHS } from "../config.ts";
 import { notifyAll, type PushNotification } from "../push.ts";
@@ -19,23 +25,41 @@ import {
   markRunning,
 } from "./store.ts";
 
+/**
+ * How many findings one run may file.
+ *
+ * Not a quality bar — the strictness lives in the prompt. This is a blast-radius
+ * cap so a confused agent can't file fifty rows and fifty pushes in one tick.
+ */
+const MAX_FINDINGS_PER_RUN = 5;
+
 const SYSTEM = `You are an autonomous watch agent. Carry out the instruction below.
 
 You have read-only tools (Read, Grep, Glob, WebSearch, WebFetch) — use them to
-gather your own context. Decide whether there is ONE finding worth surfacing as
-a notification right now. Be strict: most runs should surface nothing. Only
+gather your own context. Decide what, if anything, is worth surfacing as a
+notification right now. Be strict: most runs should surface nothing. Only
 surface something concrete, high-leverage, and actionable — never filler.
+
+Report every INDEPENDENT problem you find, not just the most important one — two
+unrelated problems are two findings. This is not licence to pad: if one thing is
+worth surfacing, report one; if nothing is, report none. Never split one problem
+across several findings to look thorough, and never merge two unrelated problems
+into one finding. At most ${MAX_FINDINGS_PER_RUN} per run; if you somehow have
+more, keep the most severe.
 
 Respond with ONLY a JSON object as the final thing you output. No prose around
 it, no markdown fence. One of:
 
-{"finding": null}
+{"findings": []}
 
 or
 
-{"finding": {"title": "<one line>", "severity": "high" | "med" | "low", "reasoning": ["<short bullet>", "..."], "suggest": "<one-line concrete fix>"}}
+{"findings": [{"title": "<one line>", "severity": "high" | "med" | "low", "reasoning": ["<short bullet>", "..."], "suggest": "<one-line concrete fix>"}]}
 
-Rules: title is one line. At most 4 short reasoning bullets. No essay.`;
+Each finding must stand alone: its title names one specific problem, and its
+reasoning and suggest refer only to that problem.
+
+Rules: title is one line. At most 4 short reasoning bullets per finding. No essay.`;
 
 function normSeverity(s: unknown): Severity {
   const v = String(s ?? "").toLowerCase();
@@ -43,6 +67,9 @@ function normSeverity(s: unknown): Severity {
   if (v.startsWith("l")) return "low";
   return "med";
 }
+
+/** Sort order for the per-run cap: most severe first. */
+const SEVERITY_RANK: Record<Severity, number> = { high: 0, med: 1, low: 2 };
 
 /**
  * Render a finding as the notification carried inside the push.
@@ -61,7 +88,22 @@ function findingNotification(finding: Finding, occurrences?: number): PushNotifi
   };
 }
 
-function parseFinding(text: string): { finding: unknown } | null {
+/**
+ * Parse the agent's final text into zero or more raw findings.
+ *
+ * `null` means the output was unparseable; `[]` means the agent deliberately
+ * surfaced nothing. The caller logs those differently — they look identical
+ * from outside, and conflating them is how a broken agent hides as a quiet one.
+ *
+ * EVERY shape the agents have ever been told to emit is accepted, including the
+ * single-finding `{"finding": ...}` contract this replaced. That is not
+ * politeness: the stored agent prompts are user-owned rows written against the
+ * old contract, they are not migrated by this change, and a model that follows
+ * its own prompt over the system prompt must keep working. A stricter parser
+ * would turn those runs into silence — and silence is indistinguishable from a
+ * healthy quiet run, so the regression would be invisible.
+ */
+export function parseFindings(text: string): unknown[] | null {
   const tryParse = (s: string): any => {
     try {
       return JSON.parse(s);
@@ -69,6 +111,9 @@ function parseFinding(text: string): { finding: unknown } | null {
       return null;
     }
   };
+  const objects = (v: unknown[]): unknown[] =>
+    v.filter((x) => x != null && typeof x === "object" && !Array.isArray(x));
+
   let j: any = tryParse(text.trim());
   if (!j) {
     const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -79,12 +124,35 @@ function parseFinding(text: string): { finding: unknown } | null {
     const m = text.match(/\{[\s\S]*\}/);
     if (m) j = tryParse(m[0]);
   }
-  if (!j || typeof j !== "object") return null;
-  if (!("finding" in j)) {
-    if ("title" in j) return { finding: j };
-    return null;
+  if (!j) {
+    // ...or a bare top-level array of findings
+    const m = text.match(/\[[\s\S]*\]/);
+    if (m) j = tryParse(m[0]);
   }
-  return j;
+  if (j == null || typeof j !== "object") return null;
+
+  // A bare array of findings.
+  if (Array.isArray(j)) return objects(j);
+
+  // {"findings": [...]} — the current contract.
+  if ("findings" in j) {
+    const v = j.findings;
+    if (v == null) return [];
+    if (!Array.isArray(v)) return null;
+    return objects(v);
+  }
+
+  // {"finding": {...}} / {"finding": null} — the legacy single-finding contract.
+  if ("finding" in j) {
+    const v = j.finding;
+    if (v == null) return [];
+    if (typeof v !== "object") return null;
+    return Array.isArray(v) ? objects(v) : [v];
+  }
+
+  // A bare finding object with no envelope.
+  if ("title" in j) return [j];
+  return null;
 }
 
 const READONLY_TOOLS = ["Read", "Grep", "Glob", "WebSearch", "WebFetch"];
@@ -238,7 +306,7 @@ async function runSelectedBackend(
 export async function runAutoAgent(
   agent: AutoAgent,
   onLog: (s: string) => void = () => {},
-): Promise<Finding | null> {
+): Promise<Finding[]> {
   // Mark in-flight synchronously (before the first await) so a manual /run is
   // already "running" by the time the POST returns; always clear when done.
   markRunning(agent.id);
@@ -288,10 +356,66 @@ export function buildFindingFeedback(mine: Finding[]): string {
   return feedback;
 }
 
+export type FindingDraft = {
+  title: string;
+  severity: Severity;
+  reasoning: string[];
+  suggest?: string;
+};
+
+/**
+ * Normalize raw parsed findings into what will actually be filed: drop the
+ * untitled, order most-severe-first, then cap.
+ *
+ * Order before cap is the whole point. A confused agent that lists five nits
+ * ahead of one outage must not have the outage truncated away — the cap has to
+ * drop the least important finding, never the most. Exported because that
+ * guarantee is worth pinning directly in a test rather than inferring it from
+ * the runner's behavior.
+ */
+export function rankAndCap(
+  parsed: unknown[],
+  onLog: (s: string) => void = () => {},
+): FindingDraft[] {
+  const candidates = parsed
+    .map((raw) => {
+      const f = raw as Record<string, unknown>;
+      return {
+        title: String(f.title ?? "").trim(),
+        severity: normSeverity(f.severity),
+        reasoning: Array.isArray(f.reasoning) ? f.reasoning.map((r) => String(r)).slice(0, 6) : [],
+        suggest: f.suggest ? String(f.suggest) : undefined,
+      };
+    })
+    .filter((f) => {
+      if (!f.title) onLog("[auto] finding had no title — skipping");
+      return f.title.length > 0;
+    })
+    // Drop verbatim repeats within one run. A model listing the same problem
+    // twice is an artifact, not evidence of persistence, so it must not reach
+    // recordRecurrence and inflate the occurrence count. Distinct-but-similar
+    // titles are deliberately NOT merged here — that is recurrence's job, and
+    // it is scoped to exclude rows this same run already consumed.
+    .filter((f, i, all) => {
+      const first = all.findIndex((o) => o.title.toLowerCase() === f.title.toLowerCase());
+      if (first !== i) onLog(`[auto] dropping duplicate finding in same run: ${f.title}`);
+      return first === i;
+    })
+    // Sort is stable, so the agent's own ordering survives within a severity.
+    .sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
+
+  if (candidates.length > MAX_FINDINGS_PER_RUN) {
+    onLog(
+      `[auto] agent reported ${candidates.length} findings — keeping the ${MAX_FINDINGS_PER_RUN} most severe`,
+    );
+  }
+  return candidates.slice(0, MAX_FINDINGS_PER_RUN);
+}
+
 async function runAutoAgentInner(
   agent: AutoAgent,
   onLog: (s: string) => void = () => {},
-): Promise<Finding | null> {
+): Promise<Finding[]> {
   const mine = (await listFindings()).filter((f) => f.agentId === agent.id);
   const feedback = buildFindingFeedback(mine);
 
@@ -306,49 +430,57 @@ async function runAutoAgentInner(
   }
   const result = await runSelectedBackend(agent, prompt, cwd, onLog);
 
-  const parsed = parseFinding(result);
-  if (!parsed) {
+  const parsed = parseFindings(result);
+  if (parsed === null) {
     onLog("[auto] no parseable finding — treating as silence");
-    return null;
+    return [];
   }
-  if (parsed.finding == null) {
+  if (parsed.length === 0) {
     onLog("[auto] agent surfaced nothing");
-    return null;
+    return [];
   }
-  const f = parsed.finding as Record<string, unknown>;
-  const title = String(f.title ?? "").trim();
-  if (!title) {
-    onLog("[auto] finding had no title — skipping");
-    return null;
-  }
-  // Recurrence is signal, not noise. Previously a repeat observation was
-  // dropped on the floor; now it bumps the occurrence count and re-surfaces the
-  // finding, so "reported 4 times" becomes visible instead of invisible.
-  const recurred = await recordRecurrence(agent.id, title);
-  if (recurred) {
-    const n = recurred.occurrences ?? 2;
-    onLog(`[auto] recurrence #${n} of an unresolved finding: ${title}`);
-    // Re-notify on escalation thresholds rather than on every repeat: the 2nd
-    // sighting says "this is persistent", and every 5th says "this is still
-    // being ignored". Silence in between avoids retraining you to swipe it away.
-    if (n === 2 || n % 5 === 0) {
-      void notifyAll({ notification: findingNotification(recurred, n) }).catch(() => {});
+
+  const filed: Finding[] = [];
+  // Rows this run has already claimed. Recurrence matching is digit-insensitive,
+  // so without this the second of two per-host findings merges into the first.
+  const consumed = new Set<string>();
+  for (const c of rankAndCap(parsed, onLog)) {
+    // Recurrence is signal, not noise. Previously a repeat observation was
+    // dropped on the floor; now it bumps the occurrence count and re-surfaces
+    // the finding, so "reported 4 times" becomes visible instead of invisible.
+    //
+    // `consumed` keeps that scoped ACROSS runs only. Two findings from the same
+    // run never collapse into each other, however similar their titles look to
+    // the digit-stripping matcher — rankAndCap has already removed the verbatim
+    // repeats, so anything still here is a distinct problem.
+    const recurred = await recordRecurrence(agent.id, c.title, consumed);
+    if (recurred) {
+      consumed.add(recurred.id);
+      const n = recurred.occurrences ?? 2;
+      onLog(`[auto] recurrence #${n} of an unresolved finding: ${c.title}`);
+      // Re-notify on escalation thresholds rather than on every repeat: the 2nd
+      // sighting says "this is persistent", and every 5th says "this is still
+      // being ignored". Silence in between avoids retraining you to swipe it away.
+      if (n === 2 || n % 5 === 0) {
+        void notifyAll({ notification: findingNotification(recurred, n) }).catch(() => {});
+      }
+      filed.push(recurred);
+      continue;
     }
-    return recurred;
+    const finding = await addFinding({
+      agentId: agent.id,
+      title: c.title,
+      severity: c.severity,
+      reasoning: c.reasoning,
+      suggest: c.suggest,
+    });
+    consumed.add(finding.id);
+    onLog(`[auto] new finding: ${c.title}`);
+    // Wake installed PWAs via Web Push, carrying the finding in the message so
+    // devices on a hosted surface can render it without calling back to this
+    // box. Best-effort — never let a push failure sink the run.
+    void notifyAll({ notification: findingNotification(finding) }).catch(() => {});
+    filed.push(finding);
   }
-  const finding = await addFinding({
-    agentId: agent.id,
-    title,
-    severity: normSeverity(f.severity),
-    reasoning: Array.isArray(f.reasoning)
-      ? f.reasoning.map((r) => String(r)).slice(0, 6)
-      : [],
-    suggest: f.suggest ? String(f.suggest) : undefined,
-  });
-  onLog(`[auto] new finding: ${title}`);
-  // Wake installed PWAs via Web Push, carrying the finding in the message so
-  // devices on a hosted surface can render it without calling back to this
-  // box. Best-effort — never let a push failure sink the run.
-  void notifyAll({ notification: findingNotification(finding) }).catch(() => {});
-  return finding;
+  return filed;
 }
