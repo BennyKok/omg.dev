@@ -2,7 +2,7 @@
 
 Recent product updates and deployment notes.
 
-## August 21, 2026 - One `omg` for computer setup and create / deploy
+## August 21, 2026 - One `omg` for computer setup and create / deploy (v0.2.22)
 
 - **`@omg-dev/cli` 0.5.1 keeps one public `omg` binary.** `0.5.0` rejected
   `create` / `deploy` / `login` after it replaced the vibes 0.4.42 line.
@@ -17,6 +17,12 @@ Recent product updates and deployment notes.
   hosted app CLI (`@omg-dev/cli@0.4.42`).** The user does not type a second
   command. A maintainer can point `OMG_APPS_BIN` at another runner, or put
   `omg-apps` on PATH after `@omg-dev/apps` is published.
+- **The published `@omg-dev` package tarballs match the release tag again.**
+  `v0.2.21` attached tarballs that were stamped `0.2.20`, because that
+  release was built from a branch whose version was not bumped. A host that
+  pins `omg-dev-app-<tag>.tgz` could not install from it. This release ships
+  `0.2.22` tarballs under the `v0.2.22` tag. The runtime code is the same as
+  `v0.2.21`.
 
 ## August 20, 2026 - jcode Claude and Codex login in the UI
 
