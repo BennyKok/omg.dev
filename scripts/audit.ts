@@ -80,6 +80,11 @@ export const LOCKFILE_BY_TOOL: Record<AuditTool, string> = {
 export const AUDIT_ROOTS: { dir: string; why: string; tool: AuditTool }[] = [
   { dir: ".", why: "the workspace graph — the CLI, agent backends, packages/* and web/", tool: "bun" },
   { dir: "mobile", why: "the Expo mobile app — its own npm graph, outside the root workspaces list", tool: "npm" },
+  {
+    dir: "mobile/docs/appstore-frames",
+    why: "the standalone App Store frame renderer — its own npm graph executes Playwright during asset production",
+    tool: "npm",
+  },
 ];
 
 /** The lockfile a configured root audits, relative to the repo root. */
