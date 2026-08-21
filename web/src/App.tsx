@@ -25684,7 +25684,7 @@ function BotsView({
       {shouldShowInlineBotsSurfaceToggle(isMobile) ? (
         <SurfaceToggle active="chat" onOpenSessions={onOpenSessions} onOpenBots={() => {}} />
       ) : null}
-      <div className="flex items-center gap-3 px-2 pb-2 pt-4">
+      <div className="flex items-center gap-3 px-2 pb-2 pt-3">
         <h1 className="min-w-0 flex-1 text-[32px] font-bold leading-tight tracking-tight">Bots</h1>
         <button
           type="button"
@@ -25711,11 +25711,11 @@ function BotsView({
             aria-label={`${item.name}${row.unread ? ", unread conversation" : ""}`}
             className={MOBILE_BOT_ROSTER_ROW_CLASS}
           >
-            <BotAvatar bot={item} working={working} size={56} />
+            <BotAvatar bot={item} working={working} size={44} />
             <span className="flex min-w-0 flex-1 flex-col">
-              <span className={cn("truncate text-base font-semibold", !item.enabled && "text-muted-foreground")}>{item.name}</span>
+              <span className={cn("truncate text-base font-semibold leading-tight", !item.enabled && "text-muted-foreground")}>{item.name}</span>
               {preview ? (
-                <span className={cn("truncate text-sm", stopped ? "text-destructive" : "text-muted-foreground")}>{preview}</span>
+                <span className={cn("truncate text-sm leading-tight", stopped ? "text-destructive" : "text-muted-foreground")}>{preview}</span>
               ) : null}
             </span>
             {row.unread ? (
