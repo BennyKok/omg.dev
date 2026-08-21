@@ -23,7 +23,7 @@
     "setup": "bun run src/cli.ts setup",
     "uninstall": "bun run src/cli.ts uninstall",
     "icons": "bun run scripts/generate-icons.ts",
-    "test": "bun test",
+    "test": "bun run scripts/prepare-test-builds.ts && bun test",
     "audit": "bun run scripts/audit.ts",
     "audit:exceptions": "bun run scripts/audit.ts --update-exceptions",
     "bench:agent-transport": "bun run scripts/benchmark-agent-transport.ts",
