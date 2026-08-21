@@ -23,6 +23,18 @@ import {
   type PiAuthProviderId,
 } from "./pi-auth.ts";
 import { hasOpenCodeAccountAuth, opencodeAuthProviders } from "./opencode-auth.ts";
+import {
+  clearJcodePendingLogin,
+  isJcodeAuthProviderId,
+  jcodeAuthProviders,
+  jcodeCompleteArgv,
+  jcodeLoginArgv,
+  jcodeProviderLabel,
+  parseJcodeAuthPrompt,
+  summarizeJcodeAuthStatus,
+  type JcodeAuthProviderId,
+  type JcodeAuthStatus,
+} from "./jcode-auth.ts";
 
 export type CodingAgentKind =
   | "claude"
@@ -71,15 +83,15 @@ export type CodingAgentStatus = {
   loginCommand?: string;
   /** Claude-only: isolated subscription accounts available to session launchers. */
   accounts?: ClaudeAccount[];
-  /** pi and opencode: model providers signed into per provider, not per agent. */
+  /** pi, opencode, and jcode: model providers signed into per provider, not per agent. */
   providers?: AgentProviderInfo[];
 };
 
 /**
  * One model provider an agent signs into on its own, rather than the agent
- * holding a single account for the whole kind. pi and OpenCode both work this
- * way, and both render through the same row in the settings UI, so the row
- * shape lives here rather than in either credential module.
+ * holding a single account for the whole kind. pi, OpenCode, and jcode all
+ * work this way, and all render through the same row in the settings UI, so
+ * the row shape lives here rather than in any credential module.
  */
 export type AgentProviderInfo = {
   id: string;
@@ -107,10 +119,10 @@ export type CodingAgentInfo = {
 /**
  * Providers that can drive a login from the browser instead of a terminal.
  *
- * All but one are a vendor CLI we spawn and scrape. `pi-codex` is the
- * exception: pi ships no login subcommand, so we drive its OAuth in-process
- * through the bundled pi-ai library instead (see pi-auth.ts). The distinction
- * is invisible past this module — both kinds produce the same device-code
+ * Most are a vendor CLI we spawn and scrape. `pi-codex` is in-process (see
+ * pi-auth.ts). `jcode-claude` and `jcode-openai` use jcode's two-step
+ * scriptable login (`--print-auth-url`, then `--auth-code` / `--callback-url`).
+ * The distinction is invisible past this module — every kind produces the same
  * session the UI renders.
  */
 export type AuthProvider =
@@ -120,7 +132,9 @@ export type AuthProvider =
   | "fx"
   | "github"
   | "pi-anthropic"
-  | "pi-codex";
+  | "pi-codex"
+  | "jcode-claude"
+  | "jcode-openai";
 
 const AUTH_PROVIDER_LABELS: Record<AuthProvider, string> = {
   claude: "Claude",
@@ -130,6 +144,13 @@ const AUTH_PROVIDER_LABELS: Record<AuthProvider, string> = {
   github: "GitHub",
   "pi-anthropic": "Claude",
   "pi-codex": "ChatGPT",
+  "jcode-claude": "Claude",
+  "jcode-openai": "Codex",
+};
+
+const JCODE_AUTH_PROVIDERS: Record<JcodeAuthProviderId, AuthProvider> = {
+  claude: "jcode-claude",
+  openai: "jcode-openai",
 };
 
 /** pi's provider ids are its own; the sign-in UI names them per vendor. */
@@ -345,60 +366,26 @@ function jcodePath(): string | null {
   ]);
 }
 
-type JcodeAuthStatus = {
-  any_available?: unknown;
-  providers?: Array<{ id?: unknown; status?: unknown; credential_source?: unknown }>;
-};
-
-function jcodeProviderConnected(
-  reported: Array<{ id?: unknown; status?: unknown; credential_source?: unknown }>,
-  id: "claude" | "openai",
-): boolean {
-  const aliases = id === "openai" ? ["openai", "codex"] : [id];
-  const match = reported.find(
-    (provider) => typeof provider.id === "string" && aliases.includes(provider.id),
-  );
-  return (
-    match?.status === "available" &&
-    typeof match.credential_source === "string" &&
-    match.credential_source !== "none"
-  );
-}
-
-/** Claude and Codex rows stay visible even when the CLI is missing. */
-function jcodeProviderRows(
-  reported: Array<{ id?: unknown; status?: unknown; credential_source?: unknown }> = [],
-): AgentProviderInfo[] {
-  return [
-    { id: "claude", label: "Claude", method: "oauth", connected: jcodeProviderConnected(reported, "claude") },
-    { id: "openai", label: "Codex", method: "oauth", connected: jcodeProviderConnected(reported, "openai") },
-  ];
+async function jcodeAuthReport(): Promise<JcodeAuthStatus | null> {
+  const binary = jcodePath();
+  if (!binary) return null;
+  const out = await commandOutputAsync([binary, "--no-update", "auth", "status", "--json"]);
+  if (!out.ok) return null;
+  try {
+    const parsed = JSON.parse(out.text) as JcodeAuthStatus;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 async function jcodeAuthStatus(): Promise<{
   available: boolean;
   accountConnected: boolean;
-  providers: Array<{ id?: unknown; status?: unknown; credential_source?: unknown }>;
+  status: JcodeAuthStatus | null;
 }> {
-  const empty = { available: false, accountConnected: false, providers: [] };
-  const binary = jcodePath();
-  if (!binary) return empty;
-  const out = await commandOutputAsync([binary, "--no-update", "auth", "status", "--json"]);
-  if (!out.ok) return empty;
-  try {
-    const parsed = JSON.parse(out.text) as JcodeAuthStatus;
-    const providers = Array.isArray(parsed.providers) ? parsed.providers : [];
-    const available = parsed.any_available === true || providers.some((p) => p.status === "available");
-    const accountConnected = providers.some(
-      (p) =>
-        p.status === "available" &&
-        typeof p.credential_source === "string" &&
-        p.credential_source !== "none",
-    );
-    return { available, accountConnected, providers };
-  } catch {
-    return empty;
-  }
+  const status = await jcodeAuthReport();
+  return { ...summarizeJcodeAuthStatus(status), status };
 }
 
 function grokPath(): string | null {
@@ -771,7 +758,9 @@ function loginCommandPartsFor(kind: CodingAgentKind): string[] | null {
     return [codexPath() ?? "codex", "login", "--device-auth"];
   }
   if (kind === "opencode") return [opencodePath() ?? "opencode"];
-  if (kind === "jcode") return [jcodePath() ?? "jcode", "login"];
+  // Sign-in is the Claude/Codex rows. A quoted `jcode login` argv is a second
+  // product the settings page would print the moment the CLI is missing.
+  if (kind === "jcode") return null;
   if (kind === "grok") return [grokPath() ?? "grok", "login", "--device-auth"];
   if (kind === "cursor") return [cursorPath() ?? "cursor-agent", "login"];
   if (kind === "fx") return [fxPath() ?? "fx", "login"];
@@ -929,15 +918,20 @@ async function collectAuthOutput(
 
 export async function startCodingAgentAuth(
   kind: CodingAgentKind,
-  opts: { claudeAccountId?: string; piProvider?: string } = {},
+  opts: { claudeAccountId?: string; piProvider?: string; provider?: string } = {},
 ): Promise<CodingAgentAuthSession> {
   if (kind === "pi") {
-    const id = opts.piProvider ?? "openai-codex";
+    const id = opts.piProvider ?? opts.provider ?? "openai-codex";
     if (!isPiAuthProviderId(id)) throw new Error(`Unknown pi provider ${id}`);
     if (piProviderMethod(id) !== "oauth") {
       throw new Error(`${piProviderLabel(id)} is connected with an API key, not a browser sign-in`);
     }
     return startPiAuthSession(id);
+  }
+  if (kind === "jcode") {
+    const id = opts.provider ?? opts.piProvider ?? "claude";
+    if (!isJcodeAuthProviderId(id)) throw new Error(`Unknown jcode provider ${id}`);
+    return startJcodeAuthSession(id);
   }
   const provider = authProviderFor(kind);
   if (!provider) throw new Error(`${CODING_AGENT_LABELS[kind]} does not support browser login yet`);
@@ -1032,6 +1026,97 @@ async function startPiAuthSession(id: PiAuthProviderId): Promise<CodingAgentAuth
     session.status = "error";
     session.error = session.error ?? "The login page could not be prepared. Please try again.";
   }
+  return publicAuthSession(session);
+}
+
+/**
+ * Browser sign-in for a jcode provider, driven by its scriptable login API.
+ *
+ * `jcode login --print-auth-url --json` prints a URL and exits. The existing
+ * dialog still owns the tab and the paste field; we finish with `--auth-code`
+ * or `--callback-url` instead of keeping a CLI process alive.
+ */
+async function startJcodeAuthSession(id: JcodeAuthProviderId): Promise<CodingAgentAuthSession> {
+  const binary = jcodePath();
+  if (!binary) throw new Error("Install Jcode before signing in");
+  const provider = JCODE_AUTH_PROVIDERS[id];
+  for (const existing of authSessions.values()) {
+    if (existing.provider === provider && (existing.status === "starting" || existing.status === "waiting")) {
+      stopAuthSession(existing);
+      authSessions.delete(existing.id);
+    }
+  }
+
+  let markReady = () => {};
+  const ready = new Promise<void>((resolve) => { markReady = resolve; });
+  const session: InternalAuthSession = {
+    id: randomUUID(),
+    kind: "jcode",
+    provider,
+    status: "starting",
+    needsCode: true,
+    cancel: () => clearJcodePendingLogin(id),
+    output: "",
+    ready,
+    markReady,
+    expiresAt: Date.now() + AUTH_SESSION_TTL_MS,
+  };
+  authSessions.set(session.id, session);
+
+  const out = await commandOutputAsync(jcodeLoginArgv(binary, id));
+  session.output = out.text.slice(-AUTH_OUTPUT_LIMIT);
+  const parsed = parseJcodeAuthPrompt(out.text);
+  if (parsed?.authorizationUrl) {
+    session.authorizationUrl = parsed.authorizationUrl;
+    if (parsed.userCode) session.userCode = parsed.userCode;
+    if (parsed.expiresAtMs && parsed.expiresAtMs > Date.now()) {
+      session.expiresAt = Math.min(parsed.expiresAtMs, Date.now() + AUTH_SESSION_TTL_MS);
+    }
+    session.status = "waiting";
+    session.markReady();
+  } else {
+    session.status = "error";
+    const output = cleanAuthOutput(out.text).trim().split("\n").slice(-3).join(" ");
+    session.error = output || "The login page could not be prepared. Please try again.";
+    stopAuthSession(session);
+    session.markReady();
+  }
+
+  setTimeout(() => {
+    if (!authSessions.has(session.id)) return;
+    if (session.status === "starting" || session.status === "waiting") {
+      session.status = "error";
+      session.error = "Login expired. Start again for a new code.";
+      stopAuthSession(session);
+      session.markReady();
+    }
+  }, AUTH_SESSION_TTL_MS);
+
+  return publicAuthSession(session);
+}
+
+function jcodeProviderIdFromAuth(provider: AuthProvider): JcodeAuthProviderId | null {
+  if (provider === "jcode-openai") return "openai";
+  if (provider === "jcode-claude") return "claude";
+  return null;
+}
+
+async function completeJcodeAuthSession(
+  session: InternalAuthSession,
+  input: string,
+): Promise<CodingAgentAuthSession> {
+  const id = jcodeProviderIdFromAuth(session.provider);
+  if (!id) throw new Error("This login does not accept a code");
+  const binary = jcodePath();
+  if (!binary) throw new Error("Install Jcode before signing in");
+  const out = await commandOutputAsync(jcodeCompleteArgv(binary, id, input));
+  if (!out.ok) {
+    const output = cleanAuthOutput(out.text).trim().split("\n").slice(-3).join(" ");
+    throw new Error(output || `${jcodeProviderLabel(id)} sign-in could not be completed`);
+  }
+  session.status = "complete";
+  session.needsCode = false;
+  session.markReady();
   return publicAuthSession(session);
 }
 
@@ -1153,7 +1238,10 @@ export async function submitCodingAgentAuthCode(id: string, code: string): Promi
   if (!session.needsCode) throw new Error("This login does not accept a code");
   if (session.status !== "waiting") throw new Error("This login is no longer waiting for a code");
   const value = code.trim();
-  if (!value) throw new Error("Enter the code from Claude");
+  if (!value) throw new Error("Enter the code or callback URL from the sign-in page");
+  if (jcodeProviderIdFromAuth(session.provider)) {
+    return completeJcodeAuthSession(session, value);
+  }
   // In-process logins (pi) resolve the prompt directly; CLI-backed ones have
   // to have it typed at the stdin of the process still waiting on it.
   if (session.submitCode) {
@@ -1274,13 +1362,15 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
     );
   } else if (kind === "jcode") {
     const auth = await jcodeAuthStatus();
-    jcodeProviders = jcodeProviderRows(auth.providers);
+    jcodeProviders = jcodeAuthProviders(auth.status);
     accountConnected =
-      auth.accountConnected || jcodeProviders.some((provider) => provider.connected);
+      auth.accountConnected ||
+      jcodeProviders.some((provider) => provider.connected && !provider.fromEnv);
     addBinary("Jcode CLI", jcodePath());
+    instructions.push("Connect Claude or Codex above.");
+    // Sign-in is the provider rows, the same shape pi uses. A leftover
+    // `jcode login` terminal button would be a second product.
     addAuth("Jcode provider", auth.available || accountConnected, "connect Claude or Codex");
-    // Sign-in is the Claude/Codex rows. A leftover Login button would be a
-    // second product next to Connect.
     canLoginInTerminal = false;
   } else if (kind === "cursor") {
     accountConnected = hasCursorAccountAuth();
@@ -1335,7 +1425,7 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
       : {}),
     ...(kind === "pi" ? { providers: piAuthProviders() } : {}),
     ...(kind === "opencode" ? { providers: opencodeAuthProviders() } : {}),
-    ...(kind === "jcode" ? { providers: jcodeProviders ?? jcodeProviderRows() } : {}),
+    ...(kind === "jcode" ? { providers: jcodeProviders ?? jcodeAuthProviders(null) } : {}),
   };
 }
 

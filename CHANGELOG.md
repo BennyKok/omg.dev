@@ -18,6 +18,24 @@ Recent product updates and deployment notes.
   command. A maintainer can point `OMG_APPS_BIN` at another runner, or put
   `omg-apps` on PATH after `@omg-dev/apps` is published.
 
+## August 20, 2026 - jcode Claude and Codex login in the UI
+
+- **jcode Claude and Codex sign-in now uses the same in-app login as the
+  other providers.** The jcode row in Settings lists Claude and Codex.
+  Connect opens the existing browser login dialog. It does not send you to
+  a terminal-only `jcode login` picker.
+- **The real Codex flag is `--provider openai`.** There is no
+  `--provider codex`. Claude is `jcode login --provider claude`. The UI
+  starts those with `--print-auth-url --json`, then finishes with
+  `--auth-code` or `--callback-url`. After that, a jcode session can run
+  with the signed-in provider, the same way other signed-in harnesses do.
+- omg.dev still drives the jcode CLI you already own. It does not resell
+  tokens.
+- **When jcode is not installed, Connect starts setup instead of the login
+  dialog.** The jcode row shows only the missing CLI check. Helper text is
+  "Connect Claude or Codex above." The dialog title says Claude or Codex
+  once the CLI is present.
+
 ## August 20, 2026 - Coding agent toggles follow readiness
 
 - **A coding agent is on only when it can run.** The Settings list used to
