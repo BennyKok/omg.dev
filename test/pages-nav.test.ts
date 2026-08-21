@@ -84,7 +84,23 @@ describe("page navigation reachability", () => {
   });
 
   test("the hosted rail can open its question inbox", () => {
+    // Ask was once grouped with host-owned chrome, on the theory that omg
+    // would surface a blocked agent itself. It never did, which left hosted
+    // DESKTOP users with nothing: the "an agent needs you" headline is
+    // rendered under `isMobile && tab === "live"`, and SessionQuestionPanel
+    // only shows inside the conversation that asked.
     expect(app).toContain('onOpenAsk={() => setTab("notifications")}');
     expect(app).not.toContain('onOpenAsk={embedded ? undefined : () => setTab("ask")}');
+    // Asserted as a boolean: a failing toContain on the whole file prints all
+    // of App.tsx into the runner output, which buries the actual failure.
+    expect(
+      /onOpenAsk=\{embedded \?/.test(app),
+      "the rail's ask entry point must not be gated on embedded",
+    ).toBe(false);
+    // There is no "ask" tab — open questions live in the Notification
+    // Center, so routing anywhere else lands on a page that renders nothing.
+    expect(app.includes('setTab("ask")'), 'nothing may route to a non-existent "ask" tab').toBe(
+      false,
+    );
   });
 });
