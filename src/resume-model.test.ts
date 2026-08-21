@@ -12,4 +12,15 @@ describe("resume model identity", () => {
       resolveResumeModel("aisdk", null, "gpt-5.6-sol"),
     );
   });
+
+  test("Cursor keeps the exact launched model variant", () => {
+    expect(resolveResumeModel("cursor", "kimi-k3-high", "auto")).toBe("kimi-k3-high");
+    expect(resolveResumeModel("cursor", "cursor-grok-4.6-xhigh", "auto")).toBe(
+      "cursor-grok-4.6-xhigh",
+    );
+  });
+
+  test("Cursor rejects an invalid stored model before it reaches argv", () => {
+    expect(resolveResumeModel("cursor", "bad model; rm -rf", "auto")).toBe("auto");
+  });
 });

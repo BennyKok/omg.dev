@@ -11,9 +11,10 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/BennyKok/omg.dev?style=flat)](https://github.com/BennyKok/omg.dev/stargazers)
-[![npm](https://img.shields.io/npm/v/@omg-dev/cli?label=%40omg-dev%2Fcli)](https://www.npmjs.com/package/@omg-dev/cli)
+[![GitHub release](https://img.shields.io/github/v/release/BennyKok/omg.dev?label=release)](https://github.com/BennyKok/omg.dev/releases)
+[![Discord](https://img.shields.io/badge/Discord-join%20the%20community-5865F2?logo=discord&logoColor=white)](https://omg.dev/discord)
 
-[Quick start](#quick-start) · [Why omg.dev](#why-omgdev) · [Agents](#connect-a-coding-agent) · [Remote access](#reach-it-from-your-phone) · [Security](#security)
+[Quick start](#quick-start) · [Join the Discord](https://omg.dev/discord) · [Why omg.dev](#why-omgdev) · [Agents](#connect-a-coding-agent) · [Remote access](#reach-it-from-your-phone) · [Security](#security)
 
 <p>
   <img src="https://raw.githubusercontent.com/BennyKok/omg.dev/main/docs/images/omg-screenshot-1.jpg" alt="omg.dev web UI" width="31%" />
@@ -28,7 +29,8 @@ when you close the laptop, you can't tell which one is stuck waiting on a
 permission prompt, and you have to be at your desk to answer it.
 
 omg.dev turns a Linux box or macOS workstation into a private control plane for
-Claude Code, Codex, OpenCode, Jcode, Cursor, Grok, Pi, and GitHub Copilot. Each
+Claude Code, Codex, OpenCode, Jcode, Cursor, Grok, fx, Pi, and GitHub Copilot.
+Each
 agent runs in a long-lived `tmux` session that survives disconnects. The
 transcript streams to a web UI you can install as a PWA — so you can check on
 work, answer prompts, and steer from your phone.
@@ -38,23 +40,24 @@ authenticate. It does not resell tokens and has no model of its own.
 
 ## Quick start
 
-The `omg` CLI is the supported way to install and manage omg.dev. Use whichever
-package manager you already have:
+The supported install is this repository's installer. It puts one `omg`
+command on your `PATH` — the local control plane — and starts it for you:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/BennyKok/omg.dev/main/scripts/setup.sh | bash
+```
+
+Then open **http://localhost:8766**.
+
+`@omg-dev/cli` 0.5.1+ is one `omg` binary. `omg computer setup` installs the
+local control plane. `omg create` / `omg deploy` / `omg login` still start the
+hosted app flow. After that version is on npm, this is the same install:
 
 ```bash
 bun install --global @omg-dev/cli && omg computer setup
 ```
 
-```bash
-npm install --global @omg-dev/cli && omg computer setup
-```
-
-> The published CLI is currently shebanged `#!/usr/bin/env bun`, so an `npm`
-> install still needs `bun` on your `PATH` to run. The `bun` line above always
-> works; if you install with `npm` and see
-> `env: bun: No such file or directory`, install [Bun](https://bun.sh) and retry.
-
-Then open **http://localhost:8766**.
+`lfg` remains a compatibility alias for the same command.
 
 No omg.dev account is needed for this — `omg computer setup` provisions a purely
 local install. The CLI installs Bun, `tmux`, and `git`, fetches the latest
@@ -136,8 +139,8 @@ curious.
 - **Run agents where your code lives.** Sessions execute on your machine, in
   your repos, with your local CLIs and credentials — not a remote sandbox you
   have to keep in sync.
-- **Bring your own accounts.** Claude, Codex, OpenCode, Cursor, Grok, Copilot,
-  and Pi all run on subscriptions and keys you already have.
+- **Bring your own accounts.** Claude, Codex, OpenCode, Cursor, Grok, fx,
+  Copilot, and Pi all run on subscriptions and keys you already have.
 - **One UI for every harness.** Switch agents and models per session, resume
   work, answer permission prompts, and manage projects from an installable PWA.
 - **Survive the lid closing.** `tmux`-backed sessions keep running when you
@@ -165,6 +168,7 @@ register omg.dev's MCP server with it.
 | Jcode | `jcode` | |
 | Cursor | `cursor-agent` | |
 | Grok | `grok` | |
+| fx | `fx` | Vercel AI Gateway account (`fx login`) or `AI_GATEWAY_API_KEY` |
 | GitHub Copilot | `copilot` | Needs Node 22+ |
 | Pi | *installed on request* | `OMG_INSTALL_PI=1 omg setup` — its provider layer pulls ~115 MB, so it is not shipped by default |
 
@@ -174,8 +178,9 @@ authenticates via `ANTHROPIC_API_KEY` or `~/.pi/agent/auth.json`.
 
 **Settings → Coding agents → Install MCP** registers omg.dev MCP with Claude, Codex,
 OpenCode, Jcode, Grok, and Cursor when those CLIs are present. (Copilot and Pi have no
-MCP registration surface.) Setup does this automatically for Claude and
-Codex when they are already installed.
+MCP registration surface. fx needs no registration: its ACP session receives the
+omg.dev MCP server over the wire at launch.) Setup does this automatically for
+Claude and Codex when they are already installed.
 
 ## Reach it from your phone
 
@@ -197,13 +202,14 @@ OMG_RELAY_URL=wss://your-relay.example/connect omg connect ABC123   # outbound o
 ```
 
 No relay ships with omg.dev itself; the protocol is generic and any operator can
-implement it. [omg.dev](https://omg.dev) runs one, and the CLI configures the
-pairing for you:
+implement it. Pair with a one-time code from the relay operator:
 
 ```bash
-omg login
-omg connect        # installs omg.dev if needed, then pairs and connects
+OMG_RELAY_URL=wss://your-relay.example/connect omg connect ABC123
 ```
+
+The hosted `omg login && omg connect` convenience path is owned by
+`BennyKok/vibes`. It is not this repository's first-run command.
 
 Full comparison, the pairing flow, and opt-in session lifecycle events:
 **[docs/remote-access.md](./docs/remote-access.md)**.
@@ -222,7 +228,7 @@ privately through Tailscale.
 
 ## Don't want to run a box?
 
-[![Deploy on omg.dev](https://omg.dev/deploy-badge.svg?v=2)](https://omg.dev/sandbox/templates/lfg)
+[![Deploy on omg.dev](https://omg.dev/deploy-badge.svg?v=2)](https://omg.dev/sandbox/templates/omg)
 
 [omg.dev](https://omg.dev) is the hosted version, run by the same author — a
 cloud machine with omg.dev already running, so there's nothing to install and no
@@ -236,7 +242,9 @@ hibernate when idle and wake on the same URL.
 > repos and authenticated CLIs already on your machine — that is what omg.dev is
 > for. Use omg.dev to try it in seconds, or when you would rather not run a box
 > at all. A fresh hosted workspace has no agent CLIs signed in, and agents work
-> on repos you clone *into* it. More detail in [deploy/omg](./deploy/omg/README.md).
+> on repos you clone *into* it. The live start command is `omg serve`.
+> `lfg serve` remains a compatibility alias. More detail in
+> [deploy/omg](./deploy/omg/README.md).
 
 ## Managing an install
 
@@ -268,6 +276,7 @@ omg uninstall --purge --yes   # also permanently delete sessions and config
 
 ```bash
 omg serve                      # web UI + control server
+omg doctor                     # shareable diagnostic to paste into a bug report
 omg setup                      # rerun provisioning/update flow
 omg uninstall                  # remove omg.dev while preserving sessions and config
 omg connect <code>             # reach this box through a relay (see docs/remote-access.md)
@@ -281,10 +290,32 @@ omg subagent create --prompt "..." --agent codex-aisdk
 From a source checkout, use `bun run <command>` (e.g. `bun run serve`) — the
 surface is identical.
 
+## Something is wrong
+
+Run `omg doctor` and paste what it prints.
+
+```bash
+omg doctor          # a fenced block: versions, agents, accounts, server, recent errors
+omg doctor --json   # the same facts, machine-readable
+```
+
+It answers the questions a bug report otherwise takes several rounds to
+establish: which version, which agent CLIs exist, whether any account is
+connected, whether the server is up, and the recent log lines that look like
+failures. It works when omg.dev is broken — it does not need the server, and a
+probe that fails is reported rather than aborting the rest.
+
+API keys, tokens, and your home directory are removed before it prints, so the
+output is safe to paste into a public issue or Discord.
+
+If a session never starts, `doctor` usually names the cause outright: no coding
+agent installed, or none signed in.
+
 ## MCP tools
 
 `omg mcp` talks to the local `omg serve` API and exposes omg.dev's session tools to
-any MCP client. Prefer omg.dev's own subagent tools over a client's generic "spawn
+any MCP client. These tools drive local coding-agent sessions. They do not create
+or deploy apps. Prefer omg.dev's own subagent tools over a client's generic "spawn
 agent" helper so children stay visible in the UI, inherit parent and user
 context, and can run on any configured harness.
 
@@ -322,7 +353,7 @@ Variables use the `OMG_` prefix. These are the ones most people touch:
 | `OMG_INSTALL_TAILSCALE` | Install and join Tailscale. Off by default; implied by `OMG_TAILSCALE_SERVE`. |
 | `OMG_REPOS_ROOT` | Directory scanned for git repos. |
 | `ANTHROPIC_API_KEY` | Optional API key for Claude / Pi flows. |
-| `OMG_<AGENT>_PATH` | Override a CLI's binary path (`OMG_CLAUDE_PATH`, `OMG_CODEX_PATH`, `OMG_OPENCODE_PATH`, `OMG_JCODE_PATH`, `OMG_CURSOR_PATH`, `OMG_PI_PATH`, `OMG_COPILOT_PATH`). |
+| `OMG_<AGENT>_PATH` | Override a CLI's binary path (`OMG_CLAUDE_PATH`, `OMG_CODEX_PATH`, `OMG_OPENCODE_PATH`, `OMG_JCODE_PATH`, `OMG_CURSOR_PATH`, `OMG_FX_PATH`, `OMG_PI_PATH`, `OMG_COPILOT_PATH`). |
 | `OMG_RELAY_URL` | Relay WebSocket URL for `omg connect`. See [docs/remote-access.md](./docs/remote-access.md). |
 | `OMG_INSTALL_CHANNEL` | Install channel: `source`, `release`, or `container`. Usually set by setup/deploy. |
 
@@ -388,10 +419,11 @@ locally the old way.
 
 ## Embedding omg.dev in your own product
 
-Every release publishes `@omg-dev/protocol`, `@omg-dev/client`, `@omg-dev/react`,
-and `@omg-dev/app` to npm — the last being the exact full application the
-standalone web UI runs. React hosts mount it with their own transport and asset
-origin:
+Every release publishes `@omg-dev/cli`, `@omg-dev/protocol`, `@omg-dev/client`,
+`@omg-dev/react`, and `@omg-dev/app` to npm — the last being the exact full
+application the standalone web UI runs. `@omg-dev/cli` 0.5.1+ is the
+control-plane bootstrapper. The same `omg` also starts create / deploy / login.
+React hosts mount `@omg-dev/app` with their own transport and asset origin:
 
 ```bash
 npm install @omg-dev/app @omg-dev/client
@@ -404,8 +436,9 @@ See **[docs/embedding.md](./docs/embedding.md)**.
 ```text
 src/                 CLI, server, sessions, tmux, agents, MCP, integrations
 web/                 React/Vite PWA
+packages/cli         @omg-dev/cli 0.5.1+ control-plane bootstrapper + hosted app verbs
 agents/              Example markdown-defined insight agents
-scripts/setup.sh     Installer / provisioning
+scripts/setup.sh     Installer / provisioning (documented first-run)
 scripts/             Release, fleet, and smoke helpers
 scripts-internal/    Operator-only helpers (gitignored — see CONTRIBUTING.md)
 deploy/              Cloud, voice, STT, and ops deployments

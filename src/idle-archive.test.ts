@@ -8,6 +8,7 @@ import {
   MIN_IDLE_ARCHIVE_MINUTES,
   idleArchiveCandidates,
   idleMsFor,
+  memoryReclaimCandidates,
   sanitizeIdleArchiveMinutes,
 } from "./idle-archive.ts";
 
@@ -49,6 +50,10 @@ describe("idle archive policy", () => {
     // would punish it for being new.
     const launching = session({ launching: true, lastActivityAt: null, startedAt: NOW - 9 * HOUR });
     expect(idleArchiveCandidates([launching], FOUR_HOURS)).toEqual([]);
+  });
+
+  test("never archives a persistent bot session", () => {
+    expect(idleArchiveCandidates([session({ persistent: true })], FOUR_HOURS)).toEqual([]);
   });
 
   test("never archives an unmanaged session", () => {
@@ -100,5 +105,59 @@ describe("idle archive policy", () => {
     expect(sanitizeIdleArchiveMinutes(-5)).toBe(0);
     expect(sanitizeIdleArchiveMinutes("abc")).toBe(0);
     expect(sanitizeIdleArchiveMinutes(999_999)).toBe(7 * 24 * 60);
+  });
+});
+
+// The second reaper. It runs on memory pressure rather than on a timer, so it
+// fires under exactly the conditions where a wrong choice is least visible.
+describe("memory reclaim policy", () => {
+  function durable(over: Record<string, unknown> = {}) {
+    return {
+      sessionId: "s1",
+      managed: true,
+      busy: false,
+      launching: false,
+      agent: "aisdk",
+      runtime: "command-file" as const,
+      lastActivityAt: NOW - 8 * HOUR,
+      startedAt: NOW - 9 * HOUR,
+      ...over,
+    };
+  }
+
+  test("reclaims an idle durable harness", () => {
+    expect(memoryReclaimCandidates([durable()])).toHaveLength(1);
+  });
+
+  // The bug this exists to pin: a bot is idle between turns by definition, so it
+  // sorted to the front of this list and any unrelated launch could reclaim it —
+  // while idleArchiveCandidates exempted it. Archiving is normally cheap because
+  // a session resumes; a bot relaunch mints a new session id, so the human's
+  // chat history with that bot came back empty.
+  test("never reclaims a persistent session, however idle", () => {
+    const bot = durable({ sessionId: "bot", persistent: true, lastActivityAt: NOW - 100 * HOUR });
+    expect(memoryReclaimCandidates([bot])).toEqual([]);
+    expect(memoryReclaimCandidates([bot, durable({ sessionId: "task" })]).map((s) => s.sessionId))
+      .toEqual(["task"]);
+  });
+
+  test("leaves busy, launching, unmanaged and id-less sessions alone", () => {
+    expect(memoryReclaimCandidates([durable({ busy: true })])).toEqual([]);
+    expect(memoryReclaimCandidates([durable({ launching: true })])).toEqual([]);
+    expect(memoryReclaimCandidates([durable({ managed: false })])).toEqual([]);
+    expect(memoryReclaimCandidates([durable({ sessionId: null })])).toEqual([]);
+  });
+
+  test("leaves process-bound harnesses alone — reclaiming one is a kill, not an archive", () => {
+    expect(memoryReclaimCandidates([durable({ agent: "jcode", runtime: "tmux" })])).toEqual([]);
+  });
+
+  test("takes the longest-idle first", () => {
+    const picked = memoryReclaimCandidates([
+      durable({ sessionId: "a", lastActivityAt: NOW - 5 * HOUR }),
+      durable({ sessionId: "b", lastActivityAt: NOW - 30 * HOUR }),
+      durable({ sessionId: "c", lastActivityAt: NOW - 12 * HOUR }),
+    ]);
+    expect(picked.map((s) => s.sessionId)).toEqual(["b", "c", "a"]);
   });
 });

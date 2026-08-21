@@ -1,24 +1,33 @@
 import { describe, expect, test } from "bun:test";
 import {
+  ACTIVE_SESSION_AGENT_KINDS,
   CODING_AGENT_ADAPTERS,
   COMMAND_FILE_AGENT_KINDS,
   SESSION_AGENT_KINDS,
   TMUX_AGENT_KINDS,
   isCommandFileAgent,
   isTmuxAgent,
+  resolveActiveSessionAgent,
+  usesCommandFileRuntime,
 } from "./coding-agent-adapters.ts";
 import { CODING_AGENT_KINDS, CODING_AGENT_LABELS, isCodingAgentKind } from "./coding-agents.ts";
+import { ACTIVE_CODING_AGENT_PROVIDERS } from "./coding-agent-provider.ts";
 import { MODEL_OPTIONS, listModelCatalog, thinkingLevelsForAgent } from "./agent-catalog.ts";
 import {
   spawnManagedAisdkSession,
   spawnManagedCodexAisdkSession,
   spawnManagedCodexSession,
+  spawnManagedCopilotSdkSession,
   spawnManagedCopilotSession,
+  spawnManagedCursorAcpSession,
+  spawnManagedFxAcpSession,
   spawnManagedCursorSession,
+  spawnManagedGrokAcpSession,
   spawnManagedGrokSession,
   spawnManagedOpencodeAisdkSession,
   spawnManagedPiSession,
   spawnManagedJcodeSession,
+  spawnManagedJcodeSdkSession,
   spawnManagedSession,
   managedCopilotSessionArgv,
   managedJcodeSessionArgv,
@@ -34,6 +43,7 @@ import {
   isJcodeBusy,
   parsePrompt,
 } from "./tmux.ts";
+import { agentTmpEnv } from "./tmp-reclaim.ts";
 
 function sorted(values: Iterable<string>): string[] {
   return [...values].sort((a, b) => a.localeCompare(b));
@@ -45,14 +55,50 @@ const launchers = {
   codex: spawnManagedCodexSession,
   "codex-aisdk": spawnManagedCodexAisdkSession,
   opencode: spawnManagedOpencodeAisdkSession,
-  jcode: spawnManagedJcodeSession,
-  grok: spawnManagedGrokSession,
-  cursor: spawnManagedCursorSession,
+  jcode: spawnManagedJcodeSdkSession,
+  grok: spawnManagedGrokAcpSession,
+  cursor: spawnManagedCursorAcpSession,
+  fx: spawnManagedFxAcpSession,
   pi: spawnManagedPiSession,
-  copilot: spawnManagedCopilotSession,
+  copilot: spawnManagedCopilotSdkSession,
 } satisfies Record<(typeof SESSION_AGENT_KINDS)[number], unknown>;
 
 describe("coding agent adapter contract", () => {
+  test("new sessions use the preferred SDK drivers for Claude and Codex", () => {
+    expect(resolveActiveSessionAgent(undefined)).toBe("aisdk");
+    expect(resolveActiveSessionAgent("claude")).toBe("aisdk");
+    expect(resolveActiveSessionAgent("codex")).toBe("codex-aisdk");
+    expect(resolveActiveSessionAgent("hermes")).toBeNull();
+    expect(ACTIVE_SESSION_AGENT_KINDS).not.toContain("claude");
+    expect(ACTIVE_SESSION_AGENT_KINDS).not.toContain("codex");
+  });
+
+  test("every adapter declares one product, driver, and capability contract", () => {
+    for (const agent of SESSION_AGENT_KINDS) {
+      const adapter = CODING_AGENT_ADAPTERS[agent];
+      expect(adapter.product, agent).toBeTruthy();
+      expect(adapter.driver, agent).toBeTruthy();
+      expect(adapter.capabilities.interrupt, agent).toBeTruthy();
+      expect(adapter.capabilities.toolAccess, agent).toBeTruthy();
+    }
+    expect(CODING_AGENT_ADAPTERS.claude.deprecated).toBe(true);
+    expect(CODING_AGENT_ADAPTERS.codex.deprecated).toBe(true);
+    expect(CODING_AGENT_ADAPTERS.jcode.capabilities.interrupt).toBe("immediate");
+  });
+
+  test("every active agent launches through the shared provider interface", () => {
+    expect(sorted(Object.keys(ACTIVE_CODING_AGENT_PROVIDERS))).toEqual(
+      sorted(ACTIVE_SESSION_AGENT_KINDS),
+    );
+    for (const kind of ACTIVE_SESSION_AGENT_KINDS) {
+      const provider = ACTIVE_CODING_AGENT_PROVIDERS[kind];
+      expect(provider.kind).toBe(kind);
+      expect(provider.product).toBe(CODING_AGENT_ADAPTERS[kind].product);
+      expect(provider.driver).toBe(CODING_AGENT_ADAPTERS[kind].driver);
+      expect(typeof provider.launch).toBe("function");
+    }
+  });
+
   test("every launchable coding agent has one delivery transport", () => {
     const adapterKinds = Object.keys(CODING_AGENT_ADAPTERS);
     const transportKinds = [...TMUX_AGENT_KINDS, ...COMMAND_FILE_AGENT_KINDS];
@@ -67,6 +113,14 @@ describe("coding agent adapter contract", () => {
       expect(isCommandFileAgent(agent)).toBe(adapter.transport === "command-file");
       expect(isTmuxAgent(agent)).toBe(adapter.transport === "tmux");
     }
+  });
+
+  test("explicit runtimes preserve terminal sessions created before the SDK migration", () => {
+    expect(usesCommandFileRuntime("jcode")).toBe(false);
+    expect(usesCommandFileRuntime("cursor")).toBe(false);
+    expect(usesCommandFileRuntime("jcode", "command-file")).toBe(true);
+    expect(usesCommandFileRuntime("cursor", "command-file")).toBe(true);
+    expect(usesCommandFileRuntime("aisdk")).toBe(true);
   });
 
   test("visible coding-agent settings only reference real adapters", () => {
@@ -144,6 +198,26 @@ describe("coding agent adapter contract", () => {
 
   test("jcode REPL prompts stay on one input line", () => {
     expect(jcodeReplPrompt("first line\n\nsecond\tline")).toBe("first line second line");
+  });
+
+  test("jcode managed sessions resume their native journal", () => {
+    const nativeId = "session_fox_1786682997292_3adacdab25715ce2";
+    const argv = managedJcodeSessionArgv({
+      name: "lfg-test",
+      cwd: "/tmp/lfg-test",
+      model: "claude-opus-5",
+      resume: nativeId,
+      omgSessionId: "session-id",
+    });
+
+    // `--resume` is a `repl` subcommand flag, so it has to follow `repl`.
+    expect(argv.indexOf("--resume")).toBeGreaterThan(argv.indexOf("repl"));
+    expect(argv[argv.indexOf("--resume") + 1]).toBe(nativeId);
+  });
+
+  test("jcode managed sessions omit --resume when starting fresh", () => {
+    const argv = managedJcodeSessionArgv({ name: "lfg-test", cwd: "/tmp/lfg-test" });
+    expect(argv).not.toContain("--resume");
   });
 
   test("jcode is busy until its REPL prints the next prompt", () => {
@@ -227,6 +301,9 @@ describe("coding agent adapter contract", () => {
     expect(argv).toContain("--setenv=AGENT_BROWSER_SESSION=lfg-test");
     expect(argv).toContain(`--setenv=AGENT_BROWSER_IDLE_TIMEOUT_MS=${AGENT_BROWSER_IDLE_TIMEOUT_MS}`);
     expect(argv.some((part) => part.startsWith("--setenv=DBUS_SESSION_BUS_ADDRESS="))).toBe(true);
+    for (const [key, value] of Object.entries(agentTmpEnv())) {
+      expect(argv).toContain(`--setenv=${key}=${value}`);
+    }
     expect(argv.slice(-3)).toEqual(["/usr/bin/example-agent", "--task", "hello"]);
   });
 

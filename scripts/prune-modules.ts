@@ -42,27 +42,36 @@ export function fieldAllows(field: unknown, value: string): boolean {
 /**
  * Agent runtimes the SDKs carry their own private copy of.
  *
- * These are whole coding-agent binaries — ~1 GB of the tree — shipped as a
- * fallback for users who have not installed that agent. omg.dev does not need
- * them: every backend already prefers the CLI on the user's machine
- * (`pathToClaudeCodeExecutable`, `codexPathOverride`, and a PATH lookup for
- * opencode), and the product's whole premise is that you bring agent CLIs you
- * already own and authenticate.
+ * These are whole coding-agent binaries — shipped as a fallback for users who
+ * have not installed that agent. omg.dev does not need them when the backend
+ * prefers the CLI on the user's machine (`pathToClaudeCodeExecutable`, and a
+ * PATH lookup for opencode), and the product's whole premise is that you bring
+ * agent CLIs you already own and authenticate.
  *
  * Dropping them is safe for imports: the binaries are resolved when a session
- * spawns, not at module load, so `import("@openai/codex-sdk")` still works with
- * its 336 MB dependency absent. A machine with no such CLI simply cannot start
- * that agent kind, and is told to install it — from Settings → Coding agents,
- * or `OMG_INSTALL_<AGENT>=1 omg setup`, which is also how a hosted image
+ * spawns, not at module load, so `import("@opencode-ai/sdk")` still works with
+ * its runtime absent. A machine with no such CLI simply cannot start that agent
+ * kind, and is told to install it — from Settings → Coding agents, or
+ * `OMG_INSTALL_<AGENT>=1 omg setup`, which is also how a hosted image
  * provisions them on top of this same lean bundle.
  *
- * `@earendil-works/pi-coding-agent` is deliberately NOT here: Pi has no
- * separately installable binary, so shipping it is the only way it runs, and it
- * is 15 MB rather than hundreds.
+ * Two runtimes are deliberately NOT here, for the same reason: shipping them is
+ * the only way they run.
+ *
+ * `@earendil-works/pi-coding-agent` — Pi has no separately installable binary,
+ * and it is 15 MB rather than hundreds.
+ *
+ * `@openai/codex` — the codex backend does NOT fall back to a global CLI. See
+ * `resolveCodexPathOverride` in src/agents/backends/codex-aisdk-session.ts: it
+ * redirects the SDK only on an EXPLICIT `LFG_CODEX_PATH`, because codex-sdk
+ * pins an exact `@openai/codex` (protocol-tested pairing) and setup.sh installs
+ * the global CLI unpinned. Pruning it therefore does not fall back to anything
+ * — it makes every codex session fail to start with "Unable to locate Codex CLI
+ * binaries", including on a self-updated release box that has codex on PATH.
+ * That shipped in v0.2.11 and wedged a running bot. Costs ~336 MB per bundle.
  */
 export const AGENT_RUNTIME_PREFIXES = [
   "@anthropic-ai/claude-agent-sdk-", // platform binaries; the JS SDK itself stays
-  "@openai/codex", // the CLI package + its platform binary; codex-sdk stays
   "opencode-ai",
   "opencode-linux",
   "opencode-darwin",
@@ -71,8 +80,10 @@ export const AGENT_RUNTIME_PREFIXES = [
 
 /** True when a package is a bundled agent runtime rather than a real dependency. */
 export function isAgentRuntime(name: string): boolean {
-  // Exact-match guards so `@openai/codex-sdk` and `@opencode-ai/sdk` survive:
-  // both start with a listed prefix but are the JS clients we actually import.
+  // Exact-match guards so `@opencode-ai/sdk` and friends survive: they start
+  // with a listed prefix but are the JS clients we actually import. The codex
+  // guard is kept deliberately, so that re-adding an `@openai/codex` prefix can
+  // never take `@openai/codex-sdk` — the client we import — down with it.
   if (name === "@openai/codex-sdk") return false;
   if (name.startsWith("@opencode-ai/")) return false;
   if (name === "@anthropic-ai/claude-agent-sdk") return false;

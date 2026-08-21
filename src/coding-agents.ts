@@ -21,8 +21,8 @@ import {
   piProviderMethod,
   startPiOAuthLogin,
   type PiAuthProviderId,
-  type PiProviderInfo,
 } from "./pi-auth.ts";
+import { hasOpenCodeAccountAuth, opencodeAuthProviders } from "./opencode-auth.ts";
 
 export type CodingAgentKind =
   | "claude"
@@ -33,6 +33,7 @@ export type CodingAgentKind =
   | "jcode"
   | "grok"
   | "cursor"
+  | "fx"
   | "hermes"
   | "pi"
   | "copilot";
@@ -70,8 +71,30 @@ export type CodingAgentStatus = {
   loginCommand?: string;
   /** Claude-only: isolated subscription accounts available to session launchers. */
   accounts?: ClaudeAccount[];
-  /** pi-only: model providers it can sign into, and whether each is connected. */
-  providers?: PiProviderInfo[];
+  /** pi and opencode: model providers signed into per provider, not per agent. */
+  providers?: AgentProviderInfo[];
+};
+
+/**
+ * One model provider an agent signs into on its own, rather than the agent
+ * holding a single account for the whole kind. pi and OpenCode both work this
+ * way, and both render through the same row in the settings UI, so the row
+ * shape lives here rather than in either credential module.
+ */
+export type AgentProviderInfo = {
+  id: string;
+  label: string;
+  method: "oauth" | "api-key";
+  connected: boolean;
+  /** Credential is real but not ours to delete (env var, or a vendor CLI's). */
+  fromEnv?: boolean;
+  /**
+   * Where the credential came from, when "From the environment" would be a lie.
+   * `fromEnv` carries two meanings the UI needs to keep apart — "cannot be
+   * deleted here" and "was set as an env var" — and only the first is always
+   * true of it.
+   */
+  detail?: string;
 };
 
 export type CodingAgentInfo = {
@@ -94,6 +117,7 @@ export type AuthProvider =
   | "claude"
   | "codex"
   | "grok"
+  | "fx"
   | "github"
   | "pi-anthropic"
   | "pi-codex";
@@ -102,6 +126,7 @@ const AUTH_PROVIDER_LABELS: Record<AuthProvider, string> = {
   claude: "Claude",
   codex: "Codex",
   grok: "Grok",
+  fx: "Vercel",
   github: "GitHub",
   "pi-anthropic": "Claude",
   "pi-codex": "ChatGPT",
@@ -154,6 +179,7 @@ export const CODING_AGENT_KINDS: Exclude<CodingAgentKind, "claude" | "hermes">[]
   "codex-aisdk",
   "grok",
   "cursor",
+  "fx",
   "opencode",
   "jcode",
   "copilot",
@@ -169,12 +195,13 @@ export const CODING_AGENT_LABELS: Record<CodingAgentKind, string> = {
   jcode: "jcode",
   grok: "grok",
   cursor: "cursor",
+  fx: "fx",
   hermes: "hermes",
   pi: "pi",
   copilot: "copilot",
 };
 
-const CONFIG_PATH = join(PATHS.data, "coding-agents.json");
+const configPath = () => join(PATHS.data, "coding-agents.json");
 const setupRuns = new Map<CodingAgentKind, Promise<void>>();
 const setupProgress = new Map<CodingAgentKind, { percent: number; label: string }>();
 
@@ -224,7 +251,7 @@ function readJson<T>(path: string): T | null {
 }
 
 export async function getCodingAgentConfig(): Promise<CodingAgentConfig> {
-  const raw = readJson<CodingAgentConfig>(CONFIG_PATH);
+  const raw = readJson<CodingAgentConfig>(configPath());
   return { agents: raw?.agents ?? {} };
 }
 
@@ -235,8 +262,23 @@ export async function setCodingAgentVisibility(
   const cfg = await getCodingAgentConfig();
   cfg.agents[kind] = { ...(cfg.agents[kind] ?? {}), visible };
   await mkdir(PATHS.data, { recursive: true });
-  await Bun.write(CONFIG_PATH, JSON.stringify(cfg, null, 2));
+  await Bun.write(configPath(), JSON.stringify(cfg, null, 2));
   return cfg;
+}
+
+/**
+ * Composer toggle for one coding agent.
+ *
+ * An agent is ON only when it can actually run. No saved choice follows
+ * readiness: ready defaults ON, unready defaults OFF. An explicit hide stays
+ * off after the agent becomes ready. An old implicit-on value (`true`, or
+ * missing) does not keep an unready agent on.
+ */
+export function codingAgentVisible(
+  saved: boolean | undefined,
+  configured: boolean,
+): boolean {
+  return saved === false ? false : configured;
 }
 
 function which(name: string, extra: string[] = []): string | null {
@@ -305,14 +347,44 @@ function jcodePath(): string | null {
 
 type JcodeAuthStatus = {
   any_available?: unknown;
-  providers?: Array<{ status?: unknown; credential_source?: unknown }>;
+  providers?: Array<{ id?: unknown; status?: unknown; credential_source?: unknown }>;
 };
 
-async function jcodeAuthStatus(): Promise<{ available: boolean; accountConnected: boolean }> {
+function jcodeProviderConnected(
+  reported: Array<{ id?: unknown; status?: unknown; credential_source?: unknown }>,
+  id: "claude" | "openai",
+): boolean {
+  const aliases = id === "openai" ? ["openai", "codex"] : [id];
+  const match = reported.find(
+    (provider) => typeof provider.id === "string" && aliases.includes(provider.id),
+  );
+  return (
+    match?.status === "available" &&
+    typeof match.credential_source === "string" &&
+    match.credential_source !== "none"
+  );
+}
+
+/** Claude and Codex rows stay visible even when the CLI is missing. */
+function jcodeProviderRows(
+  reported: Array<{ id?: unknown; status?: unknown; credential_source?: unknown }> = [],
+): AgentProviderInfo[] {
+  return [
+    { id: "claude", label: "Claude", method: "oauth", connected: jcodeProviderConnected(reported, "claude") },
+    { id: "openai", label: "Codex", method: "oauth", connected: jcodeProviderConnected(reported, "openai") },
+  ];
+}
+
+async function jcodeAuthStatus(): Promise<{
+  available: boolean;
+  accountConnected: boolean;
+  providers: Array<{ id?: unknown; status?: unknown; credential_source?: unknown }>;
+}> {
+  const empty = { available: false, accountConnected: false, providers: [] };
   const binary = jcodePath();
-  if (!binary) return { available: false, accountConnected: false };
+  if (!binary) return empty;
   const out = await commandOutputAsync([binary, "--no-update", "auth", "status", "--json"]);
-  if (!out.ok) return { available: false, accountConnected: false };
+  if (!out.ok) return empty;
   try {
     const parsed = JSON.parse(out.text) as JcodeAuthStatus;
     const providers = Array.isArray(parsed.providers) ? parsed.providers : [];
@@ -323,51 +395,10 @@ async function jcodeAuthStatus(): Promise<{ available: boolean; accountConnected
         typeof p.credential_source === "string" &&
         p.credential_source !== "none",
     );
-    return { available, accountConnected };
+    return { available, accountConnected, providers };
   } catch {
-    return { available: false, accountConnected: false };
+    return empty;
   }
-}
-
-/** OpenCode's credential store, honouring the XDG override it reads itself. */
-function opencodeAuthPath(): string {
-  const xdg = process.env.XDG_DATA_HOME?.trim();
-  return join(xdg ? xdg : join(userHome(), ".local", "share"), "opencode", "auth.json");
-}
-
-/**
- * Provider ids OpenCode holds a usable credential for.
- *
- * OpenCode keys a flat map by provider id (`opencode`, `opencode-go`, `openai`,
- * `fugu`, …) whose entries are either `{type:"api", key}` or an OAuth record
- * with `access`/`refresh`. An empty or missing file means the only models this
- * box can reach are OpenCode Zen's credential-free tier — `opencode models`
- * lists exactly those and nothing else, which is what makes this the right
- * signal for gating the picker.
- */
-function opencodeAuthProviderIds(): string[] {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(readFileSync(opencodeAuthPath(), "utf8"));
-  } catch {
-    return [];
-  }
-  if (!parsed || typeof parsed !== "object") return [];
-  const ids: string[] = [];
-  for (const [id, entry] of Object.entries(parsed as Record<string, unknown>)) {
-    if (!entry || typeof entry !== "object") continue;
-    const record = entry as { key?: unknown; access?: unknown; refresh?: unknown };
-    const secret = [record.key, record.access, record.refresh].some(
-      (value) => typeof value === "string" && value.trim().length > 0,
-    );
-    if (secret) ids.push(id);
-  }
-  return ids;
-}
-
-function hasOpenCodeAccountAuth(): boolean {
-  if (process.env.OPENCODE_API_KEY?.trim()) return true;
-  return opencodeAuthProviderIds().length > 0;
 }
 
 function grokPath(): string | null {
@@ -406,19 +437,21 @@ function cursorPath(): string | null {
   ]));
 }
 
+// fx's published installer drops a single static binary in FX_INSTALL_DIR,
+// defaulting to ~/.local/bin. There is no package manager path to check.
+function fxPath(): string | null {
+  const home = userHome();
+  return which("fx", [
+    process.env.LFG_FX_PATH ?? "",
+    `${home}/.local/bin/fx`,
+    `${home}/.bun/bin/fx`,
+    "/usr/local/bin/fx",
+  ]);
+}
+
 function rejectGrokAgent(path: string | null): string | null {
   if (!path) return null;
   return isGrokAgentPath(path) ? null : path;
-}
-
-function hermesPath(): string | null {
-  const home = userHome();
-  return which("hermes", [
-    process.env.LFG_HERMES_PATH ?? "",
-    `${home}/.local/bin/hermes`,
-    `${home}/.bun/bin/hermes`,
-    "/usr/local/bin/hermes",
-  ]);
 }
 
 // pi has no standalone-CLI requirement: the backend drives LFG's own bundled
@@ -670,11 +703,6 @@ function hasPiAuth(): boolean {
   return hasPiProviderAuth();
 }
 
-function hasHermesConfig(): boolean {
-  const home = userHome();
-  return !!process.env.LFG_HERMES_PROVIDER || existsSync(`${home}/.hermes`);
-}
-
 function hasCopilotAuth(): boolean {
   const home = userHome();
   // Precedence matches Copilot CLI's env resolution: a Copilot-specific token
@@ -700,6 +728,24 @@ function hasCopilotAccountAuth(): boolean {
   );
 }
 
+// fx reaches Vercel AI Gateway three ways, in its own precedence order: a
+// Vercel OIDC token, the AI_GATEWAY_API_KEY env var, then a stored credential
+// from `fx login` (~/.fx/auth.json) or `fx setup` (~/.fx/api-key).
+function hasFxAuth(): boolean {
+  if (process.env.AI_GATEWAY_API_KEY) return true;
+  if (process.env.VERCEL_OIDC_TOKEN) return true;
+  return hasFxAccountAuth();
+}
+
+// Only a real sign-in counts as a connected account: a platform-supplied
+// gateway key makes fx runnable without being the user's own login. Both files
+// are written by the flow itself, so neither appears on a box that merely ran
+// fx once.
+function hasFxAccountAuth(): boolean {
+  const home = userHome();
+  return existsSync(`${home}/.fx/auth.json`) || existsSync(`${home}/.fx/api-key`);
+}
+
 function installCommandFor(kind: CodingAgentKind): string | null {
   if (kind === "claude" || kind === "aisdk") return "curl -fsSL https://claude.ai/install.sh | bash";
   if (kind === "codex" || kind === "codex-aisdk") return "bun add -g @openai/codex";
@@ -707,7 +753,7 @@ function installCommandFor(kind: CodingAgentKind): string | null {
   if (kind === "jcode") return "curl -fsSL https://jcode.sh/install | bash";
   if (kind === "grok") return "curl -fsSL https://x.ai/cli/install.sh | bash";
   if (kind === "cursor") return "curl -fsSL https://cursor.com/install | bash";
-  if (kind === "hermes") return "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash";
+  if (kind === "fx") return "curl -fsSL https://fx.sh/setup.sh | bash";
   if (kind === "copilot") return "npm install -g @github/copilot";
   // pi is no longer bundled. Its provider layer (@earendil-works/pi-ai) pulls
   // in eleven SDKs — Anthropic, OpenAI, Google GenAI, Mistral, Bedrock — which
@@ -728,7 +774,7 @@ function loginCommandPartsFor(kind: CodingAgentKind): string[] | null {
   if (kind === "jcode") return [jcodePath() ?? "jcode", "login"];
   if (kind === "grok") return [grokPath() ?? "grok", "login", "--device-auth"];
   if (kind === "cursor") return [cursorPath() ?? "cursor-agent", "login"];
-  if (kind === "hermes") return [hermesPath() ?? "hermes"];
+  if (kind === "fx") return [fxPath() ?? "fx", "login"];
   if (kind === "copilot") return [copilotPath() ?? "copilot"];
   // pi has no login subcommand — auth is file-based (~/.pi/agent/auth.json) or
   // ANTHROPIC_API_KEY, so there is no terminal login to offer.
@@ -740,6 +786,7 @@ function authProviderFor(kind: CodingAgentKind): AuthProvider | null {
   if (kind === "claude" || kind === "aisdk") return "claude";
   if (kind === "codex" || kind === "codex-aisdk") return "codex";
   if (kind === "grok") return "grok";
+  if (kind === "fx") return "fx";
   return null;
 }
 
@@ -747,6 +794,7 @@ function authProviderBinary(provider: AuthProvider): string | null {
   if (provider === "claude") return claudePath();
   if (provider === "codex") return codexPath();
   if (provider === "grok") return grokPath();
+  if (provider === "fx") return fxPath();
   return githubCliPath();
 }
 
@@ -764,6 +812,9 @@ function authProviderArgv(provider: AuthProvider, binary: string): string[] {
       "--web",
     ];
   }
+  // fx has no --device-auth flag because `fx login` IS the device flow: it
+  // prints the Vercel verification URL and code, then polls.
+  if (provider === "fx") return [binary, "login"];
   // Codex and Grok both expose an RFC 8628 device flow that prints a
   // verification URL plus a short user code — no terminal interaction needed.
   return [binary, "login", "--device-auth"];
@@ -798,6 +849,19 @@ export function parseAuthOutput(
   }
   if (provider === "codex") {
     const userCode = output.match(/one-time code[\s\S]{0,160}?\b([A-Z0-9]{4,}-[A-Z0-9]{4,})\b/i)?.[1];
+    return { authorizationUrl, userCode, needsCode: false };
+  }
+  if (provider === "fx") {
+    // `fx login` prints:
+    //   Open https://vercel.com/oauth/device?user_code=XFCJ-ZGNJ
+    //   Code: XFCJ-ZGNJ
+    //
+    //   Waiting for authentication...
+    // Same shape as grok: the URL already carries the code, so read it there
+    // and fall back to the printed "Code:" line.
+    const userCode =
+      output.match(/[?&]user_code=([A-Z0-9]{4,}-[A-Z0-9]{4,})/i)?.[1] ??
+      output.match(/^\s*Code:\s*([A-Z0-9]{4,}-[A-Z0-9]{4,})\s*$/im)?.[1];
     return { authorizationUrl, userCode, needsCode: false };
   }
   if (provider === "github") {
@@ -1113,6 +1177,50 @@ export function cancelCodingAgentAuth(id: string): void {
   authSessions.delete(id);
 }
 
+/**
+ * Is this login still one a person could come back and finish?
+ *
+ * Pure, and exported, so the rule can be tested without spawning a real CLI
+ * login. "complete" and "error" are over; an expired one is an abandoned tab,
+ * not work.
+ */
+export function isLoginPending(
+  session: { status: string; expiresAt: number },
+  now: number,
+): boolean {
+  if (session.status !== "starting" && session.status !== "waiting") return false;
+  return now <= session.expiresAt;
+}
+
+/**
+ * How many browser logins are still live and waiting for the user right now.
+ *
+ * WHY THIS EXISTS. A login is real work, but until now it was invisible from
+ * outside this process. The host asks this box "are you busy?" every ~45s and
+ * reads only agent sessions, so a box with a half-finished Claude login
+ * truthfully answered "no" and was hibernated mid-login. A paying customer hit
+ * exactly that on 2026-08-17: he clicked Login, his machine slept underneath
+ * him, and he never ran an agent at all.
+ *
+ * This REPORTS, it does not decide. The host owns the idle policy — how long a
+ * machine is held, and whether a pending login extends that — because a number
+ * baked into this process could never be tuned for boxes already in the field.
+ * All this box owes the host is the truth about what it is doing.
+ *
+ * Bounded regardless: AUTH_SESSION_TTL_MS already ends an abandoned login, so
+ * this cannot report "busy" forever even if a host chose to trust it forever.
+ *
+ * Counted, not a boolean, so a host can say "2 logins waiting" rather than just
+ * "busy", and so one stuck login is distinguishable from several.
+ */
+export function pendingCodingAgentLogins(now: number = Date.now()): number {
+  let count = 0;
+  for (const session of authSessions.values()) {
+    if (isLoginPending(session, now)) count += 1;
+  }
+  return count;
+}
+
 export function loginCommandFor(kind: CodingAgentKind): string | null {
   const parts = loginCommandPartsFor(kind);
   return parts ? parts.map(shellQuote).join(" ") : null;
@@ -1124,6 +1232,7 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
   let canAutoSetup = true;
   let canLoginInTerminal = true;
   let accountConnected = false;
+  let jcodeProviders: AgentProviderInfo[] | undefined;
 
   const addBinary = (label: string, path: string | null) => {
     checks.push({ label, ok: !!path, detail: path ?? "not found" });
@@ -1157,26 +1266,32 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
     // It does decide which models the picker may honestly offer, though.
     accountConnected = hasOpenCodeAccountAuth();
     addBinary("OpenCode CLI", opencodePath());
+    // Go and Zen both authenticate with a pasted key, so they connect from the
+    // provider rows above. `opencode auth login` is still the way in for the
+    // OAuth providers (ChatGPT), which is why the command is still mentioned.
     instructions.push(
-      accountConnected
-        ? "OpenCode is signed in; run `opencode auth login` again to add another provider."
-        : "Run `opencode auth login` to reach paid providers — the free Zen models work without it.",
+      "Connect OpenCode Go or Zen with an API key above. The free Zen models work with no key at all, and `opencode auth login` adds OAuth providers such as ChatGPT.",
     );
   } else if (kind === "jcode") {
     const auth = await jcodeAuthStatus();
-    accountConnected = auth.accountConnected;
+    jcodeProviders = jcodeProviderRows(auth.providers);
+    accountConnected =
+      auth.accountConnected || jcodeProviders.some((provider) => provider.connected);
     addBinary("Jcode CLI", jcodePath());
-    addAuth("Jcode provider", auth.available, "run `jcode login` and connect at least one provider");
-    instructions.push("Install Jcode, then run `jcode login` and connect at least one provider.");
+    addAuth("Jcode provider", auth.available || accountConnected, "connect Claude or Codex");
+    // Sign-in is the Claude/Codex rows. A leftover Login button would be a
+    // second product next to Connect.
+    canLoginInTerminal = false;
   } else if (kind === "cursor") {
     accountConnected = hasCursorAccountAuth();
     addBinary("Cursor CLI", cursorPath());
     addAuth("Cursor auth", hasCursorAuth(), "run `cursor-agent login` once or set CURSOR_API_KEY");
     instructions.push("Install Cursor CLI, then run `cursor-agent login` and sign in, or set CURSOR_API_KEY.");
-  } else if (kind === "hermes") {
-    addBinary("Hermes CLI", hermesPath());
-    addAuth("Hermes config", hasHermesConfig(), "set LFG_HERMES_PROVIDER if your install needs it");
-    instructions.push("Install Hermes and set LFG_HERMES_PROVIDER when your provider is not the default.");
+  } else if (kind === "fx") {
+    accountConnected = hasFxAccountAuth();
+    addBinary("fx CLI", fxPath());
+    addAuth("fx auth", hasFxAuth(), "use Login below or set AI_GATEWAY_API_KEY");
+    instructions.push("Use Login to sign in to Vercel in your browser, or set AI_GATEWAY_API_KEY.");
   } else if (kind === "pi") {
     const providers = piAuthProviders();
     accountConnected = providers.some((p) => p.connected && !p.fromEnv);
@@ -1219,6 +1334,8 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
       ? { accounts: listClaudeAccounts() }
       : {}),
     ...(kind === "pi" ? { providers: piAuthProviders() } : {}),
+    ...(kind === "opencode" ? { providers: opencodeAuthProviders() } : {}),
+    ...(kind === "jcode" ? { providers: jcodeProviders ?? jcodeProviderRows() } : {}),
   };
 }
 
@@ -1228,12 +1345,15 @@ export async function listCodingAgents(): Promise<CodingAgentInfo[]> {
   // more than a second apiece; serialising them would stall the read even
   // after the spawn itself is async.
   return Promise.all(
-    CODING_AGENT_KINDS.map(async (key) => ({
-      key,
-      label: CODING_AGENT_LABELS[key],
-      visible: cfg.agents[key]?.visible !== false,
-      status: await statusFor(key),
-    })),
+    CODING_AGENT_KINDS.map(async (key) => {
+      const status = await statusFor(key);
+      return {
+        key,
+        label: CODING_AGENT_LABELS[key],
+        visible: codingAgentVisible(cfg.agents[key]?.visible, status.configured),
+        status,
+      };
+    }),
   );
 }
 
@@ -1477,7 +1597,7 @@ function setupEnvFor(kind: CodingAgentKind): Record<string, string> | null {
   if (kind === "jcode") return { LFG_INSTALL_JCODE: "1" };
   if (kind === "grok") return { LFG_INSTALL_GROK: "1" };
   if (kind === "cursor") return { LFG_INSTALL_CURSOR: "1" };
-  if (kind === "hermes") return { LFG_INSTALL_HERMES: "1" };
+  if (kind === "fx") return { LFG_INSTALL_FX: "1" };
   if (kind === "copilot") return { LFG_INSTALL_COPILOT: "1" };
   return null;
 }

@@ -517,13 +517,30 @@ export function createLiveWsSupport(opts: {
 
   const pollIndexedTranscript = async (tail: SidTail) => {
     if (tail.transcriptSource !== "db" || tail.transcriptDbPolling) return;
+    // jcode history is journal + session.json merged into the lfg:// index on
+    // each resolve. Re-resolve every poll so a rewritten journal still streams
+    // new turns and recovered snapshot history without a file tailer.
+    if (tail.pane.agent === "jcode") {
+      try {
+        const refreshed = await resolveTranscript(tail.sid);
+        if (refreshed) tail.pane.tp = refreshed;
+      } catch {}
+    }
     const tp = tail.pane.tp;
     const sessionId = tail.transcriptDbSessionId;
     const afterRowid = tail.transcriptDbRowid;
     if (!tp || !sessionId || afterRowid == null) return;
     tail.transcriptDbPolling = true;
     try {
-      const page = indexedMessagesAfterRowid(tp, sessionId, afterRowid, LIVE_DB_POLL_LIMIT);
+      let page = indexedMessagesAfterRowid(tp, sessionId, afterRowid, LIVE_DB_POLL_LIMIT);
+      // A jcode index rebuild (journal rewrite) reassigns SQLite rowids. If our
+      // cursor is now past the max rowid, drop back and republish the snapshot
+      // so the pane does not go silent until a reconnect.
+      if (!page.messages.length && page.maxRowid > 0 && page.maxRowid < afterRowid) {
+        tail.transcriptDbRowid = 0;
+        await publishCurrentBatch(tail);
+        page = indexedMessagesAfterRowid(tp, sessionId, 0, LIVE_DB_POLL_LIMIT);
+      }
       // Same join-hydrated messages as backlog snapshots — do not re-fetch media
       // from a second store on the live path.
       const messages = withImageArtifacts(sessionId, visibleTranscriptMessages(page.messages));
@@ -726,6 +743,10 @@ export function createLiveWsSupport(opts: {
       evlog("ws_subscribe", { rid: state.rid, sid, missing: true, durationMs: roundMs(performance.now() - t0) });
       const tail = await ensureSidTail(sid, null);
       tail.sockets.add(state.ws);
+      // A tail can outlive its last browser subscriber. Its queue signature is
+      // then already current, so pollQueue() has no change to publish when a new
+      // browser joins. Send the current queue directly to hydrate that browser.
+      safeSend(state.ws, { t: "queue", sid, queue: listQueue(sid) });
       return;
     }
     // Built inside the closure, because replayOrSnapshot only calls it when the
@@ -750,6 +771,7 @@ export function createLiveWsSupport(opts: {
     });
     const tail = await ensureSidTail(sid, tp);
     tail.sockets.add(state.ws);
+    safeSend(state.ws, { t: "queue", sid, queue: listQueue(sid) });
     void pollOne(tail);
     pollQueue(tail);
   };

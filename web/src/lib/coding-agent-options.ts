@@ -7,6 +7,7 @@ export type AgentKind =
   | "jcode"
   | "grok"
   | "cursor"
+  | "fx"
   | "pi"
   | "copilot";
 
@@ -38,6 +39,7 @@ export const AGENT_CATALOG: readonly AgentCatalogEntry[] = [
   { key: "grok", label: "grok", scheduled: true },
   { key: "cursor", label: "cursor", scheduled: true },
   { key: "opencode", label: "opencode", scheduled: true },
+  { key: "fx", label: "fx", scheduled: true },
   { key: "jcode", label: "jcode" },
   { key: "pi", label: "pi" },
   { key: "copilot", label: "copilot" },
@@ -153,9 +155,10 @@ export function configuredAgentOptions<
  *
  * Two things it deliberately does NOT do:
  *
- * - It does not re-offer an agent the person turned OFF in Settings. Hiding an
- *   agent is an explicit choice; answering it by putting the icon back as a
- *   permanent advertisement would be ignoring them.
+ * - It does not re-offer an agent the person turned OFF in Settings. Hiding a
+ *   ready agent is an explicit choice; answering it by putting the icon back
+ *   as a permanent advertisement would be ignoring them. An unready agent
+ *   that is off by default is not a hide — it still belongs in this strip.
  * - It does not advertise anything until the roster has actually ARRIVED.
  *   An empty list is this app's real "not loaded yet" — App seeds the state
  *   with `[]` and never passes undefined, and a genuinely loaded response
@@ -177,7 +180,9 @@ export function lockedAgentOptions<T extends { key: string }>(
     configuredAgentOptions(options, codingAgents, accessMode).map((option) => option.key),
   );
   const hidden = new Set(
-    codingAgents.filter((agent) => !agent.visible).map((agent) => agent.key),
+    codingAgents
+      .filter((agent) => !agent.visible && agent.status.configured)
+      .map((agent) => agent.key),
   );
   return options.filter(
     (option) =>

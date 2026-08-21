@@ -50,9 +50,11 @@ mints a short-lived pairing code for the authenticated account, and invokes
 saved OMG binding. Use `omg connect --new` only when you intentionally want a
 fresh binding, or `--no-install` to require an existing OMG install.
 
-Install the command with `npm install --global @omg-dev/cli` (or
-`bun add --global @omg-dev/cli`). This convenience wrapper is operator-specific;
-the OMG command and wire protocol below remain provider-agnostic.
+The hosted `omg login && omg connect` convenience wrapper is owned by
+`BennyKok/vibes`. `@omg-dev/cli` 0.5.1+ is one `omg`: `computer setup` still
+installs the local control plane, and `login` / `create` / `deploy` start the
+hosted app flow. The `omg connect <code>` command and the wire protocol below
+remain provider-agnostic.
 
 ### Custom relay
 

@@ -30,7 +30,9 @@ export type ManagedSession = {
   tmuxName: string;
   cwd: string;
   createdAt: number;
-  agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "jcode" | "grok" | "cursor" | "hermes" | "pi" | "copilot";
+  agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "jcode" | "grok" | "cursor" | "fx" | "hermes" | "pi" | "copilot";
+  /** Explicit runtime for new rows. Missing preserves the legacy kind-based runtime. */
+  runtime?: "tmux" | "command-file";
   // Stable id shown to clients for lfg-created sessions. For agents that mint a
   // native transcript id later (Claude/Codex CLI, Codex AI-SDK, Grok), this is
   // the durable control-plane id while nativeSessionId records the provider id.
@@ -50,6 +52,12 @@ export type ManagedSession = {
   parentNativeSessionId?: string;
   parentAgent?: string;
   spawnedBy?: "subagent" | "fork" | "finding" | "voice" | string;
+  /** Durable product conversation. Runtime ids may rotate without changing it. */
+  conversationId?: string;
+  /** Bot configuration revision loaded when this runtime started. */
+  appliedConfigRevision?: number;
+  botId?: string;
+  persistent?: boolean;
   /** LFG agent capability contract/tool catalog present when this process launched. */
   capabilityVersion?: string;
   /** Main repo checkout when cwd is an auto-provisioned worktree. */
@@ -58,6 +66,12 @@ export type ManagedSession = {
   /** Set when boot reconciliation relaunched a process without replaying its turn. */
   interruptedAt?: number;
   recoveredFromBootId?: string;
+  /**
+   * Boot id that already attempted recovery for this row. Native TUI agents
+   * have no aisdk registry entry to journal against, so the claim lives here
+   * to keep a crash-looping relaunch from respawning on every serve restart.
+   */
+  recoveryClaimBootId?: string;
 };
 
 type ManagedRegistry = {

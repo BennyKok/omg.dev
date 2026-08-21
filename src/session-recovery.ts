@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import {
   currentBootId,
   isPidAlive,
@@ -10,6 +11,12 @@ import { computerAgentAdmissionContext, isScheduleSpawned } from "./agent-admiss
 import {
   spawnManagedAisdkSession,
   spawnManagedCodexAisdkSession,
+  spawnManagedCopilotSdkSession,
+  spawnManagedCursorAcpSession,
+  spawnManagedFxAcpSession,
+  spawnManagedGrokAcpSession,
+  spawnManagedJcodeSession,
+  spawnManagedJcodeSdkSession,
   spawnManagedOpencodeAisdkSession,
   spawnManagedPiSession,
   tmuxHasSession,
@@ -24,7 +31,58 @@ export type RecoveryResult = {
   failed: number;
   skippedLegacy: number;
   skippedSchedule: number;
+  /** Native tmux agents (jcode) relaunched against their own transcript. */
+  recoveredTmux: number;
 };
+
+// jcode runs in a tmux pane and keeps its own append-only journal, so a pane
+// killed by a reboot can be reopened from `nativeSessionId`. Without this the
+// row stays launchState:"running" forever, pointing at a tmux session that no
+// longer exists, and the work is only recoverable by hand.
+function recoverJcodeSessions(bootId: string, log: (line: string) => void): number {
+  let recovered = 0;
+  const assignments = userAssignments();
+  for (const row of listManaged()) {
+    if (row.agent !== "jcode" || row.runtime === "command-file") continue;
+    if (row.launchState !== "running" && row.launchState !== "launching") continue;
+    if (!row.nativeSessionId || !row.cwd) continue;
+    // One attempt per boot: a pane that dies immediately must not respawn on
+    // every serve restart.
+    if (row.recoveryClaimBootId === bootId) continue;
+    if (tmuxHasSession(row.tmuxName)) continue;
+    // The worktree sweeper reclaims directories of finished sessions. Resuming
+    // into a missing cwd cannot work, so leave the row for manual triage.
+    if (!existsSync(row.cwd)) continue;
+    patchManaged(row.tmuxName, { recoveryClaimBootId: bootId });
+    const recoveredAt = Date.now();
+    const spawned = spawnManagedJcodeSession({
+      name: row.tmuxName,
+      cwd: row.cwd,
+      model: row.model,
+      thinkingLevel: row.thinkingLevel,
+      resume: row.nativeSessionId,
+      omgSessionId: row.sessionId,
+      omgUser: assignments[row.tmuxName] ?? null,
+    });
+    if (!spawned.ok) {
+      patchManaged(row.tmuxName, {
+        launchState: "failed",
+        launchError: spawned.error || "jcode recovery launch failed",
+        interruptedAt: recoveredAt,
+      });
+      log(`[session-recovery] jcode failed ${row.tmuxName}: ${spawned.error || "launch failed"}`);
+      continue;
+    }
+    patchManaged(row.tmuxName, {
+      launchState: "running",
+      launchError: undefined,
+      interruptedAt: recoveredAt,
+    });
+    log(`[session-recovery] reopened jcode ${row.tmuxName} (${row.nativeSessionId})`);
+    recovered++;
+  }
+  return recovered;
+}
 
 function matchingManaged(entry: AisdkEntry, managed: ManagedSession[]): ManagedSession | null {
   return managed.find((row) => row.tmuxName === entry.tmuxName) ??
@@ -75,6 +133,41 @@ function launchRecovered(
       thinkingLevel: entry.thinkingLevel ?? undefined,
     });
   }
+  if (entry.agent === "grok") {
+    if (!entry.threadId) return { ok: false, error: "grok recovery handle missing" };
+    return spawnManagedGrokAcpSession({
+      ...common,
+      key: entry.sessionId,
+      resume: entry.threadId,
+      thinkingLevel: entry.thinkingLevel ?? undefined,
+    });
+  }
+  if (entry.agent === "cursor") {
+    if (!entry.threadId) return { ok: false, error: "cursor recovery handle missing" };
+    return spawnManagedCursorAcpSession({ ...common, key: entry.sessionId, resume: entry.threadId });
+  }
+  if (entry.agent === "fx") {
+    if (!entry.threadId) return { ok: false, error: "fx recovery handle missing" };
+    return spawnManagedFxAcpSession({ ...common, key: entry.sessionId, resume: entry.threadId });
+  }
+  if (entry.agent === "copilot") {
+    if (!entry.threadId) return { ok: false, error: "copilot recovery handle missing" };
+    return spawnManagedCopilotSdkSession({
+      ...common,
+      key: entry.sessionId,
+      resume: entry.threadId,
+      thinkingLevel: entry.thinkingLevel ?? undefined,
+    });
+  }
+  if (entry.agent === "jcode") {
+    if (!entry.threadId) return { ok: false, error: "jcode recovery handle missing" };
+    return spawnManagedJcodeSdkSession({
+      ...common,
+      key: entry.sessionId,
+      resume: entry.threadId,
+      thinkingLevel: entry.thinkingLevel ?? undefined,
+    });
+  }
   return spawnManagedAisdkSession({
     ...common,
     sessionId: entry.sessionId,
@@ -97,8 +190,10 @@ export async function reconcileCommandFileSessions(
     failed: 0,
     skippedLegacy: 0,
     skippedSchedule: 0,
+    recoveredTmux: 0,
   };
   if (!bootId) return result;
+  result.recoveredTmux = recoverJcodeSessions(bootId, log);
   const managed = listManaged();
   const assignments = userAssignments();
 

@@ -30,7 +30,16 @@ export type ResumableCacheRow = ResumableSession & {
   resumable?: boolean;
 };
 
-export type ResumableBackend = "aisdk" | "codex-aisdk" | "opencode" | "pi";
+export type ResumableBackend =
+  | "aisdk"
+  | "codex-aisdk"
+  | "opencode"
+  | "pi"
+  | "grok"
+  | "cursor"
+  | "fx"
+  | "copilot"
+  | "jcode";
 
 export type ResumableQuery = {
   limit?: number;
@@ -195,7 +204,8 @@ function toSession(row: Row): ResumableSession {
       row.agent === "opencode" ||
       row.agent === "pi" ||
       row.agent === "grok" ||
-      row.agent === "cursor"
+      row.agent === "cursor" ||
+      row.agent === "fx"
         ? row.agent
         : "claude"
     ) as ResumableSession["agent"],
@@ -280,6 +290,28 @@ export function pruneResumableExcept(keep: Set<string>): void {
   d.transaction((ids: string[]) => {
     for (const id of ids) del.run(id);
   })(stale);
+}
+
+/**
+ * Working directories of sessions that were active within `windowMs`.
+ *
+ * The worktree sweeper's liveness checks (tmux, the managed registry,
+ * /proc cwd) all describe *this instant*. A session that a reboot knocked
+ * over, or whose managed row was replaced by a resume, looks dead to all
+ * three while still being perfectly resumable — and deleting its worktree is
+ * what makes it permanently unresumable. Recent activity is the durable
+ * signal, so the sweeper consults it before removing anything.
+ */
+export function recentlyActiveCwds(windowMs: number, now = Date.now()): Set<string> {
+  const d = init();
+  const rows = d
+    .query<{ cwd: string | null }, [number]>(
+      "SELECT DISTINCT cwd FROM resumable_sessions WHERE cwd IS NOT NULL AND last_activity_at >= ?",
+    )
+    .all(now - windowMs);
+  const out = new Set<string>();
+  for (const row of rows) if (row.cwd) out.add(row.cwd);
+  return out;
 }
 
 export function getCachedResumableSession(sessionId: string): ResumableSession | null {

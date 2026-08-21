@@ -1,5 +1,13 @@
 import type { ChatTransport, UIMessage, UIMessageChunk } from "ai";
 import { omgFetch } from "./omg-client";
+import {
+  matchedQueueRowIds,
+  queueRowNeedsBubble,
+  queueRowHydration,
+  queuedMessageId,
+  QUEUE_MESSAGE_ID_PREFIX,
+  type QueueReconcileMessage,
+} from "./queue-reconcile";
 
 export type OmgMessage = {
   id?: string;
@@ -21,6 +29,12 @@ export type OmgMessage = {
   // "waiting" state instead of an ordinary in-flight bubble, and clears when the
   // real transcript row for the same text replaces the optimistic one.
   queued?: boolean;
+  // The send queue gave up on this message. Stays visible with the delivery
+  // error until the user retries (queueId targets the retry endpoint) or
+  // clears the queue.
+  failed?: boolean;
+  queueError?: string;
+  queueId?: string;
   seed?: boolean;
   catchUp?: boolean;
 };
@@ -32,6 +46,15 @@ export type OmgAiStreamPart = {
   text?: string;
   reset?: boolean;
   ts?: number;
+};
+
+export type OmgQueueMessage = {
+  id: string;
+  text: string;
+  status: "pending" | "sending" | "queued" | "failed" | "delivered";
+  error?: string;
+  createdAt?: number;
+  updatedAt?: number;
 };
 
 export type OmgChatMetadata = {
@@ -47,6 +70,7 @@ export type OmgChatMessage = UIMessage<OmgChatMetadata, OmgChatDataParts>;
 export type OmgTranscriptEvent =
   | { type: "message"; message: OmgMessage }
   | { type: "ai_part"; part: OmgAiStreamPart }
+  | { type: "queue"; queue: OmgQueueMessage[] }
   | { type: "busy"; busy: boolean }
   | { type: "error"; error: string };
 
@@ -81,6 +105,7 @@ export class OmgChatStreamOwnership {
 
 type OmgChatTransportOptions = {
   sessionId: string;
+  sendEndpoint?: string;
   apiBase?: string;
   subscribeTranscript?: OmgTranscriptSubscribe;
   fetch?: typeof globalThis.fetch;
@@ -240,6 +265,132 @@ function upsertOmgUIMessage(current: OmgChatMessage[], incoming: OmgChatMessage)
   return out;
 }
 
+function isStreamingAssistantText(message: OmgChatMessage): boolean {
+  return (
+    message.role === "assistant" &&
+    message.parts.some((part) => part.type === "text" && part.state === "streaming")
+  );
+}
+
+/**
+ * Merge a freshly-fetched history page (the authoritative persisted read
+ * model) with whatever the chat's local state already holds, on session
+ * mount / re-entry.
+ *
+ * `current` can hold a streaming-draft assistant bubble left over from an
+ * earlier visit to this same session id (useChat's state is keyed by id and
+ * survives navigating away and back — see SessionChat). Normally that draft
+ * is cleared the instant the turn's real "message" event arrives, via
+ * upsertOmgUIMessage's own drop-stale-draft rule below. But if the app was
+ * backgrounded (or the live subscription otherwise missed a beat) while the
+ * turn finished, that clearing event never reached this client, so the stale
+ * draft is still sitting in `current` when this history page lands — and the
+ * page's `history` now contains the SAME turn, fully finalized, under its own
+ * real id. Without this drop, both rendered: the finalized bubble from
+ * `history` and the untouched streaming duplicate from `current`, back to
+ * back, with identical text — this was bug 1's actual cause on iPad, where
+ * Safari suspends a backgrounded tab's JS mid-turn.
+ *
+ * Dropping every local streaming draft here (not just ones matched to a
+ * specific history row) mirrors upsertOmgUIMessage's own rule and is safe:
+ * if a turn is still genuinely in progress, the live subscription's next
+ * `ai_part` delta recreates the draft within moments — a brief gap beats a
+ * permanent duplicate.
+ */
+export function mergeHistoryPage(
+  current: OmgChatMessage[],
+  history: OmgChatMessage[],
+  olderKept: OmgChatMessage[],
+  cachedIds: Set<string>,
+): OmgChatMessage[] {
+  const historyIds = new Set(history.map((message) => message.id));
+  const keptIds = new Set(olderKept.map((message) => message.id));
+  // Messages that landed live while this fetch was in flight and aren't in
+  // the page yet — they're newest, so they belong at the end. A stale
+  // streaming draft is never "newest": either its turn is already reflected
+  // in `history` (duplicate) or the live subscription will repaint it.
+  const liveOnly = current.filter(
+    (message) =>
+      !historyIds.has(message.id) &&
+      !keptIds.has(message.id) &&
+      !isStreamingAssistantText(message),
+  );
+  const trailing = liveOnly.filter((message) => !cachedIds.has(message.id));
+  return [...olderKept, ...history, ...trailing];
+}
+
+function omgQueueReconcileRow(message: OmgChatMessage): QueueReconcileMessage {
+  return { id: message.id, role: message.role, ...message.metadata?.omgMessage };
+}
+
+/**
+ * Rebuild queue-owned user bubbles from the server queue after a transcript
+ * re-entry. Matching is one-to-one against the visible transcript (see
+ * matchedQueueRowIds), so a repeated identical follow-up keeps its bubble
+ * until its own row lands, and failed rows stay visible for retry.
+ */
+export function reconcileOmgQueueMessages(
+  current: OmgChatMessage[],
+  queue: OmgQueueMessage[],
+): OmgChatMessage[] {
+  const visible = queue.filter(queueRowNeedsBubble);
+  const visibleIds = new Set(visible.map((item) => queuedMessageId(item.id)));
+  let next = current.filter(
+    (message) => !message.id.startsWith(QUEUE_MESSAGE_ID_PREFIX) || visibleIds.has(message.id),
+  );
+  const matched = matchedQueueRowIds(queue, next.map(omgQueueReconcileRow));
+  const claimedOptimistic = new Set<number>();
+
+  for (const item of visible) {
+    const id = queuedMessageId(item.id);
+    if (matched.has(item.id)) {
+      next = next.filter((message) => message.id !== id);
+      continue;
+    }
+    const row: OmgMessage = {
+      id,
+      role: "user",
+      kind: "text",
+      text: item.text,
+      html: escapeHtml(item.text).replace(/\n/g, "<br>"),
+      ts: item.createdAt ?? item.updatedAt ?? Date.now(),
+      ...queueRowHydration(item),
+    };
+    const [message] = omgMessagesToUIMessages([row]);
+    if (!message) continue;
+
+    const existingIndex = next.findIndex((candidate) => candidate.id === id);
+    if (existingIndex >= 0) {
+      // Refresh in place: the same row moves pending → queued → failed.
+      next = [...next];
+      next[existingIndex] = message;
+      continue;
+    }
+
+    const exactText = normText(item.text);
+    const optimisticIndex = next.findIndex((candidate, index) => {
+      if (claimedOptimistic.has(index)) return false;
+      if (candidate.id.startsWith(QUEUE_MESSAGE_ID_PREFIX)) return false;
+      const pending = candidate.metadata?.omgMessage;
+      return (
+        candidate.role === "user" &&
+        !!pending?.pending &&
+        !pending.failed &&
+        pending?.kind === "text" &&
+        normText(pending.text) === exactText
+      );
+    });
+    if (optimisticIndex >= 0) {
+      claimedOptimistic.add(optimisticIndex);
+      next = [...next];
+      next[optimisticIndex] = message;
+    } else {
+      next = upsertOmgUIMessage(next, message);
+    }
+  }
+  return next;
+}
+
 function updateDraftText(current: OmgChatMessage[], part: OmgAiStreamPart): OmgChatMessage[] {
   if (!part.id) return current;
   const existingIndex = current.findIndex(
@@ -324,6 +475,7 @@ export function appendOmgTranscriptEvent(
   if (event.type === "ai_part") {
     return opts.streamActive ? current : updateDraftText(current, event.part);
   }
+  if (event.type === "queue") return reconcileOmgQueueMessages(current, event.queue);
   if (event.type === "busy" && !event.busy) {
     // Turn ended: any assistant message still marked streaming is a stale
     // draft. The server never emits an explicit end for drafts (it just stops
@@ -386,6 +538,7 @@ class OmgChunkEmitter {
       this.handlePart(event.part);
       return;
     }
+    if (event.type === "queue") return;
     this.handleMessage(event.message);
   }
 
@@ -499,14 +652,16 @@ export class OmgChatTransport implements ChatTransport<OmgChatMessage> {
   private readonly apiBase: string;
   private readonly usesConfiguredTransport: boolean;
   private readonly sessionId: string;
+  private readonly sendEndpoint: string;
   // Live emitters held by this transport. See sendMessages: at most one, ever.
   // Scoped to the instance rather than to the session id on purpose — a stream
   // that is created and then never consumed would otherwise hold a global slot
   // forever, muting the session; here it dies with the transport.
   private liveStreams = 0;
 
-  constructor({ sessionId, apiBase = "", subscribeTranscript, fetch: fetchImpl }: OmgChatTransportOptions) {
+  constructor({ sessionId, sendEndpoint, apiBase = "", subscribeTranscript, fetch: fetchImpl }: OmgChatTransportOptions) {
     this.sessionId = sessionId;
+    this.sendEndpoint = sendEndpoint ?? `/api/sessions/${encodeURIComponent(sessionId)}/send`;
     this.apiBase = apiBase;
     this.subscribeTranscript = subscribeTranscript;
     // The embedded app's host owns auth and routing through configureOmgTransport.
@@ -545,7 +700,7 @@ export class OmgChatTransport implements ChatTransport<OmgChatMessage> {
     // server, and its (empty) stream resolves immediately.
     const live = this.liveStreams === 0 ? this.createLiveStream(abortSignal) : null;
     try {
-      const response = await this.fetchImpl(this.requestTarget(`/api/sessions/${encodeURIComponent(this.sessionId)}/send`), {
+      const response = await this.fetchImpl(this.requestTarget(this.sendEndpoint), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, mode: (body as { mode?: string } | undefined)?.mode }),

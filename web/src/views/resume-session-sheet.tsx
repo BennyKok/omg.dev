@@ -17,7 +17,6 @@ import {
 import { timeAgo } from "../lib/session-ui";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import { cn } from "@/lib/utils";
-import { useExpandOnFocus } from "@/lib/expand-on-focus";
 import { Archive, ChevronRight, Loader2, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
@@ -136,7 +135,6 @@ export default function ResumeSessionSheet({
           .toLowerCase()
           .includes(stashQuery),
   );
-  const morph = useExpandOnFocus();
   const showSkeleton = loading && !items.length;
   const filtersActive = agent !== "all" || project !== "all" || !!debounced;
   const hasMore = items.length < total;
@@ -161,21 +159,11 @@ export default function ResumeSessionSheet({
           tall, so the keyboard leaves it almost no list to search. Focusing it
           promotes the sheet to a full-height page instead — see
           lib/expand-on-focus.ts. */}
-      <DrawerContent
-        className={cn(
-          "mx-auto w-full max-w-2xl sm:max-w-2xl",
-          morph.paged && "lfg-sheet-page",
-        )}
-        onPointerDownCapture={morph.onPointerDownCapture}
-        onFocusCapture={morph.onFocusCapture}
-        onBlurCapture={morph.onBlurCapture}
-      >
-        <div
-          className={cn(
-            "flex min-h-0 flex-col overflow-hidden",
-            morph.paged ? "flex-1" : "max-h-[72dvh]",
-          )}
-        >
+      <DrawerContent className="mx-auto w-full max-w-2xl sm:max-w-2xl">
+        {/* The 72dvh cap has to yield in page mode or the morph is a no-op on
+            the surface that needs it most. Driven off the content's own
+            data-paged attribute, so no caller state is duplicated. */}
+        <div className="flex min-h-0 flex-col overflow-hidden max-h-[72dvh] group-data-[paged=true]/drawer-content:max-h-none group-data-[paged=true]/drawer-content:flex-1">
           <header className="shrink-0 border-b border-border/70 pb-2">
             <div className="flex h-9 items-center gap-2">
               <DrawerTitle className="text-[15px] font-semibold">Resume</DrawerTitle>

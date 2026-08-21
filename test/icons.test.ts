@@ -169,6 +169,56 @@ describe("OMG icon assets", () => {
     }
   });
 
+  // The jcode mark shipped as an invented blue "J" letterform, which the real
+  // project never used. Upstream (github.com/1jehuang/jcode) brands itself with
+  // a dot-matrix torus: jcode.sh/favicon.svg is 109 <circle>s, and
+  // assets/app-icons/Jcode.icns rasterizes the same ring. Guessing a monogram
+  // from a product's first letter is exactly how a wrong mark ships unnoticed.
+  // A later redraw kept the torus geometry but painted it cyan/blue; upstream
+  // is monochrome gray (#7e7e7e on the favicon). Color inventing is the same
+  // class of bug as letter inventing.
+  test("draws the jcode mark as the upstream dot-matrix torus, not a J", async () => {
+    const source = await readFile("web/public/agent-jcode.svg", "utf8");
+
+    // The real mark is built from circles, and there are many of them.
+    const circles = source.match(/<circle/g)?.length ?? 0;
+    expect(circles).toBeGreaterThan(100);
+
+    // A letterform mark is a single glyph path. The torus has no glyph path.
+    const paths = [...source.matchAll(/<path\b/g)].length;
+    expect(paths).toBe(0);
+
+    // Keep the provenance comment so the next redraw traces back to upstream.
+    expect(source).toContain("jcode.sh/favicon.svg");
+
+    // Upstream favicon fill is #7e7e7e. Reject the invented blue/cyan palette
+    // that briefly shipped after the geometry fix.
+    expect(source).toMatch(/fill=["']#7e7e7e["']/i);
+    expect(source).not.toMatch(/#38BDF8|#2DD4BF|#2563EB|#7DD3FC/i);
+
+    // The dots must stay inside the 512 squircle: the first refit overflowed
+    // the artboard and clipped the ring on all four sides.
+    const dots = [...source.matchAll(
+      /<circle cx="([-\d.]+)" cy="([-\d.]+)" r="([\d.]+)"\/>/g,
+    )].map(([, cx, cy, r]) => [Number(cx), Number(cy), Number(r)] as const);
+    expect(dots.length).toBe(circles);
+
+    const transform = source.match(
+      /translate\(([-\d.]+) ([-\d.]+)\) scale\(([\d.]+)\)/,
+    );
+    expect(transform).not.toBeNull();
+    const [, tx, ty, scale] = transform!.map(Number) as unknown as number[];
+    for (const [cx, cy, r] of dots) {
+      const x = tx + cx * scale;
+      const y = ty + cy * scale;
+      const rad = r * scale;
+      expect(x - rad).toBeGreaterThanOrEqual(0);
+      expect(y - rad).toBeGreaterThanOrEqual(0);
+      expect(x + rad).toBeLessThanOrEqual(512);
+      expect(y + rad).toBeLessThanOrEqual(512);
+    }
+  });
+
   // Two copies of the icon mapping meant two copies of AGENT_ICON_VERSION, and
   // versioned icon URLs are served immutable for a year: bumping one copy left
   // the other pinned to the stale art in every warm browser cache. One source.

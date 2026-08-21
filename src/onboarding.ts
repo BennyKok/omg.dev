@@ -11,10 +11,10 @@
 //   gates its full-screen onboarding on this plus "no existing state"
 //   (empty roster + empty session list) from the bootstrap payload.
 import { readFileSync } from "node:fs";
-import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { PATHS } from "./config.ts";
+import { setUserIcon } from "./user-icons.ts";
 
 export type OnboardingProfile = {
   email: string;
@@ -223,48 +223,29 @@ export async function addOnboardingProfile(input: {
 }
 
 // ------------------------------------------------------------ avatars
-
-export const AVATARS_DIR = () => join(PATHS.data, "avatars");
-
-const AVATAR_EXT: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/webp": "webp",
-  "image/gif": "gif",
-};
-
-export const AVATAR_MIME_BY_EXT: Record<string, string> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  webp: "image/webp",
-  gif: "image/gif",
-};
-
-const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
-
-// Store an uploaded profile photo for an onboarding profile. File name is
-// derived from the email hash (stable, no user input in the path) + extension
-// from the validated mime type. Throws with a user-facing message on bad
-// input so the route can 400.
+//
+// Storage (validation, normalization, the file itself) lives in
+// user-icons.ts now — that module is the single owner for every uploaded
+// icon, keyed by an identity key that can be a roster email OR a hosted box's
+// paired account email (see iconIdentityKey in users.ts). This function is
+// kept as the onboarding-flow entry point: it still requires an existing
+// profile (photo-during-onboarding only makes sense once the profile exists)
+// and still returns OnboardingState so the route's response shape is
+// unchanged, but no longer writes the file itself or the profile's `avatar`
+// field — userRoster() (users.ts) reads the new store directly. `avatar` on
+// OnboardingProfile is kept only so already-stored on-disk state (uploaded
+// before this change) keeps resolving as a fallback; nothing writes it
+// anymore.
 export async function setProfileAvatar(
   email: string,
   bytes: Uint8Array,
   mimeType: string,
 ): Promise<OnboardingState> {
-  const ext = AVATAR_EXT[mimeType];
-  if (!ext) throw new Error("expected a png, jpeg, webp, or gif image");
-  if (!bytes.length) throw new Error("empty image");
-  if (bytes.length > AVATAR_MAX_BYTES) throw new Error("image too large (max 5MB)");
   const normalized = email.trim().toLowerCase();
   const cur = await getOnboarding();
   if (!cur.profiles.some((p) => p.email === normalized)) {
     throw new Error("no profile for that email — create the profile first");
   }
-  const file = `${createHash("md5").update(normalized).digest("hex")}.${ext}`;
-  await mkdir(AVATARS_DIR(), { recursive: true });
-  await Bun.write(join(AVATARS_DIR(), file), bytes);
-  const profiles = cur.profiles.map((p) =>
-    p.email === normalized ? { ...p, avatar: file } : p,
-  );
-  return write({ ...cur, profiles });
+  await setUserIcon(normalized, bytes, mimeType);
+  return cur;
 }

@@ -11,6 +11,10 @@
 //   - Grok    : cli-chat-proxy billing endpoints (monthly credits + weekly
 //               creditUsagePercent). Auth is the OIDC access token in
 //               ~/.grok/auth.json (same token the CLI uses for /usage).
+//   - Cursor  : api2.cursor.sh DashboardService (GetCurrentPeriodUsage +
+//               GetPlanInfo), the same connect-RPC JSON endpoints the IDE
+//               dashboard calls. Auth is the access token the CLI stores in
+//               ~/.config/cursor/auth.json after `cursor-agent login`.
 //   - OpenCode: estimated from local opencode.db spend vs Go plan caps.
 //
 // Every source is fetched and cached independently (60s TTL, keyed by provider
@@ -421,6 +425,103 @@ async function grokUsage(ref: UsageProviderRef): Promise<ProviderUsage> {
   }
 }
 
+// ---------------------------------------------------------------- Cursor ----
+
+// The dashboard answers JSON over connect-RPC-style POSTs with the CLI's
+// access token as a bearer. Money fields are integer cents against
+// `includedAmountCents` from GetPlanInfo (Ultra: 40000 = $400).
+const CURSOR_API_BASE = "https://api2.cursor.sh";
+
+function msStringToMs(n: unknown): number | null {
+  if (typeof n !== "string" && typeof n !== "number") return null;
+  const ms = Number(n);
+  return Number.isFinite(ms) && ms > 0 ? Math.round(ms) : null;
+}
+
+async function cursorUsage(ref: UsageProviderRef): Promise<ProviderUsage> {
+  const base = { ...ref, plan: null as string | null };
+  let token: string | null = null;
+  try {
+    // process.env.HOME first, matching claude-creds: tests re-point HOME at a
+    // temp dir, and Bun's homedir() does not follow it.
+    const home = process.env.HOME ?? homedir();
+    const auth = (await Bun.file(join(home, ".config", "cursor", "auth.json")).json()) as {
+      accessToken?: unknown;
+    };
+    if (typeof auth?.accessToken === "string" && auth.accessToken) token = auth.accessToken;
+  } catch {
+    /* not signed in */
+  }
+  if (!token) return { ...base, available: false, note: "Not signed in on this box" };
+
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  const post = (route: string) =>
+    fetch(`${CURSOR_API_BASE}/${route}`, { method: "POST", headers, body: "{}" });
+
+  try {
+    const [usageRes, planRes] = await Promise.all([
+      post("aiserver.v1.DashboardService/GetCurrentPeriodUsage"),
+      post("aiserver.v1.DashboardService/GetPlanInfo"),
+    ]);
+    // A stale token means the CLI's monthly login needs a refresh — say so
+    // instead of printing an HTTP status.
+    if (usageRes.status === 401 || usageRes.status === 403)
+      return { ...base, available: false, note: "Sign-in expired — run `cursor-agent login`" };
+    if (!usageRes.ok)
+      return { ...base, available: false, note: `Usage endpoint returned ${usageRes.status}` };
+
+    if (planRes.ok) {
+      try {
+        const planJson = (await planRes.json()) as { planInfo?: { planName?: unknown } };
+        if (typeof planJson.planInfo?.planName === "string") base.plan = planJson.planInfo.planName;
+      } catch {
+        /* plan name is decorative */
+      }
+    }
+
+    const u = (await usageRes.json()) as {
+      billingCycleEnd?: unknown;
+      planUsage?: { totalSpend?: unknown; limit?: unknown };
+      spendLimitUsage?: {
+        individualLimit?: unknown;
+        individualRemaining?: unknown;
+        limitType?: unknown;
+      };
+    };
+    const resetsAt = msStringToMs(u.billingCycleEnd);
+    const windows: UsageWindow[] = [];
+    const totalSpend = nestedVal(u.planUsage?.totalSpend);
+    const limit = nestedVal(u.planUsage?.limit);
+    if (limit != null && limit > 0 && totalSpend != null) {
+      windows.push({
+        label: "Included",
+        pct: Math.min(100, (totalSpend / limit) * 100),
+        resetsAt,
+      });
+    }
+    // The on-demand spending cap is a second, independent budget — surface it
+    // as its own window so an included-usage ring can't hide a maxed-out cap.
+    const spendLimit = nestedVal(u.spendLimitUsage?.individualLimit);
+    const spendRemaining = nestedVal(u.spendLimitUsage?.individualRemaining);
+    if (spendLimit != null && spendLimit > 0 && spendRemaining != null) {
+      windows.push({
+        label: "On-demand cap",
+        pct: Math.min(100, ((spendLimit - spendRemaining) / spendLimit) * 100),
+        resetsAt,
+      });
+    }
+    if (!windows.length)
+      return { ...base, available: false, note: "Usage response had no usage windows" };
+    return { ...base, available: true, windows };
+  } catch (e) {
+    return { ...base, available: false, note: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 // -------------------------------------------------------------- OpenCode ----
 
 function staticProvider(ref: UsageProviderRef, note: string): ProviderUsage {
@@ -559,8 +660,8 @@ const CACHE_TTL_MS = 60_000;
 /** Sources that are always present, whatever is signed in. */
 const STATIC_PROVIDERS: UsageProviderRef[] = [
   { id: "codex", kind: "codex", label: "Codex" },
+  { id: "cursor", kind: "cursor", label: "Cursor" },
   { id: "grok", kind: "grok", label: "Grok" },
-  { id: "hermes", kind: "hermes", label: "Hermes" },
   { id: "opencode", kind: "opencode", label: "OpenCode" },
 ];
 
@@ -589,11 +690,10 @@ export function listUsageProviders(): UsageProviderRef[] {
 function collect(ref: UsageProviderRef): Promise<ProviderUsage> {
   if (ref.kind === "claude") return claudeUsage(ref);
   if (ref.kind === "codex") return codexUsage(ref);
+  if (ref.kind === "cursor") return cursorUsage(ref);
   if (ref.kind === "grok") return grokUsage(ref);
   if (ref.kind === "opencode") return opencodeUsage(ref);
-  return Promise.resolve(
-    staticProvider(ref, "Usage is stored in Hermes' own state database"),
-  );
+  return Promise.resolve(staticProvider(ref, "Usage is unavailable for this provider"));
 }
 
 const cache = new Map<string, { at: number; data: ProviderUsage }>();

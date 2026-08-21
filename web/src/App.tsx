@@ -1,5 +1,10 @@
 import { Component, createContext, type ComponentProps, forwardRef, memo, Suspense, useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import type {
+  Conversation as ProductConversation,
+  ConversationParticipant,
+  MessageAuthorRef,
+} from "../../src/conversation-contract";
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import {
   DEFAULT_TAB,
@@ -21,7 +26,16 @@ import {
   shouldShowEmbeddedConnectGate,
   type ToolConnectOption,
 } from "./lib/embedded-connect";
+import {
+  hostedCoachSteps,
+  shouldShowHostedCoach,
+  unrecordedHostedCoachSteps,
+  type HostedCoachFlags,
+  type HostedCoachKey,
+} from "./lib/hosted-coach";
+import { HostedCoachCard } from "./components/hosted-coach-card";
 import { emitSessionCreatedToHost } from "./lib/embed-host-signal";
+import { isAuthorizationUrl } from "./lib/auth-popup";
 import { LFG_SMALL_ICON_PATH } from "./lib/icon-assets";
 import {
   api,
@@ -29,13 +43,78 @@ import {
   isPlanLimitError,
   omgAssetUrl,
   omgFetch,
+  omgTransportGeneration,
   omgUpload,
 } from "./lib/omg-client";
+import {
+  FRONTEND_VERSION,
+  formatComputerVersion,
+  formatVersion,
+  copyableVersion,
+  isVersionMismatch,
+  normalizeVersion,
+  resolveComputerVersion,
+  versionMismatchNote,
+  versionRelation,
+  type ComputerVersionState,
+} from "./lib/version-diagnostics";
 import { cacheProjectFilter, readCachedProjectFilter } from "./lib/project-filter";
+import {
+  MOBILE_BOT_ROSTER_ROW_CLASS,
+  mobileSurfaceDockBottom,
+  mobileSurfaceToggleActive,
+  shouldShowBotsInSessionList,
+  shouldShowInlineBotsSurfaceToggle,
+  shouldShowMobileSurfaceToggle,
+} from "./lib/mobile-bots-nav";
+import { botChatSessionId, botStageSession, findBotMainSession } from "./lib/bot-session";
+import {
+  activeConversationParticipants,
+  conversationParticipantById,
+  conversationParticipantDisplayName,
+  isBotConversation,
+  isOtherHumanMessageAuthor,
+  productBotId,
+  renderedBotId,
+  speakerRunEdges,
+  unknownConversationParticipant,
+} from "./lib/conversation-ui";
+import {
+  BOT_UNREAD_DOT_CLASS,
+  botConversationRows,
+  botUnreadActionForTranscript,
+  botConversationSubscriptionIds,
+  clearBotConversationUnread,
+  hasUnreadBotConversation,
+  type BotConversationUnread,
+} from "./lib/bot-unread";
 import { resolveRosterUser } from "./lib/roster-user";
+import {
+  botQuotaPresentation,
+  type PersistentBotQuota,
+} from "./lib/bot-quota";
+import {
+  botRosterPreview,
+  botVisibleUserText as botVisibleUserTextFor,
+  isBotHiddenLogKind,
+  isBotLaunchOnlyText,
+  isCodingAgentStoppedText,
+  isSubagentUpdateText,
+} from "./lib/bot-transcript";
+import { sessionMatchesUserFilter } from "./lib/user-filter";
 import { uploadFile as uploadFileThroughTransport } from "./lib/upload";
 import { compressImageFile, isCompressibleImage } from "./lib/image-compress";
 import { AppCrash } from "./components/app-crash";
+import {
+  BOT_COLORWAYS,
+  BOT_SHAPES,
+  BotAvatar as BotMascot,
+  COLORWAYS,
+  SHAPE_LABELS,
+  type BotColorway,
+  type BotMotionState,
+  type BotShape,
+} from "./components/BotAvatar";
 import { EmbeddedConnectGate } from "./components/embedded-connect-gate";
 import {
   AuthenticatedArtifactImage,
@@ -56,10 +135,13 @@ import {
   AGENT_ICON_VERSION,
   ArtifactViewerContext,
   BROWSER_AUTH_KINDS,
+  BROWSER_AUTH_PROVIDER_LABELS,
   ClaudeAccountBadge,
   CodingAgentsContext,
   SessionAgentIcon,
   GALLERY_PAGE,
+  pausedProviderErrorDetail,
+  resolveSessionHeaderIdentity,
   titleForSession,
   useClaudeAccountNumber,
   useNumberedClaudeAccounts,
@@ -97,11 +179,18 @@ import {
   OmgChatStreamOwnership,
   OmgChatTransport,
   appendOmgTranscriptEvent,
+  mergeHistoryPage,
   omgMessagesToUIMessages,
   omgUIMessagesToMessages,
   type OmgChatMessage,
   type OmgTranscriptSubscribe,
 } from "./lib/omg-chat-transport";
+import {
+  queueRowHydration,
+  reconcileQueueMessages,
+  retryQueuedMessage,
+} from "./lib/queue-reconcile";
+import { canDriveSession } from "./lib/session-runtime";
 import {
   prefetchTranscripts,
   readTranscriptCache,
@@ -219,6 +308,7 @@ import {
   Trash2,
   TriangleAlert,
   UserRound,
+  Camera,
   X,
   Ellipsis,
 } from "lucide-react";
@@ -230,7 +320,12 @@ import { useProjectListPrefs, setProjectListPrefs } from "@/lib/project-list-pre
 import { useSendMorph } from "@/lib/use-send-morph";
 import { reportError } from "./lib/report-error";
 import { lazyWithReload } from "./lib/lazy-with-reload";
-import { buildChatRenderItems, splitQueuedRenderItems, toolGroupLabel } from "./lib/chat-render-items";
+import {
+  buildChatRenderItems,
+  splitQueuedRenderItems,
+  toolGroupLabel,
+  type ChatRenderItem,
+} from "./lib/chat-render-items";
 import {
   parseMessageAttachments,
   type MessageAttachment,
@@ -290,6 +385,11 @@ import { LazySessionFilesPanel } from "@/components/session-files/lazy-panel";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Popover } from "@base-ui/react/popover";
 import { Drawer as VaulDrawer } from "vaul";
 import {
@@ -321,7 +421,6 @@ import {
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 import { deepActiveElement, isTypingTarget } from "@/lib/active-element";
-import { useExpandOnFocus } from "@/lib/expand-on-focus";
 import { useExtensionNavTabs } from "./lib/extensions";
 import type { ExtensionNavTab } from "./lib/extensions";
 import {
@@ -429,8 +528,10 @@ export type PiProviderInfo = {
   label: string;
   method: "oauth" | "api-key";
   connected: boolean;
-  /** Key came from the environment, so we must not offer to disconnect it. */
+  /** Key is not ours to delete, so we must not offer to disconnect it. */
   fromEnv?: boolean;
+  /** Where it came from, when "From the environment" would not be true. */
+  detail?: string;
 };
 
 export type ClaudeAccountInfo = {
@@ -446,12 +547,13 @@ export type ClaudeAccountInfo = {
 
 const AgentAccessModeContext = createContext<AgentAccessMode>("configured");
 
-type AuthProvider = "claude" | "codex" | "grok" | "github" | "pi-anthropic" | "pi-codex";
+type AuthProvider = "claude" | "codex" | "grok" | "fx" | "github" | "pi-anthropic" | "pi-codex";
 
 const AUTH_PROVIDER_LABELS: Record<AuthProvider, string> = {
   claude: "Claude",
   codex: "Codex",
   grok: "Grok",
+  fx: "Vercel",
   github: "GitHub",
   "pi-anthropic": "Claude",
   "pi-codex": "ChatGPT",
@@ -512,6 +614,7 @@ type ActionRow = {
 
 export type Session = {
   agent?: "claude" | "aisdk" | "codex" | "codex-aisdk" | "opencode" | "grok" | "cursor" | string;
+  runtime?: "tmux" | "command-file";
   // Display-name override from a custom agent profile (server-side), when set.
   // Prefer this over the raw agent kind for labels/tooltips.
   agentLabel?: string | null;
@@ -535,6 +638,10 @@ export type Session = {
   parentNativeSessionId?: string | null;
   parentAgent?: string | null;
   spawnedBy?: string | null;
+  conversationId?: string | null;
+  conversation?: ProductConversation | null;
+  botId?: string | null;
+  botName?: string | null;
   capabilityVersion?: string | null;
   capabilitiesStale?: boolean;
   /** Claude account this session is pinned to, when it launched on a numbered one. */
@@ -562,12 +669,18 @@ type Repo = { name: string; cwd: string; project?: string; custom?: boolean };
 
 // Auto agents: a streamlined agent is JUST a prompt + a schedule. It emits
 // findings (notifications), not reports.
+type AutoAgentOwner = { kind: "user" } | { kind: "bot"; botId: string };
+
 type AutoAgent = {
   id: string;
   name: string;
   prompt: string;
   schedule: string;
   enabled: boolean;
+  // Absent on a response the server hasn't normalized yet (shouldn't happen
+  // once the migration lands, but the UI treats a missing owner as "user"
+  // rather than crashing — see AutoAgentOwnerBadge/ownRoutines filters).
+  owner?: AutoAgentOwner;
   cwd?: string;
   project?: string; // server-computed, worktree-aware (cwd in a git worktree collapses to the owning repo)
   agent?: AutoAgentBackend;
@@ -583,6 +696,56 @@ type AutoAgent = {
   // editor must refetch GET /api/auto/agents/:id before editing it.
   promptTruncated?: boolean;
 };
+
+export type PersistentBot = {
+  id: string;
+  name: string;
+  shape?: BotShape;
+  colorway?: BotColorway;
+  persona: string;
+  agent: string;
+  model?: string;
+  thinkingLevel?: string;
+  cwd?: string;
+  enabled: boolean;
+  conversationId?: string;
+  sessionId?: string;
+  configRevision?: number;
+  appliedConfigRevision?: number;
+  configStatus?: "current" | "update-available" | "queued" | "refreshing" | "failed";
+  rotationState?: "idle" | "queued" | "rotating" | "failed";
+  rotationReason?: "config" | "compaction" | "restart";
+  rotationError?: string;
+  createdAt: number;
+  lastMessageAt?: number;
+  /**
+   * Last thing the bot said, read from the transcript index by the server. A
+   * bot is idle between turns and its harness may not be running at all, so the
+   * roster line cannot come from the live fleet — that showed "Say hi to get
+   * started" to bots with months of history.
+   */
+  lastMessagePreview?: string;
+  lastMessageTs?: number | null;
+};
+
+const BotDirectoryContext = createContext<Map<string, PersistentBot>>(new Map());
+/**
+ * "Me", as a conversation participant id — see the `viewerParticipantId`
+ * state in App and BootstrapPayload["viewer"]. Read by the transcript
+ * renderer to skip drawing a redundant avatar on the viewer's own turns in a
+ * shared bot conversation. Null means "unknown", never "nobody" — a message
+ * whose author cannot be compared against this renders unattributed rather
+ * than guessed either way.
+ */
+const ViewerIdentityContext = createContext<string | null>(null);
+const BotUnreadContext = createContext<{ conversations: BotConversationUnread[]; any: boolean; selectedConversationId: string | null }>({ conversations: [], any: false, selectedConversationId: null });
+const OpenBotContext = createContext<(id: string) => void>(() => {});
+/**
+ * Editing a bot from wherever its chat is open. The bot chat is a session card
+ * now, not a page with its own header, so the settings gear has to reach the
+ * shell's editor sheet from inside a component that knows nothing about tabs.
+ */
+const EditBotContext = createContext<((bot: PersistentBot) => void) | null>(null);
 
 type AutoFinding = {
   id: string;
@@ -618,11 +781,18 @@ type Message = {
   // yet read by the agent. See MessageBubble / ChatStream — it renders as a
   // distinct "waiting" bubble pinned below the turn that is still streaming.
   queued?: boolean;
+  // The send queue gave up on this message. Stays visible with the delivery
+  // error until the user retries (queueId targets the retry endpoint) or
+  // clears the queue.
+  failed?: boolean;
+  queueError?: string;
+  queueId?: string;
   seed?: boolean;
   // A draft assistant turn we joined mid-stream: its text was already fully
   // accumulated when we connected, so it renders settled instead of replaying
   // the word-by-word streaming reveal. See DRAFT_CATCHUP_MIN_CHARS.
   catchUp?: boolean;
+  author?: MessageAuthorRef;
 };
 
 type AiStreamPart = {
@@ -657,6 +827,8 @@ type QueueMsg = {
   text: string;
   status: "pending" | "sending" | "queued" | "failed" | "delivered";
   error?: string;
+  createdAt?: number;
+  updatedAt?: number;
 };
 
 type LoadOlderMessages = (sid: string) => Promise<boolean>;
@@ -727,8 +899,13 @@ type GlobalSettings = {
   // Cap on total LIVE agents, idle included (0 = unlimited) + a manual drain
   // switch, plus the idle window after which an agent is archived (0 = off).
   maxLiveAgents: number;
+  // Per-bot cap on self-scheduled routines. Always >= 1 — unlike
+  // maxLiveAgents, 0-as-unlimited is not offered here.
+  maxBotSchedules: number;
   agentsPaused: boolean;
   idleAgentArchiveMinutes: number;
+  botAutoCompactionEnabled: boolean;
+  botCompactionThresholdPercent: number;
   transcriptView: TranscriptView;
   // The update the "What's new" drawer's Skip button last dismissed. See
   // UpdateProvider in components/update-drawer.tsx.
@@ -840,11 +1017,21 @@ type SessionUsage = {
 
 type BootstrapPayload = {
   version?: string | null;
+  /**
+   * Identifies the server PROCESS, so it changes on every restart. `version`
+   * alone cannot detect a restart (two builds can share a version), and a
+   * restart is exactly when the running version changes underneath a tab that
+   * is already open — see the reconnect check that re-bootstraps on a change.
+   */
+  bootId?: string | null;
   agents?: Agent[] | null;
   codingAgents?: CodingAgentInfo[] | null;
   models?: ModelCatalogItem[] | null;
   settings?: GlobalSettings | null;
   sessions?: Session[] | null;
+  conversations?: ProductConversation[] | null;
+  /** Which conversation participant, if any, "I" am — see fetchBootstrap. */
+  viewer?: { managed: boolean; participantId: string | null } | null;
   users?: User[] | null;
   repos?: Repo[] | null;
   auto?: { agents?: AutoAgent[] | null; tz?: string; findings?: AutoFinding[] | null };
@@ -902,9 +1089,23 @@ const PI_MODELS_FALLBACK = ["fable", "opus", "sonnet", "haiku", "deepseek/deepse
 // overrides this fallback at bootstrap).
 const COPILOT_MODELS = ["claude-sonnet-4.5", "claude-sonnet-4", "gpt-5"];
 const JCODE_MODELS = ["auto"];
+// fx routes through Vercel AI Gateway, so its ids are `provider/model` strings.
+// Kept in sync with FX_MODELS in src/agent-catalog.ts (the server catalog
+// overrides this fallback at bootstrap). "auto" keeps the model configured in
+// ~/.fx/settings.json.
+const FX_MODELS = [
+  "auto",
+  "anthropic/claude-opus-5",
+  "anthropic/claude-sonnet-5",
+  "openai/gpt-5.6-sol",
+  "openai/gpt-5.5",
+  "xai/grok-4.6",
+  "moonshotai/kimi-k3",
+  "zai/glm-5.2",
+];
 const THINKING_LEVELS = ["low", "medium", "high", "xhigh"] as const;
 type ThinkingLevel = string;
-type AutoAgentBackend = "aisdk" | "codex-aisdk" | "grok" | "cursor" | "opencode";
+type AutoAgentBackend = "aisdk" | "codex-aisdk" | "grok" | "cursor" | "fx" | "opencode";
 function savedThinkingLevel(): ThinkingLevel {
   const value = localStorage.getItem("lfg_thinking_level");
   return value && (THINKING_LEVELS as readonly string[]).includes(value) ? value : "medium";
@@ -939,6 +1140,7 @@ const AGENT_MODELS: Record<AgentKind, string[]> = {
   "codex-aisdk": CODEX_AISDK_MODELS,
   grok: GROK_MODELS,
   cursor: CURSOR_MODELS,
+  fx: FX_MODELS,
   opencode: OPENCODE_MODELS,
   jcode: JCODE_MODELS,
   pi: PI_MODELS_FALLBACK,
@@ -951,6 +1153,7 @@ const AGENT_DEFAULT_MODEL: Record<AgentKind, string> = {
   "codex-aisdk": "gpt-5.6-sol",
   grok: "grok-4.6",
   cursor: "auto",
+  fx: "auto",
   opencode: "opencode/deepseek-v4-flash-free",
   jcode: "auto",
   pi: "sonnet",
@@ -964,6 +1167,9 @@ const AGENT_THINKING_LEVELS: Record<AgentKind, string[]> = {
   // grok's CLI exits on anything above high, so these are all it can take.
   grok: ["low", "medium", "high"],
   cursor: ["low", "medium", "high", "xhigh", "max"],
+  // fx keeps reasoning effort in ~/.fx/settings.json and takes no per-launch
+  // flag on `fx acp`, so the selector stays hidden.
+  fx: [],
   opencode: [],
   jcode: ["low", "medium", "high", "xhigh", "max"],
   // pi's own list, straight from its --thinking help. It has a real "off".
@@ -1474,17 +1680,6 @@ function SessionStatusDot({
  * login has no identity to disambiguate, so stamping "1" on every Claude mark
  * in the fleet would be noise rather than information.
  */
-
-function isHarnessAgent(agent?: string | null): boolean {
-  return agent === "aisdk" || agent === "codex-aisdk" || agent === "opencode";
-}
-
-function canDriveSession(
-  session: Pick<Session, "agent" | "tmuxTarget" | "shippedReview">,
-): boolean {
-  if (session.shippedReview) return false;
-  return !!session.tmuxTarget || isHarnessAgent(session.agent);
-}
 
 function uploadFile<T>(
   path: string,
@@ -2435,6 +2630,19 @@ function sessionReference(sessionId: string): string {
   return `LFG session reference: ${sessionId}`;
 }
 
+// Which "speaker" a chat row reads as, for grouping consecutive same-speaker
+// rows closer together than a change of speaker (see the transcript render
+// loop). Tool calls/results and any non-user message all read as the
+// assistant talking, same as MessageBubble's own user/assistant split. A
+// verified human author further splits "user" by participant, so two
+// different people's turns in a shared bot conversation still get the
+// speaker-changed spacing between them instead of reading as one run.
+function chatRenderItemSpeaker(item: ChatRenderItem<Message>): string {
+  if (item.type !== "msg" || item.message.role !== "user") return "assistant";
+  const author = item.message.author;
+  return author?.kind === "human" && author.verified ? `user:${author.participantId}` : "user";
+}
+
 // The most recent activity condensed to one line — used as the collapsed-card
 // subtitle. Reuses the exact transcript shortening (buildChatRenderItems +
 // toolGroupLabel): a run of tool calls/results renders as its group summary
@@ -2482,14 +2690,20 @@ function reconcileSnapshotMessages(current: Message[], incoming: Message[]): Mes
   const incomingIds = new Set(next.map((message) => message.id).filter(Boolean));
   const incomingUserText = next.filter((message) => message.role === "user" && message.kind === "text");
   const latestIncomingTs = next.reduce((max, message) => Math.max(max, message.ts ?? 0), 0);
+  // Incoming user rows claim local pending bubbles one-to-one: with a repeated
+  // identical follow-up, only as many bubbles settle as rows actually arrived.
+  const claimedIncoming = new Set<number>();
   for (const local of current) {
     if (local.seed || local.kind === "thinking") continue;
     if (local.id && incomingIds.has(local.id)) continue;
-    if (
-      local.pending &&
-      incomingUserText.some((message) => sameMessageNeedle(message.text, local.text))
-    ) {
-      continue;
+    if (local.pending) {
+      const claimIndex = incomingUserText.findIndex(
+        (message, index) => !claimedIncoming.has(index) && sameMessageNeedle(message.text, local.text),
+      );
+      if (claimIndex >= 0) {
+        claimedIncoming.add(claimIndex);
+        continue;
+      }
     }
     const localTs = local.ts ?? (local.pending ? Date.now() : 0);
     if (local.pending || !latestIncomingTs || localTs >= latestIncomingTs) next.push(local);
@@ -2537,6 +2751,21 @@ function sameMessageNeedle(a?: string, b?: string) {
   const bn = messageNeedle(b);
   if (!an || !bn) return false;
   return an.includes(bn) || bn.includes(an);
+}
+
+// Queue-event reconciliation lives in lib/queue-reconcile (shared with the WS
+// hook and the AI-SDK transport). It never truncates: paged-in history must
+// survive every queue event.
+function hydrateQueueMessage(item: QueueMsg): Message {
+  return {
+    id: `queue-${item.id}`,
+    role: "user",
+    kind: "text",
+    text: item.text,
+    html: escapeHtml(item.text).replace(/\n/g, "<br>"),
+    ts: item.createdAt ?? item.updatedAt ?? Date.now(),
+    ...queueRowHydration(item),
+  };
 }
 
 function seedMessageForSession(session: Session): Message | null {
@@ -4549,8 +4778,18 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
           next = [...current.filter((item) => item.kind !== "thinking"), message];
         } else {
           const realUser = message.role === "user" && message.kind === "text";
+          // A real user row claims exactly ONE pending bubble with the same
+          // text — claiming all of them would make a repeated identical
+          // follow-up vanish.
+          let pendingClaimed = false;
           next = realUser
-            ? current.filter((item) => !item.pending || !sameMessageNeedle(message.text, item.text))
+            ? current.filter((item) => {
+                if (!item.pending || pendingClaimed || !sameMessageNeedle(message.text, item.text)) {
+                  return true;
+                }
+                pendingClaimed = true;
+                return false;
+              })
             : current.filter((item) => {
                 if (item.kind === "thinking") return false;
                 if (message.role === "assistant" && message.kind === "text" && isDraftAssistantMessage(item)) {
@@ -4714,6 +4953,16 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
       setPromptsBySid((prev) => ({ ...prev, [payload.sid]: payload.prompt }));
     });
 
+    es.addEventListener("queue", (event) => {
+      const payload = parseLiveEvent<{ sid: string; queue: QueueMsg[] }>(event.data);
+      if (!payload || !active.has(payload.sid)) return;
+      const queue = Array.isArray(payload.queue) ? payload.queue : [];
+      setMessagesBySid((prev) => ({
+        ...prev,
+        [payload.sid]: reconcileQueueMessages(prev[payload.sid] ?? [], queue, hydrateQueueMessage),
+      }));
+    });
+
     es.onerror = () => {
       evlog("live_stream_client_error", {
         rid,
@@ -4774,7 +5023,14 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
   const removeOptimisticMessage = useCallback((sid: string, text: string) => {
     setMessagesBySid((prev) => {
       const current = prev[sid] ?? [];
-      const next = current.filter((item) => !item.pending || !sameMessageNeedle(item.text, text));
+      // One confirmation settles one bubble — a repeated identical follow-up
+      // keeps its own pending bubble until its own confirmation lands.
+      let removed = false;
+      const next = current.filter((item) => {
+        if (removed || !item.pending || !sameMessageNeedle(item.text, text)) return true;
+        removed = true;
+        return false;
+      });
       return next.length === current.length ? prev : { ...prev, [sid]: next };
     });
   }, []);
@@ -4847,7 +5103,7 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
               removeOptimisticMessage(sid, text);
               return;
             }
-            if (item.status === "delivered" || item.status === "queued") {
+            if (item.status === "delivered") {
               await refreshMessagesForSid(sid, text, { dropOptimistic: true }).catch(() => null);
               removeOptimisticMessage(sid, text);
               return;
@@ -5267,6 +5523,21 @@ export function App() {
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [codingAgents, setCodingAgents] = useState<CodingAgentInfo[]>([]);
   const [codingAgentAuth, setCodingAgentAuth] = useState<CodingAgentAuthSession | null>(null);
+  // The provider whose login is being PREPARED — set on click, before the
+  // server has answered.
+  //
+  // The dialog used to be gated on the session alone, so it could not exist
+  // until the round trip finished. That round trip spawns a provider CLI and
+  // scrapes a sign-in URL out of its stdout, which takes seconds on a cold
+  // Computer — and for that whole time the click had produced no visible UI at
+  // all. The old code filled the gap by opening a browser tab up front, which
+  // is what put people on `about:blank`.
+  //
+  // Naming the pending provider is what lets the dialog open on the CLICK and
+  // carry its own loading state. The tab is then opened by a real click on the
+  // dialog's own button, from a fresh user gesture, straight at the provider:
+  // no placeholder document, no redirect, and nothing a popup blocker can eat.
+  const [codingAgentAuthPending, setCodingAgentAuthPending] = useState<string | null>(null);
   // Auth started from a blocked session stays inside that session's transcript
   // instead of opening the global settings dialog. completedSid lets the
   // banner acknowledge success while the failed turn remains the transcript
@@ -5316,11 +5587,28 @@ export function App() {
   // vanishes on the first refresh whose snapshot predates it.
   const seededSessionsRef = useRef(new Map<string, { session: Session; at: number }>());
   const [users, setUsers] = useState<User[]>([]);
+  // "Me", as a conversation participant id — resolved server-side (trusted
+  // header on a managed Computer, the selected local profile otherwise) and
+  // used only to skip drawing a redundant avatar on the viewer's own turns in
+  // a shared bot conversation. Never an authorization signal.
+  const [viewerParticipantId, setViewerParticipantId] = useState<string | null>(null);
   // Server-side first-run state (profiles/steps/completion) + whether the
   // full-screen onboarding flow is showing. See loadCore for the gate.
   const [onboarding, setOnboarding] = useState<OnboardingState | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [omgVersion, setOmgVersion] = useState("unknown");
+  // What the SELECTED Computer said it is running, tagged with the transport it
+  // said it over. The tag is what makes the claim falsifiable: a host switches
+  // Computers by swapping the transport in place, without remounting this tree,
+  // so an untagged version string would silently keep describing the previous
+  // machine. null = no bootstrap has returned yet.
+  const [computerVersionReport, setComputerVersionReport] = useState<
+    { version: string | null; generation: number; bootId: string | null } | null
+  >(null);
+  // Read by the reconnect check below. A ref, not a dep: depending on the state
+  // would re-arm that effect every time a bootstrap lands, and the effect's job
+  // is to fire on a connection EDGE, not on new data.
+  const computerVersionReportRef = useRef(computerVersionReport);
+  computerVersionReportRef.current = computerVersionReport;
   const [repos, setRepos] = useState<Repo[]>([]);
   const [loading, setLoading] = useState(true);
   // STARTUP failures only — "the app could not load its own state". Every other
@@ -5344,6 +5632,10 @@ export function App() {
     nonce: number;
   } | null>(null);
   const [composerFocusNonce, setComposerFocusNonce] = useState(0);
+  // Local echo of "I dismissed the getting-started panel". The durable record
+  // is the server marking every coach step done (see the card's onDismiss);
+  // this just makes it go away without waiting on the round trip.
+  const [hostedCoachDismissed, setHostedCoachDismissed] = useState(false);
   // Auto agents
   // Tabs are "live" | "settings" | "notifications" | "term". Auto agents and runtime
   // extension nav-tabs now render inside the Settings page rather than as their
@@ -5355,7 +5647,20 @@ export function App() {
   // switching pages re-renders here rather than remounting the whole app.
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const routeSearch = useRouterState({ select: (s) => s.location.search as AppSearch });
   const tab: string = pathnameToTab(pathname);
+  // `/bots/<id>` is a chat. `/bots/new` and `/bots/<id>/edit` are the editor,
+  // which is a PAGE and not a sheet over the list: a form with a name, a
+  // persona, a face, a colour, a repo and a model is a place you go to, so it
+  // needs a URL that back — the browser's, the phone's gesture, ours — can
+  // leave. "new" can never collide with a bot id: the static route outranks
+  // the param one, and the id read below skips it.
+  const botPathSegments = tab === "bots" ? pathname.split("/").filter(Boolean) : [];
+  const botPathId = botPathSegments[1] ?? null;
+  const botEditorTarget: string | null =
+    botPathId === "new" ? "new" : botPathSegments[2] === "edit" ? botPathId : null;
+  const selectedBotId = botPathId && botPathId !== "new" ? botPathId : null;
+  const selectedBotConversationId = selectedBotId ? routeSearch.conversation ?? null : null;
   // A terminal is on screen — as the Terminal tab, or pulled up over any tab.
   // Both need the same soft-keyboard treatment: the shell pinned to the visible
   // band and translated past the scroll iOS applies to reveal the focused field.
@@ -5385,7 +5690,59 @@ export function App() {
     },
     [navigate],
   );
+  const openBot = useCallback(
+    (botId: string, conversationId?: string | null) => {
+      const keepHostMode = (prev: AppSearch): AppSearch => ({
+        ...(prev.embed ? { embed: prev.embed } : {}),
+        ...(prev.embedOrigin ? { embedOrigin: prev.embedOrigin } : {}),
+      });
+      void navigate({
+        to: "/bots/$botId",
+        params: { botId },
+        search: (prev) => ({ ...keepHostMode(prev), ...(conversationId ? { conversation: conversationId } : {}) }),
+      });
+    },
+    [navigate],
+  );
+  const closeBot = useCallback(() => {
+    const keepHostMode = (prev: AppSearch): AppSearch => ({
+      ...(prev.embed ? { embed: prev.embed } : {}),
+      ...(prev.embedOrigin ? { embedOrigin: prev.embedOrigin } : {}),
+    });
+    void navigate({
+      to: "/$tab",
+      params: { tab: "bots" },
+      search: keepHostMode,
+    });
+  }, [navigate]);
+  const openBotEditor = useCallback(
+    (target: PersistentBot | "new") => {
+      const keepHostMode = (prev: AppSearch): AppSearch => ({
+        ...(prev.embed ? { embed: prev.embed } : {}),
+        ...(prev.embedOrigin ? { embedOrigin: prev.embedOrigin } : {}),
+      });
+      if (target === "new") {
+        void navigate({ to: "/bots/new", search: keepHostMode });
+        return;
+      }
+      void navigate({
+        to: "/bots/$botId/edit",
+        params: { botId: target.id },
+        search: keepHostMode,
+      });
+    },
+    [navigate],
+  );
   const extNavTabs = useExtensionNavTabs();
+  // The host's own settings, offered from OUR menu.
+  //
+  // NOT onOpenSettingsPage: that one addresses the MACHINE's settings pages,
+  // and omg routes it to /settings/computer. Wiring this entry to it replaced
+  // a general Settings control with a per-computer page behind a machine
+  // selector — a back tap away from what the gear used to do. Unset leaves the
+  // item out entirely rather than guessing a destination.
+  const { onOpenHostSettings } = useEmbeddedHostOptions();
+  const hostSettingsInMenu = embedded && !!onOpenHostSettings;
   const openShipped = useCallback(() => setTab("notifications"), [setTab]);
   // Keep the session list + Shipped/Artifacts mounted after first visit so
   // tab switches don't remount, re-fetch, or reboot gallery iframes. Hidden
@@ -5441,12 +5798,22 @@ export function App() {
     return () => window.clearTimeout(t);
   }, [loading]);
   const [autoAgents, setAutoAgents] = useState<AutoAgent[]>([]);
+  const [bots, setBots] = useState<PersistentBot[]>([]);
+  const [botQuota, setBotQuota] = useState<PersistentBotQuota | null>(null);
+  const [botConversations, setBotConversations] = useState<BotConversationUnread[]>([]);
+  const botDirectory = useMemo(
+    () => new Map(bots.map((bot) => [bot.id, bot])),
+    [bots],
+  );
   const [managedComputer, setManagedComputer] = useState(false);
   const [settings, setSettings] = useState<GlobalSettings>({
     timeZone: DEFAULT_SCHED_TZ,
     maxLiveAgents: 16,
+    maxBotSchedules: 5,
     agentsPaused: false,
     idleAgentArchiveMinutes: 0,
+    botAutoCompactionEnabled: true,
+    botCompactionThresholdPercent: 78,
     transcriptView: "full",
     skippedUpdateVersion: "",
   });
@@ -5487,6 +5854,12 @@ export function App() {
   const [identity, setIdentity] = useState<string | null>(() =>
     localStorage.getItem("lfg_user"),
   );
+  // Hosted surfaces do not show the profile picker. Their one-user roster is
+  // still the assigned identity for server-owned bot read state.
+  const botUnreadIdentity = identity ??
+    (userFilter !== "__all" && userFilter !== "__unassigned"
+      ? userFilter
+      : users.length === 1 ? users[0].email : "");
   // The mobile Live header introduces the product mark, then gives that prime
   // strip of screen back to the person using it. Start the two-second hold only
   // once bootstrap is ready so a slow connection does not consume the intro
@@ -5695,9 +6068,32 @@ export function App() {
     };
   }, [bare, isMobile, loading, tab, terminalSurface]);
 
+  const refreshBots = useCallback(async () => {
+    const payload = await api<{ bots: PersistentBot[]; conversations?: BotConversationUnread[]; quota?: PersistentBotQuota }>(
+      `/api/bots?user=${encodeURIComponent(botUnreadIdentity)}`,
+      { cache: "no-store" },
+    );
+    setBots(payload.bots ?? []);
+    setBotConversations(payload.conversations ?? []);
+    setBotQuota(payload.quota ?? null);
+  }, [botUnreadIdentity]);
+
   const loadCore = useCallback(async () => {
-    const payload = await fetchBootstrap<BootstrapPayload>();
-    setOmgVersion(payload.version || "unknown");
+    const [payload, botPayload] = await Promise.all([
+      fetchBootstrap<BootstrapPayload>(botUnreadIdentity),
+      api<{ bots: PersistentBot[]; conversations?: BotConversationUnread[]; quota?: PersistentBotQuota }>(
+        `/api/bots?user=${encodeURIComponent(botUnreadIdentity)}`,
+        { cache: "no-store" },
+      ),
+    ]);
+    // Stored raw, including absent/blank. Settings needs to tell "an older
+    // runtime that sends no version marker" apart from "we have not asked yet",
+    // and `|| "unknown"` collapsed both into one unreadable string.
+    setComputerVersionReport({
+      version: typeof payload.version === "string" ? payload.version : null,
+      generation: omgTransportGeneration(),
+      bootId: typeof payload.bootId === "string" ? payload.bootId : null,
+    });
     setOnboarding(payload.onboarding ?? null);
     // First-run gate: a brand-new install has no roster (env or stored
     // profiles), no sessions, and no completed onboarding. The flag is sticky
@@ -5718,8 +6114,11 @@ export function App() {
     setSettings(payload.settings ?? {
       timeZone: payload.auto?.tz ?? DEFAULT_SCHED_TZ,
       maxLiveAgents: 16,
+      maxBotSchedules: 5,
       agentsPaused: false,
       idleAgentArchiveMinutes: 0,
+      botAutoCompactionEnabled: true,
+      botCompactionThresholdPercent: 78,
       transcriptView: "full",
       skippedUpdateVersion: "",
     });
@@ -5727,9 +6126,13 @@ export function App() {
     // call `.filter()` unconditionally on render, so a malformed/empty payload
     // must degrade to an empty live view rather than crash.
     setSessions(payload.sessions ?? []);
+    setViewerParticipantId(payload.viewer?.participantId ?? null);
     setUsers(payload.users ?? []);
     setRepos(payload.repos ?? []);
     setAutoAgents(payload.auto?.agents ?? []);
+    setBots(botPayload.bots ?? []);
+    setBotConversations(botPayload.conversations ?? []);
+    setBotQuota(botPayload.quota ?? null);
     setSchedTz(payload.settings?.timeZone ?? payload.auto?.tz ?? DEFAULT_SCHED_TZ);
     const findingList = payload.auto?.findings ?? [];
     setFindings(findingList);
@@ -5739,7 +6142,7 @@ export function App() {
     // since succeeded, so retire it — a stale "could not load" over a screen
     // full of freshly loaded state is just noise the reader has to disbelieve.
     setError(null);
-  }, [embedded]);
+  }, [botUnreadIdentity, embedded]);
 
   // Sessions the user just deleted. The server's list can lag a beat (tmux pane
   // still tearing down), and the 5s poll below would otherwise resurrect a card
@@ -6015,6 +6418,7 @@ export function App() {
     const tick = () => {
       refreshSessions().catch(() => {});
       refreshAuto().catch(() => {});
+      refreshBots().catch(() => {});
     };
     const start = () => {
       if (id === null) id = window.setInterval(tick, 5000);
@@ -6039,7 +6443,7 @@ export function App() {
       stop();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [refreshSessions, refreshAuto]);
+  }, [refreshSessions, refreshAuto, refreshBots]);
 
   // Refresh the user roster when the tab regains focus. The roster rarely
   // changes, so it isn't worth the 5s poll above — but avatars carry a
@@ -6143,13 +6547,10 @@ export function App() {
   // known repo. The repo-derived entries are important for persistence: a saved
   // project filter should survive app reopen even when that project has no live
   // session at load time.
-  const userScopedSessions = useMemo(() => {
-    if (userFilter === "__all") return allLiveSessions;
-    if (userFilter === "__unassigned") {
-      return allLiveSessions.filter((session) => !session.assignedUser);
-    }
-    return allLiveSessions.filter((session) => session.assignedUser === userFilter);
-  }, [allLiveSessions, userFilter]);
+  const userScopedSessions = useMemo(
+    () => allLiveSessions.filter((session) => sessionMatchesUserFilter(session, userFilter)),
+    [allLiveSessions, userFilter],
+  );
 
   const projectOptions = useMemo(
     () =>
@@ -6273,10 +6674,7 @@ export function App() {
     );
     if (!target) return; // not in the list yet — the giving-up timer below handles it
     sessionDeepLinkRef.current = null;
-    if (
-      userFilter !== "__all" &&
-      !(userFilter === "__unassigned" ? !target.assignedUser : target.assignedUser === userFilter)
-    ) {
+    if (!sessionMatchesUserFilter(target, userFilter)) {
       setUserFilter("__all");
     }
     if (projectFilter !== "__all" && target.project !== projectFilter) {
@@ -6488,6 +6886,102 @@ export function App() {
     onStatusRows: applyLiveStatusRows,
   });
   const liveStream = useWsLive ? wsLiveStream : sseLiveStream;
+
+  // A box that restarts under an open tab keeps serving, so nothing else here
+  // notices — but the version it runs has just changed, and Settings would go
+  // on showing the pre-restart number indefinitely. That is the worst possible
+  // direction for this row to fail: it is the exact signal people use to
+  // confirm a deploy landed (see the RUNNING_VERSION note in src/config.ts).
+  //
+  // bootId is the existing owner of "this is a different process", so a
+  // reconnect asks the cheap /api/install?ready=1 for it and re-bootstraps only
+  // when it actually changed. An ordinary network blip costs one tiny request
+  // and re-fetches nothing.
+  const liveStatus = wsLiveStream.connection?.status ?? null;
+  const wasLiveRef = useRef(false);
+  useEffect(() => {
+    if (!useWsLive) return;
+    const wasLive = wasLiveRef.current;
+    wasLiveRef.current = liveStatus === "live";
+    if (liveStatus !== "live" || wasLive) return;
+    let cancelled = false;
+    void api<{ bootId?: string | null }>("/api/install?ready=1", { cache: "no-store" })
+      .then((payload) => {
+        if (cancelled) return;
+        const seen = computerVersionReportRef.current?.bootId ?? null;
+        const now = typeof payload.bootId === "string" ? payload.bootId : null;
+        if (!seen || !now || seen === now) return;
+        void loadCore().catch(() => {});
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [useWsLive, liveStatus, loadCore]);
+
+  const selectedConversationSid = selectedBotConversationId
+    ? botConversations.find((row) =>
+        row.conversationId === selectedBotConversationId || row.sessionId === selectedBotConversationId
+      )?.sessionId ?? null
+    : selectedBotId ? bots.find((bot) => bot.id === selectedBotId)?.sessionId ?? null : null;
+  // Clearing a dot must not sit in front of the conversation the human just
+  // opened. This used to await the POST and then await a full `/api/bots`
+  // refetch, so every bot open queued a roster rebuild behind a write on the
+  // same server before the transcript request could be served. The row state
+  // is the only thing the POST changes, so it is applied locally first and the
+  // write goes out behind the paint.
+  const markBotConversationVisible = useCallback(async (sessionId: string) => {
+    setBotConversations((prev) => clearBotConversationUnread(prev, sessionId));
+    await api(`/api/bot-conversations/${encodeURIComponent(sessionId)}/read`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user: botUnreadIdentity }),
+    });
+  }, [botUnreadIdentity]);
+
+  // Selection is committed before this effect runs, so a route preload or a
+  // tap that never revealed the conversation cannot clear its watermark.
+  useEffect(() => {
+    if (tab !== "bots" || !selectedConversationSid || document.visibilityState !== "visible") return;
+    void markBotConversationVisible(selectedConversationSid).catch(() => {});
+  }, [markBotConversationVisible, selectedConversationSid, tab]);
+
+  // Reuse the transcript websocket. Every committed assistant row refreshes
+  // the server-owned watermark view. The open conversation advances its own
+  // watermark; background conversations only gain an unread dot.
+  // Which conversations to watch, as a value that only changes when the set
+  // does. `botConversations` is a fresh array on every roster refresh, and a
+  // refresh happens on every assistant message, so keying the effect on the
+  // payload tore down and re-established every bot transcript channel each
+  // time — on the same socket the open chat streams its own transcript over.
+  const botConversationSidKey = botConversationSubscriptionIds(botConversations).join(",");
+  const botConversationSids = useMemo(
+    () => (botConversationSidKey ? botConversationSidKey.split(",") : []),
+    [botConversationSidKey],
+  );
+  // Read through a ref so changing the open conversation re-targets the
+  // existing subscriptions instead of replacing all of them.
+  const botUnreadViewRef = useRef({ selectedConversationSid, tab });
+  botUnreadViewRef.current = { selectedConversationSid, tab };
+  useEffect(() => {
+    if (!useWsLive) return;
+    const unsubs = botConversationSids.map((sessionId) =>
+      wsLiveStream.subscribeTranscript(sessionId, (event) => {
+        if (event.type !== "message") return;
+        const view = botUnreadViewRef.current;
+        const action = botUnreadActionForTranscript({
+          role: event.message.role,
+          text: event.message.text,
+          conversationId: sessionId,
+          selectedConversationId: view.selectedConversationSid,
+          botsVisible: view.tab === "bots" && document.visibilityState === "visible",
+        });
+        if (action === "mark-read") void markBotConversationVisible(sessionId).catch(() => {});
+        if (action === "refresh") void refreshBots().catch(() => {});
+      })
+    );
+    return () => unsubs.forEach((unsubscribe) => unsubscribe());
+  }, [botConversationSids, markBotConversationVisible, refreshBots, useWsLive, wsLiveStream.subscribeTranscript]);
 
   function toggleTheme() {
     setThemePreference(!document.documentElement.classList.contains("dark"));
@@ -6712,6 +7206,94 @@ export function App() {
       await api(`/api/auto/agents/${id}`, { method: "DELETE" });
       setEditingAgent(null);
       await refreshAuto();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function saveBot(input: {
+    id?: string;
+    name: string;
+    shape?: BotShape;
+    colorway?: BotColorway;
+    persona: string;
+    agent: AgentKind;
+    model?: string;
+    thinkingLevel?: string;
+    cwd?: string;
+    enabled: boolean;
+  }): Promise<PersistentBot | null> {
+    try {
+      const endpoint = input.id ? `/api/bots/${encodeURIComponent(input.id)}` : "/api/bots";
+      const { id, ...body } = input;
+      // A new bot's backing session inherits its creator, so it lands under the
+      // rail's per-user filter instead of in "unassigned".
+      const owner = resolveRosterUser(
+        userFilter !== "__all" && userFilter !== "__unassigned"
+          ? userFilter
+          : localStorage.getItem("lfg_user"),
+        users,
+      );
+      const result = await api<{
+        bot: PersistentBot;
+        quota?: PersistentBotQuota;
+        configStatus?: PersistentBot["configStatus"];
+        configRevision?: number;
+      }>(endpoint, {
+        method: id ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(id ? body : { ...body, user: owner || undefined }),
+      });
+      if (result.quota) setBotQuota(result.quota);
+      // Keep an existing bot's editor open when a session-bound change created
+      // a revision gap. The next action is Apply changes, and hiding that state
+      // behind a second trip into settings made the explicit refresh unusable.
+      if (!id) closeBot();
+      await refreshBots();
+      toast.success(id ? "Bot saved" : "Bot created");
+      return {
+        ...result.bot,
+        configStatus: result.configStatus ?? result.bot.configStatus,
+        configRevision: result.configRevision ?? result.bot.configRevision,
+      };
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+      return null;
+    }
+  }
+
+  async function applyBotChanges(bot: PersistentBot): Promise<{
+    configStatus: NonNullable<PersistentBot["configStatus"]>;
+    rotationError?: string;
+  } | null> {
+    try {
+      const result = await api<{
+        configStatus: NonNullable<PersistentBot["configStatus"]>;
+        queued?: boolean;
+      }>(`/api/bots/${encodeURIComponent(bot.id)}/rotate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedRevision: bot.configRevision ?? 1 }),
+      });
+      await Promise.all([refreshBots(), refreshSessions()]);
+      toast.success(result.queued ? "Bot refresh queued" : "Bot refreshed");
+      return { configStatus: result.configStatus };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      toast.error(message);
+      return { configStatus: "failed", rotationError: message };
+    }
+  }
+
+  async function deletePersistentBot(id: string) {
+    try {
+      await api(`/api/bots/${encodeURIComponent(id)}`, { method: "DELETE" });
+      // NOT setTab("bots"): the tab already IS "bots" on /bots/<id>/edit, so
+      // that call short-circuits and leaves you on the editor for a bot that
+      // no longer exists.
+      closeBot();
+      await Promise.all([refreshBots(), refreshSessions()]);
+      toast.success("Bot deleted");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     }
@@ -6963,6 +7545,25 @@ export function App() {
   }, []);
 
   /**
+   * Record hosted coach progress. Same fire-and-forget posture as
+   * markHostedIntroDone: a failed write costs a repeated step, never a block.
+   * hostedCoachSteps() also counts on-box evidence, so the panel stays correct
+   * for the whole session even when this never lands.
+   */
+  const markHostedCoach = useCallback(async (patch: Partial<HostedCoachFlags>) => {
+    try {
+      const response = await api<{ state: OnboardingState }>("/api/onboarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hostedCoach: patch }),
+      });
+      setOnboarding(response.state);
+    } catch {
+      /* see above */
+    }
+  }, []);
+
+  /**
    * Put the hosted surface back through its own first run. Deliberately does
    * NOT touch `steps`/`completedAt`: those belong to the open-source flow, and
    * a hosted Computer must not be able to reset a walkthrough it never ran.
@@ -6985,6 +7586,7 @@ export function App() {
       }
       setConnectGateSkipped(false);
       connectGateStarted.current = false;
+      setHostedCoachDismissed(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't restart the tour");
     }
@@ -7083,15 +7685,31 @@ export function App() {
     );
   }
 
+  // Preparing a login NEVER opens a browser tab. The dialog does, from its own
+  // button, on a second real click.
+  //
+  // This function used to open a tab up front and await the round trip inside
+  // it, because `window.open` is only trusted during the synchronous part of a
+  // click and the sign-in URL does not exist until a provider CLI has been
+  // spawned and its stdout scraped. That bought a working popup at the cost of
+  // parking the user on a blank tab for the length of the trip — the
+  // "connect Claude opens about:blank" report.
+  //
+  // Opening the DIALOG on the click instead satisfies the same "show something
+  // immediately" requirement without needing the tab to exist yet, and the tab
+  // it eventually opens is a direct open on the real URL from a fresh gesture:
+  // correct address bar, no placeholder, and impossible to popup-block.
   async function startBrowserAuth(
     kind: AgentKind | "github",
     path: string,
     inlineSid?: string,
     body: Record<string, unknown> = {},
+    providerLabel = "the provider",
   ) {
     setCodingAgentAuthInlineSid(inlineSid ?? null);
     if (inlineSid) setCodingAgentAuthCompletedSid(null);
-    const authWindow = window.open("about:blank", "_blank");
+    // Before the await, so the surface is on screen for the whole round trip.
+    setCodingAgentAuthPending(providerLabel);
     try {
       const session = await api<CodingAgentAuthSession>(path, {
         method: "POST",
@@ -7100,7 +7718,9 @@ export function App() {
       });
       if (session.status === "error") throw new Error(session.error || "Couldn't start login");
       if (session.status === "complete") {
-        authWindow?.close();
+        // Already connected — there is nothing to sign into, so the dialog has
+        // nothing to say and the toast carries it.
+        setCodingAgentAuthPending(null);
         toast.success(`${authProviderLabel(session.provider)} connected`);
         setCodingAgentAuthInlineSid(null);
         if (inlineSid) setCodingAgentAuthCompletedSid(inlineSid);
@@ -7110,17 +7730,15 @@ export function App() {
         ]);
         return;
       }
+      // The session replaces the pending placeholder in the SAME dialog, so
+      // the loading state becomes the sign-in button without a remount.
       setCodingAgentAuth(session);
-      if (session.authorizationUrl && authWindow) {
-        authWindow.location.replace(session.authorizationUrl);
-        authWindow.focus();
-      } else if (!session.authorizationUrl) {
-        authWindow?.close();
-      }
+      setCodingAgentAuthPending(null);
     } catch (e) {
-      authWindow?.close();
+      const message = e instanceof Error ? e.message : "Couldn't start login";
+      setCodingAgentAuthPending(null);
       setCodingAgentAuthInlineSid(null);
-      toast.error(e instanceof Error ? e.message : "Couldn't start login");
+      toast.error(message);
     }
   }
 
@@ -7150,33 +7768,48 @@ export function App() {
       `/api/coding-agents/${kind}/auth`,
       inlineSid,
       { claudeAccountId },
+      BROWSER_AUTH_PROVIDER_LABELS[kind],
     );
   }
 
   async function loginTool(key: ToolConnectOption["key"]) {
-    return startBrowserAuth(key, `/api/connections/${key}/auth`);
+    return startBrowserAuth(key, `/api/connections/${key}/auth`, undefined, {}, "GitHub");
   }
 
-  // pi signs in per model provider, so the request carries which one. The
-  // browser flow past this point is identical to every other provider's.
-  async function loginPiProvider(provider: PiProviderInfo) {
-    if (provider.method === "api-key") return connectPiApiKeyProvider(provider);
-    return startBrowserAuth("pi", "/api/coding-agents/pi/auth", undefined, {
-      provider: provider.id,
-    });
+  // pi and OpenCode both sign in per model provider, so the request carries
+  // which one — and which agent, since the two id namespaces overlap and write
+  // to different credential stores. The browser flow past this point is
+  // identical to every other provider's.
+  async function loginAgentProvider(kind: AgentKind, provider: PiProviderInfo) {
+    if (provider.method === "api-key") return connectApiKeyProvider(kind, provider);
+    // Only pi has browser-flow providers today. Naming it rather than passing
+    // `kind` through keeps a future OAuth provider on another agent from
+    // silently running pi's flow against the wrong credential store.
+    if (kind !== "pi") {
+      toast.error(`Connect ${provider.label} with \`opencode auth login\` in a terminal`);
+      return;
+    }
+    return startBrowserAuth(
+      "pi",
+      "/api/coding-agents/pi/auth",
+      undefined,
+      { provider: provider.id },
+      provider.label,
+    );
   }
 
-  async function connectPiApiKeyProvider(provider: PiProviderInfo) {
+  async function connectApiKeyProvider(kind: AgentKind, provider: PiProviderInfo) {
+    const store = kind === "opencode" ? "OpenCode's" : "pi's";
     const key = await appDialog.prompt({
       title: `Connect ${provider.label}`,
-      description: `Paste your ${provider.label} API key. It is stored with pi's other credentials and never leaves this machine.`,
+      description: `Paste your ${provider.label} API key. It is stored with ${store} other credentials and never leaves this machine.`,
       placeholder: "API key",
       confirmLabel: "Connect",
       password: true,
     });
     if (!key) return;
     try {
-      await api("/api/coding-agents/pi/api-key", {
+      await api(`/api/coding-agents/${kind}/api-key`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider: provider.id, key }),
@@ -7188,16 +7821,17 @@ export function App() {
     }
   }
 
-  async function disconnectPiProvider(provider: PiProviderInfo) {
+  async function disconnectAgentProvider(kind: AgentKind, provider: PiProviderInfo) {
+    const agentLabel = kind === "opencode" ? "OpenCode" : "pi";
     const confirmed = await appDialog.confirm({
       title: `Disconnect ${provider.label}?`,
-      description: "pi will stop offering this provider's models until you connect it again.",
+      description: `${agentLabel} will stop offering this provider's models until you connect it again.`,
       confirmLabel: "Disconnect",
       destructive: true,
     });
     if (!confirmed) return;
     try {
-      await api(`/api/coding-agents/pi/providers/${provider.id}`, { method: "DELETE" });
+      await api(`/api/coding-agents/${kind}/providers/${provider.id}`, { method: "DELETE" });
       await refreshCodingAgents({ refreshModels: true });
       toast.success(`${provider.label} disconnected`);
     } catch (e) {
@@ -7290,6 +7924,44 @@ export function App() {
       ? !!onboarding.hosted.introDoneAt
       : hostedIntroDoneOnThisDevice()
     : false;
+
+  // Second half of the hosted first run, and the half that was missing: the
+  // connect gate hands a fresh Computer back to an empty home with nothing to
+  // read. These steps are optional, so unlike the gate they render INSIDE the
+  // home surface (see components/hosted-coach-card.tsx). Counts are unfiltered
+  // on purpose — "have you ever run a session here" is not a question the
+  // project filter gets to answer.
+  const hostedCoachFlags = onboarding?.hosted?.coach ?? null;
+  const hostedCoachInput = {
+    coach: hostedCoachFlags,
+    sessionCount: sessions.length,
+    autoAgentCount: autoAgents.length,
+  };
+  const hostedCoach = hostedCoachSteps(hostedCoachInput);
+  const hostedCoachOpen =
+    !hostedCoachDismissed &&
+    shouldShowHostedCoach({
+      embedded,
+      bare,
+      introSeen: hostedIntroSeen,
+      // `onboarding` is null until bootstrap answers. Rendering a fresh-looking
+      // checklist over an unknown state would flash it at people who are done.
+      coachLoaded: !!onboarding,
+      steps: hostedCoach,
+    });
+
+  // Backfill the server from what the box can already prove, so progress made
+  // before this panel existed (or while a write failed) is not re-taught on the
+  // next device. Keyed on the pending list, so it fires once per real change.
+  const hostedCoachPending = onboarding ? unrecordedHostedCoachSteps(hostedCoachInput) : [];
+  const hostedCoachPendingKey = hostedCoachPending.join(",");
+  useEffect(() => {
+    if (!embedded || !hostedCoachPendingKey) return;
+    const patch: Partial<HostedCoachFlags> = {};
+    for (const key of hostedCoachPendingKey.split(",") as HostedCoachKey[]) patch[key] = true;
+    void markHostedCoach(patch);
+  }, [embedded, hostedCoachPendingKey, markHostedCoach]);
+
   const connectGateRequired = shouldShowEmbeddedConnectGate({
     embedded,
     bare,
@@ -7354,6 +8026,7 @@ export function App() {
         />
         <CodingAgentAuthDialog
           session={codingAgentAuth}
+          pendingLabel={codingAgentAuthPending}
           onSessionChange={setCodingAgentAuth}
           onComplete={completeConnectionAuth}
         />
@@ -7370,7 +8043,7 @@ export function App() {
     return (
       <OnboardingFlow
         onboarding={onboarding}
-        version={omgVersion}
+        version={normalizeVersion(computerVersionReport?.version)}
         codingAgents={codingAgents}
         repos={repos}
         identity={identity}
@@ -7428,13 +8101,36 @@ export function App() {
   // clear the composer. The visual fade overlays the scroll surface and must
   // not also become blank layout space.
   const mainBottomPadding = mobileComposerVisible
-    ? "pb-[var(--lfg-inline-composer-height,var(--lfg-composer-clear))] [scroll-padding-bottom:var(--lfg-inline-composer-height,var(--lfg-composer-clear))]"
+    ? "pb-[calc(var(--lfg-inline-composer-height,var(--lfg-composer-clear))+var(--lfg-mobile-surface-dock-height))] [scroll-padding-bottom:calc(var(--lfg-inline-composer-height,var(--lfg-composer-clear))+var(--lfg-mobile-surface-dock-height))]"
+    : isMobile && tab === "bots"
+      ? "pb-[calc(var(--lfg-mobile-surface-dock-height)+var(--lfg-device-safe-bottom))] [scroll-padding-bottom:calc(var(--lfg-mobile-surface-dock-height)+var(--lfg-device-safe-bottom))]"
     : tab === "live"
       ? keyboardOpen
         ? "pb-[calc(var(--lfg-inline-composer-height,var(--lfg-composer-clear))+0.75rem)] md:pb-3"
         : "pb-[var(--lfg-above-orb)] md:pb-3"
       : "pb-3";
-  const liveDesktopWorkspace = tab === "live" && isWide;
+  /**
+   * Bots are not a separate page on desktop — they are the same workspace with
+   * the rail switched to a different list. `/bots` renders the rail + stage,
+   * with bots as rail items, so opening one lands in a stage column exactly
+   * like opening a session. Narrow layouts have no rail to switch, so they
+   * keep the standalone BotsView page.
+   */
+  // Resolved only when the bot really exists: a deep link that arrives before
+  // /api/bots has answered, or that names a deleted bot, falls through to the
+  // list instead of to a dead page.
+  const botEditor: PersistentBot | "new" | null =
+    botEditorTarget === "new"
+      ? "new"
+      : botEditorTarget
+        ? bots.find((item) => item.id === botEditorTarget) ?? null
+        : null;
+  const botsInWorkspace = tab === "bots" && isWide;
+  // The editor is the page while it is open, so the desktop workspace steps
+  // aside for it. It stays MOUNTED (just hidden) — its sessions, streams and
+  // scroll survive the trip into the editor and back.
+  const workspaceVisible = (tab === "live" || botsInWorkspace) && !botEditor;
+  const liveDesktopWorkspace = workspaceVisible && isWide;
 
   return (
     <AgentAccessModeContext.Provider
@@ -7449,6 +8145,11 @@ export function App() {
     <ArtifactViewerContext.Provider value={openArtifactViewer}>
     <SessionTerminalContext.Provider value={setTerminalSid}>
     <OpenSettingsPageContext.Provider value={setTab}>
+    <BotDirectoryContext.Provider value={botDirectory}>
+    <ViewerIdentityContext.Provider value={viewerParticipantId}>
+    <BotUnreadContext.Provider value={{ conversations: botConversations, any: hasUnreadBotConversation(botConversations), selectedConversationId: selectedBotConversationId }}>
+    <OpenBotContext.Provider value={openBot}>
+    <EditBotContext.Provider value={openBotEditor}>
     <div
       ref={rootRef}
       inert={loading}
@@ -7515,7 +8216,52 @@ export function App() {
             ).length}
             onOpenNotifications={() => setTab("notifications")}
           />
-          {embedded ? null : (
+          {embedded ? (
+            // The host owns identity/settings chrome here, but Pages (Bots,
+            // Notifications, Artifacts) has no other entry point on mobile —
+            // losing this island entirely left embedded mobile with no way to
+            // reach Bots, and so no way to create one. A trimmed island (no
+            // user filter, no Settings) keeps the host's chrome the only
+            // identity surface while still giving Live a way out.
+            <NavIsland className="shrink-0">
+              <div className="glass-island flex h-11 items-center gap-1.5 rounded-full px-2">
+                {/* Host actions first, our overflow menu last. The host's
+                    Computer control is the switcher people reach for; a "⋮" is
+                    an overflow, and an overflow that sits ahead of the primary
+                    control reads as the main event. Ours also stays adjacent
+                    to the screen edge, which is where a menu wants to open
+                    from. */}
+                {/* Host-owned actions, in OUR island instead of beside it.
+                    The host used to float its own island in this corner and we
+                    slid left by --lfg-host-top-inset to make room, which meant a
+                    width constant in the host's stylesheet had to stay equal to
+                    the real box of a component in the host's tree, across two
+                    independently versioned repos. It drifted, and the two
+                    islands overlapped on a phone. A node the host portals into
+                    cannot drift: there is one island, so there is no gap to
+                    maintain. Same trade the desktop rail-footer slot already
+                    made. Collapses to nothing while unfilled, so an older host
+                    that still floats keeps working exactly as before. */}
+                <span
+                  data-lfg-host-slot="header-actions"
+                  /* Tells the host its own Settings control is redundant here:
+                     our menu is carrying one that calls back into it. A flag
+                     on the slot, not an assumed version — a host that docks
+                     into an older build must keep its gear, or the surface
+                     ends up with no way to settings at all. */
+                  data-lfg-host-settings={hostSettingsInMenu ? "menu" : undefined}
+                  className="flex items-center gap-1.5"
+                />
+                <PagesMenu
+                  tab={tab}
+                  onOpenTab={setTab}
+                  extraTabs={extNavTabs}
+                  showSettings={false}
+                  onOpenHostSettings={hostSettingsInMenu ? onOpenHostSettings : undefined}
+                />
+              </div>
+            </NavIsland>
+          ) : (
             <NavIsland className="shrink-0">
               <div className="glass-island flex h-11 items-center gap-1.5 rounded-full px-2">
                 <UserFilterMenu
@@ -7537,7 +8283,7 @@ export function App() {
         /* Secondary pages sit below Live in the mobile hierarchy. The host
            keeps its own right-side island; LFG supplies the page-level back
            action in the space where the Live welcome normally sits. */
-        <header className="z-40 flex shrink-0 items-center pb-3 pl-3 pr-[calc(0.75rem+var(--lfg-host-top-inset))] pt-[calc(0.5rem+env(safe-area-inset-top))]">
+        <header className="z-40 flex shrink-0 items-center justify-between gap-2 pb-3 pl-3 pr-[calc(0.75rem+var(--lfg-host-top-inset))] pt-[calc(0.5rem+env(safe-area-inset-top))]">
           <NavIsland className="shrink-0">
             <button
               type="button"
@@ -7549,6 +8295,22 @@ export function App() {
               <span>Live</span>
             </button>
           </NavIsland>
+          {/* The secondary pages carry the slot too. Without it the host's
+              chrome would fall back to floating the moment you left Live, so
+              its actions would jump corner-to-corner between tabs, and the
+              reservation it collapses would have to come back mid-navigation.
+
+              Its own island on the RIGHT, not appended to the back button:
+              the host's chrome has always lived in that corner, and the first
+              version of this docked it beside "Live" on the left, which moved
+              somebody's Computer button across the screen as a side effect of
+              a layout fix. justify-between keeps the two apart; the slot
+              collapses to nothing when unfilled, so an unhosted or older-host
+              header is still just the back button. */}
+          <span
+            data-lfg-host-slot="header-actions"
+            className="glass-island flex h-11 shrink-0 items-center gap-1.5 rounded-full px-2"
+          />
         </header>
       ) : liveDesktopWorkspace ? null : (
       /* Embedded used to be suppressed here too, which left Shipped and
@@ -7568,7 +8330,7 @@ export function App() {
                 <ChevronLeft className="size-[18px]" />
                 <span>Live</span>
               </button>
-            ) : tab === "live" || tab === "notifications" || tab === "artifacts" ? (
+            ) : tab === "live" || tab === "bots" || tab === "notifications" || tab === "artifacts" ? (
               <button
                 type="button"
                 onClick={() => setTab("live")}
@@ -7601,7 +8363,25 @@ export function App() {
 
         <NavIsland className="shrink-0">
           <div className="glass-island flex h-11 items-center gap-1.5 rounded-full px-2">
-            {tab === "live" || tab === "notifications" || tab === "artifacts" ? (
+            {/* This header covers the band between the mobile and desktop-rail
+                breakpoints (roughly 768-1023px: tablet portrait, split view, a
+                resized embedded window) — the one layout that used to render
+                with no `header-actions` slot at all. The mobile headers above
+                and the desktop rail-footer slot each got one when the host
+                docking contract was added; this one was missed, so a host
+                mounted at exactly this width had nothing to portal its
+                Computer/Settings switcher into and fell back to floating its
+                own chrome over ours. Same slot, same host-settings flag, same
+                spot in the island as the mobile-live header: host actions
+                first, our overflow menu last. */}
+            {embedded ? (
+              <span
+                data-lfg-host-slot="header-actions"
+                data-lfg-host-settings={hostSettingsInMenu ? "menu" : undefined}
+                className="flex items-center gap-1.5"
+              />
+            ) : null}
+            {tab === "live" || tab === "bots" || tab === "notifications" || tab === "artifacts" ? (
               // Page destinations live in PagesMenu. Desktop also keeps its
               // project scope control here; mobile project scope lives in the
               // Live composer and never impersonates a page destination.
@@ -7629,9 +8409,9 @@ export function App() {
                 )}
               </>
             ) : null}
-            {embedded ? null : isMobile ? null : (
+            {isMobile ? null : (
               <>
-                <UpdateNavButton />
+                {embedded ? null : <UpdateNavButton />}
                 <AskNavButton
                   active={tab === "notifications"}
                   onOpen={() => setTab("notifications")}
@@ -7645,6 +8425,7 @@ export function App() {
               onOpenTab={setTab}
               extraTabs={extNavTabs}
               showSettings={!embedded}
+              onOpenHostSettings={embedded && hostSettingsInMenu ? onOpenHostSettings : undefined}
             />
           </div>
         </NavIsland>
@@ -7704,15 +8485,15 @@ export function App() {
             is chrome the host doesn't render. Show the page's shape instead,
             and let the real values replace it. */}
         {bare && loading ? <BareSurfaceSkeleton /> : <>
-        {keepLive || tab === "live" ? (
+        {keepLive || workspaceVisible ? (
           <div
             className={cn(
               // Desktop RailStage fills main via h-full; keep that chain intact
               // when live is active. Mobile scrolls inside main, so no height
               // lock there. Hidden when another tab is up.
-              tab !== "live" ? "hidden" : liveDesktopWorkspace ? "h-full min-h-0" : undefined,
+              !workspaceVisible ? "hidden" : liveDesktopWorkspace ? "h-full min-h-0" : undefined,
             )}
-            aria-hidden={tab !== "live"}
+            aria-hidden={!workspaceVisible}
           >
             <LiveView
               sessions={liveSessions}
@@ -7727,12 +8508,20 @@ export function App() {
               // header is hidden. The host owns identity/settings chrome, not
               // the LFG workspace's project scope.
               onProjectChange={changeProjectFilter}
-              // Embed: host owns identity/settings — no user picker, settings,
-              // or ask chrome inside the iframe. LFG still owns its Live,
-              // Shipped, and Artifacts pages, so their navigation remains.
+              // Embed: the host owns identity and settings. LFG still owns agent
+              // questions, so the hosted rail must keep their entry point.
               onUserChange={embedded ? undefined : changeUserFilter}
               onOpenSettings={embedded ? undefined : () => setTab("settings")}
-              onOpenAsk={embedded ? undefined : () => setTab("ask")}
+              onOpenAsk={() => setTab("notifications")}
+              onOpenBots={() => setTab("bots")}
+              onOpenSessions={() => setTab("live")}
+              railSurface={tab === "bots" ? "chat" : "sessions"}
+              bots={bots}
+              selectedBotId={selectedBotId}
+              onOpenBot={openBot}
+              onNewBot={() => openBotEditor("new")}
+              onEditBot={(bot) => openBotEditor(bot)}
+              onRefreshBots={refreshBots}
               onOpenShipped={openShipped}
               // Built here rather than inside RailStage: the shell owns the tab
               // state and the extension registry, and the rail should not have to
@@ -7761,6 +8550,37 @@ export function App() {
               onManageSessions={(template) => void launchManageSessions(template)}
               onClearIdle={() => void clearIdleSessions()}
               hosted={embedded}
+              // The hosted first run's optional half. Steps complete from
+              // EVIDENCE (a session exists, an auto agent exists), so these
+              // handlers only take the person to where the step happens —
+              // claiming a step on click would tick it for anyone who tapped
+              // and changed their mind.
+              coach={
+                hostedCoachOpen ? (
+                  <HostedCoachCard
+                    steps={hostedCoach}
+                    onStep={(key) => {
+                      if (key === "schedule") {
+                        // The auto-agent surface, not Settings: a framed box
+                        // has no Settings tab of its own (the host owns that
+                        // chrome), but `tab === "auto"` renders either way.
+                        setTab("auto");
+                        return;
+                      }
+                      if (isMobile) setComposerFocusNonce((n) => n + 1);
+                      else setNewOpen(true);
+                    }}
+                    onDismiss={() => {
+                      // Echo locally, then make it stick. Dismissing IS the
+                      // answer "do not teach me these", so it records the
+                      // steps done rather than hiding them for this tab only —
+                      // and Settings' "Setup guide" row still replays it.
+                      setHostedCoachDismissed(true);
+                      void markHostedCoach({ session: true, schedule: true });
+                    }}
+                  />
+                ) : null
+              }
               findings={projectScopedFindings}
               autoAgents={projectScopedAutoAgents}
               onOpenFinding={setOpenFinding}
@@ -7770,6 +8590,49 @@ export function App() {
               focus={liveFocus}
             />
           </div>
+        ) : null}
+        {/* On a phone the editor is a portal over everything, so the list (and
+            the open chat under it) stays mounted and comes back untouched. In
+            the tablet band there is no workspace to step aside, so the list
+            itself yields to the editor. */}
+        {tab === "bots" && !botsInWorkspace && (!botEditor || isMobile) ? (
+          <BotsView
+            bots={bots}
+            sessions={sessions}
+            selectedBotId={selectedBotId}
+            selectedConversationId={selectedBotConversationId}
+            busyBySid={liveStream.busyBySid}
+            onSubscribeTranscript={useWsLive ? wsLiveStream.subscribeTranscript : undefined}
+            onOpen={openBot}
+            onBack={closeBot}
+            onOpenSessions={() => setTab("live")}
+            onNew={() => openBotEditor("new")}
+            onEdit={(bot) => openBotEditor(bot)}
+            onRefreshBots={refreshBots}
+            onRefreshSessions={refreshSessions}
+          />
+        ) : null}
+        {botEditor ? (
+          <BotEditorPage
+            // Keyed: switching straight from one bot's editor to another has to
+            // reload the fields, not keep the first bot's name in them.
+            key={botEditor === "new" ? "new" : botEditor.id}
+            bot={botEditor}
+            repos={repos}
+            codingAgents={codingAgents}
+            autoAgents={autoAgents}
+            maxBotSchedules={settings.maxBotSchedules}
+            quota={botQuota}
+            tz={schedTz}
+            onEditRoutine={setEditingAgent}
+            onClose={() => {
+              if (botEditor === "new") closeBot();
+              else openBot(botEditor.id, selectedBotConversationId);
+            }}
+            onSave={saveBot}
+            onRefresh={applyBotChanges}
+            onDelete={deletePersistentBot}
+          />
         ) : null}
         {tab === "auto" ? (
           <AutoManageView
@@ -7795,8 +8658,8 @@ export function App() {
             onLogin={(kind, accountId) => loginCodingAgent(kind, undefined, accountId)}
             onAddClaudeAccount={addClaudeAccount}
             onRemoveClaudeAccount={removeClaudeAccountFromSettings}
-            onConnectPiProvider={(provider) => void loginPiProvider(provider)}
-            onDisconnectPiProvider={(provider) => void disconnectPiProvider(provider)}
+            onConnectProvider={(kind, provider) => void loginAgentProvider(kind, provider)}
+            onDisconnectProvider={(kind, provider) => void disconnectAgentProvider(kind, provider)}
             onSetupCheck={runSetupCheck}
             onRefresh={() => void refreshCodingAgents({ refreshModels: true })}
           />
@@ -7879,6 +8742,7 @@ export function App() {
         tab !== "artifacts" &&
         tab !== "changelog" &&
         tab !== "term" &&
+        tab !== "bots" &&
         tab !== "storage" &&
         tab !== "more" &&
         !extNavTabs.some((t) => t.id === tab) ? (
@@ -7891,10 +8755,20 @@ export function App() {
             settings={settings}
             onSettingsChange={updateSettings}
             connection={useWsLive ? wsLiveStream.connection : null}
+            computerVersionReport={computerVersionReport}
           />
         ) : null}
         </>}
       </main>
+
+      {shouldShowMobileSurfaceToggle(isMobile, tab, selectedBotId) ? (
+        <MobileSurfaceDock
+          active={mobileSurfaceToggleActive(tab)}
+          aboveComposer={mobileComposerVisible}
+          onOpenSessions={() => setTab("live")}
+          onOpenBots={() => setTab("bots")}
+        />
+      ) : null}
 
       {!bare ? (
         <>
@@ -7996,6 +8870,10 @@ export function App() {
 
       <CodingAgentAuthDialog
         session={codingAgentAuthInlineSid ? null : codingAgentAuth}
+        // Inline auth renders its own panel inside the transcript, so the
+        // global dialog must stay shut for it — pending included, or a
+        // reconnect from a blocked session would raise both surfaces at once.
+        pendingLabel={codingAgentAuthInlineSid ? null : codingAgentAuthPending}
         onSessionChange={setCodingAgentAuth}
         onComplete={completeConnectionAuth}
       />
@@ -8061,6 +8939,11 @@ export function App() {
         onClose={() => setTerminalSid(null)}
       />
     ) : null}
+    </EditBotContext.Provider>
+    </OpenBotContext.Provider>
+    </BotUnreadContext.Provider>
+    </ViewerIdentityContext.Provider>
+    </BotDirectoryContext.Provider>
     </OpenSettingsPageContext.Provider>
     </SessionTerminalContext.Provider>
     </ArtifactViewerContext.Provider>
@@ -8469,6 +9352,71 @@ function UsageRings({
   );
 }
 
+function UsageRingsLoading({
+  size = 22,
+  className,
+}: {
+  size?: number;
+  className?: string;
+}) {
+  const c = size / 2;
+  const sw = size >= 40 ? 4 : 3;
+  const gap = sw + 1.5;
+  const outer = c - sw / 2 - 0.5;
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      className={cn("shrink-0 -rotate-90 animate-spin motion-reduce:animate-none", className)}
+      role="status"
+      aria-label="Loading usage"
+    >
+      {[0, 1, 2].map((i) => {
+        const r = outer - i * gap;
+        if (r <= 0) return null;
+        const circ = 2 * Math.PI * r;
+        const color = USAGE_RING_COLORS[i % USAGE_RING_COLORS.length];
+        return (
+          <g key={i}>
+            <circle
+              cx={c}
+              cy={c}
+              r={r}
+              fill="none"
+              stroke={color}
+              strokeOpacity={0.16}
+              strokeWidth={sw}
+            />
+            <circle
+              cx={c}
+              cy={c}
+              r={r}
+              fill="none"
+              stroke={color}
+              strokeWidth={sw}
+              strokeLinecap="round"
+              strokeDasharray={`${circ * (0.22 + i * 0.08)} ${circ}`}
+              strokeDashoffset={circ * i * 0.18}
+            />
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function UsageRingsLoadingIndicator() {
+  return (
+    <span
+      className="flex shrink-0 items-center justify-center rounded-full p-1 pl-4 md:pl-1"
+      title="Loading usage"
+    >
+      <UsageRingsLoading />
+    </span>
+  );
+}
+
 // The composer's usage indicator: compact rings that expand into an animated
 // popover breaking down each limit window (label, %, reset time). Works for any
 // provider that reports windows; falls back to the provider note otherwise.
@@ -8669,12 +9617,24 @@ function PagesMenu({
   onOpenTab,
   extraTabs,
   showSettings = true,
+  onOpenHostSettings,
   className,
 }: {
   tab: string;
   onOpenTab: (tab: string) => void;
   extraTabs: ExtensionNavTab[];
   showSettings?: boolean;
+  /**
+   * Open the HOST's settings, for a surface where the host mounts those pages
+   * itself. Embedded has no Settings tab of its own, so the host had to keep a
+   * second control beside this menu for it — three chips in one island for two
+   * destinations. Given this, the menu carries it and the host's own can go.
+   *
+   * Deliberately not a radio item: choosing it leaves LFG entirely, so
+   * marking it "current" in a group that describes which LFG page you are on
+   * would be a lie the moment you came back.
+   */
+  onOpenHostSettings?: () => void;
   className?: string;
 }) {
   // Pages are one radio group so exactly one item reads as current. That marker
@@ -8682,6 +9642,7 @@ function PagesMenu({
   // Artifacts render no title chrome of their own in the rail layout.
   const known =
     tab === "live" ||
+    tab === "bots" ||
     tab === "notifications" ||
     tab === "artifacts" ||
     (showSettings && tab === "settings");
@@ -8722,6 +9683,10 @@ function PagesMenu({
             <Radio className="size-5 shrink-0 text-muted-foreground" />
             Live
           </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="bots">
+            <Bot className="size-5 shrink-0 text-muted-foreground" />
+            Bots
+          </DropdownMenuRadioItem>
           <DropdownMenuRadioItem value="notifications">
             <Bell className="size-5 shrink-0 text-muted-foreground" />
             Notifications
@@ -8737,6 +9702,20 @@ function PagesMenu({
                 <Settings className="size-5 shrink-0 text-muted-foreground" />
                 Settings
               </DropdownMenuRadioItem>
+            </>
+          ) : null}
+          {!showSettings && onOpenHostSettings ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => {
+                  setOpen(false);
+                  onOpenHostSettings();
+                }}
+              >
+                <Settings className="size-5 shrink-0 text-muted-foreground" />
+                Settings
+              </DropdownMenuItem>
             </>
           ) : null}
           {extraTabs.length ? <DropdownMenuSeparator /> : null}
@@ -8877,7 +9856,8 @@ function OnboardingFlow({
   onDone,
 }: {
   onboarding: OnboardingState | null;
-  version: string;
+  /** Null when the box reported no usable version — the chip is dropped, not faked. */
+  version: string | null;
   codingAgents: CodingAgentInfo[];
   repos: Repo[];
   identity: string | null;
@@ -9156,9 +10136,11 @@ function OnboardingFlow({
               alt="omg"
               className="size-7 shrink-0"
             />
-            <span className="text-xs font-medium text-muted-foreground">
-              v{version}
-            </span>
+            {version ? (
+              <span className="text-xs font-medium text-muted-foreground">
+                v{version}
+              </span>
+            ) : null}
           </div>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             {labels.map(([key, label], i) => (
@@ -9920,6 +10902,15 @@ function LiveView({
   onUserChange,
   onOpenSettings,
   onOpenAsk,
+  onOpenBots,
+  onOpenSessions,
+  railSurface = "sessions",
+  bots = [],
+  selectedBotId = null,
+  onOpenBot,
+  onNewBot,
+  onEditBot,
+  onRefreshBots,
   onOpenShipped,
   pagesMenu,
   onOpenRecentShipped,
@@ -9928,6 +10919,7 @@ function LiveView({
   repos = [],
   onReposChanged,
   hosted = false,
+  coach = null,
   focus,
 }: {
   sessions: Session[];
@@ -9941,6 +10933,16 @@ function LiveView({
   onUserChange?: (v: string) => void;
   onOpenSettings?: () => void;
   onOpenAsk?: () => void;
+  onOpenBots: () => void;
+  onOpenSessions?: () => void;
+  /** Which list the rail is showing. Bots ride the same rail as sessions. */
+  railSurface?: "sessions" | "chat";
+  bots?: PersistentBot[];
+  selectedBotId?: string | null;
+  onOpenBot?: (id: string, conversationId?: string | null) => void;
+  onNewBot?: () => void;
+  onEditBot?: (bot: PersistentBot) => void;
+  onRefreshBots?: () => Promise<void>;
   onOpenShipped?: (post?: ShipPost) => void;
   /** Rail overflow menu, built by the shell so RailStage stays unaware of tabs. */
   pagesMenu?: ReactNode;
@@ -9964,10 +10966,14 @@ function LiveView({
   onDismissFinding: (f: AutoFinding) => void;
   onTriageFindings: () => void;
   autoTriageBusy?: boolean;
+  /** Hosted getting-started panel, built by the shell. Null on every other
+   *  surface, so this view stays unaware of first-run state. */
+  coach?: ReactNode;
   // External "jump to session" request (e.g. tapping a Shipped post).
   focus?: { sid: string; n: number } | null;
 }) {
   const isWide = useIsWide();
+  const isMobile = useIsMobile();
   const recentShipped = useRecentShippedSessions(
     projectFilter,
     !!onOpenRecentShipped,
@@ -10056,22 +11062,33 @@ function LiveView({
   const pinnedSet = new Set(topPinned);
   const nodeContainsPin = (node: SessionTreeNode): boolean =>
     pinnedSet.has(sessionStableId(node.session)) || node.children.some(nodeContainsPin);
-  const pinnedNodes = tree.roots.filter(nodeContainsPin);
+  const nodeIsBot = (node: SessionTreeNode): boolean => isBotConversation(node.session);
+  // Mobile has a dedicated Bots surface. Keep bot-owned families out of Chat,
+  // even when a bot session or one of its delegated children was pinned.
+  const pinnedNodes = tree.roots.filter(
+    (node) => nodeContainsPin(node) && (!isMobile || !nodeIsBot(node)),
+  );
   // Remaining roots keep the familiar working → idle grouping. A parent is
   // considered working if any child is working.
+  // Bots are their own category here too — see the rail's note: a bot you have
+  // not spoken to in a week is not "idle" the way a finished session is.
+  const botNodes = shouldShowBotsInSessionList(isMobile)
+    ? tree.roots.filter((node) => !nodeContainsPin(node) && nodeIsBot(node))
+    : [];
   const workingNodes = tree.roots.filter(
-    (node) => !nodeContainsPin(node) && tree.effectiveBusy(node),
+    (node) => !nodeContainsPin(node) && !nodeIsBot(node) && tree.effectiveBusy(node),
   );
   const idleNodes = tree.roots.filter(
-    (node) => !nodeContainsPin(node) && !tree.effectiveBusy(node),
+    (node) => !nodeContainsPin(node) && !nodeIsBot(node) && !tree.effectiveBusy(node),
   );
   const pinned = tree.flatten(pinnedNodes);
+  const botSessions = tree.flatten(botNodes);
   const working = tree.flatten(workingNodes);
   const idle = tree.flatten(idleNodes);
 
-  // On-screen order: pinned, then working, then idle. Drives both sheet
-  // navigation and which transcripts we warm ahead of the user opening them.
-  const screenOrder = [...pinned, ...working, ...idle]
+  // On-screen order: pinned, bots, then working, then idle. Mobile's bot list
+  // is empty by design because Bots owns those persistent conversations.
+  const screenOrder = [...pinned, ...botSessions, ...working, ...idle]
     .map((s) => s.sessionId)
     .filter((id): id is string => !!id);
   const prefetchKey = screenOrder.slice(0, 8).join(",");
@@ -10087,17 +11104,23 @@ function LiveView({
   // live list empties and refills.
   if (
     !isWide &&
-    !sessions.length &&
+    !pinned.length &&
+    !botSessions.length &&
+    !working.length &&
+    !idle.length &&
     !findings.length &&
     !shippedReview &&
     !recentShipped.length
   ) {
     return (
-      <div className="flex min-h-[60dvh] flex-col items-center justify-center gap-3 text-center">
-        <MessageSquare className="size-8 text-muted-foreground/45" aria-hidden />
-        <span className="text-sm font-medium text-muted-foreground">
-          No running sessions
-        </span>
+      <div className="flex flex-col gap-5">
+        {coach}
+        <div className="flex min-h-[50dvh] flex-col items-center justify-center gap-3 text-center">
+          <MessageSquare className="size-8 text-muted-foreground/45" aria-hidden />
+          <span className="text-sm font-medium text-muted-foreground">
+            No running sessions
+          </span>
+        </div>
       </div>
     );
   }
@@ -10221,6 +11244,15 @@ function LiveView({
         onUserChange={onUserChange}
         onOpenSettings={onOpenSettings}
         onOpenAsk={onOpenAsk}
+        onOpenBots={onOpenBots}
+        onOpenSessions={onOpenSessions}
+        railSurface={railSurface}
+        bots={bots}
+        selectedBotId={selectedBotId}
+        onOpenBot={onOpenBot}
+        onNewBot={onNewBot}
+        onEditBot={onEditBot}
+        onRefreshBots={onRefreshBots}
         pagesMenu={pagesMenu}
         onOpenRecentShipped={onOpenRecentShipped}
         onManageSessions={onManageSessions}
@@ -10228,6 +11260,7 @@ function LiveView({
         repos={repos}
         onReposChanged={onReposChanged}
         hosted={hosted}
+        coach={coach}
         focus={focus}
         topPinned={topPinned}
         onToggleTopPin={toggleTopPin}
@@ -10249,11 +11282,20 @@ function LiveView({
   return (
     <>
     <div className="flex flex-col gap-5">
+      {coach}
       {pinned.length ? (
         <section>
           <CategoryHeader label="Pinned" count={pinned.length} dotClass="bg-primary" />
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-2">
             {pinnedNodes.flatMap((node) => renderNode(node))}
+          </div>
+        </section>
+      ) : null}
+      {botSessions.length ? (
+        <section>
+          <CategoryHeader label="Bots" count={botSessions.length} dotClass="bg-primary" />
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-2">
+            {botNodes.flatMap((node) => renderNode(node))}
           </div>
         </section>
       ) : null}
@@ -10400,6 +11442,15 @@ function RailStage({
   onUserChange,
   onOpenSettings,
   onOpenAsk,
+  onOpenBots,
+  onOpenSessions = () => {},
+  railSurface = "sessions",
+  bots = [],
+  selectedBotId = null,
+  onOpenBot,
+  onNewBot,
+  onEditBot,
+  onRefreshBots,
   pagesMenu,
   onOpenRecentShipped,
   onManageSessions,
@@ -10407,6 +11458,7 @@ function RailStage({
   repos = [],
   onReposChanged,
   hosted = false,
+  coach = null,
   focus,
   topPinned,
   onToggleTopPin,
@@ -10422,6 +11474,15 @@ function RailStage({
   onUserChange?: (v: string) => void;
   onOpenSettings?: () => void;
   onOpenAsk?: () => void;
+  onOpenBots: () => void;
+  onOpenSessions?: () => void;
+  railSurface?: "sessions" | "chat";
+  bots?: PersistentBot[];
+  selectedBotId?: string | null;
+  onOpenBot?: (id: string, conversationId?: string | null) => void;
+  onNewBot?: () => void;
+  onEditBot?: (bot: PersistentBot) => void;
+  onRefreshBots?: () => Promise<void>;
   /** Rail overflow menu, built by the shell so RailStage stays unaware of tabs. */
   pagesMenu?: ReactNode;
   onOpenRecentShipped?: (post: ShipPost) => void;
@@ -10430,6 +11491,8 @@ function RailStage({
   repos?: Repo[];
   onReposChanged?: () => Promise<void>;
   hosted?: boolean;
+  /** Hosted getting-started panel, built by the shell. */
+  coach?: ReactNode;
   focus?: { sid: string; n: number } | null;
   topPinned: string[];
   onToggleTopPin: (sid: string) => void;
@@ -10449,6 +11512,7 @@ function RailStage({
   onNew: () => void;
 }) {
   const appDialog = useAppDialog();
+  const { conversations: botConversationsForRail, selectedConversationId: selectedBotConversationForRail } = useContext(BotUnreadContext);
   const MAX_COLUMNS = 4;
   const layoutScope = projectFilter || "__all";
   const layoutKey = encodeURIComponent(layoutScope);
@@ -10786,6 +11850,48 @@ function RailStage({
     setPreview((p) => (p === sid ? null : p));
   }, []);
 
+  /**
+   * A bot's chat IS its backing session, so the rail does not need a second
+   * kind of stage column: opening a bot previews that session and the normal
+   * SessionCard renders it. Bots that have never been messaged have no session
+   * yet — those get the one bespoke pane, just long enough to say hi.
+   */
+  const botsBySid = useMemo(() => {
+    const map = new Map<string, PersistentBot>();
+    for (const row of botConversationRows(bots, sessions, botConversationsForRail)) {
+      if (row.sessionId) map.set(row.sessionId, row.bot);
+    }
+    return map;
+  }, [botConversationsForRail, bots, sessions]);
+  const sidForBot = useCallback(
+    (botId: string) => {
+      for (const [sid, bot] of botsBySid) if (bot.id === botId) return sid;
+      return null;
+    },
+    [botsBySid],
+  );
+  const selectedBot = useMemo(
+    () => (selectedBotId ? bots.find((bot) => bot.id === selectedBotId) ?? null : null),
+    [bots, selectedBotId],
+  );
+  const selectedBotSid = selectedBotId
+    ? botConversationsForRail.find((row) =>
+        row.botId === selectedBotId && (
+          row.conversationId === selectedBotConversationForRail ||
+          row.sessionId === selectedBotConversationForRail
+        )
+      )?.sessionId ?? sidForBot(selectedBotId)
+    : null;
+
+  // Selecting a bot in the rail is selecting its session on the stage. Runs on
+  // the sid too, not just the id: a brand-new bot's session appears only after
+  // its first message lands, and this is what swaps the say-hi pane for it.
+  useEffect(() => {
+    if (railSurface !== "chat" || !selectedBotSid) return;
+    setPreview((prev) => (prev === selectedBotSid ? prev : selectedBotSid));
+    setCursor(selectedBotSid);
+  }, [railSurface, selectedBotSid]);
+
   const railTree = useMemo(
     () => buildSessionTree(sessions, (s) => !!busyBySid[s.sessionId ?? ""]),
     [sessions, busyBySid],
@@ -10795,20 +11901,34 @@ function RailStage({
     topPinnedSet.has(sessionStableId(node.session)) ||
     node.children.some(railNodeContainsTopPin);
   const topPinnedNodes = railTree.roots.filter(railNodeContainsTopPin);
+  // A bot is someone you keep, not a job you started, so it does not belong in
+  // the working/idle split that describes work in flight — a bot you have not
+  // spoken to since Tuesday is not "idle" in the sense the rest of that group
+  // means. Bots get their own category above the fleet, and are held out of
+  // the project groups for the same reason.
+  const railNodeIsBot = (node: SessionTreeNode): boolean => isBotConversation(node.session);
+  const botNodes = railTree.roots.filter(
+    (node) => !railNodeContainsTopPin(node) && railNodeIsBot(node),
+  );
   const workingNodes = railTree.roots.filter(
-    (node) => !railNodeContainsTopPin(node) && railTree.effectiveBusy(node),
+    (node) =>
+      !railNodeContainsTopPin(node) && !railNodeIsBot(node) && railTree.effectiveBusy(node),
   );
   const idleNodes = railTree.roots.filter(
-    (node) => !railNodeContainsTopPin(node) && !railTree.effectiveBusy(node),
+    (node) =>
+      !railNodeContainsTopPin(node) && !railNodeIsBot(node) && !railTree.effectiveBusy(node),
   );
   const topPinnedSessions = railTree.flatten(topPinnedNodes);
+  const botSessions = railTree.flatten(botNodes);
   const working = railTree.flatten(workingNodes);
   const idle = railTree.flatten(idleNodes);
 
   const projectRailGroups = useMemo(() => {
     if (projectFilter !== "__all") return [];
     const groups = new Map<string, { label: string; nodes: SessionTreeNode[]; count: number }>();
-    for (const node of railTree.roots.filter((item) => !railNodeContainsTopPin(item))) {
+    for (const node of railTree.roots.filter(
+      (item) => !railNodeContainsTopPin(item) && !railNodeIsBot(item),
+    )) {
       const project = node.session.project || "";
       const key = project || "__no_project";
       const label = project ? shortProject(project) : "No project";
@@ -10830,9 +11950,10 @@ function RailStage({
     projectFilter === "__all"
       ? [
           ...topPinnedSessions,
+          ...botSessions,
           ...projectRailGroups.flatMap((group) => railTree.flatten(group.nodes)),
         ]
-      : [...topPinnedSessions, ...working, ...idle];
+      : [...topPinnedSessions, ...botSessions, ...working, ...idle];
 
   // Flat rail order the keyboard cursor walks (matching the visible rail;
   // findings are not navigable). Keep the cursor pointing at a live session.
@@ -11287,6 +12408,14 @@ function RailStage({
     onCloseColumn?: () => void,
   ) => {
     const sid = session.sessionId ?? "";
+    // The bot stage renders exactly one column — the bot the rail resolved
+    // via botCanonicalSessionId/botStageSession (see botStageColumns above).
+    // That resolution is already verified; hand it to SessionCard as the
+    // trusted identity instead of letting it re-derive one from this
+    // session's own (possibly stale/nested/child-attached) conversation
+    // snapshot. Every other stage column (railSurface !== "chat") passes
+    // undefined and keeps the existing productBotId-derived behavior.
+    const stageBotId = railSurface === "chat" ? (selectedBot?.id ?? null) : undefined;
     return (
       <div
         key={sessionStableId(session)}
@@ -11320,6 +12449,7 @@ function RailStage({
             focusGlow={focusGlow?.sid === sid ? focusGlow.n : 0}
             pinned={!session.shippedReview && topPinnedSet.has(sid)}
             onTogglePin={session.shippedReview ? undefined : onToggleTopPin}
+            stageBotId={stageBotId}
           />
         </ErrorBoundary>
       </div>
@@ -11361,6 +12491,106 @@ function RailStage({
         ))}
       </RailGroup>
     ) : null;
+
+  // On the bot surface the stage shows exactly one column — the bot you picked.
+  // Stage pins belong to the session surface; carrying them over would answer
+  // "open this bot" with someone else's session sitting next to it.
+  const botStageColumns = useMemo(() => {
+    if (railSurface !== "chat" || !selectedBotSid || !selectedBot) return [];
+    const node = railTree.nodeForSessionId(selectedBotSid);
+    const rawSession =
+      node?.session ?? sessions.find((item) => item.sessionId === selectedBotSid) ?? null;
+    if (!rawSession) return [];
+    // Found by sessionId alone — stamp this bot's identity on rather than
+    // trust whatever `botId` the raw record carries. See botStageSession.
+    return [{ sid: selectedBotSid, session: botStageSession(selectedBot, rawSession) }];
+  }, [railSurface, selectedBotSid, selectedBot, railTree, sessions]);
+  const activeStageColumns = railSurface === "chat" ? botStageColumns : stageColumns;
+
+  // The bot list is the session list's sibling, not a page: same rail, same
+  // rows, same click-to-open-a-column behaviour. A bot row IS a session row —
+  // it just knows its own name and face before the session exists.
+  const botRailList = (
+    <div className="flex flex-col gap-0.5">
+      {!railCollapsed && onNewBot ? (
+        <button
+          type="button"
+          onClick={onNewBot}
+          className="mb-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
+            <Plus className="size-3.5" />
+          </span>
+          <span className="truncate">New bot</span>
+        </button>
+      ) : null}
+      {botConversationRows(bots, sessions, botConversationsForRail).map((row) => {
+        const bot = row.bot;
+        const sid = row.sessionId;
+        const session = row.session;
+        const busy = !!(sid && busyBySid[sid]);
+        const active = selectedBotId === bot.id &&
+          (!selectedBotConversationForRail ||
+            selectedBotConversationForRail === row.conversationId ||
+            selectedBotConversationForRail === row.sessionId);
+        const rawPreview = session?.last?.text || session?.lastUserText || row.lastMessagePreview || bot.lastMessagePreview || "";
+        // A background task's report is machinery, not conversation: it is
+        // hidden inside the chat, so it must not surface as the roster preview
+        // either — the row would read `[subagent complete] …`.
+        const preview = plainPreviewText(botRosterPreview(rawPreview, busy));
+        return (
+          <button
+            key={row.key}
+            type="button"
+            title={railCollapsed ? bot.name : undefined}
+            onClick={() => {
+              onOpenBot?.(bot.id, row.conversationId);
+              if (sid) activate(sid, false);
+            }}
+            className={cn(
+              "relative flex w-full items-center rounded-lg text-left transition-colors",
+              railCollapsed ? "justify-center px-1 py-1.5" : "gap-2 px-2 py-1.5",
+              active ? "bg-muted" : "hover:bg-muted/60",
+            )}
+          >
+            <BotAvatar bot={bot} working={busy} size={railCollapsed ? 24 : 28} />
+            {!railCollapsed ? (
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span
+                  className={cn(
+                    "truncate text-[13px] font-medium leading-tight",
+                    !bot.enabled && "text-muted-foreground",
+                  )}
+                >
+                  {bot.name}
+                </span>
+                {preview ? (
+                  <span className="truncate text-[11px] leading-tight text-muted-foreground">
+                    {preview}
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
+            {row.unread ? (
+              <span role="status" aria-label={`Unread conversation with ${bot.name}`} className={railCollapsed ? "absolute translate-x-2 -translate-y-2" : undefined}>
+                <span className={BOT_UNREAD_DOT_CLASS} aria-hidden="true" />
+              </span>
+            ) : null}
+            {!railCollapsed && (row.lastMessageTs || bot.lastMessageAt) ? (
+              <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/70">
+                {relTime(row.lastMessageTs || bot.lastMessageAt!)}
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
+      {!bots.length && !railCollapsed ? (
+        <div className="px-2 py-6 text-center text-xs text-muted-foreground">
+          No bots yet.
+        </div>
+      ) : null}
+    </div>
+  );
 
   return (
     <div ref={workspaceRef} className="flex h-full min-h-0 gap-3">
@@ -11418,7 +12648,7 @@ function RailStage({
               <div className="ml-auto flex items-center gap-1">
                 {onOpenAsk ? (
                   <>
-                    <UpdateNavButton />
+                    {hosted ? null : <UpdateNavButton />}
                     <AskNavButton active={false} onOpen={onOpenAsk} />
                   </>
                 ) : null}
@@ -11477,9 +12707,20 @@ function RailStage({
                 <PanelLeftClose className="size-4" />
               </button>
             </div>
+            {/* Sits below the actions, directly above the list it switches.
+                Above the brand row it read as app-level navigation; what it
+                actually does is change which list the rail is showing.
+                Unlike the mobile dock, this never sits inside a full-screen
+                bot conversation — the desktop rail always keeps showing the
+                roster, with the stage panes doing the switching. Hiding it
+                once a bot is selected (`selectedBotId`, mirroring the mobile
+                guard added in 1b3ca7d) stranded desktop users on the Bots
+                surface with no way back to Chat. Always render it here. */}
+            <SurfaceToggle active={railSurface} onOpenSessions={onOpenSessions} onOpenBots={onOpenBots} />
           </div>
         )}
         <div className="session-list-scroll min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
+          {railSurface === "chat" ? botRailList : <>
           {topPinnedSessions.length ? (
             <RailGroup
               label="Pinned"
@@ -11487,6 +12728,13 @@ function RailStage({
               collapsed={railCollapsed}
             >
               {topPinnedNodes.map((node) => renderRailNode(node))}
+            </RailGroup>
+          ) : null}
+          {/* Above the fleet either way: with a project filter on or off, the
+              people you talk to sit at the top of the list you live in. */}
+          {botSessions.length ? (
+            <RailGroup label="Bots" count={botSessions.length} collapsed={railCollapsed}>
+              {botNodes.map((node) => renderRailNode(node))}
             </RailGroup>
           ) : null}
           {projectFilter === "__all" ? (
@@ -11533,6 +12781,7 @@ function RailStage({
               ))}
             </RailGroup>
           ) : null}
+          </>}
         </div>
         {/* Host-owned footer. A host embedding LFG as its whole desktop surface
             (omg) has nowhere to put its own top-level navigation: this layout
@@ -11557,15 +12806,15 @@ function RailStage({
         className={cn(
           "grid h-full min-h-0 min-w-0 flex-1 gap-3",
           // 1 pane → full; 2 → side by side; 3-4 → 2×2 (panes 1&2 top, 3&4 bottom).
-          stageColumns.length <= 1
+          activeStageColumns.length <= 1
             ? "grid-cols-1 grid-rows-1"
-            : stageColumns.length === 2
+            : activeStageColumns.length === 2
               ? "grid-cols-2 grid-rows-1"
               : "grid-cols-2 grid-rows-2",
         )}
       >
-        {stageColumns.length ? (
-          stageColumns.map(({ sid, session }) => {
+        {activeStageColumns.length ? (
+          activeStageColumns.map(({ sid, session }) => {
             return (
               <div
                 key={sid}
@@ -11576,15 +12825,24 @@ function RailStage({
                     until a second column exists. */}
                 {renderStageCard(
                   session,
-                  stageColumns.length > 1 || session.shippedReview
+                  railSurface !== "chat" && (stageColumns.length > 1 || session.shippedReview)
                     ? () => closeColumn(sid)
                     : undefined,
                 )}
               </div>
             );
           })
+        ) : railSurface === "chat" ? (
+          <BotStagePlaceholder
+            bot={selectedBot}
+            onNewBot={onNewBot}
+            onStarted={async () => {
+              await Promise.all([onRefreshBots?.(), onRefresh()]);
+            }}
+          />
         ) : (
-          <div className="flex h-full flex-1 flex-col items-center justify-center">
+          <div className="flex h-full flex-1 flex-col items-center justify-center gap-4">
+            {coach ? <div className="w-full max-w-md text-left">{coach}</div> : null}
             <div className="lfg-gborder flex flex-col items-center gap-3 rounded-3xl border border-transparent bg-card px-8 py-10 text-center shadow-[0_12px_40px_-24px_rgba(0,0,0,0.5)]">
               <div className="lfg-gborder flex size-14 items-center justify-center rounded-2xl border border-transparent bg-muted">
                 <MessageSquare className="size-6 text-muted-foreground" />
@@ -11751,6 +13009,9 @@ const RailItem = memo(function RailItem({
   onActivate: (shiftKey: boolean) => void;
   onTogglePin: () => void;
 }) {
+  const botDirectory = useContext(BotDirectoryContext);
+  const drivingBotId = productBotId(session);
+  const drivingBot = drivingBotId ? botDirectory.get(drivingBotId) : undefined;
   // Touch swipe: drag right to pin, left to unpin. The foreground row slides
   // and a pin glyph is revealed behind it; past ~52px on release it commits.
   // A horizontal drag suppresses the tap-to-open; vertical is left to scroll.
@@ -11859,10 +13120,32 @@ const RailItem = memo(function RailItem({
               : "border-transparent hover:bg-muted/70",
         )}
       >
-        <span className="relative flex size-6 shrink-0 items-center justify-center">
-          <SessionAgentIcon session={session} className="size-6 rounded-md" />
+        <span
+          className={cn(
+            "relative flex shrink-0 items-center justify-center",
+            // The creature is a silhouette with no plate behind it, so it reads
+            // smaller than a square harness mark at the same box size. Giving
+            // the bot rows a slightly larger slot makes the two weigh the same
+            // on screen, and the group is homogeneous so nothing is left ragged.
+            drivingBot ? "size-7" : "size-6",
+          )}
+        >
+          {/* A bot-backed row wears the bot's face, the same rule the chat
+              header already follows: the creature says which agent is driving,
+              so the harness mark next to it would be saying it twice.
+              This was inverted — Claude's mark at full size with the creature
+              shrunk to a 14px corner badge — which made the row you know as
+              "Scout" look like every other Claude session in the list. */}
+          {drivingBot ? (
+            <BotAvatar bot={drivingBot} working={busy} size={28} />
+          ) : (
+            <SessionAgentIcon session={session} className="size-6 rounded-md" />
+          )}
+          {/* The creature carries busy in its own posture, so a busy dot on top
+              of it is the same doubling; blocked has no pose, so it keeps its
+              mark on every row. */}
           <SessionStatusDot
-            busy={busy}
+            busy={busy && !drivingBot}
             paused={session.status === "blocked"}
             variant="avatar"
           />
@@ -12278,7 +13561,7 @@ function PausedBanner({
             : `${session.statusDetail || `Your ${reconnectLabel} login is no longer valid.`} Sign in again here, then retry your message.`
           : `${session.statusDetail || "The selected provider rejected the request."} Check the OpenCode provider key or switch models.`
         : reason === "provider_error"
-          ? `${session.statusDetail || "The selected provider failed the request."} Check the OpenCode provider logs or switch models.`
+          ? pausedProviderErrorDetail(session)
       : `${session.statusDetail || "The selected model isn't available."} Switch to a working model to pick the build back up.`;
 
   return (
@@ -12684,6 +13967,7 @@ async function loadTranscriptPage(sid: string) {
 
 type SessionChatProps = {
   session: Session;
+  bot?: PersistentBot;
   busy: boolean;
   prompt: SessionPrompt | null;
   error: string | null;
@@ -12691,6 +13975,7 @@ type SessionChatProps = {
   onSubscribeTranscript?: OmgTranscriptSubscribe;
   onRefresh: () => Promise<void>;
   onDictatingChange?: (recording: boolean) => void;
+  beforeComposer?: ReactNode;
 };
 
 /**
@@ -12707,15 +13992,31 @@ type SessionChatProps = {
  * practice it is already cached by the time a session is opened and the
  * fallback never renders.
  */
-function SessionChat(props: SessionChatProps) {
+function SessionChat(rawProps: SessionChatProps) {
+  // A bot-backed session is a bot chat wherever it is opened — the rail, a
+  // stage column, the mobile sheet — not only inside the Bots surface that
+  // used to hand the bot down by prop. Without this, opening the same session
+  // from the session list would show the launch contract as a real message
+  // and wait on anonymous dots instead of the creature.
+  const directory = useContext(BotDirectoryContext);
+  const contextBotId = productBotId(rawProps.session);
+  const contextBot = contextBotId ? directory.get(contextBotId) : undefined;
+  const props = rawProps.bot ? rawProps : { ...rawProps, bot: contextBot };
   const sid = props.session.sessionId;
+  const botId = props.bot?.id;
   const { onError, onSubscribeTranscript } = props;
   const chatTransport = useMemo(
     () =>
       sid
-        ? new OmgChatTransport({ sessionId: sid, subscribeTranscript: onSubscribeTranscript })
+        ? new OmgChatTransport({
+            sessionId: sid,
+            sendEndpoint: botId
+              ? `/api/bots/${encodeURIComponent(botId)}/messages`
+              : undefined,
+            subscribeTranscript: onSubscribeTranscript,
+          })
         : undefined,
-    [sid, onSubscribeTranscript],
+    [sid, onSubscribeTranscript, botId],
   );
   const reportError = useCallback((message: string) => onError(message), [onError]);
   return (
@@ -12741,6 +14042,7 @@ function SessionChatSkeleton() {
 
 function SessionChatBody({
   session,
+  bot,
   busy,
   prompt,
   error,
@@ -12748,6 +14050,7 @@ function SessionChatBody({
   onSubscribeTranscript,
   onRefresh,
   onDictatingChange,
+  beforeComposer,
 }: SessionChatProps) {
   const sid = session.sessionId;
   const reviewingShipped = !!session.shippedReview;
@@ -12875,17 +14178,10 @@ function SessionChatBody({
               Math.max(0, cached.messages.findIndex((message) => historyIds.has(message.id))),
             )
           : [];
-        const keptIds = new Set(olderKept.map((message) => message.id));
         let settled: OmgChatMessage[] = history;
         setMessages((current) => {
-          // Messages that landed live while this fetch was in flight and aren't
-          // in the page yet — they're newest, so they belong at the end.
-          const liveOnly = current.filter(
-            (message) => !historyIds.has(message.id) && !keptIds.has(message.id),
-          );
           const cachedIds = new Set(cached?.messages.map((message) => message.id) ?? []);
-          const trailing = liveOnly.filter((message) => !cachedIds.has(message.id));
-          return (settled = [...olderKept, ...history, ...trailing]);
+          return (settled = mergeHistoryPage(current, history, olderKept, cachedIds));
         });
         // Keep the deeper cursor when we preserved paged-in history above.
         const settledBefore = olderKept.length
@@ -13059,6 +14355,18 @@ function SessionChatBody({
     }
   }
 
+  // Re-queue a failed send. The next queue event repaints the bubble as
+  // pending; delivery (and any further failure) flows from the server.
+  const retryQueued = useCallback(
+    (message: Message) => {
+      if (!sid || !message.queueId) return;
+      void retryQueuedMessage(sid, message.queueId).catch((err) =>
+        onError(err instanceof Error ? err.message : String(err)),
+      );
+    },
+    [sid, onError],
+  );
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <StaleCapabilitiesBanner session={session} />
@@ -13073,6 +14381,9 @@ function SessionChatBody({
         busy={chatBusy}
         loading={historyLoading}
         onLoadOlderMessages={loadOlderMessages}
+        onRetryQueued={retryQueued}
+        bot={bot}
+        conversation={session.conversation}
       />
 
       <SessionQuestionPanel sessionIds={[session.sessionId, session.nativeSessionId]} />
@@ -13083,7 +14394,23 @@ function SessionChatBody({
         <div className="border-t border-border/70 px-3 py-1.5 text-xs text-destructive">{error}</div>
       ) : null}
 
-      {canDriveSession(session) || reviewingShipped ? (
+      {beforeComposer}
+
+      {bot && !bot.enabled ? (
+        <div className="px-2 pb-[calc(0.5rem+var(--lfg-safe-bottom))] pt-2">
+          <div className="flex items-center gap-3 rounded-2xl border border-dashed border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+            <span className="min-w-0 flex-1">
+              This bot is disabled. Re-enable it in settings to keep talking to it.
+            </span>
+          </div>
+        </div>
+      ) : /* A bot chat is a conversation, not a control surface for a process.
+             canDriveSession asks whether this harness can be driven right now,
+             which is the wrong question here: a bot whose session has died is
+             re-launched by the very message you are trying to type, so gating
+             the composer on liveness made an enabled bot unreachable until
+             somebody restarted something for it. */
+        bot || canDriveSession(session) || reviewingShipped ? (
         <form
           onSubmit={sendMessage}
           {...files.dropZoneProps}
@@ -13152,7 +14479,9 @@ function SessionChatBody({
                 placeholder={
                   attachments.length
                     ? "Add a note"
-                    : reviewingShipped
+                    : bot
+                      ? `Message ${bot.name}…`
+                      : reviewingShipped
                       ? "Message to resume"
                       : "Message"
                 }
@@ -14450,11 +15779,11 @@ function SessionTitleSheet({
           >
             <ChevronDown />
           </Button>
-          <SessionAgentIcon
-            session={session}
-            className="size-7 shrink-0 rounded-lg"
-            wrapperClassName="shrink-0"
-          />
+          {/* Mobile's full-screen session sheet: same bot-aware identity mark
+              as the session card header (see SessionHeaderIdentity), so a
+              bot-driven conversation wears its own avatar here too instead of
+              always falling back to the harness's agent icon. */}
+          <SessionHeaderIdentity session={session} busy={busy} size={28} />
           {renamingInline ? (
             <SessionTitleInlineEditor
               initial={session.title?.trim() || title}
@@ -14785,6 +16114,68 @@ function ForkSessionDialog({
   );
 }
 
+function ConversationParticipantRow({ session, compact = false }: { session: Session; compact?: boolean }) {
+  const botDirectory = useContext(BotDirectoryContext);
+  const participants = activeConversationParticipants(session);
+  if (participants.length < 2) return null;
+  return (
+    <div
+      className="mt-0.5 flex min-w-0 max-w-full items-center gap-1 overflow-hidden"
+      aria-label={`Conversation participants: ${participants.map((participant) => participant.display.name || participant.display.fallback).join(", ")}`}
+    >
+      {participants.slice(0, 5).map((participant) => {
+        const name = participant.display.name?.trim() || participant.display.fallback;
+        if (participant.kind === "bot") {
+          const botId = participant.id.startsWith("bot:") ? participant.id.slice(4) : participant.id;
+          const bot = botDirectory.get(botId);
+          return (
+            <span
+              key={participant.id}
+              className={cn(
+                "flex min-w-0 shrink items-center rounded-full bg-muted text-[10px] leading-none text-muted-foreground",
+                compact ? "size-4 justify-center" : "gap-1 px-1.5 py-0.5",
+              )}
+              title={`${name} · bot`}
+              aria-label={`${name}, bot`}
+            >
+              <BotMascot
+                shape={bot?.shape}
+                colorway={bot?.colorway}
+                size={14}
+                state="idle"
+                seed={botId.length}
+              />
+              {!compact ? <span className="max-w-20 truncate">{name}</span> : null}
+            </span>
+          );
+        }
+        const fallback = name.slice(0, 1).toUpperCase() || "M";
+        return (
+          <span
+            key={participant.id}
+            className="relative grid size-4 shrink-0 place-items-center overflow-hidden rounded-full bg-primary/12 text-[9px] font-semibold text-primary"
+            title={`${name} · ${participant.role}`}
+            aria-label={`${name}, ${participant.role}`}
+          >
+            {fallback}
+            {participant.display.avatar ? (
+              <img
+                src={participant.display.avatar}
+                alt=""
+                className="absolute inset-0 size-full object-cover"
+                onError={(event) => event.currentTarget.remove()}
+              />
+            ) : null}
+          </span>
+        );
+      })}
+      {participants.length > 5 ? (
+        <span className="shrink-0 text-[10px] text-muted-foreground">+{participants.length - 5}</span>
+      ) : null}
+    </div>
+  );
+}
+
 // memo'd: an SSE event for one session replaces the messagesBySid/etc. Record
 // reference, re-rendering LiveView's map. Without memo every card re-renders;
 // with it, only the card whose own message/busy/prompt reference changed does —
@@ -14806,6 +16197,7 @@ const SessionCard = memo(function SessionCard({
   focusGlow = 0,
   pinned = false,
   onTogglePin,
+  stageBotId,
 }: {
   session: Session;
   users: User[];
@@ -14834,6 +16226,15 @@ const SessionCard = memo(function SessionCard({
   // Narrow/mobile list preference. Desktop stage pinning is owned by RailStage.
   pinned?: boolean;
   onTogglePin?: (sid: string) => void;
+  // Set only by the dedicated bot-stage column (RailStage, railSurface ===
+  // "chat"): the id of the bot the caller resolved and navigated to. That
+  // resolution already went through the canonical, botId-verified picker
+  // (botCanonicalSessionId / botStageSession) — trust it outright rather than
+  // re-derive identity from this session's own conversation snapshot, which
+  // can lag behind rotation or point at a same-sessionId/child/stale
+  // attachment. Undefined (every other caller: grid cards, regular stage
+  // columns) keeps the existing productBotId-derived behavior unchanged.
+  stageBotId?: string | null;
 }) {
   const appDialog = useAppDialog();
   const catalog = useAgentModelCatalog();
@@ -14841,6 +16242,14 @@ const SessionCard = memo(function SessionCard({
   const [error, setError] = useState<string | null>(null);
   // Desktop double-click and the actions menu on every viewport edit in place.
   const [renamingInline, setRenamingInline] = useState(false);
+
+  // A session driven by a bot is that bot's chat. It gets the bot's face and
+  // name in the header rather than a generated session title, wherever it is
+  // opened from.
+  const botDirectory = useContext(BotDirectoryContext);
+  const headerBotId = renderedBotId(session, stageBotId);
+  const headerBot = headerBotId ? botDirectory.get(headerBotId) ?? null : null;
+  const editBot = useContext(EditBotContext);
 
   const sid = session.sessionId;
 
@@ -15119,28 +16528,11 @@ const onTouchStart = (e: ReactTouchEvent) => {
         >
           {/* Agent identity + busy indicator. This used to double as a hidden
               "speak the session summary" button, which read as an avatar and
-              was removed with the TTS feature. */}
-          <div className="relative flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground">
-            {busy ? (
-              <Loader2
-                className="absolute inset-0 m-auto size-6 animate-spin text-warning"
-                strokeWidth={1.75}
-              />
-            ) : null}
-            {/* "aisdk" is Claude Code under the hood (driven via the AI SDK), so
-                it wears the same Claude mark as a tmux claude session; only the
-                new-session picker keeps a distinct label to tell them apart. */}
-            <SessionAgentIcon
-              session={session}
-              className={cn(
-                "rounded-lg transition-all duration-300 ease-ios",
-                busy ? "size-4" : "size-6",
-              )}
-              // The spinner takes over the icon's box while working, so the
-              // number shrinks with it rather than floating off the artwork.
-              size={busy ? "sm" : "md"}
-            />
-          </div>
+              was removed with the TTS feature. A bot-backed session wears the
+              bot's face instead of the harness mark: the creature already says
+              which agent it is, and it carries busy in its own posture, so the
+              spinner would be saying it twice. See SessionHeaderIdentity. */}
+          <SessionHeaderIdentity session={session} busy={busy} size={28} trustedBotId={headerBotId} />
           {renamingInline ? (
             <SessionTitleInlineEditor
               initial={session.title?.trim() || titleForSession(session)}
@@ -15176,13 +16568,20 @@ const onTouchStart = (e: ReactTouchEvent) => {
             >
               <div className="flex min-w-0 flex-1 flex-col">
                 <div className="truncate text-[15px] font-semibold leading-tight">
-                  {titleForSession(session)}
+                  {headerBot ? headerBot.name : titleForSession(session)}
                 </div>
                 {isMobile && latest ? (
                   <div className="truncate text-[11px] leading-tight text-muted-foreground">
                     {latest}
                   </div>
                 ) : null}
+                {/* A persistent bot conversation's header shows the bot's own
+                    identity and settings only — never who created or owns it.
+                    ConversationParticipantRow's human chip belongs beside each
+                    message that sender actually wrote (see
+                    OtherHumanMessageBubble), not on the card that represents
+                    the bot itself. */}
+                {headerBot ? null : <ConversationParticipantRow session={session} compact={isMobile} />}
               </div>
             </button>
           )}
@@ -15195,8 +16594,27 @@ const onTouchStart = (e: ReactTouchEvent) => {
             <Pin className="size-3.5" fill="currentColor" />
           </span>
         ) : null}
-        {!collapsedView && (
-          (session.agent === "claude" || session.agent === "opencode" || session.agent === "hermes") &&
+        {/* A bot-backed card is the authoritative desktop bot conversation.
+            Keep its lifecycle menu on the same header instead of exposing the
+            regular session menu or a settings-only shortcut. */}
+        {!collapsedView && headerBot && editBot ? (
+          <BotConversationMenu
+            bot={headerBot}
+            runtimeHealthy
+            busy={busy}
+            onEdit={() => editBot(headerBot)}
+            onRefresh={onRefresh}
+          />
+        ) : null}
+        {!collapsedView && !headerBot && session.botId && session.botName ? (
+          <DrivenByBotBadge session={session} />
+        ) : null}
+        {/* A bot's header is its face, its name and its persona (spec §4.1).
+            The harness it happens to run on is a session detail, and picking a
+            model mid-conversation is a session action — both belong to the
+            session view of this same session, not to the chat. */}
+        {!collapsedView && !headerBot && (
+          (session.agent === "claude" || session.agent === "opencode") &&
           (session.tmuxTarget || session.agent === "opencode") &&
           sid ? (
           <DropdownMenu>
@@ -15240,13 +16658,23 @@ const onTouchStart = (e: ReactTouchEvent) => {
             {session.reviewLabel || "Shipped"}
           </span>
         ) : (
+          /* A bot-backed card is exempt from the idle/busy dot for the same
+             reason the header drops the spinner and the rail row drops its
+             dot: the creature carries state in its own posture, so the dot is
+             the same fact said twice — and "idle" is the resting state of a
+             bot you are simply not talking to right now, which is not news.
+             Blocked still shows, because there is no pose for it. */
           <SessionStatusDot
-            busy={busy}
+            busy={busy && !headerBot}
             paused={session.status === "blocked"}
             className="lg:hidden"
+            variant={headerBot ? "avatar" : "inline"}
           />
         )}
-        {!collapsedView && (
+        {/* No fork, ship, close or archive in a bot chat: a bot session is not
+            closed from the UI, and the gear beside its name is the one entry
+            point to everything you can change about it. */}
+        {!collapsedView && !headerBot && (
           <SessionActionsMenu
             session={session}
             busy={busy}
@@ -15274,6 +16702,11 @@ const onTouchStart = (e: ReactTouchEvent) => {
       {!collapsedView && (
         <SessionChat
           session={session}
+          // Same trusted identity as the header: on the bot-stage column this
+          // is the bot the caller already resolved, not whatever SessionChat's
+          // own productBotId fallback would re-derive from the session's
+          // conversation snapshot.
+          bot={headerBot ?? undefined}
           busy={busy}
           prompt={prompt}
           error={error}
@@ -15294,12 +16727,21 @@ const ChatStream = memo(function ChatStream({
   busy,
   loading,
   onLoadOlderMessages,
+  onRetryQueued,
+  bot,
+  conversation,
 }: {
   sid: string | null;
   messages: Message[];
   busy: boolean;
   loading: boolean;
   onLoadOlderMessages: LoadOlderMessages;
+  onRetryQueued?: (message: Message) => void;
+  bot?: PersistentBot;
+  // Only present for a shared bot conversation — see MessageBubble's own-vs-
+  // other-human split. A plain session never has more than one human
+  // participant, so there is nothing here to resolve.
+  conversation?: ProductConversation | null;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const transcriptView = useContext(TranscriptViewContext);
@@ -15309,8 +16751,34 @@ const ChatStream = memo(function ChatStream({
   const [diffBarVisible, setDiffBarVisible] = useState(false);
   const preserveScrollRef = useRef<{ height: number; top: number } | null>(null);
   const transcriptMessages = useMemo(
-    () => messages.filter((message) => !message.seed),
-    [messages],
+    () => {
+      const filtered = messages.filter(
+        (message) =>
+          !message.seed &&
+          (!bot ||
+            (!isBotRuntimeContractMessage(message) &&
+              !isBotBackgroundUpdateMessage(message) &&
+              // A conversation does not narrate its own mechanics. The full log
+              // is still one click away, in this session's ordinary view.
+              !isBotHiddenLogKind(message.kind))),
+      );
+      if (!bot) return filtered;
+      const delivered = new Set(
+        filtered
+          .filter((message) => message.role === "user" && !message.pending)
+          .map((message) => botVisibleUserText(message.text ?? "", bot).trim())
+          .filter(Boolean),
+      );
+      return filtered.filter(
+        (message) =>
+          !(
+            message.role === "user" &&
+            message.pending &&
+            delivered.has(botVisibleUserText(message.text ?? "", bot).trim())
+          ),
+      );
+    },
+    [messages, bot],
   );
   const visibleMessages = useMemo(
     () => messagesForTranscriptView(transcriptMessages, transcriptView.value),
@@ -15322,6 +16790,7 @@ const ChatStream = memo(function ChatStream({
     () => splitQueuedRenderItems(buildChatRenderItems(visibleMessages)),
     [visibleMessages],
   );
+  const speakers = useMemo(() => items.map(chatRenderItemSpeaker), [items]);
   // Historical reasoning can remain in the transcript after its turn is done.
   // Only let reasoning at the active tail replace the typing dots; otherwise an
   // old thinking block would make a newly-busy session look idle. The tail here
@@ -15435,28 +16904,44 @@ const ChatStream = memo(function ChatStream({
               Loading older messages
             </div>
           ) : null}
-          {items.map((item, index) =>
-            item.type === "tools" ? (
-              <ToolGroup
-                key={item.key}
-                items={item.items}
-                live={busy && index === items.length - 1}
-              />
-            ) : (
-              <MessageBubble
-                key={item.key}
-                message={item.message}
-                live={busy && index === items.length - 1}
-                entering={!!item.message.id && enteringIdsRef.current.has(item.message.id)}
-              />
-            ),
-          )}
-          <TypingIndicator visible={showTypingIndicator} />
+          {items.map((item, index) => {
+            // A speaker change gets visible breathing room; a same-speaker
+            // follow-up sits close to the turn before it, the way a real chat
+            // reads. ConversationContent's own gap is the tight same-speaker
+            // baseline — this only adds the extra space on top of it.
+            const { firstOfRun, lastOfRun } = speakerRunEdges(speakers, index);
+            const speakerChanged = index > 0 && firstOfRun;
+            return (
+              <div key={item.key} className={speakerChanged ? "pt-2.5" : undefined}>
+                {item.type === "tools" ? (
+                  <ToolGroup items={item.items} live={busy && index === items.length - 1} />
+                ) : (
+                  <MessageBubble
+                    message={item.message}
+                    live={busy && index === items.length - 1}
+                    entering={!!item.message.id && enteringIdsRef.current.has(item.message.id)}
+                    onRetryQueued={onRetryQueued}
+                    bot={bot}
+                    conversation={conversation}
+                    firstOfRun={firstOfRun}
+                    lastOfRun={lastOfRun}
+                  />
+                )}
+              </div>
+            );
+          })}
+          <TypingIndicator visible={showTypingIndicator} bot={bot} />
           {/* Pinned below the working indicator: what the agent is doing now,
               then what it will read next. */}
           {queuedItems.map((item) =>
             item.type === "msg" ? (
-              <MessageBubble key={item.key} message={item.message} />
+              <MessageBubble
+                key={item.key}
+                message={item.message}
+                onRetryQueued={onRetryQueued}
+                bot={bot}
+                conversation={conversation}
+              />
             ) : null,
           )}
         </ConversationContent>
@@ -15505,8 +16990,10 @@ const ChatStream = memo(function ChatStream({
       </button>
     </div>
     {/* Floating "diffs for review" bar: appears when this session's worktree
-        has changes; opens the pierre-style diff viewer. */}
-    <SessionDiffBar sid={sid} onVisibilityChange={setDiffBarVisible} />
+        has changes; opens the pierre-style diff viewer. Not in a bot chat —
+        reviewing a diff is work you do on a session, and the bot's own repo is
+        not where its heavy work happens anyway. */}
+    {bot ? null : <SessionDiffBar sid={sid} onVisibilityChange={setDiffBarVisible} />}
     </div>
   );
 });
@@ -15778,17 +17265,37 @@ function ToolGroup({ items, live }: { items: Message[]; live: boolean }) {
   );
 }
 
-function TypingIndicator({ visible = true }: { visible?: boolean }) {
+/**
+ * The wait state.
+ *
+ * In a session chat this is the usual three dots. In a bot chat it is the bot
+ * itself: a named creature you are talking to already has a face and a working
+ * pose, so an anonymous pill standing in for it is a worse answer to "what is
+ * happening" than just showing it at work.
+ *
+ * This is the *only* place the creature appears in the stream. A face beside
+ * every reply read as a column of different speakers, and reserving the gutter
+ * for it indented every bot message whether or not that message carried one.
+ * The header already says who you are talking to; down here the avatar earns
+ * its space only while there is something happening, so it is drawn bigger.
+ */
+function TypingIndicator({ visible = true, bot }: { visible?: boolean; bot?: PersistentBot }) {
   return (
     <div
       className={cn("typing-indicator-slot", visible && "is-visible")}
       aria-hidden={!visible}
     >
-      <div className="typing-indicator" role="status" aria-label="Assistant is typing">
-        <span aria-hidden="true" />
-        <span aria-hidden="true" />
-        <span aria-hidden="true" />
-      </div>
+      {bot ? (
+        <div className="typing-mascot" role="status" aria-label={`${bot.name} is working`}>
+          <BotAvatar bot={bot} working size={40} />
+        </div>
+      ) : (
+        <div className="typing-indicator" role="status" aria-label="Assistant is typing">
+          <span aria-hidden="true" />
+          <span aria-hidden="true" />
+          <span aria-hidden="true" />
+        </div>
+      )}
     </div>
   );
 }
@@ -15869,10 +17376,17 @@ function UserBubble({
   html,
   pending,
   queued,
+  failed,
+  otherAuthor,
 }: {
   html: string;
   pending?: boolean;
   queued?: boolean;
+  failed?: boolean;
+  // Someone else's turn in a shared bot conversation, not the viewer's own —
+  // see OtherHumanMessageBubble. Same shape, a different tint (is-other in
+  // index.css) so the two remain visually distinct at a glance.
+  otherAuthor?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
@@ -15907,6 +17421,8 @@ function UserBubble({
         "msg-text markdown user-bubble text-base w-fit max-w-full",
         pending && !queued && "is-pending",
         queued && "is-queued",
+        failed && "is-failed",
+        otherAuthor && "is-other",
       )}
     >
       {/* The organic shimmer means "in flight". A queued turn is deliberately
@@ -16115,8 +17631,19 @@ function MessageActions({
         // percentage collapsed and long user turns grew full-width / looked
         // left-aligned. Short turns still hug the trailing edge via items-end
         // + Message's justify-end.
-        "message-actions-wrap flex min-w-0 flex-col",
-        isUser ? "max-w-[85%] items-end" : "max-w-[92%] items-start",
+        //
+        // relative: the copy button below is absolutely positioned against
+        // this box, so it never adds a row of its own to the transcript. That
+        // out-of-flow button sits in the 2.25rem gutter beside the bubble
+        // (1.75rem button + 0.25rem offset + 0.25rem slack), so the cap also
+        // subtracts that gutter from the row: without it a bubble at the
+        // percentage cap would push the button past the scroll container and
+        // trade a vertical gap for a horizontal one. The percentage still
+        // wins on wide viewports, where it is the smaller of the two.
+        "message-actions-wrap relative flex min-w-0 flex-col",
+        isUser
+          ? "max-w-[min(85%,calc(100%-2.25rem))] items-end"
+          : "max-w-[min(92%,calc(100%-2.25rem))] items-start",
         selecting && "is-selecting",
       )}
       onPointerDown={onPointerDown}
@@ -16134,7 +17661,17 @@ function MessageActions({
         <button
           type="button"
           onClick={() => void copy()}
-          className="message-copy-button mt-1 flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none"
+          // Absolute, bottom-aligned in the gutter beside the bubble: in flow
+          // (the old `mt-1` block) it reserved a full 28px row under every
+          // single turn, so two replies in a row sat ~36px apart and the
+          // transcript's vertical rhythm read as a stray empty band whenever
+          // hover revealed the icon. Out of flow it stays attached to its own
+          // message, costs no height, and — because it is never added or
+          // removed on hover — shifts nothing when it appears.
+          className={cn(
+            "message-copy-button absolute bottom-0 flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none",
+            isUser ? "right-full mr-1" : "left-full ml-1",
+          )}
           aria-label={copied ? "Message copied" : "Copy message"}
           title={copied ? "Copied" : "Copy message"}
         >
@@ -16189,6 +17726,11 @@ function MessageBubble({
   message,
   live = false,
   entering = false,
+  onRetryQueued,
+  bot,
+  conversation,
+  firstOfRun,
+  lastOfRun,
 }: {
   message: Message;
   // Whether the session is actively working on THIS turn — drives the thinking
@@ -16197,8 +17739,28 @@ function MessageBubble({
   // First appearance of a settled assistant turn while live — plays a one-shot
   // entrance so the draft→final swap doesn't flash.
   entering?: boolean;
+  // Retry a failed queue send through the server queue's retry endpoint.
+  onRetryQueued?: (message: Message) => void;
+  bot?: PersistentBot;
+  conversation?: ProductConversation | null;
+  // Same-speaker run edges from ChatStream. Only OtherHumanMessageBubble
+  // reads these; own-turn and bot replies ignore them.
+  firstOfRun?: boolean;
+  lastOfRun?: boolean;
 }) {
   const openArtifact = useContext(ArtifactViewerContext);
+  const viewerParticipantId = useContext(ViewerIdentityContext);
+  // A group-chat-style human turn: authored by someone other than the current
+  // viewer, per the server-verified MessageAuthorRef — never inferred from the
+  // bot's owner/creator, the current bot, or anything client-supplied. A
+  // historical turn with no verified author (message.author is undefined or
+  // `legacy`) falls through to the unchanged "own" rendering below rather than
+  // guessing whose it was.
+  const otherHumanSender =
+    message.role === "user" && isOtherHumanMessageAuthor(message.author, viewerParticipantId)
+      ? (conversationParticipantById(conversation, message.author!.participantId) ??
+        unknownConversationParticipant(message.author!.participantId))
+      : null;
   // Must run before the early returns below — hooks can't be conditional. The
   // effect itself no-ops for anything that isn't a just-sent user turn.
   const sendMorphRef = useSendMorph<HTMLDivElement>(
@@ -16214,11 +17776,11 @@ function MessageBubble({
     () =>
       message.role === "user"
         ? renderableUserContent(
-            omgEnvelope?.task ?? message.text ?? "",
-            omgEnvelope ? undefined : message.html,
+            botVisibleUserText(omgEnvelope?.task ?? message.text ?? "", bot),
+            omgEnvelope || bot ? undefined : message.html,
           )
         : { html: "", attachments: [] as MessageAttachment[] },
-    [message.role, message.text, message.html, omgEnvelope],
+    [message.role, message.text, message.html, omgEnvelope, bot],
   );
   if (isRequestInterruptedMessage(message)) {
     return (
@@ -16351,9 +17913,23 @@ function MessageBubble({
     );
   }
 
+  if (otherHumanSender) {
+    return (
+      <OtherHumanMessageBubble
+        message={message}
+        html={userContent.html}
+        attachments={userContent.attachments}
+        participant={otherHumanSender}
+        entering={entering}
+        firstOfRun={firstOfRun}
+        lastOfRun={lastOfRun}
+      />
+    );
+  }
   const isUser = message.role === "user";
   if (isUser) {
     const queued = !!message.queued && !!message.pending;
+    const failed = !!message.failed;
     return (
       <AiMessage
         ref={sendMorphRef}
@@ -16379,20 +17955,85 @@ function MessageBubble({
               Queued · sends when this turn ends
             </span>
           ) : null}
+          {/* A failed send never reached the agent at all. Keep it visible with
+              the delivery error and offer retry through the queue's retry
+              endpoint — disappearing here would silently drop the user's words. */}
+          {failed ? (
+            <span className="user-failed-label" role="alert">
+              <TriangleAlert className="size-3" aria-hidden="true" />
+              <span className="min-w-0">
+                Failed to send{message.queueError ? ` — ${message.queueError}` : ""}
+              </span>
+              {message.queueId && onRetryQueued ? (
+                <button
+                  type="button"
+                  className="user-failed-retry"
+                  onClick={() => onRetryQueued(message)}
+                >
+                  <RotateCcw className="size-3" aria-hidden="true" />
+                  Retry
+                </button>
+              ) : null}
+            </span>
+          ) : null}
           {userContent.attachments.length > 0 ? (
             <UserAttachments attachments={userContent.attachments} pending={message.pending} />
           ) : null}
           {/* A caption is optional: attach an image with nothing typed and the
               picture is the whole message, with no empty bubble under it. */}
           {userContent.html ? (
-            <MessageActions text={omgEnvelope?.task ?? message.text ?? ""} isUser>
-              <UserBubble html={userContent.html} pending={message.pending} queued={queued} />
+            <MessageActions text={botVisibleUserText(omgEnvelope?.task ?? message.text ?? "", bot)} isUser>
+              <UserBubble html={userContent.html} pending={message.pending} queued={queued} failed={failed} />
             </MessageActions>
           ) : null}
         </div>
       </AiMessage>
     );
   }
+  // A bot's turn reads as somebody talking, so it gets a bubble instead of bare
+  // markdown on the canvas (spec §4.2). Only turns that have said something:
+  // an empty one is the typing state, which is already the creature at work and
+  // would otherwise put a second creature inside a bubble beside the first.
+  const botBubble = !!bot && !!message.text;
+  const body = (
+    <MessageActions text={message.text || ""} isUser={false}>
+        {/* Assistant turns render markdown from the raw source via Streamdown,
+            which tolerates half-finished markdown mid-stream (no html injection). */}
+        {/* max-w-full, not MessageContent's default 92% (or a second, tighter
+            percentage for the bot bubble): the cap already lives on
+            MessageActions, whose content div is content-sized (flex-col +
+            items-start). A second percentage here resolves against that
+            shrink-to-fit width, i.e. N% of the text's own max-content width,
+            so any reply that would fit on one line gets pushed onto a second
+            line — "Hi Benny!" wrapped to "Hi" / "Benny!", and a single short
+            word like "Waiting." wrapped mid-word ("Waiti" / "ng."). Long
+            replies hit the available width first and hid this until bots
+            started replying in one-liners. A bot bubble still reads narrower
+            than a full-width row because MessageActions already caps
+            non-user turns at 92% — this doesn't need its own tighter cap on
+            top of that one. */}
+      <MessageContent
+        className={cn(
+          "max-w-full",
+          // The card row shell every surface in the app uses, with a taller
+          // corner so it reads as a chat bubble rather than a list row.
+          botBubble && "rounded-[18px] border border-border bg-card px-3.5 py-2.5 text-[14.5px] leading-[1.55]",
+        )}
+      >
+        {message.text ? (
+          <MessageResponse
+            animated={STREAMING_RESPONSE_ANIMATION}
+            isAnimating={isDraftAssistantMessage(message) && !message.catchUp}
+            mode={isDraftAssistantMessage(message) ? "streaming" : "static"}
+          >
+            {message.text}
+          </MessageResponse>
+        ) : (
+          <TypingIndicator bot={bot} />
+        )}
+      </MessageContent>
+    </MessageActions>
+  );
   return (
     <AiMessage
       ref={sendMorphRef}
@@ -16408,24 +18049,142 @@ function MessageBubble({
       )}
       from="assistant"
     >
-      <MessageActions text={message.text || ""} isUser={false}>
-        {/* Assistant turns render markdown from the raw source via Streamdown,
-            which tolerates half-finished markdown mid-stream (no html injection). */}
-        <MessageContent>
-          {message.text ? (
-            <MessageResponse
-              animated={STREAMING_RESPONSE_ANIMATION}
-              isAnimating={isDraftAssistantMessage(message) && !message.catchUp}
-              mode={isDraftAssistantMessage(message) ? "streaming" : "static"}
-            >
-              {message.text}
-            </MessageResponse>
-          ) : (
-            <TypingIndicator />
-          )}
-        </MessageContent>
-      </MessageActions>
+      {body}
     </AiMessage>
+  );
+}
+
+/**
+ * A round face for one human conversation participant — the same visual
+ * language as the header's (removed) participant row and the desktop card's
+ * ConversationParticipantRow, so a sender reads consistently wherever their
+ * face shows up. Falls back to their initial when there is no avatar, or the
+ * avatar 404s (a deleted upload, a profile removed after the message was
+ * sent): the fallback letter sits underneath the image the whole time, so a
+ * broken <img> just uncovers it instead of leaving a blank circle.
+ */
+function HumanParticipantAvatar({
+  participant,
+  size = 20,
+  className,
+}: {
+  participant: ConversationParticipant;
+  size?: number;
+  className?: string;
+}) {
+  const name = conversationParticipantDisplayName(participant);
+  const initial = name.slice(0, 1).toUpperCase() || "M";
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "relative grid shrink-0 place-items-center overflow-hidden rounded-full bg-primary/12 text-[10px] font-semibold text-primary",
+        className,
+      )}
+      style={{ width: size, height: size }}
+    >
+      {initial}
+      {participant.display.avatar ? (
+        <img
+          src={participant.display.avatar}
+          alt=""
+          className="absolute inset-0 size-full object-cover"
+          onError={(event) => event.currentTarget.remove()}
+        />
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * A human turn authored by someone other than the current viewer, in a shared
+ * bot conversation — the "group chat inside a bot conversation" case (spec:
+ * message-level sender avatars, never a header identity chip). Left-aligned
+ * like an assistant turn so it never collides with the viewer's own
+ * right-aligned turns, and carries its own name label + avatar so it can't be
+ * mistaken for either "my message" or the bot's reply.
+ *
+ * The bubble reuses UserBubble (same clamp/attachments/pending affordances as
+ * the viewer's own turns — this is still plain user prose, just not the
+ * viewer's) with an `otherAuthor` tint so the two remain visually distinct at
+ * a glance even though they share a shape.
+ *
+ * Consecutive beats from the same verified person share one caption: the
+ * name on the first of the run, the face on the last (items-end, so a
+ * multi-line run still pins the avatar to the bottom bubble). A single
+ * message is both edges and still shows both. The aria-label keeps the
+ * sender name on every bubble, including the ones that hide the visible
+ * caption. Defaults keep both chrome when the caller has no siblings
+ * (queued rows).
+ */
+function OtherHumanMessageBubble({
+  message,
+  html,
+  attachments,
+  participant,
+  entering,
+  firstOfRun = true,
+  lastOfRun = true,
+}: {
+  message: Message;
+  html: string;
+  attachments: MessageAttachment[];
+  participant: ConversationParticipant;
+  entering?: boolean;
+  firstOfRun?: boolean;
+  lastOfRun?: boolean;
+}) {
+  const name = conversationParticipantDisplayName(participant);
+  return (
+    <AiMessage
+      className={cn("msg", entering && "lfg-msg-in")}
+      from="assistant"
+      role="group"
+      aria-label={`Message from ${name}`}
+    >
+      <div className="flex w-full min-w-0 items-end gap-2">
+        {lastOfRun ? (
+          <HumanParticipantAvatar participant={participant} size={22} className="mb-0.5" />
+        ) : (
+          <span aria-hidden="true" className="mb-0.5 size-[22px] shrink-0" />
+        )}
+        <div className="flex min-w-0 max-w-[calc(100%-1.75rem)] flex-col items-start gap-1">
+          {firstOfRun ? (
+            <span className="px-0.5 text-[11px] font-medium leading-none text-muted-foreground">{name}</span>
+          ) : null}
+          {attachments.length > 0 ? <UserAttachments attachments={attachments} /> : null}
+          {html ? (
+            <MessageActions text={message.text || ""} isUser={false}>
+              <UserBubble html={html} otherAuthor />
+            </MessageActions>
+          ) : null}
+        </div>
+      </div>
+    </AiMessage>
+  );
+}
+
+function botVisibleUserText(text: string, bot?: PersistentBot): string {
+  return botVisibleUserTextFor(text, !!bot);
+}
+
+function isBotRuntimeContractMessage(message: Message): boolean {
+  return (
+    (message.role === "user" || message.role === "system") &&
+    isBotLaunchOnlyText(message.text ?? "")
+  );
+}
+
+/**
+ * A background task session reporting home. It arrives on the bot's session as
+ * a user turn, so in a bot chat it would otherwise look like the human pasted
+ * `[subagent complete] …` into their own conversation. The bot answers it in
+ * plain words on the next turn; that reply is what the human reads.
+ */
+function isBotBackgroundUpdateMessage(message: Message): boolean {
+  return (
+    (message.role === "user" || message.role === "system") &&
+    isSubagentUpdateText(message.text ?? "")
   );
 }
 
@@ -16537,7 +18296,7 @@ export type ResumableSession = {
   title: string;
   lastActivityAt: number | null;
   lastUserText: string | null;
-  agent: "claude" | "codex" | "opencode" | "grok" | "cursor";
+  agent: "claude" | "codex" | "opencode" | "grok" | "cursor" | "fx";
   model?: string | null;
 };
 
@@ -16778,8 +18537,6 @@ function ProjectFolderBrowser({
     void browse(initialPath, true);
   }, [browse, initialPath, open, startCreating]);
 
-  const pickerMorph = useExpandOnFocus();
-
   async function finish(endpoint: string, body: object) {
     setLoading(true);
     setError(null);
@@ -16805,17 +18562,13 @@ function ProjectFolderBrowser({
           you navigate; the delete confirmation is short and looks stranded in
           it, so let that one state hug its content. */}
       <DrawerContent
+        // "New folder" and the delete confirmation both put a text field at
+        // the bottom of a sheet that is already tall; DrawerContent's own
+        // expand-on-focus morph keeps the keyboard from pushing them off.
         className={cn(
           "mx-auto max-w-lg overflow-hidden",
           deleteTarget ? "h-auto" : "h-[min(82dvh,42rem)]",
-          pickerMorph.paged && "lfg-sheet-page",
         )}
-        // "New folder" and the delete confirmation both put a text field at
-        // the bottom of a sheet that is already tall; the keyboard would
-        // otherwise push the field, and the button next to it, off the top.
-        onPointerDownCapture={pickerMorph.onPointerDownCapture}
-        onFocusCapture={pickerMorph.onFocusCapture}
-        onBlurCapture={pickerMorph.onBlurCapture}
       >
         <DrawerTitle className="sr-only">Choose a project folder</DrawerTitle>
         <div className="flex min-h-0 flex-1 flex-col px-4 pb-[max(var(--lfg-safe-bottom),1rem)]">
@@ -17817,15 +19570,13 @@ function NewSessionDialog({
     setProjectSheetOpen(false);
   }
 
-  // One ring, one request: the composer asks only for the source behind the
-  // agent it's showing, and re-asks when the Claude account changes — each
-  // account has its own limits, so switching must re-read them.
-  const { usage } = useProviderUsage({
+  // A pinned account shows its own limits. Claude Auto has no pinned account,
+  // so it folds every connected Claude profile into one combined-capacity ring.
+  const { usage, loading: usageLoading } = useProviderUsage({
     agent,
-    accountId: agent === "aisdk" ? claudeAccountId : null,
-    // Auto has no concrete account until the server makes the launch decision;
-    // showing account 1's ring here would falsely imply that it was selected.
-    enabled: open && (agent !== "aisdk" || !!claudeAccountId),
+    accountId: agent === "aisdk" ? claudeAccountId || null : null,
+    combineAccounts: agent === "aisdk" && !claudeAccountId,
+    enabled: open,
   });
 
   useEffect(() => {
@@ -18371,7 +20122,11 @@ function NewSessionDialog({
         )}
       >
         {/* Left: Apple-Watch-style usage rings; tap to expand the breakdown. */}
-        {usage ? <UsageRingsButton provider={usage} /> : null}
+        {usageLoading ? (
+          <UsageRingsLoadingIndicator />
+        ) : usage ? (
+          <UsageRingsButton provider={usage} />
+        ) : null}
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-xs",
@@ -19811,7 +21566,7 @@ function BottomSheet({
   onClose,
   title,
   page = false,
-  expandOnFocus = false,
+  expandOnFocus = true,
   footer,
   children,
 }: {
@@ -19836,12 +21591,6 @@ function BottomSheet({
   footer?: ReactNode;
   children: ReactNode;
 }) {
-  // The morph itself lives in useExpandOnFocus so the raw <Drawer> surfaces
-  // that never go through BottomSheet can have it too. See expand-on-focus.ts
-  // for why focus-driven page mode is the only layout iOS handles natively.
-  const morph = useExpandOnFocus(expandOnFocus);
-  const paged = page || morph.paged;
-
   return (
     <Drawer
       open
@@ -19858,10 +21607,12 @@ function BottomSheet({
         // Keep both the scrim and sheet above it without raising every Drawer in
         // the app, since page-level drawers intentionally sit below some screens.
         overlayClassName="z-[100]"
-        className={cn("z-[100]", paged && "lfg-sheet-page")}
-        onPointerDownCapture={morph.onPointerDownCapture}
-        onFocusCapture={morph.onFocusCapture}
-        onBlurCapture={morph.onBlurCapture}
+        className="z-[100]"
+        // The morph lives in DrawerContent now, so every drawer in the app has
+        // it. `page` still lets a caller force it; `expandOnFocus` is kept as
+        // an explicit opt-out for sheets with no fields.
+        page={page}
+        expandOnFocus={expandOnFocus}
       >
         <DrawerTitle className="sr-only">{title}</DrawerTitle>
         {/* min-h-0 twice on purpose: without it a flex child refuses to shrink
@@ -20436,7 +22187,7 @@ function NewAutoAgentComposer({
   }
 
   return (
-    <BottomSheet onClose={onClose} title="New auto agent" expandOnFocus>
+    <BottomSheet onClose={onClose} title="New auto agent">
       <div className="px-2 pb-4 pt-1">
         <div className="flex items-center gap-2">
           <Sparkles className="size-5 text-primary" />
@@ -20493,6 +22244,22 @@ function NewAutoAgentComposer({
         />
       </div>
     </BottomSheet>
+  );
+}
+
+function ManagedByBotNote({ botId }: { botId: string }) {
+  const directory = useContext(BotDirectoryContext);
+  const openBot = useContext(OpenBotContext);
+  const bot = directory.get(botId);
+  return (
+    <button
+      type="button"
+      onClick={() => openBot(botId)}
+      className="mt-2 flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+    >
+      <BotMascot shape={bot?.shape} colorway={bot?.colorway} size={14} state="idle" seed={botId.length} />
+      Managed by {bot?.name ?? "a deleted bot"}
+    </button>
   );
 }
 
@@ -20659,7 +22426,6 @@ function AgentEditorSheet({
     <BottomSheet
       onClose={onClose}
       title={isNew ? "New auto agent" : "Edit auto agent"}
-      expandOnFocus
     >
       <div className="px-2 pb-4 pt-1">
         <div className="flex items-center gap-2">
@@ -20682,6 +22448,11 @@ function AgentEditorSheet({
             Save
           </Button>
         </div>
+
+        {/* Editing here stays fully allowed — a human is always admin over
+            every automation, bot-owned included — but the row is also
+            self-managed from inside the bot's own chat, so say so. */}
+        {existing?.owner?.kind === "bot" ? <ManagedByBotNote botId={existing.owner.botId} /> : null}
 
         {(() => {
           const locale = typeof navigator !== "undefined" ? navigator.language : undefined;
@@ -21253,6 +23024,10 @@ function useSessionUsage(active: boolean, intervalMs = 15000): SessionUsage | nu
 
 const LIVE_AGENT_LIMIT_OPTIONS = [0, 4, 8, 10, 12, 16, 24, 32];
 
+// No 0/unlimited option here on purpose — see GlobalSettings.maxBotSchedules.
+const BOT_SCHEDULE_LIMIT_OPTIONS = [1, 2, 3, 5, 8, 10, 15, 20];
+const BOT_COMPACTION_THRESHOLD_OPTIONS = [60, 70, 75, 78, 80, 85, 90, 95];
+
 // Idle windows, in minutes. Nothing below 15 is offered: an agent pausing
 // between turns must never look abandoned.
 const IDLE_ARCHIVE_OPTIONS = [0, 30, 60, 120, 240, 480, 1440];
@@ -21271,8 +23046,10 @@ function AgentConcurrencySettingsSection({
   onChange: (patch: Partial<GlobalSettings>) => Promise<void>;
 }) {
   const [saving, setSaving] = useState(false);
+  const [savingBotCap, setSavingBotCap] = useState(false);
   const [pausing, setPausing] = useState(false);
   const [archiving, setArchiving] = useState(false);
+  const [savingCompaction, setSavingCompaction] = useState(false);
   const stats = useServerStats(true);
 
   async function saveIdleArchive(idleAgentArchiveMinutes: number) {
@@ -21309,6 +23086,19 @@ function AgentConcurrencySettingsSection({
     }
   }
 
+  async function saveBotCap(maxBotSchedules: number) {
+    if (maxBotSchedules === settings.maxBotSchedules || savingBotCap) return;
+    setSavingBotCap(true);
+    try {
+      await onChange({ maxBotSchedules });
+      toast.success(`Per-bot schedule limit set to ${maxBotSchedules}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update the bot schedule limit");
+    } finally {
+      setSavingBotCap(false);
+    }
+  }
+
   async function togglePause(next: boolean) {
     if (pausing) return;
     setPausing(true);
@@ -21319,6 +23109,22 @@ function AgentConcurrencySettingsSection({
       toast.error(e instanceof Error ? e.message : "Could not update pause state");
     } finally {
       setPausing(false);
+    }
+  }
+
+  async function saveBotCompaction(patch: Partial<Pick<
+    GlobalSettings,
+    "botAutoCompactionEnabled" | "botCompactionThresholdPercent"
+  >>) {
+    if (savingCompaction) return;
+    setSavingCompaction(true);
+    try {
+      await onChange(patch);
+      toast.success("Bot context refresh settings updated");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update bot context refresh settings");
+    } finally {
+      setSavingCompaction(false);
     }
   }
 
@@ -21374,6 +23180,78 @@ function AgentConcurrencySettingsSection({
             </select>
             <ChevronDown className="size-3 text-muted-foreground/70" />
           </label>
+        </div>
+        {/* Per-bot cap on self-scheduled routines (omg_schedule_routine). A
+            separate knob from live-agent capacity above: this bounds how many
+            concerns any one bot is tracking at once, not concurrency. */}
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-foreground/70 text-white">
+              <CalendarClock className="size-4" />
+            </span>
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Bot schedule limit</div>
+              <div className="text-xs text-muted-foreground">
+                Max routines a bot can schedule on itself
+              </div>
+            </div>
+          </div>
+          <label className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-3 py-1.5">
+            <select
+              value={settings.maxBotSchedules}
+              onChange={(event) => void saveBotCap(Number(event.target.value))}
+              disabled={savingBotCap}
+              aria-label="Maximum schedules per bot"
+              className="appearance-none bg-transparent text-right text-xs font-medium outline-none"
+            >
+              {BOT_SCHEDULE_LIMIT_OPTIONS.map((count) => (
+                <option key={count} value={count}>{count}</option>
+              ))}
+            </select>
+            <ChevronDown className="size-3 text-muted-foreground/70" />
+          </label>
+        </div>
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className={cn(
+              "flex size-7 shrink-0 items-center justify-center rounded-[7px] text-white transition-colors duration-200 ease-apple",
+              settings.botAutoCompactionEnabled ? "bg-primary" : "bg-foreground/70",
+            )}>
+              <RotateCcw className="size-4" />
+            </span>
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Refresh full bot contexts</div>
+              <div className="text-xs text-muted-foreground">
+                {settings.botAutoCompactionEnabled
+                  ? `At ${settings.botCompactionThresholdPercent}% measured context use`
+                  : "Off — bots keep one runtime until manually refreshed"}
+              </div>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <label className="flex items-center gap-1 rounded-full bg-muted px-3 py-1.5">
+              <select
+                value={settings.botCompactionThresholdPercent}
+                onChange={(event) => void saveBotCompaction({
+                  botCompactionThresholdPercent: Number(event.target.value),
+                })}
+                disabled={savingCompaction || !settings.botAutoCompactionEnabled}
+                aria-label="Bot context refresh threshold"
+                className="appearance-none bg-transparent text-right text-xs font-medium outline-none disabled:opacity-50"
+              >
+                {BOT_COMPACTION_THRESHOLD_OPTIONS.map((percent) => (
+                  <option key={percent} value={percent}>{percent}%</option>
+                ))}
+              </select>
+              <ChevronDown className="size-3 text-muted-foreground/70" />
+            </label>
+            <Switch
+              checked={settings.botAutoCompactionEnabled}
+              onCheckedChange={(next) => void saveBotCompaction({ botAutoCompactionEnabled: next })}
+              disabled={savingCompaction}
+              aria-label="Automatically refresh full bot contexts"
+            />
+          </div>
         </div>
         <div className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left">
           <div className="flex min-w-0 items-center gap-3">
@@ -22154,7 +24032,12 @@ function CodingAgentAuthPanel({
             </div>
           ) : null}
 
-          {session.authorizationUrl ? (
+          {/* The URL is already in hand here, so this opens straight at the
+              provider — no placeholder step. It is gated on the URL being a
+              real http(s) one for the same reason the popup carrier is: the
+              CLI's URL is scraped from its stdout, and a button that opens
+              nowhere is the blank tab wearing a different hat. */}
+          {isAuthorizationUrl(session.authorizationUrl) ? (
             <Button
               variant="brand"
               className="w-full"
@@ -22202,14 +24085,20 @@ function CodingAgentAuthPanel({
 
 function CodingAgentAuthDialog({
   session,
+  pendingLabel,
   onSessionChange,
   onComplete,
 }: {
   session: CodingAgentAuthSession | null;
+  /** Provider name while the login is still being prepared, before a session. */
+  pendingLabel?: string | null;
   onSessionChange: (session: CodingAgentAuthSession | null) => void;
   onComplete: () => void | Promise<void>;
 }) {
-  const providerLabel = authProviderLabel(session?.provider);
+  // Pending and session are the same dialog at two moments, so the title comes
+  // from whichever is current rather than from the session alone — otherwise
+  // the loading state would be headed "Connect Account".
+  const providerLabel = session ? authProviderLabel(session.provider) : (pendingLabel ?? "your account");
   async function close() {
     if (session && session.status !== "complete") {
       await api(`/api/coding-agents/auth/${session.id}`, { method: "DELETE" }).catch(() => {});
@@ -22217,12 +24106,23 @@ function CodingAgentAuthDialog({
     onSessionChange(null);
   }
   return (
-    <Dialog open={!!session} onOpenChange={(open) => { if (!open) void close(); }}>
+    <Dialog
+      // Open on the CLICK. The pending flag is set before the round trip, so
+      // this surface exists for the whole wait instead of appearing after it.
+      open={!!session || !!pendingLabel}
+      onOpenChange={(open) => {
+        // Not dismissible while preparing: there is no session to cancel yet,
+        // and closing would strand the CLI the server just spawned.
+        if (!open && !pendingLabel) void close();
+      }}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Connect {providerLabel}</DialogTitle>
           <DialogDescription>
-            Finish signing in in the browser. omg.dev will detect approval automatically.
+            {session
+              ? "Finish signing in in the browser. omg.dev will detect approval automatically."
+              : `Starting the ${providerLabel} sign-in on your Computer.`}
           </DialogDescription>
         </DialogHeader>
         {session ? (
@@ -22232,7 +24132,21 @@ function CodingAgentAuthDialog({
             onComplete={onComplete}
             onDismiss={() => void close()}
           />
-        ) : null}
+        ) : (
+          // The wait, given a shape. This is the state the browser tab used to
+          // stand in for — same seconds, but spent on a surface that says what
+          // is happening and keeps the user where the next control appears.
+          <div className="space-y-3 py-2">
+            <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              Preparing your sign-in link…
+            </div>
+            <p className="text-center text-xs text-muted-foreground/70">
+              Your Computer is starting the {providerLabel} CLI. The sign-in
+              button appears here when it is ready.
+            </p>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -22405,6 +24319,17 @@ export type ShipMediaItem = {
   refreshStatus?: "idle" | "running" | "success" | "error";
 };
 
+export type ShipProvenance = {
+  state: "uncommitted" | "unlanded" | "landed" | "clean" | "unknown";
+  branch?: string;
+  head?: string;
+  dirty: number;
+  /** Commits origin/main lacks entirely — the unlanded ones. */
+  ahead: number;
+  /** Commits ahead of origin/main by sha, squash-merged ones included. */
+  commits: number;
+};
+
 export type ShipPost = {
   id: string;
   rev: number;
@@ -22422,7 +24347,219 @@ export type ShipPost = {
   // thumbnail can show "+N" without shipping the rest of the gallery.
   mediaItems: ShipMediaItem[];
   mediaTotal?: number;
+  // Git state of the posting session's worktree at ship time, kept for tracing
+  // a post back to a commit. Not rendered: a ship whose code did not land is
+  // refused outright, so there is no "untrustworthy post" state to badge.
+  code?: ShipProvenance;
 };
+
+/**
+ * Settings-configurable icon: upload, replace, remove. Works identically on a
+ * roster box (icon keyed by the selected profile, `identityEmail`) and a
+ * roster-less hosted Computer (identityEmail is null there — the server
+ * resolves identity from the paired omg account instead; see
+ * iconIdentityKey in src/users.ts). Falls back to Gravatar/identicon, exactly
+ * like every other avatar in the app, until something is uploaded.
+ */
+function UserIconSettingsSection({ identityEmail }: { identityEmail: string | null }) {
+  const [state, setState] = useState<{ avatar: string; hasCustomIcon: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const query = identityEmail ? `?email=${encodeURIComponent(identityEmail)}` : "";
+
+  const load = useCallback(() => {
+    void omgFetch(`/api/settings/icon${query}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { avatar?: string; hasCustomIcon?: boolean } | null) => {
+        if (d?.avatar) setState({ avatar: d.avatar, hasCustomIcon: !!d.hasCustomIcon });
+      })
+      .catch(() => {});
+  }, [query]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function upload(file: File) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api<{ avatar: string }>(`/api/settings/icon${query}`, {
+        method: "POST",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      setState({ avatar: res.avatar, hasCustomIcon: true });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't upload that image");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api<{ avatar: string }>(`/api/settings/icon${query}`, {
+        method: "DELETE",
+      });
+      setState({ avatar: res.avatar, hasCustomIcon: false });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't remove that image");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="space-y-2">
+      <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        Icon
+      </h2>
+      <div className="flex items-center gap-4 rounded-2xl border border-border bg-card/40 px-4 py-3.5">
+        <span className="relative flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted">
+          {state?.avatar ? (
+            <img src={state.avatar} alt="" className="size-full object-cover" />
+          ) : (
+            <UserRound className="size-6 text-muted-foreground" />
+          )}
+          {busy ? (
+            <span className="absolute inset-0 flex items-center justify-center bg-background/60">
+              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            </span>
+          ) : null}
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <p className="text-xs text-muted-foreground">
+            Shown next to your sessions and in the facepile of anyone sharing this machine.
+            PNG, JPEG, WebP, or GIF, up to 5MB.
+          </p>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Camera className="size-3.5" />
+              {state?.hasCustomIcon ? "Replace" : "Upload"}
+            </Button>
+            {state?.hasCustomIcon ? (
+              <Button type="button" variant="outline" size="sm" disabled={busy} onClick={remove}>
+                <Trash2 className="size-3.5" />
+                Remove
+              </Button>
+            ) : null}
+          </div>
+          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) void upload(file);
+          }}
+        />
+      </div>
+    </section>
+  );
+}
+
+/**
+ * One version row in Settings > Computer.
+ *
+ * Copy is offered only when there is a real version behind it. "Unavailable"
+ * and "Disconnected" are states, not values, and putting either on someone's
+ * clipboard to paste into a bug report would be worse than offering nothing.
+ */
+function VersionRow({
+  icon,
+  iconClassName,
+  label,
+  detail,
+  value,
+  copyValue,
+}: {
+  icon: ReactNode;
+  iconClassName: string;
+  label: string;
+  detail: string;
+  value: string;
+  copyValue: string | null;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+    const id = setTimeout(() => setCopied(false), 1200);
+    return () => clearTimeout(id);
+  }, [copied]);
+
+  // min-w-0 + truncate on the label column and shrink-0 on the value keeps a
+  // long label from pushing the number off a 320px screen.
+  const body = (
+    <>
+      <div className="flex min-w-0 items-center gap-3">
+        <span
+          className={cn(
+            "flex size-7 shrink-0 items-center justify-center rounded-[7px]",
+            iconClassName,
+          )}
+        >
+          {icon}
+        </span>
+        <span className="min-w-0">
+          <span className="block text-sm font-medium">{label}</span>
+          <span className="block truncate text-xs text-muted-foreground">{detail}</span>
+        </span>
+      </div>
+      <span className="flex shrink-0 items-center gap-2">
+        <span
+          className={cn(
+            "text-sm font-semibold tabular-nums",
+            copyValue ? "font-mono" : "text-muted-foreground",
+          )}
+        >
+          {value}
+        </span>
+        {copyValue ? (
+          copied ? (
+            <Check className="size-3.5 text-success" />
+          ) : (
+            <Copy className="size-3.5 text-muted-foreground/60" />
+          )
+        ) : null}
+      </span>
+    </>
+  );
+
+  if (!copyValue) {
+    return <div className="flex items-center justify-between gap-3 px-4 py-2.5">{body}</div>;
+  }
+
+  return (
+    <button
+      type="button"
+      aria-label={`Copy ${label} version ${copyValue}`}
+      onClick={() => {
+        void copyMessageText(copyValue)
+          .then(() => setCopied(true))
+          .catch(() => toast.error("Could not copy the version"));
+      }}
+      className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
+    >
+      {body}
+    </button>
+  );
+}
 
 function SettingsView({
   user,
@@ -22433,6 +24570,7 @@ function SettingsView({
   onOpenStorage,
   onOpenMore,
   connection,
+  computerVersionReport,
 }: {
   user: string | null;
   settings: GlobalSettings;
@@ -22442,12 +24580,30 @@ function SettingsView({
   onOpenStorage: () => void;
   onOpenMore: () => void;
   connection: ConnectionState | null;
+  computerVersionReport: { version: string | null; generation: number } | null;
 }) {
   const initial = (user ?? "").trim().slice(0, 1).toUpperCase() || "?";
   // A host mounting this page renders the signed-in account itself — and its
   // account is the real one, where ours is only a per-device session tag. Two
   // identity blocks on one page is worse than none.
   const bare = useBareSurface();
+
+  // The two halves of "what am I actually looking at", resolved from two
+  // independent sources: FRONTEND_VERSION is stamped into this bundle at build
+  // time, and the Computer value comes only from that box's own bootstrap
+  // response. Neither falls back to the other — see version-diagnostics.ts.
+  const computerVersion = resolveComputerVersion({
+    reported: computerVersionReport?.version,
+    loaded: computerVersionReport != null,
+    connection: connection?.status ?? null,
+    // A number captured over a previous transport describes the machine we
+    // just switched away from, so it is dropped rather than relabelled.
+    stale:
+      computerVersionReport != null &&
+      computerVersionReport.generation !== omgTransportGeneration(),
+  });
+  const versionSkew = versionRelation(FRONTEND_VERSION, computerVersion);
+  const versionNote = versionMismatchNote(versionSkew);
 
   return (
     <div className="mx-auto max-w-xl space-y-8 pb-10" data-lfg-page-column>
@@ -22466,6 +24622,8 @@ function SettingsView({
         </div>
       </div>
       )}
+
+      <UserIconSettingsSection identityEmail={user} />
 
       {/* Live browser-to-server RTT, measured over the same socket that carries
           session updates. This is intentionally dynamic rather than a cached
@@ -22570,7 +24728,36 @@ function SettingsView({
             </div>
             <ChevronRight className="size-4 text-muted-foreground/60" />
           </button>
+          {/* Two independent facts, side by side, so a skew is visible without
+              reading logs: which UI build is rendering, and what the selected
+              Computer is really executing. */}
+          <VersionRow
+            icon={<Layers className="size-4" />}
+            iconClassName="bg-muted text-foreground/70"
+            label="Frontend"
+            detail="This app build"
+            value={formatVersion(FRONTEND_VERSION)}
+            copyValue={FRONTEND_VERSION ? `v${FRONTEND_VERSION}` : null}
+          />
+          <VersionRow
+            icon={<Cpu className="size-4" />}
+            iconClassName="bg-foreground text-background"
+            label="Computer"
+            detail="Runtime on this machine"
+            value={formatComputerVersion(computerVersion)}
+            copyValue={copyableVersion(computerVersion)}
+          />
         </div>
+        {versionNote ? (
+          <p
+            className={cn(
+              "px-4 text-xs text-pretty",
+              isVersionMismatch(versionSkew) ? "text-warning" : "text-muted-foreground",
+            )}
+          >
+            {versionNote}
+          </p>
+        ) : null}
       </section>
 
       <AgentConcurrencySettingsSection
@@ -22818,6 +25005,1262 @@ function MoreView({
   );
 }
 
+/**
+ * The stage when the bot surface has no session to show: either nothing is
+ * picked, or the picked bot has never been messaged and so has no backing
+ * session yet. The say-hi composer is what creates one — after which the
+ * normal SessionCard takes over and this is never seen again for that bot.
+ */
+function BotStagePlaceholder({
+  bot,
+  onNewBot,
+  onStarted,
+}: {
+  bot: PersistentBot | null;
+  onNewBot?: () => void;
+  onStarted: () => Promise<void>;
+}) {
+  if (bot && bot.enabled) {
+    return (
+      <section className="lfg-gborder flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-transparent bg-card">
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-6 text-center text-sm text-muted-foreground">
+          {/* Full size, full expressiveness: this is the one screen with room
+              for the creature to actually be a character. */}
+          <BotAvatar bot={bot} size={96} />
+          <span>Say hi to start your conversation with {bot.name}.</span>
+        </div>
+        <FirstBotMessageComposer bot={bot} onStarted={onStarted} />
+      </section>
+    );
+  }
+  return (
+    <div className="flex h-full flex-1 flex-col items-center justify-center">
+      <div className="lfg-gborder flex flex-col items-center gap-3 rounded-3xl border border-transparent bg-card px-8 py-10 text-center shadow-[0_12px_40px_-24px_rgba(0,0,0,0.5)]">
+        <BotMascot shape="circle" colorway="warm" size={72} state="sleeping" title="No bot open" />
+        <div>
+          <div className="font-semibold">{bot ? `${bot.name} is disabled` : "No bot open"}</div>
+          <div className="mt-1 text-sm text-muted-foreground">
+            {bot
+              ? "Re-enable it in its settings to keep talking to it."
+              : "Pick one from the rail."}
+          </div>
+        </div>
+        {!bot && onNewBot ? (
+          <Button variant="brand" className="lfg-gborder lfg-gborder--brand" onClick={onNewBot}>
+            <Plus className="size-4" />
+            New bot
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function SurfaceToggle({
+  active,
+  onOpenSessions,
+  onOpenBots,
+  compact = false,
+}: {
+  active: "sessions" | "chat";
+  onOpenSessions: () => void;
+  onOpenBots: () => void;
+  compact?: boolean;
+}) {
+  const { any: botsUnread } = useContext(BotUnreadContext);
+  // This is the one segmented-toggle component both the desktop rail header
+  // (RailStage, isWide-only) and the mobile Chat/Bots header render — one
+  // navigation idiom, two mount points, instead of a second control. It used
+  // to hard-hide at mobile widths (docs/design/bot-mode/spec.md §2.1 predates
+  // the mobile primary-nav toggle); callers now decide where it mounts.
+  const barRef = useRef<HTMLDivElement>(null);
+  const pillRef = useRef<HTMLSpanElement>(null);
+  const initializedRef = useRef(false);
+  const movePill = useCallback((animate: boolean) => {
+    const bar = barRef.current;
+    const pill = pillRef.current;
+    const tab = bar?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    if (!bar || !pill || !tab) return;
+    const previousTransition = pill.style.transition;
+    if (!animate) pill.style.transition = "none";
+    pill.style.transform = `translateX(${tab.offsetLeft}px)`;
+    pill.style.width = `${tab.offsetWidth}px`;
+    if (!animate) {
+      void pill.offsetWidth;
+      pill.style.transition = previousTransition;
+    }
+  }, []);
+  useLayoutEffect(() => {
+    movePill(initializedRef.current);
+    initializedRef.current = true;
+  }, [active, movePill]);
+  useEffect(() => {
+    const sync = () => movePill(false);
+    window.addEventListener("resize", sync);
+    return () => window.removeEventListener("resize", sync);
+  }, [movePill]);
+
+  return (
+    <div
+      ref={barRef}
+      className={cn(
+        "t-tabs lfg-surface-toggle",
+        compact
+          ? "lfg-surface-toggle--dock w-[13rem] max-w-[calc(100vw-2rem)]"
+          : "w-full",
+      )}
+      role="tablist"
+      aria-label="Switch surface"
+    >
+      <span ref={pillRef} className="t-tabs-pill" aria-hidden="true" />
+      {([
+        ["sessions", "Chat", onOpenSessions],
+        ["chat", "Bots", onOpenBots],
+      ] as const).map(([value, label, onClick]) => (
+        <button
+          key={value}
+          type="button"
+          role="tab"
+          aria-selected={active === value}
+          onClick={onClick}
+          className="t-tab flex flex-1 items-center justify-center gap-1.5 text-xs font-semibold"
+        >
+          {compact ? (
+            value === "sessions" ? <MessageSquare className="size-3.5" /> : <Bot className="size-3.5" />
+          ) : null}
+          <span>{label}</span>
+          {value === "chat" && botsUnread ? (
+            <span className="ml-1 flex items-center" role="status" aria-label="Bots have unread conversations">
+              <span className={BOT_UNREAD_DOT_CLASS} aria-hidden="true" />
+            </span>
+          ) : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function MobileSurfaceDock({
+  active,
+  aboveComposer,
+  onOpenSessions,
+  onOpenBots,
+}: {
+  active: "sessions" | "chat";
+  aboveComposer: boolean;
+  onOpenSessions: () => void;
+  onOpenBots: () => void;
+}) {
+  return (
+    <div
+      className="pointer-events-none fixed inset-x-0 z-[56] flex justify-center px-4 pb-2"
+      style={{ bottom: mobileSurfaceDockBottom(aboveComposer) }}
+    >
+      <SurfaceToggle
+        compact
+        active={active}
+        onOpenSessions={onOpenSessions}
+        onOpenBots={onOpenBots}
+      />
+    </div>
+  );
+}
+
+/** Stable per-bot phase offset, so a roster breathes out of lockstep. */
+function botSeed(id: string): number {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
+  return Math.abs(hash);
+}
+
+function BotAvatar({
+  bot,
+  size = 44,
+  className,
+  working = false,
+}: {
+  bot: PersistentBot;
+  size?: number;
+  className?: string;
+  working?: boolean;
+}) {
+  // The creature carries the bot's state: it works when the session works,
+  // and a disabled bot is asleep rather than merely greyed out.
+  const state: BotMotionState = !bot.enabled ? "sleeping" : working ? "working" : "idle";
+  return (
+    <span
+      className={cn(
+        "relative flex shrink-0 items-center justify-center leading-none",
+        !bot.enabled && "opacity-60",
+        className,
+      )}
+      style={{ width: size, height: size }}
+    >
+      <BotMascot
+        shape={bot.shape}
+        colorway={bot.colorway}
+        size={size}
+        state={state}
+        seed={botSeed(bot.id)}
+        title={bot.name}
+      />
+    </span>
+  );
+}
+
+/**
+ * A session's identity mark in a header: the bot's own avatar when the
+ * session is bot-driven and the bot directory has resolved it, a neutral
+ * loading creature while it hasn't, and the harness's agent icon (the safe
+ * fallback) for a session with no bot at all. See resolveSessionHeaderIdentity
+ * for the branch logic — shared, so the session card header and the mobile
+ * session sheet header render the same way instead of each keeping its own
+ * copy of the bot lookup.
+ */
+function SessionHeaderIdentity({
+  session,
+  busy,
+  size = 28,
+  trustedBotId,
+}: {
+  session: Session;
+  busy: boolean;
+  size?: number;
+  // Passed by SessionCard on the bot-stage column, where the caller already
+  // resolved and verified the bot via the canonical picker. When present
+  // (including explicitly null) it wins outright; productBotId only runs for
+  // callers that never resolved a trusted id themselves (e.g. the mobile
+  // session detail sheet, opened generically from the session list).
+  trustedBotId?: string | null;
+}) {
+  const botDirectory = useContext(BotDirectoryContext);
+  const identity = resolveSessionHeaderIdentity(
+    { ...session, botId: renderedBotId(session, trustedBotId) },
+    botDirectory,
+  );
+
+  if (identity.kind === "bot") {
+    return (
+      <div
+        className="flex shrink-0 items-center justify-center"
+        style={{ width: size, height: size }}
+      >
+        <BotAvatar bot={identity.bot} working={busy} size={size} />
+      </div>
+    );
+  }
+  if (identity.kind === "bot-loading") {
+    return (
+      <div
+        className="flex shrink-0 items-center justify-center"
+        style={{ width: size, height: size }}
+      >
+        <BotMascot state={busy ? "working" : "idle"} size={size} />
+      </div>
+    );
+  }
+  return (
+    <div
+      className="relative flex shrink-0 items-center justify-center rounded-lg text-muted-foreground"
+      style={{ width: size, height: size }}
+    >
+      {busy ? (
+        <Loader2
+          className="absolute inset-0 m-auto size-6 animate-spin text-warning"
+          strokeWidth={1.75}
+        />
+      ) : null}
+      {/* "aisdk" is Claude Code under the hood (driven via the AI SDK), so it
+          wears the same Claude mark as a tmux claude session; only the
+          new-session picker keeps a distinct label to tell them apart. */}
+      <SessionAgentIcon
+        session={session}
+        className={cn(
+          "rounded-lg transition-all duration-300 ease-ios",
+          busy ? "size-4" : "size-6",
+        )}
+        size={busy ? "sm" : "md"}
+      />
+    </div>
+  );
+}
+
+function DrivenByBotBadge({ session }: { session: Session }) {
+  const directory = useContext(BotDirectoryContext);
+  const openBot = useContext(OpenBotContext);
+  if (!session.botId || !session.botName) return null;
+  const bot = directory.get(session.botId);
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation();
+        openBot(session.botId!);
+      }}
+      className="flex max-w-36 shrink-0 items-center gap-1 rounded-full bg-primary/12 px-2 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20"
+      title={`Open ${session.botName}`}
+    >
+      <BotMascot
+        shape={bot?.shape}
+        colorway={bot?.colorway}
+        size={14}
+        state="idle"
+        seed={session.botId.length}
+      />
+      <span className="truncate">driven by {session.botName}</span>
+    </button>
+  );
+}
+
+/** Ownership pill for a bot-owned automation row — same visual language and
+ *  context as DrivenByBotBadge, generalized rather than duplicated. Renders
+ *  nothing for a user-owned row (the common case stays unmarked).
+ *
+ *  A `<span role="button">`, not a `<button>`: every call site so far sits
+ *  inside the row's own onEdit button, and a nested <button> is invalid HTML
+ *  (and fights the parent for the click). Keyboard-operable via Enter/Space
+ *  to keep it a real control despite the element choice. */
+function AutoAgentOwnerBadge({ owner }: { owner: AutoAgentOwner | undefined }) {
+  const directory = useContext(BotDirectoryContext);
+  const openBot = useContext(OpenBotContext);
+  if (!owner || owner.kind !== "bot") return null;
+  const bot = directory.get(owner.botId);
+  const open = (event: { stopPropagation: () => void; preventDefault: () => void }) => {
+    event.stopPropagation();
+    event.preventDefault();
+    openBot(owner.botId);
+  };
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      onClick={open}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") open(event);
+      }}
+      className="flex shrink-0 items-center gap-1 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20"
+      title={bot ? `Owned by ${bot.name}` : "Owned by a deleted bot"}
+    >
+      <BotMascot
+        shape={bot?.shape}
+        colorway={bot?.colorway}
+        size={12}
+        state="idle"
+        seed={owner.botId.length}
+      />
+      <span className="max-w-20 truncate">{bot?.name ?? "deleted bot"}</span>
+    </span>
+  );
+}
+
+function FirstBotMessageComposer({
+  bot,
+  onStarted,
+}: {
+  bot: PersistentBot;
+  onStarted: (sessionId: string) => void | Promise<void>;
+}) {
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  async function send(event: FormEvent) {
+    event.preventDefault();
+    const message = text.trim();
+    if (!message || sending) return;
+    setSending(true);
+    try {
+      const result = await api<{ sessionId: string }>(
+        `/api/bots/${encodeURIComponent(bot.id)}/messages`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: message }),
+        },
+      );
+      setText("");
+      await onStarted(result.sessionId);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSending(false);
+    }
+  }
+  return (
+    <form
+      onSubmit={send}
+      className="bg-background px-2 pb-[calc(0.5rem+var(--lfg-safe-bottom))] pt-1.5"
+    >
+      <div className="flex items-center gap-2">
+        <ComposerTextarea
+          value={text}
+          onValueChange={setText}
+          rows={1}
+          autoFocus
+          placeholder={`Message ${bot.name}…`}
+          className="lfg-gfield min-h-11 rounded-2xl border-transparent px-4 py-3 text-base md:min-h-9 md:py-2 md:text-sm"
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              event.currentTarget.form?.requestSubmit();
+            }
+          }}
+        />
+        <Button
+          type="submit"
+          variant="brand"
+          size="icon"
+          className="size-11 rounded-full md:size-9"
+          disabled={sending || !text.trim()}
+          aria-label="Send"
+        >
+          {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function reportBotChatError(message: string | null) {
+  if (message) toast.error(message);
+}
+
+type BotRestartResponse = {
+  ok: true;
+  state: "restarted" | "queued" | "already-restarted";
+  conversationId: string | null;
+  runtimeSessionId: string | null;
+  previousRuntimeSessionId?: string | null;
+  blocked?: "primary-busy" | "children-active";
+  activeChildren?: number;
+};
+
+/** The bot-chat-only lifecycle menu, shared by desktop and mobile headers. */
+function BotConversationMenu({
+  bot,
+  runtimeHealthy,
+  busy,
+  onEdit,
+  onRefresh,
+}: {
+  bot: PersistentBot;
+  runtimeHealthy: boolean;
+  busy: boolean;
+  onEdit: () => void;
+  onRefresh: () => Promise<void>;
+}) {
+  const [restarting, setRestarting] = useState(false);
+  const restart = useCallback(async () => {
+    if (restarting) return;
+    setRestarting(true);
+    const toastId = `bot-restart-${bot.id}`;
+    toast.loading("Restarting the bot runtime…", { id: toastId });
+    try {
+      const result = await api<BotRestartResponse>(`/api/bots/${encodeURIComponent(bot.id)}/restart`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedRuntimeSessionId: bot.sessionId ?? null }),
+      });
+      // The lifecycle response is authoritative. A transient roster refresh
+      // failure must not turn a completed restart into a false failure toast;
+      // the normal poll/live stream will reconcile the view.
+      await onRefresh().catch(() => {});
+      if (result.state === "queued") {
+        const detail = result.blocked === "children-active"
+          ? ` after ${result.activeChildren || 1} active child task${result.activeChildren === 1 ? "" : "s"} finish`
+          : " after the current work and queued messages finish";
+        toast.success(`Restart queued${detail}.`, { id: toastId });
+      } else if (result.state === "already-restarted") {
+        toast.success("The runtime was already restarted.", { id: toastId });
+      } else {
+        toast.success("Runtime restarted. Conversation and history were preserved.", { id: toastId });
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not restart the bot runtime", { id: toastId });
+    } finally {
+      setRestarting(false);
+    }
+  }, [bot, onRefresh, restarting]);
+  const unavailable = !bot.enabled
+    ? "Restart unavailable — bot is disabled"
+    : !bot.conversationId && !bot.sessionId
+      ? "Restart unavailable — start the conversation first"
+      : null;
+  const persistedRestartState = bot.rotationReason === "restart" ? bot.rotationState : null;
+  const restartItem = unavailable ? (
+    <DropdownMenuItem disabled aria-label={unavailable}>
+      <RotateCcw className="size-4" />
+      {unavailable}
+    </DropdownMenuItem>
+  ) : restarting || persistedRestartState === "rotating" ? (
+    <DropdownMenuItem disabled aria-label="Restarting session">
+      <Loader2 className="size-4 animate-spin" />
+      Restarting…
+    </DropdownMenuItem>
+  ) : persistedRestartState === "queued" ? (
+    <DropdownMenuItem disabled aria-label="Restart queued">
+      <Clock3 className="size-4" />
+      Restart queued
+    </DropdownMenuItem>
+  ) : runtimeHealthy ? (
+    <DoubleConfirmAction
+      resetKey={`${bot.id}:${bot.sessionId ?? "none"}:${busy ? "busy" : "idle"}`}
+      label="Restart session"
+      confirmLabel={busy ? "Queue restart after current work" : "Confirm restart"}
+      pendingLabel={busy ? "Queuing restart…" : "Restarting…"}
+      icon={<RotateCcw className="size-4" />}
+      confirmIcon={<RotateCcw className="size-4" />}
+      render={<DropdownMenuItem />}
+      onConfirm={restart}
+    />
+  ) : (
+    <DropdownMenuItem onClick={() => void restart()} aria-label="Restart session">
+      <RotateCcw className="size-4" />
+      Restart session
+    </DropdownMenuItem>
+  );
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+            aria-label={`${bot.name} conversation menu`}
+          />
+        }
+      >
+        <MoreVertical className="size-4" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-56">
+        <DropdownMenuItem onClick={onEdit} aria-label="Bot settings">
+          <Settings className="size-4" />
+          Bot settings
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {restartItem}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function BotsView({
+  bots,
+  sessions,
+  selectedBotId,
+  selectedConversationId,
+  busyBySid,
+  onSubscribeTranscript,
+  onOpen,
+  onBack,
+  onOpenSessions,
+  onNew,
+  onEdit,
+  onRefreshBots,
+  onRefreshSessions,
+}: {
+  bots: PersistentBot[];
+  sessions: Session[];
+  selectedBotId: string | null;
+  busyBySid: Record<string, boolean>;
+  onSubscribeTranscript?: OmgTranscriptSubscribe;
+  selectedConversationId: string | null;
+  onOpen: (id: string, conversationId?: string | null) => void;
+  onBack: () => void;
+  onOpenSessions: () => void;
+  onNew: () => void;
+  onEdit: (bot: PersistentBot) => void;
+  onRefreshBots: () => Promise<void>;
+  onRefreshSessions: () => Promise<void>;
+}) {
+  const isMobile = useIsMobile();
+  const { conversations } = useContext(BotUnreadContext);
+  const bot = selectedBotId ? bots.find((item) => item.id === selectedBotId) ?? null : null;
+  useEffect(() => {
+    if (!isMobile || !bot) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [bot, isMobile]);
+
+  if (bot) {
+    const mainSid = botChatSessionId(bot, sessions);
+    const selectedRow = selectedConversationId
+      ? conversations.find((row) => row.botId === bot.id && (
+          row.conversationId === selectedConversationId || row.sessionId === selectedConversationId
+        ))
+      : undefined;
+    const sid = selectedRow?.sessionId ?? mainSid;
+    const backingSession =
+      sid === mainSid
+        ? findBotMainSession(bot, sessions)
+        : sessions.find((session) => session.sessionId === sid);
+    const session: Session | null = sid
+      ? backingSession ?? {
+          sessionId: sid,
+          title: bot.name,
+          agent: bot.agent,
+          model: bot.model,
+          thinkingLevel: bot.thinkingLevel,
+          cwd: bot.cwd,
+          botId: bot.id,
+          botName: bot.name,
+          managed: true,
+        }
+      : null;
+    const busy = !!(sid && busyBySid[sid]);
+    const chat = session ? (
+      <SessionChat
+        session={session}
+        bot={bot}
+        busy={busy}
+        prompt={null}
+        error={null}
+        onError={reportBotChatError}
+        onSubscribeTranscript={onSubscribeTranscript}
+        onRefresh={async () => {
+          await Promise.all([onRefreshBots(), onRefreshSessions()]);
+        }}
+      />
+    ) : bot.enabled ? (
+      <>
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-6 text-center text-sm text-muted-foreground">
+          {/* Full size, full expressiveness: this is the one screen with room
+              for the creature to actually be a character. */}
+          <BotAvatar bot={bot} size={96} />
+          <span>Say hi to start your conversation with {bot.name}.</span>
+        </div>
+        <FirstBotMessageComposer
+          bot={bot}
+          onStarted={async () => {
+            await Promise.all([onRefreshBots(), onRefreshSessions()]);
+          }}
+        />
+      </>
+    ) : (
+      <>
+        <div className="flex min-h-0 flex-1 items-end p-3">
+          <div className="w-full rounded-2xl border border-dashed border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+            This bot is disabled. Re-enable it in settings to keep talking to it.
+          </div>
+        </div>
+      </>
+    );
+
+    if (isMobile) {
+      return createPortal(
+        <div
+          className="fixed inset-x-0 z-[90]"
+          style={{
+            top: "var(--lfg-visual-offset-top, 0px)",
+            height: "var(--lfg-visual-height, var(--lfg-app-height, 100dvh))",
+          }}
+        >
+          <section className="absolute inset-0 flex flex-col overflow-hidden bg-background text-foreground">
+            <header
+              className="flex items-center gap-2 border-b border-border px-4 pb-3"
+              style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.75rem)" }}
+            >
+              {/* This chat is a full-screen portal above the app shell, so its
+                  own header is the only way out. An open conversation owns the
+                  surface: the Chat/Bots switch belongs to the roster and the
+                  list pages, never inside a conversation, so this Back button
+                  is the exit. Icon-only — the "Bots" label used to ride along
+                  with the chevron, but the destination is already implied by
+                  what the button is exiting. Kept a square, thumb-sized hit
+                  target (size-9, matching the other icon-only header controls)
+                  so the label's removal doesn't shrink what's tappable. */}
+              <button
+                type="button"
+                onClick={onBack}
+                aria-label="Back to bots"
+                className="-ml-2 flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground active:scale-[0.96]"
+              >
+                <ChevronLeft className="size-[18px]" />
+              </button>
+              <BotAvatar bot={bot} working={busy} size={28} />
+              {/* This header is the bot's identity and settings — never who
+                  created or owns the conversation. A shared thread's other
+                  humans get their face beside the messages they actually
+                  wrote (see OtherHumanMessageBubble), not a chip up here. */}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[15px] font-semibold leading-tight">{bot.name}</span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {bot.enabled ? (busy ? "working" : "idle") : "disabled"}
+                </span>
+              </span>
+              <BotConversationMenu
+                bot={bot}
+                runtimeHealthy={!!backingSession}
+                busy={busy}
+                onEdit={() => onEdit(bot)}
+                onRefresh={async () => {
+                  await Promise.all([onRefreshBots(), onRefreshSessions()]);
+                }}
+              />
+            </header>
+            <div className="flex min-h-0 flex-1 flex-col">{chat}</div>
+          </section>
+        </div>,
+        document.body,
+      );
+    }
+
+    return (
+      <section className="mx-auto flex h-[calc(100dvh-6rem)] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border bg-card md:h-[calc(100dvh-7rem)]" data-lfg-page-column>
+        <header className="flex min-h-[3.75rem] items-center gap-2 border-b border-border px-3 py-2">
+          <Button variant="ghost" size="icon-sm" onClick={onBack} aria-label="Back to bots">
+            <ChevronLeft className="size-5" />
+          </Button>
+          <BotAvatar bot={bot} working={busy} size={32} />
+          {/* Bot identity + settings only — see the note on the mobile header
+              above. */}
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[15px] font-semibold leading-tight">{bot.name}</span>
+            <span className="block truncate text-xs text-muted-foreground">
+              {bot.persona.slice(0, 60)} · {bot.enabled ? (busy ? "working" : "idle") : "disabled"}
+            </span>
+          </span>
+          <BotConversationMenu
+            bot={bot}
+            runtimeHealthy={!!backingSession}
+            busy={busy}
+            onEdit={() => onEdit(bot)}
+            onRefresh={async () => {
+              await Promise.all([onRefreshBots(), onRefreshSessions()]);
+            }}
+          />
+        </header>
+        {chat}
+      </section>
+    );
+  }
+
+  return (
+    <div className="mx-auto flex max-w-3xl flex-col gap-3" data-lfg-page-column>
+      {/* Tablet band only (no persistent header toggle there yet) — real
+          mobile gets the pinned Chat/Bot toggle in the app shell's mobile
+          chrome instead, so it isn't doubled here. */}
+      {shouldShowInlineBotsSurfaceToggle(isMobile) ? (
+        <SurfaceToggle active="chat" onOpenSessions={onOpenSessions} onOpenBots={() => {}} />
+      ) : null}
+      <div className="flex items-center gap-3 px-2 pb-3 pt-5">
+        <h1 className="min-w-0 flex-1 text-[32px] font-bold leading-tight tracking-tight">Bots</h1>
+        <button
+          type="button"
+          onClick={onNew}
+          aria-label="New bot"
+          className="shrink-0 px-1 text-base font-medium text-primary transition-colors hover:text-primary/80"
+        >
+          New
+        </button>
+      </div>
+      {bots.length ? botConversationRows(bots, sessions, conversations).map((row) => {
+        const item = row.bot;
+        const session = row.session;
+        const working = !!(session?.sessionId && busyBySid[session.sessionId]);
+        const rawPreview = session?.last?.text || session?.lastUserText || row.lastMessagePreview || item.lastMessagePreview || "";
+        // See the rail roster: a `[subagent …]` report is not preview material.
+        const preview = plainPreviewText(botRosterPreview(rawPreview, working));
+        const stopped = !working && isCodingAgentStoppedText(rawPreview);
+        return (
+          <button
+            key={row.key}
+            type="button"
+            onClick={() => onOpen(item.id, row.conversationId)}
+            aria-label={`${item.name}${row.unread ? ", unread conversation" : ""}`}
+            className={MOBILE_BOT_ROSTER_ROW_CLASS}
+          >
+            <BotAvatar bot={item} working={working} size={56} />
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className={cn("truncate text-base font-semibold", !item.enabled && "text-muted-foreground")}>{item.name}</span>
+              {preview ? (
+                <span className={cn("truncate text-sm", stopped ? "text-destructive" : "text-muted-foreground")}>{preview}</span>
+              ) : null}
+            </span>
+            {row.unread ? (
+              <span role="status" aria-label={`Unread conversation with ${item.name}`}>
+                <span className={BOT_UNREAD_DOT_CLASS} aria-hidden="true" />
+              </span>
+            ) : null}
+            {row.lastMessageTs || item.lastMessageAt ? (
+              <span className="shrink-0 text-xs tabular-nums text-muted-foreground/70">{relTime(row.lastMessageTs || item.lastMessageAt!)}</span>
+            ) : null}
+            {!item.enabled ? <Badge variant="secondary">Disabled</Badge> : null}
+          </button>
+        );
+      }) : (
+        // Create lives in the header "New" control so the empty card is
+        // only the heading.
+        <div className="flex flex-col items-center rounded-xl border border-border bg-card p-10 text-center">
+          {/* One creature, asleep, waiting to be woken by the first bot. */}
+          <BotMascot
+            shape="circle"
+            colorway="warm"
+            size={72}
+            state="sleeping"
+            className="mb-4"
+            title="No bots yet"
+          />
+          <span className="block text-base font-medium text-foreground">No bots yet.</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BotEditorPage({
+  bot,
+  repos,
+  codingAgents,
+  autoAgents = [],
+  maxBotSchedules,
+  quota,
+  tz,
+  onClose,
+  onSave,
+  onRefresh,
+  onDelete,
+  onEditRoutine,
+}: {
+  bot: PersistentBot | "new";
+  repos: Repo[];
+  codingAgents: CodingAgentInfo[];
+  autoAgents?: AutoAgent[];
+  maxBotSchedules?: number;
+  quota?: PersistentBotQuota | null;
+  tz?: string;
+  onClose: () => void;
+  onSave: (input: {
+    id?: string;
+    name: string;
+    shape?: BotShape;
+    colorway?: BotColorway;
+    persona: string;
+    agent: AgentKind;
+    model?: string;
+    thinkingLevel?: string;
+    cwd?: string;
+    enabled: boolean;
+  }) => Promise<PersistentBot | null>;
+  onRefresh: (bot: PersistentBot) => Promise<{
+    configStatus: NonNullable<PersistentBot["configStatus"]>;
+    rotationError?: string;
+  } | null>;
+  onDelete: (id: string) => void | Promise<void>;
+  onEditRoutine?: (agent: AutoAgent) => void;
+}) {
+  const isMobile = useIsMobile();
+  const editing = bot !== "new";
+  const ownRoutines = editing
+    ? autoAgents.filter((a) => a.owner?.kind === "bot" && a.owner.botId === bot.id)
+    : [];
+  const initialAgent = editing && AGENT_MODELS[bot.agent as AgentKind]
+    ? bot.agent as AgentKind
+    : "aisdk";
+  const defaultModel = useAgentDefaultModel(initialAgent);
+  const [name, setName] = useState(editing ? bot.name : "");
+  const [persona, setPersona] = useState(editing ? bot.persona : "");
+  const [enabled, setEnabled] = useState(editing ? bot.enabled : true);
+  // A new bot defaults to the repo you last launched into, the same as the
+  // session composer. Falling straight to repos[0] picked whatever sorted
+  // first (app-blocker here), which is a surprising home for a bot.
+  const [cwd, setCwd] = useState(() => {
+    if (editing) return bot.cwd ?? repos[0]?.cwd ?? "";
+    const remembered = localStorage.getItem("lfg_v2_repo");
+    return repos.some((repo) => repo.cwd === remembered)
+      ? remembered!
+      : repos[0]?.cwd ?? "";
+  });
+  // Avatar identity. A new bot opens on a random shape/colorway pair rather
+  // than always the warm circle, so the first thing you see is a creature that
+  // already looks like somebody — and picking is a nudge, not a chore.
+  const [shape, setShape] = useState<BotShape>(
+    editing ? bot.shape ?? "circle" : BOT_SHAPES[Math.floor(Math.random() * BOT_SHAPES.length)],
+  );
+  const [colorway, setColorway] = useState<BotColorway>(
+    editing
+      ? bot.colorway ?? "warm"
+      : BOT_COLORWAYS[Math.floor(Math.random() * BOT_COLORWAYS.length)],
+  );
+  const [backend, setBackend] = useState<AgentKind>(initialAgent);
+  const [model, setModel] = useState(editing ? bot.model ?? defaultModel : defaultModel);
+  const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(editing ? bot.thinkingLevel ?? savedThinkingLevel() : savedThinkingLevel());
+  const [advanced, setAdvanced] = useState(false);
+  const quotaCopy = !editing && quota ? botQuotaPresentation(quota) : null;
+  const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [configRevision, setConfigRevision] = useState(editing ? bot.configRevision ?? 1 : 1);
+  const [configStatus, setConfigStatus] = useState<NonNullable<PersistentBot["configStatus"]>>(
+    editing ? bot.configStatus ?? "current" : "current",
+  );
+  const [rotationError, setRotationError] = useState(editing ? bot.rotationError : undefined);
+  const models = useAgentModels(backend);
+  const backendDefault = useAgentDefaultModel(backend);
+  useEffect(() => {
+    if (!models.includes(model)) setModel(backendDefault);
+  }, [backendDefault, model, models]);
+  // On a phone this page covers the app, so the list behind it must not scroll
+  // under it — the same lock the bot chat takes when it goes full screen.
+  useEffect(() => {
+    if (!isMobile) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isMobile]);
+
+  const canSubmit = !!name.trim() && !!persona.trim() && !quotaCopy?.reached;
+  const submit = async () => {
+    if (!canSubmit || saving) return;
+    setSaving(true);
+    const saved = await onSave({
+      id: editing ? bot.id : undefined,
+      name: name.trim(),
+      shape,
+      colorway,
+      persona: persona.trim(),
+      agent: backend,
+      model: model || undefined,
+      thinkingLevel: agentSupportsThinking(backend) ? thinkingLevel : undefined,
+      cwd: cwd || undefined,
+      enabled,
+    });
+    setSaving(false);
+    if (!saved) return;
+    setConfigRevision(saved.configRevision ?? configRevision);
+    setConfigStatus(saved.configStatus ?? "current");
+    setRotationError(saved.rotationError);
+  };
+
+  const applyChanges = async () => {
+    if (!editing || refreshing) return;
+    setRefreshing(true);
+    setConfigStatus("refreshing");
+    const result = await onRefresh({ ...bot, configRevision });
+    setRefreshing(false);
+    if (!result) return;
+    setConfigStatus(result.configStatus);
+    setRotationError(result.rotationError);
+  };
+
+  // Back, title, commit — the header every other full-screen surface in the app
+  // wears. The drag handle and the dimmed strip a sheet leans on are gone with
+  // the sheet; the way out of a page is Back.
+  const header = (
+    <>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={onClose}
+        aria-label={editing ? "Back to chat" : "Back to bots"}
+        className="shrink-0"
+      >
+        <ChevronLeft className="size-5" />
+      </Button>
+      <span className="min-w-0 flex-1 truncate text-[15px] font-semibold">
+        {editing ? "Edit bot" : "New bot"}
+      </span>
+      <Button size="sm" variant="brand" disabled={!canSubmit || saving} onClick={() => void submit()}>
+        {saving ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : null}
+        {editing ? "Save" : "Create"}
+      </Button>
+    </>
+  );
+
+  const fields = (
+    <>
+      {!editing && quotaCopy ? (
+        <div
+          role={quotaCopy.reached ? "alert" : "status"}
+          className={cn(
+            "mb-4 rounded-xl border px-3 py-2.5 text-sm",
+            quotaCopy.reached
+              ? "border-destructive/35 bg-destructive/5 text-destructive"
+              : "border-border bg-card/50 text-muted-foreground",
+          )}
+        >
+          <span className="block font-medium text-foreground">{quotaCopy.usage}</span>
+          {quotaCopy.limitMessage ? (
+            <span className="mt-0.5 block">{quotaCopy.limitMessage}</span>
+          ) : null}
+        </div>
+      ) : null}
+      {/* The live creature is the preview: it breathes and blinks while you
+          pick, so you meet the bot before you create it. It leads the page at
+          the size it will never otherwise be seen at — 56px in a row beside the
+          name field was a thumbnail of the thing you are here to choose, and
+          the shape and colour rows below it are picking details you could not
+          make out. The chat's own empty state already gives the creature 96px
+          for expressiveness; the screen where you DESIGN it should not go
+          smaller. Centred, because a hero that big beside a text field reads as
+          a mistake rather than a subject. */}
+      <div className="flex flex-col items-center gap-3">
+        <BotMascot
+          shape={shape}
+          colorway={colorway}
+          size={112}
+          state="idle"
+          seed={shape.length * 7 + colorway.length}
+          title="Bot avatar preview"
+        />
+        <input
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          autoFocus
+          placeholder="Bot name"
+          className="lfg-gfield w-full rounded-2xl px-3 py-2.5 text-center text-[17px] font-semibold outline-none"
+        />
+      </div>
+
+      <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Shape
+      </label>
+      <div className="mt-1.5 flex items-center gap-2">
+        {BOT_SHAPES.map((option) => (
+          <button
+            key={option}
+            type="button"
+            onClick={() => setShape(option)}
+            aria-pressed={shape === option}
+            title={SHAPE_LABELS[option]}
+            className={cn(
+              "rounded-2xl border p-1 transition",
+              shape === option
+                ? "border-primary bg-primary/10"
+                : "border-transparent hover:bg-muted",
+            )}
+          >
+            <BotMascot
+              shape={option}
+              colorway={colorway}
+              size={38}
+              state="idle"
+              seed={option.length * 3}
+            />
+          </button>
+        ))}
+      </div>
+
+      <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Color
+      </label>
+      <div className="mt-1.5 flex items-center gap-2">
+        {BOT_COLORWAYS.map((option) => (
+          <button
+            key={option}
+            type="button"
+            onClick={() => setColorway(option)}
+            aria-pressed={colorway === option}
+            title={COLORWAYS[option].name}
+            className={cn(
+              "size-9 rounded-full border-2 transition",
+              colorway === option
+                ? "border-primary scale-110"
+                : "border-transparent hover:scale-105",
+            )}
+            style={{
+              backgroundImage: `linear-gradient(135deg, ${COLORWAYS[option].stops[0]}, ${COLORWAYS[option].stops[1]})`,
+            }}
+          >
+            <span className="sr-only">{COLORWAYS[option].name}</span>
+          </button>
+        ))}
+      </div>
+
+      <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Persona</label>
+      <textarea
+        value={persona}
+        onChange={(event) => setPersona(event.target.value)}
+        rows={4}
+        placeholder="How this bot should think and talk…"
+        className="lfg-gfield mt-1 w-full resize-none rounded-2xl px-3 py-2 text-sm outline-none"
+      />
+
+      {editing ? (
+        <div
+          className={cn(
+            "mt-3 rounded-xl border px-3 py-2.5",
+            configStatus === "failed" ? "border-destructive/40 bg-destructive/5" : "border-border",
+          )}
+          data-bot-config-status={configStatus}
+        >
+          <div className="flex items-center gap-3">
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium">
+                {configStatus === "current" ? "Current" :
+                  configStatus === "update-available" ? "Update available" :
+                  configStatus === "queued" ? "Refresh queued" :
+                  configStatus === "refreshing" ? "Refreshing" : "Refresh failed"}
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                {configStatus === "current"
+                  ? "The active bot uses these instructions."
+                  : configStatus === "queued"
+                    ? "The bot will refresh after its current work and child tasks finish."
+                    : configStatus === "refreshing"
+                      ? "A fresh runtime is starting with the latest instructions."
+                      : configStatus === "failed"
+                        ? rotationError || "The old runtime is still active. Try again."
+                        : "Apply the saved instructions to a fresh runtime."}
+              </span>
+            </span>
+            {configStatus === "update-available" || configStatus === "failed" ? (
+              <Button size="sm" variant="outline" disabled={refreshing} onClick={() => void applyChanges()}>
+                {refreshing ? <Loader2 className="mr-1 size-3.5 animate-spin" /> : null}
+                Apply changes
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {editing ? (
+        <div className="mt-3 flex items-center justify-between rounded-xl border border-border px-3 py-2">
+          <span className="text-sm">Enabled</span>
+          <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Enable bot" />
+        </div>
+      ) : null}
+
+      <Collapsible open={advanced} onOpenChange={setAdvanced} className="mt-3">
+        <CollapsibleTrigger className="flex w-full items-center justify-between rounded-xl border border-border px-3 py-2 text-sm">
+          <span className="flex items-center gap-1.5">
+            <ChevronRight className={cn("size-3.5 transition-transform duration-150", advanced && "rotate-90")} />
+            Advanced
+          </span>
+          <span className="max-w-[55%] truncate text-xs text-muted-foreground">{backend} · {model}</span>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="pt-2">
+          <div className="flex items-center justify-between rounded-xl border border-border px-3 py-2">
+            <span className="flex items-center gap-2 text-sm"><Folder className="size-4 text-muted-foreground" /> Repo</span>
+            <select
+              value={cwd}
+              onChange={(event) => setCwd(event.target.value)}
+              className="max-w-44 appearance-none truncate bg-transparent text-right text-[13px] font-medium outline-none"
+            >
+              {!repos.length ? <option value="">(no repos)</option> : null}
+              {repos.map((repo) => <option key={repo.cwd} value={repo.cwd}>{repo.name}</option>)}
+            </select>
+          </div>
+          <AgentModelRow
+            backend={backend}
+            setBackend={setBackend}
+            model={model}
+            setModel={setModel}
+            thinkingLevel={thinkingLevel}
+            setThinkingLevel={setThinkingLevel}
+            codingAgents={codingAgents}
+            scheduledOnly={false}
+          />
+        </CollapsibleContent>
+      </Collapsible>
+
+      {/* Self-scheduled routines this bot owns — created and removed by the
+          bot itself, mid-conversation, via omg_schedule_routine /
+          omg_unschedule_routine. A human can still edit or delete any of
+          these (always admin), which opens the same AgentEditorSheet the
+          Schedules page uses. */}
+      {editing ? (
+        <div className="mt-6 rounded-xl border border-border">
+          <div className="flex items-center justify-between px-3 py-2.5">
+            <span className="flex items-center gap-2 text-sm font-medium">
+              <CalendarClock className="size-4 text-muted-foreground" />
+              Schedules
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {ownRoutines.length}{maxBotSchedules != null ? `/${maxBotSchedules}` : ""}
+            </span>
+          </div>
+          {ownRoutines.length ? (
+            <div className="divide-y divide-border border-t border-border">
+              {ownRoutines.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => onEditRoutine?.(a)}
+                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-muted/50"
+                >
+                  <span className="min-w-0 truncate text-sm">{a.name}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    <ScheduleSummary expr={a.schedule} tz={tz ?? "UTC"} />
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="border-t border-border px-3 py-2.5 text-xs text-muted-foreground">
+              This bot has not scheduled anything for itself yet.
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {/* Delete moved off the header row and down here. On a phone header space
+          is for Back and the one action you came to take; a destructive button
+          sitting a thumb-width from Save was the wrong neighbour. */}
+      {editing ? (
+        <div className="mt-6 flex items-center justify-between gap-3 rounded-xl border border-destructive/30 px-3 py-2.5">
+          <span className="min-w-0 text-sm text-muted-foreground">
+            {ownRoutines.length
+              ? `Delete this bot, its chat, and ${ownRoutines.length} scheduled routine${ownRoutines.length === 1 ? "" : "s"} it owns.`
+              : "Delete this bot and the chat that belongs to it."}
+          </span>
+          <DoubleConfirmAction
+            resetKey={bot.id}
+            label="Delete"
+            confirmLabel="Confirm delete"
+            icon={<Trash2 className="size-3.5" />}
+            confirmIcon={<Trash2 className="size-3.5" />}
+            render={<Button type="button" variant="destructive" size="sm" className="shrink-0" />}
+            onConfirm={() => onDelete(bot.id)}
+          />
+        </div>
+      ) : null}
+    </>
+  );
+
+  // Phone: the screen, edge to edge, above the app's own chrome — the same
+  // portal geometry the bot chat uses, so the two full-screen bot surfaces sit
+  // in exactly the same box and track the keyboard the same way.
+  if (isMobile) {
+    return createPortal(
+      <div
+        className="fixed inset-x-0 z-[95]"
+        style={{
+          top: "var(--lfg-visual-offset-top, 0px)",
+          height: "var(--lfg-visual-height, var(--lfg-app-height, 100dvh))",
+        }}
+      >
+        <section className="absolute inset-0 flex flex-col overflow-hidden bg-background text-foreground">
+          <header
+            className="flex items-center gap-2 border-b border-border px-3 pb-3"
+            style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.75rem)" }}
+          >
+            {header}
+          </header>
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(1.5rem+var(--lfg-safe-bottom))] pt-4">
+            {fields}
+          </div>
+        </section>
+      </div>,
+      document.body,
+    );
+  }
+
+  // Desktop: a page in the app's own column, keeping the header and nav that
+  // every other page keeps. A centred dialog was the old answer here, and a
+  // dialog is what made this feel like something hovering over the bots list
+  // rather than somewhere you went.
+  return (
+    <section className="mx-auto flex w-full max-w-3xl flex-col" data-lfg-page-column>
+      <header className="flex items-center gap-2 border-b border-border pb-3 pt-1">{header}</header>
+      <div className="pt-4">{fields}</div>
+    </section>
+  );
+}
+
 function AutoManageView({
   autoAgents = [],
   findings = [],
@@ -22892,6 +26335,7 @@ function AutoManageView({
             >
               <div className="flex items-center gap-2">
                 <span className="truncate text-sm font-semibold">{a.name}</span>
+                <AutoAgentOwnerBadge owner={a.owner} />
                 {openByAgent(a.id) ? (
                   <span className="shrink-0 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
                     {openByAgent(a.id)} open

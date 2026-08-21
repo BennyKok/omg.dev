@@ -179,6 +179,7 @@ const HARNESS_BINARIES = new Set([
   "grok",
   "cursor",
   "cursor-agent",
+  "fx",
   "opencode",
   "copilot",
   "pi",
