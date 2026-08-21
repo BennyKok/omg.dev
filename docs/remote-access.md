@@ -51,10 +51,10 @@ saved OMG binding. Use `omg connect --new` only when you intentionally want a
 fresh binding, or `--no-install` to require an existing OMG install.
 
 The hosted `omg login && omg connect` convenience wrapper is owned by
-`BennyKok/vibes`. Do not install `@omg-dev/cli` 0.4.x for that path — that
-package is the retired prompt-to-app CLI. This repository's `@omg-dev/cli`
-0.5.0+ installs the local control plane only. The `omg connect <code>` command
-and the wire protocol below remain provider-agnostic.
+`BennyKok/vibes`. `@omg-dev/cli` 0.5.1+ is one `omg`: `computer setup` still
+installs the local control plane, and `login` / `create` / `deploy` start the
+hosted app flow. The `omg connect <code>` command and the wire protocol below
+remain provider-agnostic.
 
 ### Custom relay
 

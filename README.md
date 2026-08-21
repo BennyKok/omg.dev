@@ -49,10 +49,9 @@ curl -fsSL https://raw.githubusercontent.com/BennyKok/omg.dev/main/scripts/setup
 
 Then open **http://localhost:8766**.
 
-Do not install the npm package `@omg-dev/cli` at 0.4.x. That line is the
-retired prompt-to-app CLI published from `BennyKok/vibes` (`create` / `deploy`
-to `*.omgs.app`). This repository publishes the control-plane bootstrapper as
-`@omg-dev/cli` 0.5.0+. After that version is on npm, this is the same install:
+`@omg-dev/cli` 0.5.1+ is one `omg` binary. `omg computer setup` installs the
+local control plane. `omg create` / `omg deploy` / `omg login` still start the
+hosted app flow. After that version is on npm, this is the same install:
 
 ```bash
 bun install --global @omg-dev/cli && omg computer setup
@@ -422,9 +421,9 @@ locally the old way.
 
 Every release publishes `@omg-dev/cli`, `@omg-dev/protocol`, `@omg-dev/client`,
 `@omg-dev/react`, and `@omg-dev/app` to npm — the last being the exact full
-application the standalone web UI runs. `@omg-dev/cli` 0.5.0+ is the
-control-plane bootstrapper. Do not install 0.4.x. React hosts mount it with their own transport and asset
-origin:
+application the standalone web UI runs. `@omg-dev/cli` 0.5.1+ is the
+control-plane bootstrapper. The same `omg` also starts create / deploy / login.
+React hosts mount `@omg-dev/app` with their own transport and asset origin:
 
 ```bash
 npm install @omg-dev/app @omg-dev/client
@@ -437,7 +436,7 @@ See **[docs/embedding.md](./docs/embedding.md)**.
 ```text
 src/                 CLI, server, sessions, tmux, agents, MCP, integrations
 web/                 React/Vite PWA
-packages/cli         @omg-dev/cli 0.5.0+ control-plane bootstrapper
+packages/cli         @omg-dev/cli 0.5.1+ control-plane bootstrapper + hosted app verbs
 agents/              Example markdown-defined insight agents
 scripts/setup.sh     Installer / provisioning (documented first-run)
 scripts/             Release, fleet, and smoke helpers

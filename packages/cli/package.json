@@ -1,6 +1,6 @@
 {
   "name": "@omg-dev/cli",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Install and manage the local omg.dev agent control plane.",
   "license": "MIT",
   "homepage": "https://github.com/BennyKok/omg.dev",
