@@ -31,7 +31,8 @@
     "build:packages": "bash scripts/pack-packages.sh --build-only",
     "pack:packages": "bash scripts/pack-packages.sh",
     "typecheck": "bun x tsc -p tsconfig.json --noEmit",
-    "chat:smoke": "bun run scripts/chat-ingest-smoke.ts"
+    "chat:smoke": "bun run scripts/chat-ingest-smoke.ts",
+    "sitemap:submit": "bun run scripts/gsc-submit-sitemaps.ts"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "^0.83.0",

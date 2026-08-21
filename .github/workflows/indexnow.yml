@@ -1,0 +1,46 @@
+name: indexnow
+
+# Public-host sitemap notify. Default is dry-run so pull requests and
+# pushes never POST a urlList to https://api.indexnow.org/indexnow.
+# A real ping is workflow_dispatch with submit=true and the repo
+# variable INDEXNOW_SUBMIT=1.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      submit:
+        description: "POST to IndexNow (requires vars.INDEXNOW_SUBMIT=1)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Test IndexNow helpers
+        run: bun test scripts/indexnow.test.ts
+
+      - name: Dry-run sitemap notify
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.submit) }}
+        run: bun run scripts/gsc-submit-sitemaps.ts --dry-run
+
+      - name: Submit IndexNow
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.submit }}
+        env:
+          INDEXNOW_SUBMIT: ${{ vars.INDEXNOW_SUBMIT }}
+          GSC_ACCESS_TOKEN: ${{ secrets.GSC_ACCESS_TOKEN }}
+          GSC_SITE: ${{ vars.GSC_SITE }}
+        run: bun run scripts/gsc-submit-sitemaps.ts --submit
