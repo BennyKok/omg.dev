@@ -6,6 +6,7 @@
 // generation no longer depends on the Vercel AI SDK Claude Code provider.
 
 import { omgMcpServers } from "../../config.ts";
+import { resolveClaudePath } from "./claude-path.ts";
 
 export type AiSdkOptions = {
   /** Model id: "opus" | "sonnet" | "haiku" or a full id like "claude-opus-4-8". */
@@ -27,15 +28,6 @@ export type AiSdkOptions = {
 };
 
 type Effort = "low" | "medium" | "high" | "xhigh" | "max";
-
-/** Resolve the installed `claude` binary so the SDK drives it directly. */
-function resolveClaudePath(): string | undefined {
-  try {
-    return process.env.LFG_CLAUDE_PATH ?? Bun.which("claude") ?? undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 function effortFor(level?: string): Effort | undefined {
   if (!level) return undefined;
