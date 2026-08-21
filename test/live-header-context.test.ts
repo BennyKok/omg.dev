@@ -71,11 +71,15 @@ describe("contextual mobile Live header", () => {
     expect(source).toContain(": `${questionCount} agents need you`");
   });
 
-  test("keeps urgent questions accessible without restoring a badge", async () => {
+  test("keeps urgent questions accessible in the mobile header", async () => {
     const source = await app();
     expect(source).toContain("const { questions } = useAsk();");
     expect(source).toContain("Tap to open notifications");
     expect(source).toContain("const showCard = intro;");
+    // The headline is rendered under `isMobile && tab === "live"`, so it never
+    // covers a hosted DESKTOP surface. That is why the ask badge must stay in
+    // the header: if the headline is ever made to cover desktop, revisit this.
+    expect(source).toContain('{isMobile && tab === "live" ? (');
     expect(source).toMatch(
       /\{isMobile \? null : \(\s*<>\s*\{embedded \? null : <UpdateNavButton \/>\}\s*<AskNavButton/,
     );
