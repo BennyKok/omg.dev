@@ -8306,6 +8306,15 @@ export function App() {
                   extraTabs={extNavTabs}
                   showSettings={false}
                   onOpenHostSettings={hostSettingsInMenu ? onOpenHostSettings : undefined}
+                  manageSessions={
+                    tab === "live"
+                      ? {
+                          projectFilter,
+                          onSelect: (template) => void launchManageSessions(template),
+                          onClearIdle: () => void clearIdleSessions(),
+                        }
+                      : undefined
+                  }
                 />
               </div>
             </NavIsland>
@@ -8322,6 +8331,15 @@ export function App() {
                   onOpenTab={setTab}
                   extraTabs={extNavTabs}
                   showSettings
+                  manageSessions={
+                    tab === "live"
+                      ? {
+                          projectFilter,
+                          onSelect: (template) => void launchManageSessions(template),
+                          onClearIdle: () => void clearIdleSessions(),
+                        }
+                      : undefined
+                  }
                 />
               </div>
             </NavIsland>
@@ -8441,13 +8459,6 @@ export function App() {
                     onChange={changeProjectFilter}
                   />
                 ) : null}
-                {!isMobile && tab === "live" ? (
-                  <ManageSessionsMenu
-                    projectFilter={projectFilter}
-                    onSelect={(template) => void launchManageSessions(template)}
-                    onClearIdle={() => void clearIdleSessions()}
-                  />
-                ) : null}
                 {embedded ? null : (
                   <UserFilterMenu
                     value={userFilter}
@@ -8474,6 +8485,15 @@ export function App() {
               extraTabs={extNavTabs}
               showSettings={!embedded}
               onOpenHostSettings={embedded && hostSettingsInMenu ? onOpenHostSettings : undefined}
+              manageSessions={
+                tab === "live"
+                  ? {
+                      projectFilter,
+                      onSelect: (template) => void launchManageSessions(template),
+                      onClearIdle: () => void clearIdleSessions(),
+                    }
+                  : undefined
+              }
             />
           </div>
         </NavIsland>
@@ -8579,6 +8599,11 @@ export function App() {
                   onOpenTab={setTab}
                   extraTabs={extNavTabs}
                   showSettings={!embedded}
+                  manageSessions={{
+                    projectFilter,
+                    onSelect: (template) => void launchManageSessions(template),
+                    onClearIdle: () => void clearIdleSessions(),
+                  }}
                 />
               }
               repos={repos}
@@ -8593,8 +8618,6 @@ export function App() {
               onNew={() =>
                 isMobile ? setComposerFocusNonce((n) => n + 1) : setNewOpen(true)
               }
-              onManageSessions={(template) => void launchManageSessions(template)}
-              onClearIdle={() => void clearIdleSessions()}
               hosted={embedded}
               // The hosted first run's optional half. Steps complete from
               // EVIDENCE (a session exists, an auto agent exists), so these
@@ -9538,84 +9561,6 @@ function UsageRingsButton({
   );
 }
 
-function ManageSessionsMenu({
-  projectFilter,
-  onSelect,
-  onClearIdle,
-  compact = false,
-}: {
-  projectFilter: string;
-  onSelect: (template: ManageSessionPromptTemplate) => void;
-  onClearIdle?: () => void;
-  compact?: boolean;
-}) {
-  const scopeLabel = projectFilter === "__all" ? "All projects" : shortProject(projectFilter);
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <button
-            type="button"
-            aria-label="Manage sessions"
-            title={`Manage sessions: ${scopeLabel}`}
-            className={cn(
-              "flex shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground active:scale-[0.96]",
-              compact
-                ? "gap-1 px-2 py-0.5 text-[11px] font-medium hover:bg-primary/10 hover:text-primary"
-                : "size-9",
-            )}
-          />
-        }
-      >
-        <ClipboardList className={compact ? "size-3" : "size-[18px]"} />
-        {compact ? <span>Smart clear</span> : null}
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-72">
-        {/* GroupLabel needs a surrounding Group for MenuGroupContext (Base UI
-            #31) — wrap this title label so it doesn't throw. */}
-        <DropdownMenuGroup>
-          <DropdownMenuLabel className="space-y-1">
-            <span className="block text-xs font-semibold">Manage Sessions</span>
-            <span className="block truncate text-[11px] font-normal text-muted-foreground">
-              Scope: {scopeLabel}
-            </span>
-          </DropdownMenuLabel>
-        </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        {onClearIdle ? (
-          <>
-            {/* Direct action — runs against the API, no agent spawned. Kept
-                above the agent-driven templates because it's the one people
-                reach for most: "just clear the finished ones". */}
-            <DropdownMenuItem
-              variant="destructive"
-              className="flex cursor-pointer flex-col items-start gap-0.5 py-2"
-              onClick={onClearIdle}
-            >
-              <span className="text-sm font-medium text-destructive">Clear idle sessions</span>
-              <span className="text-xs text-muted-foreground">
-                Ends every unpinned, non-working session now. No agent.
-              </span>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-          </>
-        ) : null}
-        {MANAGE_SESSION_PROMPTS.map((template) => (
-          <DropdownMenuItem
-            key={template.id}
-            className="flex cursor-pointer flex-col items-start gap-0.5 py-2"
-            onClick={() => onSelect(template)}
-          >
-            <span className="text-sm font-medium">{template.label}</span>
-            <span className="text-xs text-muted-foreground">{template.description}</span>
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 /**
  * The rail's overflow menu — the page axis on its own.
  *
@@ -9642,6 +9587,7 @@ function PagesMenu({
   extraTabs,
   showSettings = true,
   onOpenHostSettings,
+  manageSessions,
   className,
 }: {
   tab: string;
@@ -9659,6 +9605,21 @@ function PagesMenu({
    * would be a lie the moment you came back.
    */
   onOpenHostSettings?: () => void;
+  /**
+   * Session housekeeping, folded in rather than given its own trigger.
+   *
+   * This used to be a clipboard icon button sitting beside this one, plus a
+   * "Smart clear" text button on the Idle group header — two controls, two
+   * shapes, for one menu. See the note above: the rail's action row is small
+   * and contested, and this menu is where the next thing that needs a home in
+   * it goes. Session management is not a page, so it sits below the page
+   * group behind its own label rather than joining the radio set.
+   */
+  manageSessions?: {
+    projectFilter: string;
+    onSelect: (template: ManageSessionPromptTemplate) => void;
+    onClearIdle?: () => void;
+  };
   className?: string;
 }) {
   // Pages are one radio group so exactly one item reads as current. That marker
@@ -9694,7 +9655,7 @@ function PagesMenu({
       >
         <MoreVertical className="size-4" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-48">
+      <DropdownMenuContent align="end" className={manageSessions ? "w-72" : "min-w-48"}>
         <DropdownMenuRadioGroup
           value={value}
           onValueChange={(next) => {
@@ -9752,6 +9713,52 @@ function PagesMenu({
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
+        {manageSessions ? (
+          <>
+            <DropdownMenuSeparator />
+            {/* GroupLabel needs a surrounding Group for MenuGroupContext
+                (Base UI #31) — wrap this title label so it does not throw. */}
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="space-y-1">
+                <span className="block text-xs font-semibold">Manage sessions</span>
+                <span className="block truncate text-[11px] font-normal text-muted-foreground">
+                  Scope:{" "}
+                  {manageSessions.projectFilter === "__all"
+                    ? "All projects"
+                    : shortProject(manageSessions.projectFilter)}
+                </span>
+              </DropdownMenuLabel>
+            </DropdownMenuGroup>
+            {manageSessions.onClearIdle ? (
+              <DropdownMenuItem
+                variant="destructive"
+                className="flex cursor-pointer flex-col items-start gap-0.5 py-2"
+                onClick={() => {
+                  setOpen(false);
+                  manageSessions.onClearIdle?.();
+                }}
+              >
+                <span className="text-sm font-medium text-destructive">Clear idle sessions</span>
+                <span className="text-xs text-muted-foreground">
+                  Ends every unpinned, non-working session now. No agent.
+                </span>
+              </DropdownMenuItem>
+            ) : null}
+            {MANAGE_SESSION_PROMPTS.map((template) => (
+              <DropdownMenuItem
+                key={template.id}
+                className="flex cursor-pointer flex-col items-start gap-0.5 py-2"
+                onClick={() => {
+                  setOpen(false);
+                  manageSessions.onSelect(template);
+                }}
+              >
+                <span className="text-sm font-medium">{template.label}</span>
+                <span className="text-xs text-muted-foreground">{template.description}</span>
+              </DropdownMenuItem>
+            ))}
+          </>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -10839,8 +10846,6 @@ function LiveView({
   onEditBot,
   onRefreshBots,
   pagesMenu,
-  onManageSessions,
-  onClearIdle,
   repos = [],
   onReposChanged,
   hosted = false,
@@ -10870,8 +10875,6 @@ function LiveView({
   onRefreshBots?: () => Promise<void>;
   /** Rail overflow menu, built by the shell so RailStage stays unaware of tabs. */
   pagesMenu?: ReactNode;
-  onManageSessions: (template: ManageSessionPromptTemplate) => void;
-  onClearIdle: () => void;
   repos?: Repo[];
   onReposChanged?: () => Promise<void>;
   hosted?: boolean;
@@ -11172,8 +11175,6 @@ function LiveView({
         onEditBot={onEditBot}
         onRefreshBots={onRefreshBots}
         pagesMenu={pagesMenu}
-        onManageSessions={onManageSessions}
-        onClearIdle={onClearIdle}
         repos={repos}
         onReposChanged={onReposChanged}
         hosted={hosted}
@@ -11256,19 +11257,11 @@ function LiveView({
       ) : null}
       {idle.length ? (
         <section>
-          <CategoryHeader
-            label="Idle"
-            count={idle.length}
-            dotClass={STATUS_DOT_IDLE}
-            action={
-              <ManageSessionsMenu
-                compact
-                projectFilter={projectFilter}
-                onSelect={onManageSessions}
-                onClearIdle={onClearIdle}
-              />
-            }
-          />
+          {/* No action here any more. Session housekeeping lives in the one
+              overflow menu (PagesMenu) so there is a single control instead of
+              a text button on this header plus a clipboard icon in the
+              chrome. */}
+          <CategoryHeader label="Idle" count={idle.length} dotClass={STATUS_DOT_IDLE} />
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-2">
             {idleNodes.flatMap((node) => renderNode(node))}
           </div>
@@ -11337,8 +11330,6 @@ function RailStage({
   onEditBot,
   onRefreshBots,
   pagesMenu,
-  onManageSessions,
-  onClearIdle,
   repos = [],
   onReposChanged,
   hosted = false,
@@ -11368,8 +11359,6 @@ function RailStage({
   onRefreshBots?: () => Promise<void>;
   /** Rail overflow menu, built by the shell so RailStage stays unaware of tabs. */
   pagesMenu?: ReactNode;
-  onManageSessions?: (template: ManageSessionPromptTemplate) => void;
-  onClearIdle?: () => void;
   repos?: Repo[];
   onReposChanged?: () => Promise<void>;
   hosted?: boolean;
@@ -12571,13 +12560,6 @@ function RailStage({
                     onChange={onUserChange}
                   />
                 ) : null}
-                {onManageSessions ? (
-                  <ManageSessionsMenu
-                    projectFilter={projectFilter}
-                    onSelect={onManageSessions}
-                    onClearIdle={onClearIdle}
-                  />
-                ) : null}
                 {pagesMenu}
               </div>
             </div>
@@ -13050,8 +13032,16 @@ const RailItem = memo(function RailItem({
           {/* The creature carries busy in its own posture, so a busy dot on top
               of it is the same doubling; blocked has no pose, so it keeps its
               mark on every row. */}
+          {/* Busy only wears the corner badge in the collapsed rail, where the
+              avatar is the entire row and there is nowhere else to put it. In
+              the expanded rail the spinner goes in the trailing slot below:
+              stacked on a 28px agent mark it punched a hole through the
+              artwork — Claude's starburst lost its top-right rays — and a
+              10px arc reads as a stray blue mark rather than as loading.
+              Blocked keeps its badge at both widths: it has no other slot,
+              and it is a solid glyph on a filled pill, not a thin arc. */}
           <SessionStatusDot
-            busy={busy && !drivingBot}
+            busy={busy && !drivingBot && collapsed}
             paused={session.status === "blocked"}
             variant="avatar"
           />
@@ -13077,7 +13067,17 @@ const RailItem = memo(function RailItem({
                     fill="currentColor"
                   />
                 ) : null}
-                {session.lastActivityAt || session.startedAt ? (
+                {/* The same Loader2 every pending action in the app draws,
+                    at the same size and in one colour. It takes the
+                    timestamp's place rather than crowding it: "now" says
+                    nothing extra about a session that is running this
+                    second, and swapping keeps the row width stable. */}
+                {busy ? (
+                  <Loader2
+                    aria-label="working"
+                    className="size-3.5 shrink-0 animate-spin text-primary motion-reduce:animate-none"
+                  />
+                ) : session.lastActivityAt || session.startedAt ? (
                   <span className="shrink-0 text-[10px] leading-tight tabular-nums text-muted-foreground/70">
                     {relTime(session.lastActivityAt ?? session.startedAt ?? 0)}
                   </span>
