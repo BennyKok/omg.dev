@@ -94,18 +94,23 @@ describe("composer image compression", () => {
     expect(source.match(/onToggleHd=\{(files\.)?setAttachmentHd\}/g)).toHaveLength(3);
   });
 
-  test("the HD control stays visible for every image", async () => {
+  // An image attachment is a tile you can see now, not a row describing itself
+  // in words, so the HD badge no longer sits lit on every one of them. The
+  // toggle appears only where there is a choice to make — a compressed copy
+  // exists — and the two things the old always-on state communicated,
+  // "already full resolution" and the byte count, moved to the tile's title,
+  // which is where a fact about a file belongs rather than a dead control.
+  test("HD is offered wherever compression produced a choice", async () => {
     const source = await app();
     const chips = source.slice(
       source.indexOf("function ComposerAttachmentChips"),
       source.indexOf("// Everything a composer needs to accept files"),
     );
 
-    expect(chips).toContain("att.previewUrl && onToggleHd");
-    expect(chips).toContain("is already full resolution");
-    expect(chips).toContain(
-      "disabled={disabled || locked || !(att.original && att.compressed)}",
-    );
-    expect(chips).toContain('att.preparing\n                ? "Compressing…"');
+    expect(chips).toContain("onToggleHd && att.original && att.compressed");
+    expect(chips).toContain("already full resolution");
+    expect(chips).toContain('att.preparing\n                  ? "Compressing…"');
+    // The tile must never become un-removable: touch has no hover.
+    expect(chips).toContain("md:opacity-0 md:group-hover:opacity-100");
   });
 });

@@ -692,11 +692,12 @@ html.lfg-keyboard-open {
 
   .msg-text.markdown {
     white-space: normal;
-    /* Match the composer textarea, which iOS pins to 16px to avoid focus-zoom
-       (see the (pointer: coarse) rule above). Keeping sent messages at 16px too
-       makes the transcript read at the same size the user typed. */
-    font-size: 16px;
-    line-height: 1.5;
+    /* The composer textarea is pinned to 16px so iOS does not zoom on focus
+       (see the (pointer: coarse) rule above). The transcript is not the
+       composer: it is read far more than it is typed, and it was sitting at
+       the smallest size that rule allows. One step up, everywhere. */
+    font-size: 17px;
+    line-height: 1.55;
   }
 
   .msg-text.markdown h1,
@@ -1939,18 +1940,20 @@ html.lfg-keyboard-open {
     padding: 1px 0;
   }
 
+  /* Same reasoning as .tool-call-row: no pill. Three dots do not need a card
+     around them to be read as three dots, and the bordered capsule made the
+     quietest thing in the transcript look like a message waiting to be read. */
   .typing-indicator {
     display: inline-flex;
     width: fit-content;
     max-width: 100%;
     align-items: center;
     gap: 4px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: color-mix(in oklab, var(--card) 82%, transparent);
-    padding: 7px 10px;
+    border: 0;
+    background: none;
+    padding: 7px 2px;
     color: var(--muted-foreground);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+    box-shadow: none;
   }
 
   .typing-indicator > span {
@@ -2081,32 +2084,26 @@ html.lfg-keyboard-open {
     line-height: 1.45;
   }
 
+  /* No pill. A tool call is a line in the transcript, not a card in it: the
+     border, the gradient fill and the inset highlight gave every "2 Bash" the
+     same visual weight as a message, and a turn with six of them read as six
+     objects stacked between the sentences. It is text with a dot now, and the
+     only thing that changes when it is live is the dot and the colour. */
   .tool-call-row {
     position: relative;
     isolation: isolate;
-    overflow: hidden;
-    border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
-    background:
-      linear-gradient(color-mix(in oklab, var(--muted) 44%, transparent), color-mix(in oklab, var(--muted) 44%, transparent)) padding-box,
-      linear-gradient(145deg, color-mix(in oklab, var(--border) 78%, transparent), color-mix(in oklab, var(--foreground) 10%, transparent)) border-box;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.26);
+    border: 0;
+    background: none;
+    box-shadow: none;
     transform-origin: left center;
     animation: lfg-tool-row-in 260ms var(--ease-ios) both;
-    transition:
-      border-color 180ms ease,
-      background 180ms ease,
-      box-shadow 180ms ease,
-      color 180ms ease;
+    transition: color 180ms ease;
   }
 
   .tool-call-row--live {
-    border-color: transparent;
-    background:
-      linear-gradient(color-mix(in oklab, var(--card) 76%, var(--primary) 4%), color-mix(in oklab, var(--card) 76%, var(--primary) 4%)) padding-box,
-      linear-gradient(145deg, color-mix(in oklab, var(--primary) 45%, transparent), color-mix(in oklab, var(--border) 70%, transparent)) border-box;
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.34),
-      0 3px 14px -12px color-mix(in oklab, var(--primary) 80%, transparent);
+    border: 0;
+    background: none;
+    box-shadow: none;
   }
 
   @keyframes lfg-tool-row-in {

@@ -7,6 +7,7 @@ import {
   Pencil,
   Redo2,
   Square,
+  Trash2,
   Type,
   Undo2,
 } from "lucide-react";
@@ -108,11 +109,21 @@ export function ImageAnnotator({
   file,
   onOpenChange,
   onSave,
+  onRemove,
 }: {
   open: boolean;
   file: File | null;
   onOpenChange: (open: boolean) => void;
   onSave: (file: File) => void;
+  /**
+   * Drop the attachment entirely from here.
+   *
+   * Opening an image is how you look at what you attached, so it is also where
+   * you find out you attached the wrong one. Without this the only way out was
+   * Cancel, then hunt for the tile's own remove — leaving the decision you had
+   * already made unexecuted for two more steps.
+   */
+  onRemove?: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -396,6 +407,20 @@ export function ImageAnnotator({
         </div>
 
         <DialogFooter>
+          {onRemove ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="mr-auto text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => {
+                onRemove();
+                onOpenChange(false);
+              }}
+            >
+              <Trash2 className="size-4" />
+              Remove
+            </Button>
+          ) : null}
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
