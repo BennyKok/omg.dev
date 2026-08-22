@@ -434,17 +434,30 @@ export async function logFindingAction(input: {
 // Dedup: a finding with the same normalized title for this agent that is still
 // open (or was dismissed) should not be re-added. Keeps the stream from
 // re-accumulating the same item every run.
-// Normalise a title for recurrence matching. Numbers are stripped because the
-// same problem is usually re-reported with a moved number — "sqld WAL is 2.3 GB"
-// and "sqld WAL is 3.1 GB" are one problem getting worse, not two problems.
-// Exact-title matching treated them as unrelated and filed both as new.
+// Normalise a title for recurrence matching. Most numbers are stripped because
+// the same problem is usually re-reported with a moved number — "sqld WAL is
+// 2.3 GB" and "sqld WAL is 3.1 GB" are one problem getting worse, not two
+// problems. Exact-title matching treated them as unrelated and filed both as
+// new.
+//
+// A number written "#NNN" is the one exception: that shape names a SPECIFIC
+// thing rather than measuring one, e.g. "Minified React error #185" vs
+// "#310", or "Base UI error #31" vs "#57". Collapsing those the same way
+// merged every future "Minified React error #NNN" client-error report — any
+// code — into whichever one happened to be filed first, regardless of number.
+// In production that meant a stale, already-fixed React #185 finding from
+// weeks earlier kept absorbing today's unrelated #310 storm: occurrences and
+// lastSeenAt climbed on the OLD finding, so the feed reported an active #185
+// loop that did not exist, and the real #310 regression never got its own
+// row. So "#NNN" digits are carried through untouched; every other digit run
+// (byte counts, percentages, timestamps, session ids) still collapses to "#".
 export const normTitleForTest = (t: string) => normTitle(t);
 
 const normTitle = (t: string) =>
   t
     .toLowerCase()
-    .replace(/[\d.,]+\s*(gb|mb|kb|tb|b|ms|s|%|×|x)?/g, "#")
-    .replace(/[^a-z#\s]/g, " ")
+    .replace(/#\d+|[\d.,]+\s*(gb|mb|kb|tb|b|ms|s|%|×|x)?/g, (m) => (m.startsWith("#") ? m : "#"))
+    .replace(/[^a-z#\d\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -468,6 +481,14 @@ const normTitle = (t: string) =>
  * the two hosts just disappears. Across runs that collapse is wanted (a moved
  * number is the same problem worsening); within one run it is a false merge,
  * because the agent deliberately listed them separately.
+ *
+ * This match is only as good as normTitle's key, which changed to stop
+ * collapsing "#NNN" identifiers (see normTitle). That fix is forward-only: a
+ * finding filed under the old key before this change keeps whatever title and
+ * occurrence count it already accumulated — there is no data to reconstruct
+ * which past recurrence belonged to which original error code, so nothing
+ * here retroactively splits old rows apart. Only matching for NEW recurrences
+ * changes.
  */
 export async function recordRecurrence(
   agentId: string,

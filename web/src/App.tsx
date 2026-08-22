@@ -23224,11 +23224,18 @@ function TimeZoneSettingsSection({
 
   return (
     <section className="space-y-2">
-      <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+      {/* Not uppercased — see RailGroup: group labels read quieter lowercase. */}
+      <h2 className="px-4 text-xs font-semibold text-muted-foreground">
         Scheduling
       </h2>
       <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5">
+        {/* What the value affects is a fact about it, not a control — it goes
+            in the title attribute instead of a permanent second line, the
+            same move the Ping row made for its refresh cadence. */}
+        <div
+          className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5"
+          title="Auto-agent runs and model-refresh schedules use this timezone."
+        >
           <div className="flex items-center gap-3">
             <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
               <Globe className="size-4" />
@@ -23263,9 +23270,6 @@ function TimeZoneSettingsSection({
           </div>
         </div>
       </div>
-      <p className="px-4 text-xs text-muted-foreground">
-        Auto-agent runs and model-refresh schedules use this timezone.
-      </p>
     </section>
   );
 }
@@ -26570,82 +26574,86 @@ function AutoManageView({
         </div>
       ) : null}
       {autoAgents.length === 0 ? (
-        <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+        <div className="px-4 py-10 text-center text-sm text-muted-foreground">
           No schedules yet.
         </div>
       ) : (
-        autoAgents.map((a) => (
-          <div
-            key={a.id}
-            className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-xl border border-border bg-card px-3 py-2"
-          >
-            <span
-              className={cn(
-                "order-1 size-2.5 shrink-0 rounded-full",
-                a.enabled ? "bg-success" : "bg-muted-foreground/40",
-              )}
-            />
-            <button
-              type="button"
-              onClick={() => onEdit(a)}
-              className="order-2 min-w-0 flex-1 text-left"
+        // One shared card with dividers, not a card per row — a schedule is a
+        // line in a list, the same treatment the Settings rows above it use.
+        <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+          {autoAgents.map((a) => (
+            <div
+              key={a.id}
+              className="flex flex-wrap items-center gap-x-2.5 gap-y-1 px-4 py-2.5"
             >
-              <div className="flex items-center gap-2">
-                <span className="truncate text-sm font-semibold">{a.name}</span>
-                <AutoAgentOwnerBadge owner={a.owner} />
-                {openByAgent(a.id) ? (
-                  <span className="shrink-0 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                    {openByAgent(a.id)} open
-                  </span>
-                ) : null}
-                {a.running ? (
-                  <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                    <Loader2 className="size-2.5 animate-spin" /> running
-                  </span>
-                ) : null}
-              </div>
-              <div className="truncate text-xs text-muted-foreground">{a.prompt}</div>
-            </button>
-            {/* On phones this wraps to its own full-width line under the name; inline on sm+ */}
-            <div className="order-5 flex w-full min-w-0 items-center gap-1 pl-5 text-xs text-muted-foreground sm:order-3 sm:w-auto sm:max-w-[11rem] sm:pl-0">
-              <ScheduleSummary expr={a.schedule} tz={tz} />
-            </div>
-            <div className="order-6 flex w-full min-w-0 items-center gap-1 pl-5 text-xs text-muted-foreground sm:order-4 sm:w-auto sm:max-w-[10rem] sm:pl-0">
-              <img
-                src={agentIconSrc(a.agent ?? "aisdk")}
-                alt=""
-                className="size-3.5 shrink-0"
+              <span
+                className={cn(
+                  "order-1 size-2.5 shrink-0 rounded-full",
+                  a.enabled ? "bg-success" : "bg-muted-foreground/40",
+                )}
               />
-              <span className="truncate">
-                {AUTO_AGENT_OPTIONS.find((o) => o.key === (a.agent ?? "aisdk"))?.label ?? "claude"}
-                {a.model ? <span className="text-muted-foreground/70"> · {a.model}</span> : null}
-              </span>
+              <button
+                type="button"
+                onClick={() => onEdit(a)}
+                className="order-2 flex min-w-0 flex-1 flex-col gap-0.5 text-left"
+              >
+                <span className="flex items-center gap-2">
+                  <span className="truncate text-sm font-medium leading-tight">{a.name}</span>
+                  <AutoAgentOwnerBadge owner={a.owner} />
+                  {openByAgent(a.id) ? (
+                    <span className="shrink-0 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                      {openByAgent(a.id)} open
+                    </span>
+                  ) : null}
+                  {a.running ? (
+                    <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                      <Loader2 className="size-2.5 animate-spin" /> running
+                    </span>
+                  ) : null}
+                </span>
+                <span className="truncate text-xs leading-tight text-muted-foreground">{a.prompt}</span>
+              </button>
+              {/* On phones this wraps to its own full-width line under the name; inline on sm+ */}
+              <div className="order-5 flex w-full min-w-0 items-center gap-1 pl-5 text-xs text-muted-foreground sm:order-3 sm:w-auto sm:max-w-[11rem] sm:pl-0">
+                <ScheduleSummary expr={a.schedule} tz={tz} />
+              </div>
+              <div className="order-6 flex w-full min-w-0 items-center gap-1 pl-5 text-xs text-muted-foreground sm:order-4 sm:w-auto sm:max-w-[10rem] sm:pl-0">
+                <img
+                  src={agentIconSrc(a.agent ?? "aisdk")}
+                  alt=""
+                  className="size-3.5 shrink-0"
+                />
+                <span className="truncate">
+                  {AUTO_AGENT_OPTIONS.find((o) => o.key === (a.agent ?? "aisdk"))?.label ?? "claude"}
+                  {a.model ? <span className="text-muted-foreground/70"> · {a.model}</span> : null}
+                </span>
+              </div>
+              <Button
+                size="icon-sm"
+                variant="tint"
+                className="order-3 shrink-0 sm:order-5"
+                onClick={() => onRunNow(a.id)}
+                disabled={a.running}
+                aria-label={a.running ? "Running…" : "Run now"}
+              >
+                {a.running ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Play className="size-4" />
+                )}
+              </Button>
+              <Button
+                size="icon-sm"
+                variant="tint"
+                className="order-4 shrink-0 sm:order-6"
+                onClick={() => onEdit(a)}
+                aria-label="Edit"
+              >
+                <Pencil className="size-4" />
+              </Button>
             </div>
-            <Button
-              size="icon-sm"
-              variant="tint"
-              className="order-3 shrink-0 sm:order-5"
-              onClick={() => onRunNow(a.id)}
-              disabled={a.running}
-              aria-label={a.running ? "Running…" : "Run now"}
-            >
-              {a.running ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Play className="size-4" />
-              )}
-            </Button>
-            <Button
-              size="icon-sm"
-              variant="tint"
-              className="order-4 shrink-0 sm:order-6"
-              onClick={() => onEdit(a)}
-              aria-label="Edit"
-            >
-              <Pencil className="size-4" />
-            </Button>
-          </div>
-        ))
+          ))}
+        </div>
       )}
       <button
         type="button"
