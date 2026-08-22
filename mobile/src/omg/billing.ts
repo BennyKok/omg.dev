@@ -160,7 +160,7 @@ const MOCK_CATALOG: unknown = [
   {
     productId: "dev.omg.computer.computer_s40.monthly.v1",
     plan: "computer_s40",
-    label: "Starter Plus",
+    label: "Starter",
     specs: { parallelAgents: 3, vcpus: 2, memoryMb: 4096, diskGb: 16, computeHours: 40, alwaysOn: false },
   },
   {

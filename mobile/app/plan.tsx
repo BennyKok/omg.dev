@@ -35,7 +35,9 @@
  *
  * Edge-flush hero, one compact list, one Continue button. Tapping a row
  * selects it. Continue buys the selected paid rung, or leaves on Free / Skip.
- * Always On is not a row. StoreKit product ids do not change.
+ * Always On and the old $5 Starter (`computer_s20`) are not rows. StoreKit
+ * product ids do not change. The compact paid rungs are `computer_s40`,
+ * `computer_5`, and `computer_10`.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

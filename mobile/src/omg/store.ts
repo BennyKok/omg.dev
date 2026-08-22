@@ -64,7 +64,7 @@ export type Tier = CatalogTier;
 /** A tier joined with what Apple actually charges for it in this storefront. */
 export type StoreProduct = Tier & {
   /**
-   * APPLE'S OWN LOCALISED PRICE STRING — "$5.99", "HK$47.00", "¥900".
+   * APPLE'S OWN LOCALISED PRICE STRING — "$19.99", "HK$47.00", "¥900".
    *
    * Rendered verbatim and never reformatted, never parsed, never compared. The
    * App Store shows a different number in a different currency in every

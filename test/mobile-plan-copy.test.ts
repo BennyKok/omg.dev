@@ -7,6 +7,8 @@
  * selection, CTA, and "Always On stays off the compact list".
  */
 
+import { readFileSync } from "node:fs";
+
 import { describe, expect, test } from "bun:test";
 
 import {
@@ -44,7 +46,7 @@ describe("the locked onboarding copy", () => {
   });
 
   test("paid taglines match the mock", () => {
-    expect(taglineForPlan("computer_s20")).toBe("A capable computer");
+    expect(taglineForPlan("computer_s40")).toBe("A capable computer");
     expect(taglineForPlan("computer_5")).toBe("A bigger, faster computer");
     expect(taglineForPlan("computer_10")).toBe("The most powerful computer");
   });
@@ -52,28 +54,30 @@ describe("the locked onboarding copy", () => {
   test("Personal is the popular default", () => {
     expect(isPopularPlan(PERSONAL_PLAN_KEY)).toBe(true);
     expect(isPopularPlan("computer_10")).toBe(false);
-    expect(defaultSelectedPlan(["free", "computer_s20", "computer_5", "computer_10"])).toBe(
+    expect(defaultSelectedPlan(["free", "computer_s40", "computer_5", "computer_10"])).toBe(
       PERSONAL_PLAN_KEY,
     );
   });
 
   test("a storefront without Personal still picks a paid rung", () => {
-    expect(defaultSelectedPlan(["free", "computer_s20"])).toBe("computer_s20");
+    expect(defaultSelectedPlan(["free", "computer_s40"])).toBe("computer_s40");
     expect(defaultSelectedPlan([FREE_PLAN_KEY])).toBe(FREE_PLAN_KEY);
   });
 });
 
 describe("the compact merchandising list", () => {
   test("the paid rows are Starter, Personal, Pro", () => {
-    expect(COMPACT_PAID_PLANS).toEqual(["computer_s20", "computer_5", "computer_10"]);
-    expect(isCompactPaidPlan("computer_s20")).toBe(true);
-    expect(isCompactPaidPlan("computer_s40")).toBe(false);
+    expect(COMPACT_PAID_PLANS).toEqual(["computer_s40", "computer_5", "computer_10"]);
+    expect(isCompactPaidPlan("computer_s40")).toBe(true);
+    expect(isCompactPaidPlan("computer_s20")).toBe(false);
     expect(isCompactPaidPlan("computer_20")).toBe(false);
   });
 
-  test("Always On is not sold on this list", () => {
+  test("Always On and the old $5 Starter are not sold on this list", () => {
     expect(sellOnPaywall("computer_20")).toBe(false);
+    expect(sellOnPaywall("computer_s20")).toBe(false);
     expect(sellOnPaywall("computer_10", { alwaysOn: true })).toBe(false);
+    expect(sellOnPaywall("computer_s40")).toBe(true);
     expect(sellOnPaywall("computer_5")).toBe(true);
   });
 
@@ -84,6 +88,19 @@ describe("the compact merchandising list", () => {
       "dev.omg.computer.computer_5.monthly.v1",
       "dev.omg.computer.computer_10.monthly.v1",
     ]);
+  });
+
+  test("the local StoreKit config mocks the locked ladder prices", () => {
+    // The file already used .99 amounts. Live App Store Connect is not edited
+    // from this repo — these strings only change what the simulator shows.
+    const storekit = readFileSync("mobile/storekit/omg.storekit", "utf8");
+    expect(storekit).toContain('"productID" : "dev.omg.computer.computer_s40.monthly.v1"');
+    expect(storekit).toContain('"displayPrice" : "19.99"');
+    expect(storekit).toContain('"displayPrice" : "37.99"');
+    expect(storekit).toContain('"displayPrice" : "97.99"');
+    expect(storekit).not.toContain('"displayPrice" : "11.99"');
+    expect(storekit).not.toContain('"displayPrice" : "57.99"');
+    expect(storekit).not.toContain('"displayPrice" : "179.99"');
   });
 });
 

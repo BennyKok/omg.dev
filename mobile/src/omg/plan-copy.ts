@@ -19,6 +19,8 @@ export const PAYWALL_SUBHEAD = "Always at your fingertips.";
 
 export const FREE_PLAN_KEY = "free";
 export const PERSONAL_PLAN_KEY = "computer_5";
+/** Old $5 / 20-hour Starter. Kept mappable; not a row on this screen. */
+export const LEGACY_STARTER_PLAN_KEY = "computer_s20";
 export const ALWAYS_ON_PLAN_KEY = "computer_20";
 
 /** Locked Free row. Not in FALLBACK_TIERS and not sold through StoreKit. */
@@ -34,9 +36,9 @@ export const FREE_ROW = {
 /**
  * One-line pitch per plan key. Words only.
  *
- * Starter Plus keeps a line so a catalog that still sends that SKU does not
- * fall back to a blank subtitle. It is not in the compact mock list; the
- * merchandising filter decides whether the row appears.
+ * `computer_s40` is Starter on the locked web ladder. Its tagline stays
+ * "A capable computer". `computer_s20` keeps the same words so a leftover
+ * catalog entry is not blank if something still names it.
  */
 const TAGLINES: Record<string, string> = {
   [FREE_PLAN_KEY]: FREE_ROW.tagline,
@@ -55,26 +57,29 @@ export function isPopularPlan(plan: string): boolean {
 }
 
 /**
- * Always On stays off this screen. The SKU list in FALLBACK_TIERS already
- * omits it; this is the display-side belt so a catalog that still publishes
- * the rung cannot put it back on the compact list.
+ * Always On and the old $5 Starter stay off this screen.
+ *
+ * Both product ids remain in FALLBACK_TIERS (or stay mappable) so a purchase
+ * can still be named. They are not compact rows. A catalog that still
+ * publishes either rung cannot put it back on this list.
  */
 export function sellOnPaywall(
   plan: string,
   specs?: Pick<TierSpecs, "alwaysOn"> | null,
 ): boolean {
-  if (plan === ALWAYS_ON_PLAN_KEY) return false;
+  if (plan === ALWAYS_ON_PLAN_KEY || plan === LEGACY_STARTER_PLAN_KEY) return false;
   if (specs?.alwaysOn) return false;
   return true;
 }
 
 /**
- * The mock's compact ladder: Free, then Starter / Personal / Pro.
+ * The locked web ladder: Starter $19 / Personal $38 / Pro $98.
  *
- * Starter Plus (`computer_s40`) stays in FALLBACK_TIERS so the product id
- * does not change. It is not a row on this list.
+ * That is `computer_s40` / `computer_5` / `computer_10`. The old Starter
+ * (`computer_s20`) stays in FALLBACK_TIERS so the product id stays mappable.
+ * It is not a row on this list.
  */
-export const COMPACT_PAID_PLANS = ["computer_s20", "computer_5", "computer_10"] as const;
+export const COMPACT_PAID_PLANS = ["computer_s40", "computer_5", "computer_10"] as const;
 
 export function isCompactPaidPlan(plan: string): boolean {
   return (COMPACT_PAID_PLANS as readonly string[]).includes(plan);
