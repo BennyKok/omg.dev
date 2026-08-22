@@ -1,0 +1,110 @@
+name: mobile-release
+
+# Builds the iOS app on EAS and (optionally) submits it to App Store Connect.
+#
+# WHY THIS EXISTS AT ALL. Every EAS build uploads its project tarball to Google
+# Cloud Storage. GCS geo-blocks some networks outright, answering the signed
+# upload URL with:
+#
+#     <Code>AccessDenied</Code>
+#     <Details>We're sorry, but this service is not available in your location</Details>
+#
+# The devbox is one of those networks, so `eas build` can never succeed from it
+# no matter how healthy the account, credentials or lockfile are. A GitHub
+# runner is not blocked. Running the build here removes the dependency on
+# whichever laptop happened to be awake, which is how builds 27-29 got made.
+#
+# Manual dispatch ONLY. Builds cost real money (iOS medium is $2 each against
+# the plan's $45/period credit), so this must never fire on push.
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "EAS build profile"
+        default: production
+        type: choice
+        options:
+          - production
+          - preview
+      submit:
+        description: "Submit to App Store Connect after a successful build"
+        default: false
+        type: boolean
+
+# EAS Starter includes ONE build concurrency. A second in-flight build would
+# queue behind this one and hold a runner open for no reason, so serialise.
+concurrency:
+  group: mobile-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # A cloud build regularly runs 20-40 minutes and `--wait` blocks on it.
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # `bun.lock` is the single source of truth. A `package-lock.json` once
+      # coexisted with it and EAS built from the npm lockfile, which described
+      # an older dependency set: the build SUCCEEDED, shipped a binary without
+      # expo-image-picker/expo-audio, and the app died at import with
+      # "Cannot find native module 'ExponentImagePicker'". Nothing before
+      # runtime said a word. Fail loudly here instead.
+      - name: Reject a stray package-lock.json
+        run: |
+          if [ -f package-lock.json ] || [ -f ../package-lock.json ]; then
+            echo "::error::package-lock.json present. bun.lock is the source of truth; delete it."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Both checks below are cheap and run BEFORE anything bills. `expo export`
+      # pushes the whole app through Metro and fails on breakage that tsc alone
+      # misses, which has caught real problems in this project.
+      - name: Type check
+        run: bunx tsc --noEmit
+
+      - name: Metro export smoke test
+        run: bunx expo export --platform ios
+
+      - name: Build on EAS
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EAS_BUILD_NO_EXPO_GO_WARNING: "true"
+        run: |
+          bunx eas-cli@22.0.0 build \
+            --platform ios \
+            --profile "${{ inputs.profile }}" \
+            --non-interactive \
+            --wait
+
+      # Separate step, not `--auto-submit`. Building is not shipping: `eas build`
+      # stops at an IPA on EAS servers and only `eas submit` reaches App Store
+      # Connect. Keeping them apart means a submit failure does not read as a
+      # build failure, and a build can be produced without being submitted.
+      - name: Submit to App Store Connect
+        if: ${{ inputs.submit }}
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          bunx eas-cli@22.0.0 submit \
+            --platform ios \
+            --profile "${{ inputs.profile }}" \
+            --latest \
+            --non-interactive
