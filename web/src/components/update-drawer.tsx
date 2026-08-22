@@ -189,10 +189,9 @@ export function UpdateSettingsRow() {
           : ""));
 
   return (
+    // No section header: this is the only row in it, and "System" said
+    // nothing "omg.dev updates" below didn't already say.
     <section className="space-y-2">
-      <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        System
-      </h2>
       <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
         <div className="flex items-center justify-between gap-4 px-4 py-2.5">
           <div className="flex min-w-0 items-center gap-3">

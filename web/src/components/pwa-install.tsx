@@ -141,10 +141,9 @@ export function PwaInstallSettingsSection() {
 
   return (
     <>
+      {/* No section header: this is the only row in it, and "App" said
+          nothing "Install omg" below didn't already say. */}
       <section className="space-y-2">
-        <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          App
-        </h2>
         <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
           <button
             type="button"
