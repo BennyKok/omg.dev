@@ -59,6 +59,7 @@ import {
   type ComputerVersionState,
 } from "./lib/version-diagnostics";
 import { cacheProjectFilter, readCachedProjectFilter } from "./lib/project-filter";
+import { groupNodesByProject, type ProjectGroup } from "./lib/session-groups";
 import {
   BOT_ROSTER_ROW_CLASS,
   mobileSurfaceDockBottom,
@@ -11853,27 +11854,18 @@ function RailStage({
   // row already shows on its own mark. It also fought the folder grouping:
   // scoped to one project you got Working/Idle, scoped to all you got folders,
   // so the rail reorganised itself whenever the filter changed.
-  const projectRailGroups = useMemo(() => {
-    const groups = new Map<string, { label: string; project: string; nodes: SessionTreeNode[]; count: number }>();
-    for (const node of railTree.roots.filter(
-      (item) => !railNodeContainsTopPin(item) && !railNodeIsBot(item),
-    )) {
-      const project = node.session.project || "";
-      const key = project || "__no_project";
-      const label = project ? shortProject(project) : "No project";
-      const count = railTree.flatten([node]).length;
-      const group = groups.get(key);
-      if (group) {
-        group.nodes.push(node);
-        group.count += count;
-      } else {
-        groups.set(key, { label, project, nodes: [node], count });
-      }
-    }
-    return Array.from(groups.entries())
-      .map(([key, group]) => ({ key, ...group }))
-      .sort((a, b) => a.label.localeCompare(b.label));
-  }, [projectFilter, railTree, topPinned]);
+  const projectRailGroups = useMemo(
+    () =>
+      groupNodesByProject(
+        railTree.roots.filter(
+          (item) => !railNodeContainsTopPin(item) && !railNodeIsBot(item),
+        ),
+        (node) => railTree.flatten([node]).length,
+        shortProject,
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [railTree, topPinned],
+  );
 
   const railOrderedSessions = [
     ...topPinnedSessions,
@@ -12252,65 +12244,6 @@ function RailStage({
   // Nest children in the DOM (same model as the mobile session tree) so
   // depth-2+ grandchildren indent further and tree elbows hit mid-row.
   // Collapsed rail stays a flat icon strip — no indent/connectors.
-  const renderRailNode = (
-    node: SessionTreeNode,
-    depth = 0,
-    isLast = true,
-  ): ReactNode => {
-    const id = sessionStableId(node.session);
-    if (railCollapsed) {
-      return (
-        <div key={id} className="contents">
-          {renderRailItem(node.session)}
-          {node.children.map((child, index) =>
-            renderRailNode(child, depth + 1, index === node.children.length - 1),
-          )}
-        </div>
-      );
-    }
-    if (depth === 0) {
-      if (!node.children.length) return renderRailItem(node.session);
-      return (
-        <div key={id} className="flex flex-col gap-0.5">
-          {renderRailItem(node.session)}
-          <div className="relative ml-3 flex flex-col gap-0.5 pl-3">
-            {node.children.map((child, index) =>
-              renderRailNode(child, 1, index === node.children.length - 1),
-            )}
-          </div>
-        </div>
-      );
-    }
-    return (
-      <div key={id} className="relative">
-        {/* Spine through card+descendants when more siblings follow. */}
-        {!isLast ? (
-          <span
-            aria-hidden
-            className="pointer-events-none absolute -left-3 -top-1 bottom-0 w-[1.5px] bg-zinc-500"
-          />
-        ) : null}
-        {/* Connector sized to the row only so the branch hits mid-row. */}
-        <div className="relative">
-          <TreeConnector
-            className="-left-3 -top-1 h-[calc(100%+0.5rem)] w-3"
-            colorClassName="text-zinc-500"
-            continueAfter={!isLast}
-            subtle
-          />
-          {renderRailItem(node.session)}
-        </div>
-        {node.children.length ? (
-          <div className="relative ml-3 mt-0.5 flex flex-col gap-0.5 pl-3">
-            {node.children.map((child, index) =>
-              renderRailNode(child, depth + 1, index === node.children.length - 1),
-            )}
-          </div>
-        ) : null}
-      </div>
-    );
-  };
-
   const stageColumns = useMemo(() => {
     return columnIds
       .map((sourceSid) => {
@@ -12673,48 +12606,16 @@ function RailStage({
               </kbd>
             </button>
           ) : null}
-          {topPinnedSessions.length ? (
-            <RailGroup
-              label="Pinned"
-              count={topPinnedSessions.length}
-              collapsed={railCollapsed}
-            >
-              {topPinnedNodes.map((node) => renderRailNode(node))}
-            </RailGroup>
-          ) : null}
-          {/* Empty while bots are exclusive to their own surface. Kept as the
-              one mount point so the rule lives in shouldShowBotsInSessionList
-              rather than in a deleted branch nobody can find again. */}
-          {botSessions.length ? (
-            <RailGroup label="Bots" count={botSessions.length} collapsed={railCollapsed}>
-              {botNodes.map((node) => renderRailNode(node))}
-            </RailGroup>
-          ) : null}
-          {projectRailGroups.map((group) => (
-            <RailGroup
-              key={group.key}
-              label={group.label}
-              count={group.count}
-              collapsed={railCollapsed}
-              // The folder title IS the filter. Scoping used to live on the
-              // folder button, which made that button mean two things — pick
-              // where a new session runs, and narrow the list — and neither
-              // was discoverable from the list it changed.
-              onFilter={
-                onProjectChange && projectFilter === "__all" && group.project
-                  ? () => onProjectChange(group.project)
-                  : undefined
-              }
-              onClearFilter={
-                onProjectChange && projectFilter !== "__all"
-                  ? () => onProjectChange("__all")
-                  : undefined
-              }
-            >
-              {group.nodes.map((node) => renderRailNode(node))}
-            </RailGroup>
-          ))}
-          {autoRailGroup}
+          <SessionGroups
+            groups={projectRailGroups}
+            pinnedNodes={topPinnedNodes}
+            pinnedCount={topPinnedSessions.length}
+            collapsed={railCollapsed}
+            projectFilter={projectFilter}
+            onProjectChange={onProjectChange}
+            renderItem={renderRailItem}
+            trailing={autoRailGroup}
+          />
           </>}
         </div>
         {/* Host-owned footer. A host embedding LFG as its whole desktop surface
@@ -12894,6 +12795,142 @@ function ShortcutsHelp({ onClose }: { onClose: () => void }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * The grouped body of a session list: pinned first, then one group per folder,
+ * then whatever the caller pins to the end (Auto findings).
+ *
+ * Shared, because the rail and the mobile list are the same list. They used to
+ * be two: the rail grouped by folder and drew delegated children on a spine,
+ * mobile grouped by Working and Idle and drew cards. Same fleet, two shapes,
+ * and every rule about ordering or nesting had to be written twice.
+ *
+ * What is NOT shared is what a row *does*, which is why the row arrives as
+ * `renderItem` rather than as data. Opening a session means "put it on the
+ * stage" on desktop and "go to its page" on mobile, and pretending those were
+ * one call is how the two surfaces diverged in the first place.
+ */
+function SessionGroups({
+  groups,
+  pinnedNodes,
+  pinnedCount,
+  collapsed = false,
+  projectFilter,
+  onProjectChange,
+  renderItem,
+  leading,
+  trailing,
+}: {
+  groups: ProjectGroup<SessionTreeNode>[];
+  pinnedNodes: SessionTreeNode[];
+  pinnedCount: number;
+  collapsed?: boolean;
+  projectFilter: string;
+  onProjectChange?: (value: string) => void;
+  renderItem: (session: Session) => ReactNode;
+  /** Above every group. The rail puts New session here. */
+  leading?: ReactNode;
+  /** Below every group. Auto findings. */
+  trailing?: ReactNode;
+}) {
+  // Delegated children hang off their parent on a spine, at every width. A
+  // subagent is not a sibling of the session that spawned it, and a flat list
+  // said it was.
+  const renderNode = (
+    node: SessionTreeNode,
+    depth = 0,
+    isLast = true,
+  ): ReactNode => {
+    const id = sessionStableId(node.session);
+    if (collapsed) {
+      return (
+        <div key={id} className="contents">
+          {renderItem(node.session)}
+          {node.children.map((child, index) =>
+            renderNode(child, depth + 1, index === node.children.length - 1),
+          )}
+        </div>
+      );
+    }
+    if (depth === 0) {
+      if (!node.children.length) return renderItem(node.session);
+      return (
+        <div key={id} className="flex flex-col gap-0.5">
+          {renderItem(node.session)}
+          <div className="relative ml-3 flex flex-col gap-0.5 pl-3">
+            {node.children.map((child, index) =>
+              renderNode(child, 1, index === node.children.length - 1),
+            )}
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div key={id} className="relative">
+        {/* Spine through card+descendants when more siblings follow. */}
+        {!isLast ? (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute -left-3 -top-1 bottom-0 w-[1.5px] bg-zinc-500"
+          />
+        ) : null}
+        {/* Connector sized to the row only so the branch hits mid-row. */}
+        <div className="relative">
+          <TreeConnector
+            className="-left-3 -top-1 h-[calc(100%+0.5rem)] w-3"
+            colorClassName="text-zinc-500"
+            continueAfter={!isLast}
+            subtle
+          />
+          {renderItem(node.session)}
+        </div>
+        {node.children.length ? (
+          <div className="relative ml-3 mt-0.5 flex flex-col gap-0.5 pl-3">
+            {node.children.map((child, index) =>
+              renderNode(child, depth + 1, index === node.children.length - 1),
+            )}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
+  return (
+    <>
+      {leading}
+      {pinnedCount ? (
+        <RailGroup label="Pinned" count={pinnedCount} collapsed={collapsed}>
+          {pinnedNodes.map((node) => renderNode(node))}
+        </RailGroup>
+      ) : null}
+      {groups.map((group) => (
+        <RailGroup
+          key={group.key}
+          label={group.label}
+          count={group.count}
+          collapsed={collapsed}
+          // The folder title IS the filter. Scoping used to live on the folder
+          // button, which made that button mean two things — pick where a new
+          // session runs, and narrow the list — and neither was discoverable
+          // from the list it changed.
+          onFilter={
+            onProjectChange && projectFilter === "__all" && group.project
+              ? () => onProjectChange(group.project)
+              : undefined
+          }
+          onClearFilter={
+            onProjectChange && projectFilter !== "__all"
+              ? () => onProjectChange("__all")
+              : undefined
+          }
+        >
+          {group.nodes.map((node) => renderNode(node))}
+        </RailGroup>
+      ))}
+      {trailing}
+    </>
   );
 }
 
