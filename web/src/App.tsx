@@ -19478,6 +19478,9 @@ function NewSessionDialog({
       ? repos.find((r) => repoProject(r) === scopedProject)
       : undefined;
   const projectScoped = !!scopedRepo;
+  // The live view is unfiltered. There is no chosen folder to name, only the
+  // fallback the next session would land in, so the chip does not claim one.
+  const allProjects = scopedProject === "__all";
   const selectedRepo = resolveComposerRepo({
     scopedCwd: scopedRepo?.cwd,
     lastCwd: repo,
@@ -20098,13 +20101,25 @@ function NewSessionDialog({
               size="sm"
               type="button"
               variant="outline"
-              className="h-8 max-w-36 rounded-full px-2.5 shadow-sm"
+              className={cn(
+                "h-8 shrink-0 rounded-full shadow-sm",
+                // Icon alone when nothing is scoped — the same shape
+                // MobileProjectPicker collapses to for "__all". Naming the
+                // composer's fallback repo here made choosing "All projects"
+                // look ignored: the list widened while the chip went on
+                // showing the folder you had just moved away from.
+                allProjects ? "size-8 px-0" : "max-w-36 px-2.5",
+              )}
               onClick={openProjectSheet}
-              aria-label={`Choose project. Current project: ${selectedRepoName}`}
-              title={selectedRepo || "Choose project"}
+              aria-label={
+                allProjects
+                  ? "Choose project. Showing all projects"
+                  : `Choose project. Current project: ${selectedRepoName}`
+              }
+              title={allProjects ? "All projects" : selectedRepo || "Choose project"}
             >
               <Folder className="size-4 shrink-0" />
-              <span className="truncate">{selectedRepoName}</span>
+              {allProjects ? null : <span className="truncate">{selectedRepoName}</span>}
             </Button>
           ) : null}
           <Button
@@ -20171,7 +20186,7 @@ function NewSessionDialog({
         // header no longer carries that menu, which would have made __all a
         // one-way door — the composer's own sheet offers it instead. Same row
         // the desktop rail's sheet already shows.
-        allSelected={scopedProject === "__all"}
+        allSelected={allProjects}
         onSelectAll={
           onProjectChange
             ? () => {
