@@ -12058,13 +12058,22 @@ function RailStage({
 
   // Flat rail order the keyboard cursor walks (matching the visible rail;
   // findings are not navigable). Keep the cursor pointing at a live session.
-  const orderedSids = useMemo(() => {
-    const ids: string[] = [];
-    for (const session of railOrderedSessions) {
-      if (session.sessionId) ids.push(session.sessionId);
-    }
-    return ids;
-  }, [railOrderedSessions]);
+  //
+  // Keyed on the joined ids, not on `railOrderedSessions`. That array is built
+  // fresh every render — it spreads three other arrays — so a useMemo over it
+  // never hit, `orderedSids` got a new identity every render, and the effect
+  // below ran every render to call setCursor. It settled only because React
+  // bails out when a state value is unchanged, which means the whole thing sat
+  // one returned-object away from being an actual render loop. A string of the
+  // ids changes when the order changes and not before.
+  const orderedSidsKey = railOrderedSessions
+    .map((session) => session.sessionId)
+    .filter((id): id is string => !!id)
+    .join(",");
+  const orderedSids = useMemo(
+    () => (orderedSidsKey ? orderedSidsKey.split(",") : []),
+    [orderedSidsKey],
+  );
   useEffect(() => {
     setCursor((c) => (c && orderedSids.includes(c) ? c : orderedSids[0] ?? null));
   }, [orderedSids]);
