@@ -89,7 +89,7 @@ export const AI_TOOL_OPTIONS: readonly SurveyOption<SurveyAiTool>[] = SHOWCASE_A
 }));
 
 export type SurveyPageId = "survey-identity" | "survey-pain" | "survey-tools" | "survey-ai";
-export type ConnectPageId = "agents" | "tools" | "value";
+export type ConnectPageId = "agents" | "tools" | "value" | "install";
 export type GatePage = SurveyPageId | ConnectPageId;
 
 export const SURVEY_PAGES: readonly SurveyPageId[] = [
@@ -107,8 +107,16 @@ export function isSurveyPage(page: GatePage): page is SurveyPageId {
 // pages. `toolsUsable` is the same "skip the tools page when nothing on it
 // can be connected" check the gate already does — see its own comment in
 // embedded-connect-gate.tsx for why that page can disappear from the flow.
-export function buildGateFlow(toolsUsable: boolean): GatePage[] {
+//
+// `installable` appends the add-to-home-screen page, deliberately LAST: the
+// install ask comes after agent connection and the value pitch, never in
+// front of them (install-as-a-gate was the highest-drop-off screen the old
+// signup wizard had). It only exists where the browser has a real install
+// path — a captured native prompt, iOS, or Mac Safari instructions — because
+// a dead step in a first run is worse than no step.
+export function buildGateFlow(toolsUsable: boolean, installable = false): GatePage[] {
   const connect: ConnectPageId[] = toolsUsable ? ["agents", "tools", "value"] : ["agents", "value"];
+  if (installable) connect.push("install");
   return [...SURVEY_PAGES, ...connect];
 }
 
