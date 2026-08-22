@@ -13356,7 +13356,14 @@ const RailRow = memo(function RailRow({
               {/* One line, always mounted: see the row height note. Two lines
                   of transcript is not a preview, it is a paragraph, and it
                   made the list scroll half as far for no more meaning. */}
-              <span className="h-5 truncate text-sm leading-tight text-muted-foreground">
+              {/* Keyed on the text so React remounts it and the fade replays.
+                  A CSS transition cannot see a text swap — nothing about the
+                  element's own style changes — so there is no property for it
+                  to animate. */}
+              <span
+                key={typeof preview === "string" ? preview : undefined}
+                className="rail-preview h-5 truncate text-sm leading-tight text-muted-foreground"
+              >
                 {preview}
               </span>
             </span>

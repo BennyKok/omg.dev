@@ -2493,6 +2493,31 @@ html.lfg-keyboard-open {
   /* Desktop rail rows: a light staggered rise-in echoing the mobile card's
      lfg-card-in, so the rail list lands with the same motion language instead
      of popping in flat. Stagger runs off nth-child within each rail group. */
+  /* A row's preview is replaced under you while a session streams. Swapping
+     the text outright made the list twitch with hard cuts — a dozen rows all
+     snapping to new words. This is deliberately almost nothing: a short fade
+     from most-of-the-way-there, so a change registers as movement without
+     asking to be read again. No travel, because a row that shifts is a row
+     that looks like it moved in the list. */
+  @keyframes lfg-preview-in {
+    from {
+      opacity: 0.45;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  .rail-preview {
+    animation: lfg-preview-in 220ms var(--ease-ios) both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rail-preview {
+      animation: none;
+    }
+  }
+
   @keyframes lfg-rail-in {
     from { opacity: 0; transform: translateY(5px); }
     to { opacity: 1; transform: translateY(0); }
