@@ -1470,7 +1470,7 @@ export async function listSetupChecks(): Promise<SetupCheck[]> {
     { label: "Bun", ok: !!bunPath(), detail: bunPath() ?? "not found" },
     { label: "tmux", ok: !!which("tmux"), detail: which("tmux") ?? "not found" },
     { label: "git", ok: !!which("git"), detail: which("git") ?? "not found" },
-    { label: "LFG MCP command", ok: !!args, detail: args?.join(" ") ?? "not available" },
+    { label: "omg.dev MCP command", ok: !!args, detail: args?.join(" ") ?? "not available" },
   ];
   if (claude) {
     checks.push({
@@ -1508,12 +1508,12 @@ export async function listSetupChecks(): Promise<SetupCheck[]> {
   return [
     {
       key: "lfg-mcp",
-      label: "LFG MCP",
+      label: "omg.dev MCP",
       configured: checks.every((check) => check.ok),
       running: systemSetupRuns.has("lfg-mcp"),
       checks,
       instructions: [
-        "Registers the local LFG MCP server with Claude, Codex, OpenCode, Jcode, Grok, and Cursor when those CLIs are installed.",
+        "Registers the local omg.dev MCP server with Claude, Codex, OpenCode, Jcode, Grok, and Cursor when those CLIs are installed.",
       ],
       canAutoSetup: !!args && !!(claude || codex || opencode || jcode || grok || cursor),
       actionLabel: "Install MCP",
@@ -1655,7 +1655,7 @@ export async function runSetupAction(key: string): Promise<void> {
   if (systemSetupRuns.has(key)) throw new Error(`${key} setup is already running`);
   const run = (async () => {
     const args = mcpCommandArgs();
-    if (!args) throw new Error("Bun is required to register the LFG MCP server");
+    if (!args) throw new Error("Bun is required to register the omg.dev MCP server");
     const claude = claudePath();
     const codex = codexPath();
     const opencode = opencodePath();
@@ -1663,7 +1663,7 @@ export async function runSetupAction(key: string): Promise<void> {
     const grok = grokPath();
     const cursor = cursorPath();
     if (!claude && !codex && !opencode && !jcode && !grok && !cursor) {
-      throw new Error("Install a supported coding agent first, then register the LFG MCP server");
+      throw new Error("Install a supported coding agent first, then register the omg.dev MCP server");
     }
     if (claude) await installClaudeMcp(claude);
     if (codex) installCodexMcp(codex, args);

@@ -37,7 +37,7 @@ Behavior:
   launched with instructions to report progress plus one terminal state back to
   the parent session. When --cwd is omitted, the child inherits the parent
   session's project when there is a parent; otherwise it uses the server default
-  repo. Nested delegation should use LFG MCP subagent tools, not generic or
+  repo. Nested delegation should use omg.dev MCP subagent tools, not generic or
   harness-native subagent tools.
 `;
 
