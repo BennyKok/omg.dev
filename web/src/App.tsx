@@ -25364,12 +25364,10 @@ function reportBotChatError(message: string | null) {
 
 type BotRestartResponse = {
   ok: true;
-  state: "restarted" | "queued" | "already-restarted";
+  state: "restarted" | "already-restarted";
   conversationId: string | null;
   runtimeSessionId: string | null;
   previousRuntimeSessionId?: string | null;
-  blocked?: "primary-busy" | "children-active";
-  activeChildren?: number;
 };
 
 /** The bot-chat-only lifecycle menu, shared by desktop and mobile headers. */
@@ -25402,12 +25400,7 @@ function BotConversationMenu({
       // failure must not turn a completed restart into a false failure toast;
       // the normal poll/live stream will reconcile the view.
       await onRefresh().catch(() => {});
-      if (result.state === "queued") {
-        const detail = result.blocked === "children-active"
-          ? ` after ${result.activeChildren || 1} active child task${result.activeChildren === 1 ? "" : "s"} finish`
-          : " after the current work and queued messages finish";
-        toast.success(`Restart queued${detail}.`, { id: toastId });
-      } else if (result.state === "already-restarted") {
+      if (result.state === "already-restarted") {
         toast.success("The runtime was already restarted.", { id: toastId });
       } else {
         toast.success("Runtime restarted. Conversation and history were preserved.", { id: toastId });
@@ -25423,28 +25416,26 @@ function BotConversationMenu({
     : !bot.conversationId && !bot.sessionId
       ? "Restart unavailable — start the conversation first"
       : null;
-  const persistedRestartState = bot.rotationReason === "restart" ? bot.rotationState : null;
+  // Only an in-flight rotation disables the action. A restart never parks in
+  // `queued` any more, and a stale queued record from an older build must not
+  // grey out the one control that clears it.
+  const restartInFlight = bot.rotationReason === "restart" && bot.rotationState === "rotating";
   const restartItem = unavailable ? (
     <DropdownMenuItem disabled aria-label={unavailable}>
       <RotateCcw className="size-4" />
       {unavailable}
     </DropdownMenuItem>
-  ) : restarting || persistedRestartState === "rotating" ? (
+  ) : restarting || restartInFlight ? (
     <DropdownMenuItem disabled aria-label="Restarting session">
       <Loader2 className="size-4 animate-spin" />
       Restarting…
-    </DropdownMenuItem>
-  ) : persistedRestartState === "queued" ? (
-    <DropdownMenuItem disabled aria-label="Restart queued">
-      <Clock3 className="size-4" />
-      Restart queued
     </DropdownMenuItem>
   ) : runtimeHealthy ? (
     <DoubleConfirmAction
       resetKey={`${bot.id}:${bot.sessionId ?? "none"}:${busy ? "busy" : "idle"}`}
       label="Restart session"
-      confirmLabel={busy ? "Queue restart after current work" : "Confirm restart"}
-      pendingLabel={busy ? "Queuing restart…" : "Restarting…"}
+      confirmLabel="Confirm restart"
+      pendingLabel="Restarting…"
       icon={<RotateCcw className="size-4" />}
       confirmIcon={<RotateCcw className="size-4" />}
       render={<DropdownMenuItem />}

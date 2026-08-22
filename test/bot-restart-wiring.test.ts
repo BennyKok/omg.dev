@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 const SERVE = readFileSync(new URL("../src/commands/serve.ts", import.meta.url), "utf8");
 const STORE = readFileSync(new URL("../src/bots/store.ts", import.meta.url), "utf8");
 const APP = readFileSync(new URL("../web/src/App.tsx", import.meta.url), "utf8");
+const ROTATION = readFileSync(new URL("../src/bots/rotation.ts", import.meta.url), "utf8");
 
 const restartRoute = SERVE.slice(
   SERVE.indexOf("Explicit runtime lifecycle action for a persistent bot conversation"),
@@ -33,11 +34,33 @@ describe("persistent bot manual restart wiring", () => {
     expect(restartRoute).toContain('"bot_restart_forbidden"');
   });
 
-  test("returns typed success, queued and failure states", () => {
+  test("returns typed success and failure states, and never a queued restart", () => {
     expect(restartRoute).toContain('state: outcome.rotated ? "restarted" : "already-restarted"');
-    expect(restartRoute).toContain('state: "queued"');
     expect(restartRoute).toContain('"bot_restart_failed"');
-    expect(restartRoute).toContain("activeChildren: outcome.children.length");
+    // A restart that cannot run is a failure the caller can retry, not a
+    // pending state parked behind the wedged turn it exists to clear.
+    expect(restartRoute).not.toContain('state: "queued"');
+    expect(restartRoute).not.toContain("activeChildren");
+    expect(APP).not.toContain("Restart queued");
+  });
+
+  test("admits a restart unconditionally and carries its undelivered queue", () => {
+    const rotation = SERVE.slice(
+      SERVE.indexOf("async function rotateBotSession"),
+      SERVE.indexOf("async function applyPendingBotRotation"),
+    );
+    expect(ROTATION).toContain('if (reason === "restart") return { ready: true };');
+    expect(rotation).toContain("botRotationAdmission(bot.id, primary, sessions, opts.reason)");
+    // The queue gate is for automatic rotations only.
+    expect(rotation).toContain('if (queueSessionId && opts.reason !== "restart")');
+    // Undelivered sends move onto the replacement instead of being stranded in
+    // the retired session's queue, and only after the old primary is closed.
+    expect(rotation).toContain("takeUndeliveredQueue(previousSessionId)");
+    expect(rotation.indexOf("takeUndeliveredQueue(previousSessionId)")).toBeGreaterThan(
+      rotation.indexOf('source: `bot_rotation_${opts.reason}`'),
+    );
+    // A child told the old parent id at spawn still finds the bot afterwards.
+    expect(SERVE).toContain("candidate.archivedSessionIds?.includes(targetSessionId)");
   });
 
   test("persists enough state to resume a queued restart after reload", () => {
@@ -62,7 +85,8 @@ describe("persistent bot manual restart wiring", () => {
   test("exposes the accessible action only in the bot conversation menu", () => {
     expect(botMenu).toContain('label="Restart session"');
     expect(botMenu).toContain('aria-label="Restart session"');
-    expect(botMenu).toContain("Queue restart after current work");
+    expect(botMenu).toContain('confirmLabel="Confirm restart"');
+    expect(botMenu).not.toContain("Queue restart after current work");
     expect(regularSessionMenu).not.toContain("Restart session");
     expect(SERVE).not.toContain("/api/sessions/:id/restart");
   });

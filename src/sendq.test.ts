@@ -15,6 +15,7 @@ import {
   resetSendQueueForTests,
   resumePersistedQueues,
   retryMessage,
+  takeUndeliveredQueue,
   type QueuedMsg,
 } from "./sendq.ts";
 import { writeStoredQueueMessage } from "./sendq-store.ts";
@@ -172,6 +173,42 @@ describe("command-file queue state", () => {
         error: expect.stringContaining("server restart"),
       }),
     ]);
+  });
+
+  test("hands undelivered rows to a replacement session and keeps the rest", () => {
+    const sessionId = crypto.randomUUID();
+    const now = Date.now();
+    for (const [index, status] of (["delivered", "sending", "failed"] as const).entries()) {
+      writeStoredQueueMessage(sessionId, {
+        id: `${status}-row`,
+        text: status,
+        status,
+        attempts: 1,
+        createdAt: now + index,
+        updatedAt: now + index,
+      });
+    }
+    resetSendQueueForTests();
+    const first = recordCommandFileMessage(sessionId, "routine one", true);
+    const second = recordCommandFileMessage(sessionId, "routine two", true);
+
+    // Only rows that never reached the agent move, and they keep their order.
+    const carried = takeUndeliveredQueue(sessionId);
+    expect(carried.map((m) => m.id)).toEqual([first.id, second.id]);
+    // A `sending` row still belongs to its delivery worker, and terminal rows
+    // stay as the history of the retired session.
+    expect(listQueue(sessionId).map((m) => m.status).sort())
+      .toEqual(["delivered", "failed", "sending"]);
+
+    // Removed from the store too: a carried message must not be live in the
+    // old queue and the new one at the same time.
+    resetSendQueueForTests();
+    expect(listQueue(sessionId).some((m) => m.id === first.id || m.id === second.id)).toBe(false);
+  });
+
+  test("takes nothing from a queue with no undelivered rows", () => {
+    const sessionId = crypto.randomUUID();
+    expect(takeUndeliveredQueue(sessionId)).toEqual([]);
   });
 
   test("prunes delivered rows in memory and in SQLite", () => {
