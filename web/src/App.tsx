@@ -36,7 +36,7 @@ import {
 import { HostedCoachCard } from "./components/hosted-coach-card";
 import { emitSessionCreatedToHost } from "./lib/embed-host-signal";
 import { isAuthorizationUrl } from "./lib/auth-popup";
-import { LFG_SMALL_ICON_PATH } from "./lib/icon-assets";
+import { OmgBrandMark, omgBrandToneClass } from "./components/omg-brand-mark";
 import {
   api,
   isAgentLimitError,
@@ -60,14 +60,14 @@ import {
 } from "./lib/version-diagnostics";
 import { cacheProjectFilter, readCachedProjectFilter } from "./lib/project-filter";
 import {
-  MOBILE_BOT_ROSTER_ROW_CLASS,
+  BOT_ROSTER_ROW_CLASS,
   mobileSurfaceDockBottom,
   mobileSurfaceToggleActive,
   shouldShowBotsInSessionList,
   shouldShowInlineBotsSurfaceToggle,
   shouldShowMobileSurfaceToggle,
 } from "./lib/mobile-bots-nav";
-import { botChatSessionId, botStageSession, findBotMainSession } from "./lib/bot-session";
+import { botChatSessionId, botDetachedSession, botStageSession, findBotMainSession } from "./lib/bot-session";
 import {
   activeConversationParticipants,
   conversationParticipantById,
@@ -1675,15 +1675,36 @@ function SessionStatusDot({
       </span>
     );
   }
+  // Working is the app's one loading state: the same spinner every pending
+  // action already shows. It used to be an amber pulsing dot here and only
+  // here, which read as a warning badge rather than "this is running" — the
+  // same colour the paused badge uses, one row apart, meaning two things.
+  if (busy) {
+    return (
+      <span
+        aria-label="working"
+        title="Working"
+        className={cn(
+          "flex shrink-0 items-center justify-center rounded-full text-primary",
+          variant === "avatar"
+            ? "absolute -right-0.5 -top-0.5 size-3.5 bg-card ring-2 ring-card"
+            : "size-4",
+          className,
+        )}
+      >
+        <Loader2 className="size-2.5 animate-spin motion-reduce:animate-none" />
+      </span>
+    );
+  }
   return (
     <span
-      aria-label={busy ? "working" : "idle"}
+      aria-label="idle"
       className={cn(
         "shrink-0 rounded-full",
         variant === "avatar"
           ? "absolute -right-0.5 -top-0.5 size-2.5 ring-2 ring-card"
           : "size-2",
-        busy ? STATUS_DOT_BUSY : STATUS_DOT_IDLE,
+        STATUS_DOT_IDLE,
         className,
       )}
     />
@@ -9009,31 +9030,10 @@ function NavIsland({
   );
 }
 
-// Standalone keeps LFG's identity. Only the omg-hosted surface swaps that mark:
-// a full omg.dev lockup on desktop and the compact gasp mark on mobile.
-function OmgBrandMark({ className }: { className?: string }) {
-  const maskId = useId();
-  return (
-    <svg
-      viewBox="0 0 100 100"
-      className={cn("size-6 shrink-0", className)}
-      aria-hidden
-    >
-      <mask id={maskId}>
-        <rect width="100" height="100" fill="white" />
-        <circle cx="71" cy="29" r="14" fill="black" />
-      </mask>
-      <circle
-        cx="50"
-        cy="50"
-        r="44"
-        fill="#ff5530"
-        mask={`url(#${maskId})`}
-      />
-    </svg>
-  );
-}
-
+// One mark for both builds: the full omg.dev lockup on desktop, the compact
+// gasp mark on mobile. Standalone used to show the old LFG icon instead, which
+// made the same app look like two products; the build is said in the colour
+// now (see omgBrandToneClass).
 function ProductBrand({
   hosted = false,
   compact = false,
@@ -9041,22 +9041,21 @@ function ProductBrand({
   hosted?: boolean;
   compact?: boolean;
 }) {
-  if (!hosted) {
-    return (
-      <img
-        src={omgAssetUrl(LFG_SMALL_ICON_PATH)}
-        alt="omg"
-        className="mx-1 size-6 shrink-0 rounded-md"
-      />
-    );
-  }
-
+  // One product, one mark. Standalone used to show the old LFG icon here, so
+  // the same app looked like two different products depending on where it was
+  // running. The build is said in the colour instead: brand orange hosted,
+  // muted grey local.
   if (compact) {
-    return <OmgBrandMark />;
+    return <OmgBrandMark className={omgBrandToneClass(hosted)} />;
   }
 
   return (
-    <span className="mx-1 inline-flex shrink-0 items-center gap-1.5 text-[#ff5530]">
+    <span
+      className={cn(
+        "mx-1 inline-flex shrink-0 items-center gap-1.5",
+        omgBrandToneClass(hosted),
+      )}
+    >
       <OmgBrandMark className="size-5" />
       <span className="whitespace-nowrap text-[15px] font-bold leading-none tracking-[-0.045em]">
         omg.dev
@@ -10156,11 +10155,7 @@ function OnboardingFlow({
       <div className="my-auto w-full max-w-md py-6">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <img
-              src={omgAssetUrl(LFG_SMALL_ICON_PATH)}
-              alt="omg"
-              className="size-7 shrink-0"
-            />
+            <OmgBrandMark className="size-7 text-muted-foreground" />
             {version ? (
               <span className="text-xs font-medium text-muted-foreground">
                 v{version}
@@ -10540,11 +10535,7 @@ function WhoAreYou({
     <div className="flex h-dvh flex-col items-center justify-center bg-background px-6 text-foreground">
       <div className="w-full max-w-sm">
         <div className="mb-4 flex items-center gap-2">
-          <img
-            src={omgAssetUrl(LFG_SMALL_ICON_PATH)}
-            alt="omg"
-            className="size-7 shrink-0"
-          />
+          <OmgBrandMark className="size-7 text-muted-foreground" />
         </div>
         <h1 className="text-xl font-semibold">Who are you?</h1>
         <p className="mb-5 mt-1 text-sm text-muted-foreground">
@@ -10994,13 +10985,13 @@ function LiveView({
   // Mobile has a dedicated Bots surface. Keep bot-owned families out of Chat,
   // even when a bot session or one of its delegated children was pinned.
   const pinnedNodes = tree.roots.filter(
-    (node) => nodeContainsPin(node) && (!isMobile || !nodeIsBot(node)),
+    (node) => nodeContainsPin(node) && (shouldShowBotsInSessionList() || !nodeIsBot(node)),
   );
   // Remaining roots keep the familiar working → idle grouping. A parent is
   // considered working if any child is working.
   // Bots are their own category here too — see the rail's note: a bot you have
   // not spoken to in a week is not "idle" the way a finished session is.
-  const botNodes = shouldShowBotsInSessionList(isMobile)
+  const botNodes = shouldShowBotsInSessionList()
     ? tree.roots.filter((node) => !nodeContainsPin(node) && nodeIsBot(node))
     : [];
   const workingNodes = tree.roots.filter(
@@ -11790,16 +11781,22 @@ function RailStage({
   const railNodeContainsTopPin = (node: SessionTreeNode): boolean =>
     topPinnedSet.has(sessionStableId(node.session)) ||
     node.children.some(railNodeContainsTopPin);
-  const topPinnedNodes = railTree.roots.filter(railNodeContainsTopPin);
   // A bot is someone you keep, not a job you started, so it does not belong in
   // the working/idle split that describes work in flight — a bot you have not
   // spoken to since Tuesday is not "idle" in the sense the rest of that group
-  // means. Bots get their own category above the fleet, and are held out of
-  // the project groups for the same reason.
+  // means. Bots are held out of the project groups for the same reason.
   const railNodeIsBot = (node: SessionTreeNode): boolean => isBotConversation(node.session);
-  const botNodes = railTree.roots.filter(
-    (node) => !railNodeContainsTopPin(node) && railNodeIsBot(node),
+  // Bots now live only on the surface the switch bar opens, so the Chat rail
+  // does not repeat them (shouldShowBotsInSessionList owns that rule for both
+  // this rail and LiveView). A pin must not drag a bot family back in either:
+  // it would be the same conversation appearing twice in one rail again.
+  const showBotsInRail = shouldShowBotsInSessionList();
+  const topPinnedNodes = railTree.roots.filter(
+    (node) => railNodeContainsTopPin(node) && (showBotsInRail || !railNodeIsBot(node)),
   );
+  const botNodes = showBotsInRail
+    ? railTree.roots.filter((node) => !railNodeContainsTopPin(node) && railNodeIsBot(node))
+    : [];
   const workingNodes = railTree.roots.filter(
     (node) =>
       !railNodeContainsTopPin(node) && !railNodeIsBot(node) && railTree.effectiveBusy(node),
@@ -12390,7 +12387,20 @@ function RailStage({
     const node = railTree.nodeForSessionId(selectedBotSid);
     const rawSession =
       node?.session ?? sessions.find((item) => item.sessionId === selectedBotSid) ?? null;
-    if (!rawSession) return [];
+    // No live record for a conversation that nonetheless exists: the bot's
+    // harness has exited, or the session list has not caught up. The transcript
+    // is still on disk under this id, so render the chat against a detached
+    // record rather than returning nothing — an empty column here falls through
+    // to the "say hi" placeholder and hides real history. See
+    // botDetachedSession, which is the same record the mobile Bots page builds.
+    if (!rawSession) {
+      return [
+        {
+          sid: selectedBotSid,
+          session: botDetachedSession(selectedBot, selectedBotSid) as Session,
+        },
+      ];
+    }
     // Found by sessionId alone — stamp this bot's identity on rather than
     // trust whatever `botId` the raw record carries. See botStageSession.
     return [{ sid: selectedBotSid, session: botStageSession(selectedBot, rawSession) }];
@@ -12400,21 +12410,25 @@ function RailStage({
   // The bot list is the session list's sibling, not a page: same rail, same
   // rows, same click-to-open-a-column behaviour. A bot row IS a session row —
   // it just knows its own name and face before the session exists.
+  const botRailRows = botConversationRows(bots, sessions, botConversationsForRail);
   const botRailList = (
-    <div className="flex flex-col gap-0.5">
+    // Same small-caps category header the Chat rail puts over Working and Idle.
+    // The switch bar says which surface you are on; this says what the list is
+    // and how many, which is what the other rail lists all say.
+    <RailGroup label="Bots" count={botRailRows.length} collapsed={railCollapsed}>
       {!railCollapsed && onNewBot ? (
         <button
           type="button"
           onClick={onNewBot}
-          className="mb-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="flex h-[3.75rem] w-full items-center gap-3 rounded-lg px-2 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
-            <Plus className="size-3.5" />
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
+            <Plus className="size-4" />
           </span>
           <span className="truncate">New bot</span>
         </button>
       ) : null}
-      {botConversationRows(bots, sessions, botConversationsForRail).map((row) => {
+      {botRailRows.map((row) => {
         const bot = row.bot;
         const sid = row.sessionId;
         const session = row.session;
@@ -12439,26 +12453,34 @@ function RailStage({
             }}
             className={cn(
               "relative flex w-full items-center rounded-lg text-left transition-colors",
-              railCollapsed ? "justify-center px-1 py-1.5" : "gap-2 px-2 py-1.5",
+              // The same roster row mobile renders (BOT_ROSTER_ROW_CLASS): a
+              // bot is a person you talk to, not a job row, so it carries a
+              // real face, a name and a line of what was said. At the session
+              // rows' 28px/13px density that face was a bullet point and the
+              // preview clipped after a few words. Fixed height for the same
+              // reason the session rows are fixed — the preview line arrives
+              // late and must not resize the row under the cursor.
+              railCollapsed
+                ? "h-11 justify-center px-1"
+                : "h-[3.75rem] gap-3 px-2",
               active ? "bg-muted" : "hover:bg-muted/60",
             )}
           >
-            <BotAvatar bot={bot} working={busy} size={railCollapsed ? 24 : 28} />
+            <BotAvatar bot={bot} working={busy} size={railCollapsed ? 32 : 44} />
             {!railCollapsed ? (
               <span className="flex min-w-0 flex-1 flex-col">
                 <span
                   className={cn(
-                    "truncate text-[13px] font-medium leading-tight",
+                    "truncate text-sm font-medium leading-tight",
                     !bot.enabled && "text-muted-foreground",
                   )}
                 >
                   {bot.name}
                 </span>
-                {preview ? (
-                  <span className="truncate text-[11px] leading-tight text-muted-foreground">
-                    {preview}
-                  </span>
-                ) : null}
+                {/* Always mounted: see the row height note above. */}
+                <span className="h-4 truncate text-xs leading-tight text-muted-foreground">
+                  {preview}
+                </span>
               </span>
             ) : null}
             {row.unread ? (
@@ -12479,7 +12501,7 @@ function RailStage({
           No bots yet.
         </div>
       ) : null}
-    </div>
+    </RailGroup>
   );
 
   return (
@@ -12620,8 +12642,9 @@ function RailStage({
               {topPinnedNodes.map((node) => renderRailNode(node))}
             </RailGroup>
           ) : null}
-          {/* Above the fleet either way: with a project filter on or off, the
-              people you talk to sit at the top of the list you live in. */}
+          {/* Empty while bots are exclusive to their own surface. Kept as the
+              one mount point so the rule lives in shouldShowBotsInSessionList
+              rather than in a deleted branch nobody can find again. */}
           {botSessions.length ? (
             <RailGroup label="Bots" count={botSessions.length} collapsed={railCollapsed}>
               {botNodes.map((node) => renderRailNode(node))}
@@ -12989,7 +13012,12 @@ const RailItem = memo(function RailItem({
         title={collapsed ? titleForSession(session) : undefined}
         className={cn(
           "group relative flex cursor-pointer touch-pan-y select-none items-center gap-2 rounded-xl border py-1.5 outline-none transition-[background-color,box-shadow,border-color] duration-150",
-          collapsed ? "justify-center px-0" : "px-2",
+          // Fixed height. The preview line arrives, grows to two lines and is
+          // replaced as a session streams, so a row sized to its own text kept
+          // resizing under the cursor and shoved every row below it — the whole
+          // rail twitching while anything was working. The row now reserves the
+          // two-line preview whether or not there is text to put in it.
+          collapsed ? "h-11 justify-center px-0" : "h-14 px-2",
           swiping
             ? "border-transparent bg-card"
             : active
@@ -13055,11 +13083,10 @@ const RailItem = memo(function RailItem({
                   </span>
                 ) : null}
               </span>
-              {latest ? (
-                <span className="line-clamp-2 text-[11px] leading-tight text-muted-foreground">
-                  {latest}
-                </span>
-              ) : null}
+              {/* Always mounted, always two lines tall: see the row height note. */}
+              <span className="line-clamp-2 h-7 text-[11px] leading-tight text-muted-foreground">
+                {latest}
+              </span>
             </span>
             <button
               type="button"
@@ -25527,17 +25554,7 @@ function BotsView({
         ? findBotMainSession(bot, sessions)
         : sessions.find((session) => session.sessionId === sid);
     const session: Session | null = sid
-      ? backingSession ?? {
-          sessionId: sid,
-          title: bot.name,
-          agent: bot.agent,
-          model: bot.model,
-          thinkingLevel: bot.thinkingLevel,
-          cwd: bot.cwd,
-          botId: bot.id,
-          botName: bot.name,
-          managed: true,
-        }
+      ? backingSession ?? (botDetachedSession(bot, sid) as Session)
       : null;
     const busy = !!(sid && busyBySid[sid]);
     const chat = session ? (
@@ -25700,7 +25717,7 @@ function BotsView({
             type="button"
             onClick={() => onOpen(item.id, row.conversationId)}
             aria-label={`${item.name}${row.unread ? ", unread conversation" : ""}`}
-            className={MOBILE_BOT_ROSTER_ROW_CLASS}
+            className={BOT_ROSTER_ROW_CLASS}
           >
             <BotAvatar bot={item} working={working} size={44} />
             <span className="flex min-w-0 flex-1 flex-col">

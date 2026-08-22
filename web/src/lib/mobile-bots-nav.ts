@@ -18,8 +18,12 @@ export type PrimaryMobileTab = "live" | "bots";
 export type SurfaceToggleActive = "sessions" | "chat";
 
 /**
- * Flat roster treatment on the Bots page — larger than the compact rail, but
- * not airier. PR #208 ported the bot-mode mockup's `.roster-row` density
+ * Flat roster treatment for a bot roster, on every width.
+ *
+ * The desktop rail roster now renders at this same density. A bot row is the
+ * same object on both surfaces — face, name, last line — so it gets one
+ * treatment rather than a mobile one and a cramped desktop copy.
+ * PR #208 ported the bot-mode mockup's `.roster-row` density
  * (10px vertical padding, 12px gap) verbatim and only got the row pitch from
  * 100px to 84px, because the mockup's own airiness assumes the same large
  * avatar this page renders (`size={56}` in App.tsx) — padding was never the
@@ -28,7 +32,7 @@ export type SurfaceToggleActive = "sessions" | "chat";
  * scannable native list (iOS Messages runs roughly a 52px avatar in a ~76px
  * row) rather than a settings screen.
  */
-export const MOBILE_BOT_ROSTER_ROW_CLASS =
+export const BOT_ROSTER_ROW_CLASS =
   "flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted";
 
 /**
@@ -51,9 +55,21 @@ export function mobileSurfaceToggleActive(tab: string): SurfaceToggleActive {
   return tab === "bots" ? "chat" : "sessions";
 }
 
-/** Mobile Chat and Bots are strict, mutually exclusive data surfaces. */
-export function shouldShowBotsInSessionList(isMobile: boolean): boolean {
-  return !isMobile;
+/**
+ * Chat and Bots are strict, mutually exclusive data surfaces on every width.
+ *
+ * Mobile always worked this way. The desktop rail did not: it listed the same
+ * bot conversations again in a "Bots" group above the fleet, so every bot
+ * appeared twice — once in the Chat list and once on the Bots surface the
+ * switch bar opens. One conversation with two rows in the same rail is two
+ * places to look for the same unread dot, and the Chat list is the one that
+ * cannot open a bot properly (no roster preview, no bot stage column).
+ *
+ * The switch bar stays. Bots are reached through it, not by mixing them into
+ * the session list.
+ */
+export function shouldShowBotsInSessionList(): boolean {
+  return false;
 }
 
 export function mobileSurfaceDockBottom(aboveComposer: boolean): string {

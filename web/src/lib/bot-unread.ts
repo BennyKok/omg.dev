@@ -43,13 +43,22 @@ export function botConversationRows<
 >(bots: B[], sessions: S[], conversations: BotConversationUnread[]): BotConversationRow<B, S>[] {
   return bots.map((bot) => {
     const own = conversations.filter((conversation) => conversation.botId === bot.id);
-    // Prefer the shared resolver, then the server's row for this bot when it
-    // named a conversation the client's session list does not carry.
-    const canonical = botCanonicalSessionId(bot, sessions) ??
-      (own.length === 1 ? own[0].sessionId : null);
-    const conversation = canonical
-      ? own.find((item) => item.sessionId === canonical)
-      : undefined;
+    // Both sides run the same resolver, but not over the same input: the server
+    // resolves against every session it knows, the client only against the
+    // fleet list this view is holding. When that list is missing the bot's
+    // conversation the two answers diverge, and the row then matched no server
+    // conversation at all — so it rendered read, with no preview and no
+    // timestamp, for a bot that had unread messages waiting. Unread is the
+    // server's to report (it owns the read watermark), and the server sends
+    // exactly one conversation per bot, so an unmatched resolution falls back
+    // to that row rather than dropping it.
+    const resolved = botCanonicalSessionId(bot, sessions);
+    const conversation =
+      (resolved ? own.find((item) => item.sessionId === resolved) : undefined) ??
+      (own.length === 1 ? own[0] : undefined);
+    // Taken from the conversation that was actually used, so the id the row
+    // opens and the id its unread state came from can never be two sessions.
+    const canonical = conversation?.sessionId ?? resolved;
     // Keyed by bot, not by session: the row survives a rebind of the bot's
     // conversation without React tearing it down and losing scroll position.
     return {

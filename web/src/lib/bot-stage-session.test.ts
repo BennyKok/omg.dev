@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { botStageSession } from "./bot-session";
+import { botDetachedSession, botStageSession } from "./bot-session";
 
 // The reported bug: the Engineer bot's roster row resolved a real canonical
 // sessionId, but the desktop stage column read that session's own `botId`
@@ -55,5 +55,30 @@ describe("botStageSession", () => {
     const session = { sessionId: "s1", botId: "bot-other", botName: "Other Bot" };
 
     expect(botStageSession(engineer, session)).toBe(session);
+  });
+});
+
+describe("botDetachedSession", () => {
+  // A bot's transcript is filed on disk under its conversation id and outlives
+  // the process that wrote it. The desktop stage used to render nothing for a
+  // conversation the live session list did not carry, which fell through to the
+  // "say hi" placeholder: a bot with months of history looked brand new.
+  test("carries the id the transcript is filed under", () => {
+    const session = botDetachedSession(
+      { id: "bot", name: "Scout", agent: "claude", model: "opus", cwd: "/repo" },
+      "conv-1",
+    );
+    expect(session.sessionId).toBe("conv-1");
+  });
+
+  test("wears the bot's own identity, not an unknown session's", () => {
+    const session = botDetachedSession(
+      { id: "bot", name: "Scout", agent: "claude" },
+      "conv-1",
+    );
+    expect(session.botId).toBe("bot");
+    expect(session.botName).toBe("Scout");
+    expect(session.title).toBe("Scout");
+    expect(session.managed).toBe(true);
   });
 });

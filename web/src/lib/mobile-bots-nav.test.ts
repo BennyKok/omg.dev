@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  MOBILE_BOT_ROSTER_ROW_CLASS,
+  BOT_ROSTER_ROW_CLASS,
   mobileSurfaceDockBottom,
   mobileSurfaceToggleActive,
   shouldShowBotsInSessionList,
@@ -9,17 +9,17 @@ import {
 } from "./mobile-bots-nav";
 
 test("the mobile bot roster uses a flat rail-style row", () => {
-  expect(MOBILE_BOT_ROSTER_ROW_CLASS).toContain("hover:bg-muted");
-  expect(MOBILE_BOT_ROSTER_ROW_CLASS).not.toContain("border-border");
-  expect(MOBILE_BOT_ROSTER_ROW_CLASS).not.toContain("bg-card");
+  expect(BOT_ROSTER_ROW_CLASS).toContain("hover:bg-muted");
+  expect(BOT_ROSTER_ROW_CLASS).not.toContain("border-border");
+  expect(BOT_ROSTER_ROW_CLASS).not.toContain("bg-card");
   // 8px vertical padding paired with the 44px avatar in App.tsx (down from
   // 56px) puts the row pitch at 68px. The mockup's own 10px/12px density
   // (py-2.5, PR #208) still measured 84px because that density assumed the
   // large avatar; shrinking the avatar is what makes the row scannable.
-  expect(MOBILE_BOT_ROSTER_ROW_CLASS).toContain("py-2");
-  expect(MOBILE_BOT_ROSTER_ROW_CLASS).toContain("gap-3");
-  expect(MOBILE_BOT_ROSTER_ROW_CLASS).not.toContain("py-2.5");
-  expect(MOBILE_BOT_ROSTER_ROW_CLASS).not.toContain("py-4");
+  expect(BOT_ROSTER_ROW_CLASS).toContain("py-2");
+  expect(BOT_ROSTER_ROW_CLASS).toContain("gap-3");
+  expect(BOT_ROSTER_ROW_CLASS).not.toContain("py-2.5");
+  expect(BOT_ROSTER_ROW_CLASS).not.toContain("py-4");
 });
 
 describe("shouldShowMobileSurfaceToggle", () => {
@@ -63,12 +63,12 @@ describe("mobileSurfaceToggleActive", () => {
 });
 
 describe("shouldShowBotsInSessionList", () => {
-  test("keeps bot families out of mobile Chat", () => {
-    expect(shouldShowBotsInSessionList(true)).toBe(false);
-  });
-
-  test("preserves the desktop rail grouping", () => {
-    expect(shouldShowBotsInSessionList(false)).toBe(true);
+  // Bots are reached through the Chat/Bots switch bar, on every width. The
+  // desktop rail used to ALSO repeat them in a "Bots" group inside the Chat
+  // list, so one conversation had two rows in the same rail and two places to
+  // carry the same unread dot. Mobile never did this.
+  test("keeps bot families out of Chat at every width", () => {
+    expect(shouldShowBotsInSessionList()).toBe(false);
   });
 });
 
