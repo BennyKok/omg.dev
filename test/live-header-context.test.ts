@@ -10,7 +10,10 @@ describe("contextual mobile Live header", () => {
     const source = await app();
     expect(source).toContain("setShowHeaderBrandIntro(false), 2000");
     expect(source).toContain("function LiveHeaderContext({");
-    expect(source).toContain('isMobile && tab === "live"');
+    // Bots shares this header now: it is the same surface with a different
+    // list in it, so swapping the whole top of the screen between them read as
+    // changing app rather than changing list.
+    expect(source).toContain('isMobile && (tab === "live" || tab === "bots")');
     expect(source).toContain("hosted={embedded}");
     expect(source).toContain("viewerName={viewer?.name}");
     expect(source).toContain("<ProductBrand compact hosted={hosted} />");
@@ -18,9 +21,9 @@ describe("contextual mobile Live header", () => {
       'w-[min(17rem,calc(100vw-var(--lfg-host-top-inset)-1.5rem))]',
     );
     expect(source).toMatch(
-      /isMobile && tab === "live"[\s\S]*?<LiveHeaderContext[\s\S]*?embedded \? null : \([\s\S]*?<UserFilterMenu[\s\S]*?<PagesMenu/,
+      /isMobile && \(tab === "live" \|\| tab === "bots"\)[\s\S]*?<LiveHeaderContext[\s\S]*?embedded \? null : \([\s\S]*?<UserFilterMenu[\s\S]*?<PagesMenu/,
     );
-    expect(source).not.toContain('isMobile && tab === "live" && !embedded');
+    expect(source).not.toContain('|| tab === "bots") && !embedded');
     expect(source).toContain(
       'const welcomeMessage = firstName ? `Welcome, ${firstName}` : "Welcome"',
     );
@@ -76,10 +79,10 @@ describe("contextual mobile Live header", () => {
     expect(source).toContain("const { questions } = useAsk();");
     expect(source).toContain("Tap to open notifications");
     expect(source).toContain("const showCard = intro;");
-    // The headline is rendered under `isMobile && tab === "live"`, so it never
+    // The headline is rendered under the shared Live/Bots gate, so it never
     // covers a hosted DESKTOP surface. That is why the ask badge must stay in
     // the header: if the headline is ever made to cover desktop, revisit this.
-    expect(source).toContain('{isMobile && tab === "live" ? (');
+    expect(source).toContain('{isMobile && (tab === "live" || tab === "bots") ? (');
     expect(source).toMatch(
       /\{isMobile \? null : \(\s*<>\s*\{embedded \? null : <UpdateNavButton \/>\}\s*<AskNavButton/,
     );

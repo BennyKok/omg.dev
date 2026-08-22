@@ -33,10 +33,17 @@ describe("bots roster copy", () => {
     expect(PLACEHOLDER).not.toContain("A bot is a persistent");
   });
 
-  test("the page header is Bots plus a New control", () => {
-    expect(ROSTER).toContain(">Bots</h1>");
+  // The page had a 32px "Bots" heading under a switch bar that already said
+  // Bots, and a "New" control in that heading. The heading said it twice and
+  // pushed the first row off the fold; creating is the first row of the list
+  // now, the way the desktop rail does it.
+  test("the roster has no page heading, and creating is its first row", () => {
+    expect(ROSTER).not.toContain(">Bots</h1>");
+    expect(ROSTER).not.toContain("text-[32px] font-bold");
     expect(ROSTER).toContain('aria-label="New bot"');
-    expect(ROSTER).toContain("\n          New\n");
+    expect(ROSTER).toContain(">New bot</span>");
+    // Same row treatment as the bots it sits above, not a bespoke banner.
+    expect(ROSTER).toContain("cn(BOT_ROSTER_ROW_CLASS");
     expect(ROSTER).not.toContain("<p className=\"text-sm text-muted-foreground\">");
   });
 });
@@ -58,7 +65,6 @@ describe("bots page roster chrome", () => {
   });
 
   test("page and rail rosters render the same row", () => {
-    expect(ROSTER).toContain("text-[32px] font-bold");
     // 44px, not 56px: that size (paired with the mockup's padding) made the
     // row pitch 84px, which read as a settings list on a phone rather than a
     // scannable roster. See mobile-bots-nav.ts.
@@ -78,7 +84,6 @@ describe("bots page roster chrome", () => {
     expect(BOT_RAIL).toContain("size={railCollapsed ? 32 : 44}");
     expect(BOT_RAIL).not.toContain("size={railCollapsed ? 24 : 28}");
     expect(BOT_RAIL).not.toContain("size={56}");
-    expect(BOT_RAIL).not.toContain("text-[32px]");
   });
 
   test("the rail roster is labelled like every other rail list", () => {
@@ -95,10 +100,16 @@ describe("bots page roster chrome", () => {
     expect(BOT_RAIL).not.toContain("py-1.5");
   });
 
-  test("create is a header New control, not a dashed row", () => {
+  // This deliberately reverses an earlier decision. Creating used to be a
+  // "New" control in the page header specifically so it was NOT a dashed row.
+  // The page header is gone — the switch bar above already names the surface —
+  // and with it went the only place that control could live. The dashed row is
+  // what the desktop rail has always used, so the two rosters now agree.
+  test("create is the list's first row, in the list's own row style", () => {
     expect(ROSTER).toContain('aria-label="New bot"');
-    expect(ROSTER).not.toContain("border-dashed");
-    expect(ROSTER).not.toContain(">New bot<");
+    expect(ROSTER).toContain("border-dashed");
+    expect(ROSTER).toContain(">New bot</span>");
+    // Never the brand-gradient treatment: it is a row, not a call to action.
     expect(ROSTER).not.toContain("lfg-gborder--brand");
   });
 });

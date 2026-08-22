@@ -8348,8 +8348,11 @@ export function App() {
           isMobile && "mobile-scroll-header-fade",
         )}
       >
-      {isMobile && tab === "live" ? (
-        /* Live has one mobile header in standalone and embedded surfaces. The
+      {isMobile && (tab === "live" || tab === "bots") ? (
+        /* Live and Bots share one mobile header. They are the same surface with
+           a different list in it — the switch bar below picks which — so
+           swapping the entire top of the screen between them read as changing
+           app rather than changing list. The
            host still owns the right-side account/settings island; its inset
            narrows this shared welcome instead of selecting a different header
            implementation. That keeps welcome, activity, and Ask transitions
@@ -26038,17 +26041,22 @@ function BotsView({
       {shouldShowInlineBotsSurfaceToggle(isMobile) ? (
         <SurfaceToggle active="chat" onOpenSessions={onOpenSessions} onOpenBots={() => {}} />
       ) : null}
-      <div className="flex items-center gap-3 px-2 pb-2 pt-3">
-        <h1 className="min-w-0 flex-1 text-[32px] font-bold leading-tight tracking-tight">Bots</h1>
-        <button
-          type="button"
-          onClick={onNew}
-          aria-label="New bot"
-          className="shrink-0 px-1 text-base font-medium text-primary transition-colors hover:text-primary/80"
-        >
-          New
-        </button>
-      </div>
+      {/* No page title: the switch bar directly above already says Bots, and a
+          32px heading under it said it twice while pushing the first row off
+          the fold. Creating is the first row of the list rather than a control
+          in a header, which is how the desktop rail does it — the thing you add
+          to is the thing you add from. */}
+      <button
+        type="button"
+        onClick={onNew}
+        aria-label="New bot"
+        className={cn(BOT_ROSTER_ROW_CLASS, "text-muted-foreground hover:text-foreground")}
+      >
+        <span className="flex size-11 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
+          <Plus className="size-4" />
+        </span>
+        <span className="truncate text-base font-semibold">New bot</span>
+      </button>
       {bots.length ? botConversationRows(bots, sessions, conversations).map((row) => {
         const item = row.bot;
         const session = row.session;
