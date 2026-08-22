@@ -8,10 +8,10 @@
     />
     <meta name="theme-color" content="#f2f2f7" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg?v=20260822-omg-mark" />
     <!-- Bump the URL when the pixels change: iOS keeps touch icons outside the
          normal HTTP/service-worker cache and can otherwise reuse them. -->
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=20260805-opaque" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=20260822-omg-mark" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
@@ -78,8 +78,9 @@
         /* nudge up so it sits optically centered above the home indicator */
         margin-bottom: env(safe-area-inset-bottom, 0px);
       }
-      /* Logo only — the icon already spells "lfg", so a separate wordmark
-         reads as a duplicate under the mark. */
+      /* Logo only. The mark carries the brand on its own here; a wordmark
+         under it reads as a caption on a splash that is on screen for a
+         moment. (It used to be that the icon literally spelled "lfg".) */
       #app-splash .splash-logo {
         width: 76px;
         height: 76px;
@@ -138,7 +139,7 @@
     <div id="root">
       <div id="app-splash" aria-hidden="true">
         <div class="splash-inner">
-          <img class="splash-logo" src="/icon.svg" alt="" width="76" height="76" />
+          <img class="splash-logo" src="/icon.svg?v=20260822-omg-mark" alt="" width="76" height="76" />
           <div class="splash-bar"><div class="splash-bar-fill"></div></div>
         </div>
       </div>

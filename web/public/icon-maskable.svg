@@ -1,16 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Adaptive-icon variant of icon.svg: full bleed, no tile corners, and the
+       mark scaled to 0.8 about the centre so it sits inside the maskable safe
+       zone whatever shape the launcher crops to. Same colours and the same
+       disc-with-a-bite, so the adaptive icon and the app icon read identically. -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#3b5bf6"/>
-      <stop offset="100%" stop-color="#06b6d4"/>
-    </linearGradient>
+    <radialGradient id="bg" cx="0" cy="0" r="1.2"><stop offset="0%" stop-color="#4a2417"/><stop offset="100%" stop-color="#120f0b"/></radialGradient>
+    <mask id="disc">
+      <rect width="512" height="512" fill="black"/>
+      <circle cx="256" cy="256" r="147" fill="white"/>
+      <circle cx="324.2" cy="187.7" r="42.7" fill="black"/>
+    </mask>
   </defs>
   <rect width="512" height="512" fill="url(#bg)"/>
-  <!-- Same 0.78 wordmark weight as icon.svg, so the adaptive icon and the app
-       icon read identically. Still well inside the maskable safe zone. -->
-  <g fill="#fff" transform="translate(256 256) scale(.78) translate(-268 -256)">
-    <rect x="126" y="158" width="38" height="190" rx="7"/>
-    <path d="M196 218v-12c0-36 22-56 59-56h29v35h-19c-21 0-30 8-30 25v8h48v36h-48v94h-39v-94h-28v-36h28Z"/>
-    <path fill-rule="evenodd" d="M337 210c16 0 30 6 40 17v-13h37v126c0 51-29 78-78 78-25 0-48-7-65-19l16-30c14 9 30 14 47 14 28 0 43-13 43-40v-9c-11 12-25 18-41 18-39 0-68-30-68-71s29-71 69-71Zm7 35c-21 0-37 15-37 36s16 36 37 36c20 0 36-15 36-36s-16-36-36-36Z"/>
-  </g>
+  <rect width="512" height="512" fill="#f6f2ec" mask="url(#disc)"/>
 </svg>
