@@ -254,8 +254,8 @@ import {
   ArrowUp,
   Bot,
   BrainCircuit,
+  Brush,
   CalendarClock,
-  ClipboardList,
   Clock3,
   Copy,
   ExternalLink,
@@ -9700,7 +9700,7 @@ function PagesMenu({
       >
         <MoreVertical className="size-4" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-48">
+      <DropdownMenuContent align="end" className="min-w-52">
         <DropdownMenuRadioGroup
           value={value}
           onValueChange={(next) => {
@@ -9766,8 +9766,10 @@ function PagesMenu({
                 four page links, and pushed the pages up out of reach. */}
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
-                <ClipboardList className="size-5 shrink-0 text-muted-foreground" />
-                Manage sessions
+                {/* A brush, not a clipboard: what this menu mostly does is
+                    sweep finished work out of the list. */}
+                <Brush className="size-5 shrink-0 text-muted-foreground" />
+                <span className="whitespace-nowrap">Manage sessions</span>
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent align="start" className="w-72">
             {/* GroupLabel needs a surrounding Group for MenuGroupContext
@@ -12616,47 +12618,34 @@ function RailStage({
                     onChange={onUserChange}
                   />
                 ) : null}
+                {/* Collapse sits with the other chrome rather than sharing a
+                    row with a primary action. */}
+                <button
+                  type="button"
+                  onClick={() => setRailCollapsed((v) => !v)}
+                  aria-label="Collapse sidebar"
+                  title="Collapse sidebar (⌘B)"
+                  className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <PanelLeftClose className="size-4" />
+                </button>
                 {pagesMenu}
               </div>
             </div>
-            <div className="flex items-center gap-1.5">
-              {hosted && canUseProjectSheet ? (
+            {/* Hosted moves project scope out of the lockup row so the
+                omg.dev wordmark always has room. Standalone keeps it up
+                there, and this row does not exist at all. */}
+            {hosted && onProjectChange ? (
+              <div className="flex items-center gap-1.5">
                 <ProjectFilterMenu
                   value={projectFilter}
                   projects={projectOptions}
                   onChange={onProjectChange}
                   solidSurface
-                  onOpen={() => setProjectSheetOpen(true)}
+                  onOpen={canUseProjectSheet ? () => setProjectSheetOpen(true) : undefined}
                 />
-              ) : hosted && onProjectChange ? (
-                <ProjectFilterMenu
-                  value={projectFilter}
-                  projects={projectOptions}
-                  onChange={onProjectChange}
-                  solidSurface
-                />
-              ) : null}
-              <button
-                type="button"
-                onClick={onNew}
-                className="lfg-gborder flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full border border-transparent bg-muted/50 px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              >
-                <Plus className="size-3.5 shrink-0" />
-                <span className="truncate">New session</span>
-                <kbd className="ml-0.5 shrink-0 rounded-[5px] bg-background/70 px-1.5 py-px font-mono text-[10px] font-medium text-muted-foreground ring-1 ring-inset ring-border">
-                  C
-                </kbd>
-              </button>
-              <button
-                type="button"
-                onClick={() => setRailCollapsed((v) => !v)}
-                aria-label="Collapse sidebar"
-                title="Collapse sidebar (⌘B)"
-                className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"
-              >
-                <PanelLeftClose className="size-4" />
-              </button>
-            </div>
+              </div>
+            ) : null}
             {/* Sits below the actions, directly above the list it switches.
                 Above the brand row it read as app-level navigation; what it
                 actually does is change which list the rail is showing.
@@ -12671,6 +12660,27 @@ function RailStage({
         )}
         <div className="session-list-scroll min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
           {railSurface === "chat" ? botRailList : <>
+          {/* Leads the list, the way New bot leads the roster: it belongs to
+              the thing it adds to, under the switch bar that says which list
+              that is. It used to sit in the chrome above, sharing a row with
+              the collapse control, where it read as app furniture rather than
+              as the first row of this list. Chat only — the Bots surface has
+              its own New bot. */}
+          {!railCollapsed && onNew ? (
+            <button
+              type="button"
+              onClick={onNew}
+              className="mb-1 flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
+                <Plus className="size-3.5" />
+              </span>
+              <span className="min-w-0 flex-1 truncate">New session</span>
+              <kbd className="shrink-0 rounded-[5px] bg-background/70 px-1.5 py-px font-mono text-[10px] font-medium text-muted-foreground ring-1 ring-inset ring-border">
+                C
+              </kbd>
+            </button>
+          ) : null}
           {topPinnedSessions.length ? (
             <RailGroup
               label="Pinned"
@@ -12914,8 +12924,10 @@ function RailGroup({
 }) {
   return (
     <div className="mb-2">
+      {/* Not uppercased. A folder is named "lfg", not "LFG", and shouting
+          every group label made the rail's quietest text its loudest. */}
       {!collapsed ? (
-        <div className="flex items-center px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+        <div className="flex items-center px-2 pb-1 pt-1 text-[11px] font-semibold text-muted-foreground/70">
           <span>{label} · {count}</span>
           {action ? <span className="ml-auto normal-case tracking-normal">{action}</span> : null}
         </div>
@@ -13050,12 +13062,12 @@ const RailItem = memo(function RailItem({
         title={collapsed ? titleForSession(session) : undefined}
         className={cn(
           "group relative flex cursor-pointer touch-pan-y select-none items-center gap-2 rounded-xl border py-1.5 outline-none transition-[background-color,box-shadow,border-color] duration-150",
-          // Fixed height. The preview line arrives, grows to two lines and is
-          // replaced as a session streams, so a row sized to its own text kept
-          // resizing under the cursor and shoved every row below it — the whole
-          // rail twitching while anything was working. The row now reserves the
-          // two-line preview whether or not there is text to put in it.
-          collapsed ? "h-11 justify-center px-0" : "h-14 px-2",
+          // Fixed height. The preview arrives late and is replaced as a
+          // session streams, so a row sized to its own text kept resizing
+          // under the cursor and shoved every row below it — the whole rail
+          // twitching while anything was working. The row reserves its one
+          // preview line whether or not there is text to put in it.
+          collapsed ? "h-11 justify-center px-0" : "h-12 px-2",
           swiping
             ? "border-transparent bg-card"
             : active
@@ -13116,33 +13128,51 @@ const RailItem = memo(function RailItem({
                     fill="currentColor"
                   />
                 ) : null}
-                {session.lastActivityAt || session.startedAt ? (
-                  <span className="shrink-0 text-[10px] leading-tight tabular-nums text-muted-foreground/70">
-                    {relTime(session.lastActivityAt ?? session.startedAt ?? 0)}
-                  </span>
-                ) : null}
               </span>
-              {/* Always mounted, always two lines tall: see the row height note. */}
-              <span className="line-clamp-2 h-7 text-[11px] leading-tight text-muted-foreground">
+              {/* One line, always mounted: see the row height note. Two lines
+                  of transcript is not a preview, it is a paragraph, and it
+                  made the rail scroll half as far for no more meaning. */}
+              <span className="h-4 truncate text-[11px] leading-tight text-muted-foreground">
                 {latest}
               </span>
             </span>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onTogglePin();
-              }}
-              aria-label={pinned ? "Unpin column" : "Pin as column"}
-              className={cn(
-                "flex size-6 shrink-0 items-center justify-center rounded-md transition-opacity",
-                pinned
-                  ? "text-primary opacity-100"
-                  : "text-muted-foreground opacity-0 hover:bg-muted group-hover:opacity-100",
-              )}
-            >
-              <Pin className="size-3.5" fill={pinned ? "currentColor" : "none"} />
-            </button>
+            {/* One slot on the right, so every row's time lands on the same
+                edge instead of trailing whatever length its title happened to
+                be. The pin lives in that same slot and the two cross-fade
+                under the cursor: the timestamp is what you read while
+                scanning, the pin is what you want once you have stopped on a
+                row. A pinned row keeps its pin visible, since that is state
+                rather than an offer. Fixed width so the swap cannot reflow
+                the title beside it. */}
+            <span className="relative flex h-6 w-9 shrink-0 items-center justify-end">
+              {session.lastActivityAt || session.startedAt ? (
+                <span
+                  aria-hidden={pinned ? "true" : undefined}
+                  className={cn(
+                    "text-[10px] leading-tight tabular-nums text-muted-foreground/70 transition-opacity duration-150",
+                    pinned ? "opacity-0" : "group-hover:opacity-0",
+                  )}
+                >
+                  {relTime(session.lastActivityAt ?? session.startedAt ?? 0)}
+                </span>
+              ) : null}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTogglePin();
+                }}
+                aria-label={pinned ? "Unpin column" : "Pin as column"}
+                className={cn(
+                  "absolute inset-y-0 right-0 flex size-6 items-center justify-center rounded-md transition-opacity duration-150",
+                  pinned
+                    ? "text-primary opacity-100"
+                    : "text-muted-foreground opacity-0 hover:bg-muted group-hover:opacity-100 focus-visible:opacity-100",
+                )}
+              >
+                <Pin className="size-3.5" fill={pinned ? "currentColor" : "none"} />
+              </button>
+            </span>
           </>
         ) : null}
       </div>
@@ -13338,7 +13368,8 @@ function CategoryHeader({
   return (
     <div className="mb-2 flex items-center gap-2 px-0.5">
       <span className={cn("size-1.5 rounded-full", dotClass)} />
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+      {/* See RailGroup: category labels are not uppercased. */}
+      <span className="text-[11px] font-semibold text-muted-foreground">
         {label}
       </span>
       <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
@@ -25122,7 +25153,25 @@ function SurfaceToggle({
   useEffect(() => {
     const sync = () => movePill(false);
     window.addEventListener("resize", sync);
-    return () => window.removeEventListener("resize", sync);
+    // The pill is positioned from measured pixels, so it is only correct if
+    // the bar had its real width when we measured. It often does not: the
+    // rail animates its width over 200ms, fonts swap, and the toggle can
+    // mount inside a container that is still zero-width. Any of those left
+    // the pill parked under "Chat" while the rail was showing Bots — the
+    // toggle and the list disagreeing about which surface you were on, with
+    // nothing but a window resize to shake it loose. A ResizeObserver
+    // re-measures whenever the bar's own box changes, which covers all of it.
+    const bar = barRef.current;
+    if (!bar || typeof ResizeObserver === "undefined") return () => {
+      window.removeEventListener("resize", sync);
+    };
+    const observer = new ResizeObserver(sync);
+    observer.observe(bar);
+    for (const tab of bar.querySelectorAll('[role="tab"]')) observer.observe(tab);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", sync);
+    };
   }, [movePill]);
 
   return (
