@@ -13067,7 +13067,7 @@ const RailItem = memo(function RailItem({
           // under the cursor and shoved every row below it — the whole rail
           // twitching while anything was working. The row reserves its one
           // preview line whether or not there is text to put in it.
-          collapsed ? "h-11 justify-center px-0" : "h-12 px-2",
+          collapsed ? "h-11 justify-center px-0" : "h-[3.25rem] px-2",
           swiping
             ? "border-transparent bg-card"
             : active
@@ -13083,7 +13083,7 @@ const RailItem = memo(function RailItem({
             // smaller than a square harness mark at the same box size. Giving
             // the bot rows a slightly larger slot makes the two weigh the same
             // on screen, and the group is homogeneous so nothing is left ragged.
-            drivingBot ? "size-7" : "size-6",
+            drivingBot ? "size-8" : "size-7",
           )}
         >
           {/* A bot-backed row wears the bot's face, the same rule the chat
@@ -13095,7 +13095,7 @@ const RailItem = memo(function RailItem({
           {drivingBot ? (
             // The creature carries busy in its own posture, so a bot-backed
             // row would be saying it twice.
-            <BotAvatar bot={drivingBot} working={busy} size={28} />
+            <BotAvatar bot={drivingBot} working={busy} size={32} />
           ) : (
             <AgentMark session={session} busy={busy} rounding="rounded-md" />
           )}
@@ -13118,7 +13118,7 @@ const RailItem = memo(function RailItem({
           <>
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="flex items-baseline gap-1.5">
-                <span className="min-w-0 flex-1 truncate text-[13px] font-medium leading-tight">
+                <span className="min-w-0 flex-1 truncate text-sm font-medium leading-tight">
                   {titleForSession(session)}
                 </span>
                 {topPinned ? (
@@ -13132,7 +13132,7 @@ const RailItem = memo(function RailItem({
               {/* One line, always mounted: see the row height note. Two lines
                   of transcript is not a preview, it is a paragraph, and it
                   made the rail scroll half as far for no more meaning. */}
-              <span className="h-4 truncate text-[11px] leading-tight text-muted-foreground">
+              <span className="h-4 truncate text-xs leading-tight text-muted-foreground">
                 {latest}
               </span>
             </span>
@@ -17199,6 +17199,23 @@ function ToolGroup({ items, live }: { items: Message[]; live: boolean }) {
     <div className="space-y-3">
       {items.map((item, index) => {
         const isUse = item.kind === "tool_use";
+        const isThought = item.kind === "thinking";
+        // Thinking folded in from between the calls (see buildChatRenderItems).
+        // Prose, not a command, so it is not set in mono and keeps no colon
+        // split — the whole message is the body.
+        if (isThought) {
+          return (
+            <div key={item.id ?? `thinking-${item.ts}-${index}`} className="min-w-0">
+              <div className="mb-1 flex items-center gap-2 text-xs font-semibold text-foreground">
+                <span className="size-1.5 rounded-full bg-muted-foreground/60" />
+                <span className="truncate">Thought</span>
+              </div>
+              <div className="max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-muted/60 p-2.5 text-[11px] leading-relaxed text-muted-foreground">
+                {item.text || "thinking..."}
+              </div>
+            </div>
+          );
+        }
         const text = item.text || (isUse ? "No command details" : "No result details");
         const separator = isUse ? text.indexOf(":") : -1;
         const title = isUse

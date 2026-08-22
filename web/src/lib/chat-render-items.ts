@@ -20,15 +20,21 @@ export function toolName(text?: string): string {
 export function toolGroupLabel(items: ChatRenderMessage[]): string {
   const counts = new Map<string, number>();
   let results = 0;
+  let thoughts = 0;
   for (const message of items) {
     if (message.kind === "tool_use") {
       const name = toolName(message.text);
       counts.set(name, (counts.get(name) ?? 0) + 1);
+    } else if (message.kind === "thinking") {
+      thoughts += 1;
     } else {
       results += 1;
     }
   }
-  const parts = [...counts].map(([name, count]) => `${count} ${name}`);
+  // Thinking leads: it is what the agent did before reaching for the tools,
+  // and it reads as a sentence that way — "Thought · 3 Bash · 1 Read".
+  const parts = thoughts ? [thoughts === 1 ? "Thought" : `${thoughts} thoughts`] : [];
+  parts.push(...[...counts].map(([name, count]) => `${count} ${name}`));
   if (results) parts.push(`${results} result${results === 1 ? "" : "s"}`);
   return parts.join(" · ") || `${items.length} step${items.length === 1 ? "" : "s"}`;
 }
@@ -65,7 +71,24 @@ export function buildChatRenderItems<T extends ChatRenderMessage>(messages: T[])
   const items: ChatRenderItem<T>[] = [];
   messages.forEach((message, index) => {
     const isTool = message.kind === "tool_use" || message.kind === "tool_result";
-    if (isTool) {
+    // Thinking that lands in the middle of a run of tool calls belongs to that
+    // run. Left on its own it broke the run into one pill per call, and a turn
+    // that used six tools rendered as twelve alternating rows — "Thought", "2
+    // Bash", "Thought", "1 Bash" — none of which say anything until opened.
+    //
+    // Two thoughts are deliberately NOT folded, because both are the only
+    // thing on screen when they happen:
+    //   - the one that opens a run, before any tool has been called. There is
+    //     no group for it to join yet, and it is the whole answer to "what is
+    //     it doing" until the first tool appears.
+    //   - the last message in the transcript, which is the one still
+    //     streaming. Folding it would trade a live view of the reasoning for
+    //     a pill you have to open.
+    const isFoldableThought =
+      message.kind === "thinking" &&
+      index < messages.length - 1 &&
+      items[items.length - 1]?.type === "tools";
+    if (isTool || isFoldableThought) {
       const last = items[items.length - 1];
       if (last?.type === "tools") {
         last.items.push(message);
