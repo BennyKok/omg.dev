@@ -1,10 +1,6 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { PATHS } from "./config.ts";
-import {
-  DEFAULT_IDLE_ARCHIVE_MINUTES,
-  sanitizeIdleArchiveMinutes,
-} from "./idle-archive.ts";
 import { join } from "node:path";
 import { sanitizeBotCompactionThreshold } from "./bots/rotation.ts";
 
@@ -22,13 +18,6 @@ export type GlobalSettings = {
   // unlimited bot is exactly the runaway-self-scheduling failure mode this
   // cap exists to bound, so it is always >= 1.
   maxBotSchedules: number;
-  // Drain switch: when true, refuse to activate any new agent (create / cold
-  // resume / fork). In-flight agents keep running and can still be messaged.
-  agentsPaused: boolean;
-  // Archive a managed agent after this many minutes with no activity, 0 = off.
-  // An idle agent still holds its full memory footprint, and archiving persists
-  // a resume record first, so the session reopens where it left off.
-  idleAgentArchiveMinutes: number;
   // Global transcript rendering preference. The focused mode is experimental
   // and projects the loaded transcript down to user turns + lfg_output.
   transcriptView: TranscriptView;
@@ -96,6 +85,12 @@ export function validTranscriptView(value: unknown): value is TranscriptView {
   return value === "full" || value === "user-lfg-output";
 }
 
+// input may still carry agentsPaused / idleAgentArchiveMinutes: an install
+// upgraded from before both features were removed still has those two keys
+// sitting in app_settings, and readStoredSettings() reads every row without
+// filtering. Simply never reading them here is what makes that safe — an
+// unrecognized stored key is just ignored, never a crash or a validation
+// failure, satisfying AGENTS.md's backward-compatible migration rule.
 function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSettings {
   const timeZone = typeof input?.timeZone === "string" && validTimeZone(input.timeZone)
     ? input.timeZone
@@ -108,10 +103,6 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
   const maxBotSchedules = Number.isInteger(requestedBotSchedules) && requestedBotSchedules >= 1
     ? Math.min(requestedBotSchedules, BOT_SCHEDULE_LIMIT)
     : DEFAULT_MAX_BOT_SCHEDULES;
-  const agentsPaused = input?.agentsPaused === true;
-  const idleAgentArchiveMinutes = sanitizeIdleArchiveMinutes(
-    input?.idleAgentArchiveMinutes ?? DEFAULT_IDLE_ARCHIVE_MINUTES,
-  );
   const transcriptView = validTranscriptView(input?.transcriptView)
     ? input.transcriptView
     : "full";
@@ -126,8 +117,6 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
     timeZone,
     maxLiveAgents,
     maxBotSchedules,
-    agentsPaused,
-    idleAgentArchiveMinutes,
     transcriptView,
     botAutoCompactionEnabled,
     botCompactionThresholdPercent,
@@ -172,12 +161,6 @@ function settingsDb(): Database {
       write.run("timeZone", JSON.stringify(initial.timeZone), now);
       write.run("maxLiveAgents", JSON.stringify(initial.maxLiveAgents), now);
       write.run("maxBotSchedules", JSON.stringify(initial.maxBotSchedules), now);
-      write.run("agentsPaused", JSON.stringify(initial.agentsPaused), now);
-      write.run(
-        "idleAgentArchiveMinutes",
-        JSON.stringify(initial.idleAgentArchiveMinutes),
-        now,
-      );
       write.run("transcriptView", JSON.stringify(initial.transcriptView), now);
       write.run("skippedUpdateVersion", JSON.stringify(initial.skippedUpdateVersion), now);
       opened
@@ -236,8 +219,6 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
     write.run("timeZone", JSON.stringify(next.timeZone), now);
     write.run("maxLiveAgents", JSON.stringify(next.maxLiveAgents), now);
     write.run("maxBotSchedules", JSON.stringify(next.maxBotSchedules), now);
-    write.run("agentsPaused", JSON.stringify(next.agentsPaused), now);
-    write.run("idleAgentArchiveMinutes", JSON.stringify(next.idleAgentArchiveMinutes), now);
     write.run("transcriptView", JSON.stringify(next.transcriptView), now);
     write.run("botAutoCompactionEnabled", JSON.stringify(next.botAutoCompactionEnabled), now);
     write.run("botCompactionThresholdPercent", JSON.stringify(next.botCompactionThresholdPercent), now);

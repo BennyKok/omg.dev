@@ -57,6 +57,7 @@ import {
   versionMismatchNote,
   versionRelation,
   type ComputerVersionState,
+  type VersionRelation,
 } from "./lib/version-diagnostics";
 import { cacheProjectFilter, readCachedProjectFilter } from "./lib/project-filter";
 import { groupNodesByProject, type ProjectGroup } from "./lib/session-groups";
@@ -754,7 +755,15 @@ const BotDirectoryContext = createContext<Map<string, PersistentBot>>(new Map())
  * than guessed either way.
  */
 const ViewerIdentityContext = createContext<string | null>(null);
-const BotUnreadContext = createContext<{ conversations: BotConversationUnread[]; any: boolean; selectedConversationId: string | null }>({ conversations: [], any: false, selectedConversationId: null });
+const BotUnreadContext = createContext<{
+  conversations: BotConversationUnread[];
+  any: boolean;
+  selectedConversationId: string | null;
+  /** Marks one conversation read without opening it — the roster row's swipe
+   *  and context-menu action. Opening a conversation already does this via
+   *  its own effect; this is the same call, offered from the row itself. */
+  markRead: (sessionId: string) => void;
+}>({ conversations: [], any: false, selectedConversationId: null, markRead: () => {} });
 const OpenBotContext = createContext<(id: string) => void>(() => {});
 /**
  * Editing a bot from wherever its chat is open. The bot chat is a session card
@@ -912,14 +921,11 @@ type ModelCatalogItem = {
 
 type GlobalSettings = {
   timeZone: string;
-  // Cap on total LIVE agents, idle included (0 = unlimited) + a manual drain
-  // switch, plus the idle window after which an agent is archived (0 = off).
+  // Cap on total LIVE agents, idle included (0 = unlimited).
   maxLiveAgents: number;
   // Per-bot cap on self-scheduled routines. Always >= 1 — unlike
   // maxLiveAgents, 0-as-unlimited is not offered here.
   maxBotSchedules: number;
-  agentsPaused: boolean;
-  idleAgentArchiveMinutes: number;
   botAutoCompactionEnabled: boolean;
   botCompactionThresholdPercent: number;
   transcriptView: TranscriptView;
@@ -5961,8 +5967,6 @@ export function App() {
     timeZone: DEFAULT_SCHED_TZ,
     maxLiveAgents: 16,
     maxBotSchedules: 5,
-    agentsPaused: false,
-    idleAgentArchiveMinutes: 0,
     botAutoCompactionEnabled: true,
     botCompactionThresholdPercent: 78,
     transcriptView: "full",
@@ -6266,8 +6270,6 @@ export function App() {
       timeZone: payload.auto?.tz ?? DEFAULT_SCHED_TZ,
       maxLiveAgents: 16,
       maxBotSchedules: 5,
-      agentsPaused: false,
-      idleAgentArchiveMinutes: 0,
       botAutoCompactionEnabled: true,
       botCompactionThresholdPercent: 78,
       transcriptView: "full",
@@ -8311,7 +8313,7 @@ export function App() {
     <OpenSettingsPageContext.Provider value={setTab}>
     <BotDirectoryContext.Provider value={botDirectory}>
     <ViewerIdentityContext.Provider value={viewerParticipantId}>
-    <BotUnreadContext.Provider value={{ conversations: botConversations, any: hasUnreadBotConversation(botConversations), selectedConversationId: selectedBotConversationId }}>
+    <BotUnreadContext.Provider value={{ conversations: botConversations, any: hasUnreadBotConversation(botConversations), selectedConversationId: selectedBotConversationId, markRead: (sessionId) => void markBotConversationVisible(sessionId).catch(() => {}) }}>
     <OpenBotContext.Provider value={openBot}>
     <EditBotContext.Provider value={openBotEditor}>
     <div
@@ -10842,19 +10844,22 @@ function TreeConnector({
         <>
           {/* one continuous vertical spine — no mid-point seam */}
           <span className={cn("absolute left-0 top-0 bottom-0 w-[1.5px]", lineClass)} />
-          {/* horizontal branch to the child (T-junction) */}
+          {/* horizontal branch to the child (T-junction). w-full, not a
+              fixed width — it fills whatever box the caller's className
+              sized, so it can't drift out of sync with the indent again. */}
           <span
             className={cn(
-              "absolute left-0 top-1/2 -translate-y-1/2 h-[1.5px] w-3",
+              "absolute left-0 top-1/2 -translate-y-1/2 h-[1.5px] w-full",
               lineClass,
             )}
           />
         </>
       ) : (
-        /* last child — rounded elbow drawn as a single bordered box */
+        /* last child — rounded elbow drawn as a single bordered box, sized
+           to the caller's box (see the T-junction note above). */
         <span
           className={cn(
-            "absolute left-0 top-0 bottom-1/2 w-3 rounded-bl-lg border-b-[1.5px] border-l-[1.5px]",
+            "absolute left-0 top-0 bottom-1/2 w-full rounded-bl-lg border-b-[1.5px] border-l-[1.5px]",
             borderClass,
           )}
         />
@@ -11447,7 +11452,7 @@ function LiveView({
 
   return (
     <>
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2 pb-[calc(var(--lfg-composer-clear)+3.5rem)]">
       {coach}
       {/* The same list the rail renders, at the same density, grouped the same
           way (SessionGroups). It used to be a grid of cards split by Working
@@ -11619,7 +11624,7 @@ function RailStage({
   onNew: () => void;
 }) {
   const appDialog = useAppDialog();
-  const { conversations: botConversationsForRail, selectedConversationId: selectedBotConversationForRail } = useContext(BotUnreadContext);
+  const { conversations: botConversationsForRail, selectedConversationId: selectedBotConversationForRail, markRead: markBotRowRead } = useContext(BotUnreadContext);
   const MAX_COLUMNS = 4;
   const layoutScope = projectFilter || "__all";
   const layoutKey = encodeURIComponent(layoutScope);
@@ -12592,58 +12597,33 @@ function RailStage({
         // hidden inside the chat, so it must not surface as the roster preview
         // either — the row would read `[subagent complete] …`.
         const preview = plainPreviewText(botRosterPreview(rawPreview, busy));
+        const open = () => {
+          onOpenBot?.(bot.id, row.conversationId);
+          if (sid) activate(sid, false);
+        };
+        const markRead = row.unread && sid ? () => markBotRowRead(sid) : undefined;
         return (
-          <button
+          <BotRailContextMenu
             key={row.key}
-            type="button"
-            title={railCollapsed ? bot.name : undefined}
-            onClick={() => {
-              onOpenBot?.(bot.id, row.conversationId);
-              if (sid) activate(sid, false);
-            }}
-            className={cn(
-              "relative flex w-full items-center rounded-lg text-left transition-colors",
-              // The same roster row mobile renders (BOT_ROSTER_ROW_CLASS): a
-              // bot is a person you talk to, not a job row, so it carries a
-              // real face, a name and a line of what was said. At the session
-              // rows' 28px/13px density that face was a bullet point and the
-              // preview clipped after a few words. Fixed height for the same
-              // reason the session rows are fixed — the preview line arrives
-              // late and must not resize the row under the cursor.
-              railCollapsed
-                ? "h-11 justify-center px-1"
-                : "h-[3.75rem] gap-3 px-2",
-              active ? "bg-muted" : "hover:bg-muted/60",
-            )}
+            bot={bot}
+            unread={row.unread}
+            onOpen={open}
+            onEdit={onEditBot ? () => onEditBot(bot) : undefined}
+            onMarkRead={markRead}
           >
-            <BotAvatar bot={bot} working={busy} size={railCollapsed ? 32 : 44} />
-            {!railCollapsed ? (
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span
-                  className={cn(
-                    "truncate text-sm font-medium leading-tight",
-                    !bot.enabled && "text-muted-foreground",
-                  )}
-                >
-                  {bot.name}
-                </span>
-                {/* Always mounted: see the row height note above. */}
-                <span className="h-4 truncate text-xs leading-tight text-muted-foreground">
-                  {preview}
-                </span>
-              </span>
-            ) : null}
-            {row.unread ? (
-              <span role="status" aria-label={`Unread conversation with ${bot.name}`} className={railCollapsed ? "absolute translate-x-2 -translate-y-2" : undefined}>
-                <span className={BOT_UNREAD_DOT_CLASS} aria-hidden="true" />
-              </span>
-            ) : null}
-            {!railCollapsed && (row.lastMessageTs || bot.lastMessageAt) ? (
-              <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/70">
-                {relTime(row.lastMessageTs || bot.lastMessageAt!)}
-              </span>
-            ) : null}
-          </button>
+            <BotRosterRow
+              bot={bot}
+              busy={busy}
+              active={active}
+              collapsed={railCollapsed}
+              avatarSize={railCollapsed ? 32 : 44}
+              preview={preview}
+              unread={row.unread}
+              timestamp={row.lastMessageTs || bot.lastMessageAt}
+              onOpen={open}
+              onMarkRead={markRead}
+            />
+          </BotRailContextMenu>
         );
       })}
       {!bots.length && !railCollapsed ? (
@@ -13012,7 +12992,13 @@ function SessionGroups({
       return (
         <div key={id} className="flex flex-col gap-0.5">
           {renderItem(node.session)}
-          <div className="relative ml-3 flex flex-col gap-0.5 pl-3">
+          {/* pl-5, not pl-3: at pl-3 the child row sat right on top of the
+              spine, too tight to read as a child rather than a continuation
+              of the same row. The margin that places the spine itself is
+              deliberately untouched here — only the gap between the spine
+              and the row content grows. TreeConnector's offset below is
+              keyed to this padding; keep the two in sync. */}
+          <div className="relative ml-7 flex flex-col gap-0.5 pl-5">
             {node.children.map((child, index) =>
               renderNode(child, 1, index === node.children.length - 1),
             )}
@@ -13022,17 +13008,21 @@ function SessionGroups({
     }
     return (
       <div key={id} className="relative">
-        {/* Spine through card+descendants when more siblings follow. */}
+        {/* Spine through card+descendants when more siblings follow.
+            -left-5 reaches back across the pl-5 gap below to meet the
+            spine drawn by the ancestor wrapper; keep this matched to that
+            padding or the line stops short of it. */}
         {!isLast ? (
           <span
             aria-hidden
-            className="pointer-events-none absolute -left-3 -top-1 bottom-0 w-[1.5px] bg-zinc-500"
+            className="pointer-events-none absolute -left-5 -top-1 bottom-0 w-[1.5px] bg-zinc-500"
           />
         ) : null}
-        {/* Connector sized to the row only so the branch hits mid-row. */}
+        {/* Connector sized to the row only so the branch hits mid-row.
+            Same -left-5/w-5 pairing as the spine above, for the same reason. */}
         <div className="relative">
           <TreeConnector
-            className="-left-3 -top-1 h-[calc(100%+0.5rem)] w-3"
+            className="-left-5 -top-1 h-[calc(100%+0.5rem)] w-5"
             colorClassName="text-zinc-500"
             continueAfter={!isLast}
             subtle
@@ -13040,7 +13030,7 @@ function SessionGroups({
           {renderItem(node.session)}
         </div>
         {node.children.length ? (
-          <div className="relative ml-3 mt-0.5 flex flex-col gap-0.5 pl-3">
+          <div className="relative ml-7 mt-0.5 flex flex-col gap-0.5 pl-5">
             {node.children.map((child, index) =>
               renderNode(child, depth + 1, index === node.children.length - 1),
             )}
@@ -13152,6 +13142,242 @@ function RailGroup({
   );
 }
 
+/**
+ * Shared shell for every row in the rail and roster lists.
+ *
+ * The bot roster row used to be a hand-built copy of this: same fixed
+ * height, same title/preview type scale, same trailing slot — copied by eye
+ * instead of shared, which is exactly what let the desktop copy drift to its
+ * own smaller 14px/13px scale that nobody meant to ship (see the bot roster
+ * row's own comment). Swipe-to-commit lived only on the session row for the
+ * same reason: it was built once, on RailItem, and never factored out for
+ * the roster to reuse — so the roster had no swipe and no context menu at
+ * all. One shell now owns the fixed height, the mark slot, the title/preview
+ * column and its type scale, the trailing slot's hover cross-fade, and the
+ * swipe gesture, so a row can only be sized or gestured one way. RailItem
+ * (session rows) and the bot roster row both wrap this; what each still
+ * supplies on its own is the identity mark (AgentMark vs BotAvatar — see
+ * AgentMark's docstring for why that split is deliberate) and which swipe
+ * actions, if any, make sense for what the row represents.
+ */
+const RailRow = memo(function RailRow({
+  railKey,
+  collapsed,
+  active,
+  cursored,
+  ariaLabel,
+  tooltip,
+  mark,
+  markBoxClassName,
+  title,
+  titleBadge,
+  preview,
+  indicator,
+  trailingStatic,
+  trailingHover,
+  trailingHoverAlwaysVisible,
+  trailingExtra,
+  onActivate,
+  onSwipeRight,
+  onSwipeLeft,
+}: {
+  /** `data-rail-sid`, for surfaces that scroll/cursor rows by id. Omit where nothing looks a row up this way. */
+  railKey?: string;
+  collapsed: boolean;
+  active: boolean;
+  cursored: boolean;
+  ariaLabel?: string;
+  tooltip?: string;
+  mark: ReactNode;
+  markBoxClassName?: string;
+  title: ReactNode;
+  titleBadge?: ReactNode;
+  preview: ReactNode;
+  /** Extra state shown only in the expanded row, between the text column and the trailing slot (e.g. an unread dot). */
+  indicator?: ReactNode;
+  trailingStatic?: ReactNode;
+  trailingHover?: ReactNode;
+  /** Keeps the hover content shown once it represents committed state rather than an offer (a session's pin, once pinned). */
+  trailingHoverAlwaysVisible?: boolean;
+  /** Content appended after the trailing slot that is not part of the hover cross-fade (e.g. a "Disabled" badge). */
+  trailingExtra?: ReactNode;
+  onActivate: (shiftKey: boolean) => void;
+  /** Swipe right. Leading edge of the reveal, e.g. a session's pin. */
+  onSwipeRight?: { icon: ReactNode; onCommit: () => void };
+  /** Swipe left. Trailing edge of the reveal, e.g. a session's archive. Omit
+   *  when the row has nothing sensible to commit to — the row must not
+   *  rubber-band toward an action that will never fire. */
+  onSwipeLeft?: { icon: ReactNode; onCommit: () => void };
+}) {
+  // Touch swipe, iOS conventions: right reveals the leading action, left the
+  // trailing one. The foreground row slides and the action it would commit
+  // is revealed behind it; past ~52px on release it fires. A horizontal drag
+  // suppresses the tap-to-open; vertical is left to scroll.
+  const fgRef = useRef<HTMLDivElement>(null);
+  const drag = useRef({ startX: 0, startY: 0, x: 0, dragging: false, decided: false, horizontal: false, swiped: false });
+  const [swiping, setSwiping] = useState(false);
+  const COMMIT = 52;
+
+  const onTouchStart = (e: ReactTouchEvent) => {
+    const t = e.touches[0];
+    const el = fgRef.current;
+    if (el) el.style.transition = "";
+    drag.current = { startX: t.clientX, startY: t.clientY, x: 0, dragging: true, decided: false, horizontal: false, swiped: false };
+  };
+  const onTouchMove = (e: ReactTouchEvent) => {
+    const d = drag.current;
+    if (!d.dragging) return;
+    const t = e.touches[0];
+    const dx = t.clientX - d.startX;
+    const dy = t.clientY - d.startY;
+    if (!d.decided && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+      d.decided = true;
+      d.horizontal = Math.abs(dx) > Math.abs(dy);
+      // A row with neither action offered (a read bot row has no unread to
+      // mark and no archive) has nothing to reveal, so it must not dress
+      // itself up in the swiping chrome for a drag that can't commit to
+      // anything.
+      if (d.horizontal && (onSwipeRight || onSwipeLeft)) setSwiping(true);
+    }
+    if (!d.horizontal) return; // vertical → let the list scroll
+    // Each direction only travels when there is something for it to commit
+    // to — otherwise the row rubber-bands toward an action that can't fire.
+    let v = dx >= 0 ? (onSwipeRight ? dx : 0) : (onSwipeLeft ? dx : 0);
+    v = Math.max(-96, Math.min(96, v));
+    d.x = v;
+    if (fgRef.current) fgRef.current.style.transform = `translateX(${v}px)`;
+  };
+  const onTouchEnd = () => {
+    const d = drag.current;
+    if (d.horizontal) {
+      d.swiped = true;
+      if (d.x >= COMMIT && onSwipeRight) {
+        haptic("selection");
+        onSwipeRight.onCommit();
+      } else if (d.x <= -COMMIT && onSwipeLeft) {
+        haptic("selection");
+        onSwipeLeft.onCommit();
+      }
+    }
+    const el = fgRef.current;
+    if (el) {
+      el.style.transition = "transform 180ms ease";
+      el.style.transform = "translateX(0)";
+    }
+    d.dragging = false;
+    d.decided = false;
+    d.horizontal = false;
+    d.x = 0;
+    setSwiping(false);
+  };
+
+  return (
+    <div
+      data-rail-sid={railKey}
+      className={cn(
+        "lfg-rail-in relative rounded-xl",
+        swiping ? "overflow-hidden" : "overflow-visible",
+        cursored && "ring-2 ring-inset ring-primary/60",
+      )}
+    >
+      {swiping ? (
+        // Both actions are revealed at once, each on the edge its own gesture
+        // pulls from. The row slides over whichever you are not committing to.
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 flex items-center justify-between px-3"
+        >
+          <span>{onSwipeRight ? onSwipeRight.icon : null}</span>
+          {onSwipeLeft ? onSwipeLeft.icon : null}
+        </div>
+      ) : null}
+      <div
+        ref={fgRef}
+        role="button"
+        tabIndex={0}
+        aria-label={ariaLabel}
+        onClick={(e) => {
+          if (drag.current.swiped) {
+            drag.current.swiped = false;
+            return;
+          }
+          onActivate(e.shiftKey);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onActivate(e.shiftKey);
+          }
+        }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        title={collapsed ? tooltip : undefined}
+        className={cn(
+          "group relative flex cursor-pointer touch-pan-y select-none items-center gap-3 rounded-xl border py-1.5 outline-none transition-[background-color,box-shadow,border-color] duration-150",
+          // Fixed height. The preview arrives late and is replaced as a row
+          // streams, so a row sized to its own text kept resizing under the
+          // cursor and shoved every row below it — the whole list twitching
+          // while anything was working. The row reserves its one preview
+          // line whether or not there is text to put in it yet.
+          collapsed ? "h-11 justify-center px-0" : "h-[3.75rem] px-2",
+          swiping
+            ? "border-transparent bg-card"
+            : active
+              ? // Open-in-stage rows wear the mobile card's glass edge instead of a flat tint.
+                "lfg-gborder border-transparent bg-card shadow-[0_8px_24px_-18px_rgba(0,0,0,0.55)]"
+              : "border-transparent hover:bg-muted/70",
+        )}
+      >
+        <span className={cn("relative flex shrink-0 items-center justify-center", markBoxClassName)}>
+          {mark}
+        </span>
+        {!collapsed ? (
+          <>
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="flex items-baseline gap-1.5">
+                <span className="min-w-0 flex-1 truncate text-base font-semibold leading-tight">
+                  {title}
+                </span>
+                {titleBadge}
+              </span>
+              {/* One line, always mounted: see the row height note. Two lines
+                  of transcript is not a preview, it is a paragraph, and it
+                  made the list scroll half as far for no more meaning. */}
+              <span className="h-5 truncate text-sm leading-tight text-muted-foreground">
+                {preview}
+              </span>
+            </span>
+            {indicator}
+            {/* One slot on the trailing edge, so every row's secondary
+                readout lands on the same edge instead of trailing whatever
+                length its title happened to be. A hover action cross-fades
+                in over it: the static content is what you read while
+                scanning, the action is what you want once you have stopped
+                on a row. Fixed width so the swap cannot reflow the title
+                beside it. */}
+            <span className="relative flex h-6 w-9 shrink-0 items-center justify-end">
+              {trailingStatic ? (
+                <span
+                  aria-hidden={trailingHoverAlwaysVisible ? "true" : undefined}
+                  className={cn(
+                    "text-xs leading-tight tabular-nums text-muted-foreground/70 transition-opacity duration-150",
+                    trailingHoverAlwaysVisible ? "opacity-0" : "group-hover:opacity-0",
+                  )}
+                >
+                  {trailingStatic}
+                </span>
+              ) : null}
+              {trailingHover}
+            </span>
+            {trailingExtra}
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+});
+
 const RailItem = memo(function RailItem({
   session,
   busy,
@@ -13181,140 +13407,24 @@ const RailItem = memo(function RailItem({
   const botDirectory = useContext(BotDirectoryContext);
   const drivingBotId = productBotId(session);
   const drivingBot = drivingBotId ? botDirectory.get(drivingBotId) : undefined;
-  // Touch swipe, iOS conventions: right pins (leading), left archives
-  // (trailing). The foreground row slides and the action it would commit is
-  // revealed behind it; past ~52px on release it fires. A horizontal drag
-  // suppresses the tap-to-open; vertical is left to scroll.
-  //
-  // Left used to mean unpin, which left archive with nowhere to go when the
-  // mobile card became this row — the card had carried swipe-to-archive, and
-  // swapping the list quietly dropped it. Unpin is the same right swipe as
-  // pin, since one gesture toggling one flag is what the pin glyph already
-  // says it does.
-  const fgRef = useRef<HTMLDivElement>(null);
-  const drag = useRef({ startX: 0, startY: 0, x: 0, dragging: false, decided: false, horizontal: false, swiped: false });
-  const [swiping, setSwiping] = useState(false);
-  const COMMIT = 52;
-
-  const onTouchStart = (e: ReactTouchEvent) => {
-    const t = e.touches[0];
-    const el = fgRef.current;
-    if (el) el.style.transition = "";
-    drag.current = { startX: t.clientX, startY: t.clientY, x: 0, dragging: true, decided: false, horizontal: false, swiped: false };
-  };
-  const onTouchMove = (e: ReactTouchEvent) => {
-    const d = drag.current;
-    if (!d.dragging) return;
-    const t = e.touches[0];
-    const dx = t.clientX - d.startX;
-    const dy = t.clientY - d.startY;
-    if (!d.decided && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
-      d.decided = true;
-      d.horizontal = Math.abs(dx) > Math.abs(dy);
-      if (d.horizontal) setSwiping(true);
-    }
-    if (!d.horizontal) return; // vertical → let the rail scroll
-    // Left only travels when there is something for it to commit to.
-    let v = onArchive ? dx : Math.max(0, dx);
-    v = Math.max(-96, Math.min(96, v));
-    d.x = v;
-    if (fgRef.current) fgRef.current.style.transform = `translateX(${v}px)`;
-  };
-  const onTouchEnd = () => {
-    const d = drag.current;
-    if (d.horizontal) {
-      d.swiped = true;
-      if (d.x >= COMMIT) {
-        haptic("selection");
-        onTogglePin();
-      } else if (d.x <= -COMMIT && onArchive) {
-        haptic("selection");
-        onArchive();
-      }
-    }
-    const el = fgRef.current;
-    if (el) {
-      el.style.transition = "transform 180ms ease";
-      el.style.transform = "translateX(0)";
-    }
-    d.dragging = false;
-    d.decided = false;
-    d.horizontal = false;
-    d.x = 0;
-    setSwiping(false);
-  };
 
   return (
-    <div
-      data-rail-sid={session.sessionId ?? ""}
-      className={cn(
-        "lfg-rail-in relative rounded-xl",
-        swiping ? "overflow-hidden" : "overflow-visible",
-        cursored && "ring-2 ring-inset ring-primary/60",
-      )}
-    >
-      {swiping ? (
-        // Both actions are revealed at once, each on the edge its own gesture
-        // pulls from: pin on the leading edge, archive on the trailing one. The
-        // row slides over whichever you are not committing to.
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 flex items-center justify-between px-3"
-        >
-          <Pin
-            className={cn("size-4", pinned ? "text-muted-foreground" : "text-primary")}
-            fill={pinned ? "none" : "currentColor"}
-          />
-          {onArchive ? <Archive className="size-4 text-destructive" /> : null}
-        </div>
-      ) : null}
-      <div
-        ref={fgRef}
-        role="button"
-        tabIndex={0}
-        onClick={(e) => {
-          if (drag.current.swiped) {
-            drag.current.swiped = false;
-            return;
-          }
-          onActivate(e.shiftKey);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onActivate(e.shiftKey);
-          }
-        }}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-        title={collapsed ? titleForSession(session) : undefined}
-        className={cn(
-          "group relative flex cursor-pointer touch-pan-y select-none items-center gap-3 rounded-xl border py-1.5 outline-none transition-[background-color,box-shadow,border-color] duration-150",
-          // Fixed height. The preview arrives late and is replaced as a
-          // session streams, so a row sized to its own text kept resizing
-          // under the cursor and shoved every row below it — the whole rail
-          // twitching while anything was working. The row reserves its one
-          // preview line whether or not there is text to put in it.
-          collapsed ? "h-11 justify-center px-0" : "h-[3.75rem] px-2",
-          swiping
-            ? "border-transparent bg-card"
-            : active
-              ? // Open-in-stage rows wear the mobile card's glass edge instead of a flat tint.
-                "lfg-gborder border-transparent bg-card shadow-[0_8px_24px_-18px_rgba(0,0,0,0.55)]"
-              : "border-transparent hover:bg-muted/70",
-        )}
-      >
-        <span
-          className={cn(
-            "relative flex shrink-0 items-center justify-center",
-            // The creature is a silhouette with no plate behind it, so it reads
-            // smaller than a square harness mark at the same box size. Giving
-            // the bot rows a slightly larger slot makes the two weigh the same
-            // on screen, and the group is homogeneous so nothing is left ragged.
-            drivingBot ? "size-11" : "size-10",
-          )}
-        >
+    <RailRow
+      railKey={session.sessionId ?? ""}
+      collapsed={collapsed}
+      active={active}
+      cursored={cursored}
+      tooltip={collapsed ? titleForSession(session) : undefined}
+      markBoxClassName={
+        // The creature is a silhouette with no plate behind it, so it reads
+        // smaller than a square harness mark at the same box size. Giving
+        // the bot-backed row a slightly larger slot makes the two weigh the
+        // same on screen, and the group is homogeneous so nothing is left
+        // ragged.
+        drivingBot ? "size-11" : "size-10"
+      }
+      mark={
+        <>
           {/* A bot-backed row wears the bot's face, the same rule the chat
               header already follows: the creature says which agent is driving,
               so the harness mark next to it would be saying it twice.
@@ -13328,10 +13438,6 @@ const RailItem = memo(function RailItem({
           ) : (
             <AgentMark session={session} busy={busy} rounding="rounded-md" />
           )}
-          {/* The creature carries busy in its own posture, so a busy dot on top
-              of it is the same doubling; blocked has no pose, so it keeps its
-              mark on every row. */}
-
           {/* Blocked keeps the corner badge: it is a state, not a progress,
               and a solid glyph on a filled pill reads at this size. */}
           <SessionStatusDot paused={session.status === "blocked"} variant="avatar" />
@@ -13342,72 +13448,210 @@ const RailItem = memo(function RailItem({
               fill="currentColor"
             />
           ) : null}
-        </span>
-        {!collapsed ? (
-          <>
-            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="flex items-baseline gap-1.5">
-                <span className="min-w-0 flex-1 truncate text-base font-semibold leading-tight">
-                  {titleForSession(session)}
-                </span>
-                {topPinned ? (
-                  <Pin
-                    aria-label="Pinned to top"
-                    className="size-3 shrink-0 text-primary"
-                    fill="currentColor"
-                  />
-                ) : null}
-              </span>
-              {/* One line, always mounted: see the row height note. Two lines
-                  of transcript is not a preview, it is a paragraph, and it
-                  made the rail scroll half as far for no more meaning. */}
-              <span className="h-5 truncate text-sm leading-tight text-muted-foreground">
-                {latest}
-              </span>
-            </span>
-            {/* One slot on the right, so every row's time lands on the same
-                edge instead of trailing whatever length its title happened to
-                be. The pin lives in that same slot and the two cross-fade
-                under the cursor: the timestamp is what you read while
-                scanning, the pin is what you want once you have stopped on a
-                row. A pinned row keeps its pin visible, since that is state
-                rather than an offer. Fixed width so the swap cannot reflow
-                the title beside it. */}
-            <span className="relative flex h-6 w-9 shrink-0 items-center justify-end">
-              {session.lastActivityAt || session.startedAt ? (
-                <span
-                  aria-hidden={pinned ? "true" : undefined}
-                  className={cn(
-                    "text-xs leading-tight tabular-nums text-muted-foreground/70 transition-opacity duration-150",
-                    pinned ? "opacity-0" : "group-hover:opacity-0",
-                  )}
-                >
-                  {relTime(session.lastActivityAt ?? session.startedAt ?? 0)}
-                </span>
-              ) : null}
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onTogglePin();
-                }}
-                aria-label={pinned ? "Unpin column" : "Pin as column"}
-                className={cn(
-                  "absolute inset-y-0 right-0 flex size-6 items-center justify-center rounded-md transition-opacity duration-150",
-                  pinned
-                    ? "text-primary opacity-100"
-                    : "text-muted-foreground opacity-0 hover:bg-muted group-hover:opacity-100 focus-visible:opacity-100",
-                )}
-              >
-                <Pin className="size-3.5" fill={pinned ? "currentColor" : "none"} />
-              </button>
-            </span>
-          </>
-        ) : null}
-      </div>
-    </div>
+        </>
+      }
+      title={titleForSession(session)}
+      titleBadge={
+        topPinned ? (
+          <Pin aria-label="Pinned to top" className="size-3 shrink-0 text-primary" fill="currentColor" />
+        ) : null
+      }
+      preview={latest}
+      trailingStatic={
+        session.lastActivityAt || session.startedAt
+          ? relTime(session.lastActivityAt ?? session.startedAt ?? 0)
+          : null
+      }
+      trailingHoverAlwaysVisible={pinned}
+      trailingHover={
+        // The pin lives in the same slot the timestamp does, and a pinned
+        // row keeps it visible, since that is state rather than an offer.
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onTogglePin();
+          }}
+          aria-label={pinned ? "Unpin column" : "Pin as column"}
+          className={cn(
+            "absolute inset-y-0 right-0 flex size-6 items-center justify-center rounded-md transition-opacity duration-150",
+            pinned
+              ? "text-primary opacity-100"
+              : "text-muted-foreground opacity-0 hover:bg-muted group-hover:opacity-100 focus-visible:opacity-100",
+          )}
+        >
+          <Pin className="size-3.5" fill={pinned ? "currentColor" : "none"} />
+        </button>
+      }
+      onActivate={onActivate}
+      onSwipeRight={{
+        // Right pins (leading edge). Left used to mean unpin, which left
+        // archive with nowhere to go when the mobile card became this row —
+        // the card had carried swipe-to-archive, and swapping the list
+        // quietly dropped it. Unpin is the same right swipe as pin, since
+        // one gesture toggling one flag is what the pin glyph already says
+        // it does.
+        icon: (
+          <Pin
+            className={cn("size-4", pinned ? "text-muted-foreground" : "text-primary")}
+            fill={pinned ? "none" : "currentColor"}
+          />
+        ),
+        onCommit: onTogglePin,
+      }}
+      onSwipeLeft={
+        onArchive ? { icon: <Archive className="size-4 text-destructive" />, onCommit: onArchive } : undefined
+      }
+    />
   );
 });
+
+/**
+ * The bot roster's row, desktop rail and mobile page alike.
+ *
+ * Wraps RailRow the same way RailItem does, so a bot row can only be sized
+ * or gestured the way a session row is — see RailRow's docstring; the
+ * desktop rail used to hand-match this row to RailItem's 16px/14px scale and
+ * landed on 14px/13px instead, nobody catching it because nothing forced the
+ * two to agree. What is still bot-specific: the identity mark is BotAvatar,
+ * not AgentMark (the creature carries "working" in its own posture, so it
+ * takes no spinner — see AgentMark's docstring for the session side of that
+ * split), and the one swipe/menu action a bot row offers is marking its
+ * conversation read. There is no roster equivalent of archiving a session —
+ * nothing here is deleted from the row — so no `onSwipeLeft` is offered and
+ * the row does not rubber-band left.
+ */
+function BotRosterRow({
+  bot,
+  busy,
+  active,
+  collapsed,
+  avatarSize,
+  preview,
+  previewClassName,
+  unread,
+  timestamp,
+  trailingExtra,
+  onOpen,
+  onMarkRead,
+}: {
+  bot: PersistentBot;
+  busy: boolean;
+  active: boolean;
+  collapsed: boolean;
+  avatarSize: number;
+  preview: ReactNode;
+  previewClassName?: string;
+  unread: boolean;
+  timestamp?: number | null;
+  trailingExtra?: ReactNode;
+  onOpen: () => void;
+  /** Marks the conversation read. Omitted once it already is — there is
+   *  nothing left for the gesture or the menu item to commit to. */
+  onMarkRead?: () => void;
+}) {
+  const unreadDot = (
+    <span role="status" aria-label={`Unread conversation with ${bot.name}`}>
+      <span className={BOT_UNREAD_DOT_CLASS} aria-hidden="true" />
+    </span>
+  );
+  return (
+    <RailRow
+      collapsed={collapsed}
+      active={active}
+      cursored={false}
+      ariaLabel={`${bot.name}${unread ? ", unread conversation" : ""}`}
+      tooltip={collapsed ? bot.name : undefined}
+      mark={
+        <>
+          <BotAvatar bot={bot} working={busy} size={avatarSize} />
+          {/* Collapsed rows show only the mark, so the unread state has to
+              live on it instead of the expanded row's inline dot. */}
+          {unread && collapsed ? (
+            <span className="absolute -right-0.5 -top-0.5">{unreadDot}</span>
+          ) : null}
+        </>
+      }
+      title={<span className={cn(!bot.enabled && "text-muted-foreground")}>{bot.name}</span>}
+      preview={<span className={previewClassName}>{preview}</span>}
+      indicator={unread ? unreadDot : null}
+      trailingStatic={timestamp ? relTime(timestamp) : null}
+      trailingHover={
+        onMarkRead ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onMarkRead();
+            }}
+            aria-label={`Mark conversation with ${bot.name} as read`}
+            className="absolute inset-y-0 right-0 flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity duration-150 hover:bg-muted group-hover:opacity-100 focus-visible:opacity-100"
+          >
+            <CheckCheck className="size-3.5" />
+          </button>
+        ) : null
+      }
+      trailingExtra={trailingExtra}
+      onActivate={onOpen}
+      onSwipeRight={
+        onMarkRead ? { icon: <CheckCheck className="size-4 text-primary" />, onCommit: onMarkRead } : undefined
+      }
+    />
+  );
+}
+
+/**
+ * Right-click menu for a bot roster row — the same `ContextMenu` shell
+ * `RailSessionContextMenu` wraps the session row in, so the two gestures
+ * feel like one system. A bot conversation has none of the session-only
+ * actions that menu carries (assign, fork, close column), so this is its own
+ * component rather than a reused one: same mechanism, honestly different
+ * contents.
+ */
+function BotRailContextMenu({
+  bot,
+  unread,
+  onOpen,
+  onEdit,
+  onMarkRead,
+  children,
+}: {
+  bot: PersistentBot;
+  unread: boolean;
+  onOpen: () => void;
+  onEdit?: () => void;
+  onMarkRead?: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger className="block min-w-0 rounded-xl">
+        {children}
+      </ContextMenuTrigger>
+      <ContextMenuContent className="min-w-48">
+        <ContextMenuItem onClick={onOpen}>
+          <MessageSquare className="size-4" />
+          Open
+        </ContextMenuItem>
+        {unread && onMarkRead ? (
+          <ContextMenuItem onClick={onMarkRead}>
+            <CheckCheck className="size-4" />
+            Mark as read
+          </ContextMenuItem>
+        ) : null}
+        {onEdit ? (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={onEdit}>
+              <Settings className="size-4" />
+              Bot settings
+            </ContextMenuItem>
+          </>
+        ) : null}
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
 
 const SEV_DOT: Record<AutoFinding["severity"], string> = {
   high: "bg-destructive",
@@ -23337,16 +23581,6 @@ const LIVE_AGENT_LIMIT_OPTIONS = [0, 4, 8, 10, 12, 16, 24, 32];
 const BOT_SCHEDULE_LIMIT_OPTIONS = [1, 2, 3, 5, 8, 10, 15, 20];
 const BOT_COMPACTION_THRESHOLD_OPTIONS = [60, 70, 75, 78, 80, 85, 90, 95];
 
-// Idle windows, in minutes. Nothing below 15 is offered: an agent pausing
-// between turns must never look abandoned.
-const IDLE_ARCHIVE_OPTIONS = [0, 30, 60, 120, 240, 480, 1440];
-
-function formatIdleWindow(minutes: number): string {
-  if (minutes < 60) return `${minutes}m`;
-  if (minutes % 1440 === 0) return `${minutes / 1440}d`;
-  return `${minutes / 60}h`;
-}
-
 function AgentConcurrencySettingsSection({
   settings,
   onChange,
@@ -23356,27 +23590,8 @@ function AgentConcurrencySettingsSection({
 }) {
   const [saving, setSaving] = useState(false);
   const [savingBotCap, setSavingBotCap] = useState(false);
-  const [pausing, setPausing] = useState(false);
-  const [archiving, setArchiving] = useState(false);
   const [savingCompaction, setSavingCompaction] = useState(false);
   const stats = useServerStats(true);
-
-  async function saveIdleArchive(idleAgentArchiveMinutes: number) {
-    if (idleAgentArchiveMinutes === settings.idleAgentArchiveMinutes || archiving) return;
-    setArchiving(true);
-    try {
-      await onChange({ idleAgentArchiveMinutes });
-      toast.success(
-        idleAgentArchiveMinutes === 0
-          ? "Idle agents will stay open"
-          : `Idle agents archived after ${formatIdleWindow(idleAgentArchiveMinutes)}`,
-      );
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not update idle archiving");
-    } finally {
-      setArchiving(false);
-    }
-  }
 
   async function saveLimit(maxLiveAgents: number) {
     if (maxLiveAgents === settings.maxLiveAgents || saving) return;
@@ -23405,19 +23620,6 @@ function AgentConcurrencySettingsSection({
       toast.error(e instanceof Error ? e.message : "Could not update the bot schedule limit");
     } finally {
       setSavingBotCap(false);
-    }
-  }
-
-  async function togglePause(next: boolean) {
-    if (pausing) return;
-    setPausing(true);
-    try {
-      await onChange({ agentsPaused: next });
-      toast.success(next ? "New agents paused" : "New agents resumed");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not update pause state");
-    } finally {
-      setPausing(false);
     }
   }
 
@@ -23564,74 +23766,17 @@ function AgentConcurrencySettingsSection({
             />
           </div>
         </div>
-        <div className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className={cn(
-              "flex size-7 shrink-0 items-center justify-center rounded-[7px] text-white transition-colors duration-200 ease-apple",
-              settings.agentsPaused ? "bg-warning" : "bg-foreground/70",
-            )}>
-              <Pause className="size-4" />
-            </span>
-            <div className="min-w-0">
-              <div className="text-sm font-medium">Pause new agents</div>
-              <div className={cn(
-                "text-xs",
-                settings.agentsPaused ? "font-medium text-warning" : "text-muted-foreground",
-              )}>
-                {settings.agentsPaused
-                  ? "Paused — new sessions are blocked"
-                  : "Blocks creating & resuming agents"}
-              </div>
-            </div>
-          </div>
-          <Switch
-            checked={settings.agentsPaused}
-            onCheckedChange={(next) => void togglePause(next)}
-            disabled={pausing}
-            aria-label="Pause new agents"
-          />
-        </div>
-        <div className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className={cn(
-              "flex size-7 shrink-0 items-center justify-center rounded-[7px] text-white transition-colors duration-200 ease-apple",
-              settings.idleAgentArchiveMinutes > 0 ? "bg-primary" : "bg-foreground/70",
-            )}>
-              <Archive className="size-4" />
-            </span>
-            <div className="min-w-0">
-              <div className="text-sm font-medium">Archive idle agents</div>
-              <div className="text-xs text-muted-foreground">
-                {settings.idleAgentArchiveMinutes > 0
-                  ? `After ${formatIdleWindow(settings.idleAgentArchiveMinutes)} with no activity`
-                  : "Off — idle agents stay resident"}
-              </div>
-            </div>
-          </div>
-          <label className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-3 py-1.5">
-            <select
-              value={settings.idleAgentArchiveMinutes}
-              onChange={(event) => void saveIdleArchive(Number(event.target.value))}
-              disabled={archiving}
-              aria-label="Archive idle agents after"
-              className="appearance-none bg-transparent text-right text-xs font-medium outline-none"
-            >
-              {IDLE_ARCHIVE_OPTIONS.map((minutes) => (
-                <option key={minutes} value={minutes}>
-                  {minutes === 0 ? "Off" : formatIdleWindow(minutes)}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="size-3 text-muted-foreground/70" />
-          </label>
-        </div>
       </div>
+      {/* Pause new agents and Archive idle agents were removed entirely (both
+          the switches and the server-side gate/sweeper behind them) rather
+          than just hidden — Benny's call, since a soft "off" switch nobody
+          can see is worse than no switch. What is left to explain is just the
+          limit above: it is a live-agent ceiling, not a full drain, and it is
+          soft on purpose (see GlobalSettings.maxLiveAgents). */}
       <p className="px-4 text-xs text-muted-foreground">
         The limit counts every live agent, idle ones included — an idle agent has stopped
-        using CPU but still holds its memory. New agents past the limit (or while paused)
-        are rejected; in-flight agents keep running. The systemd slice is the hard memory
-        bound. Archiving stops an unattended agent and keeps its transcript, so it can be
-        resumed where it left off; agents mid-turn are never archived.
+        using CPU but still holds its memory. New agents past the limit are rejected;
+        in-flight agents keep running. The systemd slice is the hard memory bound.
       </p>
     </section>
   );
@@ -24673,18 +24818,22 @@ export type ShipPost = {
 };
 
 /**
- * Settings-configurable icon: upload, replace, remove. Works identically on a
- * roster box (icon keyed by the selected profile, `identityEmail`) and a
+ * Account icon fetch/upload/remove, against an endpoint that works identically
+ * on a roster box (icon keyed by the selected profile, `identityEmail`) and a
  * roster-less hosted Computer (identityEmail is null there — the server
  * resolves identity from the paired omg account instead; see
- * iconIdentityKey in src/users.ts). Falls back to Gravatar/identicon, exactly
- * like every other avatar in the app, until something is uploaded.
+ * iconIdentityKey in src/users.ts).
+ *
+ * Split out of what used to be one component (UserIconSettingsSection) so the
+ * Settings identity row and the icon-only card below it could share ONE
+ * avatar instead of drawing two different answers to "who am I" a centimetre
+ * apart — the identity row's own letter tile, and this one's real picture,
+ * with the letter on top. See IdentitySettingsHeader.
  */
-function UserIconSettingsSection({ identityEmail }: { identityEmail: string | null }) {
+function useAccountIcon(identityEmail: string | null) {
   const [state, setState] = useState<{ avatar: string; hasCustomIcon: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const query = identityEmail ? `?email=${encodeURIComponent(identityEmail)}` : "";
 
@@ -24701,7 +24850,7 @@ function UserIconSettingsSection({ identityEmail }: { identityEmail: string | nu
     load();
   }, [load]);
 
-  async function upload(file: File) {
+  const upload = useCallback(async (file: File) => {
     setBusy(true);
     setError(null);
     try {
@@ -24716,9 +24865,9 @@ function UserIconSettingsSection({ identityEmail }: { identityEmail: string | nu
     } finally {
       setBusy(false);
     }
-  }
+  }, [query]);
 
-  async function remove() {
+  const remove = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
@@ -24731,26 +24880,60 @@ function UserIconSettingsSection({ identityEmail }: { identityEmail: string | nu
     } finally {
       setBusy(false);
     }
-  }
+  }, [query]);
+
+  return { state, busy, error, upload, remove };
+}
+
+/**
+ * The avatar itself: the uploaded picture, or a plain fallback glyph until
+ * something is uploaded. Sized by the caller so the same element can be the
+ * icon card's size-14 circle or the identity row's size-12 one.
+ */
+function AccountAvatarImage({
+  avatar,
+  busy,
+  sizeClassName = "size-14",
+}: {
+  avatar: string | undefined;
+  busy: boolean;
+  sizeClassName?: string;
+}) {
+  return (
+    <span className={cn(
+      "relative flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted",
+      sizeClassName,
+    )}>
+      {avatar ? (
+        <img src={avatar} alt="" className="size-full object-cover" />
+      ) : (
+        <UserRound className="size-6 text-muted-foreground" />
+      )}
+      {busy ? (
+        <span className="absolute inset-0 flex items-center justify-center bg-background/60">
+          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * Icon-only fallback for a bare/host-mounted surface, which renders no
+ * identity row of its own (the host already shows the signed-in account — see
+ * IdentitySettingsHeader's comment) but still needs somewhere to manage the
+ * icon, since that feature is ours, not the host's.
+ */
+function UserIconSettingsSection({ identityEmail }: { identityEmail: string | null }) {
+  const { state, busy, error, upload, remove } = useAccountIcon(identityEmail);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   return (
-    // No section header: this card sits right under the identity row it
-    // belongs to, and its own avatar + "Upload"/"Replace" buttons already
-    // say "this is your icon" without a label repeating it above.
+    // No section header: this card's own avatar + "Upload"/"Replace" buttons
+    // already say "this is your icon" without a label repeating it above.
     <section className="space-y-2">
       <div className="flex items-center gap-4 rounded-2xl border border-border bg-card/40 px-4 py-3.5">
-        <span className="relative flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted">
-          {state?.avatar ? (
-            <img src={state.avatar} alt="" className="size-full object-cover" />
-          ) : (
-            <UserRound className="size-6 text-muted-foreground" />
-          )}
-          {busy ? (
-            <span className="absolute inset-0 flex items-center justify-center bg-background/60">
-              <Loader2 className="size-4 animate-spin text-muted-foreground" />
-            </span>
-          ) : null}
-        </span>
+        <AccountAvatarImage avatar={state?.avatar} busy={busy} />
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
           {/* The picker enforces the formats and the size cap, and rejects
               anything else with a message naming what it got. Spelling them out
@@ -24768,7 +24951,7 @@ function UserIconSettingsSection({ identityEmail }: { identityEmail: string | nu
               {state?.hasCustomIcon ? "Replace" : "Upload"}
             </Button>
             {state?.hasCustomIcon ? (
-              <Button type="button" variant="outline" size="sm" disabled={busy} onClick={remove}>
+              <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void remove()}>
                 <Trash2 className="size-3.5" />
                 Remove
               </Button>
@@ -24789,6 +24972,61 @@ function UserIconSettingsSection({ identityEmail }: { identityEmail: string | nu
         />
       </div>
     </section>
+  );
+}
+
+/**
+ * The Settings identity row for a standalone (non-bare) surface: name, device
+ * status, and now the real account avatar with its upload/replace/remove
+ * actions folded in, rather than a plain initial-letter tile above a separate
+ * icon card making the same claim with a real picture underneath it.
+ */
+function IdentitySettingsHeader({ user }: { user: string | null }) {
+  const { state, busy, error, upload, remove } = useAccountIcon(user);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  return (
+    <div className="flex items-center gap-3.5 px-1">
+      <AccountAvatarImage avatar={state?.avatar} busy={busy} sizeClassName="size-12" />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-lg font-semibold leading-tight">
+          {user ?? "No user selected"}
+        </div>
+        <div className="text-sm text-muted-foreground">
+          {user ? "Signed in on this device" : "Pick your name in the top filter"}
+        </div>
+        <div className="mt-1.5 flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Camera className="size-3.5" />
+            {state?.hasCustomIcon ? "Replace" : "Upload"}
+          </Button>
+          {state?.hasCustomIcon ? (
+            <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void remove()}>
+              <Trash2 className="size-3.5" />
+              Remove
+            </Button>
+          ) : null}
+        </div>
+        {error ? <p className="mt-1 text-xs text-destructive">{error}</p> : null}
+      </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) void upload(file);
+        }}
+      />
+    </div>
   );
 }
 
@@ -24875,6 +25113,96 @@ function VersionRow({
   );
 }
 
+/**
+ * Version + Updates, collapsed into one row in Settings > Computer.
+ *
+ * Used to be three separate rows (Frontend, Computer, Updates) always on
+ * screen — Benny's call was one row that expands, since most of the time
+ * nobody needs the breakdown. The one thing that can't wait for a tap is a
+ * skew between Frontend and Computer: that pair exists ONLY to make a skew
+ * visible, so the collapsed subtitle says so directly (versionNote) instead
+ * of hiding it behind the same disclosure as the routine breakdown.
+ */
+function VersionUpdatesRow({
+  frontendVersion,
+  computerVersion,
+  versionSkew,
+  versionNote,
+}: {
+  frontendVersion: string | null;
+  computerVersion: ComputerVersionState;
+  versionSkew: VersionRelation;
+  versionNote: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const mismatch = isVersionMismatch(versionSkew);
+  const subtitle = mismatch
+    ? versionNote
+    : versionSkew === "match"
+      ? "Frontend and Computer match"
+      : null;
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger
+        className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
+        aria-label="Version and updates"
+        aria-expanded={open}
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          <span className={cn(
+            "flex size-7 shrink-0 items-center justify-center rounded-[7px]",
+            mismatch ? "bg-warning text-white" : "bg-muted text-foreground/70",
+          )}>
+            {mismatch ? <TriangleAlert className="size-4" /> : <Layers className="size-4" />}
+          </span>
+          <div className="min-w-0">
+            <div className="text-sm font-medium">Version</div>
+            {subtitle ? (
+              <div className={cn(
+                "text-xs text-pretty",
+                mismatch ? "font-medium text-warning" : "text-muted-foreground",
+              )}>
+                {subtitle}
+              </div>
+            ) : null}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="text-sm font-semibold tabular-nums text-muted-foreground">
+            {formatVersion(frontendVersion)}
+          </span>
+          <ChevronDown className={cn(
+            "size-3.5 text-muted-foreground/70 transition-transform duration-150",
+            open && "rotate-180",
+          )} />
+        </div>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="divide-y divide-border border-t border-border">
+        <VersionRow
+          icon={<Layers className="size-4" />}
+          iconClassName="bg-muted text-foreground/70"
+          label="Frontend"
+          value={formatVersion(frontendVersion)}
+          copyValue={frontendVersion ? `v${frontendVersion}` : null}
+        />
+        <VersionRow
+          icon={<Cpu className="size-4" />}
+          iconClassName="bg-foreground text-background"
+          label="Computer"
+          value={formatComputerVersion(computerVersion)}
+          copyValue={copyableVersion(computerVersion)}
+        />
+        {/* Same disclosure as the two versions above: between them they answer
+            one question — what is running here, and is anything newer. */}
+        <ErrorBoundary variant="card" boundary="omg-update">
+          <UpdateSettingsRow />
+        </ErrorBoundary>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 function SettingsView({
   user,
   settings,
@@ -24896,7 +25224,6 @@ function SettingsView({
   connection: ConnectionState | null;
   computerVersionReport: { version: string | null; generation: number } | null;
 }) {
-  const initial = (user ?? "").trim().slice(0, 1).toUpperCase() || "?";
   // A host mounting this page renders the signed-in account itself — and its
   // account is the real one, where ours is only a per-device session tag. Two
   // identity blocks on one page is worse than none.
@@ -24921,24 +25248,7 @@ function SettingsView({
 
   return (
     <div className="mx-auto max-w-xl space-y-8 pb-10" data-lfg-page-column>
-      {bare ? null : (
-      <div className="flex items-center gap-3.5 px-1">
-        <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-secondary text-lg font-semibold text-muted-foreground">
-          {initial}
-        </div>
-        <div className="min-w-0">
-          <div className="truncate text-lg font-semibold leading-tight">
-            {user ?? "No user selected"}
-          </div>
-          <div className="text-sm text-muted-foreground">
-            {user ? "Signed in on this device" : "Pick your name in the top filter"}
-          </div>
-        </div>
-      </div>
-      )}
-
-      <UserIconSettingsSection identityEmail={user} />
-
+      {bare ? <UserIconSettingsSection identityEmail={user} /> : <IdentitySettingsHeader user={user} />}
 
       {/* Computer — in standalone LFG this box IS the computer, so the row is
           static. When these sections are mounted by a host (omg) this is the
@@ -24988,39 +25298,18 @@ function SettingsView({
             </div>
             <ChevronRight className="size-4 text-muted-foreground/60" />
           </button>
-          {/* Two independent facts, side by side, so a skew is visible without
-              reading logs: which UI build is rendering, and what the selected
-              Computer is really executing. */}
-          <VersionRow
-            icon={<Layers className="size-4" />}
-            iconClassName="bg-muted text-foreground/70"
-            label="Frontend"
-            value={formatVersion(FRONTEND_VERSION)}
-            copyValue={FRONTEND_VERSION ? `v${FRONTEND_VERSION}` : null}
+          {/* One row for what used to be three (Frontend, Computer, Updates):
+              which UI build is rendering, what the selected Computer is
+              really executing, and whether either has an update. A skew
+              between the first two is still legible collapsed — see
+              VersionUpdatesRow's own comment. */}
+          <VersionUpdatesRow
+            frontendVersion={FRONTEND_VERSION}
+            computerVersion={computerVersion}
+            versionSkew={versionSkew}
+            versionNote={versionNote}
           />
-          <VersionRow
-            icon={<Cpu className="size-4" />}
-            iconClassName="bg-foreground text-background"
-            label="Computer"
-            value={formatComputerVersion(computerVersion)}
-            copyValue={copyableVersion(computerVersion)}
-          />
-          {/* Same card as the two versions above: between them they answer one
-              question — what is running here, and is anything newer. */}
-          <ErrorBoundary variant="card" boundary="omg-update">
-            <UpdateSettingsRow />
-          </ErrorBoundary>
         </div>
-        {versionNote ? (
-          <p
-            className={cn(
-              "px-4 text-xs text-pretty",
-              isVersionMismatch(versionSkew) ? "text-warning" : "text-muted-foreground",
-            )}
-          >
-            {versionNote}
-          </p>
-        ) : null}
       </section>
 
       <AgentConcurrencySettingsSection
@@ -25839,7 +26128,7 @@ function BotsView({
   onRefreshSessions: () => Promise<void>;
 }) {
   const isMobile = useIsMobile();
-  const { conversations } = useContext(BotUnreadContext);
+  const { conversations, markRead: markBotRowRead } = useContext(BotUnreadContext);
   const bot = selectedBotId ? bots.find((item) => item.id === selectedBotId) ?? null : null;
   useEffect(() => {
     if (!isMobile || !bot) return;
@@ -26025,31 +26314,32 @@ function BotsView({
         // See the rail roster: a `[subagent …]` report is not preview material.
         const preview = plainPreviewText(botRosterPreview(rawPreview, working));
         const stopped = !working && isCodingAgentStoppedText(rawPreview);
+        const openRow = () => onOpen(item.id, row.conversationId);
+        const markRead = row.unread && row.sessionId ? () => markBotRowRead(row.sessionId!) : undefined;
         return (
-          <button
+          <BotRailContextMenu
             key={row.key}
-            type="button"
-            onClick={() => onOpen(item.id, row.conversationId)}
-            aria-label={`${item.name}${row.unread ? ", unread conversation" : ""}`}
-            className={BOT_ROSTER_ROW_CLASS}
+            bot={item}
+            unread={row.unread}
+            onOpen={openRow}
+            onEdit={() => onEdit(item)}
+            onMarkRead={markRead}
           >
-            <BotAvatar bot={item} working={working} size={44} />
-            <span className="flex min-w-0 flex-1 flex-col">
-              <span className={cn("truncate text-base font-semibold leading-tight", !item.enabled && "text-muted-foreground")}>{item.name}</span>
-              {preview ? (
-                <span className={cn("truncate text-sm leading-tight", stopped ? "text-destructive" : "text-muted-foreground")}>{preview}</span>
-              ) : null}
-            </span>
-            {row.unread ? (
-              <span role="status" aria-label={`Unread conversation with ${item.name}`}>
-                <span className={BOT_UNREAD_DOT_CLASS} aria-hidden="true" />
-              </span>
-            ) : null}
-            {row.lastMessageTs || item.lastMessageAt ? (
-              <span className="shrink-0 text-xs tabular-nums text-muted-foreground/70">{relTime(row.lastMessageTs || item.lastMessageAt!)}</span>
-            ) : null}
-            {!item.enabled ? <Badge variant="secondary">Disabled</Badge> : null}
-          </button>
+            <BotRosterRow
+              bot={item}
+              busy={working}
+              active={false}
+              collapsed={false}
+              avatarSize={44}
+              preview={preview}
+              previewClassName={stopped ? "text-destructive" : undefined}
+              unread={row.unread}
+              timestamp={row.lastMessageTs || item.lastMessageAt}
+              trailingExtra={!item.enabled ? <Badge variant="secondary">Disabled</Badge> : null}
+              onOpen={openRow}
+              onMarkRead={markRead}
+            />
+          </BotRailContextMenu>
         );
       }) : (
         // Create lives in the header "New" control so the empty card is

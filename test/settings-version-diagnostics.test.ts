@@ -27,12 +27,26 @@ const OMG_CLIENT = readFileSync(join(REPO, "web/src/lib/omg-client.ts"), "utf8")
 const ROOT_VERSION = JSON.parse(readFileSync(join(REPO, "package.json"), "utf8")).version as string;
 const WEB_VERSION = JSON.parse(readFileSync(join(REPO, "web/package.json"), "utf8")).version as string;
 
-/** The Settings > Computer section, where both rows live. */
+/** The Settings > Computer section, where the version card lives. */
 function computerSection(): string {
   const start = APP.indexOf("function SettingsView(");
   expect(start, "SettingsView not found").toBeGreaterThan(-1);
   const section = APP.slice(start);
   const end = section.indexOf("function MoreView(");
+  return end > -1 ? section.slice(0, end) : section;
+}
+
+/**
+ * The Frontend/Computer/Updates rows themselves. They used to be inline in
+ * SettingsView's own JSX; Settings now collapses them into one row that
+ * expands (VersionUpdatesRow, defined just above SettingsView), so this is
+ * where a test now has to look for them instead of computerSection().
+ */
+function versionUpdatesRowSection(): string {
+  const start = APP.indexOf("function VersionUpdatesRow(");
+  expect(start, "VersionUpdatesRow not found").toBeGreaterThan(-1);
+  const section = APP.slice(start);
+  const end = section.indexOf("\nfunction SettingsView(");
   return end > -1 ? section.slice(0, end) : section;
 }
 
@@ -110,17 +124,29 @@ describe("the Computer version comes only from the Computer", () => {
   });
 
   test("neither value is ever derived from the other", () => {
-    const section = computerSection();
+    // SettingsView still resolves each source independently and hands them to
+    // VersionUpdatesRow as two separate props, rather than letting the row
+    // re-derive one from the other.
+    const callSiteStart = computerSection().indexOf("<VersionUpdatesRow");
+    expect(callSiteStart, "<VersionUpdatesRow /> call site not found").toBeGreaterThan(-1);
+    const callSite = computerSection().slice(callSiteStart, computerSection().indexOf("/>", callSiteStart));
+    expect(callSite).toContain("frontendVersion={FRONTEND_VERSION}");
+    expect(callSite).toContain("computerVersion={computerVersion}");
+
+    const section = versionUpdatesRowSection();
     const frontendRow = section.slice(section.indexOf('label="Frontend"'));
     const computerRow = section.slice(section.indexOf('label="Computer"'));
 
-    // The Frontend row reads the build stamp and nothing else.
-    expect(frontendRow.slice(0, frontendRow.indexOf("/>"))).toContain("FRONTEND_VERSION");
+    // The Frontend row reads the frontendVersion prop (itself sourced only
+    // from the build stamp at the call site above) and nothing else.
+    const frontendRowProps = frontendRow.slice(0, frontendRow.indexOf("/>"));
+    expect(frontendRowProps).toContain("frontendVersion");
+    expect(frontendRowProps).not.toContain("computerVersion");
     // The Computer row reads the resolved server state and MUST NOT mention
     // the build stamp — that would be the mirror bug.
     const computerRowProps = computerRow.slice(0, computerRow.indexOf("/>"));
     expect(computerRowProps).toContain("computerVersion");
-    expect(computerRowProps).not.toContain("FRONTEND_VERSION");
+    expect(computerRowProps).not.toContain("frontendVersion");
 
     // And the resolver itself has no frontend fallback anywhere in it.
     expect(DIAGNOSTICS.slice(
@@ -131,31 +157,45 @@ describe("the Computer version comes only from the Computer", () => {
 });
 
 describe("the rendered rows", () => {
-  test("both rows are present in Settings > Computer", () => {
+  test("both rows are present in Settings > Computer, behind one expandable row", () => {
     const section = computerSection();
-    expect(section).toContain('label="Frontend"');
-    expect(section).toContain('label="Computer"');
+    expect(section).toContain("<VersionUpdatesRow");
     // Rendered inside the Computer card, after the existing navigation rows.
-    expect(section.indexOf("Storage &amp; performance")).toBeLessThan(section.indexOf('label="Frontend"'));
+    expect(section.indexOf("Storage &amp; performance")).toBeLessThan(section.indexOf("<VersionUpdatesRow"));
+
+    const rowSection = versionUpdatesRowSection();
+    expect(rowSection).toContain('label="Frontend"');
+    expect(rowSection).toContain('label="Computer"');
   });
 
   test("a mismatch note is quiet and conditional, never always-on", () => {
-    const section = computerSection();
-    expect(section).toMatch(/\{versionNote \?/);
+    const section = versionUpdatesRowSection();
+    expect(section).toMatch(/\{subtitle \?/);
     expect(section).toContain("isVersionMismatch(versionSkew)");
+  });
+
+  test("a mismatch is legible without expanding the row", () => {
+    // The whole reason Frontend and Computer are shown as two numbers is to
+    // make a skew visible — collapsing them to one row must not bury that
+    // behind a tap. The collapsed trigger has to render versionNote itself,
+    // not just the expanded breakdown underneath.
+    const section = versionUpdatesRowSection();
+    expect(section).toMatch(/const subtitle = mismatch\s*\n?\s*\?\s*versionNote/);
+    const trigger = section.slice(section.indexOf("<CollapsibleTrigger"), section.indexOf("</CollapsibleTrigger>"));
+    expect(trigger).toContain("{subtitle}");
   });
 
   test("rows cannot overflow a narrow screen", () => {
     // Desktop and mobile share this row. The label column must be allowed to
     // shrink and truncate while the version itself never does.
-    const row = APP.slice(APP.indexOf("function VersionRow("), APP.indexOf("function SettingsView("));
+    const row = APP.slice(APP.indexOf("function VersionRow("), APP.indexOf("function VersionUpdatesRow("));
     expect(row).toContain("min-w-0");
     expect(row).toContain("truncate");
     expect(row).toContain("shrink-0");
   });
 
   test("copy is offered for real versions and withheld for states", () => {
-    const row = APP.slice(APP.indexOf("function VersionRow("), APP.indexOf("function SettingsView("));
+    const row = APP.slice(APP.indexOf("function VersionRow("), APP.indexOf("function VersionUpdatesRow("));
     // No copyValue => a plain div, no button, no clipboard write.
     expect(row).toMatch(/if \(!copyValue\) \{/);
     expect(row).toContain("copyMessageText(copyValue)");
@@ -163,8 +203,8 @@ describe("the rendered rows", () => {
   });
 
   test("no row can leak a path, command line, or host identifier", () => {
-    const section = computerSection();
-    const rows = section.slice(section.indexOf('label="Frontend"'), section.indexOf("</section>", section.indexOf('label="Computer"')));
+    const section = versionUpdatesRowSection();
+    const rows = section.slice(section.indexOf('label="Frontend"'), section.indexOf("</CollapsibleContent>", section.indexOf('label="Computer"')));
     for (const banned of ["installInfo", "updateCommand", "cwd", "hostname", "bootId", "process.env"]) {
       expect(rows, `the version rows must not surface ${banned}`).not.toContain(banned);
     }

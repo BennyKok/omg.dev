@@ -43,10 +43,13 @@ describe("persistence", () => {
   // back into state so the control snaps back to its old value, and the success
   // toast still fires because nothing threw.
   //
-  // That is exactly how idleAgentArchiveMinutes ("Archive idle agents after")
-  // spent its whole life doing nothing: the UI saved, cheerfully confirmed, and
-  // reverted, and the sweep read 0 forever. The test above could not catch it,
-  // because the value was already correct by the time it reached the writer.
+  // That is exactly the shape of bug this guards against: if
+  // botCompactionThresholdPercent ("Refresh full bot contexts" threshold)
+  // lost its branch below, the picker would save, cheerfully confirm, and
+  // revert on the next load, silently pinned at whatever sanitize() defaults
+  // to. The test above alone could not catch it, because the value is already
+  // correct by the time it reaches the writer — the whitelist below is the
+  // only thing standing between the two.
   test("every setting key is accepted by POST /api/settings", async () => {
     const settingsSource = await Bun.file(new URL("./settings.ts", import.meta.url)).text();
     const typeBlock = settingsSource.slice(

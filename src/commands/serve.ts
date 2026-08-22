@@ -229,13 +229,7 @@ import {
   noteListSessionsClientActivity,
 } from "../session-cache.ts";
 import { buildSessionUsageReport } from "../session-usage.ts";
-import {
-  idleArchiveCandidates,
-  idleMsFor,
-  MAX_IDLE_ARCHIVE_MINUTES,
-  memoryReclaimCandidates,
-  MIN_IDLE_ARCHIVE_MINUTES,
-} from "../idle-archive.ts";
+import { memoryReclaimCandidates } from "../idle-archive.ts";
 import { CODING_AGENT_ADAPTERS, resolveActiveSessionAgent, usesCommandFileRuntime } from "../coding-agent-adapters.ts";
 import { launchCodingAgentSession } from "../coding-agent-provider.ts";
 import {
@@ -743,9 +737,6 @@ async function activationGate(
   options?: { overLimit?: boolean; kind?: "interactive" | "schedule" | "bot" },
 ): Promise<Response | { release: () => void; reclaimed?: number }> {
   const settings = getGlobalSettingsSync();
-  if (settings.agentsPaused) {
-    return err(503, "agent activation is paused");
-  }
   const computer = computerAgentAdmissionContext();
   // Schedule admission is a Computer-plan rule. A self-hosted box has no plan
   // file, so spawnedBy=schedule is just another session under maxLiveAgents.
@@ -898,7 +889,6 @@ async function serverStats() {
       working,
       idle: Math.max(0, live - working),
       max: computer?.limit ?? settings.maxLiveAgents, // 0 = unlimited
-      paused: settings.agentsPaused,
     },
     memory: {
       sliceCurrentBytes: slice.current,
@@ -1899,8 +1889,8 @@ async function closeLiveSession(
 // Resume before its process is stopped. Busy, launching, and process-bound
 // sessions are never touched.
 //
-// Neither are persistent ones. The selection is memoryReclaimCandidates, beside
-// the idle-archive policy it has to agree with — see src/idle-archive.ts.
+// Neither are persistent ones. The selection is memoryReclaimCandidates — see
+// src/idle-archive.ts.
 async function archiveIdleDurableAgentsForMemory(): Promise<number> {
   const candidates = memoryReclaimCandidates(await listSessions());
   let archived = 0;
@@ -1916,72 +1906,6 @@ async function archiveIdleDurableAgentsForMemory(): Promise<number> {
     if (memory.availableBytes >= memory.reserveBytes + memory.launchBytes) break;
   }
   return archived;
-}
-
-// Archive agents that have simply been left open.
-//
-// archiveIdleDurableAgentsForMemory (above) only fires once the box is ALREADY
-// against its launch budget — it is a last resort, and by then the host has
-// usually been thrashing for a while. This is the steady-state counterpart: an
-// agent nobody has spoken to for hours is holding 300-500 MB for nothing, so
-// reclaim it before pressure builds rather than during.
-//
-// Off unless the operator sets a window; when set, it runs on a slow timer and
-// archives through the same close owner, so each session's resume record is
-// persisted before its process stops.
-const IDLE_ARCHIVE_SWEEP_MS = 5 * 60_000;
-const IDLE_ARCHIVE_MAX_PER_PASS = 3;
-let idleArchiveTimer: ReturnType<typeof setInterval> | null = null;
-let idleArchiveRunning = false;
-
-export async function archiveIdleAgentsOnce(now = Date.now()): Promise<number> {
-  const idleMinutes = getGlobalSettingsSync().idleAgentArchiveMinutes;
-  if (!(idleMinutes > 0)) return 0;
-  const sessions = await listSessions().catch(() => []);
-  const candidates = idleArchiveCandidates(sessions, {
-    now,
-    idleMs: idleMinutes * 60_000,
-    // Archive a few per pass rather than the whole backlog at once: each close
-    // is a real teardown, and a burst of them on an already-loaded box is the
-    // kind of thundering herd this feature exists to prevent.
-    limit: IDLE_ARCHIVE_MAX_PER_PASS,
-  });
-  let archived = 0;
-  for (const session of candidates) {
-    const sessionId = session.sessionId as string;
-    const idleMs = idleMsFor(session, now) ?? 0;
-    const outcome = await closeLiveSession(session, sessionId, {
-      sessionId,
-      source: "idle_archive",
-      idleMinutes: Math.round(idleMs / 60_000),
-    });
-    if (!outcome.ok) continue;
-    archived++;
-    evlog("session_idle_archived", {
-      sessionId,
-      tmuxName: session.tmuxName,
-      idleMinutes: Math.round(idleMs / 60_000),
-      thresholdMinutes: idleMinutes,
-    });
-  }
-  return archived;
-}
-
-export function startIdleAgentArchiveSweep(): void {
-  if (idleArchiveTimer) return;
-  idleArchiveTimer = setInterval(() => {
-    // The sweep reads settings each pass, so toggling the window takes effect
-    // without a restart; overlapping passes are skipped because a close awaits
-    // process teardown and can outlive the interval on a loaded box.
-    if (idleArchiveRunning) return;
-    idleArchiveRunning = true;
-    void archiveIdleAgentsOnce()
-      .catch(() => 0)
-      .finally(() => {
-        idleArchiveRunning = false;
-      });
-  }, IDLE_ARCHIVE_SWEEP_MS);
-  idleArchiveTimer.unref?.();
 }
 
 const BOT_COMPACTION_SWEEP_MS = 15_000;
@@ -4148,33 +4072,16 @@ a{color:#60a5fa}
               return err(400, `maxBotSchedules must be an integer from 1 to ${BOT_SCHEDULE_LIMIT}`);
             patch.maxBotSchedules = max;
           }
-          if (b?.agentsPaused !== undefined) {
-            if (typeof b.agentsPaused !== "boolean")
-              return err(400, "agentsPaused must be a boolean");
-            patch.agentsPaused = b.agentsPaused;
-          }
+          // agentsPaused and idleAgentArchiveMinutes are gone (see
+          // GlobalSettings) — a stored value from an older install is read and
+          // silently dropped by settings.ts's sanitize(), and deliberately
+          // there is no branch for either key here: an older client that still
+          // PATCHes one is ignored rather than rejected with a 400, so it can't
+          // be broken by a setting it doesn't know was removed.
           if (b?.transcriptView !== undefined) {
             if (!validTranscriptView(b.transcriptView))
               return err(400, "transcriptView must be full or user-lfg-output");
             patch.transcriptView = b.transcriptView;
-          }
-          if (b?.idleAgentArchiveMinutes !== undefined) {
-            // Reject rather than lean on sanitizeIdleArchiveMinutes' clamp. The
-            // clamp is right for reading back whatever is already on disk, but
-            // as request validation it would answer 200 with a number the user
-            // did not ask for — which is how this setting silently did nothing
-            // for so long. An out-of-range value is a bug in the caller, so say
-            // so instead of quietly picking a different window.
-            const minutes = Number(b.idleAgentArchiveMinutes);
-            const inRange =
-              minutes === 0 ||
-              (minutes >= MIN_IDLE_ARCHIVE_MINUTES && minutes <= MAX_IDLE_ARCHIVE_MINUTES);
-            if (!Number.isInteger(minutes) || !inRange)
-              return err(
-                400,
-                `idleAgentArchiveMinutes must be 0 (off) or an integer from ${MIN_IDLE_ARCHIVE_MINUTES} to ${MAX_IDLE_ARCHIVE_MINUTES}`,
-              );
-            patch.idleAgentArchiveMinutes = minutes;
           }
           if (b?.botAutoCompactionEnabled !== undefined) {
             if (typeof b.botAutoCompactionEnabled !== "boolean")
@@ -9265,7 +9172,6 @@ a{color:#60a5fa}
   startModelDiscoveryScheduler((l) => console.log(l));
   startWorktreeSweep((l) => console.log(l));
   startTmpSweep((l) => console.log(l));
-  startIdleAgentArchiveSweep();
   startBotCompactionSweep();
   // Watch the fleet for busy -> idle transitions and fan "completed" events out
   // to fleet subscribers (Web Push). Idempotent + best-effort.
