@@ -11099,6 +11099,27 @@ function LiveView({
   // component makes — the empty state below returns before the list renders,
   // and a hook that only runs on one of those paths changes the hook count
   // between renders (React #310, seen as a cold deep link crashing).
+  // Swipe-left archive, restored to the row. The mobile card carried this and
+  // swapping the list for rail rows dropped it. Same call the session menu
+  // makes: drop it from the list now so the gesture feels immediate, then let
+  // the refresh reconcile. A session that already ended 404s, which is not an
+  // error the person swiping needs to hear about.
+  const archiveSession = useCallback(
+    async (sid: string) => {
+      if (!sid) return;
+      haptic("selection");
+      onRemove(sid);
+      try {
+        await closeSessionRequest(sid, "mobile_swipe_archive");
+      } catch {
+        /* already gone — the refresh below is the source of truth */
+      } finally {
+        await onRefresh().catch(() => {});
+      }
+    },
+    [onRemove, onRefresh],
+  );
+
   // Opening a session from the list navigates; the view below follows the URL.
   // The animation still wants the row it came from, and a rect cannot live in
   // a URL, so the origin is remembered here and the URL stays the truth about
@@ -11362,6 +11383,7 @@ function LiveView({
           collapsed={false}
           onActivate={() => openSessionPage(sid)}
           onTogglePin={() => toggleTopPin(sid)}
+          onArchive={() => void archiveSession(sid)}
         />
       </RailSessionContextMenu>
     );
@@ -13106,6 +13128,7 @@ const RailItem = memo(function RailItem({
   collapsed,
   onActivate,
   onTogglePin,
+  onArchive,
 }: {
   session: Session;
   busy: boolean;
@@ -13117,13 +13140,22 @@ const RailItem = memo(function RailItem({
   collapsed: boolean;
   onActivate: (shiftKey: boolean) => void;
   onTogglePin: () => void;
+  /** Swipe left to archive. Absent on surfaces where that is not offered. */
+  onArchive?: () => void;
 }) {
   const botDirectory = useContext(BotDirectoryContext);
   const drivingBotId = productBotId(session);
   const drivingBot = drivingBotId ? botDirectory.get(drivingBotId) : undefined;
-  // Touch swipe: drag right to pin, left to unpin. The foreground row slides
-  // and a pin glyph is revealed behind it; past ~52px on release it commits.
-  // A horizontal drag suppresses the tap-to-open; vertical is left to scroll.
+  // Touch swipe, iOS conventions: right pins (leading), left archives
+  // (trailing). The foreground row slides and the action it would commit is
+  // revealed behind it; past ~52px on release it fires. A horizontal drag
+  // suppresses the tap-to-open; vertical is left to scroll.
+  //
+  // Left used to mean unpin, which left archive with nowhere to go when the
+  // mobile card became this row — the card had carried swipe-to-archive, and
+  // swapping the list quietly dropped it. Unpin is the same right swipe as
+  // pin, since one gesture toggling one flag is what the pin glyph already
+  // says it does.
   const fgRef = useRef<HTMLDivElement>(null);
   const drag = useRef({ startX: 0, startY: 0, x: 0, dragging: false, decided: false, horizontal: false, swiped: false });
   const [swiping, setSwiping] = useState(false);
@@ -13147,8 +13179,8 @@ const RailItem = memo(function RailItem({
       if (d.horizontal) setSwiping(true);
     }
     if (!d.horizontal) return; // vertical → let the rail scroll
-    // Only allow the meaningful direction: right to pin, left to unpin.
-    let v = pinned ? Math.min(0, dx) : Math.max(0, dx);
+    // Left only travels when there is something for it to commit to.
+    let v = onArchive ? dx : Math.max(0, dx);
     v = Math.max(-96, Math.min(96, v));
     d.x = v;
     if (fgRef.current) fgRef.current.style.transform = `translateX(${v}px)`;
@@ -13157,9 +13189,12 @@ const RailItem = memo(function RailItem({
     const d = drag.current;
     if (d.horizontal) {
       d.swiped = true;
-      if (Math.abs(d.x) >= COMMIT) {
+      if (d.x >= COMMIT) {
         haptic("selection");
         onTogglePin();
+      } else if (d.x <= -COMMIT && onArchive) {
+        haptic("selection");
+        onArchive();
       }
     }
     const el = fgRef.current;
@@ -13184,17 +13219,18 @@ const RailItem = memo(function RailItem({
       )}
     >
       {swiping ? (
+        // Both actions are revealed at once, each on the edge its own gesture
+        // pulls from: pin on the leading edge, archive on the trailing one. The
+        // row slides over whichever you are not committing to.
         <div
           aria-hidden
-          className={cn(
-            "pointer-events-none absolute inset-0 flex items-center px-3",
-            pinned ? "justify-end" : "justify-start",
-          )}
+          className="pointer-events-none absolute inset-0 flex items-center justify-between px-3"
         >
           <Pin
             className={cn("size-4", pinned ? "text-muted-foreground" : "text-primary")}
             fill={pinned ? "none" : "currentColor"}
           />
+          {onArchive ? <Archive className="size-4 text-destructive" /> : null}
         </div>
       ) : null}
       <div
