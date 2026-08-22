@@ -2,6 +2,16 @@
 
 Recent product updates and deployment notes.
 
+## August 22, 2026 - Add to home screen closes the first run (v0.2.23)
+
+- **First-run setup now ends with an optional "Add omg to your home screen"
+  page.** It comes after agent connection and the value pitch, never before
+  them. On iPhone and Mac Safari it opens the step-by-step install sheet; on
+  Chrome and Android it fires the browser's real install prompt.
+- **The page can never block anyone.** "Open my Computer" sits directly under
+  the install button, and the page only joins the flow on browsers that can
+  actually install. Everyone else sees the same flow as before.
+
 ## August 21, 2026 - One `omg` for computer setup and create / deploy (v0.2.22)
 
 - **`@omg-dev/cli` 0.5.1 keeps one public `omg` binary.** `0.5.0` rejected
