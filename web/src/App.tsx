@@ -287,7 +287,6 @@ import {
   Bell,
   MoreVertical,
   Moon,
-  PanelLeftClose,
   PanelLeftOpen,
   Paperclip,
   Pause,
@@ -2140,116 +2139,151 @@ function ComposerAttachmentChips({
 }) {
   if (!items.length) return null;
   return (
-    <div className={cn("flex gap-1.5 overflow-x-auto pb-0.5", className)}>
-      {items.map(({ att, locked }) => (
-        <div
-          key={att.id}
-          className={cn(
-            // Wide enough that "96 KB · compressed" and the HD toggle fit on
-            // one line next to the thumbnail; the row scrolls horizontally.
-            "group relative flex h-12 max-w-64 shrink-0 items-center gap-2 overflow-hidden rounded-lg border bg-muted/55 pl-1.5 pr-1.5 text-xs",
-            att.status === "failed" ? "border-destructive/40 bg-destructive/10" : "border-border/70",
-          )}
-          title={att.error || att.name}
-        >
-          {att.previewUrl ? (
-            <img src={att.previewUrl} alt="" className="size-9 shrink-0 rounded-md object-cover" />
-          ) : (
+    <div className={cn("flex gap-2 overflow-x-auto pb-0.5", className)}>
+      {items.map(({ att, locked }) =>
+        // An image says what it is by being visible. The row that carried its
+        // filename, its byte count and three buttons said all of that again in
+        // words, and took four times the space to do it. Images are a tile you
+        // can see; anything without a preview keeps the descriptive row,
+        // because there a filename is the only thing that identifies it.
+        att.previewUrl ? (
+          <div
+            key={att.id}
+            className={cn(
+              "group relative size-16 shrink-0 overflow-hidden rounded-lg border",
+              att.status === "failed" ? "border-destructive/60" : "border-border/70",
+            )}
+            // The tile has no room for a filename or a byte count, so they
+            // live here. This is also where "already full resolution" went
+            // when the permanently-lit HD badge came off: it is a fact about
+            // the file, not a control, and it was only ever readable as one.
+            title={
+              att.error ||
+              [
+                att.name,
+                att.preparing
+                  ? "Compressing…"
+                  : att.original && att.compressed
+                    ? att.hd
+                      ? `Full resolution (${formatBytes(att.original.size)})`
+                      : `Compressed to ${formatBytes(att.compressed.size)}`
+                    : `${formatBytes(att.size)} · already full resolution`,
+              ].join(" · ")
+            }
+          >
+            <button
+              type="button"
+              className="block size-full disabled:pointer-events-none"
+              onClick={() => onAnnotate(att.id)}
+              aria-label={`Annotate ${att.name}`}
+              disabled={disabled || locked}
+            >
+              <img src={att.previewUrl} alt={att.name} className="size-full object-cover" />
+            </button>
+            {att.preparing || att.status === "uploading" ? (
+              <span className="pointer-events-none absolute inset-0 flex items-end bg-gradient-to-t from-black/70 to-transparent p-1 text-[10px] font-medium text-white">
+                {att.preparing ? "Compressing…" : `${att.progress ?? 0}%`}
+              </span>
+            ) : null}
+            {att.status === "failed" ? (
+              <span className="pointer-events-none absolute inset-x-0 bottom-0 bg-destructive/85 p-0.5 text-center text-[10px] font-medium text-white">
+                Failed
+              </span>
+            ) : null}
+            {/* Quality is a detail, so it only appears when you are working on
+                the tile. It stays out of the way the rest of the time. */}
+            {onToggleHd && att.original && att.compressed ? (
+              <button
+                type="button"
+                className={cn(
+                  "absolute bottom-1 left-1 rounded-full px-1.5 text-[10px] font-bold leading-4 tracking-wide transition-opacity disabled:pointer-events-none",
+                  att.hd
+                    ? "bg-foreground text-background opacity-100"
+                    : "bg-black/65 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+                )}
+                onClick={() => onToggleHd(att.id, !att.hd)}
+                aria-pressed={!!att.hd}
+                aria-label={
+                  att.hd
+                    ? `Compress ${att.name} to ${formatBytes(att.compressed.size)}`
+                    : `Upload ${att.name} at full resolution (${formatBytes(att.original.size)})`
+                }
+                title={
+                  att.hd
+                    ? `Full resolution (${formatBytes(att.original.size)}) — tap to compress`
+                    : `Compressed (${formatBytes(att.compressed.size)}) — tap for full resolution`
+                }
+                disabled={disabled || locked}
+              >
+                HD
+              </button>
+            ) : null}
+            {/* Corner close, revealed on hover with a pointer. Touch has no
+                hover, so there it stays visible — a tile you cannot remove is
+                worse than a tile with a button on it. */}
+            <button
+              type="button"
+              className="absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-black/65 text-white opacity-100 transition-opacity hover:bg-black/85 focus-visible:opacity-100 disabled:pointer-events-none md:opacity-0 md:group-hover:opacity-100"
+              onClick={() => onRemove(att.id)}
+              aria-label={`Remove ${att.name}`}
+              title="Remove"
+              disabled={disabled || locked}
+            >
+              <X className="size-3" />
+            </button>
+          </div>
+        ) : (
+          <div
+            key={att.id}
+            className={cn(
+              "group relative flex h-12 max-w-64 shrink-0 items-center gap-2 overflow-hidden rounded-lg border bg-muted/55 px-1.5 text-xs",
+              att.status === "failed" ? "border-destructive/40 bg-destructive/10" : "border-border/70",
+            )}
+            title={att.error || att.name}
+          >
             <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-background/80 text-muted-foreground">
               <Paperclip className="size-4" />
             </div>
-          )}
-          <div className="min-w-0">
-            <div className="truncate font-medium text-foreground">{att.name}</div>
-            <div className="truncate text-[11px] text-muted-foreground">
-              {att.preparing
-                ? "Compressing…"
-                : att.status === "uploading"
-                  ? `Uploading ${att.progress ?? 0}%`
-                  : att.status === "failed"
-                    ? "Failed"
-                    : att.original && !att.hd
-                      ? `${formatBytes(att.size)} · compressed`
+            <div className="min-w-0">
+              <div className="truncate font-medium text-foreground">{att.name}</div>
+              <div className="truncate text-[11px] text-muted-foreground">
+                {att.preparing
+                  ? "Compressing…"
+                  : att.status === "uploading"
+                    ? `Uploading ${att.progress ?? 0}%`
+                    : att.status === "failed"
+                      ? "Failed"
                       : formatBytes(att.size)}
+              </div>
             </div>
-          </div>
-          {att.status === "uploading" ? (
-            <div
-              className="absolute inset-x-0 bottom-0 h-0.5 bg-primary/15"
-              role="progressbar"
-              aria-label={`Uploading ${att.name}`}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={att.progress ?? 0}
-            >
+            {att.status === "uploading" ? (
               <div
-                className="h-full bg-primary transition-[width] duration-150"
-                style={{ width: `${att.progress ?? 0}%` }}
-              />
-            </div>
-          ) : null}
-          {/* Keep the quality affordance visible for every image. It toggles
-              when compression produced a smaller copy; otherwise its selected
-              state explains that the attachment is already full resolution. */}
-          {att.previewUrl && onToggleHd ? (
+                className="absolute inset-x-0 bottom-0 h-0.5 bg-primary/15"
+                role="progressbar"
+                aria-label={`Uploading ${att.name}`}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={att.progress ?? 0}
+              >
+                <div
+                  className="h-full bg-primary transition-[width] duration-150"
+                  style={{ width: `${att.progress ?? 0}%` }}
+                />
+              </div>
+            ) : null}
             <button
               type="button"
-              className={cn(
-                "flex h-6 shrink-0 items-center justify-center rounded-full px-1.5 text-[10px] font-bold tracking-wide disabled:pointer-events-none",
-                att.hd || (!att.preparing && !(att.original && att.compressed))
-                  ? "bg-foreground text-background"
-                  : "text-muted-foreground hover:bg-background hover:text-foreground",
-                att.preparing && "opacity-40",
-              )}
-              onClick={() => onToggleHd(att.id, !att.hd)}
-              aria-pressed={
-                att.original && att.compressed ? !!att.hd : !att.preparing
-              }
-              aria-label={
-                att.original && att.compressed
-                  ? `Upload ${att.name} in full resolution`
-                  : att.preparing
-                    ? `Preparing ${att.name} for upload`
-                    : `${att.name} is already full resolution`
-              }
-              title={
-                att.original && att.compressed
-                  ? att.hd
-                    ? `Full resolution (${formatBytes(att.original.size)}) — tap to compress to ${formatBytes(att.compressed.size)}`
-                    : `Compressed to ${formatBytes(att.compressed.size)} — tap for full resolution (${formatBytes(att.original.size)})`
-                  : att.preparing
-                    ? "Checking image size…"
-                    : `Already full resolution (${formatBytes(att.size)})`
-              }
-              disabled={disabled || locked || !(att.original && att.compressed)}
-            >
-              HD
-            </button>
-          ) : null}
-          {att.previewUrl ? (
-            <button
-              type="button"
-              className="flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
-              onClick={() => onAnnotate(att.id)}
-              aria-label={`Annotate ${att.name}`}
-              title="Annotate"
+              className="ml-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+              onClick={() => onRemove(att.id)}
+              aria-label={`Remove ${att.name}`}
+              title="Remove"
               disabled={disabled || locked}
             >
-              <Pencil className="size-3.5" />
+              <X className="size-3.5" />
             </button>
-          ) : null}
-          <button
-            type="button"
-            className="ml-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-background hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
-            onClick={() => onRemove(att.id)}
-            aria-label={`Remove ${att.name}`}
-            title="Remove"
-            disabled={disabled || locked}
-          >
-            <X className="size-3.5" />
-          </button>
-        </div>
-      ))}
+          </div>
+        ),
+      )}
     </div>
   );
 }
@@ -2531,6 +2565,9 @@ function useComposerAttachments({
           );
         }
         setAnnotatingId(null);
+      }}
+      onRemove={() => {
+        if (annotatingId) removeAttachment(annotatingId);
       }}
     />
   );
@@ -9358,7 +9395,7 @@ function UserFilterMenu({
               selected ? (selected.name ?? shortUser(selected.email)) : active ? "Unassigned" : "All users"
             }
             className={cn(
-              "relative inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border transition",
+              "relative inline-flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-full border transition",
               active ? "border-primary/40 text-primary" : "border-border bg-muted/70 text-foreground",
             )}
           />
@@ -11436,14 +11473,14 @@ function LiveView({
                   key={finding.id}
                   type="button"
                   onClick={() => onOpenFinding(finding)}
-                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-muted"
+                  className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-muted"
                 >
-                  <span className={cn("size-2 shrink-0 rounded-full", SEV_DOT[finding.severity])} />
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-[13px] font-medium leading-tight">
+                  <span className={cn("size-1.5 shrink-0 rounded-full", SEV_DOT[finding.severity])} />
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="truncate text-sm font-medium leading-tight">
                       {nameFor(finding.agentId)}
                     </span>
-                    <span className="truncate text-[11px] leading-tight text-muted-foreground">
+                    <span className="truncate text-xs leading-tight text-muted-foreground">
                       {finding.title}
                     </span>
                   </span>
@@ -12467,14 +12504,14 @@ function RailStage({
             key={f.id}
             type="button"
             onClick={() => onOpenFinding(f)}
-            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-muted"
+            className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-muted"
           >
-            <span className={cn("size-2 shrink-0 rounded-full", SEV_DOT[f.severity])} />
-            <span className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate text-[13px] font-medium leading-tight">
+            <span className={cn("size-1.5 shrink-0 rounded-full", SEV_DOT[f.severity])} />
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="truncate text-sm font-medium leading-tight">
                 {nameFor(f.agentId)}
               </span>
-              <span className="truncate text-[11px] leading-tight text-muted-foreground">
+              <span className="truncate text-xs leading-tight text-muted-foreground">
                 {f.title}
               </span>
             </span>
@@ -12680,17 +12717,6 @@ function RailStage({
                     onChange={onUserChange}
                   />
                 ) : null}
-                {/* Collapse sits with the other chrome rather than sharing a
-                    row with a primary action. */}
-                <button
-                  type="button"
-                  onClick={() => setRailCollapsed((v) => !v)}
-                  aria-label="Collapse sidebar"
-                  title="Collapse sidebar (⌘B)"
-                  className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  <PanelLeftClose className="size-4" />
-                </button>
                 {pagesMenu}
               </div>
             </div>
@@ -13310,7 +13336,7 @@ const RailItem = memo(function RailItem({
         </span>
         {!collapsed ? (
           <>
-            <span className="flex min-w-0 flex-1 flex-col">
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
               <span className="flex items-baseline gap-1.5">
                 <span className="min-w-0 flex-1 truncate text-base font-semibold leading-tight">
                   {titleForSession(session)}
