@@ -135,12 +135,25 @@ describe("manual restart lifecycle", () => {
     expect(botRotationAdmission("bot_one", undefined, [])).toEqual({ ready: true });
   });
 
-  test("queues instead of interrupting busy work or promoting a child", () => {
-    expect(botRotationAdmission("bot_one", { sessionId: "runtime-live", busy: true }, []))
+  test("runs immediately even when the primary is busy or a child is live", () => {
+    // A human reaches for Restart precisely when the busy signal has stopped
+    // meaning progress, so waiting on it parks the escape hatch behind the
+    // wedged turn it exists to clear.
+    expect(botRotationAdmission("bot_one", { sessionId: "runtime-live", busy: true }, [], "restart"))
+      .toEqual({ ready: true });
+    expect(botRotationAdmission("bot_one", { sessionId: "runtime-live", busy: false }, [
+      { sessionId: "child-live", botId: "bot_one", parentSessionId: "runtime-live", pid: 11 },
+    ], "restart")).toEqual({ ready: true });
+  });
+
+  test("still defers a rotation the machine decided to run", () => {
+    expect(botRotationAdmission("bot_one", { sessionId: "runtime-live", busy: true }, [], "config"))
+      .toEqual({ ready: false, blocked: "primary-busy", children: [] });
+    expect(botRotationAdmission("bot_one", { sessionId: "runtime-live", busy: true }, [], "compaction"))
       .toEqual({ ready: false, blocked: "primary-busy", children: [] });
     expect(botRotationAdmission("bot_one", { sessionId: "runtime-live", busy: false }, [
       { sessionId: "child-live", botId: "bot_one", parentSessionId: "runtime-live", pid: 11 },
-    ])).toEqual({ ready: false, blocked: "children-active", children: ["child-live"] });
+    ], "compaction")).toEqual({ ready: false, blocked: "children-active", children: ["child-live"] });
   });
 });
 
