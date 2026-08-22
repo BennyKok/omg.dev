@@ -93,18 +93,38 @@ export function normalizeStoredAutoAgents(agents: AutoAgent[]): AutoAgent[] {
 // truncating", 2026-07-12) spawned a session, the session ended, nobody
 // re-checked, and the same failure caused a four-day backup outage ten days
 // later. A finding is not done because someone looked at it.
+//
+// "fix-landed" is the same lesson applied to the dispatch path: a #185
+// client-error finding was fixed in commit 66732e8 four minutes after a fix
+// agent was dispatched, and still read "open" two months later because
+// nothing ever wrote the outcome back. A session exiting is not proof either
+// — it may have failed, been interrupted, or decided no change was needed —
+// so landing (see src/auto/fix-landing.ts, which checks git the same way the
+// ship gate does) only earns this intermediate status. It stays in
+// UNRESOLVED so a genuine recurrence still reopens it via recordRecurrence;
+// promoteLandedFixes is what escalates it to "resolved" once it has gone
+// quiet for the grace window — the no-recurrence, not the landing itself, is
+// the actual evidence.
 export type FindingStatus =
   | "open"
   | "dismissed"
   | "session"
   | "read"
-  | "resolved";
+  | "resolved"
+  | "fix-landed";
 
 // Statuses where the underlying problem may still be live. Recurrence is
 // measured against these — NOT against "open"/"dismissed" alone, which was the
 // original bug: 302 of 396 findings sat in "session", so a repeat report never
 // matched and was filed as brand new instead of escalating.
-const UNRESOLVED: FindingStatus[] = ["open", "dismissed", "session", "read"];
+const UNRESOLVED: FindingStatus[] = ["open", "dismissed", "session", "read", "fix-landed"];
+
+// How long a "fix-landed" finding must stay unrecurred before promoteLandedFixes
+// calls it "resolved". Long enough that a load-dependent regression gets a
+// real chance to resurface; short enough that a genuinely dead finding (the
+// #185 case went quiet for two months) does not linger in the feed presenting
+// as unfinished work.
+export const FIX_LANDED_GRACE_MS = 48 * 60 * 60_000;
 
 export type Finding = {
   id: string;
@@ -120,6 +140,10 @@ export type Finding = {
   occurrences?: number;
   /** When it was most recently re-observed (differs from createdAt once it recurs). */
   lastSeenAt?: number;
+  /** Short commit sha, set once a dispatched fix session's work is confirmed on origin/main. */
+  fixCommit?: string;
+  /** When fixCommit was confirmed — the anchor promoteLandedFixes measures the grace window from. */
+  fixLandedAt?: number;
 };
 
 const dir = () => join(PATHS.data, "auto");
@@ -372,7 +396,7 @@ export async function addFinding(input: {
 
 export async function updateFinding(
   id: string,
-  patch: Partial<Pick<Finding, "status" | "sessionId">>,
+  patch: Partial<Pick<Finding, "status" | "sessionId" | "fixCommit" | "fixLandedAt">>,
 ): Promise<Finding | null> {
   const rows = await listFindings();
   let found: Finding | null = null;
@@ -386,6 +410,75 @@ export async function updateFinding(
   if (!found) return null;
   await writeFindings(next);
   return found;
+}
+
+// ---------- fix-dispatch lifecycle ----------
+// The other half of the #185 postmortem: dispatchFixAgent (src/client-errors.ts)
+// spawns a session but nothing ever tied that session back to the finding it
+// was fixing, so nothing could later ask "did this land". These three
+// functions are the single owner of that link — src/auto/fix-landing.ts reads
+// git, but every write to a finding's fix state goes through here.
+
+/**
+ * Link a dispatched fix session to the finding it's fixing. Reuses the same
+ * status:"session" + sessionId shape the UI already writes when a human
+ * launches a session against a finding (POST /api/auto/findings/:id) — an
+ * auto-dispatched fix is the same fact ("a session is now working on this")
+ * from a different caller, not a second field to track it.
+ *
+ * Clears any landing evidence from a prior attempt: a fresh dispatch means
+ * the previous one either didn't land or didn't hold, so its old fixCommit
+ * would otherwise sit on the finding looking like current proof.
+ */
+export async function attachFixSession(id: string, sessionId: string): Promise<Finding | null> {
+  return updateFinding(id, {
+    status: "session",
+    sessionId,
+    fixCommit: undefined,
+    fixLandedAt: undefined,
+  });
+}
+
+/**
+ * Record that a dispatched fix's commits reached origin/main. Deliberately
+ * NOT "resolved" — see the FindingStatus doc for why a landed commit still
+ * isn't proof the bug is gone. Only fires from "session": if a human already
+ * dismissed or resolved this finding by hand in the meantime, a late landing
+ * signal must not overwrite their call.
+ */
+export async function markFixLanded(
+  id: string,
+  commit: string,
+  at = Date.now(),
+): Promise<Finding | null> {
+  const row = (await listFindings()).find((r) => r.id === id);
+  if (!row || row.status !== "session") return null;
+  return updateFinding(id, { status: "fix-landed", fixCommit: commit, fixLandedAt: at });
+}
+
+/**
+ * Escalate every "fix-landed" finding that has gone quiet for the grace
+ * window to "resolved" — the only status meaning the underlying problem is
+ * actually gone. A recurrence report during the window would have already
+ * moved the finding off "fix-landed" via recordRecurrence, so reaching this
+ * check still in "fix-landed" IS the no-recurrence evidence.
+ */
+export async function promoteLandedFixes(
+  now = Date.now(),
+  graceMs = FIX_LANDED_GRACE_MS,
+): Promise<Finding[]> {
+  const rows = await listFindings();
+  const promoted: Finding[] = [];
+  const next = rows.map((r) => {
+    if (r.status === "fix-landed" && r.fixLandedAt !== undefined && now - r.fixLandedAt >= graceMs) {
+      const updated: Finding = { ...r, status: "resolved" };
+      promoted.push(updated);
+      return updated;
+    }
+    return r;
+  });
+  if (promoted.length) await writeFindings(next);
+  return promoted;
 }
 
 // ---------- finding actions (instrumentation) ----------

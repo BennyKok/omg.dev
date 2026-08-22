@@ -10,6 +10,7 @@
 
 import { listAutoAgents, setLastRun, type AutoAgent } from "./store.ts";
 import { runAutoAgent } from "./runner.ts";
+import { reconcileFixLandings } from "./fix-landing.ts";
 import { getGlobalSettingsSync } from "../settings.ts";
 
 // Bot-owned routines are delivered as a chat nudge, not run headless — and
@@ -118,6 +119,19 @@ export async function autoSchedulerTickNow(
   try {
     const now = new Date();
     const tz = getGlobalSettingsSync().timeZone;
+
+    // Findings whose dispatched fix session may have landed since the last
+    // tick, and any landed-and-quiet finding due to escalate to "resolved".
+    // Piggybacks on this existing 60s tick rather than its own timer — see
+    // src/auto/fix-landing.ts for why a session ending isn't enough on its own.
+    try {
+      const { landed, resolved } = await reconcileFixLandings(now.getTime());
+      for (const f of landed) onLog(`[auto-sched] fix landed for finding ${f.id}: ${f.title}`);
+      for (const f of resolved) onLog(`[auto-sched] finding ${f.id} resolved (fix landed, no recurrence): ${f.title}`);
+    } catch (e) {
+      onLog(`[auto-sched] fix-landing reconcile failed: ${e}`);
+    }
+
     let agents;
     try {
       agents = await listAutoAgents();

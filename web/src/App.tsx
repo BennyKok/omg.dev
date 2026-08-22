@@ -780,8 +780,11 @@ type AutoFinding = {
   suggest?: string;
   severity: "high" | "med" | "low";
   createdAt: number;
-  status: "open" | "dismissed" | "session" | "read";
+  status: "open" | "dismissed" | "session" | "read" | "fix-landed" | "resolved";
   sessionId?: string;
+  /** The commit a dispatched fix actually landed in. See src/auto/fix-landing.ts. */
+  fixCommit?: string;
+  fixLandedAt?: number;
 };
 
 type Message = {
@@ -22680,6 +22683,25 @@ function FindingSheet({
               Suggested
             </div>
             <div className="mt-1 text-[13.5px] leading-relaxed">{finding.suggest}</div>
+          </div>
+        ) : null}
+
+        {/* Something was already done about this. The feed hides non-open
+            findings by default, so the only people who read this are looking
+            at one deliberately — and the question they have is "was this ever
+            dealt with". A two-month-old finding whose fix landed four minutes
+            after it was filed cost an evening to re-derive; the commit is the
+            answer, so it says the commit. */}
+        {finding.fixCommit ? (
+          <div className="mt-3.5 flex items-center gap-2 text-[13px] text-muted-foreground">
+            <Check className="size-3.5 shrink-0 text-success" />
+            <span>
+              {finding.status === "resolved" ? "Fixed in" : "Fix landed in"}{" "}
+              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">
+                {finding.fixCommit.slice(0, 7)}
+              </code>
+              {finding.fixLandedAt ? ` · ${relTime(finding.fixLandedAt)} ago` : ""}
+            </span>
           </div>
         ) : null}
 
