@@ -1,19 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- The omg.dev app icon: a cream disc with a bite out of the upper right,
+       on the warm near-black tile. Traced from docs/images/omg-icon.png, which
+       is the product's own icon and stays the reference for this file. Geometry
+       was measured off that artwork at 192px and scaled by 512/192: disc centre
+       (95.5, 95.5) r69, bite centre (127.5, 63.5) r20, corner radius 44.
+
+       This used to draw the legacy "lfg" wordmark on a blue/cyan tile, which is
+       why generate-icons.ts refused to regenerate the README icon from it. -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#3b5bf6"/>
-      <stop offset="100%" stop-color="#06b6d4"/>
-    </linearGradient>
+    <radialGradient id="bg" cx="0" cy="0" r="1.2"><stop offset="0%" stop-color="#4a2417"/><stop offset="100%" stop-color="#120f0b"/></radialGradient>
+    <!-- The bite is a hole, not a dark dot: the tile gradient shows through it,
+         so it stays correct wherever the mark is placed. -->
+    <mask id="disc">
+      <rect width="512" height="512" fill="black"/>
+      <circle cx="254.7" cy="254.7" r="184" fill="white"/>
+      <circle cx="340" cy="169.3" r="53.3" fill="black"/>
+    </mask>
   </defs>
-  <path d="M164 0h184c105 0 164 59 164 164v184c0 105-59 164-164 164H164C59 512 0 453 0 348V164C0 59 59 0 164 0Z" fill="url(#bg)"/>
-  <!-- Weight matched to the pre-vector mark: the wordmark reads at the same
-       optical size it did as a bitmap. Glyph bbox is 288x268 at 126,150; this
-       scales it to 0.78 and re-centres on (256.3, 271.8), the centre the old
-       artwork occupied. That puts the 'l' stem at 5.8% of the tile against the
-       old 6.1%, instead of the 7.4% the unscaled outlines were drawing. -->
-  <g fill="#fff" transform="translate(45.70 50.28) scale(0.78)">
-    <rect x="126" y="158" width="38" height="190" rx="7"/>
-    <path d="M196 218v-12c0-36 22-56 59-56h29v35h-19c-21 0-30 8-30 25v8h48v36h-48v94h-39v-94h-28v-36h28Z"/>
-    <path fill-rule="evenodd" d="M337 210c16 0 30 6 40 17v-13h37v126c0 51-29 78-78 78-25 0-48-7-65-19l16-30c14 9 30 14 47 14 28 0 43-13 43-40v-9c-11 12-25 18-41 18-39 0-68-30-68-71s29-71 69-71Zm7 35c-21 0-37 15-37 36s16 36 37 36c20 0 36-15 36-36s-16-36-36-36Z"/>
-  </g>
+  <rect width="512" height="512" rx="115" ry="115" fill="url(#bg)"/>
+  <rect width="512" height="512" fill="#f6f2ec" mask="url(#disc)"/>
 </svg>

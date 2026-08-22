@@ -33,7 +33,11 @@ async function render(
   await image.png().toFile(resolve(root, output));
 }
 
-// icon-small.svg is what every small UI placement loads (see icon-assets.ts).
+// icon-small.svg is a served public URL (see the asset table in
+// src/commands/serve.ts). It no longer has an in-app consumer: small UI
+// placements draw the mark as inline SVG now (components/omg-brand-mark.tsx),
+// which tints with currentColor and needs no network fetch. The file stays
+// because the URL is a contract an installed PWA or a bookmark can still hold.
 //
 // It exists because the mark used to be a bitmap — a grid of ~8px <rect>s — and
 // a bitmap has to be redrawn coarser to survive a 24px box. That artwork shipped
@@ -62,7 +66,7 @@ async function generateSmallIcon(): Promise<void> {
     .replace('id="mini"', 'id="mark"');
 
   if (small.includes('id="full"') || small.includes("@media")) {
-    throw new Error("Could not isolate the small LFG icon artwork");
+    throw new Error("Could not isolate the small icon artwork");
   }
 
   await writeFile(resolve(webPublic, "icon-small.svg"), small);
@@ -80,14 +84,15 @@ await Promise.all([
     fullBleed: true,
     // Flatten after adding the gradient so the PNG is RGB, not merely an RGBA
     // image whose current alpha samples happen to be opaque.
-    opaqueBackground: "#3b5bf6",
+    opaqueBackground: "#14100c",
   }),
-  // docs/images/omg-icon.png is deliberately NOT generated here. It is the
-  // omg.dev brand mark, copied from the product's own icon set, whereas
-  // web/public/icon.svg still draws the legacy lfg wordmark. Regenerating the
-  // README icon from that source would silently put "lfg" back at the top of
-  // the README every time someone ran `bun run icons`.
+  // docs/images/omg-icon.png is still NOT generated here, but the reason has
+  // changed: icon.svg now draws the omg.dev mark rather than the legacy lfg
+  // wordmark, so the two finally agree. That file stays the hand-kept reference
+  // this SVG was traced from — regenerating it from the trace would let small
+  // drift accumulate against the product's own icon set with nothing to check
+  // it. Compare against it by eye when you change icon.svg.
   render("icon-maskable.svg", "web/public/icon-maskable-512.png", 512, {
-    opaqueBackground: "#3b5bf6",
+    opaqueBackground: "#14100c",
   }),
 ]);
