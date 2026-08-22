@@ -12590,7 +12590,11 @@ function RailStage({
     <div ref={workspaceRef} className="flex h-full min-h-0 gap-3">
       <aside
         className="lfg-gborder flex h-full min-h-0 shrink-0 flex-col overflow-hidden rounded-xl border border-transparent bg-card shadow-[0_12px_40px_-28px_rgba(0,0,0,0.5)] transition-[width] duration-200 ease-ios"
-        style={{ width: railCollapsed ? 56 : 280, overscrollBehaviorX: "contain" }}
+        // 320, not 280. The rows carry the roster's 16px title now, and at 280
+        // that truncated to about two words — "operation fix om…" — which is
+        // not a title, it is a prefix. The type size is the shared thing; the
+        // rail is what has to make room for it.
+        style={{ width: railCollapsed ? 56 : 320, overscrollBehaviorX: "contain" }}
       >
         {railCollapsed ? (
           <div className="flex shrink-0 flex-col items-center gap-1 border-b border-border py-2">
@@ -12624,20 +12628,21 @@ function RailStage({
                 scope to the action row so the lockup always has room. */}
             <div className="flex items-center gap-1.5">
               <ProductBrand hosted={hosted} />
-              {!hosted && canUseProjectSheet ? (
-                <ProjectFilterMenu
-                  value={projectFilter}
-                  projects={projectOptions}
-                  onChange={onProjectChange}
-                  solidSurface
-                  onOpen={() => setProjectSheetOpen(true)}
-                />
-              ) : !hosted && onProjectChange ? (
-                <ProjectFilterMenu
-                  value={projectFilter}
-                  projects={projectOptions}
-                  onChange={onProjectChange}
-                />
+              {/* Folders, not a filter. This used to be the scope control and
+                  wore the current folder's name, which made it read as "you
+                  are here" while also being the only way to add a folder.
+                  Scoping is the folder title's job now, so this is just the
+                  door to the folder manager and says one thing. */}
+              {canUseProjectSheet ? (
+                <button
+                  type="button"
+                  onClick={() => setProjectSheetOpen(true)}
+                  aria-label="Projects"
+                  title="Projects"
+                  className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <Folder className="size-4" />
+                </button>
               ) : null}
               <div className="ml-auto flex items-center gap-1">
                 {onOpenAsk ? (
@@ -12667,20 +12672,6 @@ function RailStage({
                 {pagesMenu}
               </div>
             </div>
-            {/* Hosted moves project scope out of the lockup row so the
-                omg.dev wordmark always has room. Standalone keeps it up
-                there, and this row does not exist at all. */}
-            {hosted && onProjectChange ? (
-              <div className="flex items-center gap-1.5">
-                <ProjectFilterMenu
-                  value={projectFilter}
-                  projects={projectOptions}
-                  onChange={onProjectChange}
-                  solidSurface
-                  onOpen={canUseProjectSheet ? () => setProjectSheetOpen(true) : undefined}
-                />
-              </div>
-            ) : null}
             {/* Sits below the actions, directly above the list it switches.
                 Above the brand row it read as app-level navigation; what it
                 actually does is change which list the rail is showing.
@@ -12814,22 +12805,17 @@ function RailStage({
 
       {canUseProjectSheet ? (
         <>
+          {/* Manage only. Scoping the list is the folder title's job now, so
+              this button has one meaning: the folders themselves. */}
           <ComposerProjectSheet
+            manageOnly
             open={projectSheetOpen}
             repos={repos}
-            selected={filterRepo?.cwd ?? ""}
+            selected=""
             onOpenChange={setProjectSheetOpen}
-            onSelect={(repo) => {
-              onProjectChange?.(repoProject(repo));
-              setProjectSheetOpen(false);
-            }}
+            onSelect={() => setProjectSheetOpen(false)}
             onBrowse={() => openFolderBrowserFromSheet(false)}
             onCreate={() => openFolderBrowserFromSheet(true)}
-            allSelected={projectFilter === "__all"}
-            onSelectAll={() => {
-              onProjectChange?.("__all");
-              setProjectSheetOpen(false);
-            }}
             onReposChanged={onReposChanged}
           />
           <ProjectFolderBrowser
@@ -13233,13 +13219,13 @@ const RailItem = memo(function RailItem({
         onTouchEnd={onTouchEnd}
         title={collapsed ? titleForSession(session) : undefined}
         className={cn(
-          "group relative flex cursor-pointer touch-pan-y select-none items-center gap-2 rounded-xl border py-1.5 outline-none transition-[background-color,box-shadow,border-color] duration-150",
+          "group relative flex cursor-pointer touch-pan-y select-none items-center gap-3 rounded-xl border py-1.5 outline-none transition-[background-color,box-shadow,border-color] duration-150",
           // Fixed height. The preview arrives late and is replaced as a
           // session streams, so a row sized to its own text kept resizing
           // under the cursor and shoved every row below it — the whole rail
           // twitching while anything was working. The row reserves its one
           // preview line whether or not there is text to put in it.
-          collapsed ? "h-11 justify-center px-0" : "h-[3.25rem] px-2",
+          collapsed ? "h-11 justify-center px-0" : "h-[3.75rem] px-2",
           swiping
             ? "border-transparent bg-card"
             : active
@@ -13255,7 +13241,7 @@ const RailItem = memo(function RailItem({
             // smaller than a square harness mark at the same box size. Giving
             // the bot rows a slightly larger slot makes the two weigh the same
             // on screen, and the group is homogeneous so nothing is left ragged.
-            drivingBot ? "size-8" : "size-7",
+            drivingBot ? "size-11" : "size-10",
           )}
         >
           {/* A bot-backed row wears the bot's face, the same rule the chat
@@ -13267,7 +13253,7 @@ const RailItem = memo(function RailItem({
           {drivingBot ? (
             // The creature carries busy in its own posture, so a bot-backed
             // row would be saying it twice.
-            <BotAvatar bot={drivingBot} working={busy} size={32} />
+            <BotAvatar bot={drivingBot} working={busy} size={44} />
           ) : (
             <AgentMark session={session} busy={busy} rounding="rounded-md" />
           )}
@@ -13290,7 +13276,7 @@ const RailItem = memo(function RailItem({
           <>
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="flex items-baseline gap-1.5">
-                <span className="min-w-0 flex-1 truncate text-sm font-medium leading-tight">
+                <span className="min-w-0 flex-1 truncate text-base font-semibold leading-tight">
                   {titleForSession(session)}
                 </span>
                 {topPinned ? (
@@ -13304,7 +13290,7 @@ const RailItem = memo(function RailItem({
               {/* One line, always mounted: see the row height note. Two lines
                   of transcript is not a preview, it is a paragraph, and it
                   made the rail scroll half as far for no more meaning. */}
-              <span className="h-4 truncate text-xs leading-tight text-muted-foreground">
+              <span className="h-5 truncate text-sm leading-tight text-muted-foreground">
                 {latest}
               </span>
             </span>
@@ -13321,7 +13307,7 @@ const RailItem = memo(function RailItem({
                 <span
                   aria-hidden={pinned ? "true" : undefined}
                   className={cn(
-                    "text-[10px] leading-tight tabular-nums text-muted-foreground/70 transition-opacity duration-150",
+                    "text-xs leading-tight tabular-nums text-muted-foreground/70 transition-opacity duration-150",
                     pinned ? "opacity-0" : "group-hover:opacity-0",
                   )}
                 >
@@ -18929,6 +18915,7 @@ function ComposerProjectSheet({
   onCreate,
   allSelected = false,
   onSelectAll,
+  manageOnly = false,
   onReposChanged,
 }: {
   open: boolean;
@@ -18940,6 +18927,17 @@ function ComposerProjectSheet({
   onCreate: () => void;
   allSelected?: boolean;
   onSelectAll?: () => void;
+  /**
+   * Open as "add and manage folders", with no selection in it at all.
+   *
+   * The rail's folder button used to answer two questions with one control —
+   * which folder am I scoped to, and which folders exist — and neither was
+   * discoverable from the list it changed. Scoping is the folder title's job
+   * now (see SessionGroups), so this opens as the folder manager: browse, add,
+   * rename, remove. The composer still opens the selecting version, because
+   * "where will my agent work" is a real choice a new session has to make.
+   */
+  manageOnly?: boolean;
   /** Called after a project leaves the list, with the cwd that went away. */
   onReposChanged?: (removedCwd?: string) => void | Promise<void>;
 }) {
@@ -19026,7 +19024,9 @@ function ComposerProjectSheet({
               <p className="text-xs text-muted-foreground">
                 {managing
                   ? "Remove from the list, or delete the folder"
-                  : "Choose where your agent will work"}
+                  : manageOnly
+                    ? "Add a folder, or manage the ones you have"
+                    : "Choose where your agent will work"}
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
@@ -19095,7 +19095,7 @@ function ComposerProjectSheet({
             data-vaul-no-drag
             className="max-h-[min(52dvh,26rem)] min-h-0 overflow-y-auto overscroll-contain rounded-2xl border border-border bg-muted/25"
           >
-            {onSelectAll && !needle && !managing ? (
+            {onSelectAll && !manageOnly && !needle && !managing ? (
               <button
                 type="button"
                 onClick={onSelectAll}
