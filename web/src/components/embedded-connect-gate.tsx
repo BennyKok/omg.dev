@@ -26,12 +26,14 @@ import {
   CalendarClock,
   Check,
   Clock,
+  Download,
   Github,
   Laptop,
   Layers,
   Palette,
   Repeat,
   Rocket,
+  Share,
   Shuffle,
   Smartphone,
   Sparkles,
@@ -39,6 +41,8 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { Button } from "./ui/button";
 import { BrandIcon } from "../lib/brand-icons";
+import { InstallInstructions } from "./pwa-install";
+import { usePwaInstall } from "../lib/pwa-install";
 import type { ConnectOption, ToolConnectOption } from "../lib/embedded-connect";
 import { LFG_SMALL_ICON_PATH } from "../lib/icon-assets";
 import { agentIconAlt, agentIconSrc } from "../lib/session-ui";
@@ -199,6 +203,9 @@ export function EmbeddedConnectGate({
   const [page, setPage] = useState<GatePage>("survey-identity");
   const [surveyAnswers, setSurveyAnswers] = useState<SurveyAnswers>(EMPTY_SURVEY_ANSWERS);
   const hasConnectedAgent = options.some((option) => option.configured);
+  const pwa = usePwaInstall();
+  const [installBusy, setInstallBusy] = useState(false);
+  const [installHelpOpen, setInstallHelpOpen] = useState(false);
 
   // Skip the tools page when nothing on it can actually be connected.
   //
@@ -210,8 +217,13 @@ export function EmbeddedConnectGate({
   // means still loading, which is NOT the same as unavailable — that case
   // keeps the page and shows its skeleton.
   const toolsUsable = toolConnections === undefined || toolConnections.some((t) => t.installed);
-  const connectPages: ConnectPageId[] = toolsUsable ? ["agents", "tools", "value"] : ["agents", "value"];
-  const flow = buildGateFlow(toolsUsable);
+  // `page === "install"` keeps the page in the flow once the user is ON it —
+  // a successful install flips `pwa.installed`, and that must not delete the
+  // page out from under them (same stays-mounted rule as the agent login).
+  const installable = (!pwa.installed && pwa.mode !== "none") || page === "install";
+  const flow = buildGateFlow(toolsUsable, installable);
+  const connectPages = flow.filter((p): p is ConnectPageId => !isSurveyPage(p));
+  const installIsLastPage = flow[flow.length - 1] === "install";
   const goNext = () => setPage(stepAfter(flow, page));
   const goBack = () => setPage(stepBefore(flow, page));
 
@@ -489,9 +501,9 @@ export function EmbeddedConnectGate({
               Back
             </button>
           </>
-        ) : (
+        ) : page === "value" ? (
           <>
-            {/* The closing beat, and the only screen here that sells rather
+            {/* The selling beat, and the only screen here that sells rather
                 than asks. Two things, because two is what someone remembers
                 from a first run: this Computer runs the agent account you
                 already pay for, and it can run work while you are not looking.
@@ -550,7 +562,69 @@ export function EmbeddedConnectGate({
               </div>
             </div>
 
-            <Button variant="brand" className="mt-4 w-full" onClick={onDone}>
+            <Button
+              variant="brand"
+              className="mt-4 w-full"
+              onClick={installIsLastPage ? goNext : onDone}
+            >
+              {installIsLastPage ? "Continue" : "Open my Computer"}
+            </Button>
+            <button
+              type="button"
+              onClick={goBack}
+              className="mt-4 w-full text-center text-xs text-muted-foreground underline-offset-2 hover:underline"
+            >
+              Back
+            </button>
+          </>
+        ) : (
+          <>
+            {/* Last step, and optional by construction: "Open my Computer"
+                is always right below the install action, so this page can
+                never gate the product. Install lived inside a signup wizard
+                once and walled iOS users with no skip control — the ask only
+                works AFTER the product, over a machine that is already set
+                up. See buildGateFlow for why it is last. */}
+            <h1 className="text-xl font-semibold">Add omg to your home screen</h1>
+            <p className="mb-5 mt-1 text-sm text-muted-foreground">
+              One tap back to your Computer — its own icon and window, no
+              browser tabs in the way.
+            </p>
+            {pwa.installed ? (
+              <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/40 px-3 py-2.5 text-sm font-medium">
+                <span className="flex size-8 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-500">
+                  <Check className="size-4" />
+                </span>
+                Added
+              </div>
+            ) : (
+              <Button
+                variant="brand"
+                className="w-full"
+                disabled={installBusy}
+                onClick={() => {
+                  if (pwa.mode !== "native") {
+                    setInstallHelpOpen(true);
+                    return;
+                  }
+                  if (installBusy) return;
+                  setInstallBusy(true);
+                  void pwa.install().finally(() => setInstallBusy(false));
+                }}
+              >
+                {pwa.mode === "ios" ? (
+                  <Share className="size-4" />
+                ) : (
+                  <Download className="size-4" />
+                )}
+                {pwa.mode === "native" ? "Install omg" : "Add to Home Screen"}
+              </Button>
+            )}
+            <Button
+              variant={pwa.installed ? "brand" : "outline"}
+              className="mt-3 w-full"
+              onClick={onDone}
+            >
               Open my Computer
             </Button>
             <button
@@ -560,6 +634,11 @@ export function EmbeddedConnectGate({
             >
               Back
             </button>
+            <InstallInstructions
+              mode={pwa.mode}
+              open={installHelpOpen}
+              onOpenChange={setInstallHelpOpen}
+            />
           </>
         )}
       </div>

@@ -38,6 +38,37 @@ describe("buildGateFlow", () => {
       "value",
     ]);
   });
+
+  test("install is the last page when the browser can install", () => {
+    expect(buildGateFlow(true, true)).toEqual([
+      "survey-identity",
+      "survey-pain",
+      "survey-tools",
+      "survey-ai",
+      "agents",
+      "tools",
+      "value",
+      "install",
+    ]);
+    expect(buildGateFlow(false, true)).toEqual([
+      "survey-identity",
+      "survey-pain",
+      "survey-tools",
+      "survey-ai",
+      "agents",
+      "value",
+      "install",
+    ]);
+  });
+
+  test("install never precedes agent connection or the value pitch", () => {
+    for (const toolsUsable of [true, false]) {
+      const flow = buildGateFlow(toolsUsable, true);
+      expect(flow.indexOf("install")).toBe(flow.length - 1);
+      expect(flow.indexOf("install")).toBeGreaterThan(flow.indexOf("agents"));
+      expect(flow.indexOf("install")).toBeGreaterThan(flow.indexOf("value"));
+    }
+  });
 });
 
 describe("isSurveyPage", () => {
