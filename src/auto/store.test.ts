@@ -241,3 +241,91 @@ describe("normTitle — recurrence matching keeps #NNN error codes distinct", ()
     );
   });
 });
+
+describe("fix-dispatch lifecycle — the #185 postmortem", () => {
+  // Worked example: a #185 client-error finding, fix dispatched, fix landed
+  // four minutes later, and the finding still read "open" two months on
+  // because nothing ever wrote the outcome back. These are the store-level
+  // links dispatchFixAgent was missing; src/auto/fix-landing.ts is what
+  // discovers "landed" from git and drives them.
+  const react185Title =
+    "Frontend error: Minified React error #185; visit https://react.dev/errors/185 for the full message";
+
+  async function file185(): Promise<import("./store.ts").Finding> {
+    return store.addFinding({
+      agentId: "client-error",
+      title: react185Title,
+      reasoning: ["Kind: react", "Component: useSpeechPlayback"],
+      severity: "high",
+    });
+  }
+
+  test("attachFixSession links the dispatched session and clears stale landing evidence", async () => {
+    const finding = await file185();
+    const linked = await store.attachFixSession(finding.id, "session-a");
+    expect(linked?.status).toBe("session");
+    expect(linked?.sessionId).toBe("session-a");
+
+    // A finding gone through a whole landed-then-recurred-then-redispatched
+    // cycle must not keep showing the OLD commit as if it still applied.
+    await store.markFixLanded(finding.id, "deadbee", 1000);
+    const relinked = await store.attachFixSession(finding.id, "session-b");
+    expect(relinked?.status).toBe("session");
+    expect(relinked?.fixCommit).toBeUndefined();
+    expect(relinked?.fixLandedAt).toBeUndefined();
+  });
+
+  test("markFixLanded only fires from status:session — a human's dismiss/resolve wins over a late signal", async () => {
+    const finding = await file185();
+    // Never dispatched (no "session" status yet) — nothing to confirm.
+    expect(await store.markFixLanded(finding.id, "66732e8")).toBeNull();
+
+    await store.attachFixSession(finding.id, "session-a");
+    await store.updateFinding(finding.id, { status: "dismissed" });
+    // A landing check that resolves after the human already acted must not
+    // overwrite their call.
+    expect(await store.markFixLanded(finding.id, "66732e8")).toBeNull();
+    const rows = await store.listFindings("dismissed");
+    expect(rows.find((r) => r.id === finding.id)?.status).toBe("dismissed");
+  });
+
+  test("promoteLandedFixes resolves a fix-landed finding only after the grace window, and only if it hasn't recurred", async () => {
+    const finding = await file185();
+    await store.attachFixSession(finding.id, "session-a");
+    const landedAt = 10_000;
+    await store.markFixLanded(finding.id, "66732e8", landedAt);
+
+    // Still inside the grace window — stays fix-landed, not resolved.
+    const tooSoon = await store.promoteLandedFixes(landedAt + store.FIX_LANDED_GRACE_MS - 1);
+    expect(tooSoon).toHaveLength(0);
+    expect((await store.listFindings("fix-landed")).map((r) => r.id)).toContain(finding.id);
+
+    // The #185 finding went quiet for two months — the grace window is long
+    // gone, so it promotes.
+    const promoted = await store.promoteLandedFixes(landedAt + store.FIX_LANDED_GRACE_MS);
+    expect(promoted.map((r) => r.id)).toContain(finding.id);
+    const resolvedRow = (await store.listFindings("resolved")).find((r) => r.id === finding.id);
+    expect(resolvedRow?.status).toBe("resolved");
+    expect(resolvedRow?.fixCommit).toBe("66732e8");
+  });
+
+  test("a recurrence during the grace window reopens the finding instead of letting it silently resolve", async () => {
+    const finding = await file185();
+    await store.attachFixSession(finding.id, "session-a");
+    const landedAt = 10_000;
+    await store.markFixLanded(finding.id, "66732e8", landedAt);
+
+    // Same #185 error reported again before the grace window elapses — the
+    // fix didn't actually hold.
+    const recurred = await store.recordRecurrence("client-error", react185Title);
+    expect(recurred?.id).toBe(finding.id);
+    expect(recurred?.status).toBe("open");
+
+    // Even well past the grace window, promoteLandedFixes must not touch a
+    // finding that reopened — it is no longer "fix-landed".
+    const promoted = await store.promoteLandedFixes(landedAt + store.FIX_LANDED_GRACE_MS * 10);
+    expect(promoted.map((r) => r.id)).not.toContain(finding.id);
+    const row = (await store.listFindings()).find((r) => r.id === finding.id);
+    expect(row?.status).toBe("open");
+  });
+});

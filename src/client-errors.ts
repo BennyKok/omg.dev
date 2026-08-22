@@ -20,7 +20,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { PATHS } from "./config.ts";
-import { addFinding, hasOpenSimilar } from "./auto/store.ts";
+import { addFinding, attachFixSession, recordRecurrence, type Finding } from "./auto/store.ts";
 import { notifyAll } from "./push.ts";
 import { spawnManagedAisdkSession } from "./tmux.ts";
 import { addManaged } from "./managed.ts";
@@ -177,11 +177,17 @@ export async function reportClientError(
     };
   }
 
-  // 1) Report it to the human via the findings feed (+ push). Dedup by title so
-  //    a repeated error doesn't re-spam the feed.
+  // 1) Report it to the human via the findings feed (+ push). Recurrence
+  //    (not a fresh title-dedup check) so a repeat of an already-tracked error
+  //    re-surfaces the SAME finding — including one sitting in "fix-landed" —
+  //    instead of silently doing nothing while a stale row keeps looking done.
   const title = `Frontend error: ${e.message.replace(/\s+/g, " ").slice(0, 100)}`;
   let reported = false;
-  if (!(await hasOpenSimilar(AGENT_ID, title))) {
+  const recurrence = await recordRecurrence(AGENT_ID, title);
+  let finding: Finding;
+  if (recurrence) {
+    finding = recurrence;
+  } else {
     const reasoning = [
       `Kind: ${e.kind}${e.buildId ? ` · build ${e.buildId}` : " · dev"}`,
       e.componentStack
@@ -191,7 +197,7 @@ export async function reportClientError(
           : "No stack frame",
       e.url ? `URL: ${e.url}` : "",
     ].filter(Boolean);
-    const finding = await addFinding({
+    finding = await addFinding({
       agentId: AGENT_ID,
       title,
       severity: "high",
@@ -212,12 +218,18 @@ export async function reportClientError(
     reported = true;
   }
 
-  // 2) Auto-fix it.
+  // 2) Auto-fix it, and link whatever session gets dispatched back to this
+  // finding. Without this link there is nothing for src/auto/fix-landing.ts
+  // to check later — which is exactly how the #185 finding sat "open" for two
+  // months after its fix had already landed.
   const fix = await maybeDispatchFix(e);
+  if (fix.sessionId) await attachFixSession(finding.id, fix.sessionId);
   return { stored: true, reported, dispatched: fix.dispatched, reason: fix.reason };
 }
 
-async function maybeDispatchFix(e: ClientError): Promise<{ dispatched: boolean; reason?: string }> {
+async function maybeDispatchFix(
+  e: ClientError,
+): Promise<{ dispatched: boolean; reason?: string; sessionId?: string }> {
   // Only auto-fix real shipped builds. Dev/HMR errors are transient and the
   // person editing is already looking at them.
   if (!e.buildId) return { dispatched: false, reason: "no buildId (dev) — not dispatched" };
@@ -239,7 +251,11 @@ async function maybeDispatchFix(e: ClientError): Promise<{ dispatched: boolean; 
   try {
     const r = await dispatchFixAgent(e, sig);
     if (r) await recordDispatched({ sig, at: Date.now(), session: r.session, sessionId: r.sessionId });
-    return { dispatched: !!r, reason: r ? undefined : "failed to spawn fix agent" };
+    return {
+      dispatched: !!r,
+      reason: r ? undefined : "failed to spawn fix agent",
+      sessionId: r?.sessionId,
+    };
   } finally {
     inFlight.delete(sig);
   }
