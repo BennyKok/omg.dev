@@ -1638,13 +1638,40 @@ function ArtifactViewerPage({
 const STATUS_DOT_BUSY = "animate-pulse bg-warning";
 const STATUS_DOT_IDLE = "bg-success/30 ring-1 ring-inset ring-success/20";
 
+/**
+ * Working, drawn as a ring around the agent mark instead of a badge on it.
+ *
+ * A badge in the avatar's corner has to sit ON the artwork, and at rail size
+ * there is no room for it: a 14px disc punched a hole through Claude's
+ * starburst and took its top-right rays with it, while the 10px arc inside
+ * read as a stray blue mark rather than as loading. The ring encircles the
+ * mark instead, so the agent stays whole and legible and the motion is the
+ * thing that says "running".
+ *
+ * Sized off `-inset-*` so it follows whatever box the avatar occupies rather
+ * than needing its own size per placement. The parent must be `relative`.
+ */
+function AgentBusyRing({ className }: { className?: string }) {
+  return (
+    <span
+      aria-label="working"
+      title="Working"
+      className={cn(
+        "pointer-events-none absolute -inset-[3px] animate-spin rounded-full border-2 border-primary/20 border-t-primary motion-reduce:animate-none",
+        className,
+      )}
+    />
+  );
+}
+
 function SessionStatusDot({
-  busy,
+  busy = false,
   paused = false,
   variant = "inline",
   className,
 }: {
-  busy: boolean;
+  /** Optional: avatar placements let AgentBusyRing carry working instead. */
+  busy?: boolean;
   paused?: boolean;
   // "inline": a standalone dot in a header row, showing busy AND idle.
   // "avatar": pinned to an agent avatar, and drawn for busy or paused sessions.
@@ -9655,7 +9682,7 @@ function PagesMenu({
       >
         <MoreVertical className="size-4" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className={manageSessions ? "w-72" : "min-w-48"}>
+      <DropdownMenuContent align="end" className="min-w-48">
         <DropdownMenuRadioGroup
           value={value}
           onValueChange={(next) => {
@@ -9716,6 +9743,15 @@ function PagesMenu({
         {manageSessions ? (
           <>
             <DropdownMenuSeparator />
+            {/* A submenu, not a flat block. Six items that each need a line of
+                explanation doubled the length of a menu whose main job is
+                four page links, and pushed the pages up out of reach. */}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <ClipboardList className="size-5 shrink-0 text-muted-foreground" />
+                Manage sessions
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent align="start" className="w-72">
             {/* GroupLabel needs a surrounding Group for MenuGroupContext
                 (Base UI #31) — wrap this title label so it does not throw. */}
             <DropdownMenuGroup>
@@ -9757,6 +9793,8 @@ function PagesMenu({
                 <span className="text-xs text-muted-foreground">{template.description}</span>
               </DropdownMenuItem>
             ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
           </>
         ) : null}
       </DropdownMenuContent>
@@ -13032,19 +13070,12 @@ const RailItem = memo(function RailItem({
           {/* The creature carries busy in its own posture, so a busy dot on top
               of it is the same doubling; blocked has no pose, so it keeps its
               mark on every row. */}
-          {/* Busy only wears the corner badge in the collapsed rail, where the
-              avatar is the entire row and there is nowhere else to put it. In
-              the expanded rail the spinner goes in the trailing slot below:
-              stacked on a 28px agent mark it punched a hole through the
-              artwork — Claude's starburst lost its top-right rays — and a
-              10px arc reads as a stray blue mark rather than as loading.
-              Blocked keeps its badge at both widths: it has no other slot,
-              and it is a solid glyph on a filled pill, not a thin arc. */}
-          <SessionStatusDot
-            busy={busy && !drivingBot && collapsed}
-            paused={session.status === "blocked"}
-            variant="avatar"
-          />
+          {/* The creature carries busy in its own posture, so a bot-backed row
+              would be saying it twice. Everything else gets the ring. */}
+          {busy && !drivingBot ? <AgentBusyRing /> : null}
+          {/* Blocked keeps the corner badge: it is a state, not a progress,
+              and a solid glyph on a filled pill reads at this size. */}
+          <SessionStatusDot paused={session.status === "blocked"} variant="avatar" />
           {topPinned && collapsed ? (
             <Pin
               aria-label="Pinned to top"
@@ -13067,17 +13098,7 @@ const RailItem = memo(function RailItem({
                     fill="currentColor"
                   />
                 ) : null}
-                {/* The same Loader2 every pending action in the app draws,
-                    at the same size and in one colour. It takes the
-                    timestamp's place rather than crowding it: "now" says
-                    nothing extra about a session that is running this
-                    second, and swapping keeps the row width stable. */}
-                {busy ? (
-                  <Loader2
-                    aria-label="working"
-                    className="size-3.5 shrink-0 animate-spin text-primary motion-reduce:animate-none"
-                  />
-                ) : session.lastActivityAt || session.startedAt ? (
+                {session.lastActivityAt || session.startedAt ? (
                   <span className="shrink-0 text-[10px] leading-tight tabular-nums text-muted-foreground/70">
                     {relTime(session.lastActivityAt ?? session.startedAt ?? 0)}
                   </span>
