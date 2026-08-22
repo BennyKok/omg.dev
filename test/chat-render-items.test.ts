@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildChatRenderItems } from "../web/src/lib/chat-render-items.ts";
+import { buildChatRenderItems, toolGroupLabel } from "../web/src/lib/chat-render-items.ts";
 
 describe("chat render items", () => {
   test("renders an LFG display result in place of its generic tool call", () => {
@@ -63,5 +63,71 @@ describe("chat render items", () => {
       ]);
       expect(items[0]?.type, tool).toBe("artifact_tool");
     }
+  });
+});
+
+// A turn that used six tools rendered as twelve alternating rows — "Thought",
+// "2 Bash", "Thought", "1 Bash" — because a thought between two calls broke
+// the run into a separate pill each time.
+describe("thinking folds into the run it happened in", () => {
+  test("a thought between two calls joins their group", () => {
+    const items = buildChatRenderItems([
+      { id: "t1", kind: "tool_use", text: "Bash: ls", ts: 1 },
+      { id: "th1", kind: "thinking", text: "now check the other one", ts: 2 },
+      { id: "t2", kind: "tool_use", text: "Bash: pwd", ts: 3 },
+      { id: "txt", kind: "text", text: "Done", ts: 4 },
+    ]);
+    expect(items.map((item) => item.type)).toEqual(["tools", "msg"]);
+    expect(items[0]).toMatchObject({ items: [{ id: "t1" }, { id: "th1" }, { id: "t2" }] });
+  });
+
+  // It is the whole answer to "what is it doing" until the first tool appears.
+  test("the thought that opens a run stays its own row", () => {
+    const items = buildChatRenderItems([
+      { id: "th1", kind: "thinking", text: "let me look", ts: 1 },
+      { id: "t1", kind: "tool_use", text: "Bash: ls", ts: 2 },
+      { id: "txt", kind: "text", text: "Done", ts: 3 },
+    ]);
+    expect(items.map((item) => item.type)).toEqual(["msg", "tools", "msg"]);
+  });
+
+  // The last message is the one still streaming. Folding it would trade a live
+  // view of the reasoning for a pill you have to open.
+  test("the trailing thought is never folded", () => {
+    const items = buildChatRenderItems([
+      { id: "t1", kind: "tool_use", text: "Bash: ls", ts: 1 },
+      { id: "th1", kind: "thinking", text: "still working", ts: 2 },
+    ]);
+    expect(items.map((item) => item.type)).toEqual(["tools", "msg"]);
+    expect(items[0]).toMatchObject({ items: [{ id: "t1" }] });
+  });
+
+  test("the label leads with the thinking, then the tools", () => {
+    expect(
+      toolGroupLabel([
+        { kind: "tool_use", text: "Bash: ls" },
+        { kind: "thinking", text: "hm" },
+        { kind: "tool_use", text: "Bash: pwd" },
+        { kind: "tool_use", text: "Read: a.ts" },
+      ]),
+    ).toBe("Thought · 2 Bash · 1 Read");
+    expect(
+      toolGroupLabel([
+        { kind: "thinking", text: "a" },
+        { kind: "tool_use", text: "Bash: ls" },
+        { kind: "thinking", text: "b" },
+      ]),
+    ).toBe("2 thoughts · 1 Bash");
+  });
+
+  // Folding must not swallow the count of real results.
+  test("results still count separately from thoughts", () => {
+    expect(
+      toolGroupLabel([
+        { kind: "tool_use", text: "Bash: ls" },
+        { kind: "tool_result", text: "ok" },
+        { kind: "thinking", text: "hm" },
+      ]),
+    ).toBe("Thought · 1 Bash · 1 result");
   });
 });
