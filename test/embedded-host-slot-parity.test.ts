@@ -12,7 +12,7 @@
 // route, and the slot has to be wired into every one that can render while
 // embedded, or a host mounted at that exact width/route falls back to
 // floating:
-//   1. mobile Live header       (isMobile && tab === "live")
+//   1. mobile Live/Bots header  (they share one; see live-header-context)
 //   2. mobile secondary header  (embedded && isMobile, tab !== "live")
 //   3. generic/tablet header    (!isMobile, not desktop-rail: ~768-1023px)
 //   4. desktop rail footer      (isWide workspace, RailStage aside)
@@ -38,7 +38,7 @@ function sliceBetween(startAnchor: string, endAnchor: string): string {
 describe("embedded header host-slot parity across breakpoints", () => {
   test("mobile Live header offers the header-actions slot", () => {
     const body = sliceBetween(
-      'isMobile && tab === "live" ? (',
+      'isMobile && (tab === "live" || tab === "bots") ? (',
       ") : embedded && isMobile ? (",
     );
     expect(body).toContain(SLOT);
@@ -88,7 +88,7 @@ describe("embedded header host-slot parity across breakpoints", () => {
     // button), so it correctly leaves the flag unset and the host keeps
     // drawing its own gear there.
     const liveHeader = sliceBetween(
-      'isMobile && tab === "live" ? (',
+      'isMobile && (tab === "live" || tab === "bots") ? (',
       ") : embedded && isMobile ? (",
     );
     const tabletHeader = sliceBetween(") : liveDesktopWorkspace ? null : (", "{embedded ? null : <PwaInstallCallout");
