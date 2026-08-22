@@ -1639,28 +1639,46 @@ const STATUS_DOT_BUSY = "animate-pulse bg-warning";
 const STATUS_DOT_IDLE = "bg-success/30 ring-1 ring-inset ring-success/20";
 
 /**
- * Working, drawn as a ring around the agent mark instead of a badge on it.
+ * A session's agent mark, with the app's one working treatment.
  *
- * A badge in the avatar's corner has to sit ON the artwork, and at rail size
- * there is no room for it: a 14px disc punched a hole through Claude's
- * starburst and took its top-right rays with it, while the 10px arc inside
- * read as a stray blue mark rather than as loading. The ring encircles the
- * mark instead, so the agent stays whole and legible and the motion is the
- * thing that says "running".
+ * Working shrinks the mark and puts an amber spinner in the space it gives
+ * up, so the state is drawn around the mark instead of on top of it. This
+ * already existed in SessionHeaderIdentity, where the card and sheet headers
+ * use it; the rail row did not share it and grew its own badge instead, so
+ * the same session read as amber in its header and blue in the rail. One
+ * component now, used by both.
  *
- * Sized off `-inset-*` so it follows whatever box the avatar occupies rather
- * than needing its own size per placement. The parent must be `relative`.
+ * A badge is the thing that does not work here. It has to sit ON the artwork,
+ * and at rail size there is no room: a 14px disc punched a hole through
+ * Claude's starburst and took its top-right rays with it.
+ *
+ * The parent must be `relative` — the spinner is absolutely positioned so the
+ * mark does not shift when it appears.
  */
-function AgentBusyRing({ className }: { className?: string }) {
+function AgentMark({
+  session,
+  busy,
+  rounding = "rounded-lg",
+}: {
+  session: Session;
+  busy: boolean;
+  rounding?: string;
+}) {
   return (
-    <span
-      aria-label="working"
-      title="Working"
-      className={cn(
-        "pointer-events-none absolute -inset-[3px] animate-spin rounded-full border-2 border-primary/20 border-t-primary motion-reduce:animate-none",
-        className,
-      )}
-    />
+    <>
+      {busy ? (
+        <Loader2
+          aria-label="working"
+          className="pointer-events-none absolute inset-0 m-auto size-6 animate-spin text-warning motion-reduce:animate-none"
+          strokeWidth={1.75}
+        />
+      ) : null}
+      <SessionAgentIcon
+        session={session}
+        className={cn(rounding, "transition-all duration-300 ease-ios", busy ? "size-4" : "size-6")}
+        size={busy ? "sm" : "md"}
+      />
+    </>
   );
 }
 
@@ -1670,7 +1688,7 @@ function SessionStatusDot({
   variant = "inline",
   className,
 }: {
-  /** Optional: avatar placements let AgentBusyRing carry working instead. */
+  /** Optional: avatar placements let AgentMark carry working instead. */
   busy?: boolean;
   paused?: boolean;
   // "inline": a standalone dot in a header row, showing busy AND idle.
@@ -13063,16 +13081,16 @@ const RailItem = memo(function RailItem({
               shrunk to a 14px corner badge — which made the row you know as
               "Scout" look like every other Claude session in the list. */}
           {drivingBot ? (
+            // The creature carries busy in its own posture, so a bot-backed
+            // row would be saying it twice.
             <BotAvatar bot={drivingBot} working={busy} size={28} />
           ) : (
-            <SessionAgentIcon session={session} className="size-6 rounded-md" />
+            <AgentMark session={session} busy={busy} rounding="rounded-md" />
           )}
           {/* The creature carries busy in its own posture, so a busy dot on top
               of it is the same doubling; blocked has no pose, so it keeps its
               mark on every row. */}
-          {/* The creature carries busy in its own posture, so a bot-backed row
-              would be saying it twice. Everything else gets the ring. */}
-          {busy && !drivingBot ? <AgentBusyRing /> : null}
+
           {/* Blocked keeps the corner badge: it is a state, not a progress,
               and a solid glyph on a filled pill reads at this size. */}
           <SessionStatusDot paused={session.status === "blocked"} variant="avatar" />
@@ -16617,21 +16635,26 @@ const onTouchStart = (e: ReactTouchEvent) => {
           </span>
         ) : null)}
         {/* Redundant on wide screens: the rail row for this session already
-            carries the same dot on its avatar, so only the narrow (no-rail)
+            carries the same state on its avatar, so only the narrow (no-rail)
             grid layout needs it here. */}
         {session.shippedReview ? (
           <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
             {session.reviewLabel || "Shipped"}
           </span>
         ) : (
-          /* A bot-backed card is exempt from the idle/busy dot for the same
-             reason the header drops the spinner and the rail row drops its
-             dot: the creature carries state in its own posture, so the dot is
-             the same fact said twice — and "idle" is the resting state of a
-             bot you are simply not talking to right now, which is not news.
-             Blocked still shows, because there is no pose for it. */
+          /* A bot-backed card is exempt from the idle dot for the same reason
+             the rail row drops its dot: the creature carries state in its own
+             posture, so the dot is the same fact said twice — and "idle" is
+             the resting state of a bot you are simply not talking to right
+             now, which is not news. Blocked still shows, because there is no
+             pose for it.
+
+             Working is not passed at all any more. This header already draws
+             it on the identity mark above (AgentMark, via
+             SessionHeaderIdentity), so at narrow widths the same session was
+             reporting working twice on one row, in two colours: the amber
+             ring around the mark and a blue spinner further along. */
           <SessionStatusDot
-            busy={busy && !headerBot}
             paused={session.status === "blocked"}
             className="lg:hidden"
             variant={headerBot ? "avatar" : "inline"}
@@ -25266,23 +25289,10 @@ function SessionHeaderIdentity({
       className="relative flex shrink-0 items-center justify-center rounded-lg text-muted-foreground"
       style={{ width: size, height: size }}
     >
-      {busy ? (
-        <Loader2
-          className="absolute inset-0 m-auto size-6 animate-spin text-warning"
-          strokeWidth={1.75}
-        />
-      ) : null}
       {/* "aisdk" is Claude Code under the hood (driven via the AI SDK), so it
           wears the same Claude mark as a tmux claude session; only the
           new-session picker keeps a distinct label to tell them apart. */}
-      <SessionAgentIcon
-        session={session}
-        className={cn(
-          "rounded-lg transition-all duration-300 ease-ios",
-          busy ? "size-4" : "size-6",
-        )}
-        size={busy ? "sm" : "md"}
-      />
+      <AgentMark session={session} busy={busy} />
     </div>
   );
 }
