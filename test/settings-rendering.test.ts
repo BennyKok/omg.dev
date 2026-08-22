@@ -12,14 +12,11 @@ function componentBody(name: string, source = app): string {
 }
 
 describe("settings rendering", () => {
-  test("agent pause state has a visible switch affordance", () => {
-    const section = componentBody("AgentConcurrencySettingsSection");
-
-    expect(section).toContain('aria-label="Pause new agents"');
-    expect(section).toContain("checked={settings.agentsPaused}");
-    expect(section).toContain("onCheckedChange={(next) => void togglePause(next)}");
-    expect(section).not.toContain("togglePause(!settings.agentsPaused)");
-  });
+  // "Pause new agents" and "Archive idle agents" were removed entirely, not
+  // just hidden (Benny: a soft off switch nobody can see is worse than no
+  // switch), so the affordance this test used to pin no longer exists —
+  // AgentConcurrencySettingsSection has neither a togglePause nor an
+  // agentsPaused read to assert on.
 
   test("the updates row never reads install.channel without chaining through install", () => {
     const section = componentBody("UpdateProvider", updateDrawer);

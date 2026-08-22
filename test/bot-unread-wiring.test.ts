@@ -26,7 +26,12 @@ describe("bot unread surface wiring", () => {
 
   test("the mobile roster and desktop rail render conversation rows and accessible dots", () => {
     expect(APP.match(/botConversationRows\(bots, sessions/g)?.length).toBeGreaterThanOrEqual(3);
-    expect(APP.match(/Unread conversation with/g)?.length).toBeGreaterThanOrEqual(2);
+    // Both surfaces used to build their own row, so this string appeared
+    // once per surface. They now share one BotRosterRow (see its docstring),
+    // so the accessible label is written once and used by both — checking
+    // for two copies would be asking the unification to fail.
+    expect(APP.match(/Unread conversation with/g)?.length).toBeGreaterThanOrEqual(1);
+    expect(APP.match(/<BotRosterRow/g)?.length).toBeGreaterThanOrEqual(2);
   });
 
   test("selection marks one server conversation and websocket arrivals refresh it", () => {

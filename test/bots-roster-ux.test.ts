@@ -16,6 +16,22 @@ const PLACEHOLDER = APP.slice(
 );
 const ROSTER = BOTS_VIEW.slice(BOTS_VIEW.indexOf("return (\n    <div className=\"mx-auto"));
 
+// The desktop rail row and the mobile roster row both wrap this now (see its
+// docstring): the fixed height, the mark slot, and — the thing that used to
+// drift — the title/preview type scale live here exactly once instead of
+// being hand-matched at each call site.
+const RAIL_ROW = APP.slice(
+  APP.indexOf("const RailRow = memo(function RailRow({"),
+  APP.indexOf("\nconst RailItem = memo(function RailItem({"),
+);
+// The bot roster's own row component, wrapping RailRow. What it still
+// supplies itself (BotAvatar, the unread indicator, the read/unread swipe)
+// is what makes it a bot row rather than a session row.
+const BOT_ROSTER_ROW = APP.slice(
+  APP.indexOf("function BotRosterRow({"),
+  APP.indexOf("\nfunction BotRailContextMenu("),
+);
+
 describe("bots roster copy", () => {
   test("drops the manifesto everywhere on the Bots surfaces", () => {
     expect(APP).not.toContain("persistent agent you talk to");
@@ -64,26 +80,33 @@ describe("bots page roster chrome", () => {
     expect(ROSTER).not.toContain("<ChevronRight");
   });
 
-  test("page and rail rosters render the same row", () => {
-    // 44px, not 56px: that size (paired with the mockup's padding) made the
-    // row pitch 84px, which read as a settings list on a phone rather than a
-    // scannable roster. See mobile-bots-nav.ts.
-    expect(ROSTER).toContain("size={44}");
-    expect(ROSTER).toContain("text-base font-semibold");
-    expect(ROSTER).toContain("text-sm");
-    expect(ROSTER).toContain("text-xs tabular-nums");
+  test("page and rail rosters render the same shared row component", () => {
+    // Both surfaces call the one BotRosterRow now, instead of each keeping
+    // its own hand-built row — the rail's copy is what drifted to a smaller
+    // 14px/13px scale nobody meant to ship. 44px, not 56px: that size
+    // (paired with the mockup's padding) made the row pitch 84px, which read
+    // as a settings list on a phone rather than a scannable roster. See
+    // mobile-bots-nav.ts.
+    expect(ROSTER).toContain("<BotRosterRow");
+    expect(ROSTER).toContain("avatarSize={44}");
     expect(ROSTER).toContain("isCodingAgentStoppedText(rawPreview)");
     expect(ROSTER).toContain("text-destructive");
     expect(ROSTER).not.toContain("size={56}");
-    expect(ROSTER).not.toContain("text-[13px]");
     // The rail roster used to run at 24/28px — the session rows' density,
     // which turned the creature into a bullet point and clipped the preview
-    // after a few words. A bot row is the same object on both surfaces, so it
-    // is the same row: the page's 44px face, and 32px when the rail collapses
-    // to 56px and the face IS the row.
-    expect(BOT_RAIL).toContain("size={railCollapsed ? 32 : 44}");
-    expect(BOT_RAIL).not.toContain("size={railCollapsed ? 24 : 28}");
+    // after a few words. A bot row is the same component on both surfaces,
+    // so it is the same row: the page's 44px face, and 32px when the rail
+    // collapses to 56px and the face IS the row.
+    expect(BOT_RAIL).toContain("<BotRosterRow");
+    expect(BOT_RAIL).toContain("avatarSize={railCollapsed ? 32 : 44}");
+    expect(BOT_RAIL).not.toContain("avatarSize={railCollapsed ? 24 : 28}");
     expect(BOT_RAIL).not.toContain("size={56}");
+    // The type scale itself now lives once, on the shared shell, rather than
+    // being copied by eye at each call site (see RailRow's docstring).
+    expect(RAIL_ROW).toContain("text-base font-semibold leading-tight");
+    expect(RAIL_ROW).toContain("text-sm leading-tight text-muted-foreground");
+    expect(BOT_ROSTER_ROW).not.toContain("text-sm font-medium");
+    expect(BOT_ROSTER_ROW).not.toContain("text-xs leading-tight text-muted-foreground");
   });
 
   test("the rail roster is labelled like every other rail list", () => {
@@ -95,7 +118,11 @@ describe("bots page roster chrome", () => {
 
   test("rail rows are a fixed height so a late preview cannot resize them", () => {
     // The preview line arrives after the row does. Sized to its own text, the
-    // row grew under the cursor and shoved every row below it.
+    // row grew under the cursor and shoved every row below it. The height
+    // lives on the shared RailRow shell now; BOT_RAIL still carries its own
+    // "New bot" row at the same height, but the data rows get theirs from
+    // RailRow, not a locally copied class.
+    expect(RAIL_ROW).toContain("h-[3.75rem]");
     expect(BOT_RAIL).toContain("h-[3.75rem]");
     expect(BOT_RAIL).not.toContain("py-1.5");
   });
