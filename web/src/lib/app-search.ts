@@ -36,7 +36,32 @@ export function pathnameToTab(pathname: string): string {
   // `/shipped` was the original public route, and `/ask` was a separate page
   // for agent questions before they became notifications. Both fold into the
   // canonical Notification Center; keep old links and bookmarks working.
-  return tab === "shipped" || tab === "ask" ? "notifications" : tab;
+  if (tab === "shipped" || tab === "ask") return "notifications";
+  // `/sessions/<id>` is one session, open. It is a page rather than a tab, the
+  // same way `/bots/<id>` is: the list it came from is Live, and that is the
+  // page you are still on, so Live stays selected underneath it.
+  if (tab === "sessions") return DEFAULT_TAB;
+  return tab;
+}
+
+/**
+ * The session a `/sessions/<id>` path names, or null for any other path.
+ *
+ * Sessions are a page, not a sheet. A full-screen transcript you can scroll,
+ * search, and hand to someone needs a URL that back — the browser's, the
+ * phone's gesture, ours — can leave, and that a link can reach. It used to be
+ * local state over the list, so the phone's back gesture left the app instead
+ * of the session.
+ */
+export function pathnameToSessionId(pathname: string): string | null {
+  const parts = pathname.split("/").filter(Boolean);
+  if (parts[0] !== "sessions" || !parts[1]) return null;
+  return decodeURIComponent(parts[1]) || null;
+}
+
+/** The URL path for one open session. */
+export function sessionToPath(sid: string): string {
+  return `/sessions/${encodeURIComponent(sid)}`;
 }
 
 /** The URL path for a tab. The default tab lives at `/` (kept segment-free so
