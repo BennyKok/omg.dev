@@ -2,6 +2,59 @@
 
 Recent product updates and deployment notes.
 
+## August 22, 2026 - One session list, and sessions get their own page (v0.3.0)
+
+- **Mobile and desktop now render the same session list.** Mobile used to show
+  a grid of cards, each carrying a whole transcript, split into Working and
+  Idle. It shows the desktop rail's rows now: one line of preview, a fixed
+  height, and the same delegated-child spine. A row cannot hold a transcript,
+  so tapping one opens the session instead of expanding in place.
+- **An open session has its own URL.** `/sessions/<id>` is a real page. Back —
+  the browser's, the phone's gesture, ours — leaves the session rather than the
+  app, and a transcript can be linked to.
+- **Folders are the only grouping, and the folder title is the filter.** Click
+  a folder heading to scope the list to it. The scoped heading carries a cross
+  to come back. Working and Idle are gone: they moved a session between two
+  groups every time it started or stopped, which reordered the list to say
+  something each row already shows.
+- **The folder button is only for folders now.** It used to scope the list and
+  add projects at the same time. It opens the folder manager; scoping belongs
+  to the heading.
+- **Bots have their own surface on both widths.** They are no longer repeated
+  inside the Chat list. The roster and the session list share one row
+  component, so bot rows gain the swipe gestures and the right-click menu they
+  never had. Creating a bot is the first row of the list.
+- **A bot conversation opens even when its session is not running.** The
+  transcript lives on disk and outlives the process that wrote it. A bot with
+  months of history used to look brand new.
+- **Thinking says how long it took.** "Thinking… 12s" while it runs, "Thought
+  for 12s" after. Thinking that happens between tool calls folds into that run,
+  so a turn using six tools reads as one line rather than twelve.
+- **Tool calls and the typing indicator lost their cards.** A tool call is a
+  line in the transcript, not an object stacked between the sentences.
+- **Working is one treatment everywhere.** The agent mark shrinks and an amber
+  spinner fills the space around it. The rail and the session header used to
+  disagree, in two different colours.
+- **The app icon and favicons are the omg.dev mark.** They still drew the
+  "lfg" wordmark on a blue tile.
+- **Settings is smaller.** Section headers that restated the single row below
+  them are gone, and so are descriptions that repeated the control they sat
+  under. Version and Updates are one row that expands, and it reports a version
+  skew without being expanded. Ping moved to the bottom of More as a plain
+  line. Your account picture appears once, not twice.
+- **Removed: "Pause new agents" and "Archive idle agents".** Both are gone from
+  the interface and from the server. Agent creation is no longer refused by a
+  pause flag. An idle agent is now reclaimed only under memory pressure, or by
+  the systemd memory bound. Stored values from an older install are ignored
+  rather than rejected.
+- **The findings feed no longer merges different errors.** Every "React error
+  #NNN" collapsed into one row, so a dismissed finding could silently absorb a
+  new, unrelated crash. A finding whose fix has landed now says which commit
+  fixed it, and resolves itself after two days without recurrence.
+- **Attached images are shown, not described.** The composer used to list a
+  filename, a byte count and three buttons beside a thumbnail. Click the image
+  to annotate or remove it.
+
 ## August 22, 2026 - Add to home screen closes the first run (v0.2.23)
 
 - **First-run setup now ends with an optional "Add omg to your home screen"
