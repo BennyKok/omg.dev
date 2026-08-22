@@ -11844,22 +11844,17 @@ function RailStage({
   const botNodes = showBotsInRail
     ? railTree.roots.filter((node) => !railNodeContainsTopPin(node) && railNodeIsBot(node))
     : [];
-  const workingNodes = railTree.roots.filter(
-    (node) =>
-      !railNodeContainsTopPin(node) && !railNodeIsBot(node) && railTree.effectiveBusy(node),
-  );
-  const idleNodes = railTree.roots.filter(
-    (node) =>
-      !railNodeContainsTopPin(node) && !railNodeIsBot(node) && !railTree.effectiveBusy(node),
-  );
   const topPinnedSessions = railTree.flatten(topPinnedNodes);
   const botSessions = railTree.flatten(botNodes);
-  const working = railTree.flatten(workingNodes);
-  const idle = railTree.flatten(idleNodes);
 
+  // Folders are the only grouping. Working and Idle used to split the list
+  // below them, which meant a session moved between two groups every time it
+  // started or stopped — the list reordering under the cursor for a fact the
+  // row already shows on its own mark. It also fought the folder grouping:
+  // scoped to one project you got Working/Idle, scoped to all you got folders,
+  // so the rail reorganised itself whenever the filter changed.
   const projectRailGroups = useMemo(() => {
-    if (projectFilter !== "__all") return [];
-    const groups = new Map<string, { label: string; nodes: SessionTreeNode[]; count: number }>();
+    const groups = new Map<string, { label: string; project: string; nodes: SessionTreeNode[]; count: number }>();
     for (const node of railTree.roots.filter(
       (item) => !railNodeContainsTopPin(item) && !railNodeIsBot(item),
     )) {
@@ -11872,7 +11867,7 @@ function RailStage({
         group.nodes.push(node);
         group.count += count;
       } else {
-        groups.set(key, { label, nodes: [node], count });
+        groups.set(key, { label, project, nodes: [node], count });
       }
     }
     return Array.from(groups.entries())
@@ -11880,14 +11875,11 @@ function RailStage({
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [projectFilter, railTree, topPinned]);
 
-  const railOrderedSessions =
-    projectFilter === "__all"
-      ? [
-          ...topPinnedSessions,
-          ...botSessions,
-          ...projectRailGroups.flatMap((group) => railTree.flatten(group.nodes)),
-        ]
-      : [...topPinnedSessions, ...botSessions, ...working, ...idle];
+  const railOrderedSessions = [
+    ...topPinnedSessions,
+    ...botSessions,
+    ...projectRailGroups.flatMap((group) => railTree.flatten(group.nodes)),
+  ];
 
   // Flat rail order the keyboard cursor walks (matching the visible rail;
   // findings are not navigable). Keep the cursor pointing at a live session.
@@ -12698,35 +12690,31 @@ function RailStage({
               {botNodes.map((node) => renderRailNode(node))}
             </RailGroup>
           ) : null}
-          {projectFilter === "__all" ? (
-            <>
-              {projectRailGroups.map((group) => (
-                <RailGroup
-                  key={group.key}
-                  label={group.label}
-                  count={group.count}
-                  collapsed={railCollapsed}
-                >
-                  {group.nodes.map((node) => renderRailNode(node))}
-                </RailGroup>
-              ))}
-              {autoRailGroup}
-            </>
-          ) : (
-            <>
-              {working.length ? (
-                <RailGroup label="Working" count={working.length} collapsed={railCollapsed}>
-                  {workingNodes.map((node) => renderRailNode(node))}
-                </RailGroup>
-              ) : null}
-              {autoRailGroup}
-              {idle.length ? (
-                <RailGroup label="Idle" count={idle.length} collapsed={railCollapsed}>
-                  {idleNodes.map((node) => renderRailNode(node))}
-                </RailGroup>
-              ) : null}
-            </>
-          )}
+          {projectRailGroups.map((group) => (
+            <RailGroup
+              key={group.key}
+              label={group.label}
+              count={group.count}
+              collapsed={railCollapsed}
+              // The folder title IS the filter. Scoping used to live on the
+              // folder button, which made that button mean two things — pick
+              // where a new session runs, and narrow the list — and neither
+              // was discoverable from the list it changed.
+              onFilter={
+                onProjectChange && projectFilter === "__all" && group.project
+                  ? () => onProjectChange(group.project)
+                  : undefined
+              }
+              onClearFilter={
+                onProjectChange && projectFilter !== "__all"
+                  ? () => onProjectChange("__all")
+                  : undefined
+              }
+            >
+              {group.nodes.map((node) => renderRailNode(node))}
+            </RailGroup>
+          ))}
+          {autoRailGroup}
           </>}
         </div>
         {/* Host-owned footer. A host embedding LFG as its whole desktop surface
@@ -12914,21 +12902,58 @@ function RailGroup({
   count,
   collapsed,
   action,
+  onFilter,
+  onClearFilter,
   children,
 }: {
   label: string;
   count: number;
   collapsed: boolean;
   action?: ReactNode;
+  /** Scope the list to this group. The title is the control. */
+  onFilter?: () => void;
+  /** Drop the scope. Only the group that IS the current scope gets this. */
+  onClearFilter?: () => void;
   children: ReactNode;
 }) {
+  // Not uppercased. A folder is named "lfg", not "LFG", and shouting every
+  // group label made the rail's quietest text its loudest.
+  const title = (
+    <span className={cn(onFilter && "transition-colors hover:text-foreground")}>
+      {label} · {count}
+    </span>
+  );
   return (
     <div className="mb-2">
-      {/* Not uppercased. A folder is named "lfg", not "LFG", and shouting
-          every group label made the rail's quietest text its loudest. */}
       {!collapsed ? (
         <div className="flex items-center px-2 pb-1 pt-1 text-[11px] font-semibold text-muted-foreground/70">
-          <span>{label} · {count}</span>
+          {onFilter ? (
+            <button
+              type="button"
+              onClick={onFilter}
+              title={`Show only ${label}`}
+              aria-label={`Show only ${label}`}
+              className="min-w-0 truncate text-left outline-none focus-visible:text-foreground"
+            >
+              {title}
+            </button>
+          ) : (
+            title
+          )}
+          {onClearFilter ? (
+            // The way back out, on the row that did the scoping. Without it the
+            // title filters one way and clearing lives in a different control
+            // entirely.
+            <button
+              type="button"
+              onClick={onClearFilter}
+              title="Show every folder"
+              aria-label="Show every folder"
+              className="ml-1 flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <X className="size-3" />
+            </button>
+          ) : null}
           {action ? <span className="ml-auto normal-case tracking-normal">{action}</span> : null}
         </div>
       ) : null}
