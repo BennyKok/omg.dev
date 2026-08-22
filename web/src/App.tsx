@@ -11078,6 +11078,38 @@ function LiveView({
     prefetchTranscripts(prefetchKey.split(","), loadTranscriptPage);
   }, [prefetchKey]);
 
+  // Opening a session from the list. The full-height view is the session's
+  // page: it takes the whole screen, it owns its own header and back control,
+  // and it is what a row leads to now that the row cannot hold a transcript.
+  // Both this and the grouping below are only read by the narrow layout, but
+  // they stay above the wide/empty returns: `isWide` flips on rotation and on
+  // the iOS URL-bar resize, and a hook behind that return changes the hook
+  // count between renders.
+  const openSessionPage = useCallback((sid: string) => {
+    if (!sid) return;
+    // The view animates out of the row that opened it. Rows are a known height
+    // (RailItem), so a rect built from the row's own box keeps that origin
+    // honest instead of guessing from the middle of the screen.
+    const row = document.querySelector(`[data-rail-sid="${sid}"]`);
+    const origin = row
+      ? row.getBoundingClientRect()
+      : new DOMRect(window.innerWidth / 2 - 120, 120, 240, 44);
+    setSheet({ sid, origin });
+  }, []);
+
+  // Same grouping the rail uses, from the same helper, so the two lists cannot
+  // drift apart again.
+  const projectGroups = useMemo(
+    () =>
+      groupNodesByProject(
+        tree.roots.filter((item) => !nodeContainsPin(item) && !nodeIsBot(item)),
+        (node) => tree.flatten([node]).length,
+        shortProject,
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tree, topPinned],
+  );
+
   // On mobile keep the empty state quiet and unboxed. The persistent composer
   // is already the action, so duplicating it with a card/button only sends focus
   // back to the same input.
@@ -11244,34 +11276,6 @@ function LiveView({
       />
     );
   }
-
-  // Opening a session from the list. The full-height view is the session's
-  // page: it takes the whole screen, it owns its own header and back control,
-  // and it is what a row leads to now that the row cannot hold a transcript.
-  const openSessionPage = useCallback((sid: string) => {
-    if (!sid) return;
-    // The view animates out of the row that opened it. Rows are a known height
-    // (RailItem), so a rect built from the row's own box keeps that origin
-    // honest instead of guessing from the middle of the screen.
-    const row = document.querySelector(`[data-rail-sid="${sid}"]`);
-    const origin = row
-      ? row.getBoundingClientRect()
-      : new DOMRect(window.innerWidth / 2 - 120, 120, 240, 44);
-    setSheet({ sid, origin });
-  }, []);
-
-  // Same grouping the rail uses, from the same helper, so the two lists cannot
-  // drift apart again.
-  const projectGroups = useMemo(
-    () =>
-      groupNodesByProject(
-        tree.roots.filter((item) => !nodeContainsPin(item) && !nodeIsBot(item)),
-        (node) => tree.flatten([node]).length,
-        shortProject,
-      ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tree, topPinned],
-  );
 
   // The rail's row, wired for mobile. Opening goes to the session's own page
   // rather than expanding in place: a row cannot hold a transcript, and the
