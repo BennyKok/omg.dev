@@ -189,11 +189,12 @@ export function UpdateSettingsRow() {
           : ""));
 
   return (
-    // No section header: this is the only row in it, and "System" said
-    // nothing "omg.dev updates" below didn't already say.
-    <section className="space-y-2">
-      <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
-        <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+    // A bare row, not a card. It sits inside the Computer card next to the
+    // Frontend and Computer version rows, because those three answer one
+    // question between them: what is running here, and is there anything
+    // newer. As its own card with its own header it read as unrelated
+    // machinery parked below the versions it is about.
+    <div className="flex items-center justify-between gap-4 px-4 py-2.5">
           <div className="flex min-w-0 items-center gap-3">
             <span className="relative flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-primary text-white">
               {checking ? <Loader2 className="size-4 animate-spin" /> : <ArrowDown className="size-4" />}
@@ -205,16 +206,21 @@ export function UpdateSettingsRow() {
               ) : null}
             </span>
             <div className="min-w-0">
-              <div className="text-sm font-medium">omg.dev updates</div>
-              <div
-                className={cn(
-                  "text-xs text-muted-foreground",
-                  error || blockedReason ? "text-pretty" : "truncate",
-                  error && "text-destructive",
-                )}
-              >
-                {detail}
-              </div>
+              <div className="text-sm font-medium">Updates</div>
+              {/* Only when it says something you can act on. The resting
+                  message restated the channel, which the version rows above
+                  already imply. */}
+              {error || blockedReason || checking || available ? (
+                <div
+                  className={cn(
+                    "text-xs text-muted-foreground",
+                    error || blockedReason ? "text-pretty" : "truncate",
+                    error && "text-destructive",
+                  )}
+                >
+                  {detail}
+                </div>
+              ) : null}
             </div>
           </div>
           {available ? (
@@ -228,16 +234,7 @@ export function UpdateSettingsRow() {
               Check
             </Button>
           )}
-        </div>
-      </div>
-      <p className="px-4 text-xs text-muted-foreground">
-        {channel === "release" ? (
-          <>Release installs download the latest verified bundle and restart automatically.</>
-        ) : (
-          <>Git installs update safely to <code>origin/main</code>, rebuild the UI, and restart automatically.</>
-        )}
-      </p>
-    </section>
+    </div>
   );
 }
 

@@ -8899,6 +8899,8 @@ export function App() {
         {tab === "storage" ? <StoragePage /> : null}
         {tab === "more" ? (
           <MoreView
+            // Same source the Settings root used before Ping moved here.
+            connection={useWsLive ? wsLiveStream.connection : null}
             dark={dark}
             toggleTheme={toggleTheme}
             user={userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : null}
@@ -9779,14 +9781,11 @@ function PagesMenu({
           }}
         >
           <DropdownMenuLabel>Pages</DropdownMenuLabel>
-          <DropdownMenuRadioItem value="live">
-            <Radio className="size-5 shrink-0 text-muted-foreground" />
-            Live
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="bots">
-            <Bot className="size-5 shrink-0 text-muted-foreground" />
-            Bots
-          </DropdownMenuRadioItem>
+          {/* Live and Bots are not listed. The Chat/Bots switch bar sits right
+              under this menu on every surface that renders it, and it is the
+              control for that choice — repeating the pair here made one
+              decision reachable two ways, with the menu's version giving no
+              hint that the faster one was inches below it. */}
           <DropdownMenuRadioItem value="notifications">
             <Bell className="size-5 shrink-0 text-muted-foreground" />
             Notifications
@@ -23158,9 +23157,6 @@ function VoiceSettingsSection() {
           disabled={!cfg || saving}
         />
       </div>
-      <p className="px-4 text-xs text-muted-foreground">
-        Applies to every mic button. Greyed-out providers need an API key set on the server.
-      </p>
       {needsSetup ? (
         <div className="px-4 pt-1">
           <Button
@@ -24745,10 +24741,10 @@ function UserIconSettingsSection({ identityEmail }: { identityEmail: string | nu
           ) : null}
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-          <p className="text-xs text-muted-foreground">
-            Shown next to your sessions and in the facepile of anyone sharing this machine.
-            PNG, JPEG, WebP, or GIF, up to 5MB.
-          </p>
+          {/* The picker enforces the formats and the size cap, and rejects
+              anything else with a message naming what it got. Spelling them out
+              here made a permanent paragraph out of a constraint you only meet
+              when you break it. */}
           <div className="flex gap-2">
             <Button
               type="button"
@@ -24796,14 +24792,12 @@ function VersionRow({
   icon,
   iconClassName,
   label,
-  detail,
   value,
   copyValue,
 }: {
   icon: ReactNode;
   iconClassName: string;
   label: string;
-  detail: string;
   value: string;
   copyValue: string | null;
 }) {
@@ -24828,10 +24822,7 @@ function VersionRow({
         >
           {icon}
         </span>
-        <span className="min-w-0">
-          <span className="block text-sm font-medium">{label}</span>
-          <span className="block truncate text-xs text-muted-foreground">{detail}</span>
-        </span>
+        <span className="min-w-0 truncate text-sm font-medium">{label}</span>
       </div>
       <span className="flex shrink-0 items-center gap-2">
         <span
@@ -24937,63 +24928,6 @@ function SettingsView({
 
       <UserIconSettingsSection identityEmail={user} />
 
-      {/* Live browser-to-server RTT, measured over the same socket that carries
-          session updates. This is intentionally dynamic rather than a cached
-          health-check number so remote-access latency is visible here.
-          No header, no trailing paragraph: "Connection" above the card and
-          "refreshed every five seconds" below it were both restating what
-          the "Ping" row and its live value already show. The refresh cadence
-          is real but not something you act on, so it moved to a title
-          attribute instead of a permanent third line. */}
-      <section className="space-y-2">
-        <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
-          <div
-            className="flex items-center justify-between gap-4 px-4 py-2.5"
-            title="Refreshed every five seconds"
-          >
-            <div className="flex min-w-0 items-center gap-3">
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-primary text-white">
-                <Gauge className="size-4" />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-sm font-medium">Ping</span>
-                <span className="block truncate text-xs text-muted-foreground">
-                  Browser to omg.dev server
-                </span>
-              </span>
-            </div>
-            <div className="flex shrink-0 items-center gap-2" aria-live="polite">
-              <span
-                className={cn(
-                  "size-2 rounded-full",
-                  connection?.status !== "live"
-                    ? "bg-muted-foreground/40"
-                    : connection.latencyMs == null
-                      ? "animate-pulse bg-primary"
-                      : connection.latencyMs <= 150
-                        ? "bg-success"
-                        : connection.latencyMs <= 300
-                          ? "bg-warning"
-                          : "bg-destructive",
-                )}
-              />
-              <span className="min-w-[5.5rem] text-right text-sm font-semibold tabular-nums">
-                {connection == null
-                  ? "Unavailable"
-                  : connection.status === "live"
-                  ? connection.latencyMs == null
-                    ? "Measuring…"
-                    : `${connection.latencyMs} ms`
-                  : connection.status === "reconnecting"
-                    ? "Reconnecting…"
-                    : connection.status === "offline"
-                      ? "Offline"
-                      : "Connecting…"}
-              </span>
-            </div>
-          </div>
-        </div>
-      </section>
 
       {/* Computer — in standalone LFG this box IS the computer, so the row is
           static. When these sections are mounted by a host (omg) this is the
@@ -25050,7 +24984,6 @@ function SettingsView({
             icon={<Layers className="size-4" />}
             iconClassName="bg-muted text-foreground/70"
             label="Frontend"
-            detail="This app build"
             value={formatVersion(FRONTEND_VERSION)}
             copyValue={FRONTEND_VERSION ? `v${FRONTEND_VERSION}` : null}
           />
@@ -25058,10 +24991,14 @@ function SettingsView({
             icon={<Cpu className="size-4" />}
             iconClassName="bg-foreground text-background"
             label="Computer"
-            detail="Runtime on this machine"
             value={formatComputerVersion(computerVersion)}
             copyValue={copyableVersion(computerVersion)}
           />
+          {/* Same card as the two versions above: between them they answer one
+              question — what is running here, and is anything newer. */}
+          <ErrorBoundary variant="card" boundary="omg-update">
+            <UpdateSettingsRow />
+          </ErrorBoundary>
         </div>
         {versionNote ? (
           <p
@@ -25079,10 +25016,6 @@ function SettingsView({
         settings={settings}
         onChange={onSettingsChange}
       />
-
-      <ErrorBoundary variant="card" boundary="omg-update">
-        <UpdateSettingsRow />
-      </ErrorBoundary>
 
       {/* More — the long tail lives on its own page so this one stays scannable.
           Hidden on a host-mounted surface: everything behind it (push,
@@ -25132,6 +25065,7 @@ function MoreView({
   onRedoOnboarding,
   extTabs,
   onOpenExt,
+  connection,
 }: {
   dark: boolean;
   toggleTheme: () => void;
@@ -25142,6 +25076,7 @@ function MoreView({
   onRedoOnboarding: () => Promise<void>;
   extTabs: ExtensionNavTab[];
   onOpenExt: (id: string) => void;
+  connection: ConnectionState | null;
 }) {
   const uiFeedback = useUiFeedbackPrefs();
 
@@ -25259,23 +25194,7 @@ function MoreView({
               aria-label="Toggle UI sound effects"
             />
           </div>
-          <div className="flex items-center justify-between gap-4 px-4 py-2.5">
-            <div className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
-                <Vibrate className="size-4" />
-              </span>
-              <span className="text-sm font-medium">Haptics</span>
-            </div>
-            <Switch
-              checked={uiFeedback.haptics}
-              onCheckedChange={(v) => setUiFeedbackPrefs({ haptics: v })}
-              aria-label="Toggle haptic feedback"
-            />
-          </div>
         </div>
-        <p className="px-4 text-xs text-muted-foreground">
-          Stored in this browser only — they don&apos;t follow you to other devices.
-        </p>
       </section>
 
       {/* Help — not uppercased, see RailGroup. */}
@@ -25306,17 +25225,41 @@ function MoreView({
               <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
                 <RotateCcw className="size-4" />
               </span>
-              <span>
-                <span className="block text-sm font-medium">Setup guide</span>
-                <span className="block text-xs text-muted-foreground">
-                  Revisit setup without deleting your existing data
-                </span>
-              </span>
+              <span className="text-sm font-medium">Setup guide</span>
             </div>
             <ChevronRight className="size-4 text-muted-foreground/60" />
           </button>
         </div>
       </section>
+
+      {/* Not a card and not a setting: a footnote you glance at when something
+          feels slow. It used to be a full card at the top of Settings, which
+          gave a number you cannot act on the weight of a control. */}
+      <p className="flex items-center justify-center gap-2 px-4 text-xs text-muted-foreground/70">
+        <span
+          className={cn(
+            "size-1.5 rounded-full",
+            connection?.status !== "live"
+              ? "bg-muted-foreground/40"
+              : connection.latencyMs == null
+                ? "animate-pulse bg-primary"
+                : connection.latencyMs <= 150
+                  ? "bg-success"
+                  : connection.latencyMs <= 300
+                    ? "bg-warning"
+                    : "bg-destructive",
+          )}
+        />
+        <span aria-live="polite">
+          {connection == null
+            ? "Connection unavailable"
+            : connection.status === "live"
+              ? connection.latencyMs == null
+                ? "Measuring ping…"
+                : `Ping ${connection.latencyMs} ms`
+              : "Reconnecting…"}
+        </span>
+      </p>
     </div>
   );
 }
