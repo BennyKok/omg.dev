@@ -674,6 +674,7 @@ import {
   getMessage,
   recordCommandFileMessage,
   resumePersistedQueues,
+  takeUndeliveredQueue,
 } from "../sendq.ts";
 import { startFleetWatcher } from "../voice-bus.ts";
 import { startSessionPushBridge } from "../session-push.ts";
@@ -2801,7 +2802,7 @@ async function rotateBotSession(
 
     const sessions = await listSessions();
     const primary = findBotMainSession(bot, sessions);
-    const admission = botRotationAdmission(bot.id, primary, sessions);
+    const admission = botRotationAdmission(bot.id, primary, sessions, opts.reason);
     if (!admission.ready) {
       mutateBot(bot.id, (current) => ({
         ...current,
@@ -2820,8 +2821,12 @@ async function rotateBotSession(
       return { ok: false, deferred: true, blocked: admission.blocked, children: admission.children };
     }
 
+    // An automatic rotation waits for the queue to drain so ordering survives.
+    // A restart cannot: the queue it would wait on is stuck behind the same
+    // wedged turn the human is restarting to clear. It carries those sends onto
+    // the replacement after the swap instead (see `carried` below).
     const queueSessionId = primary?.sessionId ?? botCanonicalSessionId(bot, sessions);
-    if (queueSessionId) {
+    if (queueSessionId && opts.reason !== "restart") {
       await reconcileQueued(queueSessionId).catch(() => false);
       const queueBusy = queueBlocksBotRotation(listQueue(queueSessionId));
       if (queueBusy) {
@@ -2988,6 +2993,36 @@ async function rotateBotSession(
         }));
         await stopReplacement("bot_rotation_close_rollback");
         return fail(outcome.status, outcome.reason);
+      }
+    }
+
+    // Undelivered sends belong to the conversation, not to the process that
+    // happened to be running when they arrived. Only a restart can reach here
+    // with a non-empty queue, and dropping it would make "restart now" cost the
+    // user the messages they were waiting on. Reconcile first so anything the
+    // old runtime did read is not sent twice, then re-address the rest in their
+    // original order through the one owner of session delivery.
+    if (previousSessionId && previousSessionId !== newSessionId) {
+      await reconcileQueued(previousSessionId).catch(() => false);
+      const carried = takeUndeliveredQueue(previousSessionId);
+      for (const message of carried) {
+        const sent = sendPromptToLiveSession(launched.session, message.text, { mode: "queue" });
+        if (!sent.ok) {
+          evlog("bot_rotation_queue_carry_failed", {
+            botId,
+            sessionId: newSessionId,
+            error: sent.error,
+          });
+          break;
+        }
+      }
+      if (carried.length) {
+        evlog("bot_rotation_queue_carried", {
+          botId,
+          from: previousSessionId,
+          to: newSessionId,
+          count: carried.length,
+        });
       }
     }
 
@@ -3229,12 +3264,22 @@ async function deliverBotMessage(
  *
  * Only for agent-authored sends (the caller passes `fromSessionId`): a human
  * posting to a dead session id should still get the 404 that tells them so.
+ *
+ * Archived ids count as the bot. A child is told its parent's session id once,
+ * at spawn, and a rotation replaces that id underneath it — so after a restart
+ * or a compaction the child reports to an id the record no longer names as
+ * current. Matching the archive is what lets the report land in the
+ * conversation it was always meant for, and it is why a restart no longer has
+ * to wait for delegated children before it can run.
  */
 async function reviveBotSessionForReport(
   targetSessionId: string,
   text: string,
 ): Promise<{ session: Session; delivered: boolean } | null> {
-  const bot = (await listBots()).find((candidate) => candidate.sessionId === targetSessionId);
+  const bot = (await listBots()).find((candidate) =>
+    candidate.sessionId === targetSessionId ||
+    !!candidate.archivedSessionIds?.includes(targetSessionId)
+  );
   if (!bot?.enabled) return null;
   const ensured = await ensureBotSession(bot, text);
   if (ensured instanceof Response) return null;
@@ -5173,14 +5218,11 @@ a{color:#60a5fa}
             });
           }
           if (outcome.deferred) {
-            return json({
-              ok: true,
-              state: "queued",
-              conversationId,
-              runtimeSessionId: after.sessionId ?? expectedRuntimeSessionId,
-              blocked: outcome.blocked,
-              activeChildren: outcome.children.length,
-            }, { status: 202 });
+            // Not reachable: `botRotationAdmission` admits a restart
+            // unconditionally, which is the point of the action. Handled so the
+            // shared rotation outcome stays exhaustive, and reported as a
+            // failure rather than as a "queued" restart that nothing will drain.
+            return err(503, "the restart could not start; retry in a moment", "bot_restart_failed");
           }
           return err(outcome.status, outcome.error, "bot_restart_failed");
         }

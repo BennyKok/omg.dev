@@ -179,6 +179,34 @@ export function clearResolved(sessionId: string): number {
   return before - s.msgs.length;
 }
 
+/**
+ * Remove and return the sends that never reached the agent, so a caller can
+ * re-address them at a replacement session.
+ *
+ * A bot restart retires the runtime a queue was addressed to. `pending` and
+ * `queued` rows are undelivered by definition — one never entered the
+ * composer, the other sits in the harness's own queue behind a turn that is
+ * about to be destroyed with it — so leaving them here strands them in a
+ * session no UI watches again. They are removed rather than copied: the caller
+ * re-enqueues them on the new session, and one message must not be live in two
+ * queues at once.
+ *
+ * A `sending` row is deliberately left behind. It may already have been
+ * submitted, and its delivery worker still owns it; taking it would risk a
+ * duplicate user turn, which is the same tradeoff `resumePersistedQueues`
+ * makes for an interrupted send.
+ */
+export function takeUndeliveredQueue(sessionId: string): QueuedMsg[] {
+  const s = q(sessionId);
+  const taken = s.msgs.filter((m) => m.status === "pending" || m.status === "queued");
+  if (!taken.length) return [];
+  const ids = new Set(taken.map((m) => m.id));
+  s.msgs = s.msgs.filter((m) => !ids.has(m.id));
+  deleteStoredQueueMessages(sessionId, [...ids]);
+  traceLog("sendq_taken_for_handoff", { sessionId, count: taken.length });
+  return taken;
+}
+
 // Bounded retention applies only to truly resolved rows. A `queued` row is
 // still waiting to be reconciled against the transcript, and a `failed` row is
 // still waiting for the user to retry or clear it — pruning either would

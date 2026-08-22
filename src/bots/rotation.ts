@@ -274,16 +274,33 @@ export function activeBotChildren<T extends BotRotationSession>(
 /**
  * Whether rotation may proceed, and if not, why.
  *
- * Default is to wait, never to kill. A bot mid-turn is producing an answer
- * somebody is waiting for; a bot with live children has delegated work that
- * will try to report home. Rotating through either loses real work silently,
- * which is the one outcome worse than a stale persona.
+ * For a rotation the machine decided to run, the default is to wait, never to
+ * kill. A bot mid-turn is producing an answer somebody is waiting for; a bot
+ * with live children has delegated work that will try to report home. Rotating
+ * through either loses real work silently, which is the one outcome worse than
+ * a stale persona.
+ *
+ * A human `restart` is the exception, and it is not a special case so much as
+ * the whole point of the action. Waiting is only safe while the busy signal
+ * still means progress. The reason a person reaches for Restart is that it
+ * does not: a wedged turn, a provider error the harness never returned from, a
+ * runtime whose session id no longer resolves. Those states report `busy`
+ * forever, so an admission gate turns the one escape hatch into another thing
+ * that is stuck. Deferring here produced exactly that bug — a restart parked
+ * as "queued" behind a turn that could never end.
+ *
+ * So a restart is admitted unconditionally, and the work that admission used
+ * to protect is carried instead of guarded: `rotateBotSession` moves the
+ * undelivered send queue onto the replacement, and a late child report finds
+ * the bot through its archived session ids.
  */
 export function botRotationAdmission(
   botId: string,
   primary: BotRotationSession | undefined,
   sessions: readonly BotRotationSession[],
+  reason: BotRotationReason = "config",
 ): BotRotationAdmission {
+  if (reason === "restart") return { ready: true };
   if (primary?.busy) {
     return {
       ready: false,
@@ -298,7 +315,13 @@ export function botRotationAdmission(
   return { ready: true };
 }
 
-/** A queued turn must keep its original ordering and finish before rotation. */
+/**
+ * A queued turn must keep its original ordering and finish before rotation.
+ *
+ * Applies to automatic rotations only. A restart carries the queue forward
+ * instead of waiting for it, because a queue that cannot drain is the symptom
+ * the human is restarting to clear.
+ */
 export function queueBlocksBotRotation(
   messages: readonly { status: string }[],
 ): boolean {
