@@ -11245,6 +11245,71 @@ function LiveView({
     );
   }
 
+  // Opening a session from the list. The full-height view is the session's
+  // page: it takes the whole screen, it owns its own header and back control,
+  // and it is what a row leads to now that the row cannot hold a transcript.
+  const openSessionPage = useCallback((sid: string) => {
+    if (!sid) return;
+    // The view animates out of the row that opened it. Rows are a known height
+    // (RailItem), so a rect built from the row's own box keeps that origin
+    // honest instead of guessing from the middle of the screen.
+    const row = document.querySelector(`[data-rail-sid="${sid}"]`);
+    const origin = row
+      ? row.getBoundingClientRect()
+      : new DOMRect(window.innerWidth / 2 - 120, 120, 240, 44);
+    setSheet({ sid, origin });
+  }, []);
+
+  // Same grouping the rail uses, from the same helper, so the two lists cannot
+  // drift apart again.
+  const projectGroups = useMemo(
+    () =>
+      groupNodesByProject(
+        tree.roots.filter((item) => !nodeContainsPin(item) && !nodeIsBot(item)),
+        (node) => tree.flatten([node]).length,
+        shortProject,
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tree, topPinned],
+  );
+
+  // The rail's row, wired for mobile. Opening goes to the session's own page
+  // rather than expanding in place: a row cannot hold a transcript, and the
+  // card that tried to was the thing that made this list unscannable.
+  const renderMobileItem = (session: Session) => {
+    const sid = session.sessionId ?? "";
+    return (
+      <RailSessionContextMenu
+        key={sid}
+        session={session}
+        busy={!!busyBySid[sid]}
+        users={users}
+        onRefresh={onRefresh}
+        onRemove={onRemove}
+        topPinned={pinnedSet.has(sid)}
+        onToggleTopPin={toggleTopPin}
+        // Stage pinning is a desktop idea: it means "keep this as a column".
+        // Mobile has one session on screen at a time and no columns to keep.
+        stagePinned={false}
+        onToggleStagePin={() => {}}
+        onOpen={() => openSessionPage(sid)}
+      >
+        <RailItem
+          session={session}
+          busy={!!busyBySid[sid]}
+          latest={latestLine(messagesBySid[sid] ?? EMPTY_MESSAGES)}
+          active={false}
+          cursored={false}
+          pinned={false}
+          topPinned={pinnedSet.has(sid)}
+          collapsed={false}
+          onActivate={() => openSessionPage(sid)}
+          onTogglePin={() => toggleTopPin(sid)}
+        />
+      </RailSessionContextMenu>
+    );
+  };
+
   // Sheet navigation follows the same on-screen order.
   const sheetOrder =
     shippedReview?.sessionId && !screenOrder.includes(shippedReview.sessionId)
@@ -11257,75 +11322,58 @@ function LiveView({
 
   return (
     <>
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-2">
       {coach}
-      {pinned.length ? (
-        <section>
-          <CategoryHeader label="Pinned" count={pinned.length} dotClass="bg-primary" />
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-2">
-            {pinnedNodes.flatMap((node) => renderNode(node))}
-          </div>
-        </section>
-      ) : null}
-      {botSessions.length ? (
-        <section>
-          <CategoryHeader label="Bots" count={botSessions.length} dotClass="bg-primary" />
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-2">
-            {botNodes.flatMap((node) => renderNode(node))}
-          </div>
-        </section>
-      ) : null}
-      {working.length ? (
-        <section>
-          <CategoryHeader
-            label="Working"
-            count={working.length}
-            dotClass={STATUS_DOT_BUSY}
-          />
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-2">
-            {workingNodes.flatMap((node) => renderNode(node))}
-          </div>
-        </section>
-      ) : null}
-      {findings.length ? (
-        <section>
-          <CategoryHeader
-            label="Auto"
-            count={findings.length}
-            dotClass="bg-primary"
-            action={
-              <AutoTriageButton
-                count={findings.length}
-                busy={autoTriageBusy}
-                onClick={onTriageFindings}
-              />
-            }
-          />
-          <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-2">
-            {findings.map((f) => (
-              <AutoFindingCard
-                key={f.id}
-                finding={f}
-                agentName={nameFor(f.agentId)}
-                onOpen={() => onOpenFinding(f)}
-                onDismiss={() => onDismissFinding(f)}
-              />
-            ))}
-          </div>
-        </section>
-      ) : null}
-      {idle.length ? (
-        <section>
-          {/* No action here any more. Session housekeeping lives in the one
-              overflow menu (PagesMenu) so there is a single control instead of
-              a text button on this header plus a clipboard icon in the
-              chrome. */}
-          <CategoryHeader label="Idle" count={idle.length} dotClass={STATUS_DOT_IDLE} />
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-2">
-            {idleNodes.flatMap((node) => renderNode(node))}
-          </div>
-        </section>
-      ) : null}
+      {/* The same list the rail renders, at the same density, grouped the same
+          way (SessionGroups). It used to be a grid of cards split by Working
+          and Idle, which meant the same fleet read as two different products
+          depending on the window — and a card that carried a whole transcript
+          could not be scanned, only read. The row is the unit now; the
+          transcript lives on the session's own page. */}
+      <SessionGroups
+        groups={projectGroups}
+        pinnedNodes={pinnedNodes}
+        pinnedCount={pinned.length}
+        projectFilter={projectFilter}
+        onProjectChange={onProjectChange}
+        renderItem={renderMobileItem}
+        trailing={
+          findings.length ? (
+            <RailGroup
+              label="Auto"
+              count={findings.length}
+              collapsed={false}
+              action={
+                <AutoTriageButton
+                  count={findings.length}
+                  busy={autoTriageBusy}
+                  onClick={onTriageFindings}
+                  compact
+                />
+              }
+            >
+              {findings.map((finding) => (
+                <button
+                  key={finding.id}
+                  type="button"
+                  onClick={() => onOpenFinding(finding)}
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-muted"
+                >
+                  <span className={cn("size-2 shrink-0 rounded-full", SEV_DOT[finding.severity])} />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-[13px] font-medium leading-tight">
+                      {nameFor(finding.agentId)}
+                    </span>
+                    <span className="truncate text-[11px] leading-tight text-muted-foreground">
+                      {finding.title}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </RailGroup>
+          ) : null
+        }
+      />
     </div>
     {sheet && sheetSession ? (
       <SessionTitleSheet
