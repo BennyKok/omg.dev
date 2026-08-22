@@ -15,12 +15,32 @@ import { readFileSync } from "node:fs";
 const app = readFileSync("web/src/App.tsx", "utf8");
 
 describe("page navigation reachability", () => {
-  test("the overflow menu offers every built-in page", () => {
+  test("the overflow menu offers every page it is the only route to", () => {
     const menu = app.slice(app.indexOf("function PagesMenu("));
     const body = menu.slice(0, menu.indexOf("\nfunction "));
-    for (const page of ["live", "notifications", "artifacts", "settings"]) {
+    for (const page of ["notifications", "artifacts", "settings"]) {
       expect(body, `PagesMenu is missing ${page}`).toContain(`value="${page}"`);
     }
+    // Live and Bots are deliberately absent: the Chat/Bots switch bar is the
+    // control for that choice and sits directly under this menu wherever it
+    // renders, so listing the pair here made one decision reachable two ways.
+    expect(body).not.toContain('value="live"');
+    expect(body).not.toContain('value="bots"');
+  });
+
+  // ...but "not in the menu" must not become "not reachable", which is the
+  // property this whole file exists to protect. Both keep a route from every
+  // page that does NOT render the switch bar.
+  test("Live and Bots stay reachable without the menu", () => {
+    // The brand button in the mobile header returns to Live from any page.
+    expect(app).toMatch(
+      /onClick=\{\(\) => setTab\("live"\)\}[\s\S]{0,200}aria-label="Live"/,
+    );
+    // And the switch bar reaches Bots from there.
+    expect(app).toContain(
+      "<SurfaceToggle active={railSurface} onOpenSessions={onOpenSessions} onOpenBots={onOpenBots} />",
+    );
+    expect(app).toContain("shouldShowMobileSurfaceToggle(isMobile, tab, selectedBotId)");
   });
 
   test("settings can be hidden when the host owns it", () => {
