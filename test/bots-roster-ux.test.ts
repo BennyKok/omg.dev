@@ -8,7 +8,7 @@ const BOTS_VIEW = APP.slice(
   APP.indexOf("function BotEditorPage("),
 );
 const railStart = APP.indexOf("const botRailList = (");
-const railEnd = APP.indexOf("    </div>\n  );\n\n  return (\n    <div ref={workspaceRef}", railStart);
+const railEnd = APP.indexOf("    </RailGroup>\n  );\n\n  return (\n    <div ref={workspaceRef}", railStart);
 const BOT_RAIL = APP.slice(railStart, railEnd);
 const PLACEHOLDER = APP.slice(
   APP.indexOf("function BotStagePlaceholder("),
@@ -57,12 +57,11 @@ describe("bots page roster chrome", () => {
     expect(ROSTER).not.toContain("<ChevronRight");
   });
 
-  test("the page roster is larger than the compact rail", () => {
+  test("page and rail rosters render the same row", () => {
     expect(ROSTER).toContain("text-[32px] font-bold");
-    // 44px, not the rail's 24/28px — still a page roster, not the compact
-    // rail — but not 56px either: that size (paired with the mockup's
-    // padding) made the row pitch 84px, which read as a settings list on a
-    // phone rather than a scannable roster. See mobile-bots-nav.ts.
+    // 44px, not 56px: that size (paired with the mockup's padding) made the
+    // row pitch 84px, which read as a settings list on a phone rather than a
+    // scannable roster. See mobile-bots-nav.ts.
     expect(ROSTER).toContain("size={44}");
     expect(ROSTER).toContain("text-base font-semibold");
     expect(ROSTER).toContain("text-sm");
@@ -71,9 +70,29 @@ describe("bots page roster chrome", () => {
     expect(ROSTER).toContain("text-destructive");
     expect(ROSTER).not.toContain("size={56}");
     expect(ROSTER).not.toContain("text-[13px]");
-    expect(BOT_RAIL).toContain("size={railCollapsed ? 24 : 28}");
+    // The rail roster used to run at 24/28px — the session rows' density,
+    // which turned the creature into a bullet point and clipped the preview
+    // after a few words. A bot row is the same object on both surfaces, so it
+    // is the same row: the page's 44px face, and 32px when the rail collapses
+    // to 56px and the face IS the row.
+    expect(BOT_RAIL).toContain("size={railCollapsed ? 32 : 44}");
+    expect(BOT_RAIL).not.toContain("size={railCollapsed ? 24 : 28}");
     expect(BOT_RAIL).not.toContain("size={56}");
     expect(BOT_RAIL).not.toContain("text-[32px]");
+  });
+
+  test("the rail roster is labelled like every other rail list", () => {
+    // Small-caps category header with a count, the same one the Chat rail puts
+    // over Working and Idle. The switch bar says which surface you are on; the
+    // header says what the list is and how many.
+    expect(BOT_RAIL).toContain('<RailGroup label="Bots" count={botRailRows.length}');
+  });
+
+  test("rail rows are a fixed height so a late preview cannot resize them", () => {
+    // The preview line arrives after the row does. Sized to its own text, the
+    // row grew under the cursor and shoved every row below it.
+    expect(BOT_RAIL).toContain("h-[3.75rem]");
+    expect(BOT_RAIL).not.toContain("py-1.5");
   });
 
   test("create is a header New control, not a dashed row", () => {

@@ -59,6 +59,36 @@ describe("bot conversation unread presentation", () => {
     expect(keys(withChildren)).toEqual(["bot:a", "bot:b"]);
   });
 
+  // The server resolves the bot's conversation against every session it knows;
+  // this client only has the fleet list it is holding. A bot whose conversation
+  // is not in that list resolves differently on the two sides, and the row then
+  // matched no server conversation at all — rendering read, with no preview,
+  // for a bot with unread messages waiting.
+  test("still reports unread when the client resolves a different session", () => {
+    const rows = botConversationRows(
+      // Saved id "gone" is not in this client's session list at all.
+      [{ id: "bot", sessionId: "gone" }],
+      [],
+      [
+        {
+          sessionId: "live",
+          conversationId: "conv",
+          botId: "bot",
+          unread: true,
+          lastMessagePreview: "still here",
+          lastMessageTs: 7,
+        },
+      ],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].unread).toBe(true);
+    expect(rows[0].lastMessagePreview).toBe("still here");
+    // The id the row opens comes from the same conversation its unread state
+    // came from, so the dot and the thread can never be two different sessions.
+    expect(rows[0].sessionId).toBe("live");
+    expect(rows[0].conversationId).toBe("conv");
+  });
+
   test("keeps an unstarted bot as one readable row", () => {
     expect(botConversationRows([{ id: "new" }], [], [])).toMatchObject([
       { key: "bot:new", sessionId: null, unread: false },

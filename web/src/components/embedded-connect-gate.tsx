@@ -44,9 +44,8 @@ import { BrandIcon } from "../lib/brand-icons";
 import { InstallInstructions } from "./pwa-install";
 import { usePwaInstall } from "../lib/pwa-install";
 import type { ConnectOption, ToolConnectOption } from "../lib/embedded-connect";
-import { LFG_SMALL_ICON_PATH } from "../lib/icon-assets";
+import { OmgBrandMark } from "./omg-brand-mark";
 import { agentIconAlt, agentIconSrc } from "../lib/session-ui";
-import { omgAssetUrl } from "../lib/omg-client";
 import {
   AI_TOOL_OPTIONS,
   buildGateFlow,
@@ -297,11 +296,7 @@ export function EmbeddedConnectGate({
           below grows or shrinks. */}
       <div className="mt-[8dvh] w-full max-w-sm pb-6">
         <div className="mb-4 flex items-center justify-between gap-2">
-          <img
-            src={omgAssetUrl(LFG_SMALL_ICON_PATH)}
-            alt="omg"
-            className="size-7 shrink-0"
-          />
+          <OmgBrandMark className="size-7 text-muted-foreground" />
           <div
             className="flex items-center gap-1.5"
             aria-label={
