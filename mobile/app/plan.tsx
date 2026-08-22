@@ -1,5 +1,5 @@
 /**
- * The paywall. The way out of `upgrade_required`.
+ * The paywall. The way out of `upgrade_required`, and the onboarding plan step.
  *
  * "Included computer time is used up" was a dead end BY DESIGN. app/computers.tsx
  * states that fact and offers nothing, because the only thing it could have
@@ -30,16 +30,49 @@
  * Hence the `activating` state. The transaction is also deliberately NOT
  * finished in that case, so StoreKit replays it on next launch and it gets
  * recorded then.
+ *
+ * ── This layout ────────────────────────────────────────────────────────────
+ *
+ * Edge-flush hero, one compact list, one Continue button. Tapping a row
+ * selects it. Continue buys the selected paid rung, or leaves on Free / Skip.
+ * Always On and the old $5 Starter (`computer_s20`) are not rows. StoreKit
+ * product ids do not change. The compact paid rungs are `computer_s40`,
+ * `computer_5`, and `computer_10`.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Linking, ScrollView, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Linking,
+  ScrollView,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import * as Haptics from "expo-haptics";
-import { useLocalSearchParams } from "expo-router";
+import { LinearGradient } from "expo-linear-gradient";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { EmptyState, Icon, PrimaryButton, SectionLabel, Separator } from "../src/components";
+import { EmptyState, PrimaryButton } from "../src/components";
+import { BrandMark } from "../src/omg/brand-mark";
 import { PressableScale } from "../src/omg/motion";
+import {
+  COMPACT_PAID_PLANS,
+  continueCtaLabel,
+  defaultSelectedPlan,
+  emphasizeParallel,
+  formatAllowanceLine,
+  FREE_PLAN_KEY,
+  FREE_ROW,
+  isPopularPlan,
+  PAYWALL_HEADLINE,
+  PAYWALL_SUBHEAD,
+  PERSONAL_PLAN_KEY,
+  sellOnPaywall,
+  taglineForPlan,
+} from "../src/omg/plan-copy";
+import { FALLBACK_TIERS, labelForPlan } from "../src/omg/plan-specs";
 import { Text } from "../src/omg/text";
 import { useTheme } from "../src/omg/theme";
 import { useToast } from "../src/omg/toast";
@@ -52,15 +85,6 @@ import {
   type Entitlement,
   type PurchaseAccount,
 } from "../src/omg/billing";
-import {
-  FALLBACK_TIERS,
-  formatComputeHours,
-  formatMachine,
-  formatParallelAgents,
-  labelForPlan,
-  sleepsBetweenTasks,
-  type TierSpecs,
-} from "../src/omg/plan-specs";
 import {
   connectStore,
   fetchTiers,
@@ -94,16 +118,21 @@ type Phase =
   | { kind: "activating"; plan: string }
   | { kind: "done"; entitlement: Entitlement };
 
+const SELECTED_FILL = "rgba(255, 85, 48, 0.08)";
+
 export default function PlanScreen() {
   const insets = useSafeAreaInsets();
-  const { colors, type, space } = useTheme();
+  const router = useRouter();
+  const { colors, type, space, radius, isDark } = useTheme();
   const toast = useToast();
   const { refreshMachines } = useOmg();
+  const pageBg = isDark ? colors.bg : "#ffffff";
 
   const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   const [account, setAccount] = useState<PurchaseAccount | null>(null);
   const [products, setProducts] = useState<StoreProduct[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [selected, setSelected] = useState(PERSONAL_PLAN_KEY);
 
   /**
    * MOCK-ONLY: pick a scenario, and optionally run the flow, from the deep link
@@ -165,7 +194,7 @@ export default function PlanScreen() {
       setAccount(purchaseAccount);
       // A control plane that published no catalog leaves `tiers` null, and the
       // bundled ids stand in so the screen can still sell something. They carry
-      // no specs, so the cards degrade to a name and Apple's price rather than
+      // no specs, so the rows degrade to a name and Apple's price rather than
       // to numbers this build remembers — the whole reason the facts moved to
       // the server. Null and [] are different answers: [] means omg genuinely
       // sells nothing right now, and is passed through as an empty list.
@@ -279,14 +308,34 @@ export default function PlanScreen() {
     }
   }, [account, record, refreshMachines, toast]);
 
+  const skip = useCallback(() => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/");
+  }, [router]);
+
   // MOCK-ONLY. See the note on `params` above.
   useEffect(() => {
     if (!isMockStore || !params.auto || autoRan.current === scenarioKey) return;
     if (phase.kind !== "ready" || products.length === 0) return;
     autoRan.current = scenarioKey;
     if (params.auto === "restore") void restore();
-    else void buy(products.find((p) => p.plan === "computer_5") ?? products[0]);
+    else void buy(products.find((p) => p.plan === PERSONAL_PLAN_KEY) ?? products[0]);
   }, [buy, params.auto, phase.kind, products, restore, scenarioKey]);
+
+  const paidRows = useMemo(
+    () =>
+      COMPACT_PAID_PLANS.flatMap((plan) => {
+        const product = products.find((entry) => entry.plan === plan);
+        if (!product || !sellOnPaywall(product.plan, product.specs)) return [];
+        return [product];
+      }),
+    [products],
+  );
+
+  useEffect(() => {
+    if (paidRows.length === 0) return;
+    setSelected(defaultSelectedPlan([FREE_PLAN_KEY, ...paidRows.map((row) => row.plan)]));
+  }, [paidRows]);
 
   const busy = phase.kind === "purchasing" || phase.kind === "restoring";
   const currentPlan = phase.kind === "done" ? phase.entitlement.plan : account?.plan ?? null;
@@ -297,135 +346,424 @@ export default function PlanScreen() {
    * and still needs a name in "You're all set" and in the Stripe notice.
    */
   const catalog = account?.tiers ?? FALLBACK_TIERS;
+  const selectedProduct = paidRows.find((row) => row.plan === selected);
+  const choosing = phase.kind === "ready" || phase.kind === "purchasing" || phase.kind === "restoring";
+  const ctaLabel = continueCtaLabel(
+    selected === FREE_PLAN_KEY ? null : (selectedProduct?.displayPrice ?? null),
+  );
+
+  const continuePress = () => {
+    if (selected === FREE_PLAN_KEY || selected === currentPlan) {
+      skip();
+      return;
+    }
+    if (selectedProduct) void buy(selectedProduct);
+  };
 
   return (
-    <ScrollView
-      style={{ flex: 1 }}
-      contentContainerStyle={{ paddingBottom: insets.bottom + space.xxl }}
-      contentInsetAdjustmentBehavior="automatic"
-    >
+    <View style={{ flex: 1, backgroundColor: pageBg }}>
+      <StatusBar style={isDark ? "light" : "dark"} />
       {isMockStore ? <MockBanner /> : null}
 
-      {phase.kind === "loading" ? (
-        <View style={{ paddingVertical: space.xxl * 2, alignItems: "center", gap: space.md }}>
-          <ActivityIndicator color={colors.textMuted} />
-          <Text style={{ ...type.footnote, color: colors.textMuted }}>Loading plans…</Text>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: space.lg }}
+        showsVerticalScrollIndicator={false}
+      >
+        <PaywallHero fadeTo={pageBg} />
+
+        <View style={{ alignItems: "center", marginTop: -36 }}>
+          <BrandMark size={56} holeColor={pageBg} />
         </View>
-      ) : phase.kind === "unavailable" ? (
-        <EmptyState title="Not available on this build" detail={phase.message} />
-      ) : phase.kind === "done" ? (
-        <Subscribed entitlement={phase.entitlement} catalog={catalog} />
-      ) : phase.kind === "activating" ? (
-        <Activating plan={phase.plan} catalog={catalog} />
-      ) : (
-        <>
-          <Text
+
+        <Text
+          style={{
+            ...type.title,
+            color: colors.text,
+            textAlign: "center",
+            paddingHorizontal: space.xl,
+            marginTop: space.md,
+          }}
+        >
+          {PAYWALL_HEADLINE}
+        </Text>
+        <Text
+          style={{
+            ...type.callout,
+            color: colors.textMuted,
+            textAlign: "center",
+            paddingHorizontal: space.xl,
+            marginTop: space.xs,
+            marginBottom: space.lg,
+          }}
+        >
+          {PAYWALL_SUBHEAD}
+        </Text>
+
+        {phase.kind === "loading" ? (
+          <View style={{ paddingVertical: space.xxl, alignItems: "center", gap: space.md }}>
+            <ActivityIndicator color={colors.textMuted} />
+            <Text style={{ ...type.footnote, color: colors.textMuted }}>Loading plans…</Text>
+          </View>
+        ) : phase.kind === "unavailable" ? (
+          <EmptyState title="Not available on this build" detail={phase.message} />
+        ) : phase.kind === "done" ? (
+          <Subscribed entitlement={phase.entitlement} catalog={catalog} />
+        ) : phase.kind === "activating" ? (
+          <Activating plan={phase.plan} catalog={catalog} />
+        ) : (
+          <>
+            {loadError ? (
+              <View style={{ paddingHorizontal: space.lg, paddingBottom: space.md, gap: space.md }}>
+                <Text style={{ ...type.footnote, color: colors.danger }}>{loadError}</Text>
+                <PrimaryButton label="Try again" tone="quiet" onPress={() => void load()} />
+              </View>
+            ) : null}
+
+            {/* canPurchase:false is a NORMAL state for an existing web customer,
+                not an edge case — so it gets an explanation rather than a
+                disabled button someone has to guess the meaning of. */}
+            {account && !account.canPurchase ? (
+              <AlreadySubscribed plan={account.plan} reason={account.reason} catalog={catalog} />
+            ) : null}
+
+            {paidRows.length > 0 || !loadError ? (
+              <View
+                style={{
+                  marginHorizontal: space.lg,
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderColor: colors.borderSoft,
+                  backgroundColor: isDark ? colors.card : "#ffffff",
+                  overflow: "hidden",
+                }}
+              >
+                <PlanRow
+                  selected={selected === FREE_PLAN_KEY}
+                  onPress={() => {
+                    void Haptics.selectionAsync();
+                    setSelected(FREE_PLAN_KEY);
+                  }}
+                  label={FREE_ROW.label}
+                  tagline={FREE_ROW.tagline}
+                  computeHours={FREE_ROW.computeHours}
+                  parallelAgents={FREE_ROW.parallelAgents}
+                  price={FREE_ROW.priceLabel}
+                  last={paidRows.length === 0}
+                />
+                {paidRows.map((product, index) => (
+                  <PlanRow
+                    key={product.productId}
+                    selected={selected === product.plan}
+                    onPress={() => {
+                      void Haptics.selectionAsync();
+                      setSelected(product.plan);
+                    }}
+                    label={product.label}
+                    tagline={taglineForPlan(product.plan)}
+                    computeHours={product.specs?.computeHours}
+                    parallelAgents={product.specs?.parallelAgents}
+                    price={product.displayPrice}
+                    popular={isPopularPlan(product.plan)}
+                    current={currentPlan === product.plan}
+                    last={index === paidRows.length - 1}
+                  />
+                ))}
+              </View>
+            ) : (
+              <EmptyState
+                title="No plans available"
+                detail="The App Store didn't return any products. Try again in a moment."
+              />
+            )}
+
+            <View style={{ paddingHorizontal: space.lg, paddingTop: space.lg, gap: space.sm }}>
+              <PressableScale onPress={() => void restore()} disabled={busy} hitSlop={8}>
+                <Text
+                  style={{
+                    ...type.caption,
+                    color: colors.textMuted,
+                    textAlign: "center",
+                    textDecorationLine: "underline",
+                  }}
+                >
+                  {phase.kind === "restoring" ? "Restoring…" : "Restore purchases"}
+                </Text>
+              </PressableScale>
+              <Text
+                style={{
+                  ...type.caption,
+                  color: colors.textMuted,
+                  textAlign: "center",
+                  lineHeight: 16,
+                }}
+              >
+                Payment is charged to your Apple ID. Subscriptions renew monthly until cancelled in
+                the App Store.
+              </Text>
+              <LegalLinks />
+            </View>
+          </>
+        )}
+      </ScrollView>
+
+      {choosing ? (
+        <View
+          style={{
+            paddingHorizontal: space.lg,
+            paddingTop: space.sm,
+            paddingBottom: Math.max(insets.bottom, space.md),
+            backgroundColor: pageBg,
+            gap: space.sm,
+          }}
+        >
+          <PressableScale
+            onPress={continuePress}
+            disabled={
+              busy ||
+              (selected !== FREE_PLAN_KEY &&
+                (!selectedProduct || !account?.canPurchase || selected === currentPlan))
+            }
+            accessibilityRole="button"
+            accessibilityLabel={ctaLabel}
+            scale={0.98}
             style={{
-              ...type.footnote,
-              color: colors.textMuted,
-              paddingHorizontal: space.lg,
-              paddingTop: space.md,
-              lineHeight: 18,
+              height: 52,
+              borderRadius: radius.lg,
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: colors.brand,
+              opacity:
+                busy ||
+                (selected !== FREE_PLAN_KEY &&
+                  (!selectedProduct || !account?.canPurchase || selected === currentPlan))
+                  ? 0.4
+                  : 1,
             }}
           >
-            Your cloud computer runs on a monthly plan. Pick the size you need — you can change
-            or cancel it any time in the App Store.
-          </Text>
+            {phase.kind === "purchasing" ? (
+              <ActivityIndicator color="#ffffff" />
+            ) : (
+              <Text style={{ ...type.headline, color: "#ffffff" }}>{ctaLabel}</Text>
+            )}
+          </PressableScale>
+          <PressableScale onPress={skip} disabled={busy} hitSlop={10}>
+            <Text style={{ ...type.callout, color: colors.textMuted, textAlign: "center" }}>
+              Skip for now
+            </Text>
+          </PressableScale>
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
-          {loadError ? (
-            <View style={{ padding: space.lg, gap: space.md }}>
-              <Text style={{ ...type.footnote, color: colors.danger }}>{loadError}</Text>
-              <PrimaryButton label="Try again" tone="quiet" onPress={() => void load()} />
-            </View>
-          ) : null}
+/**
+ * Edge-flush launch still. Square-ish, zoomed on the phone, fading into the
+ * page.
+ *
+ * There is no clip asset in this repo or in the onboarding flow — no mp4, no
+ * existing host URL. This is a still crop of the same frame the mock shows,
+ * not a YouTube player and not a new video host.
+ */
+function PaywallHero({ fadeTo }: { fadeTo: string }) {
+  const { width } = useWindowDimensions();
+  const height = Math.round(width * 0.92);
 
-          {/* canPurchase:false is a NORMAL state for an existing web customer,
-              not an edge case — so it gets an explanation rather than a
-              disabled button someone has to guess the meaning of. */}
-          {account && !account.canPurchase ? (
-            <AlreadySubscribed plan={account.plan} reason={account.reason} catalog={catalog} />
-          ) : null}
-
-          {products.length > 0 ? (
-            <>
-              <SectionLabel>Computer plans</SectionLabel>
-              {products.map((product) => (
-                <TierCard
-                  key={product.productId}
-                  product={product}
-                  current={currentPlan === product.plan}
-                  purchasing={phase.kind === "purchasing" && phase.productId === product.productId}
-                  disabled={busy || !account?.canPurchase || currentPlan === product.plan}
-                  onPress={() => void buy(product)}
-                />
-              ))}
-              {/* ── REMOVED: an idle-billing claim that is not currently true ──
-                  This said, directly above a Buy button:
-
-                    "Every plan pauses while idle, so time you are not using
-                     does not come out of your hours. A paused Computer keeps
-                     its files and picks up where it left off."
-
-                  Session d3f4e3e8 measured a cloud Computer with no sessions
-                  and nothing connected, twice, five minutes each:
-
-                    2083 micros / 302s -> 24,830 micros/hour
-
-                  Full running rate is 25,000 and hibernated is 0, so an idle
-                  Computer bills at 99.3% of full rate. The second measurement
-                  was taken AFTER an explicit pause through the lifecycle
-                  endpoint and was identical to the byte. Idle time comes out
-                  of your hours almost entirely.
-
-                  That makes this the most consequential sentence on the
-                  screen, because it is what tells someone how to read every
-                  "N hours" above it — 20 hours of USAGE and 20 hours of
-                  CALENDAR are different products at the same price. Stating it
-                  wrongly next to a purchase is worse than not explaining the
-                  hours at all, which is the same rule this file already
-                  follows for spec numbers: degrade to silence, never to a
-                  number we cannot stand behind.
-
-                  RESTORE THIS, unchanged, once idle Computers actually stop
-                  billing — the sentence is good and it is where it belongs.
-                  Do not reword it to describe the current behaviour instead:
-                  "your hours are consumed whether or not you are working" is
-                  accurate today, but it is a platform decision in flight
-                  (raised with Benny, outside this release), and a paywall is
-                  the wrong place to litigate it. Silence is honest in both
-                  states. */}
-            </>
-          ) : !loadError ? (
-            <EmptyState
-              title="No plans available"
-              detail="The App Store didn't return any products. Try again in a moment."
+  return (
+    <View style={{ width, height, overflow: "hidden", backgroundColor: "#c8b7aa" }}>
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: -height * 0.08,
+          left: -width * 0.12,
+          width: width * 1.24,
+          height: height * 1.2,
+        }}
+      >
+        <LinearGradient
+          colors={["#d9c7b8", "#c3b0a2", "#b19788"]}
+          start={{ x: 0.15, y: 0 }}
+          end={{ x: 0.9, y: 1 }}
+          style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}
+        />
+        <View
+          style={{
+            position: "absolute",
+            width: width * 0.86,
+            height: height * 1.05,
+            left: width * 0.19,
+            top: height * 0.1,
+            borderRadius: 36,
+            backgroundColor: "#111111",
+            padding: 8,
+            transform: [{ rotate: "-8deg" }],
+          }}
+        >
+          <View
+            style={{
+              flex: 1,
+              borderRadius: 28,
+              backgroundColor: "#f4f4f5",
+              overflow: "hidden",
+              paddingTop: 18,
+              paddingHorizontal: 12,
+              gap: 8,
+            }}
+          >
+            <View
+              style={{
+                alignSelf: "center",
+                width: 48,
+                height: 6,
+                borderRadius: 3,
+                backgroundColor: "#111",
+                marginBottom: 8,
+              }}
             />
-          ) : null}
+            <FeedLine width="78%" />
+            <FeedLine width="64%" />
+            <FeedLine width="86%" />
+            <FeedLine width="52%" />
+          </View>
+        </View>
+      </View>
+      <LinearGradient
+        colors={["rgba(255,255,255,0)", fadeTo]}
+        locations={[0.2, 1]}
+        style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: height * 0.46 }}
+      />
+    </View>
+  );
+}
 
-          <View style={{ paddingHorizontal: space.lg, paddingTop: space.xl, gap: space.md }}>
-            <PrimaryButton
-              label="Restore purchases"
-              tone="quiet"
-              loading={phase.kind === "restoring"}
-              disabled={busy}
-              onPress={() => void restore()}
-            />
+function FeedLine({ width }: { width: `${number}%` }) {
+  return (
+    <View
+      style={{
+        height: 34,
+        width,
+        borderRadius: 10,
+        backgroundColor: "#ffffff",
+        borderWidth: 1,
+        borderColor: "rgba(0,0,0,0.06)",
+      }}
+    />
+  );
+}
+
+function PlanRow({
+  selected,
+  onPress,
+  label,
+  tagline,
+  computeHours,
+  parallelAgents,
+  price,
+  popular = false,
+  current = false,
+  last = false,
+}: {
+  selected: boolean;
+  onPress: () => void;
+  label: string;
+  tagline?: string;
+  computeHours?: number;
+  parallelAgents?: number;
+  price: string;
+  popular?: boolean;
+  current?: boolean;
+  last?: boolean;
+}) {
+  const { colors, type, space } = useTheme();
+  const allowance =
+    computeHours != null && parallelAgents != null
+      ? formatAllowanceLine(computeHours, parallelAgents)
+      : null;
+  const emphasize = parallelAgents != null && emphasizeParallel(parallelAgents);
+
+  return (
+    <PressableScale
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      accessibilityLabel={[
+        label,
+        popular ? "most popular" : "",
+        current ? "current plan" : "",
+        tagline ?? "",
+        allowance
+          ? `${allowance.hours} · ${allowance.parallelCount} ${allowance.parallelSuffix}`
+          : "",
+        price,
+      ]
+        .filter(Boolean)
+        .join(". ")}
+      scale={1}
+      style={{
+        backgroundColor: selected ? SELECTED_FILL : "transparent",
+        paddingHorizontal: space.md,
+        paddingVertical: 12,
+        borderBottomWidth: last ? 0 : 1,
+        borderBottomColor: colors.borderSoft,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.md,
+      }}
+    >
+      <Radio selected={selected} />
+      <View style={{ flex: 1, gap: 2 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <Text style={{ ...type.headline, color: colors.text }}>{label}</Text>
+          {popular ? (
+            <Text style={{ ...type.overline, color: colors.brand, fontSize: 10 }}>MOST POPULAR</Text>
+          ) : null}
+        </View>
+        {tagline ? (
+          <Text style={{ ...type.footnote, color: colors.textMuted }}>{tagline}</Text>
+        ) : null}
+        {allowance ? (
+          <Text style={{ ...type.footnote, color: colors.textSecondary }}>
+            {allowance.hours}
+            {" · "}
             <Text
               style={{
-                ...type.caption,
-                color: colors.textMuted,
-                textAlign: "center",
-                lineHeight: 16,
+                color: emphasize ? colors.brand : colors.textSecondary,
+                fontWeight: emphasize ? "700" : "400",
               }}
             >
-              Payment is charged to your Apple ID. Subscriptions renew monthly until cancelled in
-              the App Store.
+              {allowance.parallelCount}
             </Text>
-            <LegalLinks />
-          </View>
-        </>
-      )}
-    </ScrollView>
+            {" "}
+            {allowance.parallelSuffix}
+          </Text>
+        ) : null}
+      </View>
+      <Text style={{ ...type.headline, color: colors.text }}>{price}</Text>
+    </PressableScale>
+  );
+}
+
+function Radio({ selected }: { selected: boolean }) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={{
+        width: 22,
+        height: 22,
+        borderRadius: 11,
+        borderWidth: selected ? 0 : 1.5,
+        borderColor: colors.borderStrong,
+        backgroundColor: selected ? colors.brand : "transparent",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      {selected ? (
+        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#ffffff" }} />
+      ) : null}
+    </View>
   );
 }
 
@@ -476,202 +814,6 @@ function LegalLinks() {
 }
 
 /**
- * One fact about a tier: an icon, what it is, and the number.
- *
- * Every row is exactly one line by construction. The value never wraps and
- * never shrinks; the label yields first, because a wrapped value would make one
- * card taller than its neighbours and break the column of numbers that makes
- * five tiers comparable at a glance.
- */
-function SpecRow({
-  label,
-  value,
-  emphasis = false,
-  ...glyph
-}: {
-  label: string;
-  value: string;
-  /** The number this tier is really sold on. */
-  emphasis?: boolean;
-} & ({ ios: "clock"; android: "schedule" } | { ios: "cpu"; android: "memory" } | { ios: "internaldrive"; android: "storage" } | { ios: "bolt.fill"; android: "bolt" })) {
-  const { colors, type, space } = useTheme();
-  return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingVertical: 5 }}>
-      <Icon
-        {...glyph}
-        size={15}
-        weight={emphasis ? "semibold" : "regular"}
-        color={emphasis ? colors.text : colors.textMuted}
-      />
-      <Text numberOfLines={1} style={{ ...type.footnote, color: colors.textMuted, flexShrink: 1 }}>
-        {label}
-      </Text>
-      <Text
-        style={{
-          ...type.footnote,
-          color: colors.text,
-          fontWeight: emphasis ? "600" : "500",
-          marginLeft: "auto",
-          flexShrink: 0,
-        }}
-      >
-        {value}
-      </Text>
-    </View>
-  );
-}
-
-/**
- * One tier, as something you can read rather than only price-compare.
- *
- * ── Why a list of cards and not the dashboard's slider ──────────────────────
- *
- * The dashboard shows ONE rung at a time and makes moving between them the
- * whole interaction: a slider, ticks, a spring onto each detent. That works
- * because a mouse is bad at direct selection and good at scrubbing, and because
- * the overlay owns the entire viewport.
- *
- * Neither holds here. The equivalent of "move between the rungs" that a thumb
- * already does perfectly is SCROLL — the vertical scroll IS this screen's
- * slider, and it costs nothing to learn. Reproducing a drag control would also
- * have meant five tiers hidden behind a gesture nobody was told about, on the
- * one screen where hiding what someone is buying is the actual complaint.
- *
- * So: same vocabulary as the web ("Compute time", "Machine", "Disk", "agents in
- * parallel", the same formatters), same facts, different control. All five are
- * visible and comparable without touching anything, which a slider cannot do.
- *
- * ── The card makes no claim it was not handed ──────────────────────────────
- *
- * `specs` is null whenever the server did not describe this tier, and then the
- * card is deliberately just a name and Apple's price. That is the honest
- * degradation and it is the reason the numbers left the bundle: a stale spec
- * would still render beautifully.
- */
-function TierCard({
-  product,
-  current,
-  purchasing,
-  disabled,
-  onPress,
-}: {
-  product: StoreProduct;
-  current: boolean;
-  purchasing: boolean;
-  disabled: boolean;
-  onPress: () => void;
-}) {
-  const { colors, radius, type, space } = useTheme();
-  const specs: TierSpecs | null = product.specs;
-  const sleeps = specs ? sleepsBetweenTasks(specs) : null;
-
-  return (
-    <PressableScale
-      onPress={onPress}
-      disabled={disabled}
-      accessibilityRole="button"
-      // One label for the whole card. VoiceOver reading eight separate nodes
-      // per tier, five times over, is how a screen becomes unusable while
-      // technically being accessible.
-      accessibilityLabel={[
-        product.label,
-        current ? "current plan" : product.displayPrice + " per month",
-        specs
-          ? `${formatParallelAgents(specs.parallelAgents)}, ${formatComputeHours(specs.computeHours)} of compute time, ${formatMachine(specs)}, ${specs.diskGb} GB disk${sleeps ? ", always on, never sleeps" : ""}`
-          : "",
-      ]
-        .filter(Boolean)
-        .join(". ")}
-      scale={0.98}
-      style={({ pressed }) => ({
-        backgroundColor: pressed && !disabled ? colors.cardPressed : colors.card,
-        borderRadius: radius.lg,
-        marginHorizontal: space.lg,
-        marginBottom: space.md,
-        padding: space.lg,
-        gap: specs ? space.md : 0,
-        // The current plan is outlined rather than dimmed. Dimming it would
-        // hide the specs of the machine someone actually has, which is the one
-        // tier they have the most reason to re-read.
-        borderWidth: current ? 1.5 : 0,
-        borderColor: current ? colors.primary : "transparent",
-        // Only a card you cannot buy fades, and the current plan is not one of
-        // those — it is disabled because it is already yours.
-        opacity: disabled && !current ? 0.5 : 1,
-      })}
-    >
-      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: space.md }}>
-        <View style={{ flex: 1, gap: 2 }}>
-          <Text style={{ ...type.headline, color: colors.text }}>{product.label}</Text>
-          {specs ? (
-            /* The dashboard's hero number, demoted to a subtitle. It is still
-               the headline fact — the thing the ladder is really sold on — but
-               five 40pt numbers down a scroll is five heroes and therefore
-               none. */
-            <Text style={{ ...type.subhead, color: colors.textSecondary }}>
-              {formatParallelAgents(specs.parallelAgents)}
-            </Text>
-          ) : null}
-        </View>
-        <View style={{ alignItems: "flex-end", gap: 1 }}>
-          {purchasing ? (
-            <ActivityIndicator color={colors.textMuted} />
-          ) : (
-            <>
-              {/* Apple's string, verbatim. Never composed here — it is a
-                  different currency in every storefront. */}
-              <Text style={{ ...type.headline, color: colors.text }}>{product.displayPrice}</Text>
-              {current ? (
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-                  <Icon ios="checkmark" android="check" size={11} weight="semibold" color={colors.primary} />
-                  <Text style={{ ...type.caption, color: colors.primary }}>Current plan</Text>
-                </View>
-              ) : (
-                <Text style={{ ...type.caption, color: colors.textMuted }}>per month</Text>
-              )}
-            </>
-          )}
-        </View>
-      </View>
-
-      {specs ? (
-        <>
-          <Separator />
-          <View>
-            {/* Compute time carries the emphasis, matching the dashboard: it is
-                the allowance that actually runs out, and the one people are
-                surprised by. */}
-            <SpecRow
-              ios="clock"
-              android="schedule"
-              label="Compute time"
-              value={formatComputeHours(specs.computeHours)}
-              emphasis
-            />
-            <SpecRow ios="cpu" android="memory" label="Machine" value={formatMachine(specs)} />
-            <SpecRow
-              ios="internaldrive"
-              android="storage"
-              label="Disk"
-              value={`${specs.diskGb} GB`}
-            />
-            {sleeps ? (
-              <SpecRow
-                ios="bolt.fill"
-                android="bolt"
-                label="Sleeps between tasks"
-                value={sleeps}
-                emphasis
-              />
-            ) : null}
-          </View>
-        </>
-      ) : null}
-    </PressableScale>
-  );
-}
-
-/**
  * Apple has the money, omg has not confirmed yet.
  *
  * Deliberately reassuring and deliberately not an error. The transaction is
@@ -682,7 +824,7 @@ function Activating({ plan, catalog }: { plan: string; catalog: readonly Tier[] 
   const { colors, type, space } = useTheme();
   const label = labelForPlan(plan, catalog);
   return (
-    <View style={{ paddingTop: space.xxl }}>
+    <View style={{ paddingTop: space.lg }}>
       <EmptyState
         title="Purchase complete"
         detail={`Your ${label ?? "new"} plan is being activated. This usually takes a few seconds — you can close this screen, it will finish on its own.`}
@@ -709,7 +851,7 @@ function Subscribed({
   // label would be neither.
   const label = labelForPlan(entitlement.plan, catalog) ?? entitlement.plan;
   return (
-    <View style={{ paddingTop: space.xxl }}>
+    <View style={{ paddingTop: space.lg }}>
       <EmptyState
         title={entitlement.replayed ? "Purchases restored" : "You're all set"}
         detail={`Your cloud computer is on ${label}. It may take a moment to come back online.`}
@@ -736,7 +878,7 @@ function Subscribed({
  * Do not add a link to this component.
  *
  * The second sentence stays because the first alone does not explain why the
- * cards below cannot be tapped, and an unexplained dead control is what #115
+ * rows below cannot be bought, and an unexplained dead control is what #115
  * set out to avoid. It describes this screen's own behaviour, not somewhere
  * else's.
  */
@@ -753,10 +895,10 @@ function AlreadySubscribed({
   const label = labelForPlan(plan, catalog);
   const stripe = reason === "stripe_subscription_active";
   return (
-    <View style={{ paddingHorizontal: space.lg, paddingTop: space.lg }}>
+    <View style={{ paddingHorizontal: space.lg, paddingBottom: space.md }}>
       <View
         style={{
-          backgroundColor: colors.accentSoft,
+          backgroundColor: SELECTED_FILL,
           borderRadius: 12,
           padding: space.lg,
           gap: space.xs,

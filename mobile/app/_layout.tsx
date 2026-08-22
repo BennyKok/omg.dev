@@ -392,10 +392,11 @@ function RootNavigator() {
           <Stack.Screen name="bots/new" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="bots/[id]/edit" options={{ headerShown: false }} />
           {/* In-app purchase. Pushed from the blocked cloud computer and from
-              Settings — the two places someone learns they need to pay. It is
-              a normal pushed screen rather than a modal so the back gesture
-              behaves the same as everywhere else. */}
-          <Stack.Screen name="plan" options={{ title: "Plan", headerLargeTitle: true }} />
+              Settings — the two places someone learns they need to pay. Header
+              is hidden so the launch still can sit flush to the screen edges.
+              It stays a pushed screen rather than a modal so the back gesture
+              (and Skip for now) behave the same as everywhere else. */}
+          <Stack.Screen name="plan" options={{ headerShown: false }} />
         </Stack.Protected>
       </Stack>
     </>

@@ -184,7 +184,7 @@ export const FALLBACK_TIERS: readonly CatalogTier[] = [
   {
     productId: "dev.omg.computer.computer_s40.monthly.v1",
     plan: "computer_s40",
-    label: "Starter Plus",
+    label: "Starter",
     specs: null,
   },
   {
