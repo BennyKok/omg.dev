@@ -23144,10 +23144,10 @@ function VoiceSettingsSection() {
   const needsSetup = !!cfg && !selectedInput?.available;
 
   return (
+    // No section header: the card holds exactly one row, and that row's own
+    // label ("Voice input") already said "Voice" — a group label above it
+    // was a second copy of the same word, not new information.
     <section className="space-y-2">
-      <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        Voice
-      </h2>
       <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
         <ProviderRow
           icon={<Mic className="size-4" />}
@@ -23439,7 +23439,9 @@ function AgentConcurrencySettingsSection({
 
   return (
     <section className="space-y-2">
-      <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+      {/* Not uppercased — see RailGroup: shouting a group label was the
+          loudest text on a settings page that should read quiet. */}
+      <h2 className="px-4 text-xs font-semibold text-muted-foreground">
         Agent capacity
       </h2>
       <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
@@ -24725,10 +24727,10 @@ function UserIconSettingsSection({ identityEmail }: { identityEmail: string | nu
   }
 
   return (
+    // No section header: this card sits right under the identity row it
+    // belongs to, and its own avatar + "Upload"/"Replace" buttons already
+    // say "this is your icon" without a label repeating it above.
     <section className="space-y-2">
-      <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        Icon
-      </h2>
       <div className="flex items-center gap-4 rounded-2xl border border-border bg-card/40 px-4 py-3.5">
         <span className="relative flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted">
           {state?.avatar ? (
@@ -24937,13 +24939,18 @@ function SettingsView({
 
       {/* Live browser-to-server RTT, measured over the same socket that carries
           session updates. This is intentionally dynamic rather than a cached
-          health-check number so remote-access latency is visible here. */}
+          health-check number so remote-access latency is visible here.
+          No header, no trailing paragraph: "Connection" above the card and
+          "refreshed every five seconds" below it were both restating what
+          the "Ping" row and its live value already show. The refresh cadence
+          is real but not something you act on, so it moved to a title
+          attribute instead of a permanent third line. */}
       <section className="space-y-2">
-        <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Connection
-        </h2>
         <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
-          <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+          <div
+            className="flex items-center justify-between gap-4 px-4 py-2.5"
+            title="Refreshed every five seconds"
+          >
             <div className="flex min-w-0 items-center gap-3">
               <span className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-primary text-white">
                 <Gauge className="size-4" />
@@ -24986,16 +24993,14 @@ function SettingsView({
             </div>
           </div>
         </div>
-        <p className="px-4 text-xs text-muted-foreground">
-          Live round-trip latency, refreshed every five seconds.
-        </p>
       </section>
 
       {/* Computer — in standalone LFG this box IS the computer, so the row is
           static. When these sections are mounted by a host (omg) this is the
           slot that becomes a machine switcher. */}
       <section className="space-y-2">
-        <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        {/* Not uppercased — see RailGroup: group labels read quieter lowercase. */}
+        <h2 className="px-4 text-xs font-semibold text-muted-foreground">
           Computer
         </h2>
         <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
@@ -25146,9 +25151,9 @@ function MoreView({
         <h1 className="text-lg font-semibold leading-tight">More</h1>
       </div>
 
-      {/* On this computer */}
+      {/* On this computer — not uppercased, see RailGroup. */}
       <section className="space-y-2">
-        <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <h2 className="px-4 text-xs font-semibold text-muted-foreground">
           On this computer
         </h2>
         <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
@@ -25183,10 +25188,10 @@ function MoreView({
 
       <VoiceSettingsSection />
 
-      {/* Extension tabs — each opens as its own page. */}
+      {/* Extension tabs — each opens as its own page. Not uppercased, see RailGroup. */}
       {extTabs.length ? (
         <section className="space-y-2">
-          <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <h2 className="px-4 text-xs font-semibold text-muted-foreground">
             Extensions
           </h2>
           <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
@@ -25212,9 +25217,10 @@ function MoreView({
 
       <PwaInstallSettingsSection />
 
-      {/* This device — browser-local, never synced to the server. */}
+      {/* This device — browser-local, never synced to the server. Not
+          uppercased, see RailGroup. */}
       <section className="space-y-2">
-        <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <h2 className="px-4 text-xs font-semibold text-muted-foreground">
           This device
         </h2>
         <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
@@ -25272,9 +25278,9 @@ function MoreView({
         </p>
       </section>
 
-      {/* Help */}
+      {/* Help — not uppercased, see RailGroup. */}
       <section className="space-y-2">
-        <h2 className="px-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <h2 className="px-4 text-xs font-semibold text-muted-foreground">
           Help
         </h2>
         <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
