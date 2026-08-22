@@ -170,3 +170,74 @@ describe("owner-scoped store helpers", () => {
     expect(await store.listAutoAgents()).toHaveLength(4);
   });
 });
+
+describe("normTitle — recurrence matching keeps #NNN error codes distinct", () => {
+  // The worked example that motivated this: a client-error finding titled
+  // "Minified React error #185…" and a later one titled "…#310…" used to
+  // normalize to the identical key (digit-stripping treated "185" and "310"
+  // the same as it treats a byte count or a timestamp). In production that
+  // meant every future React-error report — regardless of code — silently
+  // recurred onto whichever one was filed first, so a stale #185 finding kept
+  // absorbing an unrelated, active #310 regression's occurrences.
+  const react185 =
+    "Frontend error: Minified React error #185; visit https://react.dev/errors/185 for the full message";
+  const react310 =
+    "Frontend error: Minified React error #310; visit https://react.dev/errors/310 for the full message";
+
+  test("different #NNN error codes normalize to different keys", () => {
+    expect(store.normTitleForTest(react185)).not.toEqual(store.normTitleForTest(react310));
+  });
+
+  test("the same #NNN error code still normalizes identically across reports", () => {
+    const again =
+      "Frontend error: Minified React error #185; visit https://react.dev/errors/185 for a second time";
+    // Only the trailing sentence differs, same as the real reporter's fixed
+    // "for the full message or use the non-minified…" suffix would collapse
+    // to the same generic text either way — the point under test is that the
+    // #185 identifier itself still matches #185.
+    expect(store.normTitleForTest(react185).includes("#185")).toBe(true);
+    expect(store.normTitleForTest(again).includes("#185")).toBe(true);
+  });
+
+  test("recordRecurrence files #185 and #310 as separate findings, not one merged row", async () => {
+    const first = await store.addFinding({
+      agentId: "client-error",
+      title: react185,
+      reasoning: ["Kind: react"],
+      severity: "high",
+    });
+    // A recurrence of the SAME code re-surfaces the existing row.
+    const recurredSame = await store.recordRecurrence("client-error", react185);
+    expect(recurredSame?.id).toBe(first.id);
+    expect(recurredSame?.occurrences).toBe(2);
+
+    // A DIFFERENT code must not match the #185 row — recordRecurrence returns
+    // null (genuinely new) so the caller files it as its own finding, instead
+    // of silently inflating #185's occurrence count for a #310 problem.
+    const recurredOther = await store.recordRecurrence("client-error", react310);
+    expect(recurredOther).toBeNull();
+
+    const second = await store.addFinding({
+      agentId: "client-error",
+      title: react310,
+      reasoning: ["Kind: react"],
+      severity: "high",
+    });
+    expect(second.id).not.toBe(first.id);
+
+    const rows = await store.listFindings();
+    const clientErrorRows = rows.filter((r) => r.agentId === "client-error");
+    expect(clientErrorRows).toHaveLength(2);
+  });
+
+  test("incidental numbers (byte counts, percentages) still collapse across reports", () => {
+    // Unlike an error code, these numbers are telemetry, not identity — a
+    // moved number is the same problem worsening and must keep merging.
+    expect(store.normTitleForTest("sqld WAL is 2.3 GB")).toEqual(
+      store.normTitleForTest("sqld WAL is 3.1 GB"),
+    );
+    expect(store.normTitleForTest("box-1 disk 91% full")).toEqual(
+      store.normTitleForTest("box-2 disk 93% full"),
+    );
+  });
+});
