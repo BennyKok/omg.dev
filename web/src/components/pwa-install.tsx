@@ -24,7 +24,7 @@ function initiallyDismissed() {
   }
 }
 
-function InstallInstructions({ mode, open, onOpenChange }: {
+export function InstallInstructions({ mode, open, onOpenChange }: {
   mode: PwaInstallMode;
   open: boolean;
   onOpenChange: (open: boolean) => void;
