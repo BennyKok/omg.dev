@@ -636,7 +636,7 @@ function PaywallHero({ fadeTo }: { fadeTo: string }) {
   );
 }
 
-function FeedLine({ width }: { width: string }) {
+function FeedLine({ width }: { width: `${number}%` }) {
   return (
     <View
       style={{
