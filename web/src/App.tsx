@@ -60,6 +60,7 @@ import {
 } from "./lib/version-diagnostics";
 import { cacheProjectFilter, readCachedProjectFilter } from "./lib/project-filter";
 import { groupNodesByProject, type ProjectGroup } from "./lib/session-groups";
+import { pathnameToSessionId, sessionToPath } from "./lib/app-search";
 import {
   BOT_ROSTER_ROW_CLASS,
   mobileSurfaceDockBottom,
@@ -5742,6 +5743,31 @@ export function App() {
   const botEditorTarget: string | null =
     botPathId === "new" ? "new" : botPathSegments[2] === "edit" ? botPathId : null;
   const selectedBotId = botPathId && botPathId !== "new" ? botPathId : null;
+  // `/sessions/<id>` is one session, open, as a page. Derived from the URL
+  // rather than held in state so back — the browser's, the phone's gesture,
+  // ours — leaves the session instead of the app, and so the transcript can be
+  // linked to. `pathnameToTab` keeps Live selected underneath it.
+  const openSessionId = pathnameToSessionId(pathname);
+  // Carry the host-mode contract across the navigation, the same as setTab
+  // does: the router clears search when none is supplied, and dropping `embed`
+  // brings LFG back up as a standalone app inside omg.
+  const keepHostSearch = useCallback(
+    (prev: AppSearch): AppSearch => ({
+      ...(prev.embed ? { embed: prev.embed } : {}),
+      ...(prev.embedOrigin ? { embedOrigin: prev.embedOrigin } : {}),
+    }),
+    [],
+  );
+  const openSessionPage = useCallback(
+    (sid: string) => {
+      if (!sid) return;
+      void navigate({ to: sessionToPath(sid), search: keepHostSearch });
+    },
+    [navigate, keepHostSearch],
+  );
+  const closeSessionPage = useCallback(() => {
+    void navigate({ to: "/", search: keepHostSearch });
+  }, [navigate, keepHostSearch]);
   const selectedBotConversationId = selectedBotId ? routeSearch.conversation ?? null : null;
   // A terminal is on screen — as the Terminal tab, or pulled up over any tab.
   // Both need the same soft-keyboard treatment: the shell pinned to the visible
@@ -8610,6 +8636,9 @@ export function App() {
             aria-hidden={!workspaceVisible}
           >
             <LiveView
+              openSessionId={openSessionId}
+              onOpenSessionPage={openSessionPage}
+              onCloseSessionPage={closeSessionPage}
               sessions={liveSessions}
               shippedReview={shippedReview}
               liveSessionIds={liveStatusIds}
@@ -10870,6 +10899,9 @@ function LiveView({
   // unconditionally below (the original `findings.length` crash site). The fetch
   // layer already guards these to [], but default here too so any future caller
   // passing `undefined` degrades to an empty render instead of crashing the view.
+  openSessionId = null,
+  onOpenSessionPage,
+  onCloseSessionPage,
   sessions = [],
   shippedReview,
   liveSessionIds,
@@ -10913,6 +10945,10 @@ function LiveView({
 }: {
   sessions: Session[];
   shippedReview?: Session | null;
+  /** The session `/sessions/<id>` names, or null on the plain list. */
+  openSessionId?: string | null;
+  onOpenSessionPage?: (sid: string) => void;
+  onCloseSessionPage?: () => void;
   liveSessionIds: string[];
   users: User[];
   userFilter: string;
@@ -10959,10 +10995,10 @@ function LiveView({
 }) {
   const isWide = useIsWide();
   const isMobile = useIsMobile();
-  // Full-height detail sheet (mobile tap). Held here, above every card,
-  // so it can switch which session it shows without unmounting. `origin` anchors
-  // the open/close morph to the title the user tapped.
-  const [sheet, setSheet] = useState<{ sid: string; origin: DOMRect } | null>(null);
+  // Which session is open is the URL's answer (`/sessions/<id>`), not this
+  // component's. Only the morph origin is local: it anchors the open/close
+  // animation to the row that was tapped, and a DOMRect cannot live in a URL.
+  const [sheetOrigin, setSheetOrigin] = useState<DOMRect | null>(null);
   const [topPinned, setTopPinned] = useState<string[]>(readPinnedSessions);
   const topPinnedRef = useRef(topPinned);
   topPinnedRef.current = topPinned;
@@ -11001,14 +11037,27 @@ function LiveView({
       topPinnedRef.current = next;
       return next;
     });
-    setSheet((current) =>
-      current &&
-      !liveSessionIds.includes(current.sid) &&
-      shippedReview?.sessionId !== current.sid
-        ? null
-        : current,
-    );
-  }, [liveSessionIds, shippedReview?.sessionId]);
+    // The open session ended and is no longer listed: leave its page instead
+    // of holding a URL that names nothing.
+    //
+    // Only once a list has actually arrived. An empty `liveSessionIds` is the
+    // boot state as well as the "nothing is running" state, and treating the
+    // first as the second bounced every cold deep link straight back to the
+    // list before its own session had a chance to load.
+    if (!sessionsSeenRef.current) return;
+    if (
+      openSessionId &&
+      !liveSessionIds.includes(openSessionId) &&
+      shippedReview?.sessionId !== openSessionId
+    ) {
+      onCloseSessionPage?.();
+    }
+  }, [liveSessionIds, shippedReview?.sessionId, openSessionId, onCloseSessionPage]);
+
+  // Flipped the first time the fleet list is non-empty, which is the only
+  // signal here that separates "still loading" from "nothing is running".
+  const sessionsSeenRef = useRef(false);
+  if (liveSessionIds.length) sessionsSeenRef.current = true;
 
   const toggleTopPin = useCallback((sid: string) => {
     const current = topPinnedRef.current;
@@ -11020,12 +11069,12 @@ function LiveView({
     toast.success(pinned ? "Session unpinned" : "Session pinned to top");
   }, []);
 
-  // Narrow layout: a focus request opens the full-height chat sheet directly.
+  // Narrow layout: a focus request goes straight to the session's page.
   useEffect(() => {
     if (!focus || isWide) return;
-    const origin = new DOMRect(window.innerWidth / 2 - 120, 120, 240, 44);
-    setSheet({ sid: focus.sid, origin });
-  }, [focus, isWide]);
+    setSheetOrigin(new DOMRect(window.innerWidth / 2 - 120, 120, 240, 44));
+    onOpenSessionPage?.(focus.sid);
+  }, [focus, isWide, onOpenSessionPage]);
 
   const ownBusyOrFresh = (session: Session) =>
     !!busyBySid[session.sessionId ?? ""] || recentlyCreatedSids.has(session.sessionId ?? "");
@@ -11046,6 +11095,39 @@ function LiveView({
   const nodeIsBot = (node: SessionTreeNode): boolean => isBotConversation(node.session);
   // Mobile has a dedicated Bots surface. Keep bot-owned families out of Chat,
   // even when a bot session or one of its delegated children was pinned.
+  // Both of these are hooks, so they live above every early return this
+  // component makes — the empty state below returns before the list renders,
+  // and a hook that only runs on one of those paths changes the hook count
+  // between renders (React #310, seen as a cold deep link crashing).
+  // Opening a session from the list navigates; the view below follows the URL.
+  // The animation still wants the row it came from, and a rect cannot live in
+  // a URL, so the origin is remembered here and the URL stays the truth about
+  // *which* session is open.
+  const openSessionPage = useCallback(
+    (sid: string) => {
+      if (!sid) return;
+      // Rows are a known height (RailItem), so the row's own box is an honest
+      // origin instead of a guess at the middle of the screen.
+      const row = document.querySelector(`[data-rail-sid="${sid}"]`);
+      if (row) setSheetOrigin(row.getBoundingClientRect());
+      onOpenSessionPage?.(sid);
+    },
+    [onOpenSessionPage],
+  );
+
+  // Same grouping the rail uses, from the same helper, so the two lists cannot
+  // drift apart again.
+  const projectGroups = useMemo(
+    () =>
+      groupNodesByProject(
+        tree.roots.filter((item) => !nodeContainsPin(item) && !nodeIsBot(item)),
+        (node) => tree.flatten([node]).length,
+        shortProject,
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tree, topPinned],
+  );
+
   const pinnedNodes = tree.roots.filter(
     (node) => nodeContainsPin(node) && (shouldShowBotsInSessionList() || !nodeIsBot(node)),
   );
@@ -11077,38 +11159,6 @@ function LiveView({
     if (!prefetchKey) return;
     prefetchTranscripts(prefetchKey.split(","), loadTranscriptPage);
   }, [prefetchKey]);
-
-  // Opening a session from the list. The full-height view is the session's
-  // page: it takes the whole screen, it owns its own header and back control,
-  // and it is what a row leads to now that the row cannot hold a transcript.
-  // Both this and the grouping below are only read by the narrow layout, but
-  // they stay above the wide/empty returns: `isWide` flips on rotation and on
-  // the iOS URL-bar resize, and a hook behind that return changes the hook
-  // count between renders.
-  const openSessionPage = useCallback((sid: string) => {
-    if (!sid) return;
-    // The view animates out of the row that opened it. Rows are a known height
-    // (RailItem), so a rect built from the row's own box keeps that origin
-    // honest instead of guessing from the middle of the screen.
-    const row = document.querySelector(`[data-rail-sid="${sid}"]`);
-    const origin = row
-      ? row.getBoundingClientRect()
-      : new DOMRect(window.innerWidth / 2 - 120, 120, 240, 44);
-    setSheet({ sid, origin });
-  }, []);
-
-  // Same grouping the rail uses, from the same helper, so the two lists cannot
-  // drift apart again.
-  const projectGroups = useMemo(
-    () =>
-      groupNodesByProject(
-        tree.roots.filter((item) => !nodeContainsPin(item) && !nodeIsBot(item)),
-        (node) => tree.flatten([node]).length,
-        shortProject,
-      ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tree, topPinned],
-  );
 
   // On mobile keep the empty state quiet and unboxed. The persistent composer
   // is already the action, so duplicating it with a card/button only sends focus
@@ -11166,7 +11216,10 @@ function LiveView({
           onRefresh={onRefresh}
           onRenameSession={onRenameSession}
           onRemove={onRemove}
-          onOpenSheet={(sid, origin) => setSheet({ sid, origin })}
+          onOpenSheet={(sid, origin) => {
+            setSheetOrigin(origin);
+            onOpenSessionPage?.(sid);
+          }}
           entering={recentlyCreatedSids.has(session.sessionId ?? "")}
           pinned={!!session.sessionId && pinnedSet.has(session.sessionId)}
           onTogglePin={toggleTopPin}
@@ -11319,9 +11372,9 @@ function LiveView({
     shippedReview?.sessionId && !screenOrder.includes(shippedReview.sessionId)
       ? [...screenOrder, shippedReview.sessionId]
       : screenOrder;
-  const sheetSession = sheet
-    ? sessions.find((s) => s.sessionId === sheet.sid) ??
-      (shippedReview?.sessionId === sheet.sid ? shippedReview : null)
+  const sheetSession = openSessionId
+    ? sessions.find((s) => s.sessionId === openSessionId) ??
+      (shippedReview?.sessionId === openSessionId ? shippedReview : null)
     : null;
 
   return (
@@ -11379,23 +11432,28 @@ function LiveView({
         }
       />
     </div>
-    {sheet && sheetSession ? (
+    {openSessionId && sheetSession ? (
       <SessionTitleSheet
-        sid={sheet.sid}
+        sid={openSessionId}
         session={sheetSession}
         users={users}
         order={sheetOrder}
-        origin={sheet.origin}
+        // No remembered origin (a deep link, or a reload straight onto the
+        // page) means there is no row to morph out of. Open from the middle
+        // rather than from a stale rect belonging to a different session.
+        origin={sheetOrigin ?? new DOMRect(window.innerWidth / 2 - 120, 120, 240, 44)}
         busyBySid={busyBySid}
         promptsBySid={promptsBySid}
-        onSwitch={(nextSid) => setSheet((s) => (s ? { ...s, sid: nextSid } : s))}
+        // Swiping to the next session is a navigation like any other, so it
+        // gets its own history entry and back walks the sessions you visited.
+        onSwitch={(nextSid) => onOpenSessionPage?.(nextSid)}
         onSubscribeTranscript={onSubscribeTranscript}
         onRefresh={onRefresh}
         onRenameSession={onRenameSession}
         onRemove={onRemove}
-        pinned={pinnedSet.has(sheet.sid)}
+        pinned={pinnedSet.has(openSessionId)}
         onTogglePin={sheetSession.shippedReview ? undefined : toggleTopPin}
-        onClose={() => setSheet(null)}
+        onClose={() => onCloseSessionPage?.()}
       />
     ) : null}
     </>

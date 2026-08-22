@@ -14,9 +14,13 @@ describe("shipped session review flow", () => {
     expect(app).not.toContain('toast.message("Resuming shipped session…")');
   });
 
+  // A shipped session under review opens through the SAME surfaces as any
+  // other session — the mobile page and the desktop stage — rather than a
+  // bespoke read-only viewer. `sheet.sid` became `openSessionId` when the
+  // mobile session view moved to its own URL; the rule is unchanged.
   test("desktop and mobile use the normal session surfaces", () => {
     expect(app).toContain(
-      "shippedReview?.sessionId === sheet.sid ? shippedReview : null",
+      "shippedReview?.sessionId === openSessionId ? shippedReview : null",
     );
     expect(app).toContain(
       "return { sid: sourceSid, session: shippedReview };",

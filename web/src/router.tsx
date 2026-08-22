@@ -93,12 +93,23 @@ const botEditRoute = createRoute({
   component: () => null,
 });
 
+// One open session, at its own URL. App owns the render (it is the root route
+// component), so like the bot routes this exists only to make the path a valid
+// match and to hold its search validation.
+const sessionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "sessions/$sid",
+  validateSearch: validateAppSearch,
+  component: () => null,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   tabRoute,
   botRoute,
   botNewRoute,
   botEditRoute,
+  sessionRoute,
 ]);
 
 export function createOmgRouter(history?: RouterHistory) {
