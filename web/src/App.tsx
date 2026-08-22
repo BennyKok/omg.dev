@@ -339,7 +339,7 @@ import {
   messagesForTranscriptView,
   type TranscriptView,
 } from "./lib/transcript-view";
-import { isRequestInterruptedMessage } from "./lib/transcript-status";
+import { isMachineryPreviewText, isRequestInterruptedMessage } from "./lib/transcript-status";
 import {
   ensureVoiceConfigured,
   invalidateVoiceConfig,
@@ -2770,11 +2770,18 @@ function chatRenderItemSpeaker(item: ChatRenderItem<Message>): string {
 // thinking render as their text.
 function latestLine(messages: Message[]): string {
   const items = buildChatRenderItems(messages);
-  const last = items[items.length - 1];
-  if (!last) return "";
-  return last.type === "tools"
-    ? toolGroupLabel(last.items)
-    : plainPreviewText(last.message.text);
+  // Walk back past the plumbing. Several synthetic turns are recorded for
+  // ordering and attribution, and when one lands last the row advertised it:
+  // "[Request interrupted by us…" on a real session, and the same for answered
+  // questions, attached images and peer handoffs. See isMachineryPreviewText.
+  for (let index = items.length - 1; index >= 0; index--) {
+    const item = items[index];
+    if (item.type === "tools") return toolGroupLabel(item.items);
+    if (isMachineryPreviewText(item.message.text)) continue;
+    const preview = plainPreviewText(item.message.text);
+    if (preview) return preview;
+  }
+  return "";
 }
 
 function isDraftAssistantMessage(message: Message) {
