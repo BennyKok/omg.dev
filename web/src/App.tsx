@@ -4132,73 +4132,31 @@ const MicButton = forwardRef<
   );
 });
 
-// Composer send button. A quick tap steers with the current message; when text
-// is present, a long press queues it without interrupting. With an empty
-// composer, long press remains push-to-talk. The keyboard twin of the long
+// Composer send button. Only ever mounted while there's something to send (see
+// call site), so voice capture is no longer this button's job — the adjacent
+// MicButton is a strict superset of the push-to-talk gesture this used to carry
+// inline, and splitting the two affordances is the point: this control now only
+// answers "is there a message". A quick tap steers with the current message; a
+// long press queues it without interrupting. The keyboard twin of the long
 // press is Cmd/Ctrl+Enter, handled on the composer textarea — a pointer-only
 // gesture left desktop with no way to reach queueing at all.
 function ComposerSendButton({
-  canSend,
   sending,
-  baseText,
   onSend,
   onQueue,
-  onText,
-  onInterim,
-  onAutoSubmit,
-  onCancel,
-  onRecordingChange,
   className,
 }: {
-  canSend: boolean;
   sending: boolean;
-  baseText: string;
   onSend: () => void;
   onQueue: () => void;
-  onText: (text: string, base: string) => void;
-  onInterim: (text: string, base: string) => void;
-  onAutoSubmit: (text: string, base: string) => void;
-  onCancel?: (base: string) => void;
-  onRecordingChange?: (recording: boolean) => void;
   className?: string;
 }) {
-  const { state, start, stop, cancel, supported, level } = useDictation({
-    onText,
-    onAutoSubmit,
-    onInterim,
-    onCancel,
-    baseText,
-  });
-
-  // Escape bails out of an in-progress push-to-talk hold without sending it —
-  // the button itself can't offer a tap-to-cancel target while a pointer is
-  // captured on it mid-hold, so the keyboard is the only alternate path. Also
-  // armed while "starting" so a hung mic acquisition can be abandoned.
-  useEffect(() => {
-    if (state !== "recording" && state !== "starting") return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      haptic("selection");
-      cancel();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [state, cancel]);
-
   const holdTimer = useRef<number | null>(null);
-  const holdFired = useRef<"queue" | "voice" | null>(null);
-  // Where the pointer went down, so onPointerMove can measure the drag-away
-  // distance — same slide-to-cancel gesture as MicButton (see MIC_CANCEL_DRAG_PX).
-  const dragOrigin = useRef<{ x: number; y: number } | null>(null);
-  const cancelDragArmed = useRef(false);
+  const holdFired = useRef(false);
   const pointerDown = useRef(false);
   // Set on pointer-up so the synthetic click that follows a pointer gesture is
   // ignored — keyboard activation (no preceding pointer) still sends via onClick.
   const skipNextClick = useRef(false);
-  // Mirrors cancelDragArmed into render so the button can preview the cancel
-  // (icon/color swap) while the drag is still live, before release.
-  const [cancelArmed, setCancelArmed] = useState(false);
 
   const clearHoldTimer = useCallback(() => {
     if (holdTimer.current !== null) {
@@ -4209,54 +4167,23 @@ function ComposerSendButton({
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
-      if (e.button !== 0) return;
-      if (state === "transcribing" || sending) return;
+      if (e.button !== 0 || sending) return;
       pointerDown.current = true;
-      holdFired.current = null;
-      cancelDragArmed.current = false;
-      dragOrigin.current = { x: e.clientX, y: e.clientY };
+      holdFired.current = false;
       try {
         e.currentTarget.setPointerCapture(e.pointerId);
       } catch {
         /* capture unsupported — pointerup still fires on the element */
       }
-      // A held send with content preserves the old queue behavior. Empty holds
-      // can still start push-to-talk when dictation is available.
-      if (state !== "idle") return;
-      if (!canSend && !supported) return;
       clearHoldTimer();
       holdTimer.current = window.setTimeout(() => {
         holdTimer.current = null;
-        holdFired.current = canSend ? "queue" : "voice";
+        holdFired.current = true;
         haptic("heavy");
-        if (canSend) {
-          onQueue();
-          return;
-        }
-        if (!supported) return;
-        void start({ autoStop: false });
+        onQueue();
       }, MIC_LONG_PRESS_MS);
     },
-    [state, sending, canSend, onQueue, supported, start, clearHoldTimer],
-  );
-
-  const onPointerMove = useCallback(
-    (e: React.PointerEvent<HTMLButtonElement>) => {
-      if (!pointerDown.current) return;
-      if (holdFired.current === "queue") return;
-      // "starting" counts alongside "recording" (matching MicButton): the drag
-      // should arm even if the mic hasn't finished opening yet.
-      if (!holdFired.current && state !== "recording" && state !== "starting") return;
-      const origin = dragOrigin.current;
-      if (!origin) return;
-      const dist = Math.hypot(e.clientX - origin.x, e.clientY - origin.y);
-      const armed = dist > MIC_CANCEL_DRAG_PX;
-      if (armed === cancelDragArmed.current) return;
-      cancelDragArmed.current = armed;
-      setCancelArmed(armed);
-      haptic(armed ? "warning" : "selection");
-    },
-    [state],
+    [sending, onQueue, clearHoldTimer],
   );
 
   const onPointerUp = useCallback(
@@ -4270,57 +4197,25 @@ function ComposerSendButton({
         /* nothing captured */
       }
       clearHoldTimer();
-      setCancelArmed(false);
-      const wasDraggedAway = cancelDragArmed.current;
-      cancelDragArmed.current = false;
-      if (wasDraggedAway) {
-        // Dragged away before releasing → dismiss the take instead of sending it.
-        holdFired.current = null;
-        haptic("selection");
-        cancel();
+      if (holdFired.current) {
+        // The timer already fired onQueue(); nothing left to do on release.
+        holdFired.current = false;
         return;
       }
-      if (holdFired.current === "queue") {
-        holdFired.current = null;
-        return;
-      }
-      if (holdFired.current === "voice" || state === "recording" || state === "starting") {
-        // Hold engaged, released back on the button → send the spoken take.
-        // "starting" routes here too: stop() queues the request so start()
-        // honors it on arrival instead of the release being swallowed.
-        holdFired.current = null;
-        void stop(true);
-        return;
-      }
-      // Quick tap → send the typed message (no-op if there's nothing to send).
-      if (canSend && !sending) {
+      // Quick tap → send.
+      if (!sending) {
         haptic("selection");
         onSend();
       }
     },
-    [stop, cancel, state, canSend, sending, onSend, clearHoldTimer],
+    [sending, onSend, clearHoldTimer],
   );
 
   const onPointerCancel = useCallback(() => {
-    if (!pointerDown.current) return;
     pointerDown.current = false;
+    holdFired.current = false;
     clearHoldTimer();
-    setCancelArmed(false);
-    // Interrupted mid-gesture. Honor an already-armed cancel; otherwise if a
-    // hold was live, end it gracefully by sending what we have rather than
-    // dropping it.
-    const wasDraggedAway = cancelDragArmed.current;
-    cancelDragArmed.current = false;
-    if (wasDraggedAway) {
-      holdFired.current = null;
-      cancel();
-    } else if (holdFired.current === "voice") {
-      holdFired.current = null;
-      void stop(true);
-    } else {
-      holdFired.current = null;
-    }
-  }, [stop, cancel, clearHoldTimer]);
+  }, [clearHoldTimer]);
 
   const onClick = useCallback(() => {
     // Pointer gestures already handled this; only keyboard activation reaches here.
@@ -4328,82 +4223,27 @@ function ComposerSendButton({
       skipNextClick.current = false;
       return;
     }
-    if (state !== "idle" || sending) return;
-    if (canSend) onSend();
-  }, [state, sending, canSend, onSend]);
-
-  // Surface "listening" to the parent so the composer chrome can light up.
-  useEffect(() => {
-    onRecordingChange?.(state === "recording");
-    return () => onRecordingChange?.(false);
-  }, [state, onRecordingChange]);
-
-  // Belt-and-suspenders: if recording ends any other way (silence auto-stop,
-  // Escape) while a cancel-drag happened to be armed, drop the preview so a
-  // stray pointerup later doesn't look like it's still arming a cancel.
-  useEffect(() => {
-    if (state !== "recording") setCancelArmed(false);
-  }, [state]);
-
-  const recording = state === "recording";
-  // "starting" shares the spinner with "transcribing": both mean "we're on it,
-  // hold tight" — the mic opening is exactly as worth showing as the upload.
-  const transcribing = state === "transcribing" || state === "starting";
-  // Nothing to send while idle → dim the control, but keep it interactive so
-  // hold-to-talk still works on an empty composer.
-  const dim = !canSend && state === "idle" && !sending;
-
-  // While recording the button reacts to live mic level — scales up and throws a
-  // red glow ring that swells with volume. Inline transitions keep it per-frame
-  // snappy (the className `transition` would lag the updates and feel sluggish).
-  const reactiveStyle = recording ? recordingButtonStyle(level) : undefined;
+    if (sending) return;
+    onSend();
+  }, [sending, onSend]);
 
   return (
     <button
       type="button"
       onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
       onClick={onClick}
       onContextMenu={(e) => e.preventDefault()}
-      aria-label={
-        recording
-          ? cancelArmed
-            ? "Release to cancel voice message"
-            : "Release to send voice message — drag away, or press Esc, to cancel"
-          : canSend
-            ? "Steer — hold to queue"
-            : "Hold to talk"
-      }
-      title={
-        recording
-          ? "Release to send · drag away or Esc to cancel"
-          : canSend
-            ? "Tap to steer · hold (or ⌘/Ctrl+Enter) to queue"
-            : "Hold to talk"
-      }
-      style={reactiveStyle}
+      aria-label="Send — hold to queue"
+      title="Tap to send · hold (or ⌘/Ctrl+Enter) to queue"
       className={cn(
-        "flex shrink-0 touch-none select-none items-center justify-center rounded-full font-semibold transition active:scale-[0.97]",
-        recording
-          ? cancelArmed
-            ? "z-10 bg-muted-foreground text-background"
-            : "z-10 bg-destructive text-destructive-foreground"
-          : "relative z-10 bg-foreground/[0.08] text-foreground/80 shadow-sm hover:bg-foreground/[0.12] hover:text-foreground",
-        dim && "opacity-50",
+        "flex shrink-0 touch-none select-none items-center justify-center rounded-full font-semibold shadow-sm transition active:scale-[0.97]",
+        "bg-foreground/[0.08] text-foreground/80 hover:bg-foreground/[0.12] hover:text-foreground",
         className,
       )}
     >
-      {cancelArmed ? (
-        <X className="size-4" />
-      ) : sending || transcribing ? (
-        <Loader2 className="size-4 animate-spin" />
-      ) : recording ? (
-        <Mic className="size-4" />
-      ) : (
-        <Send className="size-4" />
-      )}
+      {sending ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
     </button>
   );
 }
@@ -14612,103 +14452,84 @@ function SessionChatBody({
             onRemove={removeAttachment}
             onToggleHd={files.setAttachmentHd}
           />
+          {/* The bar itself (not just the textarea) is the field now: attach, type,
+              mic and send all live inside one lfg-gfield pill, matching the
+              wrapper pattern NewSessionDialog/ForkSessionDialog already use. That
+              is also what makes "taller bar" and "attach moves inside, where /
+              used to sit" the same change — there's one growing container, not a
+              field plus loose buttons beside it. */}
           <div
             className={cn(
-              "flex gap-2",
+              "lfg-gfield relative flex gap-1 rounded-2xl px-2 py-2 transition-[background-color,border-color,box-shadow] duration-300 ease-ios md:gap-0.5 md:px-1.5 md:py-1.5",
               messageMultiline ? "items-end" : "items-center",
             )}
           >
+            {/* Visible circle stays well under the bar's own height — the taller
+                bar is breathing room around the text, not a mandate to blow the
+                buttons up to match it. size-10 (40px) is still a full touch
+                target on its own on mobile, so no padding trick is needed to
+                keep the tap area honest; md:size-8 is mouse-precision, not
+                touch, so it can go smaller. */}
             <Button
               size="icon"
               type="button"
               variant={draggingFiles ? "brand-soft" : "tint"}
-              className="size-11 md:size-9"
+              className="size-10 shrink-0 rounded-full md:size-8"
               onClick={files.openFilePicker}
               aria-label="Attach files"
               title="Attach files"
               disabled={sending}
             >
-              <Paperclip className="size-4" />
+              <Plus className="size-4" />
             </Button>
-            <div className="relative min-w-0 flex-1">
-              <ComposerTextarea
-                textareaRef={messageInputRef}
-                data-composer-sid={sid}
-                value={messageText}
-                onValueChange={setMessageText}
-                onMultilineChange={setMessageMultiline}
-                scrollToEndNonce={dictationScrollNonce}
-                showSkillButton
-                insetEnd
-                onPaste={files.onPasteFiles}
-                onKeyDown={(e) => {
-                  if (e.key !== "Enter" || e.shiftKey) return;
-                  e.preventDefault();
-                  // Cmd/Ctrl+Enter is the keyboard twin of holding the send
-                  // button: queue behind the running turn instead of
-                  // interrupting it. Plain Enter still steers.
-                  if (e.metaKey || e.ctrlKey) {
-                    void sendMessage(undefined, undefined, "queue");
-                    return;
-                  }
-                  e.currentTarget.form?.requestSubmit();
-                }}
-                placeholder={
-                  attachments.length
-                    ? "Add a note"
-                    : bot
-                      ? `Message ${bot.name}…`
-                      : reviewingShipped
-                      ? "Message to resume"
-                      : // One question, one input: the composer says it is the
-                        // reply box so the card above does not need its own.
-                        sessionQuestions.length
-                        ? "Reply to the question"
-                        : "Message"
+            <ComposerTextarea
+              textareaRef={messageInputRef}
+              data-composer-sid={sid}
+              value={messageText}
+              onValueChange={setMessageText}
+              onMultilineChange={setMessageMultiline}
+              scrollToEndNonce={dictationScrollNonce}
+              onPaste={files.onPasteFiles}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" || e.shiftKey) return;
+                e.preventDefault();
+                // Cmd/Ctrl+Enter is the keyboard twin of holding the send
+                // button: queue behind the running turn instead of
+                // interrupting it. Plain Enter still steers.
+                if (e.metaKey || e.ctrlKey) {
+                  void sendMessage(undefined, undefined, "queue");
+                  return;
                 }
-                disabled={sending}
-                rows={1}
-                className={cn(
-                  // Height and follow-scroll are owned by ComposerTextarea.
-                  // Rest at one line; the shared cap stops before the transcript.
-                  "lfg-gfield min-h-11 rounded-2xl border-transparent px-4 py-3 text-base leading-5 shadow-sm transition-[background-color,border-color,box-shadow] duration-300 ease-ios placeholder:text-muted-foreground md:min-h-9 md:rounded-[1.125rem] md:px-3.5 md:py-2 md:text-sm",
-                )}
-              />
-              <MicButton
-                minimal
-                className="absolute bottom-1.5 right-1.5 z-10 size-8 md:bottom-1"
-                baseText={messageText}
-                onRecordingChange={onDictatingChange}
-                onText={setDictatedMessageText}
-                onInterim={setDictatedMessageText}
-                onAutoSubmit={(text, base) => {
-                  const combined = base.trim() ? `${base.trimEnd()} ${text}` : text;
-                  void sendMessage(undefined, combined);
-                }}
-                onCancel={(base) => setMessageText(base)}
-              />
-            </div>
-            {chatBusy && canDriveSession(session) ? (
-              <Button
-                size="icon"
-                type="button"
-                variant="tint"
-                className="size-11 md:size-9"
-                onClick={() => void interrupt()}
-                aria-label="Stop (Esc or Ctrl/Cmd+.)"
-                title="Stop — Esc or Ctrl/Cmd+."
-              >
-                <Pause className="size-4" />
-              </Button>
-            ) : null}
-            {/* Tap steers the active turn; long-press queues without interrupting. */}
-            <ComposerSendButton
-              className="size-11 md:size-9"
-              sending={sending}
-              canSend={Boolean(messageText.trim() || attachments.length)}
+                e.currentTarget.form?.requestSubmit();
+              }}
+              placeholder={
+                attachments.length
+                  ? "Add a note"
+                  : bot
+                    ? `Message ${bot.name}…`
+                    : reviewingShipped
+                    ? "Message to resume"
+                    : // One question, one input: the composer says it is the
+                      // reply box so the card above does not need its own.
+                      sessionQuestions.length
+                      ? "Reply to the question"
+                      : "Message"
+              }
+              disabled={sending}
+              rows={1}
+              className={cn(
+                // Height and follow-scroll are owned by ComposerTextarea. Chrome
+                // (border/bg/shadow) now belongs to the wrapping bar above, not
+                // the field — this only sizes and grows. Rest at one line; the
+                // shared cap stops before the transcript. text-base (16px) on
+                // mobile, not just a fallback: iOS auto-zooms any focused field
+                // under 16px (see the (pointer: coarse) rule in index.css).
+                "min-h-12 resize-none border-0 bg-transparent px-1 py-3 text-base leading-5 shadow-none placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0 md:min-h-10 md:py-2.5 md:text-sm",
+              )}
+            />
+            <MicButton
+              className="size-10 shrink-0 rounded-full bg-foreground/[0.06] text-foreground/70 hover:bg-foreground/[0.12] hover:text-foreground md:size-8"
               baseText={messageText}
-              onSend={() => void sendMessage()}
-              onQueue={() => void sendMessage(undefined, undefined, "queue")}
               onRecordingChange={onDictatingChange}
               onText={setDictatedMessageText}
               onInterim={setDictatedMessageText}
@@ -14718,6 +14539,35 @@ function SessionChatBody({
               }}
               onCancel={(base) => setMessageText(base)}
             />
+            {chatBusy && canDriveSession(session) ? (
+              <Button
+                size="icon"
+                type="button"
+                variant="tint"
+                className="size-10 shrink-0 rounded-full md:size-8"
+                onClick={() => void interrupt()}
+                aria-label="Stop (Esc or Ctrl/Cmd+.)"
+                title="Stop — Esc or Ctrl/Cmd+."
+              >
+                <Pause className="size-4" />
+              </Button>
+            ) : null}
+            {/* Mounted only once there's something to send (typed text, a
+                dictation interim/final already folded into messageText, or an
+                attachment) — an arrow with nothing behind it was dead chrome.
+                `sending` keeps it visible through the round trip even after the
+                text that triggered it is cleared, so it can't vanish mid-send.
+                A live-but-still-silent recording has nothing to show here yet;
+                the mic button's own recording state (red, level-reactive) is
+                what carries "gesture in progress" until words land. */}
+            {messageText.trim() || attachments.length || sending ? (
+              <ComposerSendButton
+                className="size-10 shrink-0 md:size-8"
+                sending={sending}
+                onSend={() => void sendMessage()}
+                onQueue={() => void sendMessage(undefined, undefined, "queue")}
+              />
+            ) : null}
           </div>
           {reviewingShipped ? (
             <p className="mt-1.5 px-12 text-[11px] text-muted-foreground">
@@ -16276,7 +16126,7 @@ function ForkSessionDialog({
               aria-label="Attach files"
               title="Attach files"
             >
-              <Paperclip className="size-4" />
+              <Plus className="size-4" />
             </Button>
             <div className="ml-auto flex items-center gap-2">
               <Button type="button" variant="ghost" onClick={onClose}>
@@ -20428,7 +20278,7 @@ function NewSessionDialog({
             aria-label="Attach files"
             title="Attach files"
           >
-            <Paperclip className="size-4" />
+            <Plus className="size-4" />
           </Button>
           <ComposerStartButton
             disabled={!canSubmit}
