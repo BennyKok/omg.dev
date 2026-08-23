@@ -175,6 +175,32 @@ describe("jcode provider rows", () => {
     expect(providers.find((provider) => provider.id === "openai")?.connected).toBe(false);
   });
 
+  test("a credential jcode reports as unusable is not connected", () => {
+    const home = useTmpHome();
+    mkdirSync(join(home, ".jcode"), { recursive: true });
+    // A revoked login leaves auth.json exactly as large as a working one, so
+    // the file cannot be the signal. jcode just tried to refresh it and failed.
+    writeFileSync(join(home, ".jcode", "auth.json"), JSON.stringify({ accessToken: "revoked" }));
+    const claude = jcodeAuthProviders({
+      any_available: true,
+      providers: [
+        { id: "claude", status: "expired", credential_source: "jcode-managed file" },
+        { id: "openai", status: "available", credential_source: "jcode-managed file" },
+      ],
+    }).find((provider) => provider.id === "claude");
+    expect(claude?.connected).toBe(false);
+    expect(claude?.needsReconnect).toBe(true);
+  });
+
+  test("a provider jcode never configured stays a plain Connect row", () => {
+    useTmpHome();
+    const claude = jcodeAuthProviders({
+      providers: [{ id: "claude", status: "not_configured", credential_source: "none" }],
+    }).find((provider) => provider.id === "claude");
+    expect(claude?.connected).toBe(false);
+    expect(claude?.needsReconnect).toBeUndefined();
+  });
+
   test("an imported Claude CLI login is connected but not ours to delete", () => {
     useTmpHome();
     const claude = jcodeAuthProviders({

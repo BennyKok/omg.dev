@@ -534,6 +534,8 @@ export type PiProviderInfo = {
   fromEnv?: boolean;
   /** Where it came from, when "From the environment" would not be true. */
   detail?: string;
+  /** A credential is present but the agent reports it as unusable. */
+  needsReconnect?: boolean;
 };
 
 export type ClaudeAccountInfo = {

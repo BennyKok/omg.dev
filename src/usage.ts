@@ -22,6 +22,7 @@
 // refresh — pays for that source alone instead of waiting on a Grok round-trip
 // and a walk of the Codex sessions tree.
 
+import { chmodSync, renameSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -308,7 +309,14 @@ async function grokRefreshAccessToken(
     }
     authRoot[entryKey] = entry;
     try {
-      await Bun.write(authPath, JSON.stringify(authRoot, null, 2) + "\n");
+      // Write through a temp file in the same directory. Writing the live
+      // credential file in place means a crash or a full disk mid-write leaves
+      // a truncated file and destroys the grok login; rename is atomic within
+      // one filesystem. Same reasoning as claude-creds.ts.
+      const tmp = `${authPath}.lfg-${process.pid}.tmp`;
+      await Bun.write(tmp, JSON.stringify(authRoot, null, 2) + "\n");
+      chmodSync(tmp, 0o600);
+      renameSync(tmp, authPath);
     } catch {
       /* best-effort persist; still use refreshed token this request */
     }

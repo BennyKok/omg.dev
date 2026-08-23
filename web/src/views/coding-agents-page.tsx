@@ -142,7 +142,11 @@ function AgentProviderRow({
     <div className="flex items-center gap-2 rounded-xl border border-border/70 bg-background/55 px-2.5 py-2">
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs font-medium">{provider.label}</span>
-        {provider.detail || provider.fromEnv ? (
+        {/* A revoked credential looks exactly like a provider that was never
+            connected unless the row says otherwise. */}
+        {provider.needsReconnect ? (
+          <span className="block truncate text-[11px] text-destructive">Sign-in expired</span>
+        ) : provider.detail || provider.fromEnv ? (
           <span className="block truncate text-[11px] text-muted-foreground">
             {provider.detail ?? "From the environment"}
           </span>
@@ -171,7 +175,7 @@ function AgentProviderRow({
           ) : (
             <KeyRound className="size-3.5" />
           )}
-          Connect
+          {provider.needsReconnect ? "Reconnect" : "Connect"}
         </Button>
       )}
     </div>

@@ -1,4 +1,14 @@
-import { chmodSync, readFileSync, renameSync } from "node:fs";
+import {
+  chmodSync,
+  closeSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -116,14 +126,156 @@ export function claudeOauthRecord(
   return record;
 }
 
+// A refresh token that Anthropic has rejected is dead for good, but nothing in
+// the credential record says so — a revoked token and a working one look
+// identical on disk. Without this memory every poll re-presents the same dead
+// token, which is both useless and the thing that trips reuse detection on a
+// rotating grant. Store only a fingerprint; the secret never lands here.
+type RefreshRejection = { fingerprint: string; at: number; error: string };
+
+function refreshStatePath(configDir: string): string {
+  return join(configDir, ".credentials.lfg-refresh.json");
+}
+
+function tokenFingerprint(token: string): string {
+  return createHash("sha256").update(token).digest("hex").slice(0, 16);
+}
+
+function readRefreshRejection(configDir: string): RefreshRejection | null {
+  try {
+    const parsed = JSON.parse(readFileSync(refreshStatePath(configDir), "utf8"));
+    return typeof parsed?.fingerprint === "string" ? (parsed as RefreshRejection) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** True when Anthropic already refused this exact refresh token. */
+function refreshTokenWasRejected(configDir: string, refreshToken?: string): boolean {
+  if (!refreshToken) return false;
+  return readRefreshRejection(configDir)?.fingerprint === tokenFingerprint(refreshToken);
+}
+
+function recordRefreshRejection(configDir: string, refreshToken: string, error: string): void {
+  const state: RefreshRejection = {
+    fingerprint: tokenFingerprint(refreshToken),
+    at: Date.now(),
+    error: error.slice(0, 500),
+  };
+  try {
+    writeFileSync(refreshStatePath(configDir), JSON.stringify(state, null, 2) + "\n", {
+      mode: 0o600,
+    });
+  } catch {
+    /* best effort: the retry guard is an optimisation, not correctness */
+  }
+}
+
+function clearRefreshRejection(configDir: string): void {
+  try {
+    rmSync(refreshStatePath(configDir), { force: true });
+  } catch {
+    /* best effort */
+  }
+}
+
+/**
+ * Only a definitive "this grant is gone" answer may be remembered. A 500, a
+ * timeout, or a proxy error says nothing about the token, and recording one
+ * would strand a working account behind a permanent Reconnect badge.
+ */
+function isDefinitiveGrantRejection(status: number, body: string): boolean {
+  if (status !== 400 && status !== 401) return false;
+  return /invalid_grant|invalid_request/i.test(body);
+}
+
+// The rotated refresh token is single-use, so exactly one refresh may be in
+// flight per account. `refreshing` covers this process; the lock file covers
+// the others. Both are needed: `serve`, `mcp`, and one `aisdk-session` per
+// running agent are separate processes over one ~/.claude.
+const LOCK_STALE_MS = 30_000;
+const LOCK_WAIT_MS = 5_000;
+const LOCK_POLL_MS = 100;
+
+function lockPath(configDir: string): string {
+  return join(configDir, ".credentials.json.lfg-lock");
+}
+
+/**
+ * Exclusive create, reclaiming a lock whose owner died before releasing it.
+ *
+ * "held" and "unavailable" are different answers. Held means another process is
+ * mid-refresh and waiting for its result is right. Unavailable means this
+ * filesystem will not give us a lock at all, and waiting would stall every call
+ * for the full timeout and still refresh nothing.
+ */
+type LockAttempt = { fd: number } | "held" | "unavailable";
+
+function acquireCredentialLock(configDir: string): LockAttempt {
+  const path = lockPath(configDir);
+  try {
+    return { fd: openSync(path, "wx", 0o600) };
+  } catch {
+    try {
+      const age = Date.now() - statSync(path).mtimeMs;
+      if (age > LOCK_STALE_MS) {
+        rmSync(path, { force: true });
+        return { fd: openSync(path, "wx", 0o600) };
+      }
+      return "held";
+    } catch {
+      // The lock file is not there, so the create failed for its own reason: a
+      // read-only or missing directory. Refresh unlocked rather than stall.
+      return "unavailable";
+    }
+  }
+}
+
+function releaseCredentialLock(fd: number, configDir: string): void {
+  try {
+    closeSync(fd);
+  } catch {
+    /* already closed */
+  }
+  try {
+    rmSync(lockPath(configDir), { force: true });
+  } catch {
+    /* already gone */
+  }
+}
+
+function needsRefresh(oauth: ClaudeOauth): boolean {
+  const expiresAt = oauth.expiresAt;
+  return typeof expiresAt === "number" && expiresAt - EXPIRY_SKEW_MS <= Date.now();
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Wait for whichever process holds the lock to publish its new token.
+ *
+ * Racing it would present the same rotating token twice, so the loser waits and
+ * reads the winner's result instead. Returns null on timeout, and the caller
+ * falls back to the stored token.
+ */
+async function awaitForeignRefresh(configDir: string): Promise<string | null> {
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  while (Date.now() < deadline) {
+    await sleep(LOCK_POLL_MS);
+    const oauth = readCredsFile(configDir)?.claudeAiOauth;
+    if (oauth?.accessToken && !needsRefresh(oauth)) return oauth.accessToken;
+  }
+  return null;
+}
+
 /**
  * Whether a stored sign-in can still be used without the browser.
  *
  * A stored access token expires in about eight hours, and the Claude CLI renews
  * it from the refresh token whenever it runs — so an expired access token alone
- * is normal and says nothing. A record that is both expired AND has no refresh
- * token can never recover on its own: that account needs the user to sign in
- * again, and the UI has to say so.
+ * is normal and says nothing. A record that can no longer be renewed needs the
+ * user to sign in again, and the UI has to say so. That is either a record with
+ * no refresh token at all, or one whose refresh token Anthropic has rejected.
  */
 export function claudeSignInIsDead(
   configDir?: string,
@@ -131,7 +283,9 @@ export function claudeSignInIsDead(
 ): boolean {
   const record = claudeOauthRecord(configDir, readKeychain);
   if (!record?.accessToken) return false;
-  if (record.refreshToken) return false;
+  if (record.refreshToken) {
+    return refreshTokenWasRejected(configDir ?? defaultConfigDir(), record.refreshToken);
+  }
   return typeof record.expiresAt === "number" && record.expiresAt <= Date.now();
 }
 
@@ -154,7 +308,13 @@ async function refreshFileToken(configDir: string, creds: ClaudeCreds): Promise<
         client_id: CLAUDE_OAUTH_CLIENT_ID,
       }),
     });
-    if (!r.ok) return null;
+    if (!r.ok) {
+      const body = await r.text().catch(() => "");
+      if (isDefinitiveGrantRejection(r.status, body)) {
+        recordRefreshRejection(configDir, oauth.refreshToken, body);
+      }
+      return null;
+    }
     const payload = (await r.json()) as {
       access_token?: string;
       refresh_token?: string;
@@ -182,9 +342,33 @@ async function refreshFileToken(configDir: string, creds: ClaudeCreds): Promise<
     await Bun.write(tmp, JSON.stringify(next, null, 2) + "\n");
     chmodSync(tmp, 0o600);
     renameSync(tmp, target);
+    // This grant works, so any remembered rejection belonged to an older token.
+    clearRefreshRejection(configDir);
     return payload.access_token;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Refresh under the cross-process lock, or wait for whoever already holds it.
+ *
+ * The re-read after acquiring matters as much as the lock: by the time we get
+ * in, the previous holder may already have written a token that is good, and
+ * refreshing again would burn a rotation for nothing.
+ */
+async function refreshUnderLock(configDir: string): Promise<string | null> {
+  const lock = acquireCredentialLock(configDir);
+  if (lock === "held") return awaitForeignRefresh(configDir);
+  try {
+    const fresh = readCredsFile(configDir);
+    const oauth = fresh?.claudeAiOauth;
+    if (!oauth?.refreshToken) return null;
+    if (!needsRefresh(oauth)) return oauth.accessToken ?? null;
+    if (refreshTokenWasRejected(configDir, oauth.refreshToken)) return null;
+    return await refreshFileToken(configDir, fresh!);
+  } finally {
+    if (lock !== "unavailable") releaseCredentialLock(lock.fd, configDir);
   }
 }
 
@@ -202,13 +386,13 @@ export async function claudeAccessToken(configDir?: string): Promise<string | nu
   const creds = readCredsFile(dir);
   const oauth = creds?.claudeAiOauth;
   if (!oauth?.accessToken) return claudeOauthToken(configDir);
-  const expiresAt = oauth.expiresAt;
-  if (typeof expiresAt !== "number" || expiresAt - EXPIRY_SKEW_MS > Date.now()) {
-    return oauth.accessToken;
-  }
+  if (!needsRefresh(oauth)) return oauth.accessToken;
+  // Anthropic already refused this exact token. Asking again cannot succeed,
+  // and each retry is another reuse hit against an already-dead grant.
+  if (refreshTokenWasRejected(dir, oauth.refreshToken)) return oauth.accessToken;
   const inflight = refreshing.get(dir);
   if (inflight) return (await inflight) ?? oauth.accessToken;
-  const run = refreshFileToken(dir, creds!).finally(() => refreshing.delete(dir));
+  const run = refreshUnderLock(dir).finally(() => refreshing.delete(dir));
   refreshing.set(dir, run);
   // Fall back to the expired token rather than nothing: the caller's own error
   // path ("sign-in expired") is a better message than "not signed in".
