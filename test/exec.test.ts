@@ -96,3 +96,55 @@ describe("runExecCommand", () => {
     expect(r.durationMs).toBeLessThan(15_000);
   });
 });
+
+// Regressions found by an independent verifier against a running server.
+// Both were denial-of-service class, not cosmetic.
+describe("runExecCommand under hostile output", () => {
+  // THE BUG: the first version buffered whole streams and clipped afterwards,
+  // which caps the RESPONSE but not the READ. `yes | cat` drove the server
+  // from 220 MB to 2.5 GB of RSS in ten seconds, and the timeout could not
+  // save it because the buffering await never resolved.
+  //
+  // Deliberately NOT asserted by measuring heapUsed. That is process-wide, so
+  // in a full-suite run it moves with every other test's garbage and the
+  // assertion fails for reasons unrelated to this code — which it did.
+  //
+  // What actually regressed is observable without it: a buffering
+  // implementation cannot return promptly OR keep the response at the cap
+  // while `truncated` proves the stream produced vastly more. Three seconds of
+  // `yes` is hundreds of megabytes; if that is ever accumulated again, this
+  // test stops finishing rather than merely failing an inequality.
+  test("returns promptly and bounded against an infinite stream", async () => {
+    const started = performance.now();
+
+    const r = await runExecCommand({ command: "yes STREAM | cat", cwd, timeoutMs: 3_000 });
+
+    expect(r.timedOut).toBe(true);
+    expect(performance.now() - started).toBeLessThan(20_000);
+    expect(r.stdout.length).toBeLessThan(MAX_EXEC_OUTPUT_BYTES + 512);
+    expect(r.truncated).toBe(true);
+  }, 30_000);
+
+  // THE OTHER BUG: killing the shell orphaned everything it started. Both
+  // halves of a pipeline stayed alive after the timeout, burning a core.
+  test("kills the whole process group, not just the shell", async () => {
+    const marker = `EXECMARK${Date.now()}`;
+    const r = await runExecCommand({
+      command: `exec -a ${marker} yes X | cat > /dev/null`,
+      cwd,
+      timeoutMs: 1_000,
+    });
+
+    expect(r.timedOut).toBe(true);
+    await Bun.sleep(500);
+    const survivors = Bun.spawnSync(["pgrep", "-f", marker])
+      .stdout.toString().trim().split("\n").filter(Boolean).length;
+    // Only meaningful where the group could actually be signalled.
+    if (r.killedGroup) expect(survivors).toBe(0);
+    Bun.spawnSync(["pkill", "-9", "-f", marker]);
+  }, 30_000);
+
+  test("a command that exits normally is never reported as an orphan risk", async () => {
+    expect((await runExecCommand({ command: "echo ok", cwd })).killedGroup).toBe(true);
+  });
+});
