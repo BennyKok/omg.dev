@@ -10360,6 +10360,40 @@ type SessionTreeNode = {
   children: SessionTreeNode[];
 };
 
+// Every rail segment shares this stroke width. Previously the straight runs
+// were `bg-current` boxes and the last-child elbow was a bordered box with
+// `rounded-bl-lg` — two different rasterisers for what's meant to read as one
+// line. Border-radius corner antialiasing spreads the same nominal width over
+// more device pixels at lower opacity than a filled box does, and the ~12px
+// `--radius` this app uses for `rounded-lg` ate a third of the elbow's 20px
+// horizontal run at the corner besides. Both effects made the elbow measure
+// (and look) thinner and shorter than the T-junction beside it — "the sub
+// agent rail, got different width?". Drawing every segment as one SVG path
+// with one stroke removes both: there is only one rasteriser, and the corner
+// radius is a small constant instead of a fraction of the box.
+const RAIL_STROKE = 1.5;
+const RAIL_CORNER = 6;
+
+// Measures an element's rendered box in real CSS pixels so the SVG viewBox
+// can map 1:1 to it — no non-uniform scaling, so the stroke and the corner
+// radius render at the same size on every row regardless of that row's
+// height. Row height changes when content wraps, streaming grows a preview
+// line, etc., so this has to track live, not just measure once on mount.
+function useBoxSize<T extends HTMLElement>() {
+  const ref = useRef<T | null>(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => setSize({ w: el.clientWidth, h: el.clientHeight });
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, size] as const;
+}
+
 function TreeConnector({
   className,
   colorClassName,
@@ -10374,38 +10408,61 @@ function TreeConnector({
   // Branch geometry is always relative to this element's box. Callers must size
   // the connector to the *card/row* only — not the card plus nested children —
   // otherwise `top-1/2` / `bottom-1/2` lands in the gap under the card.
-  // Solid (fully opaque) color so any segment overlap can't composite darker.
-  const lineClass = "bg-current";
-  const borderClass = "border-current";
+  const [boxRef, { w, h }] = useBoxSize<HTMLSpanElement>();
+  // Path centered on the same coordinates the old boxes occupied: the vertical
+  // run at x = strokeWidth/2 (was `left-0 w-[1.5px]`), the horizontal run at
+  // y = mid (was `top-1/2 -translate-y-1/2`), so this isn't a redesign of the
+  // geometry — only of how the line gets rasterised.
+  const x = RAIL_STROKE / 2;
+  const mid = h / 2;
+  const r = Math.max(0, Math.min(RAIL_CORNER, w - x - 1, mid - 1));
+  const d = continueAfter
+    ? `M${x},0 L${x},${h} M${x},${mid} L${w},${mid}`
+    : `M${x},0 L${x},${Math.max(x, mid - r)} A${r},${r} 0 0 0 ${x + r},${mid} L${w},${mid}`;
+  return (
+    <span
+      ref={boxRef}
+      aria-hidden
+      className={cn("pointer-events-none absolute", colorClassName, className)}
+    >
+      {w > 0 && h > 0 ? (
+        <svg width="100%" height="100%" viewBox={`0 0 ${w} ${h}`} className="overflow-visible">
+          <path
+            d={d}
+            stroke="currentColor"
+            strokeWidth={RAIL_STROKE}
+            fill="none"
+            shapeRendering="geometricPrecision"
+          />
+        </svg>
+      ) : null}
+    </span>
+  );
+}
+
+// Continuation spine past a non-last child, reaching down to the next
+// sibling — a straight run with no branch or corner. Kept as its own SVG
+// stroke (not the `bg-current` box it used to be) so it doesn't meet
+// TreeConnector's own spine segment at a seam between two different line
+// techniques; see TreeConnector's comment for why that seam mattered. A
+// straight line's shape doesn't depend on the box's aspect ratio, so this
+// one skips useBoxSize and rides `non-scaling-stroke` in a normalized
+// viewBox instead — one less resize observer per row.
+function TreeSpine({ className, colorClassName }: { className?: string; colorClassName: string }) {
   return (
     <span
       aria-hidden
       className={cn("pointer-events-none absolute", colorClassName, className)}
     >
-      {continueAfter ? (
-        <>
-          {/* one continuous vertical spine — no mid-point seam */}
-          <span className={cn("absolute left-0 top-0 bottom-0 w-[1.5px]", lineClass)} />
-          {/* horizontal branch to the child (T-junction). w-full, not a
-              fixed width — it fills whatever box the caller's className
-              sized, so it can't drift out of sync with the indent again. */}
-          <span
-            className={cn(
-              "absolute left-0 top-1/2 -translate-y-1/2 h-[1.5px] w-full",
-              lineClass,
-            )}
-          />
-        </>
-      ) : (
-        /* last child — rounded elbow drawn as a single bordered box, sized
-           to the caller's box (see the T-junction note above). */
-        <span
-          className={cn(
-            "absolute left-0 top-0 bottom-1/2 w-full rounded-bl-lg border-b-[1.5px] border-l-[1.5px]",
-            borderClass,
-          )}
+      <svg width="100%" height="100%" viewBox="0 0 1 1" preserveAspectRatio="none" className="overflow-visible">
+        <path
+          d="M0.5,0 L0.5,1"
+          stroke="currentColor"
+          strokeWidth={RAIL_STROKE}
+          vectorEffect="non-scaling-stroke"
+          fill="none"
         />
-      )}
+      </svg>
     </span>
   );
 }
@@ -10852,10 +10909,7 @@ function LiveView({
           outside the card-sized connector so the branch still hits mid-card
           even when this node has its own nested children. */}
       {!isLast ? (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute -left-4 -top-2 bottom-0 w-[1.5px] bg-zinc-500"
-        />
+        <TreeSpine className="-left-4 -top-2 bottom-0 w-[1.5px]" colorClassName="text-zinc-500" />
       ) : null}
       {/* Connector is sized to the card only so elbow/T-junction midpoints
           land on the card center, not the midpoint of card+descendants.
@@ -12564,10 +12618,7 @@ function SessionGroups({
             spine drawn by the ancestor wrapper; keep this matched to that
             padding or the line stops short of it. */}
         {!isLast ? (
-          <span
-            aria-hidden
-            className="pointer-events-none absolute -left-5 -top-1 bottom-0 w-[1.5px] bg-zinc-500"
-          />
+          <TreeSpine className="-left-5 -top-1 bottom-0 w-[1.5px]" colorClassName="text-zinc-500" />
         ) : null}
         {/* Connector sized to the row only so the branch hits mid-row.
             Same -left-5/w-5 pairing as the spine above, for the same reason. */}
@@ -16890,27 +16941,110 @@ const ChatStream = memo(function ChatStream({
     }
   }
 
+  // Follow-to-bottom used to be one line — `el.scrollTop = el.scrollHeight`
+  // on every change while `stick` — which snapped the viewport in the same
+  // frame the new message's layout landed at full height (its own fade/slide
+  // entrance is opacity+transform, which don't affect layout, so the height
+  // was already final before that entrance had drawn a single frame). Two
+  // motions arriving in the same frame reads as one flick, not two things
+  // happening.
+  //
+  // A fast token stream is the reason this can't just become
+  // `scrollTo({behavior:"smooth"})` everywhere: a smooth scroll that can't
+  // keep up with the next token arriving 30ms later looks worse than a jump
+  // (it visibly lags the text). So only *discrete* arrivals animate — a new
+  // item appended, or the typing indicator mounting/unmounting — and the
+  // streaming tail's own in-place growth still snaps instantly, same as
+  // before.
+  const programmaticScrollRef = useRef(false);
+  const glideRafRef = useRef<number | null>(null);
+  const growthKeyRef = useRef<{ len: number; typing: boolean } | null>(null);
+  const prevStickRef = useRef(stick);
+  const justSwitchedRef = useRef(true);
+
+  const stopGlide = useCallback(() => {
+    if (glideRafRef.current != null) {
+      cancelAnimationFrame(glideRafRef.current);
+      glideRafRef.current = null;
+    }
+    programmaticScrollRef.current = false;
+  }, []);
+  useEffect(() => stopGlide, [stopGlide]);
+
+  // Eases toward the bottom rather than tweening a fixed start/end: re-reads
+  // `scrollHeight` every frame, so a message that keeps growing while this is
+  // in flight (a discrete arrival immediately followed by its own streamed
+  // text) is chased instead of overshot-then-corrected. `programmaticScrollRef`
+  // marks the window so the scroll handler below doesn't mistake our own
+  // motion for the user grabbing the scrollbar mid-glide.
+  const startGlide = useCallback(
+    (el: HTMLDivElement) => {
+      stopGlide();
+      programmaticScrollRef.current = true;
+      const step = () => {
+        const target = el.scrollHeight - el.clientHeight;
+        const delta = target - el.scrollTop;
+        if (Math.abs(delta) < 1) {
+          el.scrollTop = target;
+          stopGlide();
+          return;
+        }
+        el.scrollTop += delta * 0.3;
+        glideRafRef.current = requestAnimationFrame(step);
+      };
+      glideRafRef.current = requestAnimationFrame(step);
+    },
+    [stopGlide],
+  );
+
   useEffect(() => {
     setHasOlder(true);
     preserveScrollRef.current = null;
-  }, [sid]);
+    growthKeyRef.current = null;
+    justSwitchedRef.current = true;
+    stopGlide();
+  }, [sid, stopGlide]);
 
+  // A manual jump-to-latest click is itself a discrete event — route it
+  // through the same `stick` transition the effect below already treats as
+  // one, instead of a second scroll call that would race the effect's own.
   const scrollToBottom = useCallback(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
     setStick(true);
   }, []);
 
   useEffect(() => {
     const el = ref.current;
-    if (!el || !stick) return;
+    if (!el || !stick) {
+      prevStickRef.current = stick;
+      return;
+    }
+    const key = { len: items.length, typing: showTypingIndicator };
+    const prevKey = growthKeyRef.current;
+    const switched = justSwitchedRef.current;
+    // Re-engaging stick (jump-to-latest, or scrolling back within range) and
+    // an appended item/typing-indicator toggle are the "discrete" cases; the
+    // same item just growing mid-stream is not.
+    const discrete =
+      !switched &&
+      (!prevStickRef.current || (!!prevKey && (prevKey.len !== key.len || prevKey.typing !== key.typing)));
+    growthKeyRef.current = key;
+    prevStickRef.current = stick;
+    justSwitchedRef.current = false;
     // Only write when we're not already pinned: a redundant assignment still
     // emits a scroll event, which flips `stick` and re-runs this effect — an
     // self-sustaining loop that React kills with "maximum update depth".
-    if (el.scrollTop === el.scrollHeight - el.clientHeight) return;
-    el.scrollTop = el.scrollHeight;
-  }, [visibleMessages, busy, stick]);
+    if (el.scrollTop === el.scrollHeight - el.clientHeight) {
+      stopGlide();
+      return;
+    }
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    if (discrete && !reducedMotion) {
+      startGlide(el);
+    } else {
+      stopGlide();
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [visibleMessages, busy, stick, items.length, showTypingIndicator, startGlide, stopGlide]);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -16947,7 +17081,14 @@ const ChatStream = memo(function ChatStream({
       ref={ref}
       onScroll={(event) => {
         const el = event.currentTarget;
-        setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 72);
+        // Our own glide fires `scroll` events on every intermediate frame,
+        // same as a user drag would. Reading `stick` from those would catch
+        // the glide mid-flight (still >72px away, early on) and read it as
+        // the user stepping back — dropping `stick` in the middle of the
+        // motion that only exists because `stick` was true.
+        if (!programmaticScrollRef.current) {
+          setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 72);
+        }
         void maybeLoadOlder();
       }}
       className={cn(
