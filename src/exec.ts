@@ -50,14 +50,56 @@ export interface ExecResult {
   truncated: boolean;
   timedOut: boolean;
   /**
-   * False when a timeout could only signal the shell, not its whole process
-   * group — no `setsid` on this box. Anything the command spawned may still be
-   * running. Reported rather than hidden: a caller that just timed out needs
-   * to know whether the work actually stopped.
+   * Whether the timeout could signal the whole process GROUP rather than only
+   * the shell. False when this box has no `setsid` (macOS), where anything the
+   * command spawned may still be running.
+   *
+   * TRUE IS NOT A GUARANTEE THAT NOTHING SURVIVED. A command that starts its
+   * own new session — `setsid foo &`, a daemon that double-forks — leaves the
+   * group we signal, and measurably survives. `nohup ... &` and `disown` do
+   * NOT escape, because neither creates a session. Containing a deliberate
+   * escape needs a PID namespace or a cgroup, which is a box-provisioning
+   * decision rather than something this endpoint can do; and a caller that can
+   * reach this API can already start a coding agent that daemonizes anything
+   * it likes. Reported so a caller knows which guarantee it has, not as proof
+   * the work stopped.
    */
   killedGroup: boolean;
   durationMs: number;
   cwd: string;
+}
+
+/**
+ * Drop an incomplete UTF-8 sequence from the END of a buffer.
+ *
+ * Head and tail are cut at byte offsets, which lands mid-codepoint on any
+ * multibyte output. Decoding the halves separately then renders each severed
+ * sequence as U+FFFD — a stream of `€` came back with replacement characters
+ * at both seams. Trimming the partial bytes loses at most three bytes that
+ * were already inside a truncation marker, and keeps the text valid.
+ */
+function trimPartialSequenceAtEnd(buf: Uint8Array): Uint8Array {
+  // A sequence is at most 4 bytes, so a lead byte further back than 3 is
+  // necessarily complete.
+  for (let back = 1; back <= Math.min(4, buf.byteLength); back++) {
+    const byte = buf[buf.byteLength - back]!;
+    if ((byte & 0b1100_0000) === 0b1000_0000) continue; // continuation
+    const needed =
+      (byte & 0b1000_0000) === 0 ? 1 :
+      (byte & 0b1110_0000) === 0b1100_0000 ? 2 :
+      (byte & 0b1111_0000) === 0b1110_0000 ? 3 :
+      (byte & 0b1111_1000) === 0b1111_0000 ? 4 : 1;
+    // Complete: the whole sequence fits before the end. Otherwise cut it off.
+    return needed <= back ? buf : buf.subarray(0, buf.byteLength - back);
+  }
+  return buf;
+}
+
+/** Drop orphaned continuation bytes from the START of a buffer. */
+function trimPartialSequenceAtStart(buf: Uint8Array): Uint8Array {
+  let at = 0;
+  while (at < buf.byteLength && at < 3 && (buf[at]! & 0b1100_0000) === 0b1000_0000) at++;
+  return at === 0 ? buf : buf.subarray(at);
 }
 
 /**
@@ -126,22 +168,32 @@ async function readCapped(
   }
 
   const decoder = new TextDecoder();
-  const join = (parts: Uint8Array[], bytes: number): string => {
+  const joinBytes = (parts: Uint8Array[], bytes: number): Uint8Array => {
     const out = new Uint8Array(bytes);
     let at = 0;
     for (const part of parts) {
       out.set(part, at);
       at += part.byteLength;
     }
-    return decoder.decode(out);
+    return out;
   };
 
+  // THREE cut points can land mid-codepoint, not two. The seams are obvious;
+  // the third is the end of the stream itself, because SIGKILL stops the
+  // producer wherever it happens to be — including halfway through writing a
+  // character. That one bites the untruncated case too, so it is repaired on
+  // every path rather than only when a seam exists.
   if (total <= MAX_EXEC_OUTPUT_BYTES) {
-    return { text: join([...head, ...tail], headBytes + tailBytes), truncated: false };
+    const whole = trimPartialSequenceAtEnd(joinBytes([...head, ...tail], headBytes + tailBytes));
+    return { text: decoder.decode(whole), truncated: false };
   }
-  const omitted = total - headBytes - tailBytes;
+  const headBytesTrimmed = trimPartialSequenceAtEnd(joinBytes(head, headBytes));
+  const tailBytesTrimmed = trimPartialSequenceAtEnd(
+    trimPartialSequenceAtStart(joinBytes(tail, tailBytes)),
+  );
+  const omitted = total - headBytesTrimmed.byteLength - tailBytesTrimmed.byteLength;
   return {
-    text: `${join(head, headBytes)}\n… ${omitted} bytes omitted …\n${join(tail, tailBytes)}`,
+    text: `${decoder.decode(headBytesTrimmed)}\n… ${omitted} bytes omitted …\n${decoder.decode(tailBytesTrimmed)}`,
     truncated: true,
   };
 }
@@ -224,7 +276,7 @@ export async function runExecCommand(
       exitCode: timedOut ? null : exitCode,
       stdout: out.text,
       stderr: timedOut
-        ? `${err.text}${err.text ? "\n" : ""}Command exceeded ${timeoutMs}ms and was killed. Long work belongs in a session, not a one-shot command.`
+        ? `${err.text}${err.text ? "\n" : ""}Command exceeded ${timeoutMs}ms and was killed${killedGroup ? " (process group signalled)" : " (shell only — spawned processes may still be running)"}. Long work belongs in a session, not a one-shot command.`
         : err.text,
       truncated: out.truncated || err.truncated,
       timedOut,
