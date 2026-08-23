@@ -17353,7 +17353,14 @@ function OrganicActivityEffect({
   );
 }
 
-function ToolGroup({ items, live }: { items: Message[]; live: boolean }) {
+// Memoized with a custom comparator instead of a bare `memo()`: `items` is
+// rebuilt into a brand-new array every time buildChatRenderItems reruns (once
+// per streamed token, for every tool group in the transcript, not just the
+// one currently growing — see ChatStream's `items` useMemo), so a plain
+// reference check on `items` would never bail. The Message objects inside it
+// are stable for any group that isn't the live one (same reasoning as
+// MessageBubble above), so compare contents instead of array identity.
+const ToolGroup = memo(function ToolGroup({ items, live }: { items: Message[]; live: boolean }) {
   const label = toolGroupLabel(items);
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
@@ -17520,7 +17527,11 @@ function ToolGroup({ items, live }: { items: Message[]; live: boolean }) {
       </Popover.Portal>
     </Popover.Root>
   );
-}
+}, (prev, next) =>
+  prev.live === next.live &&
+  prev.items.length === next.items.length &&
+  prev.items.every((message, index) => message === next.items[index]),
+);
 
 /**
  * The wait state.
@@ -17979,7 +17990,15 @@ function MessageActions({
   );
 }
 
-function MessageBubble({
+// Memoized: ChatStream recomputes `items` from a fresh `visibleMessages` array
+// on every streamed token (see its useMemo above), even though only the one
+// live-streaming message actually changed text. Message objects for anything
+// else in the transcript keep the same reference across that recompute (the
+// live-update reducers only replace the object matching the incoming
+// id — see the `ai_part`/message handlers), so a shallow prop comparison
+// correctly skips re-rendering every settled bubble on every token instead of
+// re-running all of them for a change that touched exactly one.
+const MessageBubble = memo(function MessageBubble({
   message,
   live = false,
   entering = false,
@@ -18309,7 +18328,7 @@ function MessageBubble({
       {body}
     </AiMessage>
   );
-}
+});
 
 /**
  * A round face for one human conversation participant — the same visual
