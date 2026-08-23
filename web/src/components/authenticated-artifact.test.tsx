@@ -150,6 +150,31 @@ describe("AuthenticatedArtifactImage", () => {
     expect(fetched).toEqual([]);
   });
 
+  test("zooming loads the original, and only on zoom", async () => {
+    installTransport({ direct: true });
+    render(
+      <AuthenticatedArtifactImage
+        path="/api/artifacts/zoom.png"
+        alt="zoom"
+        width={800}
+        height={600}
+        zoomable
+      />,
+    );
+    await act(async () => {});
+    // The tile shows the server's bounded preview. Nothing has asked for the
+    // original yet: the lightbox renders no element while it is closed.
+    expect(document.querySelectorAll("img")).toHaveLength(1);
+
+    await act(async () => {
+      img()?.dispatchEvent(new window.Event("click", { bubbles: true }));
+    });
+
+    const sources = [...document.querySelectorAll("img")].map((el) => el.getAttribute("src"));
+    expect(sources).toContain("/api/artifacts/zoom.png");
+    expect(fetched).toEqual([]);
+  });
+
   test("a direct URL that fails falls back to the caller's placeholder", async () => {
     installTransport({ direct: true });
     render(
