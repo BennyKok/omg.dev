@@ -1775,9 +1775,10 @@ async function replaySessionCreation(record: ManagedSession): Promise<Response> 
 
 type CloseOutcome = { ok: true; mode: string } | { ok: false; status: number; reason: string };
 
-// Tear down one live session. Shared by the single-session /close route and the
-// bulk /api/sessions/close-all sweep so both take the exact same path (harness
-// shutdown command, tmux teardown, pid tombstone, registry cleanup).
+// Tear down one live session. Shared by every teardown caller in this file
+// (the single-session /close route, memory-pressure reclaim, bot rotation,
+// session-continue archival, and more) so they all take the exact same path
+// (harness shutdown command, tmux teardown, pid tombstone, registry cleanup).
 async function closeLiveSession(
   sess: Session,
   id: string,
@@ -8468,81 +8469,6 @@ a{color:#60a5fa}
           if (!outcome.ok) return err(outcome.status, outcome.reason);
           return json({ ok: true });
         }
-      }
-
-      // Bulk teardown: end every session that isn't mid-turn, in one request.
-      // Deliberately plumbing-only (no agent, no model) — the fleet view calls
-      // this directly so cleaning up a pile of finished sessions is one click.
-      if (path === "/api/sessions/close-all" && req.method === "POST") {
-        const body = (await req.json().catch(() => null)) as {
-          source?: unknown;
-          scope?: unknown;
-          exclude?: unknown;
-          sessionIds?: unknown;
-        } | null;
-        const rawSource = typeof body?.source === "string" ? body.source.trim() : "";
-        const source = rawSource ? rawSource.slice(0, 80) : "unknown";
-        // "idle" (default) spares sessions that are currently running a turn;
-        // "all" ends those too.
-        const scope = body?.scope === "all" ? "all" : "idle";
-        const exclude = new Set(
-          (Array.isArray(body?.exclude) ? body.exclude : [])
-            .filter((v): v is string => typeof v === "string")
-            .slice(0, 200),
-        );
-        // Optional allowlist: the caller (the fleet view) passes exactly the
-        // sessions currently in scope for its project/user filters, so the
-        // sweep never reaches past what the user can see.
-        const only = Array.isArray(body?.sessionIds)
-          ? new Set(body.sessionIds.filter((v): v is string => typeof v === "string").slice(0, 500))
-          : null;
-        const href = req.headers.get("referer") ?? undefined;
-        const all = await listSessions();
-        const inScope = only ? all.filter((s) => s.sessionId && only.has(s.sessionId)) : all;
-        const targets = inScope.filter(
-          (s) => s.sessionId && !exclude.has(s.sessionId) && (scope === "all" || !s.busy),
-        );
-        evlog("sessions_close_all_request", {
-          source,
-          href,
-          scope,
-          total: all.length,
-          inScope: inScope.length,
-          targets: targets.length,
-          skippedBusy: inScope.length - targets.length,
-        });
-        const closed: string[] = [];
-        const failed: { sessionId: string; reason: string }[] = [];
-        // Sequential: each close stops a process/tmux lifecycle and rewrites registry files,
-        // and the list is small (tens at most).
-        for (const sess of targets) {
-          const sid = sess.sessionId as string;
-          const outcome = await closeLiveSession(sess, sid, {
-            sessionId: sid,
-            source,
-            href,
-          }).catch((e) => ({
-            ok: false as const,
-            status: 500,
-            reason: e instanceof Error ? e.message : String(e),
-          }));
-          if (outcome.ok) closed.push(sid);
-          else failed.push({ sessionId: sid, reason: outcome.reason });
-        }
-        invalidateListSessionsCache();
-        evlog("sessions_close_all_done", {
-          source,
-          scope,
-          closed: closed.length,
-          failed: failed.length,
-        });
-        return json({
-          ok: true,
-          scope,
-          closed,
-          failed,
-          skipped: inScope.length - targets.length,
-        });
       }
 
       if (path === "/api/live/status") {

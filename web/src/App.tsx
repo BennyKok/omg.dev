@@ -230,10 +230,7 @@ import {
 } from "./lib/folder-browser-recovery";
 import { setThemePreference, THEME_CHANGE_EVENT } from "./lib/theme";
 import { startsInBottomSystemGestureZone } from "./lib/touch-gestures";
-import {
-  retainLivePinnedSessions,
-  smartClearSessionIds,
-} from "./lib/pinned-sessions";
+import { retainLivePinnedSessions } from "./lib/pinned-sessions";
 import { pendingLiveFocusRequest } from "./lib/live-focus";
 import { ConnectionStatusToasts } from "./ConnectionStatus";
 import type {
@@ -257,7 +254,6 @@ import {
   ArrowUp,
   Bot,
   BrainCircuit,
-  Brush,
   CalendarClock,
   Clock3,
   Copy,
@@ -1807,23 +1803,6 @@ function putSessionTitle(sid: string, title: string) {
 
 type RenameSession = (sid: string, title: string) => Promise<void>;
 
-type CloseAllResult = {
-  closed?: string[];
-  failed?: { sessionId: string; reason: string }[];
-  skipped?: number;
-};
-
-// Bulk close, straight to the server — no agent, no model in the loop. The
-// explicit id list scopes the sweep to exactly the cards visible under the
-// current project/user filters.
-function closeAllSessionsRequest(sessionIds: string[], source: string) {
-  return api<CloseAllResult>("/api/sessions/close-all", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ source, scope: "idle", sessionIds }),
-  });
-}
-
 let skillCatalogPromise: Promise<SkillCatalogItem[]> | null = null;
 let skillCatalogLoadedAt = 0;
 let skillCatalogSnapshot: SkillCatalogItem[] = [];
@@ -2670,78 +2649,6 @@ function projectName(cwd: string): string {
 
 function repoProject(repo: Repo): string {
   return repo.project || projectName(repo.cwd);
-}
-
-type ManageSessionPromptId = "review" | "clean" | "follow-up" | "blockers" | "manage-scope";
-
-type ManageSessionPromptTemplate = {
-  id: ManageSessionPromptId;
-  label: string;
-  description: string;
-  task: string;
-};
-
-const MANAGE_SESSION_PROMPTS: ManageSessionPromptTemplate[] = [
-  {
-    id: "review",
-    label: "Review current sessions",
-    description: "Inventory live work and recommend next actions.",
-    task:
-      "Review all current live sessions in scope. Summarize each session's status, likely owner action, and whether it appears completed, blocked, waiting, or still actively working. Do not change session state unless the user explicitly follows up asking you to.",
-  },
-  {
-    id: "clean",
-    label: "Clean completed",
-    description: "Review first, then close only clearly done sessions.",
-    task:
-      "Review all current live sessions in scope, identify sessions that are clearly completed, summarize what you plan to close, then close only sessions that are unambiguously complete. Leave active, uncertain, errored, or blocked sessions open and explain why.",
-  },
-  {
-    id: "follow-up",
-    label: "Follow up commits/PRs",
-    description: "Nudge sessions with local commits or PRs.",
-    task:
-      "Review current live sessions in scope for local commits, unpushed work, pushed branches, or open pull requests. Send concise follow-up nudges to those sessions asking for status and the next needed action. Do not merge, deploy, delete, or close sessions as part of this pass.",
-  },
-  {
-    id: "blockers",
-    label: "Summarize blockers",
-    description: "Find stuck sessions and explain what is needed.",
-    task:
-      "Review current live sessions in scope and summarize blockers first. For each blocked or risky session, identify the blocker, the evidence you used, and the smallest explicit user decision needed to unblock it. Do not take destructive or irreversible action.",
-  },
-  {
-    id: "manage-scope",
-    label: "Manage selected scope",
-    description: "Review, clean completed work, and nudge follow-ups.",
-    task:
-      "Manage the selected session scope end to end: review current live sessions, summarize the plan, close only sessions that are clearly completed, send concise follow-up nudges for sessions with local commits or open PRs, and report remaining blockers. Leave anything uncertain open.",
-  },
-];
-function manageSessionsScopeText(projectFilter: string): string {
-  if (projectFilter === "__all") {
-    return "All projects. This was explicitly selected in the UI; include every live project visible to the current user filter.";
-  }
-  return `Project "${shortProject(projectFilter)}" (project key: ${projectFilter}). Manage only sessions whose project matches this selected project scope.`;
-}
-
-function buildManageSessionsPrompt(template: ManageSessionPromptTemplate, projectFilter: string): string {
-  return [
-    `Manage Sessions: ${template.label}`,
-    "",
-    `Selected project scope: ${manageSessionsScopeText(projectFilter)}`,
-    "",
-    `Task: ${template.task}`,
-    "",
-    "Safety rules:",
-    "- Review first and summarize what you found before making changes.",
-    "- Close only sessions that are clearly completed.",
-    "- For sessions with local commits, unpushed work, pushed branches, or open PRs, send follow-up nudges asking for status or the next action.",
-    "- Do not merge PRs, deploy, delete branches, delete files, delete repos, or perform other destructive actions without explicit user instruction.",
-    "- Do not manage sessions outside the selected project scope unless the user explicitly asks.",
-    "",
-    "Use the existing lfg session tools, CLI, or local API helpers available in this environment. Keep the final report concise and include actions taken plus anything left open.",
-  ].join("\n");
 }
 
 function autoAgentProject(agent: AutoAgent, repos: Repo[]): string {
@@ -7535,107 +7442,6 @@ export function App() {
     }
   }
 
-  // Direct bulk clear: archives every idle in-scope session in one request. The
-  // Manage Sessions templates below spawn an agent to exercise judgement; this
-  // is the plumbing version for "just clear them" — no LLM involved.
-  async function clearIdleSessions() {
-    const pinnedSessionIds = readPinnedSessions();
-    const pinnedSet = new Set(pinnedSessionIds);
-    const ids = smartClearSessionIds(liveSessions, pinnedSessionIds);
-    const pinnedCount = liveSessions.filter(
-      (session) => !!session.sessionId && pinnedSet.has(session.sessionId),
-    ).length;
-    const busyCount = liveSessions.filter(
-      (session) => !!session.busy && (!session.sessionId || !pinnedSet.has(session.sessionId)),
-    ).length;
-    if (!ids.length) {
-      toast.info(
-        pinnedCount
-          ? "No unpinned idle sessions to clear"
-          : busyCount
-            ? "Every session in scope is still working"
-            : "No sessions to clear",
-      );
-      return;
-    }
-    const confirmed = await appDialog.confirm({
-      title: `Archive ${ids.length} idle session${ids.length === 1 ? "" : "s"}?`,
-      description: [
-        pinnedCount
-          ? `${pinnedCount} pinned session${pinnedCount === 1 ? "" : "s"} will be left running.`
-          : "",
-        busyCount
-          ? `${busyCount} session${busyCount === 1 ? " is" : "s are"} still working and will be left running.`
-          : "",
-        "The idle sessions can be resumed later from Recent sessions.",
-      ]
-        .filter(Boolean)
-        .join(" "),
-      confirmLabel: "Archive sessions",
-      destructive: true,
-    });
-    if (!confirmed) return;
-    // Drop the cards now; the server tombstones the pids so the next poll
-    // agrees (same optimistic path as a single close).
-    ids.forEach((sid) => removeSession(sid));
-    try {
-      const res = await closeAllSessionsRequest(ids, "live_clear_idle");
-      const closed = res.closed?.length ?? 0;
-      const failed = res.failed?.length ?? 0;
-      if (failed) toast.warning(`Archived ${closed}, ${failed} could not be archived`);
-      else toast.success(`Archived ${closed} session${closed === 1 ? "" : "s"}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not archive sessions");
-    } finally {
-      await refreshSessions().catch(() => {});
-    }
-  }
-
-  async function launchManageSessions(template: ManageSessionPromptTemplate) {
-    const scopedRepo =
-      projectFilter !== "__all"
-        ? repos.find((repo) => repoProject(repo) === projectFilter)
-        : undefined;
-    const launchAgent = resolveInitialAgent(
-      localStorage.getItem("lfg_v2_agent"),
-      defaultAgent,
-    );
-    const launchModel =
-      localStorage.getItem(`lfg_model_${launchAgent}`) ||
-      localStorage.getItem("lfg_model") ||
-      modelCatalog.defaults[launchAgent] ||
-      AGENT_DEFAULT_MODEL[launchAgent];
-    const owner =
-      userFilter === "__unassigned"
-        ? ""
-        : resolveRosterUser(
-            userFilter !== "__all" ? userFilter : localStorage.getItem("lfg_user"),
-            users,
-          );
-    const prompt = buildManageSessionsPrompt(template, projectFilter);
-
-    try {
-      const res = await api<{ sessionId?: string }>("/api/sessions/new", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cwd: scopedRepo?.cwd,
-          prompt,
-          user: owner || undefined,
-          agent: launchAgent,
-          model: launchModel,
-          thinkingLevel: agentSupportsThinking(launchAgent) ? savedThinkingLevel() : undefined,
-        }),
-      });
-      if (res.sessionId) markCreatedSid(res.sessionId);
-      setTab("live");
-      await refreshSessions();
-      toast.success(`Started ${template.label.toLowerCase()}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not start management session");
-    }
-  }
-
   const updateSettings = useCallback(async (patch: Partial<GlobalSettings>) => {
     const payload = await api<{ settings: GlobalSettings }>("/api/settings", {
       method: "POST",
@@ -8430,15 +8236,6 @@ export function App() {
                   extraTabs={extNavTabs}
                   showSettings={false}
                   onOpenHostSettings={hostSettingsInMenu ? onOpenHostSettings : undefined}
-                  manageSessions={
-                    tab === "live"
-                      ? {
-                          projectFilter,
-                          onSelect: (template) => void launchManageSessions(template),
-                          onClearIdle: () => void clearIdleSessions(),
-                        }
-                      : undefined
-                  }
                 />
               </div>
             </NavIsland>
@@ -8455,15 +8252,6 @@ export function App() {
                   onOpenTab={setTab}
                   extraTabs={extNavTabs}
                   showSettings
-                  manageSessions={
-                    tab === "live"
-                      ? {
-                          projectFilter,
-                          onSelect: (template) => void launchManageSessions(template),
-                          onClearIdle: () => void clearIdleSessions(),
-                        }
-                      : undefined
-                  }
                 />
               </div>
             </NavIsland>
@@ -8609,15 +8397,6 @@ export function App() {
               extraTabs={extNavTabs}
               showSettings={!embedded}
               onOpenHostSettings={embedded && hostSettingsInMenu ? onOpenHostSettings : undefined}
-              manageSessions={
-                tab === "live"
-                  ? {
-                      projectFilter,
-                      onSelect: (template) => void launchManageSessions(template),
-                      onClearIdle: () => void clearIdleSessions(),
-                    }
-                  : undefined
-              }
             />
           </div>
         </NavIsland>
@@ -8726,11 +8505,6 @@ export function App() {
                   onOpenTab={setTab}
                   extraTabs={extNavTabs}
                   showSettings={!embedded}
-                  manageSessions={{
-                    projectFilter,
-                    onSelect: (template) => void launchManageSessions(template),
-                    onClearIdle: () => void clearIdleSessions(),
-                  }}
                 />
               }
               repos={repos}
@@ -9716,7 +9490,6 @@ function PagesMenu({
   extraTabs,
   showSettings = true,
   onOpenHostSettings,
-  manageSessions,
   className,
 }: {
   tab: string;
@@ -9734,21 +9507,6 @@ function PagesMenu({
    * would be a lie the moment you came back.
    */
   onOpenHostSettings?: () => void;
-  /**
-   * Session housekeeping, folded in rather than given its own trigger.
-   *
-   * This used to be a clipboard icon button sitting beside this one, plus a
-   * "Smart clear" text button on the Idle group header — two controls, two
-   * shapes, for one menu. See the note above: the rail's action row is small
-   * and contested, and this menu is where the next thing that needs a home in
-   * it goes. Session management is not a page, so it sits below the page
-   * group behind its own label rather than joining the radio set.
-   */
-  manageSessions?: {
-    projectFilter: string;
-    onSelect: (template: ManageSessionPromptTemplate) => void;
-    onClearIdle?: () => void;
-  };
   className?: string;
 }) {
   // Pages are one radio group so exactly one item reads as current. That marker
@@ -9839,65 +9597,6 @@ function PagesMenu({
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
-        {manageSessions ? (
-          <>
-            <DropdownMenuSeparator />
-            {/* A submenu, not a flat block. Six items that each need a line of
-                explanation doubled the length of a menu whose main job is
-                four page links, and pushed the pages up out of reach. */}
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                {/* A brush, not a clipboard: what this menu mostly does is
-                    sweep finished work out of the list. */}
-                <Brush className="size-5 shrink-0 text-muted-foreground" />
-                <span className="whitespace-nowrap">Manage sessions</span>
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent align="start" className="w-72">
-            {/* GroupLabel needs a surrounding Group for MenuGroupContext
-                (Base UI #31) — wrap this title label so it does not throw. */}
-            <DropdownMenuGroup>
-              <DropdownMenuLabel className="space-y-1">
-                <span className="block text-xs font-semibold">Manage sessions</span>
-                <span className="block truncate text-[11px] font-normal text-muted-foreground">
-                  Scope:{" "}
-                  {manageSessions.projectFilter === "__all"
-                    ? "All projects"
-                    : shortProject(manageSessions.projectFilter)}
-                </span>
-              </DropdownMenuLabel>
-            </DropdownMenuGroup>
-            {manageSessions.onClearIdle ? (
-              <DropdownMenuItem
-                variant="destructive"
-                className="flex cursor-pointer flex-col items-start gap-0.5 py-2"
-                onClick={() => {
-                  setOpen(false);
-                  manageSessions.onClearIdle?.();
-                }}
-              >
-                <span className="text-sm font-medium text-destructive">Clear idle sessions</span>
-                <span className="text-xs text-muted-foreground">
-                  Ends every unpinned, non-working session now. No agent.
-                </span>
-              </DropdownMenuItem>
-            ) : null}
-            {MANAGE_SESSION_PROMPTS.map((template) => (
-              <DropdownMenuItem
-                key={template.id}
-                className="flex cursor-pointer flex-col items-start gap-0.5 py-2"
-                onClick={() => {
-                  setOpen(false);
-                  manageSessions.onSelect(template);
-                }}
-              >
-                <span className="text-sm font-medium">{template.label}</span>
-                <span className="text-xs text-muted-foreground">{template.description}</span>
-              </DropdownMenuItem>
-            ))}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-          </>
-        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );

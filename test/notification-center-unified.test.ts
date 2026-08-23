@@ -156,9 +156,10 @@ describe("the notification row is compact", () => {
     // The fork dialog's follow-up mode had exactly one caller — this button.
     expect(source).not.toContain('mode="follow-up"');
     expect(source).not.toContain('mode?: "fork" | "follow-up"');
-    // The only surviving "Follow up" is an unrelated manage-sessions template.
-    expect(source.match(/Follow up/g)?.length).toBe(1);
-    expect(source).toContain('label: "Follow up commits/PRs"');
+    // The manage-sessions template ("Follow up commits/PRs") that used to be the
+    // one legitimate surviving match was removed along with the rest of that
+    // feature, so the phrase should not appear anywhere in the row's source now.
+    expect(source).not.toMatch(/Follow up/);
   });
 
   test("media is a trailing thumbnail, not a full-width grid", async () => {
