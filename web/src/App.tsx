@@ -14511,7 +14511,13 @@ function SessionChatBody({
               field plus loose buttons beside it. */}
           <div
             className={cn(
-              "lfg-gfield relative flex gap-1 rounded-2xl px-2 py-1.5 transition-[background-color,border-color,box-shadow] duration-300 ease-ios md:gap-0.5 md:px-1.5 md:py-1",
+              // rounded-3xl, not the 2xl the other fields use. This one holds
+              // circular controls on both ends, and a 16px corner beside a
+              // 40px circle reads as a box that happens to contain pills. 24px
+              // lets the bar agree with what is inside it. Not rounded-full:
+              // the bar grows with the text, and a pill three lines tall bows
+              // outward instead of looking round.
+              "lfg-gfield relative flex gap-1 rounded-3xl px-2 py-1.5 transition-[background-color,border-color,box-shadow] duration-300 ease-ios md:gap-0.5 md:px-1.5 md:py-1",
               messageMultiline ? "items-end" : "items-center",
             )}
           >
