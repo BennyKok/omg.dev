@@ -26129,7 +26129,24 @@ function BotsView({
       }) : (
         // Create lives in the header "New" control so the empty card is
         // only the heading.
-        <div className="flex flex-col items-center rounded-xl border border-border bg-card p-10 text-center">
+        //
+        // This list has no height management of its own — it sizes to its
+        // content inside <main>'s scroll box — so on a mobile phone a lone
+        // card left the bottom half of the screen dead below it (reported:
+        // "Fix the position of the bot/chat button position", Angel,
+        // 2026-08-23). LiveView's mobile empty state (10853 above) already
+        // solves the same shape of problem by giving itself a min-h-[50dvh]
+        // floor and centering inside it; mirror that value and pattern here
+        // rather than inventing a new one. Mobile only — the desktop rail's
+        // narrower column reads fine top-aligned and must not grow a half
+        // -screen card. `bots.length` gates this whole branch, so a
+        // populated roster (1, 3, 10 bots — whatever) never sees this floor.
+        <div
+          className={cn(
+            "flex flex-col items-center rounded-xl border border-border bg-card p-10 text-center",
+            isMobile && "min-h-[50dvh] justify-center",
+          )}
+        >
           {/* One creature, asleep, waiting to be woken by the first bot. */}
           <BotMascot
             shape="circle"
