@@ -384,6 +384,22 @@ export async function sweepStaleWorktrees(opts?: {
   // a resume that re-keyed the managed row makes a perfectly resumable session
   // look dead to all of them, and deleting its worktree is exactly what makes
   // it unresumable. Recent activity survives all three.
+  //
+  // CAVEAT (not fixed here, needs a design decision): recentlyActiveCwds()
+  // only reads a cache that sessions.ts refreshes at server boot or when
+  // something calls the resume picker / find_sessions (refreshResumableCache,
+  // sessions.ts:3662, throttled to 1.5s) — it is not a heartbeat, so this
+  // "24h recent activity" protection is only as fresh as the last incidental
+  // caller. A tried fix (forcing a refresh at the top of every sweep) was
+  // reverted: refreshResumableCacheOnce prunes any cache row its own scan
+  // doesn't reproduce (pruneResumableExcept in sessions.ts), which deleted
+  // the synthetic rows src/worktree-sweep.test.ts seeds directly and, in this
+  // environment, ran long enough to blow the tests' timeout — sessions.ts's
+  // refresh is real transcript I/O, the wrong weight for every 15-minute
+  // sweep tick to carry. The actual fix needs a cheap, sweep-safe way to
+  // learn "any activity since last sweep", not a call into the resume-picker
+  // enrichment pipeline. Flagging rather than shipping a fix that trades a
+  // rare data-loss bug for a routine one.
   const recentNames = new Set<string>();
   try {
     for (const cwd of recentlyActiveCwds(recentActivityMs, now)) {

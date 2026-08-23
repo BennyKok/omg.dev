@@ -6615,6 +6615,20 @@ a{color:#60a5fa}
           );
           const jcodeNativeId = prior?.nativeSessionId;
           if (prior && jcodeNativeId && jcodeNativeId !== sessionId) {
+            // This whole branch assumes `prior` is a pre-reboot row: its pane
+            // died, and we are reconnecting the durable jcode conversation to
+            // a fresh one. That assumption was never checked. A stale or
+            // racing resume call hits this same branch while `prior`'s pane
+            // is still alive, and the code below still deletes `prior`'s
+            // registry row (see the removeManaged call further down) — the
+            // live pane and its worktree keep running, untouched, but the
+            // session vanishes from listManaged()/omg_list_sessions with no
+            // trace. Observed 2026-08-23: session 7e2ba55a's row disappeared
+            // this way while its process and worktree (lfg-54ec28) survived.
+            // Refuse instead of silently orphaning a live row.
+            if (tmuxHasSession(prior.tmuxName)) {
+              return err(409, `Session ${sessionId} is already active in pane ${prior.tmuxName}. Resume is not needed.`);
+            }
             const cwd = await resolveResumeCwd(prior.cwd, prior.project ?? cachedResume?.project);
             const tmuxName = `lfg-${randomBytes(3).toString("hex")}`;
             const tag = resolveSessionUserTag(body?.user || cachedResume?.assignedUser);
