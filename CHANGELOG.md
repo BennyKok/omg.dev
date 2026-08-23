@@ -24,6 +24,26 @@ Recent product updates and deployment notes.
   typing indicator, and re-engaging stick now animate. A message streaming in
   place still snaps, because a smooth scroll cannot keep up with 30ms token
   gaps. A reader who has scrolled up is still left alone.
+- **Sending a message no longer stutters the scroll.** Three separate triggers
+  fired on send, and each one restarted the eased scroll from zero, so the
+  transcript hitched instead of settling. The glide is now started once and
+  left to finish. A wheel, a touch, or a pointer press cancels it immediately,
+  so the view can no longer pull away from a reader who is scrolling up.
+- **The transcript re-renders less while a message streams.** Every arriving
+  token re-rendered every message and every tool group in the session. Those
+  are now compared before they redraw. On a long streaming session this took
+  dropped frames from 81 to 32, and layout recalculations from 1733 to 520.
+- **A reclaimed worktree is captured before it is removed.** Session worktrees
+  used to be deleted outright. The contents are now committed under
+  `refs/wip/<session-id>` first, and the removal is abandoned if that capture
+  fails. A worktree is never reclaimed while its tmux pane is alive, while a
+  process is running inside it, or while it is still registered, whatever its
+  age. The retention window is seven days.
+- **Archiving a session stops the dev servers it started.** They used to keep
+  running after the session was gone, which is how this machine collected
+  orphaned Vite processes. Closing a session now reaps them. A registry row is
+  also checked for a live pane before it is deleted, so a resume can no longer
+  orphan a session that is still running.
 - **The session tree connector is drawn at one weight.** The elbow joining a
   child to its parent used a corner radius scaled off the app's `--radius`, so
   on a 20px connector it ended well short of where the T-junction reached, and
