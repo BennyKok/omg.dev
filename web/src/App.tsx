@@ -17093,6 +17093,15 @@ const ChatStream = memo(function ChatStream({
     <div className="relative flex min-h-0 flex-1 flex-col">
     <Conversation
       ref={ref}
+      // A scroll event cannot say who caused it, and the glide emits one per
+      // frame. Suppressing the handler for the glide's duration therefore
+      // also swallowed the user's own scroll if it landed mid-flight: they
+      // dragged up, `stick` was never re-read, and the glide kept hauling
+      // them back to the bottom. These three CAN only come from a person, so
+      // they cancel the glide outright and hand control back.
+      onWheel={stopGlide}
+      onTouchStart={stopGlide}
+      onPointerDown={stopGlide}
       onScroll={(event) => {
         const el = event.currentTarget;
         // Our own glide fires `scroll` events on every intermediate frame,
