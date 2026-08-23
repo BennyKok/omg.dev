@@ -17037,12 +17037,16 @@ const ChatStream = memo(function ChatStream({
     const key = { len: items.length, typing: showTypingIndicator };
     const prevKey = growthKeyRef.current;
     const switched = justSwitchedRef.current;
-    // Re-engaging stick (jump-to-latest, or scrolling back within range) and
-    // an appended item/typing-indicator toggle are the "discrete" cases; the
-    // same item just growing mid-stream is not.
-    const discrete =
-      !switched &&
-      (!prevStickRef.current || (!!prevKey && (prevKey.len !== key.len || prevKey.typing !== key.typing)));
+    // Re-engaging stick (jump-to-latest, or scrolling back within range) is a
+    // fresh intent — the user asked to go to the bottom — and deserves its
+    // own glide even if one happens to be running. An appended item or a
+    // typing-indicator toggle is just "more content arrived": the glide
+    // already re-reads scrollHeight every frame, so it is chasing the growing
+    // transcript correctly on its own and doesn't need a restart. The same
+    // item just growing mid-stream (neither of these) isn't discrete at all.
+    const reengaged = !switched && !prevStickRef.current;
+    const grew = !switched && !!prevKey && (prevKey.len !== key.len || prevKey.typing !== key.typing);
+    const discrete = reengaged || grew;
     growthKeyRef.current = key;
     prevStickRef.current = stick;
     justSwitchedRef.current = false;
@@ -17055,7 +17059,16 @@ const ChatStream = memo(function ChatStream({
     }
     const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     if (discrete && !reducedMotion) {
-      startGlide(el);
+      // A glide already in flight is already chasing the live target every
+      // frame — restarting it (startGlide's first move is stopGlide) buys
+      // nothing and is exactly what produced the stutter: three triggers
+      // (append, typing indicator, stick) firing within a few frames each
+      // cancelled and rescheduled the RAF loop. Only a genuine re-engage
+      // deserves to preempt an in-flight glide; "more content arrived" is a
+      // no-op when one is already running.
+      if (reengaged || glideRafRef.current == null) {
+        startGlide(el);
+      }
     } else {
       stopGlide();
       el.scrollTop = el.scrollHeight;
