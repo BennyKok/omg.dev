@@ -62,6 +62,14 @@ risk and delivery scope.
 The root type check does not cover `web/`. Run the web one too when you change
 anything under `web/src`.
 
+The web type check needs no build. The ROOT one still needs
+`packages/client` built, because `src/plan-limit-error.test.ts` imports
+`web/src/lib/omg-client.ts`, which imports `@omg-dev/client`. `exclude` stops
+direct inclusion, not imports. The root program has no DOM library, so it
+cannot read that package from source the way `web/tsconfig.json` does. In a
+fresh worktree, run `bun run --cwd packages/client build` once. That is a few
+seconds, not the full `build:packages`.
+
 Run full tests and typecheck sequentially. Package-build tests can temporarily
 replace workspace artifacts and cause false module-resolution errors.
 Use a real install in each worktree. Do not share or symlink `node_modules`
