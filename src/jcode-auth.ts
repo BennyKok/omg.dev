@@ -34,6 +34,12 @@ export type JcodeProviderInfo = {
   connected: boolean;
   fromEnv?: boolean;
   detail?: string;
+  /**
+   * jcode holds a credential for this provider and reports that it cannot be
+   * used. Only a new sign-in revives it, and the row has to say so instead of
+   * showing a Connected badge over a dead token.
+   */
+  needsReconnect?: boolean;
 };
 
 export type JcodeAuthPrompt = {
@@ -266,16 +272,23 @@ export function jcodeAuthProviders(status: JcodeAuthStatus | null = null): Jcode
     const reported = statusForId(status, id);
     const source = sourceLabel(reported?.credential_source);
     const reportedAvailable = reported?.status === "available" && !sourceIsNone(source);
+    // jcode answered, it holds a credential for this provider, and it says that
+    // credential is not usable. That verdict wins: it comes from the CLI that
+    // owns the token and just tried to refresh it. `stored` only proves a file
+    // exists, so a revoked login would otherwise keep reporting Connected.
+    const reportedDead =
+      !!reported && !sourceIsNone(source) && reported.status !== "available";
     const stored = credentialFileLooksUsed(jcodeCredentialPath(id));
     const fromEnv = spec.envKeys.some((name) => !!process.env[name]?.trim());
     const imported = reportedAvailable && (sourceIsImported(source) || sourceIsEnv(source));
-    const connected = reportedAvailable || stored || fromEnv;
+    const connected = reportedAvailable || (!reportedDead && (stored || fromEnv));
     const ownedHere = stored || (reportedAvailable && sourceIsJcodeManaged(source));
     return {
       id,
       label: spec.label,
       method: "oauth" as const,
       connected,
+      ...(reportedDead ? { needsReconnect: true } : {}),
       ...(!ownedHere && connected ? { fromEnv: true } : {}),
       ...(imported && sourceIsImported(source)
         ? { detail: "Imported from another CLI" }

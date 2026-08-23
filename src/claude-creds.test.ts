@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -89,6 +90,42 @@ describe("Claude account credentials", () => {
     writeCreds({ accessToken: "stale", expiresAt: Date.now() - 60_000 });
 
     expect(claudeSignInIsDead(undefined, noKeychain)).toBe(true);
+  });
+
+  // What refreshFileToken writes after Anthropic answers 400 invalid_grant.
+  function writeRejection(refreshToken: string) {
+    writeFileSync(
+      join(testHome, ".claude", ".credentials.lfg-refresh.json"),
+      JSON.stringify({
+        fingerprint: createHash("sha256").update(refreshToken).digest("hex").slice(0, 16),
+        at: Date.now(),
+        error: '{"error":"invalid_grant"}',
+      }),
+    );
+  }
+
+  test("a refresh token Anthropic already rejected is a dead sign-in", () => {
+    writeCreds({
+      accessToken: "stale",
+      refreshToken: "revoked",
+      expiresAt: Date.now() - 60_000,
+    });
+    writeRejection("revoked");
+
+    // A present refresh token normally means "renewable". Once the server has
+    // refused this exact one, only a browser sign-in revives the account.
+    expect(claudeSignInIsDead(undefined, noKeychain)).toBe(true);
+  });
+
+  test("a rejection recorded for an older token does not condemn the new one", () => {
+    writeCreds({
+      accessToken: "stale",
+      refreshToken: "current",
+      expiresAt: Date.now() - 60_000,
+    });
+    writeRejection("previous");
+
+    expect(claudeSignInIsDead(undefined, noKeychain)).toBe(false);
   });
 
   test("an account with no credential at all is not a dead sign-in", () => {

@@ -107,6 +107,11 @@ export type AgentProviderInfo = {
    * true of it.
    */
   detail?: string;
+  /**
+   * The agent holds a credential for this provider and reports that it cannot
+   * be used. Only a new sign-in revives it.
+   */
+  needsReconnect?: boolean;
 };
 
 export type CodingAgentInfo = {
