@@ -24,6 +24,14 @@ export type IndexedTranscriptMatch = {
   ts: number | null;
   snippet: string;
   offset: number;
+  /**
+   * The id the transcript page and the live stream give this same message —
+   * `rowMessage` resolves it as `message_id || id`, so this is the only field
+   * that joins a search hit to a rendered row. The transcript find bar maps it
+   * to a virtualized row index; `offset` (order_seq) is internal and never
+   * reaches a client message.
+   */
+  messageId: string;
 };
 
 type IndexedMessageRow = {
@@ -1563,24 +1571,45 @@ export function indexedMessagesAfterRowid(
   };
 }
 
+/**
+ * Ceiling on one search read.
+ *
+ * 50 was enough for the voice agent, which only ever wanted a handful of
+ * quotes. The transcript find bar walks its hits with next/previous, so a cap
+ * that low would silently hide most of a common word's matches in a long
+ * session. Snippets are clipped to 220 characters, so the widest page here is
+ * a few hundred kilobytes.
+ */
+export const TRANSCRIPT_SEARCH_MAX_LIMIT = 400;
+
 export async function searchTranscriptIndex(
   path: string,
   sessionId: string,
   query: string,
   opts: { limit?: number } = {},
-): Promise<{ total: number; scanned: number; truncated: boolean; results: IndexedTranscriptMatch[] }> {
+): Promise<{
+  total: number;
+  matchTotal: number;
+  scanned: number;
+  truncated: boolean;
+  results: IndexedTranscriptMatch[];
+}> {
   await importTranscriptForRead(path, sessionId);
   init();
   const terms = searchTerms(query);
-  if (!terms.length) return { total: 0, scanned: 0, truncated: false, results: [] };
-  const limit = Math.max(1, Math.min(50, opts.limit ?? 12));
+  if (!terms.length)
+    return { total: 0, matchTotal: 0, scanned: 0, truncated: false, results: [] };
+  const limit = Math.max(1, Math.min(TRANSCRIPT_SEARCH_MAX_LIMIT, opts.limit ?? 12));
   const d = database();
   // Every term must appear, matching the AND semantics the fts5 mirror had.
   // The scan is bounded by session_id through transcript_messages_session_ts,
   // and sessions are small enough that this stays in the low milliseconds.
   const termClause = terms.map(() => "m.text LIKE ? ESCAPE '\\'").join(" AND ");
+  const patterns = terms.map(likePattern);
   const rows = d
     .query<{
+      id: string;
+      message_id: string | null;
       session_id: string;
       path: string;
       role: string;
@@ -1589,20 +1618,40 @@ export async function searchTranscriptIndex(
       text: string;
       byte_offset: number;
     }, (string | number)[]>(`
-      SELECT m.session_id, m.path, m.role, m.kind, m.ts, m.text, m.order_seq AS byte_offset
+      SELECT m.id, m.message_id, m.session_id, m.path, m.role, m.kind, m.ts, m.text,
+             m.order_seq AS byte_offset
       FROM transcript_messages m
       WHERE m.session_id = ? AND ${termClause}
       ORDER BY COALESCE(m.ts, 0) DESC, m.order_seq DESC
       LIMIT ?
     `)
-    .all(sessionId, ...terms.map(likePattern), limit);
+    .all(sessionId, ...patterns, limit);
+
+  // How many messages match at all, as opposed to how many this page returned.
+  // A find bar has to say "4 of 137"; without this it can only ever say "4 of
+  // 4" and the reader has no way to know the list was clipped. Counted only
+  // when the page came back full, so the common small-result read stays at one
+  // query.
+  const matchTotal =
+    rows.length < limit
+      ? rows.length
+      : d
+          .query<{ count: number }, (string | number)[]>(`
+            SELECT count(*) AS count
+            FROM transcript_messages m
+            WHERE m.session_id = ? AND ${termClause}
+          `)
+          .get(sessionId, ...patterns)?.count ?? rows.length;
 
   return {
     total: rows.length,
+    matchTotal,
     scanned: d
       .query<{ count: number }, [string]>("SELECT count(*) AS count FROM transcript_messages WHERE session_id = ?")
       .get(sessionId)?.count ?? 0,
-    truncated: false,
+    // Was hardcoded false, which was never true for a clipped read. The page is
+    // the most recent `limit` matches, so anything older than it is dropped.
+    truncated: matchTotal > rows.length,
     results: rows.reverse().map((row) => ({
       sessionId: row.session_id,
       path: row.path,
@@ -1611,6 +1660,7 @@ export async function searchTranscriptIndex(
       ts: row.ts,
       snippet: snippet(row.text, query),
       offset: row.byte_offset,
+      messageId: row.message_id || row.id,
     })),
   };
 }

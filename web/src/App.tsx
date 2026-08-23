@@ -105,6 +105,14 @@ import {
   isSubagentUpdateText,
 } from "./lib/bot-transcript";
 import { sessionMatchesUserFilter } from "./lib/user-filter";
+import {
+  buildFindRowIndex,
+  stepFindHit,
+  transcriptFindTerms,
+  type TranscriptFindHit,
+  type TranscriptSearchResponse,
+} from "./lib/transcript-find";
+import { clearFindHighlight, paintFindHighlight } from "./lib/find-highlight";
 import { uploadFile as uploadFileThroughTransport } from "./lib/upload";
 import { compressImageFile, isCompressibleImage } from "./lib/image-compress";
 import { AppCrash } from "./components/app-crash";
@@ -16890,6 +16898,27 @@ const CHAT_ROW_FALLBACK_PX = 64;
 /** The virtualizer must never write scrollTop. See the wiring comment below. */
 const noVirtualizerScroll = () => {};
 
+/**
+ * How many matches one find read asks for. The server clamps to
+ * TRANSCRIPT_SEARCH_MAX_LIMIT and reports `matchTotal` and `truncated`, so a
+ * common word in a long session still says honestly how much was clipped.
+ */
+const FIND_HIT_LIMIT = 200;
+
+/** Settle time before a keystroke turns into a search request. */
+const FIND_DEBOUNCE_MS = 180;
+
+/**
+ * How many pages of older messages ONE next/previous press will load while
+ * chasing a hit that is not in the loaded window. Each page is a round trip
+ * for 80 messages, so this is a latency budget, not a correctness limit:
+ * pressing again resumes from where it stopped.
+ */
+const FIND_MAX_LOAD_PAGES = 12;
+
+/** Where in the viewport a hit lands, as a fraction of the viewport height. */
+const FIND_HIT_HEADROOM = 0.3;
+
 const ChatStream = memo(function ChatStream({
   sid,
   messages,
@@ -17083,6 +17112,10 @@ const ChatStream = memo(function ChatStream({
     items.forEach((item, index) => map.set(item.key, index));
     return map;
   }, [items]);
+  // A row's key is only its FIRST message's id, so this is a second, wider map
+  // than indexByKey: every message id that a row draws, including the members
+  // folded into a tool pill. See lib/transcript-find.
+  const findRowIndex = useMemo(() => buildFindRowIndex(items), [items]);
 
   // Which row the viewport is sitting on, refreshed from real (non-glide)
   // scroll events. This is read-only bookkeeping: it never moves anything.
@@ -17180,6 +17213,352 @@ const ChatStream = memo(function ChatStream({
     },
     [stopGlide],
   );
+
+  // ---- Find in transcript ------------------------------------------------
+  //
+  // Virtualizing the transcript took the browser's own Ctrl+F away: only the
+  // rows near the viewport exist in the DOM, so native find reaches about 6.5%
+  // of a loaded transcript from the bottom and 2% of the rows at the tail.
+  // This asks the server which MESSAGES match
+  // (POST /api/sessions/:id/transcript/search), maps each hit to a row through
+  // findRowIndex, and scrolls to it.
+  //
+  // Ctrl+F is deliberately NOT rebound. The transcript pane is not a focusable
+  // element, so a binding scoped to it would never fire, and the only binding
+  // that would work is a global one — taking the browser's find away from the
+  // entire app to repair one pane is a worse trade than the bug. The button in
+  // the pane is the affordance.
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findHits, setFindHits] = useState<TranscriptFindHit[]>([]);
+  const [findTerms, setFindTerms] = useState<string[]>([]);
+  const [findMatchTotal, setFindMatchTotal] = useState(0);
+  const [findTruncated, setFindTruncated] = useState(false);
+  const [findCursor, setFindCursor] = useState(0);
+  const [findBusy, setFindBusy] = useState<"searching" | "paging" | null>(null);
+  const [findNotice, setFindNotice] = useState<string | null>(null);
+  // The message the reader was last sent to. Drives the outline and the text
+  // highlight; null means no hit is currently landed on. Deliberately a
+  // message id and NOT a row index — see findHitRow below.
+  const [findRow, setFindRow] = useState<string | null>(null);
+  // A hit whose message has no row yet. Set only by a next/previous press; the
+  // effect below pages older messages until it resolves or gives up.
+  const [findJump, setFindJump] = useState<{ messageId: string; pages: number } | null>(null);
+  const findInputRef = useRef<HTMLInputElement>(null);
+  // Where the reader was before the bar opened, kept as an ANCHOR rather than
+  // a raw scrollTop: chasing a hit can prepend pages above them, which moves
+  // every raw offset. Same shape and same fallback as preserveScrollRef.
+  const findReturnRef = useRef<{
+    anchor: { key: string; offset: number } | null;
+    top: number;
+    stick: boolean;
+  } | null>(null);
+  const findPagingRef = useRef(false);
+  // Bumped by anything that invalidates an in-flight page load: closing the
+  // bar, switching session, or asking for a different hit.
+  const findGenRef = useRef(0);
+
+  /**
+   * The find bar's ONE scroll write, and it only ever runs from a user action
+   * (opening onto a hit, or pressing next/previous).
+   *
+   * It assigns `el.scrollTop` directly, exactly like the pin-to-bottom snap and
+   * the anchor restore, because ChatStream is the single owner of scroll
+   * position. It deliberately does not call `virtualizer.scrollToIndex`: every
+   * virtualizer scroll API funnels through `scrollToFn`, which is a no-op here
+   * (see the wiring comment above), so scrollToIndex would move nothing and
+   * then spin a five-second reconcile loop chasing a target it can never
+   * reach. Un-no-op-ing scrollToFn to make it work is precisely the second
+   * scroll owner that comment exists to prevent. The virtualizer stays
+   * offsets-only: the only thing read here is `measurementsCache[index].start`,
+   * the same read the anchor restore already makes.
+   */
+  const jumpToFindRow = useCallback(
+    (index: number, messageId: string) => {
+      const el = ref.current;
+      const measurement = virtualizer.measurementsCache[index];
+      if (!el || !measurement) return;
+      stopGlide();
+      // Landing on a hit means the reader has left the bottom. Dropping stick
+      // is what makes the jump-to-latest pill behave exactly as it does after
+      // any manual scroll, instead of the pin effect hauling them back down.
+      setStick(false);
+      const target = measurement.start - Math.round(el.clientHeight * FIND_HIT_HEADROOM);
+      const clamped = Math.max(0, Math.min(target, el.scrollHeight - el.clientHeight));
+      el.scrollTop = clamped;
+      // Hand the landed row to the anchor the layout effect restores from, so
+      // rows above it settling from estimate to measured height keep it under
+      // the reader rather than sliding it off screen.
+      anchorRef.current = { key: items[index]?.key ?? "", offset: clamped - measurement.start };
+      setFindRow(messageId);
+    },
+    [items, stopGlide, virtualizer],
+  );
+
+  const goToFindHit = useCallback(
+    (cursor: number) => {
+      const hit = findHits[cursor];
+      if (!hit) return;
+      findGenRef.current += 1;
+      findPagingRef.current = false;
+      setFindCursor(cursor);
+      setFindNotice(null);
+      const located = findRowIndex.get(hit.messageId);
+      if (located != null) {
+        setFindJump(null);
+        jumpToFindRow(located, hit.messageId);
+        return;
+      }
+      setFindRow(null);
+      setFindJump({ messageId: hit.messageId, pages: 0 });
+    },
+    [findHits, findRowIndex, jumpToFindRow],
+  );
+
+  /**
+   * Step through the hits.
+   *
+   * The server returns the most recent `limit` matches in ascending order, and
+   * the reader is at the tail, so the cursor starts on the NEWEST hit and the
+   * first press lands on it instead of stepping off it. From there "up" walks
+   * backwards through the conversation, which is the direction the remaining
+   * matches are in.
+   */
+  const stepFind = useCallback(
+    (delta: number) => {
+      if (!findHits.length) return;
+      const landed = findRow != null || findJump != null;
+      goToFindHit(landed ? stepFindHit(findHits.length, findCursor, delta) : findCursor);
+    },
+    [findCursor, findHits.length, findJump, findRow, goToFindHit],
+  );
+
+  // Chasing a hit that has not been paged in yet.
+  //
+  // The transcript pages backwards from the tail, so a hit older than the
+  // loaded window has no row at all. Failing silently there would be the same
+  // regression this bar exists to fix, so instead it loads older pages until
+  // the row appears, and says plainly what happened when it cannot reach it.
+  // This is the continuation of the user's press, not an autonomous scroll: it
+  // runs only while `findJump` is set, and only a press sets it.
+  useEffect(() => {
+    if (!findJump) return;
+    const located = findRowIndex.get(findJump.messageId);
+    if (located != null) {
+      setFindJump(null);
+      setFindBusy(null);
+      jumpToFindRow(located, findJump.messageId);
+      return;
+    }
+    if (!sid || !hasOlder || findJump.pages >= FIND_MAX_LOAD_PAGES) {
+      setFindJump(null);
+      setFindBusy(null);
+      setFindNotice(
+        hasOlder && findJump.pages >= FIND_MAX_LOAD_PAGES
+          ? "Still loading older messages toward that match. Press again to keep going."
+          : "That match is not shown in this transcript view. Switch to the full view to see it.",
+      );
+      return;
+    }
+    // Either our own previous page or the scroll-triggered backfill is in
+    // flight. Both land as a new `items` array, which re-runs this effect.
+    if (findPagingRef.current || loadingOlder) return;
+    findPagingRef.current = true;
+    const generation = findGenRef.current;
+    const target = findJump.messageId;
+    setFindBusy("paging");
+    setStick(false);
+    setLoadingOlder(true);
+    onLoadOlderMessages(sid)
+      .then((more) => {
+        if (generation !== findGenRef.current) return;
+        setHasOlder(more);
+        setFindJump((current) =>
+          current && current.messageId === target
+            ? { messageId: target, pages: current.pages + 1 }
+            : current,
+        );
+      })
+      .catch(() => {
+        if (generation !== findGenRef.current) return;
+        setFindJump(null);
+        setFindBusy(null);
+        setFindNotice("Could not load older messages to reach that match.");
+      })
+      .finally(() => {
+        findPagingRef.current = false;
+        if (generation === findGenRef.current) setLoadingOlder(false);
+      });
+  }, [
+    findJump,
+    findRowIndex,
+    hasOlder,
+    jumpToFindRow,
+    loadingOlder,
+    onLoadOlderMessages,
+    sid,
+  ]);
+
+  // One search per settled query. Typing never scrolls: the reader asks for a
+  // jump with Enter or the arrows, which keeps every scroll write behind a
+  // deliberate action.
+  useEffect(() => {
+    if (!findOpen || !sid) return;
+    const query = findQuery.trim();
+    if (!query) {
+      setFindHits([]);
+      setFindTerms([]);
+      setFindMatchTotal(0);
+      setFindTruncated(false);
+      setFindCursor(0);
+      setFindRow(null);
+      setFindJump(null);
+      setFindNotice(null);
+      setFindBusy(null);
+      return;
+    }
+    let cancelled = false;
+    setFindBusy("searching");
+    const timer = setTimeout(() => {
+      api<TranscriptSearchResponse>(
+        `/api/sessions/${encodeURIComponent(sid)}/transcript/search`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ query, limit: FIND_HIT_LIMIT }),
+        },
+      )
+        .then((page) => {
+          if (cancelled) return;
+          const hits = Array.isArray(page.results) ? page.results : [];
+          setFindHits(hits);
+          setFindTerms(transcriptFindTerms(query));
+          setFindMatchTotal(page.matchTotal ?? hits.length);
+          setFindTruncated(!!page.truncated);
+          // Ascending order, reader at the tail: start on the newest match.
+          setFindCursor(Math.max(0, hits.length - 1));
+          setFindRow(null);
+          setFindJump(null);
+          setFindBusy(null);
+          setFindNotice(hits.length ? null : "No matches.");
+        })
+        .catch((searchError) => {
+          if (cancelled) return;
+          setFindBusy(null);
+          setFindNotice(
+            searchError instanceof Error ? searchError.message : String(searchError),
+          );
+        });
+    }, FIND_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [findOpen, findQuery, sid]);
+
+  const openFind = useCallback(() => {
+    const el = ref.current;
+    if (el) {
+      captureAnchor(el);
+      findReturnRef.current = {
+        anchor: anchorRef.current ? { ...anchorRef.current } : null,
+        top: el.scrollTop,
+        stick,
+      };
+    }
+    setFindOpen(true);
+    // The input does not exist until the bar has rendered.
+    requestAnimationFrame(() => findInputRef.current?.focus());
+  }, [captureAnchor, stick]);
+
+  // Escape (and the close button) put the reader back where they were.
+  const closeFind = useCallback(() => {
+    findGenRef.current += 1;
+    setFindOpen(false);
+    setFindJump(null);
+    setFindRow(null);
+    setFindBusy(null);
+    setFindNotice(null);
+    setFindTerms([]);
+    clearFindHighlight();
+    const el = ref.current;
+    const restore = findReturnRef.current;
+    findReturnRef.current = null;
+    if (!el || !restore) return;
+    stopGlide();
+    if (restore.stick) {
+      // They were pinned to the bottom. Re-engaging stick is the same discrete
+      // event jump-to-latest raises, so the pin effect glides back down and
+      // this adds no second scroll write.
+      setStick(true);
+      return;
+    }
+    setStick(false);
+    const index = restore.anchor ? indexByKey.get(restore.anchor.key) : undefined;
+    const start = index == null ? undefined : virtualizer.measurementsCache[index]?.start;
+    // Same fallback the layout effect uses when an anchor row did not survive.
+    const next = start != null && restore.anchor ? start + restore.anchor.offset : restore.top;
+    el.scrollTop = Math.max(0, Math.min(next, el.scrollHeight - el.clientHeight));
+    anchorRef.current = restore.anchor ? { ...restore.anchor } : null;
+  }, [indexByKey, stopGlide, virtualizer]);
+
+  const onFindKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeFind();
+        return;
+      }
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      stepFind(event.shiftKey ? 1 : -1);
+    },
+    [closeFind, stepFind],
+  );
+
+  // A find session belongs to one transcript. Kept out of the session-switch
+  // reset below so the two stay independently reviewable.
+  useEffect(() => {
+    findGenRef.current += 1;
+    findPagingRef.current = false;
+    findReturnRef.current = null;
+    setFindOpen(false);
+    setFindQuery("");
+    setFindHits([]);
+    setFindTerms([]);
+    setFindMatchTotal(0);
+    setFindTruncated(false);
+    setFindCursor(0);
+    setFindRow(null);
+    setFindJump(null);
+    setFindBusy(null);
+    setFindNotice(null);
+    clearFindHighlight();
+  }, [sid]);
+
+  // Which row currently draws the landed hit. Resolved from the message id on
+  // every render rather than kept as the index jumpToFindRow used, because
+  // chasing a later hit can prepend pages above this one: the row is the same
+  // row, but its index is not the same number.
+  const findHitRow = findRow ? findRowIndex.get(findRow) ?? null : null;
+
+  // Paint the matched text inside the landed row. The row can unmount and
+  // remount as the virtual window slides, so this repaints whenever that
+  // window moves; the key is a cheap stand-in for "the mounted range changed".
+  const virtualWindowKey = virtualRows.length
+    ? `${virtualRows[0].index}:${virtualRows.length}`
+    : "";
+  useEffect(() => {
+    if (!findOpen || findHitRow == null || !findTerms.length) {
+      clearFindHighlight();
+      return;
+    }
+    paintFindHighlight(
+      ref.current?.querySelector<HTMLElement>('[data-find-hit="true"]') ?? null,
+      findTerms,
+    );
+  }, [findOpen, findHitRow, findTerms, virtualWindowKey]);
+  useEffect(() => clearFindHighlight, []);
 
   useEffect(() => {
     setHasOlder(true);
@@ -17417,6 +17796,13 @@ const ChatStream = memo(function ChatStream({
                 <div
                   key={item.key}
                   data-index={index}
+                  // The find bar's landed row. Styled from CSS through this
+                  // attribute rather than a class on the row, because the row
+                  // is DOM-measured: the outline it draws must not be able to
+                  // add a single pixel of height. Same reason the highlight
+                  // inside it is a paint-only CSS Highlight rather than a
+                  // wrapper element around the matched text.
+                  data-find-hit={findHitRow === index ? "true" : undefined}
                   ref={virtualizer.measureElement}
                   className={cn("pb-2", speakerChanged && "pt-2.5")}
                   style={{
@@ -17478,6 +17864,89 @@ const ChatStream = memo(function ChatStream({
         />
       )}
     </Conversation>
+    {/* Find in transcript. Same floating-pill language as jump-to-latest, and
+        the same click-through wrapper, parked at the top of the pane where a
+        browser's own find bar sits. The button is always offered while there
+        is a transcript to search — see the Ctrl+F note on the state above. */}
+    {visibleMessages.length ? (
+      <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex flex-col items-end gap-1 px-3">
+        {findOpen ? (
+          <>
+            <div className="lfg-scroll-pill pointer-events-auto flex w-full max-w-sm items-center gap-1 rounded-full border border-border bg-card/95 py-1 pl-3 pr-1 shadow-md backdrop-blur">
+              {findBusy ? (
+                <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+              ) : (
+                <Search className="size-3.5 shrink-0 text-muted-foreground" />
+              )}
+              <input
+                ref={findInputRef}
+                type="text"
+                value={findQuery}
+                onChange={(event) => setFindQuery(event.target.value)}
+                onKeyDown={onFindKeyDown}
+                placeholder="Find in transcript"
+                aria-label="Find in transcript"
+                autoComplete="off"
+                spellCheck={false}
+                className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+              />
+              <span
+                aria-live="polite"
+                className="shrink-0 whitespace-nowrap text-[11px] tabular-nums text-muted-foreground"
+              >
+                {findHits.length
+                  ? `${findCursor + 1}/${findHits.length}${findTruncated ? ` of ${findMatchTotal}` : ""}`
+                  : ""}
+              </span>
+              <button
+                type="button"
+                onClick={() => stepFind(-1)}
+                disabled={!findHits.length}
+                aria-label="Previous match, further back in the transcript"
+                title="Previous match (Enter)"
+                className="flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+              >
+                <ArrowUp className="size-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => stepFind(1)}
+                disabled={!findHits.length}
+                aria-label="Next match, further forward in the transcript"
+                title="Next match (Shift+Enter)"
+                className="flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+              >
+                <ArrowDown className="size-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={closeFind}
+                aria-label="Close find"
+                title="Close find (Escape)"
+                className="flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+            {findNotice ? (
+              <div className="pointer-events-auto max-w-sm rounded-xl border border-border bg-card/95 px-3 py-1.5 text-[11px] text-muted-foreground shadow-md backdrop-blur">
+                {findNotice}
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={openFind}
+            aria-label="Find in transcript"
+            title="Find in transcript"
+            className="lfg-scroll-pill pointer-events-auto flex items-center gap-1.5 rounded-full border border-border bg-card/95 px-2.5 py-1.5 text-xs font-medium text-foreground shadow-md backdrop-blur hover:bg-accent"
+          >
+            <Search className="size-3.5" />
+          </button>
+        )}
+      </div>
+    ) : null}
     {/* Floating jump-to-latest control: appears once the user scrolls away
         from the bottom. The wrapper is click-through so it never blocks taps
         on the messages beneath it. When the "files changed / Review" bar is up

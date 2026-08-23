@@ -2393,6 +2393,26 @@ html.lfg-keyboard-open {
     transform: translateY(8px);
   }
 
+  /* Transcript find: the row the find bar landed on.
+     `outline` and not `border`, and no padding change, because every mounted
+     transcript row is DOM-measured by the virtualizer — anything that adds
+     height here would feed straight back into the offsets and move the reader
+     off the match they just jumped to. */
+  .chat-stream [data-find-hit="true"] {
+    outline: 2px solid var(--ring);
+    outline-offset: -2px;
+    border-radius: 0.75rem;
+  }
+
+  /* The matched text itself. A CSS Custom Highlight paints over the existing
+     text nodes without touching the tree, which is the only way to mark up
+     Streamdown output without changing the row's measured height. Browsers
+     without the API still get the row outline above. */
+  ::highlight(lfg-find-hit) {
+    background-color: color-mix(in oklab, var(--ring) 45%, transparent);
+    color: var(--foreground);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .lfg-msg-in {
       animation: none;
