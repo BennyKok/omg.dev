@@ -328,6 +328,12 @@ import {
   type ChatRenderItem,
 } from "./lib/chat-render-items";
 import {
+  loadOlderIntent,
+  transcriptOlderPagePath,
+  transcriptPagePath,
+  windowLiveMessages,
+} from "./lib/transcript-paging";
+import {
   estimateRowHeight,
   HEIGHT_MODEL_VERSION,
   ROW_GAP_PX,
@@ -2767,7 +2773,7 @@ function reconcileSnapshotMessages(current: Message[], incoming: Message[]): Mes
     const localTs = local.ts ?? (local.pending ? Date.now() : 0);
     if (local.pending || !latestIncomingTs || localTs >= latestIncomingTs) next.push(local);
   }
-  return collapseThinkingRuns(next).slice(-80);
+  return windowLiveMessages(collapseThinkingRuns(next));
 }
 
 // A settled (non-draft) assistant text turn. These arrive whole — either
@@ -4698,7 +4704,7 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
               });
           next = appendLiveMessage(next, message);
         }
-        return { ...prev, [sid]: next.slice(-80) };
+        return { ...prev, [sid]: windowLiveMessages(next) };
       });
 
       // Bound the shimmer's lifetime. Each fresh thinking line resets the timer
@@ -4764,10 +4770,10 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
         };
         return {
           ...prev,
-          [sid]: [
+          [sid]: windowLiveMessages([
             ...current.filter((item) => item.kind !== "thinking" && item.id !== part.id),
             message,
-          ].slice(-80),
+          ]),
         };
       });
     });
@@ -4914,7 +4920,10 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
     };
     setMessagesBySid((prev) => ({
       ...prev,
-      [sid]: [...(prev[sid] ?? []).filter((item) => item.kind !== "thinking"), message].slice(-80),
+      [sid]: windowLiveMessages([
+        ...(prev[sid] ?? []).filter((item) => item.kind !== "thinking"),
+        message,
+      ]),
     }));
     setBusyBySid((prev) => ({ ...prev, [sid]: true }));
   }, []);
@@ -4939,9 +4948,7 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
     text?: string,
     opts: { dropOptimistic?: boolean } = {},
   ) => {
-    const page = await api<{ messages: Message[] }>(
-      `/api/sessions/${encodeURIComponent(sid)}/messages?limit=80`,
-    );
+    const page = await api<{ messages: Message[] }>(transcriptPagePath(sid));
     const messages = collapseThinkingRuns(Array.isArray(page.messages) ? page.messages : []);
     const seen = seenRef.current[sid] || (seenRef.current[sid] = new Set());
     for (const message of messages) {
@@ -5025,9 +5032,7 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
     const page = await api<{
       messages: Message[];
       nextBefore: number | null;
-    }>(
-      `/api/sessions/${encodeURIComponent(sid)}/messages?page=backward&before=${before}&limit=80`,
-    );
+    }>(transcriptOlderPagePath(sid, before));
     const older = collapseThinkingRuns(Array.isArray(page.messages) ? page.messages : []);
     setNextBeforeBySid((prev) => ({ ...prev, [sid]: page.nextBefore ?? null }));
     if (!older.length) return (page.nextBefore ?? null) !== null;
@@ -14030,7 +14035,7 @@ function ComposerTextarea({ className, ...props }: SkillTextareaProps) {
 // Shared transcript page loader used to warm the cache ahead of a session open.
 async function loadTranscriptPage(sid: string) {
   const page = await api<{ messages: Message[]; nextBefore?: number | null }>(
-    `/api/sessions/${encodeURIComponent(sid)}/messages?limit=80`,
+    transcriptPagePath(sid),
   );
   return {
     messages: omgMessagesToUIMessages(Array.isArray(page.messages) ? page.messages : []),
@@ -14241,7 +14246,7 @@ function SessionChatBody({
       setMessages([]);
     }
     void api<{ messages: Message[]; nextBefore?: number | null }>(
-      `/api/sessions/${encodeURIComponent(sid)}/messages?limit=80`,
+      transcriptPagePath(sid),
       { cache: "no-store" },
     )
       .then((page) => {
@@ -14304,7 +14309,7 @@ function SessionChatBody({
     if (!sid || nextBefore == null) return false;
     const before = nextBefore;
     const page = await api<{ messages: Message[]; nextBefore: number | null }>(
-      `/api/sessions/${encodeURIComponent(sid)}/messages?page=backward&before=${before}&limit=80`,
+      transcriptOlderPagePath(sid, before),
       { cache: "no-store" },
     );
     const older = omgMessagesToUIMessages(Array.isArray(page.messages) ? page.messages : []);
@@ -17292,22 +17297,25 @@ const ChatStream = memo(function ChatStream({
     anchorRef.current = { key: anchor.anchorKey, offset: anchor.anchorOffset };
   }, [visibleMessages, totalSize, stick, indexByKey, virtualizer]);
 
-  const maybeLoadOlder = useCallback(async () => {
+  // A transcript that does not overflow sits at scrollTop 0 *and* at the
+  // bottom, so no gesture can ever ask for more of it. The old guard refused
+  // to load in that state and a deep but heavily folded session became
+  // unreachable: 4234 messages that render as a handful of rows. It now
+  // backfills instead, and because there is no scroll position to preserve it
+  // keeps the pin to the bottom rather than clearing `stick` on every event.
+  const maybeLoadOlder = useCallback(async (mode: "anchored" | "backfill") => {
     const el = ref.current;
     if (!sid || !el || loadingOlder || !hasOlder) return;
-    if (el.scrollTop > 80) return;
-    // A transcript that doesn't overflow sits at scrollTop 0 *and* at the
-    // bottom, so backfilling it would clear `stick` on every scroll event
-    // while the pin-to-bottom effect keeps setting it. Wait for real overflow.
-    if (el.scrollHeight <= el.clientHeight + 80) return;
-    captureAnchor(el);
-    preserveScrollRef.current = {
-      anchorKey: anchorRef.current?.key ?? "",
-      anchorOffset: anchorRef.current?.offset ?? 0,
-      top: el.scrollTop,
-      height: el.scrollHeight,
-    };
-    setStick(false);
+    if (mode !== "backfill") {
+      captureAnchor(el);
+      preserveScrollRef.current = {
+        anchorKey: anchorRef.current?.key ?? "",
+        anchorOffset: anchorRef.current?.offset ?? 0,
+        top: el.scrollTop,
+        height: el.scrollHeight,
+      };
+      setStick(false);
+    }
     setLoadingOlder(true);
     try {
       const more = await onLoadOlderMessages(sid);
@@ -17318,6 +17326,28 @@ const ChatStream = memo(function ChatStream({
       setLoadingOlder(false);
     }
   }, [sid, loadingOlder, hasOlder, onLoadOlderMessages, captureAnchor]);
+
+  // Nothing scrolls an underfilled transcript, so the backfill needs its own
+  // trigger. It re-runs as messages land and stops as soon as the viewport
+  // overflows or the history runs out.
+  //
+  // The loop stop is progress, not a round budget: one attempt per distinct
+  // message count. A page that brings nothing new (or a cursor the stream has
+  // not published yet) leaves the count where it was, so the effect goes quiet
+  // instead of retrying, and any later arrival re-opens it.
+  const backfilledAtRef = useRef(-1);
+  useEffect(() => {
+    backfilledAtRef.current = -1;
+  }, [sid]);
+  useEffect(() => {
+    if (loading || loadingOlder || !hasOlder || !sid) return;
+    const el = ref.current;
+    if (!el || !visibleMessages.length) return;
+    if (backfilledAtRef.current === visibleMessages.length) return;
+    if (loadOlderIntent(el) !== "backfill") return;
+    backfilledAtRef.current = visibleMessages.length;
+    void maybeLoadOlder("backfill");
+  }, [loading, loadingOlder, hasOlder, sid, visibleMessages, totalSize, maybeLoadOlder]);
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -17345,7 +17375,8 @@ const ChatStream = memo(function ChatStream({
           // prepend can put them back on the same row.
           captureAnchor(el);
         }
-        void maybeLoadOlder();
+        const intent = loadOlderIntent(el);
+        if (intent !== "none") void maybeLoadOlder(intent);
       }}
       className={cn(
         "chat-stream min-h-0 flex-1 overflow-y-auto bg-background px-3 pt-3",

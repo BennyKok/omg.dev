@@ -223,6 +223,7 @@ import {
   type Session,
   type SessionMsg,
 } from "../sessions.ts";
+import { countTranscriptRows } from "../transcript-rows.ts";
 import {
   invalidateListSessionsCache,
   listSessionsCached,
@@ -235,6 +236,7 @@ import { launchCodingAgentSession } from "../coding-agent-provider.ts";
 import {
   enqueueTranscriptIndex,
   indexedMessagePage,
+  indexedMessageRowPage,
   indexArtifactMessage,
   indexedArtifactPlacement,
   indexTranscript,
@@ -2199,6 +2201,31 @@ function transcriptMessagesForClient<T extends { role: string; kind: string; tex
   messages: T[],
 ): Array<T | ImageArtifactMessage> {
   return withImageArtifacts(sessionId, visibleTranscriptMessages(messages));
+}
+
+// Rows as the client will count them: the shared row model applied to the
+// exact message list this endpoint sends, after tool_result and artifact
+// hydration have already changed it.
+function clientRowCounter(sessionId: string): (messages: SessionMsg[]) => number {
+  return (messages) => countTranscriptRows(transcriptMessagesForClient(sessionId, messages));
+}
+
+// How many rendered rows a live backlog aims for. 40 raw messages were two
+// rows on a tool-heavy session, which is a blank card.
+const LIVE_BACKLOG_ROWS = 24;
+// Ceiling for the same backlog in raw messages. One connection opens a backlog
+// per expanded pane, so this keeps the first frame small; the reader pages
+// further back over HTTP, which has the larger ceiling.
+const LIVE_BACKLOG_MAX_MESSAGES = 400;
+
+// `rows` asks for a page measured in rendered rows instead of raw messages. It
+// is optional: a client that omits it gets exactly the old raw-message page.
+export function requestedRows(url: URL): number | null {
+  const raw = url.searchParams.get("rows");
+  if (raw == null) return null;
+  const rows = parseInt(raw, 10);
+  if (!Number.isFinite(rows) || rows <= 0) return null;
+  return Math.min(500, rows);
 }
 
 type DraftState = { id: string; text: string };
@@ -8345,15 +8372,25 @@ a{color:#60a5fa}
           const tp = await resolveTranscript(m[1]);
           if (!tp) return err(404, "session transcript not found");
           await ensureChatTranscriptCaughtUp(tp, m[1], "api-messages");
+          // `rows` is additive and optional. Without it the page is the old
+          // raw-message window, so an older client keeps its exact behaviour.
+          // With it the page grows backward until it renders that many rows,
+          // because a run of tool calls collapses into one.
+          const rows = requestedRows(url);
           if (url.searchParams.get("page") === "backward") {
             const rawLimit = parseInt(url.searchParams.get("limit") ?? "220", 10);
+            const limit = Number.isFinite(rawLimit) ? rawLimit : 220;
             const rawBefore = url.searchParams.get("before");
             const before =
               rawBefore == null ? null : Math.max(0, parseInt(rawBefore, 10) || 0);
-            const page = await indexedMessagePage(tp, m[1], {
-              before,
-              limit: Number.isFinite(rawLimit) ? rawLimit : 220,
-            });
+            const page = rows
+              ? await indexedMessageRowPage(tp, m[1], {
+                  before,
+                  rows,
+                  chunk: limit,
+                  countRows: clientRowCounter(m[1]),
+                })
+              : await indexedMessagePage(tp, m[1], { before, limit });
             return json({
               id: m[1],
               total: page.total,
@@ -8366,7 +8403,14 @@ a{color:#60a5fa}
           const lim = full
             ? Math.max(0, Math.min(20000, Number.isFinite(rawLimit) ? rawLimit : 0))
             : Math.min(200, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 30));
-          const page = await indexedMessagePage(tp, m[1], { limit: full && lim === 0 ? 20_000 : lim });
+          const page =
+            rows && !full
+              ? await indexedMessageRowPage(tp, m[1], {
+                  rows,
+                  chunk: lim,
+                  countRows: clientRowCounter(m[1]),
+                })
+              : await indexedMessagePage(tp, m[1], { limit: full && lim === 0 ? 20_000 : lim });
           return json({
             id: m[1],
             total: page.total,
@@ -8883,7 +8927,12 @@ a{color:#60a5fa}
                   }
                   await ensureChatTranscriptCaughtUp(p.tp, p.sid, "sse-backlog");
                   const backlogT0 = performance.now();
-                  const page = await indexedMessagePage(p.tp, p.sid, { limit: 40 });
+                  const page = await indexedMessageRowPage(p.tp, p.sid, {
+                    rows: LIVE_BACKLOG_ROWS,
+                    chunk: 40,
+                    maxMessages: LIVE_BACKLOG_MAX_MESSAGES,
+                    countRows: clientRowCounter(p.sid),
+                  });
                   const readMs = performance.now() - backlogT0;
                   const renderT0 = performance.now();
                   const msgs = transcriptMessagesForClient(p.sid, page.messages).map(msgWithHtml);
@@ -9036,7 +9085,12 @@ a{color:#60a5fa}
               // backlog, then tail
               (async () => {
                 await ensureChatTranscriptCaughtUp(tp, sid, "sse-single-backlog");
-                const page = await indexedMessagePage(tp, sid, { limit: 40 });
+                const page = await indexedMessageRowPage(tp, sid, {
+                  rows: LIVE_BACKLOG_ROWS,
+                  chunk: 40,
+                  maxMessages: LIVE_BACKLOG_MAX_MESSAGES,
+                  countRows: clientRowCounter(sid),
+                });
                 const msgs = transcriptMessagesForClient(
                   sid,
                   page.messages,

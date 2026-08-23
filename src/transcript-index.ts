@@ -1444,6 +1444,63 @@ export async function indexedMessagePage(
   };
 }
 
+// Hard ceiling on a row-aware page. A run of tool calls is one row, so the
+// message cost of a row has no upper bound; this keeps a pathological session
+// from turning one request into the whole transcript.
+export const MAX_ROW_PAGE_MESSAGES = 2000;
+
+/**
+ * A page that holds at least `rows` rendered transcript rows.
+ *
+ * `indexedMessagePage` counts raw messages. The UI folds each run of
+ * tool_use / tool_result / thinking into ONE row, so a page of 80 raw messages
+ * can render as three rows and leave the viewport empty. This walks backward in
+ * chunks until the accumulated page renders enough rows, the transcript is
+ * exhausted, or the message ceiling is reached.
+ *
+ * The row rule is NOT defined here. The caller passes `countRows`, which the
+ * server builds from the shared model in src/transcript-rows.ts applied to the
+ * exact shape it sends to the client.
+ */
+export async function indexedMessageRowPage(
+  path: string,
+  sessionId: string,
+  opts: {
+    before?: number | null;
+    rows: number;
+    chunk?: number;
+    maxMessages?: number;
+    countRows: (messages: SessionMsg[]) => number;
+  },
+): Promise<{
+  messages: SessionMsg[];
+  nextBefore: number | null;
+  total: number;
+}> {
+  const chunk = Math.max(1, Math.min(MAX_ROW_PAGE_MESSAGES, opts.chunk ?? 220));
+  const maxMessages = Math.max(
+    chunk,
+    Math.min(MAX_ROW_PAGE_MESSAGES, opts.maxMessages ?? MAX_ROW_PAGE_MESSAGES),
+  );
+  const rows = Math.max(1, opts.rows);
+  let before = opts.before ?? null;
+  let messages: SessionMsg[] = [];
+  let nextBefore: number | null = null;
+  let total = 0;
+  for (;;) {
+    const page = await indexedMessagePage(path, sessionId, { before, limit: chunk });
+    nextBefore = page.nextBefore;
+    if (!page.messages.length) break;
+    total = page.total;
+    messages = [...page.messages, ...messages];
+    if (nextBefore == null) break;
+    if (messages.length >= maxMessages) break;
+    if (opts.countRows(messages) >= rows) break;
+    before = nextBefore;
+  }
+  return { messages, nextBefore, total };
+}
+
 export async function indexedRecentMessages(
   path: string,
   sessionId: string,

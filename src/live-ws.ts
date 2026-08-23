@@ -11,11 +11,12 @@ import {
 } from "./sessions.ts";
 import { listSessionsCached, noteListSessionsClientActivity } from "./session-cache.ts";
 import {
-  indexedMessagePage,
+  indexedMessageRowPage,
   indexedMessagesAfterRowid,
   isSessionIndexKey,
   subscribeIndexedArtifactMessages,
 } from "./transcript-index.ts";
+import { countTranscriptRows } from "./transcript-rows.ts";
 import { ensureChatTranscriptCaughtUp, subscribeChatTranscript } from "./chat-ingest.ts";
 import {
   capturePane,
@@ -74,6 +75,13 @@ const SID_RE = /^[0-9a-fA-F-]{36}$/;
 const RUN_RE = /^[0-9a-f]+$/;
 const SUBSCRIPTION_CAP = 48;
 const BACKLOG_LIMIT = 40;
+// The backlog is measured in rendered rows, not raw messages: the client folds
+// each run of tool_use / tool_result / thinking into one row, so 40 raw
+// messages were two rows on a tool-heavy session.
+const BACKLOG_ROWS = 24;
+// Ceiling for the same backlog in raw messages: one socket carries a backlog
+// per subscribed session, so the first frame stays small.
+const BACKLOG_MAX_MESSAGES = 400;
 const HEARTBEAT_MS = 25_000;
 const IDLE_CLOSE_MS = 60_000;
 const RING_CAP = 256;
@@ -659,7 +667,12 @@ export function createLiveWsSupport(opts: {
 
   const readBacklog = async (sid: string, tp: string) => {
     const backlogT0 = performance.now();
-    const page = await indexedMessagePage(tp, sid, { limit: BACKLOG_LIMIT });
+    const page = await indexedMessageRowPage(tp, sid, {
+      rows: BACKLOG_ROWS,
+      chunk: BACKLOG_LIMIT,
+      maxMessages: BACKLOG_MAX_MESSAGES,
+      countRows: (rows) => countTranscriptRows(transcriptMessagesForClient(sid, rows)),
+    });
     const messages = page.messages;
     const readMs = performance.now() - backlogT0;
     const renderT0 = performance.now();

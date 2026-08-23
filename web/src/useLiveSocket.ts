@@ -7,6 +7,11 @@ import {
   queueRowHydration,
   reconcileQueueMessages,
 } from "./lib/queue-reconcile";
+import {
+  transcriptOlderPagePath,
+  transcriptPagePath,
+  windowLiveMessages,
+} from "./lib/transcript-paging";
 
 type Session = {
   agent?: string;
@@ -337,7 +342,7 @@ function reconcileSnapshotMessages(current: Message[], incoming: Message[]): Mes
     const localTs = normalized.ts ?? (normalized.pending ? Date.now() : 0);
     if (normalized.pending || !latestIncomingTs || localTs >= latestIncomingTs) next.push(normalized);
   }
-  return collapseThinkingRuns(next).slice(-80);
+  return windowLiveMessages(collapseThinkingRuns(next));
 }
 
 const BACKOFF_MIN_MS = 250;
@@ -603,7 +608,7 @@ export function useLiveSocket(
       setMessagesBySid((prev) => {
         const current = prev[sid] ?? [];
         const next = upsertMessageById(current, message);
-        return { ...prev, [sid]: next.slice(-80) };
+        return { ...prev, [sid]: windowLiveMessages(next) };
       });
       const timers = thinkTimerRef.current;
       if (timers[sid]) clearTimeout(timers[sid]);
@@ -641,7 +646,13 @@ export function useLiveSocket(
         if (!text) return prev;
         const catchUp = existing?.catchUp ?? (firstDraftForSid && !!part.reset && text.length > DRAFT_CATCHUP_MIN_CHARS);
         const message: Message = { id: part.id, role: "assistant", kind: "text", text, ts: part.ts ?? Date.now(), catchUp };
-        return { ...prev, [sid]: [...current.filter((item) => item.kind !== "thinking" && item.id !== part.id), message].slice(-80) };
+        return {
+          ...prev,
+          [sid]: windowLiveMessages([
+            ...current.filter((item) => item.kind !== "thinking" && item.id !== part.id),
+            message,
+          ]),
+        };
       });
       return;
     }
@@ -1038,7 +1049,10 @@ export function useLiveSocket(
     };
     setMessagesBySid((prev) => ({
       ...prev,
-      [sid]: [...(prev[sid] ?? []).filter((item) => item.kind !== "thinking"), message].slice(-80),
+      [sid]: windowLiveMessages([
+        ...(prev[sid] ?? []).filter((item) => item.kind !== "thinking"),
+        message,
+      ]),
     }));
     setBusyBySid((prev) => ({ ...prev, [sid]: true }));
   }, []);
@@ -1063,7 +1077,7 @@ export function useLiveSocket(
     text?: string,
     opts: { dropOptimistic?: boolean } = {},
   ) => {
-    const page = await api<{ messages: Message[] }>(`/api/sessions/${encodeURIComponent(sid)}/messages?limit=80`);
+    const page = await api<{ messages: Message[] }>(transcriptPagePath(sid));
     const messages = collapseThinkingRuns(normalizeMessageList(Array.isArray(page.messages) ? page.messages : []));
     const seen = seenRef.current[sid] || (seenRef.current[sid] = new Set());
     for (const message of messages) {
@@ -1122,7 +1136,7 @@ export function useLiveSocket(
     const before = nextBeforeRef.current[sid];
     if (before == null) return false;
     const page = await api<{ messages: Message[]; nextBefore: number | null }>(
-      `/api/sessions/${encodeURIComponent(sid)}/messages?page=backward&before=${before}&limit=80`,
+      transcriptOlderPagePath(sid, before),
     );
     const older = collapseThinkingRuns(normalizeMessageList(Array.isArray(page.messages) ? page.messages : []));
     setNextBeforeBySid((prev) => ({ ...prev, [sid]: page.nextBefore ?? null }));
