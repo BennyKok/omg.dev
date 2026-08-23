@@ -8,6 +8,7 @@ import {
   type OmgChatMessage,
   type OmgTranscriptEvent,
 } from "./omg-chat-transport";
+import { buildChatRenderItems } from "./chat-render-items";
 
 // Lives here rather than in test/ so `ai` / `@ai-sdk/react` resolve out of
 // web/node_modules — this exercises the real AI SDK Chat, which is the whole
@@ -194,5 +195,89 @@ describe("steering an in-flight turn", () => {
     const later = await send("u3", "later");
     expect(listeners.size).toBe(1);
     await later.cancel();
+  });
+});
+
+// Sending WHILE the assistant streams is the other half of the same AbstractChat
+// rule. The steering fix above stops a SECOND response from opening; this is the
+// FIRST response losing the tail. AbstractChat picks replace-vs-append per chunk
+// by comparing its own message id against the tail of the list, so the steering
+// user row it pushes itself — and the "[Request interrupted by user]" row the
+// runtime writes right after — leave the still-streaming assistant message in
+// the middle. The next chunk then pushes a fresh copy of that whole turn under
+// the SAME id, and the transcript paints the interrupted answer twice: once
+// above the interrupt divider and once below it.
+describe("sending while the assistant is streaming", () => {
+  // Live wall-clock stamps: upsertOmgUIMessage inserts transcript rows in
+  // timestamp order against the locally-sent messages, which carry Date.now().
+  const NOW = Date.now();
+
+  function assistantCopies(messages: OmgChatMessage[], text: string) {
+    return omgUIMessagesToMessages(messages).filter(
+      (message) => message.role === "assistant" && message.text === text,
+    );
+  }
+
+  test("an interrupted turn is not repeated around the interrupt divider", async () => {
+    const { chat, emit, send, SID } = harness();
+    const answer = "Good — that is the verification that counts.";
+
+    const first = send("ship it");
+    await sleep(20);
+    emit({ type: "busy", busy: true });
+    emit({ type: "ai_part", part: { type: "text-delta", id: `draft-${SID}`, text: "Good", reset: true, ts: NOW + 10 } });
+    await sleep(10);
+    emit({ type: "ai_part", part: { type: "text-delta", id: `draft-${SID}`, text: answer, reset: true, ts: NOW + 20 } });
+    await sleep(10);
+
+    // The user sends mid-stream. The runtime interrupts the in-flight turn,
+    // persists the partial answer, writes the synthetic interrupt row, then
+    // echoes the new user turn.
+    const second = send("stop, do this instead");
+    await sleep(20);
+    emit({ type: "message", message: { id: "row-901", role: "assistant", kind: "text", text: answer, ts: NOW + 30 } });
+    emit({ type: "message", message: { id: "row-902", role: "user", kind: "text", text: "[Request interrupted by user]", ts: NOW + 31 } });
+    emit({ type: "message", message: { id: "row-903", role: "user", kind: "text", text: "stop, do this instead", ts: NOW + 32 } });
+    await sleep(300);
+
+    // Asserted while the session is still BUSY on purpose: the steered turn
+    // starts immediately, so the busy:false sweep that drops stale streaming
+    // drafts never runs. This is the state the reader is looking at.
+    const ids = chat.messages.map((message) => message.id);
+    expect(ids).toEqual([...new Set(ids)]);
+    expect(assistantCopies(chat.messages, answer)).toHaveLength(1);
+
+    // The virtualized transcript keys a row by its message id, so the two
+    // copies were one row measured twice and printed at overlapping offsets.
+    const keys = buildChatRenderItems(omgUIMessagesToMessages(chat.messages)).map((item) => item.key);
+    expect(keys).toEqual([...new Set(keys)]);
+
+    emit({ type: "busy", busy: false });
+    await sleep(200);
+    await Promise.allSettled([first, second]);
+  });
+
+  test("a steering send alone does not duplicate the live turn", async () => {
+    const { chat, emit, send, SID } = harness();
+
+    const first = send("one");
+    await sleep(20);
+    emit({ type: "busy", busy: true });
+    emit({ type: "ai_part", part: { type: "text-delta", id: `draft-${SID}`, text: "Alpha", reset: true, ts: NOW + 10 } });
+    await sleep(20);
+    const second = send("two");
+    await sleep(20);
+    emit({ type: "ai_part", part: { type: "text-delta", id: `draft-${SID}`, text: "Alpha beta", reset: true, ts: NOW + 20 } });
+    await sleep(20);
+
+    const ids = chat.messages.map((message) => message.id);
+    expect(ids).toEqual([...new Set(ids)]);
+    expect(assistantCopies(chat.messages, "Alpha beta")).toHaveLength(1);
+    // Both sends still reach the agent.
+    expect(chat.messages.filter((message) => message.role === "user")).toHaveLength(2);
+
+    emit({ type: "busy", busy: false });
+    await sleep(200);
+    await Promise.allSettled([first, second]);
   });
 });

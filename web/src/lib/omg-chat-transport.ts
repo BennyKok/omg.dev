@@ -461,7 +461,66 @@ function updateDraftText(current: OmgChatMessage[], part: OmgAiStreamPart): OmgC
   ];
 }
 
+/**
+ * Restore the invariant AbstractChat writes under: while a local send owns the
+ * live stream, the streaming assistant bubble is the LAST message.
+ *
+ * Every chunk of a live response is applied by comparing the response's own
+ * message id against the tail of `chat.messages` — equal means replace the
+ * tail, anything else means PUSH A FRESH COPY (see AbstractChat's
+ * `replaceLastMessage`). So any row that lands past the streaming bubble makes
+ * the very next chunk repeat the whole turn, under the SAME id.
+ *
+ * Sending WHILE the assistant is streaming does exactly that, twice over:
+ * AbstractChat itself pushes the steering user message, and the runtime then
+ * writes a synthetic "[Request interrupted by user]" row plus the echo of the
+ * new turn — both role `user`, so both pass the `streamActive` filter below.
+ * The transcript then painted the interrupted answer twice, once above the
+ * interrupt divider and once below it. Under the virtualized transcript the
+ * two copies also share a render-row key (the key is the message id), so they
+ * were measured as one row and printed on top of each other.
+ *
+ * Dropping the older copies heals a duplicate that was pushed before any
+ * transcript event could run; re-seating the survivor at the tail stops the
+ * next chunk from minting another one. Both are no-ops on a healthy list, and
+ * the array identity is preserved so the caller's `!==` guard still holds.
+ */
+function withStreamingTurnLast(messages: OmgChatMessage[]): OmgChatMessage[] {
+  const lastIndexById = new Map<string, number>();
+  messages.forEach((message, index) => lastIndexById.set(message.id, index));
+  const deduped =
+    lastIndexById.size === messages.length
+      ? messages
+      : messages.filter((message, index) => lastIndexById.get(message.id) === index);
+
+  let streamingIndex = -1;
+  for (let index = deduped.length - 1; index >= 0; index -= 1) {
+    if (isStreamingAssistantText(deduped[index]!)) {
+      streamingIndex = index;
+      break;
+    }
+  }
+  if (streamingIndex < 0 || streamingIndex === deduped.length - 1) return deduped;
+  const streaming = deduped[streamingIndex]!;
+  return [...deduped.slice(0, streamingIndex), ...deduped.slice(streamingIndex + 1), streaming];
+}
+
 export function appendOmgTranscriptEvent(
+  current: OmgChatMessage[],
+  event: OmgTranscriptEvent,
+  opts: { streamActive?: boolean } = {},
+): OmgChatMessage[] {
+  const next = applyOmgTranscriptEvent(current, event, opts);
+  if (!opts.streamActive) return next;
+  const settled = withStreamingTurnLast(next);
+  // Nothing moved and nothing was dropped: hand back the caller's own array so
+  // an unchanged event stays a no-op.
+  return settled.length === current.length && settled.every((message, index) => message === current[index])
+    ? current
+    : settled;
+}
+
+function applyOmgTranscriptEvent(
   current: OmgChatMessage[],
   event: OmgTranscriptEvent,
   opts: { streamActive?: boolean } = {},
