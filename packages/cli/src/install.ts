@@ -62,7 +62,17 @@ export async function runComputerSetup(
   if (code !== 0) return code;
 
   if (!findInstall(dependencies)) {
-    out(dependencies, "Setup finished but `lfg` was not found on PATH.");
+    // Deliberately does not name the probed binary. Setup installs the control
+    // plane as `lfg` and lets this wrapper keep the name `omg` (see
+    // findInstall), so quoting `lfg` at someone who typed `omg computer setup`
+    // reads like a broken install. The actionable cause is almost always PATH:
+    // the launcher lands in ~/.local/bin, and setup only edits a shell rc when
+    // OMG_UPDATE_SHELL_RC=1, which is off by default on macOS.
+    out(dependencies, "Setup finished but the install was not found on PATH.");
+    out(
+      dependencies,
+      "Open a new shell, or add ~/.local/bin to PATH, then run `omg computer status`.",
+    );
     return 1;
   }
   out(dependencies, "Open http://localhost:8766");
