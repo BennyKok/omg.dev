@@ -54,6 +54,7 @@ risk and delivery scope.
 
 - Focused Bun test: `bun test <path>`
 - Full test suite: `bun run test`
+- Prebuilt embed smoke: `bun run test:embed`
 - Type check: `bun run typecheck`
 - Web type check: `cd web && bun x tsc --noEmit`
 - Dependency audit: `bun run audit`
@@ -90,11 +91,47 @@ API to the local server, so the app works. Do not build a production bundle
 and copy it over a running install.
 
 A production build emits about 65 MB across roughly 400 chunks, and more than
-half of that is source maps. It costs about 2 GB of memory. Three agents doing
-that at once put this machine at load 44 with 24 percent iowait, and none of
-the builds finished. One agent later left an orphaned `tsc` at 325 percent CPU
-for ten minutes by calling it with `--ignoreConfig`, which bypasses every
-setting above. Use the project configuration.
+half of that is source maps. Measured peak resident memory is 1.7 GB for
+`build:lib`. Three agents doing that at once put this machine at load 44 with
+24 percent iowait, and none of the builds finished. One agent later left an
+orphaned `tsc` at 325 percent CPU for ten minutes by calling it with
+`--ignoreConfig`, which bypasses every setting above. Use the project
+configuration.
+
+`web/dist-lib` is no longer a default test prerequisite. It was the largest
+cost on the default path, because it lists `web/src` as an input. Any edit to
+the UI marked it stale, so every `bun run test` rebuilt it. The full suite now
+peaks at about 505 MB and takes about 49 seconds with no bundle build.
+
+The embed smoke test moved to `web/src/embedded-lib-smoke.release-check.ts`.
+`bun test` does not discover that name. `bun run test:embed` builds the bundle
+and runs the smoke by explicit path. The release workflow runs the same script
+after `build:packages`. A missing path makes `bun test` exit 1, so the check
+cannot pass silently.
+
+### Runtime choice for Vite
+
+The dev server runs under Bun. `web/package.json` uses `bun --bun vite`.
+Measured start is 423 ms, against 512 ms under Node.
+
+Builds stay on Node. This is deliberate. Bun is faster in wall clock for
+`build:lib`, at 26 seconds against 31 seconds. Bun also doubles peak resident
+memory, at 3.18 GB against 1.72 GB. The failure this repository actually hits
+is memory exhaustion from concurrent agents, not build latency. Do not move
+the builds to Bun. `build:lib` does not hang under Bun. That earlier report
+was wrong.
+
+### Worktree disk cost
+
+Bun hardlinks packages from the global cache. A per-directory `du` therefore
+counts the same inode once for each worktree. A sample binary in
+`node_modules/.bun` showed a link count of 55.
+
+The naive sum of `du` over each worktree gives 176 GB for 101 worktrees. A
+single `du` across the parent directory dedupes the hardlinks and gives 16 GB.
+Use one `du` invocation over the parent when you measure worktree disk. Do not
+sum per-worktree figures. An earlier 74 GB figure in session notes came from
+this error.
 
 Do not run the full suite after every small edit. Run it before delivery when
 the change crosses subsystems or affects a release. If a check cannot run,

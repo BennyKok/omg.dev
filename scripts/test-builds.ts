@@ -1,6 +1,12 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+export type TestBuild = {
+  readonly output: string;
+  readonly build: readonly string[];
+  readonly inputs: readonly string[];
+};
+
 export const TEST_BUILDS = [
   {
     output: "packages/protocol/dist/index.js",
@@ -37,6 +43,23 @@ export const TEST_BUILDS = [
     build: ["run", "--cwd", "packages/react", "build"],
     inputs: ["packages/react/src/styles.css"],
   },
+] as const;
+
+/**
+ * The prebuilt `@omg-dev/app` embed bundle.
+ *
+ * Deliberately NOT in TEST_BUILDS. This one output is a full vite build that
+ * peaks at 1.7 GB resident and takes ~30 s, and it lists `web/src` as an
+ * input — so every edit to the UI marked it stale and every `bun run test`
+ * rebuilt it. With several worktrees testing at once that is the memory
+ * spike, not a disk problem: bun hardlinks packages from the global cache,
+ * so a worktree's node_modules costs almost no incremental disk.
+ *
+ * It still has to run before the tarball ships. `bun run test:embed` builds
+ * it and runs the smoke, and release.yml calls that on the publish path.
+ */
+export const EMBED_TEST_BUILDS = [
+  ...TEST_BUILDS,
   {
     output: "web/dist-lib/index.js",
     build: ["run", "--cwd", "web", "build:lib"],
@@ -70,8 +93,11 @@ function isStale(root: string, output: string, inputs: readonly string[]): boole
   return inputs.some((input) => newestMtime(join(root, input)) > outputMtime);
 }
 
-export function unreadyTestBuilds(root: string): string[] {
-  return TEST_BUILDS.filter(({ output, inputs }) => isStale(root, output, inputs)).map(
+export function unreadyTestBuilds(
+  root: string,
+  builds: readonly TestBuild[] = TEST_BUILDS,
+): string[] {
+  return builds.filter(({ output, inputs }) => isStale(root, output, inputs)).map(
     ({ output }) => output,
   );
 }
@@ -89,10 +115,13 @@ export function unreadyTestBuilds(root: string): string[] {
  * running that full build at once, none of them finishing. TEST_BUILDS is
  * already declared in dependency order, so filtering it preserves that.
  */
-export function staleTestBuildCommands(root: string): string[][] {
+export function staleTestBuildCommands(
+  root: string,
+  builds: readonly TestBuild[] = TEST_BUILDS,
+): string[][] {
   const seen = new Set<string>();
   const commands: string[][] = [];
-  for (const { output, inputs, build } of TEST_BUILDS) {
+  for (const { output, inputs, build } of builds) {
     if (!isStale(root, output, inputs)) continue;
     const key = build.join(" ");
     // react emits index.js and styles.css from one build; run it once.
@@ -115,7 +144,10 @@ export function testBuildPrerequisiteError(unready: readonly string[]): Error {
   );
 }
 
-export function assertTestBuilds(root: string): void {
-  const unready = unreadyTestBuilds(root);
+export function assertTestBuilds(
+  root: string,
+  builds: readonly TestBuild[] = TEST_BUILDS,
+): void {
+  const unready = unreadyTestBuilds(root, builds);
   if (unready.length > 0) throw testBuildPrerequisiteError(unready);
 }
