@@ -555,6 +555,84 @@ async function hostSnapshot(): Promise<SessionUsageHost> {
 }
 
 /**
+ * Walk from `proc` up through its ancestry to the nearest process with a
+ * direct attribution, stopping at shared infrastructure (see NON_DONOR_
+ * BINARIES). Shared by the full report and by findSessionDevServerPids below,
+ * so both ever answer "whose process is this" the same way — two callers
+ * quietly drifting apart here is exactly how a dev server either survives a
+ * close it should not, or a bystander process gets swept up in one.
+ */
+function resolveViaAncestry(
+  proc: ProcInfo,
+  byPid: Map<number, ProcInfo>,
+  direct: Map<number, Attribution>,
+): Attribution | null {
+  let cursor: ProcInfo | undefined = proc;
+  const seen = new Set<number>();
+  while (cursor && !seen.has(cursor.pid)) {
+    seen.add(cursor.pid);
+    // Stop AT shared infrastructure, before reading its identity: an ancestor
+    // like the tmux server neither owns this process nor speaks for whatever
+    // is above it (see NON_DONOR_BINARIES).
+    if (cursor !== proc && NON_DONOR_BINARIES.has(baseName(cursor.argv[0] ?? ""))) break;
+    const hit = direct.get(cursor.pid);
+    if (hit) return hit;
+    cursor = cursor.ppid > 1 ? byPid.get(cursor.ppid) : undefined;
+  }
+  return null;
+}
+
+/**
+ * Devserver-classified processes attributed to one managed session, by the
+ * exact same env/cgroup/cwd inheritance chain the Storage panel uses (see the
+ * module doc above) — never a second rule for "whose process is this".
+ *
+ * Read-only, like the rest of this module: this only answers "which pids",
+ * it does not signal them. The caller (session close teardown, src/commands/
+ * serve.ts) decides whether and how to stop them.
+ *
+ * Why this exists: closing a session stops its agent, tmux pane, and browser,
+ * but a dev server the agent started inside its worktree (`expo start`, `vite
+ * dev`, ...) is none of those three — nothing else was reaping it, so it
+ * accumulated for days (the Storage panel's "N closed sessions" line). The
+ * attribution here is the same one already proven for that panel's "orphan"
+ * detection: LFG_SESSION_ID / AGENT_BROWSER_SESSION inheritance is the
+ * primary key precisely because it is set by lfg itself on every descendant
+ * of a session's harness, and a process the user started by hand (or a
+ * server already running on a shared port) never carries it. The weaker cwd
+ * fallback (directAttribution's last resort) still requires the process's
+ * CURRENT cwd to sit inside this exact managed name's worktree, so a
+ * hand-started server in the same directory is the one case this can still
+ * mis-attribute — accepted here for the same reason the panel accepts it:
+ * every stronger signal takes priority over it.
+ */
+export async function findSessionDevServerPids(
+  managedName: string,
+): Promise<{ pid: number; label: string }[]> {
+  const procs = await scanProcs();
+  const byPid = new Map<number, ProcInfo>();
+  for (const proc of procs) byPid.set(proc.pid, proc);
+
+  const direct = new Map<number, Attribution>();
+  for (const proc of procs) {
+    if (NON_DONOR_BINARIES.has(baseName(proc.argv[0] ?? ""))) continue;
+    const attribution = directAttribution(proc);
+    if (attribution) direct.set(proc.pid, attribution);
+  }
+
+  const hits: { pid: number; label: string }[] = [];
+  for (const proc of procs) {
+    const component = classify(proc);
+    if (component !== "devserver") continue;
+    const attribution = resolveViaAncestry(proc, byPid, direct);
+    if (attribution?.managedName === managedName) {
+      hits.push({ pid: proc.pid, label: labelFor(proc, component) });
+    }
+  }
+  return hits;
+}
+
+/**
  * Build the per-session memory/disk breakdown.
  *
  * `sessions` is the live managed-session list (from listSessionsCached). Groups
@@ -605,21 +683,8 @@ export async function buildSessionUsageReport(
 
   const resolved = new Map<number, Attribution>();
   for (const proc of procs) {
-    let cursor: ProcInfo | undefined = proc;
-    const seen = new Set<number>();
-    while (cursor && !seen.has(cursor.pid)) {
-      seen.add(cursor.pid);
-      // Stop AT shared infrastructure, before reading its identity: an ancestor
-      // like the tmux server neither owns this process nor speaks for whatever
-      // is above it (see NON_DONOR_BINARIES).
-      if (cursor !== proc && NON_DONOR_BINARIES.has(baseName(cursor.argv[0] ?? ""))) break;
-      const hit = direct.get(cursor.pid);
-      if (hit) {
-        resolved.set(proc.pid, hit);
-        break;
-      }
-      cursor = cursor.ppid > 1 ? byPid.get(cursor.ppid) : undefined;
-    }
+    const hit = resolveViaAncestry(proc, byPid, direct);
+    if (hit) resolved.set(proc.pid, hit);
   }
 
   // Session id and managed name are two names for one session, but a given

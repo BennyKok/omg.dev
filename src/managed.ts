@@ -17,6 +17,7 @@ import {
 import { dirname } from "node:path";
 import { PATHS } from "./config.ts";
 import { OMG_CAPABILITY_VERSION } from "./omg-capabilities.ts";
+import { tmuxHasSession } from "./tmux.ts";
 
 function registryPath(): string {
   return `${PATHS.data}/managed-sessions.json`;
@@ -276,12 +277,52 @@ export function addManaged(rec: ManagedSession, idempotencyKey?: string): AddMan
     // A cold/manual resume may use a new runtime name for the same durable
     // conversation. Keep one owner row so later boot reconciliation cannot
     // launch both the stale and current records.
+    //
+    // That deletion assumed the duplicate it found was always a dead
+    // pre-reboot row. It is not: session 7e2ba55a vanished from the fleet —
+    // row deleted, tmux pane and worktree left running, untouched, with no
+    // error and no trace — because one caller (the jcode resume handler,
+    // src/commands/serve.ts) took this same "prior row is dead" assumption
+    // on a stale or racing resume while the pane was still alive. That one
+    // call site now checks tmuxHasSession() first and refuses (409) instead
+    // of calling this function at all (see the comment at its call site).
+    // But this dedup is generic — every caller that ever passes a sessionId
+    // or nativeSessionId already used by a live pane hits the same delete,
+    // and most callers do not, and should not have to, replicate that check
+    // themselves. So the liveness check belongs here, not at each site.
+    //
+    // Deliberately checked by the actual pane, not by agent/runtime label:
+    // COMMAND_FILE_AGENT_KINDS (coding-agent-adapters.ts) counts grok and
+    // cursor as "command-file" because that is how prompts reach them, but
+    // spawnManagedGrokSession/spawnManagedCursorSession (tmux.ts) still launch
+    // them with a real `tmux new-session` — the pane exists regardless of what
+    // the control protocol is called, so tmuxHasSession is still the right
+    // question to ask for them. jcode and legacy claude/codex are the same.
+    // Rows for a truly paneless runtime (aisdk, codex-aisdk, opencode, pi —
+    // spawned directly via spawnManagedHarness, no tmux involved at all) never
+    // have a session under `tmuxName` to find, so tmuxHasSession is always
+    // false there and this guard is a no-op, not a gap: every caller that
+    // could collide a command-file identity mints a fresh random sessionId
+    // per call (client-errors.ts, actions/index.ts) or is itself the record's
+    // own row (session-recovery.ts's boot adoption), so none can actually hit
+    // this branch for a live paneless duplicate today. If that changes, the
+    // check needs a pid-liveness path too.
+    //
+    // A row surviving here because its pane is alive is left as a duplicate
+    // identity, not reconciled away. That is a lesser, already-documented
+    // risk (see the boot-reconciliation comment above) — a rare redundant
+    // relaunch — not the data-loss failure this guards against. Silently
+    // deleting a live session's only pointer is worse than a stale extra row.
     if (identities.size) {
       for (const [name, existing] of Object.entries(all.sessions)) {
         if (name === rec.tmuxName) continue;
-        if ([existing.sessionId, existing.nativeSessionId].some((id) => id && identities.has(id))) {
-          delete all.sessions[name];
+        if (![existing.sessionId, existing.nativeSessionId].some((id) => id && identities.has(id))) {
+          continue;
         }
+        // Check liveness only for an actual delete candidate — tmuxHasSession
+        // shells out, and most rows in the registry never reach this line.
+        if (tmuxHasSession(name)) continue;
+        delete all.sessions[name];
       }
     }
     const stored = {
