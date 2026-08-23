@@ -4,6 +4,17 @@ Recent product updates and deployment notes.
 
 ## August 23, 2026 - A quieter composer, and Manage sessions is gone (v0.4.0)
 
+- **New: one-shot commands over the API.** `POST /api/exec` runs a single
+  shell command in a configured repo and returns its output, exit code and
+  timing. It exists for a caller reaching this box from somewhere else — an
+  agent on another machine had no way to read a file short of starting a whole
+  coding-agent session. Capped deliberately: 60s by default and 120s at most,
+  64KB per stream keeping both the start and the end of the output, and the
+  working directory must resolve to a repo this computer already knows.
+  Anything longer belongs in a session.
+- **Requests are size-limited.** A body over 32MB is now rejected with a 413
+  instead of being read into memory. Uploads that legitimately pass through
+  this server, like session artifact images and videos, are well under it.
 - **The chat composer is rebuilt.** The bar gives the text more room without
   growing its buttons, which stay at a full 40px touch target. Send is an arrow
   that only appears once there is something to send. Attach is a plus that moved
