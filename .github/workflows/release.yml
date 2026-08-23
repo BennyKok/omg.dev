@@ -63,6 +63,14 @@ jobs:
       - name: Build public packages
         run: bun run build:packages
 
+      # The @omg-dev/app embed smoke. It is not in the default `bun run test`
+      # set because the dist-lib build it needs peaks at 1.7 GB resident and
+      # is marked stale by any web/src edit, which made every local test run
+      # rebuild it. build:packages above has just produced that bundle, so
+      # this is the cheap place to prove it actually mounts before it ships.
+      - name: Smoke the prebuilt embed bundle
+        run: bun run test:embed
+
       - name: Build the web UI
         run: bun run --cwd web build
 

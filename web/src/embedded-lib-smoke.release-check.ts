@@ -5,23 +5,29 @@
 // that OmgAppSurface still mounts a real router tree — not just that vite
 // printed "built in Ns".
 //
-// The mount tests are not optional. `bun run test` builds dist-lib before Bun
-// discovers tests. A direct run of this file fails before registration with
-// one actionable prerequisite error when the output is absent. A silent skip
-// would report green while proving nothing.
+// The mount tests are not optional, but they are not per-edit either. The
+// dist-lib build they need peaks at 1.7 GB resident for ~30s, and it lists
+// web/src as an input, so leaving it in the default prerequisites rebuilt it
+// on every `bun run test` after any UI edit.
+//
+// So this file is named `.release-check.ts`, which `bun test` does NOT
+// discover, and `bun run test:embed` runs it by explicit path after building
+// dist-lib. release.yml calls that on the publish path. Still no silent skip:
+// run directly without the bundle and assertTestBuilds throws before any test
+// registers.
 
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Window } from "happy-dom";
-import { assertTestBuilds } from "../../scripts/test-builds";
+import { assertTestBuilds, EMBED_TEST_BUILDS } from "../../scripts/test-builds";
 
 const WEB = join(import.meta.dir, "..");
 const REPO = join(WEB, "..");
 const DIST = join(WEB, "dist-lib");
 const MANIFEST = join(WEB, "package.json");
 
-assertTestBuilds(REPO);
+assertTestBuilds(REPO, EMBED_TEST_BUILDS);
 
 const EXPECTED_PEERS = {
   "@base-ui/react": "^1.6.0",

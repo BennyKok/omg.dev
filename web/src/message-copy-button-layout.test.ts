@@ -9,7 +9,7 @@
 //
 // App.tsx is a large, side-effect-bearing entry module (it mounts the app on
 // import in a browser context), so — following the pattern already used by
-// mobile-copy-button.test.ts and embedded-lib-smoke.test.ts — this asserts
+// mobile-copy-button.test.ts and embedded-lib-smoke.release-check.ts — this asserts
 // against source text. Where a raw string match would only echo the code, the
 // assertions parse the real numbers out and compare them, so the invariant is
 // checked rather than restated.

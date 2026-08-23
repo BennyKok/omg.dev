@@ -24,6 +24,7 @@
     "uninstall": "bun run src/cli.ts uninstall",
     "icons": "bun run scripts/generate-icons.ts",
     "test": "bun run scripts/prepare-test-builds.ts && bun test",
+    "test:embed": "bun run scripts/prepare-test-builds.ts --with-embed && bun test ./web/src/embedded-lib-smoke.release-check.ts",
     "audit": "bun run scripts/audit.ts",
     "audit:exceptions": "bun run scripts/audit.ts --update-exceptions",
     "bench:agent-transport": "bun run scripts/benchmark-agent-transport.ts",

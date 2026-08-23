@@ -32,5 +32,14 @@
   "include": ["src", "vite.config.ts"],
   // Tests run under `bun test` from the repo root, which supplies the bun:test
   // types. The app build has no bun typings, so exclude them here.
-  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
+  //
+  // `*.release-check.ts` is the same thing under a name `bun test` does not
+  // auto-discover, so that the 1.7 GB dist-lib build it needs stays off the
+  // default test path. It also imports ../dist-lib, a build output that does
+  // not exist in a clean checkout. Both reasons keep it out of this program.
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/*.release-check.ts"
+  ]
 }

@@ -24,7 +24,7 @@
   },
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "bun --bun vite",
     "build": "tsc --noEmit && vite build",
     "build:lib": "tsc --noEmit && vite build --config vite.lib.config.ts && cp src/embedded.d.ts dist-lib/index.d.ts",
     "preview": "vite preview",

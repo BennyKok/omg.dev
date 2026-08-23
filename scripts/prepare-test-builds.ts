@@ -1,12 +1,19 @@
 import { join } from "node:path";
 import {
+  EMBED_TEST_BUILDS,
   staleTestBuildCommands,
+  TEST_BUILDS,
   testBuildPrerequisiteError,
   unreadyTestBuilds,
 } from "./test-builds";
 
 const root = join(import.meta.dir, "..");
-const before = unreadyTestBuilds(root);
+
+// `--with-embed` adds the prebuilt @omg-dev/app bundle. That is the ~30s,
+// 1.7 GB-resident vite build, so it is opt-in and belongs to `test:embed`
+// and the release workflow, not to every `bun run test`.
+const builds = process.argv.includes("--with-embed") ? EMBED_TEST_BUILDS : TEST_BUILDS;
+const before = unreadyTestBuilds(root, builds);
 
 // Only what is actually stale. This used to run the whole build:packages
 // script for any single stale output — every package plus the web library
@@ -15,7 +22,7 @@ const before = unreadyTestBuilds(root);
 // worktrees doing that at once took this box to load 44 at 24% iowait with
 // nothing finishing.
 if (before.length > 0) {
-  const commands = staleTestBuildCommands(root);
+  const commands = staleTestBuildCommands(root, builds);
   console.log(
     `Building ${commands.length} stale test prerequisite${commands.length === 1 ? "" : "s"}: ${before.join(", ")}`,
   );
@@ -33,5 +40,5 @@ if (before.length > 0) {
   }
 }
 
-const after = unreadyTestBuilds(root);
+const after = unreadyTestBuilds(root, builds);
 if (after.length > 0) throw testBuildPrerequisiteError(after);

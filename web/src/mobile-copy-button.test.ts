@@ -3,7 +3,7 @@
 //
 // App.tsx is a large, side-effect-bearing entry module (mounts the app on
 // import in a browser context), so — following the same pattern already used
-// in embedded-lib-smoke.test.ts for other App.tsx/CSS behavior that isn't
+// in embedded-lib-smoke.release-check.ts for other App.tsx/CSS behavior that isn't
 // cheap to render — this asserts against the source text rather than
 // mounting the component tree.
 
