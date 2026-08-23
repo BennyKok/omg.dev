@@ -2663,7 +2663,7 @@ function autoAgentProject(agent: AutoAgent, repos: Repo[]): string {
 }
 
 function sessionReference(sessionId: string): string {
-  return `LFG session reference: ${sessionId}`;
+  return `omg.dev session reference: ${sessionId}`;
 }
 
 // Which "speaker" a chat row reads as, for grouping consecutive same-speaker
@@ -14511,7 +14511,7 @@ function SessionChatBody({
               field plus loose buttons beside it. */}
           <div
             className={cn(
-              "lfg-gfield relative flex gap-1 rounded-2xl px-2 py-2 transition-[background-color,border-color,box-shadow] duration-300 ease-ios md:gap-0.5 md:px-1.5 md:py-1.5",
+              "lfg-gfield relative flex gap-1 rounded-2xl px-2 py-1.5 transition-[background-color,border-color,box-shadow] duration-300 ease-ios md:gap-0.5 md:px-1.5 md:py-1",
               messageMultiline ? "items-end" : "items-center",
             )}
           >
@@ -14575,7 +14575,12 @@ function SessionChatBody({
                 // shared cap stops before the transcript. text-base (16px) on
                 // mobile, not just a fallback: iOS auto-zooms any focused field
                 // under 16px (see the (pointer: coarse) rule in index.css).
-                "min-h-12 resize-none border-0 bg-transparent px-1 py-3 text-base leading-5 shadow-none placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0 md:min-h-10 md:py-2.5 md:text-sm",
+                // Trimmed a step. The bar was raised deliberately, then the
+                // controls inside it were shrunk, and it was still reading
+                // taller than the room it actually gives the text. The 40px
+                // touch button is the floor on mobile, so min-h-11 keeps the
+                // row honest without crowding it.
+                "min-h-11 resize-none border-0 bg-transparent px-1 py-2.5 text-base leading-5 shadow-none placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0 md:min-h-9 md:py-2 md:text-sm",
               )}
             />
             <MicButton

@@ -464,7 +464,7 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
       // these from the dashboard instead.)
       disallowedTools: ["AskUserQuestion"],
       settingSources: ["user", "project"],
-      // Re-register the LFG MCP endpoint under this session's own URL. The
+      // Re-register the omg.dev MCP endpoint under this session's own URL. The
       // user-scope registration settingSources loads is session-agnostic — one
       // config serves every session — so without this the shared serve process
       // cannot tell who is calling, and every session-scoped tool

@@ -4009,7 +4009,7 @@ a{color:#60a5fa}
       if (path === "/api/coding-agents/claude/accounts" && req.method === "POST") {
         const account = createClaudeAccount();
         // The new account gets its own Claude config dir, so it needs its own
-        // copy of the LFG MCP registration — otherwise its first session starts
+        // copy of the omg.dev MCP registration — otherwise its first session starts
         // with no LFG tools at all.
         await registerClaudeMcpForAccount(account.id);
         return json({ account });
@@ -8187,7 +8187,7 @@ a{color:#60a5fa}
         }
       }
 
-      // Non-streaming transcript read — lets an orchestrator or LFG MCP client
+      // Non-streaming transcript read — lets an orchestrator or omg.dev MCP client
       // inspect what another session is doing without holding an SSE connection.
       {
         const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/token-usage$/);

@@ -1493,7 +1493,7 @@ export async function listSetupChecks(): Promise<SetupCheck[]> {
   // No row for aisdk/codex-aisdk (they ride the Claude/Codex CLI registrations
   // above) and none for pi: pi is an RPC backend driving LFG's bundled
   // @earendil-works/pi-coding-agent — it has no `pi mcp` registration surface, so
-  // there is no LFG MCP to install or check for it.
+  // there is no omg.dev MCP to install or check for it.
   const optionalMcpAgents: Array<[string, string | null, boolean]> = [
     ["OpenCode", opencode, opencodeMcp],
     ["Jcode", jcode, jcodeMcp],
@@ -1544,7 +1544,7 @@ async function installClaudeMcp(claude: string): Promise<void> {
 }
 
 /**
- * Seed a freshly created Claude account's config dir with the LFG MCP
+ * Seed a freshly created Claude account's config dir with the omg.dev MCP
  * registration, so its first session has the tool surface instead of waiting
  * for someone to notice and rerun setup. Best effort: a missing Claude CLI or a
  * failed registration must not fail account creation.
