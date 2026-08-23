@@ -168,7 +168,13 @@ describe("grouping: consecutive turns from different humans still get the speake
 });
 
 describe("grouping: consecutive other-human beats hide repeated name+face", () => {
-  const loop = APP.slice(APP.indexOf("{items.map((item, index) =>"), APP.indexOf("<TypingIndicator"));
+  // The transcript is virtualized, so the loop walks the virtual window
+  // rather than `items` directly. The run-edge derivation inside it is
+  // unchanged, which is what this block is about.
+  const loop = APP.slice(
+    APP.indexOf("{virtualRows.map((virtualRow) =>"),
+    APP.indexOf("<TypingIndicator"),
+  );
   const bubble = APP.slice(APP.indexOf("function MessageBubble("), APP.indexOf("function botVisibleUserText("));
   const component = APP.slice(APP.indexOf("function OtherHumanMessageBubble("), APP.indexOf("function botVisibleUserText("));
 
@@ -176,7 +182,7 @@ describe("grouping: consecutive other-human beats hide repeated name+face", () =
     expect(APP).toContain("const speakers = useMemo(() => items.map(chatRenderItemSpeaker), [items]);");
     expect(loop).toContain("const { firstOfRun, lastOfRun } = speakerRunEdges(speakers, index);");
     expect(loop).toContain("const speakerChanged = index > 0 && firstOfRun;");
-    expect(loop).toContain('speakerChanged ? "pt-2.5" : undefined');
+    expect(loop).toContain('cn("pb-2", speakerChanged && "pt-2.5")');
     expect(loop).toContain("firstOfRun={firstOfRun}");
     expect(loop).toContain("lastOfRun={lastOfRun}");
     expect(loop).not.toMatch(/bot\.owner|currentBot|displayName/);

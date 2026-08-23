@@ -123,15 +123,22 @@ describe("consecutive messages keep one consistent vertical rhythm", () => {
     // gap-1 was authored while every row carried the ~32px button block, so
     // it was never the real gap between two bubbles. With the button out of
     // flow this single utility is the entire same-speaker distance.
+    //
+    // The container keeps it for the header and footer rows. The transcript
+    // rows themselves are absolutely positioned by the virtualizer, where a
+    // flex gap does not apply, so each one carries the identical 8px as its
+    // own `pb-2` instead. Same distance, one owner still.
     expect(CONVERSATION).toMatch(/cn\("flex flex-col gap-2"/);
+    expect(APP).toContain('className={cn("pb-2", speakerChanged && "pt-2.5")}');
   });
 
   test("only a speaker change adds anything on top of that gap", () => {
-    const loop = APP.slice(APP.indexOf("const speakerChanged ="));
+    const loop = APP.slice(APP.indexOf("{virtualRows.map((virtualRow) =>"));
     const spacing = loop.slice(0, loop.indexOf("{item.type ==="));
-    expect(spacing).toContain('speakerChanged ? "pt-2.5" : undefined');
-    // No second, per-message spacing source: same-speaker rows get the
-    // container gap and nothing else.
+    expect(spacing).toContain('cn("pb-2", speakerChanged && "pt-2.5")');
+    // No second, per-message spacing source: same-speaker rows get the row's
+    // own bottom padding and nothing else.
     expect(spacing).not.toMatch(/speakerChanged \? "pt-2\.5" : "[^"]+"/);
+    expect(spacing).not.toMatch(/\bmt-\d/);
   });
 });

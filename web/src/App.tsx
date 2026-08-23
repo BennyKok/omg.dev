@@ -328,6 +328,20 @@ import {
   type ChatRenderItem,
 } from "./lib/chat-render-items";
 import {
+  estimateRowHeight,
+  HEIGHT_MODEL_VERSION,
+  ROW_GAP_PX,
+  SPEAKER_CHANGE_PX,
+  TOOL_PILL_PX,
+  type RowContext,
+} from "./lib/chat-row-height";
+import {
+  markdownBlockSplitter,
+  pretextMeasurer,
+  useChatMarkdownMetrics,
+} from "./lib/markdown-metrics";
+import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
+import {
   parseMessageAttachments,
   type MessageAttachment,
 } from "./lib/message-attachments";
@@ -16849,6 +16863,28 @@ const onTouchStart = (e: ReactTouchEvent) => {
   );
 });
 
+/**
+ * How many rows at the bottom of the transcript are always mounted.
+ *
+ * NEVER MODEL THE TAIL. These rows are DOM-measured through measureElement
+ * whatever the scroll position is, for three reasons that all bite at once:
+ *   - only the last row can be a streaming draft, and Streamdown runs
+ *     parseIncompleteMarkdown on partial text, so a prefix's block set is NOT
+ *     a prefix of the finished block set — a modelled height would be wrong in
+ *     a way that changes shape, not just size;
+ *   - startGlide re-reads live scrollHeight every frame, so the bottom of the
+ *     document has to be real, not estimated;
+ *   - the entrance animations (lfg-msg-in, lfg-user-send) play on rows that
+ *     have just arrived, i.e. exactly here.
+ */
+const CHAT_TAIL_ROWS = 30;
+
+/** Coarse row height used before the CSS probe and the block splitter land. */
+const CHAT_ROW_FALLBACK_PX = 64;
+
+/** The virtualizer must never write scrollTop. See the wiring comment below. */
+const noVirtualizerScroll = () => {};
+
 const ChatStream = memo(function ChatStream({
   sid,
   messages,
@@ -16877,7 +16913,21 @@ const ChatStream = memo(function ChatStream({
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasOlder, setHasOlder] = useState(true);
   const [diffBarVisible, setDiffBarVisible] = useState(false);
-  const preserveScrollRef = useRef<{ height: number; top: number } | null>(null);
+  // Generalised from {height, top} to an anchor. Two different things move the
+  // content under the viewport now — a page of older messages prepended above
+  // it, and a virtual row above it being re-measured from its estimate — and
+  // both are the same problem: hold one identified row still. Keeping the
+  // second one out of the virtualizer (see shouldAdjustScrollPositionOnItem-
+  // SizeChange below) is what keeps a single owner for scrollTop.
+  const preserveScrollRef = useRef<{
+    anchorKey: string;
+    anchorOffset: number;
+    top: number;
+    height: number;
+  } | null>(null);
+  // The row the viewport is currently pinned to, kept fresh from real scroll
+  // events so a correction always has something to restore.
+  const anchorRef = useRef<{ key: string; offset: number } | null>(null);
   const transcriptMessages = useMemo(
     () => {
       const filtered = messages.filter(
@@ -16926,6 +16976,119 @@ const ChatStream = memo(function ChatStream({
   const tailItem = items[items.length - 1];
   const tailMessage = tailItem?.type === "msg" ? tailItem.message : undefined;
   const showTypingIndicator = busy && tailMessage?.kind !== "thinking";
+
+  // ---- Virtualization ----------------------------------------------------
+  //
+  // 4732 messages collapse to about 1282 rows, and a bot board can mount four
+  // transcripts at once. Only the rows near the viewport are in the DOM; the
+  // rest contribute a modelled height (lib/chat-row-height) so the scrollbar
+  // and the offsets are believable before those rows have ever been rendered.
+  //
+  // The virtualizer supplies OFFSETS ONLY. ChatStream remains the single owner
+  // of scroll position: startGlide, the pin-to-bottom snap and the anchor
+  // restore in the layout effect are still the only code that assigns
+  // scrollTop. Two settings enforce that and neither is optional:
+  //
+  //   - `scrollToFn` is a no-op. In @tanstack/virtual-core 3.17 every internal
+  //     correction funnels through it, including one fired the moment the
+  //     scroll element attaches — with a null scrollOffset that resolves to
+  //     zero, i.e. it would yank an opened transcript to the top on mount.
+  //   - `shouldAdjustScrollPositionOnItemSizeChange` returns false. Leaving it
+  //     undefined does NOT mean "never adjust": undefined selects the built-in
+  //     default, which DOES write scrollTop on an item's first measurement.
+  //     That is precisely the second scroll owner this must not have — it
+  //     would race the glide, which re-reads scrollHeight every frame.
+  //
+  // Nothing here calls scrollToIndex, scrollToOffset or scrollBy, from render
+  // or from an effect.
+  const virtualContainerRef = useRef<HTMLDivElement>(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
+  const metrics = useChatMarkdownMetrics(ref, items.length);
+  const heightCacheRef = useRef(new Map<string, number>());
+  useEffect(() => {
+    // Warm the lazily-loaded block splitter; until it resolves every row falls
+    // back to a flat estimate.
+    markdownBlockSplitter();
+  }, []);
+  const rowContext = useMemo<RowContext | null>(() => {
+    const splitBlocks = markdownBlockSplitter();
+    if (!metrics.assistant || !splitBlocks) return null;
+    return {
+      assistant: metrics.assistant,
+      user: metrics.user ?? undefined,
+      measure: pretextMeasurer,
+      splitBlocks,
+      mediaWidth: metrics.mediaWidth,
+    };
+  }, [metrics]);
+
+  const estimateSize = useCallback(
+    (index: number) => {
+      const item = items[index];
+      if (!item) return CHAT_ROW_FALLBACK_PX + ROW_GAP_PX;
+      const speakerChanged = index > 0 && speakerRunEdges(speakers, index).firstOfRun;
+      const gap = ROW_GAP_PX + (speakerChanged ? SPEAKER_CHANGE_PX : 0);
+      if (!rowContext) {
+        return (item.type === "tools" ? TOOL_PILL_PX : CHAT_ROW_FALLBACK_PX) + gap;
+      }
+      const text = item.type === "tools" ? "" : (item.message.text ?? "");
+      const key = `${item.key}|${metrics.version}|${HEIGHT_MODEL_VERSION}|${speakerChanged ? 1 : 0}|${text.length}`;
+      const cache = heightCacheRef.current;
+      const cached = cache.get(key);
+      if (cached != null) return cached;
+      // A streaming row mints a new key per token. Cap the cache rather than
+      // let one long session grow it without bound.
+      if (cache.size > 8000) cache.clear();
+      const height = estimateRowHeight(item, { ...rowContext, speakerChanged });
+      cache.set(key, height);
+      return height;
+    },
+    [items, speakers, rowContext, metrics.version],
+  );
+
+  const rangeExtractor = useCallback(
+    (range: Range) => {
+      const indexes = defaultRangeExtractor(range);
+      const tailStart = Math.max(0, items.length - CHAT_TAIL_ROWS);
+      if (!indexes.length || indexes[indexes.length - 1] >= tailStart) return indexes;
+      const merged = new Set(indexes);
+      for (let i = tailStart; i < items.length; i += 1) merged.add(i);
+      return [...merged].sort((a, b) => a - b);
+    },
+    [items.length],
+  );
+
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => ref.current,
+    estimateSize,
+    getItemKey: (index) => items[index]?.key ?? index,
+    rangeExtractor,
+    overscan: 6,
+    scrollMargin,
+    scrollToFn: noVirtualizerScroll,
+  });
+  // Not an option, an instance field: the library reads it directly.
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
+
+  const virtualRows = virtualizer.getVirtualItems();
+  const totalSize = virtualizer.getTotalSize();
+  const indexByKey = useMemo(() => {
+    const map = new Map<string, number>();
+    items.forEach((item, index) => map.set(item.key, index));
+    return map;
+  }, [items]);
+
+  // Which row the viewport is sitting on, refreshed from real (non-glide)
+  // scroll events. This is read-only bookkeeping: it never moves anything.
+  const captureAnchor = useCallback(
+    (el: HTMLDivElement) => {
+      const row = virtualizer.getVirtualItemForOffset(el.scrollTop);
+      if (!row) return;
+      anchorRef.current = { key: String(row.key), offset: el.scrollTop - row.start };
+    },
+    [virtualizer],
+  );
 
   // One-shot entrance for freshly-arrived assistant turns so the draft→final
   // swap (and non-streaming arrivals) fade in instead of popping. Ref-based —
@@ -17016,6 +17179,8 @@ const ChatStream = memo(function ChatStream({
   useEffect(() => {
     setHasOlder(true);
     preserveScrollRef.current = null;
+    anchorRef.current = null;
+    heightCacheRef.current.clear();
     growthKeyRef.current = null;
     justSwitchedRef.current = true;
     stopGlide();
@@ -17075,13 +17240,57 @@ const ChatStream = memo(function ChatStream({
     }
   }, [visibleMessages, busy, stick, items.length, showTypingIndicator, startGlide, stopGlide]);
 
+  // The virtual list sits below the loading-older spinner, so the offsets the
+  // virtualizer hands out are shifted by however much chrome is above it.
+  // Recomputed only when that chrome changes; reading offsetTop forces layout.
+  useLayoutEffect(() => {
+    const el = virtualContainerRef.current;
+    const next = el ? el.offsetTop : 0;
+    setScrollMargin((prev) => (prev === next ? prev : next));
+  }, [loadingOlder, items.length > 0, busy]);
+
+  // The one place a content shift is corrected.
+  //
+  // Prepending a page of older messages and re-measuring an estimated row
+  // above the fold are the same event seen twice: the offsets below the
+  // viewport moved, and one identified row has to be held still. Both go
+  // through this effect, because AGENTS.md forbids a second source of truth
+  // and scroll position already has an owner here.
   useLayoutEffect(() => {
     const el = ref.current;
-    const preserve = preserveScrollRef.current;
-    if (!el || !preserve) return;
+    if (!el) return;
+    const requested = preserveScrollRef.current;
     preserveScrollRef.current = null;
-    el.scrollTop = el.scrollHeight - preserve.height + preserve.top;
-  }, [visibleMessages]);
+    // While stuck to the bottom the glide owns the viewport; holding an old
+    // row still would fight it.
+    const current = anchorRef.current;
+    const anchor =
+      requested ??
+      (stick || !current
+        ? null
+        : {
+            anchorKey: current.key,
+            anchorOffset: current.offset,
+            top: el.scrollTop,
+            height: el.scrollHeight,
+          });
+    if (!anchor) return;
+    const index = indexByKey.get(anchor.anchorKey);
+    const start = index == null ? undefined : virtualizer.measurementsCache[index]?.start;
+    // No anchor row survived the update (it scrolled out of the loaded page).
+    // Fall back to the whole-document delta, which is what this effect did
+    // before rows had identities.
+    const next =
+      start == null
+        ? requested
+          ? el.scrollHeight - anchor.height + anchor.top
+          : null
+        : start + anchor.anchorOffset;
+    if (next == null) return;
+    const clamped = Math.max(0, Math.min(next, el.scrollHeight - el.clientHeight));
+    if (Math.abs(clamped - el.scrollTop) > 0.5) el.scrollTop = clamped;
+    anchorRef.current = { key: anchor.anchorKey, offset: anchor.anchorOffset };
+  }, [visibleMessages, totalSize, stick, indexByKey, virtualizer]);
 
   const maybeLoadOlder = useCallback(async () => {
     const el = ref.current;
@@ -17091,7 +17300,13 @@ const ChatStream = memo(function ChatStream({
     // bottom, so backfilling it would clear `stick` on every scroll event
     // while the pin-to-bottom effect keeps setting it. Wait for real overflow.
     if (el.scrollHeight <= el.clientHeight + 80) return;
-    preserveScrollRef.current = { height: el.scrollHeight, top: el.scrollTop };
+    captureAnchor(el);
+    preserveScrollRef.current = {
+      anchorKey: anchorRef.current?.key ?? "",
+      anchorOffset: anchorRef.current?.offset ?? 0,
+      top: el.scrollTop,
+      height: el.scrollHeight,
+    };
     setStick(false);
     setLoadingOlder(true);
     try {
@@ -17102,7 +17317,7 @@ const ChatStream = memo(function ChatStream({
     } finally {
       setLoadingOlder(false);
     }
-  }, [sid, loadingOlder, hasOlder, onLoadOlderMessages]);
+  }, [sid, loadingOlder, hasOlder, onLoadOlderMessages, captureAnchor]);
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -17126,6 +17341,9 @@ const ChatStream = memo(function ChatStream({
         // motion that only exists because `stick` was true.
         if (!programmaticScrollRef.current) {
           setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 72);
+          // Remember where the reader actually is, so a later re-measure or a
+          // prepend can put them back on the same row.
+          captureAnchor(el);
         }
         void maybeLoadOlder();
       }}
@@ -17144,32 +17362,58 @@ const ChatStream = memo(function ChatStream({
               Loading older messages
             </div>
           ) : null}
-          {items.map((item, index) => {
-            // A speaker change gets visible breathing room; a same-speaker
-            // follow-up sits close to the turn before it, the way a real chat
-            // reads. ConversationContent's own gap is the tight same-speaker
-            // baseline — this only adds the extra space on top of it.
-            const { firstOfRun, lastOfRun } = speakerRunEdges(speakers, index);
-            const speakerChanged = index > 0 && firstOfRun;
-            return (
-              <div key={item.key} className={speakerChanged ? "pt-2.5" : undefined}>
-                {item.type === "tools" ? (
-                  <ToolGroup items={item.items} live={busy && index === items.length - 1} />
-                ) : (
-                  <MessageBubble
-                    message={item.message}
-                    live={busy && index === items.length - 1}
-                    entering={!!item.message.id && enteringIdsRef.current.has(item.message.id)}
-                    onRetryQueued={onRetryQueued}
-                    bot={bot}
-                    conversation={conversation}
-                    firstOfRun={firstOfRun}
-                    lastOfRun={lastOfRun}
-                  />
-                )}
-              </div>
-            );
-          })}
+          {/* The virtual window. Rows are absolutely positioned, so the flex
+              gap that used to separate them no longer applies — each row
+              carries it as its own bottom padding instead, which also means
+              the DOM measurement of a row includes exactly what the model
+              predicts for it. */}
+          <div
+            ref={virtualContainerRef}
+            className="relative w-full"
+            style={{ height: `${totalSize}px` }}
+          >
+            {virtualRows.map((virtualRow) => {
+              const index = virtualRow.index;
+              const item = items[index];
+              if (!item) return null;
+              // A speaker change gets visible breathing room; a same-speaker
+              // follow-up sits close to the turn before it, the way a real
+              // chat reads. The row gap is the tight same-speaker baseline —
+              // this only adds the extra space on top of it.
+              const { firstOfRun, lastOfRun } = speakerRunEdges(speakers, index);
+              const speakerChanged = index > 0 && firstOfRun;
+              return (
+                <div
+                  key={item.key}
+                  data-index={index}
+                  ref={virtualizer.measureElement}
+                  className={cn("pb-2", speakerChanged && "pt-2.5")}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start - scrollMargin}px)`,
+                  }}
+                >
+                  {item.type === "tools" ? (
+                    <ToolGroup items={item.items} live={busy && index === items.length - 1} />
+                  ) : (
+                    <MessageBubble
+                      message={item.message}
+                      live={busy && index === items.length - 1}
+                      entering={!!item.message.id && enteringIdsRef.current.has(item.message.id)}
+                      onRetryQueued={onRetryQueued}
+                      bot={bot}
+                      conversation={conversation}
+                      firstOfRun={firstOfRun}
+                      lastOfRun={lastOfRun}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
           <TypingIndicator visible={showTypingIndicator} bot={bot} />
           {/* Pinned below the working indicator: what the agent is doing now,
               then what it will read next. */}
