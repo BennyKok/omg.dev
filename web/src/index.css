@@ -124,6 +124,11 @@
   color: var(--tabs-text-active);
 }
 
+.t-tab:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
 .t-tabs-pill {
   position: absolute;
   top: 3px;
@@ -157,6 +162,11 @@
   border: 1px solid var(--border);
   box-shadow: 0 8px 24px rgb(0 0 0 / 14%);
   backdrop-filter: blur(18px);
+}
+
+.lfg-surface-toggle--dock .t-tab,
+.lfg-surface-toggle--dock .t-tabs-pill {
+  height: 44px;
 }
 
 /* Framed inside omg Computer (`?embed=1` / iframe): cancel the device
