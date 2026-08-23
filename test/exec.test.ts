@@ -148,3 +148,57 @@ describe("runExecCommand under hostile output", () => {
     expect((await runExecCommand({ command: "echo ok", cwd })).killedGroup).toBe(true);
   });
 });
+
+// Both found by an independent verifier probing the running endpoint, after
+// the first round of fixes had already landed.
+describe("runExecCommand truncation seams and kill scope", () => {
+  // A byte-offset cut lands mid-codepoint on any multibyte output, and
+  // decoding the halves separately rendered each severed sequence as U+FFFD.
+  test("does not corrupt multibyte output at the truncation seams", async () => {
+    const r = await runExecCommand({
+      command: `yes '€' | tr -d '\\n'`,
+      cwd,
+      timeoutMs: 2_000,
+    });
+
+    expect(r.truncated).toBe(true);
+    expect(r.stdout).toContain("bytes omitted");
+    // No replacement characters anywhere — not at the head cut, not at the
+    // tail cut, not from the rolling-window slice that produced the tail.
+    expect(r.stdout).not.toContain("�");
+    // And the payload really is the multibyte character, not stripped ASCII.
+    expect(r.stdout).toContain("€");
+  }, 30_000);
+
+  test("survives a 4-byte codepoint at the seams too", async () => {
+    const r = await runExecCommand({
+      command: `yes '🙂' | tr -d '\\n'`,
+      cwd,
+      timeoutMs: 2_000,
+    });
+
+    expect(r.truncated).toBe(true);
+    expect(r.stdout).not.toContain("�");
+    expect(r.stdout).toContain("🙂");
+  }, 30_000);
+
+  // nohup and disown do NOT create a session, so they stay in the group and
+  // die with it. This pins the half of the boundary that actually holds.
+  test("nohup and disown do not escape the process group", async () => {
+    const marker = `NOHUPMARK${Date.now()}`;
+    const r = await runExecCommand({
+      command: `nohup bash -c "exec -a ${marker} sleep 30" >/dev/null 2>&1 & disown; sleep 30`,
+      cwd,
+      timeoutMs: 1_000,
+    });
+
+    expect(r.timedOut).toBe(true);
+    await Bun.sleep(500);
+    if (r.killedGroup) {
+      const survivors = Bun.spawnSync(["pgrep", "-f", marker])
+        .stdout.toString().trim().split("\n").filter(Boolean).length;
+      expect(survivors).toBe(0);
+    }
+    Bun.spawnSync(["pkill", "-9", "-f", marker]);
+  }, 30_000);
+});
