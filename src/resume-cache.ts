@@ -314,6 +314,28 @@ export function recentlyActiveCwds(windowMs: number, now = Date.now()): Set<stri
   return out;
 }
 
+/**
+ * Most recent `last_activity_at` this cache has recorded for `cwd`, or `null`
+ * if it has none.
+ *
+ * The worktree retention window (worktree.ts, worktreeRetentionMs) needs a
+ * single age per worktree, not just a windowed membership test. This cache's
+ * value — a real transcript-derived timestamp — is a far better clock than a
+ * directory's own mtime (which only moves when something touches the
+ * worktree root directly, not when a session edits a file three levels
+ * deep). Callers should treat this as authoritative when present and fall
+ * back to filesystem mtime only when it is null.
+ */
+export function lastActivityAtForCwd(cwd: string): number | null {
+  const d = init();
+  const row = d
+    .query<{ m: number | null }, [string]>(
+      "SELECT MAX(last_activity_at) AS m FROM resumable_sessions WHERE cwd = ?",
+    )
+    .get(cwd);
+  return row?.m ?? null;
+}
+
 export function getCachedResumableSession(sessionId: string): ResumableSession | null {
   const d = init();
   const row = d
