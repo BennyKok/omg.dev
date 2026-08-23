@@ -365,6 +365,7 @@ import {
   type TranscriptView,
 } from "./lib/transcript-view";
 import { isMachineryPreviewText, isRequestInterruptedMessage } from "./lib/transcript-status";
+import { voiceErrorMessage, type VoiceSttResponse } from "./lib/voice-errors";
 import {
   ensureVoiceConfigured,
   invalidateVoiceConfig,
@@ -3311,12 +3312,17 @@ function useDictation(opts: {
           headers: { "Content-Type": "application/octet-stream" },
           body: floatToWav(merged, s.rate),
         });
-        const data = (await res.json().catch(() => ({}))) as { text?: string };
+        const data = (await res.json().catch(() => ({}))) as VoiceSttResponse;
         const text = (data.text || "").trim();
         if (res.ok && text) deliver(text);
-        else if (streamed) deliver(streamed);
+        else if (!res.ok) {
+          toast.error(voiceErrorMessage(data, res.status));
+          if (streamed) deliver(streamed);
+        } else if (streamed) deliver(streamed);
+        else toast.error("No speech was detected. Check the microphone and try again.");
       } catch {
         // Batch also failed — fall back to whatever the stream gave us, if any.
+        toast.error("Could not reach speech transcription. Check the connection and try again.");
         if (streamed) deliver(streamed);
       }
       finish();
@@ -4093,6 +4099,16 @@ const MicButton = forwardRef<
   if (!supported) return null;
   const recording = state === "recording";
   const batchOnly = voiceBatchOnlyCached();
+  const busy = state === "starting" || state === "transcribing";
+  const accessibleLabel = state === "starting"
+    ? "Starting microphone"
+    : state === "transcribing"
+      ? "Transcribing audio"
+      : recording
+        ? cancelArmed
+          ? "Release to cancel dictation"
+          : "Stop dictation — tap the X above, or press Esc, to cancel"
+        : "Dictate";
   // While recording, the button reacts to the live mic level: it scales up and
   // throws a red glow ring that swells with your volume. Inline transitions keep
   // it snappy (the className `transition` would lag the per-frame updates by
@@ -4117,13 +4133,8 @@ const MicButton = forwardRef<
         onPointerCancel={onPointerCancel}
         onClick={onClick}
         onContextMenu={(e) => e.preventDefault()}
-        aria-label={
-          recording
-            ? cancelArmed
-              ? "Release to cancel dictation"
-              : "Stop dictation — tap the X above, or press Esc, to cancel"
-            : "Dictate"
-        }
+        aria-label={accessibleLabel}
+        aria-busy={busy}
         title={
           // A batch-only provider still transcribes, it just can't show words as
           // you speak. Saying so beats looking frozen until the take ends.

@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## Unreleased
+
+- **Voice failures now explain what to fix.** Batch dictation no longer goes
+  silent when a provider rejects a key, runs out of API credit, rate limits a
+  request, or cannot be reached. The server returns a stable safe error code,
+  and the composer shows an actionable message without exposing the provider's
+  response body. The mic also reports its starting and transcribing states to
+  assistive technology.
+
 ## August 23, 2026 - A quieter composer, and Manage sessions is gone (v0.4.0)
 
 - **New: one-shot commands over the API.** `POST /api/exec` runs a single

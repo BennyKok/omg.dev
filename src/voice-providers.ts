@@ -55,7 +55,94 @@ const jres = (obj: unknown, status = 200) =>
     status,
     headers: { "Content-Type": "application/json" },
   });
-const eres = (status: number, message: string) => jres({ error: message }, status);
+export type VoiceErrorCode =
+  | "provider_not_configured"
+  | "invalid_api_key"
+  | "credit_balance_exhausted"
+  | "rate_limited"
+  | "provider_unreachable"
+  | "transcription_failed"
+  | "realtime_only";
+
+type VoiceErrorDetails = {
+  code: VoiceErrorCode;
+  provider: string;
+  retryable: boolean;
+  upstreamStatus?: number;
+};
+
+const eres = (status: number, message: string, details?: VoiceErrorDetails) =>
+  jres({ error: message, ...details }, status);
+
+type ProviderFailure = VoiceErrorDetails & { message: string };
+
+/** Map provider failures to a stable, safe browser contract. Never return an upstream body. */
+export function classifySttProviderError(
+  provider: string,
+  status: number,
+  upstreamCode = "",
+): ProviderFailure {
+  const name = provider === "openai" ? "OpenAI" : provider === "elevenlabs" ? "ElevenLabs" : provider;
+  const code = upstreamCode.toLowerCase();
+  if (status === 401 || status === 403) {
+    return {
+      code: "invalid_api_key",
+      provider,
+      retryable: false,
+      upstreamStatus: status,
+      message: `${name} rejected the API key. Add a valid key in Voice settings.`,
+    };
+  }
+  if (
+    status === 402
+    || code === "credit_balance_exhausted"
+    || code === "insufficient_quota"
+    || code === "quota_exceeded"
+  ) {
+    return {
+      code: "credit_balance_exhausted",
+      provider,
+      retryable: false,
+      upstreamStatus: status,
+      message: `${name} API credit is empty. Add credit in the provider billing settings.`,
+    };
+  }
+  if (status === 429) {
+    return {
+      code: "rate_limited",
+      provider,
+      retryable: true,
+      upstreamStatus: status,
+      message: `${name} is rate limiting transcription. Wait and try again.`,
+    };
+  }
+  return {
+    code: "transcription_failed",
+    provider,
+    retryable: status >= 500,
+    upstreamStatus: status,
+    message: `${name} could not transcribe this recording. Try again.`,
+  };
+}
+
+async function upstreamErrorCode(response: Response): Promise<string> {
+  try {
+    const body = (await response.json()) as {
+      error?: { code?: unknown; type?: unknown };
+      code?: unknown;
+      type?: unknown;
+    };
+    const candidate = body.error?.code ?? body.error?.type ?? body.code ?? body.type;
+    return typeof candidate === "string" ? candidate : "";
+  } catch {
+    return "";
+  }
+}
+
+export async function providerErrorResponse(provider: string, response: Response): Promise<Response> {
+  const failure = classifySttProviderError(provider, response.status, await upstreamErrorCode(response));
+  return eres(502, failure.message, failure);
+}
 
 type SttProvider = {
   id: string;
@@ -335,7 +422,11 @@ const sttOmg: SttProvider = {
     // audio URL, not bytes, so there is nothing to POST a clip to. Say so
     // plainly instead of returning an empty transcript the caller would treat
     // as silence.
-    return eres(503, "omg relay is realtime-only; batch transcription is unavailable");
+    return eres(503, "omg.dev live transcription is unavailable for this recording.", {
+      code: "realtime_only",
+      provider: "omg",
+      retryable: true,
+    });
   },
 };
 
@@ -348,7 +439,13 @@ const sttElevenLabs: SttProvider = {
   openStream: (handlers) => elevenLabsRealtimeStream(handlers),
   async transcribe(audio) {
     const key = process.env.ELEVENLABS_API_KEY;
-    if (!key) return eres(503, "elevenlabs not configured");
+    if (!key) {
+      return eres(503, "ElevenLabs is not configured. Add an API key in Voice settings.", {
+        code: "provider_not_configured",
+        provider: "elevenlabs",
+        retryable: false,
+      });
+    }
     const form = new FormData();
     form.append("file", new Blob([audio], { type: "audio/wav" }), "audio.wav");
     form.append("model_id", process.env.ELEVENLABS_STT_MODEL || "scribe_v1");
@@ -359,11 +456,15 @@ const sttElevenLabs: SttProvider = {
         body: form,
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
-      if (!r.ok) return eres(502, `elevenlabs stt ${r.status}`);
+      if (!r.ok) return providerErrorResponse("elevenlabs", r);
       const j = (await r.json().catch(() => ({}))) as { text?: string };
       return jres({ text: (j.text || "").trim() });
     } catch {
-      return eres(502, "elevenlabs unreachable");
+      return eres(502, "Could not reach ElevenLabs. Check the connection and try again.", {
+        code: "provider_unreachable",
+        provider: "elevenlabs",
+        retryable: true,
+      });
     }
   },
 };
@@ -376,7 +477,13 @@ const sttOpenAI: SttProvider = {
   available: () => !!process.env.OPENAI_API_KEY,
   async transcribe(audio) {
     const key = process.env.OPENAI_API_KEY;
-    if (!key) return eres(503, "openai not configured");
+    if (!key) {
+      return eres(503, "OpenAI is not configured. Add an API key in Voice settings.", {
+        code: "provider_not_configured",
+        provider: "openai",
+        retryable: false,
+      });
+    }
     const form = new FormData();
     form.append("file", new Blob([audio], { type: "audio/wav" }), "audio.wav");
     form.append("model", process.env.OPENAI_STT_MODEL || "gpt-4o-mini-transcribe");
@@ -387,11 +494,15 @@ const sttOpenAI: SttProvider = {
         body: form,
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
-      if (!r.ok) return eres(502, `openai stt ${r.status}`);
+      if (!r.ok) return providerErrorResponse("openai", r);
       const j = (await r.json().catch(() => ({}))) as { text?: string };
       return jres({ text: (j.text || "").trim() });
     } catch {
-      return eres(502, "openai unreachable");
+      return eres(502, "Could not reach OpenAI. Check the connection and try again.", {
+        code: "provider_unreachable",
+        provider: "openai",
+        retryable: true,
+      });
     }
   },
 };
