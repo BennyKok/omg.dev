@@ -213,6 +213,83 @@ async function readCapped(
  */
 const SETSID = Bun.which("setsid");
 
+/**
+ * Every live descendant of `pid`, deepest first.
+ *
+ * `pgrep -P` rather than /proc so this also works on macOS. Deepest first so a
+ * parent cannot spawn a replacement between the moment we kill it and the
+ * moment we reach its children.
+ */
+function descendantPids(pid: number): number[] {
+  const out: number[] = [];
+  const visit = (parent: number, depth: number): void => {
+    // A tree deeper than this is pathological; stop rather than recurse
+    // forever if the table is somehow cyclic.
+    if (depth > 16) return;
+    const result = Bun.spawnSync(["pgrep", "-P", String(parent)]);
+    for (const line of result.stdout.toString().trim().split("\n")) {
+      const child = Number(line);
+      if (!Number.isInteger(child) || child <= 1) continue;
+      visit(child, depth + 1);
+      out.push(child);
+    }
+  };
+  visit(pid, 0);
+  return out;
+}
+
+/**
+ * Stop a timed-out command as completely as this box allows.
+ *
+ * Two mechanisms, because neither alone is enough:
+ *
+ *   - The process GROUP catches an ordinary pipeline, whose members share the
+ *     shell's group. This is the common case.
+ *   - A DESCENDANT SWEEP catches a child that left the group but not the tree
+ *     — anything that called setpgid without starting a new session. Group
+ *     kill alone misses those entirely.
+ *
+ * Neither catches a true double-fork: `setsid foo &` inside the command starts
+ * a new session AND reparents to init, so it is in no group we know and no
+ * longer a descendant of anything we hold. Containing that needs a PID
+ * namespace or a cgroup — `unshare --pid` is unavailable unprivileged on this
+ * box, so it is a provisioning decision rather than something this file can
+ * fix. Callers get `killedGroup` to say which guarantee they have.
+ *
+ * Returns how many strays the sweep killed beyond the group.
+ */
+function killCommandTree(pid: number, useGroup: boolean): { group: boolean; strays: number } {
+  // Enumerate BEFORE killing: once a parent dies its children reparent to init
+  // and become unfindable by this walk.
+  const strays = descendantPids(pid);
+
+  let group = false;
+  if (useGroup) {
+    try {
+      process.kill(-pid, 9);
+      group = true;
+    } catch {
+      // Group already gone.
+    }
+  }
+  try {
+    process.kill(pid, 9);
+  } catch {
+    // Already gone.
+  }
+
+  let killed = 0;
+  for (const stray of strays) {
+    try {
+      process.kill(stray, 9);
+      killed++;
+    } catch {
+      // Already died with the group — the common case, and not an error.
+    }
+  }
+  return { group, strays: killed };
+}
+
 export function clampExecTimeout(raw: unknown): number {
   const value = typeof raw === "number" && Number.isFinite(raw) ? raw : DEFAULT_EXEC_TIMEOUT_MS;
   return Math.max(1_000, Math.min(MAX_EXEC_TIMEOUT_MS, Math.round(value)));
@@ -247,23 +324,9 @@ export async function runExecCommand(
     timedOut = true;
     // SIGKILL, not SIGTERM. This is already past a deadline the caller is
     // blocked on, and a process that ignores TERM would hold them past it.
-    //
-    // Negative pid = the whole process group. A pipeline is several processes,
-    // and signalling only the shell leaves the rest running with the pipe
-    // still open, which also keeps the reads above from ever finishing.
-    if (SETSID) {
-      try {
-        process.kill(-child.pid, 9);
-        killedGroup = true;
-      } catch {
-        // Group already gone.
-      }
-    }
-    try {
-      child.kill(9);
-    } catch {
-      // Already gone.
-    }
+    // Killing the group also unblocks the reads above, which cannot finish
+    // while any surviving child still holds the pipe open.
+    killedGroup = killCommandTree(child.pid, SETSID !== null).group;
   }, timeoutMs);
 
   try {
