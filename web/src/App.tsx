@@ -14586,7 +14586,10 @@ function SessionChatBody({
                 // taller than the room it actually gives the text. The 40px
                 // touch button is the floor on mobile, so min-h-11 keeps the
                 // row honest without crowding it.
-                "min-h-11 resize-none border-0 bg-transparent px-1 py-2.5 text-base leading-5 shadow-none placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0 md:min-h-9 md:py-2 md:text-sm",
+                // min-h-10 is the floor: it matches the 40px touch control
+                // beside it, so the bar cannot get shorter without the row
+                // becoming a button taller than the field it sits in.
+                "min-h-10 resize-none border-0 bg-transparent px-1 py-2 text-base leading-5 shadow-none placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0 md:min-h-8 md:py-1.5 md:text-sm",
               )}
             />
             <MicButton
