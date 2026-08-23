@@ -11,12 +11,14 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
+import { randomBytes } from "node:crypto";
+import { tmpdir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
 import { WORKTREE_ROOT } from "./config.ts";
 import { MAIN_REF } from "./agents/collectors/git-fresh.ts";
 import { listManaged } from "./managed.ts";
 import { deleteMergedSessionBranch } from "./project-maintenance.ts";
-import { recentlyActiveCwds } from "./resume-cache.ts";
+import { lastActivityAtForCwd } from "./resume-cache.ts";
 import { tmuxHasSession } from "./tmux.ts";
 
 // Persistent, env-overridable. Never default to /tmp: it is cleared on reboot
@@ -43,8 +45,9 @@ export type SessionWorktree = {
  * hand-made worktrees of ~/repos/vibes, reaped 22 minutes apart.)
  *
  * The marker lives OUTSIDE the worktree so it never shows up as an untracked
- * file in `git status` — which the dirty check below depends on — and so it
- * cannot dirty a branch a session is about to push.
+ * file — which `captureWorktreeSnapshot` below would otherwise fold into the
+ * WIP commit it takes before removal — and so it cannot dirty a branch a
+ * session is about to push.
  */
 const OWNED_DIR = `${WORKTREE_ROOT}/.lfg-owned`;
 
@@ -84,12 +87,16 @@ function clearWorktreeOwned(name: string): void {
 async function git(
   repo: string,
   args: string[],
-  opts?: { timeoutMs?: number },
+  opts?: { timeoutMs?: number; env?: Record<string, string | undefined> },
 ): Promise<{ ok: boolean; out: string; err: string }> {
   const proc = Bun.spawn({
     cmd: ["git", "-C", repo, ...args],
     stdout: "pipe",
     stderr: "pipe",
+    // Only set when a caller needs to redirect git's index (the WIP capture
+    // below does, so it can stage a snapshot without touching the worktree's
+    // real index). Omitting the key entirely inherits process.env unchanged.
+    ...(opts?.env ? { env: { ...process.env, ...opts.env } } : {}),
   });
   const timer = opts?.timeoutMs ? setTimeout(() => proc.kill(), opts.timeoutMs) : null;
   try {
@@ -269,58 +276,147 @@ async function repoRootFromWorktree(wtPath: string): Promise<string | null> {
   return dirname(common);
 }
 
-// Best-effort cleanup. Unmerged branches remain as the recovery copy. A branch
-// already contained in main is stale state, so remove it after its worktree is
-// gone and cannot need it as a checked-out ref.
+export type WorktreeCapture = {
+  /** `refs/wip/<name>` — a GC root, so it outlives the worktree and the branch. */
+  ref: string;
+  commit: string;
+  /** False when the capture is byte-identical to HEAD (nothing to lose). */
+  hadChanges: boolean;
+};
+
+export type WorktreeRemoval =
+  | { ok: true; capture: WorktreeCapture | null }
+  | { ok: false; stage: "capture" | "remove"; error: string };
+
+/**
+ * Snapshot a worktree's exact working-tree contents into a real commit,
+ * reachable forever via `refs/wip/<name>`, before anything is allowed to
+ * remove it.
+ *
+ * Why a commit and not a diff: a diff misses untracked files entirely (the
+ * file someone wrote but never `git add`ed is the work most worth keeping),
+ * drops file modes and binary content, and rots the moment its base commit is
+ * gone. A commit under a ref needs none of that context back — `git worktree
+ * add <path> refs/wip/<name>` alone reconstructs it, and refs are GC roots so
+ * `git gc` will never collect it.
+ *
+ * Runs against a SCRATCH index (GIT_INDEX_FILE), never the worktree's real
+ * one: a failed capture must leave the worktree exactly as a caller found it,
+ * because callers keep it on failure and this must never be the reason a
+ * concurrent operation on the same worktree gets confused. `add -A` (not
+ * `-A -f`) respects .gitignore, so node_modules/build output/data caches stay
+ * out of the snapshot — this preserves work, not the disk hog we're trying to
+ * reclaim.
+ */
+async function captureWorktreeSnapshot(
+  repoRoot: string,
+  wtPath: string,
+  name: string,
+): Promise<{ ok: true; capture: WorktreeCapture } | { ok: false; error: string }> {
+  const head = await git(wtPath, ["rev-parse", "HEAD"], { timeoutMs: 10_000 });
+  if (!head.ok) return { ok: false, error: head.err.trim() || "no HEAD to capture against" };
+  const headSha = head.out.trim();
+
+  const scratchIndex = join(tmpdir(), `lfg-wip-index-${name}-${randomBytes(4).toString("hex")}`);
+  const env = { GIT_INDEX_FILE: scratchIndex };
+  try {
+    const readTree = await git(wtPath, ["read-tree", headSha], { env, timeoutMs: 15_000 });
+    if (!readTree.ok) return { ok: false, error: readTree.err.trim() || "read-tree failed" };
+
+    const add = await git(wtPath, ["add", "-A"], { env, timeoutMs: 30_000 });
+    if (!add.ok) return { ok: false, error: add.err.trim() || "add -A failed" };
+
+    const writeTree = await git(wtPath, ["write-tree"], { env, timeoutMs: 15_000 });
+    if (!writeTree.ok) return { ok: false, error: writeTree.err.trim() || "write-tree failed" };
+    const treeSha = writeTree.out.trim();
+
+    const headTree = await git(wtPath, ["rev-parse", `${headSha}^{tree}`], { timeoutMs: 10_000 });
+    const hadChanges = !headTree.ok || headTree.out.trim() !== treeSha;
+
+    const refName = `refs/wip/${name}`;
+    const message =
+      `WIP capture before worktree reclaim: ${name}\n\n` +
+      `Automatic snapshot taken because this worktree's retention window\n` +
+      `expired. Contains tracked modifications, staged changes, and untracked\n` +
+      `files exactly as they stood at removal; gitignored paths are excluded.\n\n` +
+      `Restore with:\n  git -C ${repoRoot} worktree add <path> ${refName}\n`;
+    const commitTree = await git(wtPath, ["commit-tree", treeSha, "-p", headSha, "-m", message], {
+      timeoutMs: 10_000,
+    });
+    if (!commitTree.ok) return { ok: false, error: commitTree.err.trim() || "commit-tree failed" };
+    const commitSha = commitTree.out.trim();
+
+    const updateRef = await git(wtPath, ["update-ref", refName, commitSha], { timeoutMs: 10_000 });
+    if (!updateRef.ok) return { ok: false, error: updateRef.err.trim() || "update-ref failed" };
+
+    return { ok: true, capture: { ref: refName, commit: commitSha, hadChanges } };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  } finally {
+    try {
+      rmSync(scratchIndex, { force: true });
+    } catch {
+      // The scratch index living on past its worktree costs a few KB in
+      // /tmp; failing to clean it up must never fail the capture itself.
+    }
+  }
+}
+
+// Best-effort branch cleanup. Unmerged branches remain as the recovery copy. A
+// branch already contained in main is stale state, so remove it after its
+// worktree is gone and cannot need it as a checked-out ref.
+//
+// Capture MUST succeed before anything here calls `git worktree remove
+// --force`, which deletes a dirty tree without asking. If capture fails for
+// any reason, this returns `{ ok: false, stage: "capture" }` and the worktree
+// is left untouched — never reclaim on the assumption a capture worked.
 export async function removeSessionWorktree(
   repoRoot: string | null,
   sessionName: string,
-): Promise<boolean> {
+): Promise<WorktreeRemoval> {
   const wtPath = `${WORKTREE_ROOT}/${sessionName}`;
   if (!existsSync(wtPath)) {
     clearWorktreeOwned(sessionName);
-    return true;
+    return { ok: true, capture: null };
   }
   const root = repoRoot ? resolve(repoRoot) : await repoRootFromWorktree(wtPath);
-  if (!root) return false;
-  const ok = (await git(root, ["worktree", "remove", "--force", wtPath])).ok;
-  if (ok) {
-    clearWorktreeOwned(sessionName);
-    await deleteMergedSessionBranch(root, `session_${sessionName}`).catch(() => false);
+  if (!root) {
+    return { ok: false, stage: "remove", error: "could not resolve the worktree's repo root" };
   }
-  return ok;
-}
 
-/**
- * Does this worktree hold work that exists nowhere else?
- *
- * `git worktree remove --force` deletes a dirty tree without asking, so every
- * liveness signal missing at once used to mean uncommitted work was gone. The
- * liveness checks are heuristics; this is a fact about the contents. Ignored
- * files (node_modules, build output) are excluded, so a clean-but-built
- * worktree is still reclaimable.
- *
- * Fails CLOSED: anything unexpected reports dirty, so an unreadable worktree is
- * kept rather than deleted.
- */
-async function hasUncommittedWork(wtPath: string): Promise<boolean> {
-  const r = await git(wtPath, ["status", "--porcelain"], { timeoutMs: 10_000 });
-  if (!r.ok) return true;
-  return r.out.trim().length > 0;
+  const captured = await captureWorktreeSnapshot(root, wtPath, sessionName);
+  if (!captured.ok) return { ok: false, stage: "capture", error: captured.error };
+
+  const removed = (await git(root, ["worktree", "remove", "--force", wtPath])).ok;
+  if (!removed) return { ok: false, stage: "remove", error: "git worktree remove failed" };
+
+  clearWorktreeOwned(sessionName);
+  await deleteMergedSessionBranch(root, `session_${sessionName}`).catch(() => false);
+  return { ok: true, capture: captured.capture };
 }
 
 export type WorktreeSweepResult = {
   scanned: number;
+  /** Successfully captured (see `captures`) and removed. */
   removed: string[];
   kept: number;
   skippedYoung: number;
+  /** `git worktree remove` itself failed after a successful capture. */
   failed: string[];
   /** Directories the sweeper did not provision, so may not delete. */
   unmanaged: string[];
-  /** Owned worktrees held back because they contain uncommitted work. */
+  /** Removed worktrees whose capture found real uncommitted content (see `captures`). */
   dirty: string[];
-  /** Held back because the session was active inside the recency window. */
+  /** Held back because the worktree is still inside its retention window. */
   recentlyActive: string[];
+  /**
+   * Past retention and otherwise reclaimable, but the pre-removal capture
+   * failed — kept rather than risk removing something that was never
+   * actually saved. Needs a human look; it will not resolve itself.
+   */
+  captureFailed: string[];
+  /** name -> where its pre-removal snapshot landed, for anyone restoring one. */
+  captures: Record<string, WorktreeCapture>;
 };
 
 /**
@@ -362,55 +458,32 @@ function worktreesInUse(): Set<string> {
   return inUse;
 }
 
-// Drop worktrees whose tmux session is gone. Skips entries still registered as
-// managed (startup race), anything a live process is still working in, and
-// anything younger than minAgeMs (worktree is created a moment before tmux
-// new-session returns).
+// One retention window for every owned worktree (2026-08-23 policy). Age no
+// longer decides between "keep forever" and "reclaim" on its own — dirty
+// worktrees do not get a special never-reap tier, because captureWorktreeSnapshot
+// preserves their content before removal either way. Age only decides WHEN a
+// worktree becomes eligible; three signals still decide whether it ever does,
+// and none of them bend for age:
+//   - a live tmux pane
+//   - a live process whose cwd is inside the worktree
+//   - still present in the session/managed registry
+// Those are exactly the guards that all failed at once and let the sweeper
+// destroy a live session's tree (incident: lfg-35973c, 2026-08-23). Capture
+// makes a wrong reclaim recoverable; it does not make these three optional.
 export async function sweepStaleWorktrees(opts?: {
   minAgeMs?: number;
   now?: number;
-  recentActivityMs?: number;
+  retentionMs?: number;
 }): Promise<WorktreeSweepResult> {
   const minAgeMs = opts?.minAgeMs ?? worktreeSweepMinAgeMs();
   const now = opts?.now ?? Date.now();
-  const recentActivityMs = opts?.recentActivityMs ?? worktreeSweepRecentActivityMs();
+  const retentionMs = opts?.retentionMs ?? worktreeRetentionMs();
   const managed = new Set<string>();
   for (const m of listManaged()) {
     managed.add(m.tmuxName);
     managed.add(basename(m.cwd));
   }
   const inUse = worktreesInUse();
-  // Every other liveness signal describes this instant. A reboot, a crash, or
-  // a resume that re-keyed the managed row makes a perfectly resumable session
-  // look dead to all of them, and deleting its worktree is exactly what makes
-  // it unresumable. Recent activity survives all three.
-  //
-  // CAVEAT (not fixed here, needs a design decision): recentlyActiveCwds()
-  // only reads a cache that sessions.ts refreshes at server boot or when
-  // something calls the resume picker / find_sessions (refreshResumableCache,
-  // sessions.ts:3662, throttled to 1.5s) — it is not a heartbeat, so this
-  // "24h recent activity" protection is only as fresh as the last incidental
-  // caller. A tried fix (forcing a refresh at the top of every sweep) was
-  // reverted: refreshResumableCacheOnce prunes any cache row its own scan
-  // doesn't reproduce (pruneResumableExcept in sessions.ts), which deleted
-  // the synthetic rows src/worktree-sweep.test.ts seeds directly and, in this
-  // environment, ran long enough to blow the tests' timeout — sessions.ts's
-  // refresh is real transcript I/O, the wrong weight for every 15-minute
-  // sweep tick to carry. The actual fix needs a cheap, sweep-safe way to
-  // learn "any activity since last sweep", not a call into the resume-picker
-  // enrichment pipeline. Flagging rather than shipping a fix that trades a
-  // rare data-loss bug for a routine one.
-  const recentNames = new Set<string>();
-  try {
-    for (const cwd of recentlyActiveCwds(recentActivityMs, now)) {
-      if (cwd.startsWith(`${WORKTREE_ROOT}/`)) {
-        const name = cwd.slice(WORKTREE_ROOT.length + 1).split("/")[0];
-        if (name) recentNames.add(name);
-      }
-    }
-  } catch {
-    // An unreadable cache must never widen what the sweeper deletes.
-  }
   const result: WorktreeSweepResult = {
     scanned: 0,
     removed: [],
@@ -420,6 +493,8 @@ export async function sweepStaleWorktrees(opts?: {
     unmanaged: [],
     dirty: [],
     recentlyActive: [],
+    captureFailed: [],
+    captures: {},
   };
 
   if (!existsSync(WORKTREE_ROOT)) return result;
@@ -429,49 +504,83 @@ export async function sweepStaleWorktrees(opts?: {
     // worktrees.
     if (name.startsWith(".")) continue;
     const wtPath = `${WORKTREE_ROOT}/${name}`;
+    let dirStat: ReturnType<typeof statSync>;
     try {
-      if (!statSync(wtPath).isDirectory()) continue;
+      dirStat = statSync(wtPath);
+      if (!dirStat.isDirectory()) continue;
     } catch {
       continue;
     }
     result.scanned++;
 
     // The sweeper may only delete what the sweeper created. Everything else in
-    // this directory belongs to a human.
+    // this directory belongs to a human. (Directories that look like worktrees
+    // but are not registered with any repo are a separate, non-code-owned
+    // category — see scripts/worktree-reclaim-report.ts.)
     if (!isWorktreeOwned(name)) {
       result.unmanaged.push(name);
       continue;
     }
 
+    // HARD BLOCKS. Unconditional — age must never outvote these three, because
+    // these are exactly the checks that all missed at once on 2026-08-23 and
+    // destroyed a live session's worktree.
     if (tmuxHasSession(name) || managed.has(name) || inUse.has(name)) {
       result.kept++;
       continue;
     }
 
-    if (recentNames.has(name)) {
-      result.recentlyActive.push(name);
-      continue;
-    }
-
-    let ageMs = minAgeMs;
-    try {
-      ageMs = now - statSync(wtPath).mtimeMs;
-    } catch {}
-    if (ageMs < minAgeMs) {
+    // Tiny creation-race guard, unrelated to retention policy: a worktree is
+    // created a moment before tmux new-session (or the managed row) returns,
+    // so a worktree younger than this cannot yet have any of the three hard
+    // blocks above set even though a session is actively starting in it.
+    if (now - dirStat.mtimeMs < minAgeMs) {
       result.skippedYoung++;
       continue;
     }
 
-    // Last line of defence. Every check above is a guess about whether a
-    // session is alive; this one asks whether losing the directory would lose
-    // work, and that is the only question that actually matters.
-    if (await hasUncommittedWork(wtPath)) {
-      result.dirty.push(name);
+    // Retention clock. The resume-cache's last_activity_at is a real
+    // transcript-derived timestamp and a far better clock than the worktree
+    // directory's own mtime (which only moves when something touches the
+    // worktree root directly, not when a session edits a file three levels
+    // deep) — use it whenever this cwd has an entry, and fall back to
+    // directory mtime only when it does not. Either way, "not sure" resolves
+    // to "more recent", never less: that only ever makes the sweeper wait
+    // longer, which is the safe direction.
+    let referenceMs = dirStat.mtimeMs;
+    let recentSignal = false;
+    try {
+      const cached = lastActivityAtForCwd(wtPath);
+      if (cached !== null) {
+        referenceMs = cached;
+        recentSignal = true;
+      }
+    } catch {
+      // An unreadable cache must never widen what the sweeper reclaims.
+    }
+    if (now - referenceMs < retentionMs) {
+      if (recentSignal) result.recentlyActive.push(name);
       continue;
     }
 
-    if (await removeSessionWorktree(null, name)) result.removed.push(name);
-    else result.failed.push(name);
+    // Past the retention window. Capture first, unconditionally — dirty or
+    // clean gets the same treatment now, per the 2026-08-23 policy: nothing is
+    // lost when the window expires, so age alone is enough to reclaim.
+    const removal = await removeSessionWorktree(null, name);
+    if (removal.ok) {
+      result.removed.push(name);
+      if (removal.capture) {
+        result.captures[name] = removal.capture;
+        if (removal.capture.hadChanges) result.dirty.push(name);
+      }
+    } else if (removal.stage === "capture") {
+      // Never reclaim on the assumption a capture worked. Keep it and surface
+      // it — this needs a human, not a retry loop, since the same failure
+      // (permissions, a git object-store problem) will likely recur.
+      result.captureFailed.push(name);
+    } else {
+      result.failed.push(name);
+    }
   }
 
   return result;
@@ -490,12 +599,18 @@ function worktreeSweepMinAgeMs(): number {
   return Number.isFinite(n) && n >= 0 ? n : 2 * 60_000;
 }
 
-// How far back a session must have been silent before its worktree may be
-// reclaimed. Deliberately generous: keeping a stale directory costs disk,
-// while deleting a live one costs the session.
-function worktreeSweepRecentActivityMs(): number {
-  const raw = process.env.LFG_WORKTREE_SWEEP_RECENT_MS;
-  const fallback = 24 * 60 * 60_000;
+// How long a worktree may sit past its last known activity before the sweeper
+// captures and reclaims it. One window for every worktree, dirty or clean —
+// captureWorktreeSnapshot is what makes that safe, not the length of the
+// window. Seven days: the data behind this default (2026-08-23) showed 77 of
+// 80 worktrees already over 2 days idle, so most reasonable windows reclaim
+// most of the current backlog; seven gives a generous margin for someone who
+// stepped away for a few days and still means to come back, while a captured
+// worktree costs kilobytes to keep around if the window turns out to be
+// wrong in either direction.
+function worktreeRetentionMs(): number {
+  const raw = process.env.LFG_WORKTREE_RETENTION_MS;
+  const fallback = 7 * 24 * 60 * 60_000;
   const n = raw ? parseInt(raw, 10) : fallback;
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
@@ -513,13 +628,16 @@ export function startWorktreeSweep(onLog: (s: string) => void = () => {}): void 
     sweeping = true;
     try {
       const r = await sweepStaleWorktrees();
-      if (r.removed.length || r.failed.length) {
+      if (r.removed.length || r.failed.length || r.captureFailed.length) {
         onLog(
           `[worktree-sweep] scanned=${r.scanned} removed=${r.removed.length}` +
             (r.removed.length ? ` [${r.removed.join(", ")}]` : "") +
+            (r.dirty.length ? ` captured-uncommitted=[${r.dirty.join(", ")}]` : "") +
             (r.failed.length ? ` failed=[${r.failed.join(", ")}]` : "") +
-            (r.recentlyActive.length ? ` kept-recent=${r.recentlyActive.length}` : "") +
-            (r.dirty.length ? ` kept-dirty=[${r.dirty.join(", ")}]` : ""),
+            (r.captureFailed.length
+              ? ` capture-failed=[${r.captureFailed.join(", ")}] (kept, needs a human look)`
+              : "") +
+            (r.recentlyActive.length ? ` within-retention=${r.recentlyActive.length}` : ""),
         );
       }
     } catch (e) {
@@ -540,5 +658,7 @@ export function startWorktreeSweep(onLog: (s: string) => void = () => {}): void 
   // 15-minute sweeps removed nothing. Wait for the registry to warm up.
   const startupDelayMs = Math.min(intervalMs, 5 * 60_000);
   setTimeout(run, startupDelayMs);
-  onLog(`[worktree-sweep] started (every ${Math.round(intervalMs / 60_000)}m, min-age ${Math.round(worktreeSweepMinAgeMs() / 1000)}s)`);
+  onLog(
+    `[worktree-sweep] started (every ${Math.round(intervalMs / 60_000)}m, min-age ${Math.round(worktreeSweepMinAgeMs() / 1000)}s, retention ${Math.round(worktreeRetentionMs() / 86_400_000)}d)`,
+  );
 }

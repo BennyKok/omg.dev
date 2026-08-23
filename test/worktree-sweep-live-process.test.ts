@@ -27,6 +27,8 @@ type SweepResult = {
   failed: string[];
   unmanaged: string[];
   dirty: string[];
+  captureFailed: string[];
+  captures: Record<string, { ref: string; commit: string; hadChanges: boolean }>;
 };
 
 function runProbe(): { name: string; withLive: SweepResult; afterExit: SweepResult } {
@@ -69,12 +71,15 @@ const { sweepStaleWorktrees } = await import(${JSON.stringify(join(REPO, "src/wo
 // registry entry — exactly the harness-backend shape that used to get reaped.
 const proc = Bun.spawn(["sleep", "30"], { cwd: dir, stdout: "ignore", stderr: "ignore" });
 await Bun.sleep(400);
-const withLive = await sweepStaleWorktrees({ minAgeMs: 0 });
+// retentionMs: 0 means "assume the retention window has already elapsed" —
+// this probe is testing the liveness guard, not the age policy, and a fresh
+// git-worktree-add always has a brand new mtime.
+const withLive = await sweepStaleWorktrees({ minAgeMs: 0, retentionMs: 0 });
 
 proc.kill();
 await proc.exited;
 await Bun.sleep(400);
-const afterExit = await sweepStaleWorktrees({ minAgeMs: 0 });
+const afterExit = await sweepStaleWorktrees({ minAgeMs: 0, retentionMs: 0 });
 
 console.log(JSON.stringify({ name, withLive, afterExit }));
 `,
