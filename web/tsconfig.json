@@ -16,7 +16,17 @@
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      // Typecheck the workspace packages from SOURCE, not from their build
+      // output. Their package.json points `types` at ./dist/index.d.ts, which
+      // is gitignored, so a fresh checkout could not typecheck until a bundler
+      // had run first — and `bun run build:packages` is a ~1GB, multi-minute
+      // vite build. Three agents doing that at once on this box put the load
+      // at 44 with 24% iowait and no forward progress.
+      //
+      // Nothing about what ships changes here. Vite still resolves the real
+      // package at build time; this only tells tsc where the types live.
+      "@omg-dev/client": ["../packages/client/src/index.ts"]
     }
   },
   "include": ["src", "vite.config.ts"],
