@@ -2,6 +2,56 @@
 
 Recent product updates and deployment notes.
 
+## August 23, 2026 - A quieter composer, and Manage sessions is gone (v0.4.0)
+
+- **The chat composer is rebuilt.** The bar gives the text more room without
+  growing its buttons, which stay at a full 40px touch target. Send is an arrow
+  that only appears once there is something to send. Attach is a plus that moved
+  inside the bar. The mic is a real circle, and send sits beside it.
+  Hold-to-queue and Cmd/Ctrl+Enter still queue. Voice lives entirely on the mic
+  button now: tap to dictate, hold to talk, drag to cancel.
+- **Removed: the "/" button in the composer.** Typing "/" still opens the skill
+  suggestions, but nothing on screen advertises them any more. That is what the
+  composer rework costs, and it is recorded here rather than glossed over.
+- **Removed: "Manage sessions".** The submenu is gone, along with the five
+  agent-driven templates behind it, the path that launched an agent from one,
+  and the clear-idle action. `POST /api/sessions/close-all` went with it,
+  because that action was its only caller. Closing a single session is
+  untouched, and so is reclaiming an idle one under memory pressure.
+- **The transcript glides instead of jumping.** Staying stuck to the bottom used
+  to set the scroll position instantly on every change, which raced the entrance
+  animations and produced a jump under a still-arriving message. Appends, the
+  typing indicator, and re-engaging stick now animate. A message streaming in
+  place still snaps, because a smooth scroll cannot keep up with 30ms token
+  gaps. A reader who has scrolled up is still left alone.
+- **The session tree connector is drawn at one weight.** The elbow joining a
+  child to its parent used a corner radius scaled off the app's `--radius`, so
+  on a 20px connector it ended well short of where the T-junction reached, and
+  read lighter because a border-and-radius elbow and a filled spine are drawn by
+  two different rasterizers. The connector is a single stroke now, and holds
+  even weight on standard and retina displays.
+- **A row's preview fades when it changes.** A streaming session rewrites the
+  line under its title, and a dozen rows snapping to new words at once made the
+  list twitch. The new text now fades in over 220ms without moving, because a
+  row that shifts looks like it changed position in the list. Off entirely under
+  `prefers-reduced-motion`.
+- **"Copy session reference" no longer writes LFG on your clipboard.** It put
+  `LFG session reference: <id>` there, which is the most public of the
+  leftover names, because that string gets pasted into other tools and into
+  conversations. The `lfg mcp` command and the `lfg-mcp` settings key are
+  deliberately unchanged: one is what agents are already configured to run, and
+  the other is where setup state is stored, so renaming them is a migration
+  rather than a label fix.
+- **Setup names the cause when the command is missing afterwards.** It used to
+  report that `lfg` was not on PATH, to someone who had just typed
+  `omg computer setup`. It now names the actual fix: open a new shell, or add
+  `~/.local/bin` to PATH, then run `omg computer status`.
+- **The README says whether the install can run unattended.** It can. Setup has
+  no prompts of its own, and every optional feature stays off until you set its
+  variable. What it does need is documented now: it refuses to run as root, and
+  on Linux it always calls sudo, for `apt-get` and for `loginctl enable-linger`.
+  There is also a copy-paste prompt for handing the install to a coding agent.
+
 ## August 22, 2026 - One session list, and sessions get their own page (v0.3.0)
 
 - **Mobile and desktop now render the same session list.** Mobile used to show
