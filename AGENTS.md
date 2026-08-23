@@ -55,14 +55,38 @@ risk and delivery scope.
 - Focused Bun test: `bun test <path>`
 - Full test suite: `bun run test`
 - Type check: `bun run typecheck`
-- Package build: `bun run build:packages`
+- Web type check: `cd web && bun x tsc --noEmit`
 - Dependency audit: `bun run audit`
 - Chat ingestion smoke test: `bun run chat:smoke`
+
+The root type check does not cover `web/`. Run the web one too when you change
+anything under `web/src`.
 
 Run full tests and typecheck sequentially. Package-build tests can temporarily
 replace workspace artifacts and cause false module-resolution errors.
 Use a real install in each worktree. Do not share or symlink `node_modules`
 between checkouts because stale dependencies cause false test and type errors.
+
+### Do not build the web bundle to check your work
+
+`bun run build:packages` and `vite build` are delivery steps, not verification
+steps. Neither is needed to typecheck or to test.
+
+- The type check reads package sources directly. `web/tsconfig.json` maps
+  `@omg-dev/client` to `packages/client/src`, so a fresh worktree type checks
+  with no build at all.
+- `bun run test` builds only the prerequisites that are stale.
+
+To look at a change in a browser, run `bun run dev` in `web/`. It proxies the
+API to the local server, so the app works. Do not build a production bundle
+and copy it over a running install.
+
+A production build emits about 65 MB across roughly 400 chunks, and more than
+half of that is source maps. It costs about 2 GB of memory. Three agents doing
+that at once put this machine at load 44 with 24 percent iowait, and none of
+the builds finished. One agent later left an orphaned `tsc` at 325 percent CPU
+for ten minutes by calling it with `--ignoreConfig`, which bypasses every
+setting above. Use the project configuration.
 
 Do not run the full suite after every small edit. Run it before delivery when
 the change crosses subsystems or affects a release. If a check cannot run,
