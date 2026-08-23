@@ -14,7 +14,7 @@
 [![GitHub release](https://img.shields.io/github/v/release/BennyKok/omg.dev?label=release)](https://github.com/BennyKok/omg.dev/releases)
 [![Discord](https://img.shields.io/badge/Discord-join%20the%20community-5865F2?logo=discord&logoColor=white)](https://omg.dev/discord)
 
-[Quick start](#quick-start) · [Join the Discord](https://omg.dev/discord) · [Why omg.dev](#why-omgdev) · [Agents](#connect-a-coding-agent) · [Remote access](#reach-it-from-your-phone) · [Security](#security)
+[Quick start](#quick-start) · [Let an agent install it](#let-an-agent-install-it) · [Join the Discord](https://omg.dev/discord) · [Why omg.dev](#why-omgdev) · [Agents](#connect-a-coding-agent) · [Remote access](#reach-it-from-your-phone) · [Security](#security)
 
 <p>
   <img src="https://raw.githubusercontent.com/BennyKok/omg.dev/main/docs/images/omg-screenshot-1.jpg" alt="omg.dev web UI" width="31%" />
@@ -30,8 +30,7 @@ permission prompt, and you have to be at your desk to answer it.
 
 omg.dev turns a Linux box or macOS workstation into a private control plane for
 Claude Code, Codex, OpenCode, Jcode, Cursor, Grok, fx, Pi, and GitHub Copilot.
-Each
-agent runs in a long-lived `tmux` session that survives disconnects. The
+Each agent runs in a long-lived `tmux` session that survives disconnects. The
 transcript streams to a web UI you can install as a PWA — so you can check on
 work, answer prompts, and steer from your phone.
 
@@ -40,31 +39,32 @@ authenticate. It does not resell tokens and has no model of its own.
 
 ## Quick start
 
-The supported install is this repository's installer. It puts one `omg`
-command on your `PATH` — the local control plane — and starts it for you:
+Two ways in. Both install the same thing, put one `omg` command on your `PATH`,
+and start the local control plane for you.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/BennyKok/omg.dev/main/scripts/setup.sh | bash
 ```
 
-Then open **http://localhost:8766**.
-
-`@omg-dev/cli` 0.5.1+ is one `omg` binary. `omg computer setup` installs the
-local control plane. `omg create` / `omg deploy` / `omg login` still start the
-hosted app flow. After that version is on npm, this is the same install:
-
 ```bash
 bun install --global @omg-dev/cli && omg computer setup
 ```
 
-`lfg` remains a compatibility alias for the same command.
+Then open **http://localhost:8766**.
 
-No omg.dev account is needed for this — `omg computer setup` provisions a purely
-local install. The CLI installs Bun, `tmux`, and `git`, fetches the latest
-release, writes `.env`, and starts omg.dev as a user service bound to loopback.
-It touches nothing outside the install directory — no sudo prompt, no daemons
-you did not ask for. The extras below are opt-in. On a fresh Ubuntu/Debian box, add
-`OMG_INSTALL_SYSTEM_DEPS=1` so it may `apt-get` the base packages.
+The npm package is one `omg` binary. `omg computer setup` installs the local
+control plane; `omg create`, `omg deploy`, and `omg login` start the hosted app
+flow.
+
+No omg.dev account is needed — `omg computer setup` provisions a purely local
+install. It fetches the latest release, writes `.env`, and starts omg.dev as a
+user service bound to loopback. On Linux it also installs Bun, `git`, `tmux`,
+`curl`, and `jq`; on macOS those must already be there. Nothing else outside the
+install directory changes, and no daemon you did not ask for is started.
+Everything under [optional extras](#optional-extras) is opt-in.
+
+Setup is idempotent and asks no questions, so it is safe to re-run and safe to
+script. See [unattended installs](#unattended-installs).
 
 The install lands in `~/omg` and runs as `omg.service` (launchd: `dev.omg.serve`).
 
@@ -74,6 +74,65 @@ machine. See [how installs stay small](#how-installs-stay-small).
 
 Next: [connect a coding agent](#connect-a-coding-agent) so you have something to
 run, then [reach it from your phone](#reach-it-from-your-phone).
+
+### Unattended installs
+
+Setup reads no answers from stdin, and every optional feature stays off until
+you set its environment variable. What it does need from the host:
+
+- **Do not run it as root.** It refuses uid 0, because agents must not run as
+  root. Use a normal user that can `sudo`.
+- **Linux needs `sudo`.** Setup runs `sudo apt-get` for `git`, `tmux`, `curl`,
+  `ca-certificates`, and `jq`, and `sudo loginctl enable-linger` so the service
+  survives logout. For a fully unattended run the user needs passwordless
+  `sudo`. Without it, `sudo` asks for a password on the terminal.
+- **macOS needs no `sudo`.** The base packages must already exist. Add
+  `OMG_INSTALL_SYSTEM_DEPS=1` to let setup install the missing ones with
+  Homebrew, and `OMG_INSTALL_BUN=1` to let it install Bun.
+
+A no-questions install of the control plane, an agent CLI, and remote access:
+
+```bash
+bun install --global @omg-dev/cli
+OMG_INSTALL_CLAUDE=1 OMG_TAILSCALE_SERVE=1 TS_AUTHKEY=tskey-auth-... omg computer setup
+```
+
+Setup passes its environment through, so the variables go on `omg computer
+setup` itself, not on the `bun install` in front of it.
+
+### Let an agent install it
+
+Give a coding agent this prompt to install omg.dev on the machine it is running
+on:
+
+```text
+Install the omg.dev local control plane on this machine, then confirm it runs.
+
+Command:
+  bun install --global @omg-dev/cli && omg computer setup
+
+If bun is not installed, use the installer instead:
+  curl -fsSL https://raw.githubusercontent.com/BennyKok/omg.dev/main/scripts/setup.sh | bash
+
+Rules:
+- Do not run it as root. It refuses uid 0. Use a normal user that can sudo.
+- It asks no questions. On Linux it calls sudo for apt-get and for
+  loginctl enable-linger. If sudo needs a password and you cannot supply one,
+  stop and report that instead of guessing.
+- Do not add flags or environment variables that I did not ask for. Every
+  optional feature is off by default and stays off.
+- It is idempotent. If it fails, read the error, fix that one thing, re-run.
+
+Verify, and report the output of each:
+  omg computer status
+  omg doctor
+
+Report the install directory, the service name, the URL, and any agent CLI it
+found. Do not claim it works from a successful install alone.
+```
+
+`omg doctor` removes API keys, tokens, and your home directory from its output,
+so whatever the agent reports back is safe to paste into an issue or Discord.
 
 ### Optional extras
 
@@ -195,18 +254,15 @@ OMG_TAILSCALE_SERVE=1 omg setup
 ```
 
 **A relay (experimental).** For the case Tailscale can't cover — rendering a
-session from your box on a *public* web origin:
+session from your box on a *public* web origin. Pair with a one-time code from
+the relay operator:
 
 ```bash
 OMG_RELAY_URL=wss://your-relay.example/connect omg connect ABC123   # outbound only, no inbound port
 ```
 
 No relay ships with omg.dev itself; the protocol is generic and any operator can
-implement it. Pair with a one-time code from the relay operator:
-
-```bash
-OMG_RELAY_URL=wss://your-relay.example/connect omg connect ABC123
-```
+implement it.
 
 The hosted `omg login && omg connect` convenience path is owned by
 `BennyKok/vibes`. It is not this repository's first-run command.
@@ -242,9 +298,8 @@ hibernate when idle and wake on the same URL.
 > repos and authenticated CLIs already on your machine — that is what omg.dev is
 > for. Use omg.dev to try it in seconds, or when you would rather not run a box
 > at all. A fresh hosted workspace has no agent CLIs signed in, and agents work
-> on repos you clone *into* it. The live start command is `omg serve`.
-> `lfg serve` remains a compatibility alias. More detail in
-> [deploy/omg](./deploy/omg/README.md).
+> on repos you clone *into* it. The live start command is `omg serve`. More
+> detail in [deploy/omg](./deploy/omg/README.md).
 
 ## Managing an install
 
@@ -274,11 +329,11 @@ omg uninstall --purge --yes   # also permanently delete sessions and config
 
 ## Commands
 
+Beyond the lifecycle commands above:
+
 ```bash
 omg serve                      # web UI + control server
 omg doctor                     # shareable diagnostic to paste into a bug report
-omg setup                      # rerun provisioning/update flow
-omg uninstall                  # remove omg.dev while preserving sessions and config
 omg connect <code>             # reach this box through a relay (see docs/remote-access.md)
 omg mcp                        # stdio MCP server for omg.dev session tools
 omg agents list                # list markdown-defined insight agents
@@ -413,17 +468,16 @@ LFG_SKIP_PLATFORM_BUNDLES=1 scripts/release.sh     # neutral bundle only
 ```
 
 The platform-neutral `omg-bundle.tar.gz` is still published, and setup falls
-back to it (then to the pre-rename `lfg-bundle.tar.gz`) when no platform bundle
-matches — an unusual architecture still installs, it just resolves dependencies
-locally the old way.
+back to it when no platform bundle matches — an unusual architecture still
+installs, it just resolves dependencies locally the old way.
 
 ## Embedding omg.dev in your own product
 
 Every release publishes `@omg-dev/cli`, `@omg-dev/protocol`, `@omg-dev/client`,
 `@omg-dev/react`, and `@omg-dev/app` to npm — the last being the exact full
-application the standalone web UI runs. `@omg-dev/cli` 0.5.1+ is the
-control-plane bootstrapper. The same `omg` also starts create / deploy / login.
-React hosts mount `@omg-dev/app` with their own transport and asset origin:
+application the standalone web UI runs. `@omg-dev/cli` is the control-plane
+bootstrapper, and the same `omg` starts create, deploy, and login. React hosts
+mount `@omg-dev/app` with their own transport and asset origin:
 
 ```bash
 npm install @omg-dev/app @omg-dev/client
@@ -436,7 +490,7 @@ See **[docs/embedding.md](./docs/embedding.md)**.
 ```text
 src/                 CLI, server, sessions, tmux, agents, MCP, integrations
 web/                 React/Vite PWA
-packages/cli         @omg-dev/cli 0.5.1+ control-plane bootstrapper + hosted app verbs
+packages/cli         @omg-dev/cli bootstrapper + hosted app verbs
 agents/              Example markdown-defined insight agents
 scripts/setup.sh     Installer / provisioning (documented first-run)
 scripts/             Release, fleet, and smoke helpers
@@ -449,13 +503,6 @@ docs/                Design notes, agent profiles, README images
 
 Issues and pull requests are welcome. Please read
 [CONTRIBUTING.md](./CONTRIBUTING.md) and [SECURITY.md](./SECURITY.md) first.
-
-> **Upgrading from `lfg`?** The project was renamed in August 2026 and now lives
-> at [`github.com/BennyKok/omg.dev`](https://github.com/BennyKok/omg.dev).
-> GitHub redirects the old URLs. The command is `omg`; the old `lfg` command,
-> `LFG_*` environment variables, and an existing `~/lfg` install directory all
-> keep working, and setup never migrates a running install out from under
-> itself.
 
 ## License
 
