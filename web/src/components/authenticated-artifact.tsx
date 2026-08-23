@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 import { artifactRequestPath } from "../lib/artifact-document";
-import { omgFetch } from "../lib/omg-client";
+import { omgDirectUrl, omgFetch } from "../lib/omg-client";
 import { cn } from "../lib/utils";
 import { ImageLightbox } from "./ImageLightbox";
 
@@ -9,6 +9,22 @@ type ArtifactLoad<T> =
   | { status: "loading"; value: null }
   | { status: "ready"; value: T }
   | { status: "error"; value: null };
+
+/**
+ * Where the bytes for one artifact come from.
+ *
+ * `direct` is a URL the browser loads itself, straight out of an element's
+ * `src`. Everything else is the blob path: fetch through the transport, wrap
+ * the response in an object URL, revoke it on unmount.
+ *
+ * The distinction is the whole point of this file. An object URL is owned by
+ * the component that made it, and the transcript is virtualized, so a row that
+ * scrolls off screen unmounts, revokes its URL, and downloads the same picture
+ * again the moment it comes back. A direct URL lives in the browser's HTTP
+ * cache instead — the server marks artifact bytes `immutable` for a year — so
+ * the second mount costs nothing and paints at once.
+ */
+type ArtifactSource = { status: "direct"; value: string } | ArtifactLoad<string>;
 
 /** @param path `null` defers the fetch entirely (used to load full-size bytes only on zoom). */
 function useArtifactBlobUrl(path: string | null): ArtifactLoad<string> {
@@ -46,6 +62,36 @@ function useArtifactBlobUrl(path: string | null): ArtifactLoad<string> {
 
   return state;
 }
+
+/**
+ * Ask the transport for a directly loadable URL, and fall back to the blob.
+ *
+ * Standalone LFG serves the UI and the runtime from one origin, so the element
+ * can fetch the artifact itself with the same cookies — no header to inject,
+ * nothing to revoke. A hosted surface installs a transport that signs each
+ * request with a short-lived grant, an `<img>` cannot carry that header, and
+ * `assetUrl` returns null there. An older host, bundled against a client that
+ * predates `assetUrl`, has no such method at all and lands in the same branch.
+ * Both keep exactly the behaviour they had before.
+ */
+function useArtifactSource(path: string | null): ArtifactSource {
+  const direct = path === null ? null : omgDirectUrl(path);
+  // Deferred (`path === null`) or blob-only: this stays "loading" until asked.
+  const blob = useArtifactBlobUrl(direct === null ? path : null);
+  return direct === null ? blob : { status: "direct", value: direct };
+}
+
+/**
+ * Direct URLs that have already painted once on this page.
+ *
+ * Strings only. No object URL is created for them, so nothing here can be
+ * revoked out from under a row that is still on screen — the failure mode that
+ * makes reference-counted blob caches worse than the flicker they fix. It
+ * exists so a row scrolling back into view starts at the picture instead of at
+ * the skeleton. It grows with the number of distinct artifacts a page has
+ * shown, which is a few short strings each.
+ */
+const paintedArtifactUrls = new Set<string>();
 
 function ArtifactLoadError({ className }: { className?: string }) {
   return (
@@ -91,15 +137,94 @@ function ArtifactLoading({
 }
 
 /**
+ * One image, from either source.
+ *
+ * On the blob path the states are the same three as before: skeleton, image,
+ * error box. On the direct path the `<img>` itself is the loader, so it has to
+ * be in the tree before anyone knows whether the bytes arrive, and its
+ * `onLoad`/`onError` supply the same two states. The placeholder is then a
+ * background on that one element rather than a second element: the box is
+ * already reserved by `width`/`height`, so there is no swap and no layout jump.
+ */
+function ArtifactPicture({
+  source,
+  alt,
+  width,
+  height,
+  lazy = false,
+  onClick,
+  fallback,
+  className,
+}: {
+  source: ArtifactSource;
+  alt: string;
+  width?: number;
+  height?: number;
+  /** Defer off-screen bytes. Only for images a caller expects below the fold. */
+  lazy?: boolean;
+  onClick?: () => void;
+  fallback?: ReactNode;
+  className?: string;
+}) {
+  const direct = source.status === "direct" ? source.value : null;
+  // Seeded from the set, so a re-mounted row skips the skeleton for a picture
+  // the browser has already painted once.
+  const [painted, setPainted] = useState(
+    () => direct !== null && paintedArtifactUrls.has(direct),
+  );
+  const [directFailed, setDirectFailed] = useState(false);
+
+  useEffect(() => {
+    if (direct === null) return;
+    setPainted(paintedArtifactUrls.has(direct));
+    setDirectFailed(false);
+  }, [direct]);
+
+  if (source.status === "error" || directFailed) {
+    return <>{fallback ?? <ArtifactLoadError className={className} />}</>;
+  }
+  if (source.status === "loading") {
+    return <ArtifactLoading className={className} width={width} height={height} />;
+  }
+  return (
+    <img
+      src={source.value}
+      alt={alt}
+      width={width}
+      height={height}
+      loading={lazy ? "lazy" : undefined}
+      decoding={lazy ? "async" : undefined}
+      onClick={onClick}
+      onLoad={
+        direct === null
+          ? undefined
+          : () => {
+              paintedArtifactUrls.add(direct);
+              setPainted(true);
+            }
+      }
+      onError={direct === null ? undefined : () => setDirectFailed(true)}
+      className={cn(
+        onClick && "cursor-zoom-in",
+        className,
+        // Last, so it wins over any background the caller asked for while the
+        // bytes are still in flight.
+        direct !== null && !painted && "animate-pulse bg-muted/35",
+      )}
+    />
+  );
+}
+
+/**
  * A zoomable authenticated image that does NOT download the original to show a
  * thumbnail.
  *
  * `ZoomableImage` appends `?preview=1` to get the server's bounded WebP, but it
- * has to skip that for `blob:` URLs — and every authenticated image is a blob,
- * because the bytes arrive through the transport rather than the `<img>` element.
- * So the feed was rendering 176px tiles out of full-size originals (up to 25 MB
- * each, several per post). Fetch the preview for the tile and the original only
- * once someone actually zooms in.
+ * has to skip that for `blob:` URLs — and every authenticated image was a blob,
+ * because the bytes arrived through the transport rather than the `<img>`
+ * element. So the feed was rendering 176px tiles out of full-size originals (up
+ * to 25 MB each, several per post). Fetch the preview for the tile and the
+ * original only once someone actually zooms in.
  */
 function AuthenticatedZoomableImage({
   path,
@@ -117,36 +242,35 @@ function AuthenticatedZoomableImage({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const preview = useArtifactBlobUrl(artifactRequestPath(path, { preview: 1 }));
-  const full = useArtifactBlobUrl(open ? path : null);
-
-  if (preview.status === "error") {
-    return <>{fallback ?? <ArtifactLoadError className={className} />}</>;
-  }
-  if (preview.status === "loading") {
-    return <ArtifactLoading className={className} width={width} height={height} />;
-  }
+  const preview = useArtifactSource(artifactRequestPath(path, { preview: 1 }));
+  // Still gated on `open`. A direct URL is only a string, and the lightbox
+  // renders no element while closed, so the original is requested on zoom
+  // either way.
+  const full = useArtifactSource(open ? path : null);
+  // Falls back to the preview until the original arrives, so opening the
+  // lightbox never shows an empty frame.
+  const fullSrc = full.value ?? preview.value;
 
   return (
     <>
-      <img
-        src={preview.value}
+      <ArtifactPicture
+        source={preview}
         alt={alt}
         width={width}
         height={height}
-        loading="lazy"
-        decoding="async"
+        lazy
         onClick={() => setOpen(true)}
-        className={cn("cursor-zoom-in", className)}
+        fallback={fallback}
+        className={className}
       />
-      {/* Falls back to the preview until the original arrives, so opening the
-          lightbox never shows an empty frame. */}
-      <ImageLightbox
-        src={full.value ?? preview.value}
-        alt={alt}
-        open={open}
-        onClose={() => setOpen(false)}
-      />
+      {fullSrc === null ? null : (
+        <ImageLightbox
+          src={fullSrc}
+          alt={alt}
+          open={open}
+          onClose={() => setOpen(false)}
+        />
+      )}
     </>
   );
 }
@@ -211,27 +335,30 @@ function AuthenticatedPlainImage({
   fallback?: ReactNode;
   className?: string;
 }) {
-  const source = useArtifactBlobUrl(
+  const source = useArtifactSource(
     thumb ? artifactRequestPath(path, { preview: "thumb" }) : path,
   );
-  if (source.status === "error") {
-    return <>{fallback ?? <ArtifactLoadError className={className} />}</>;
-  }
-  if (source.status === "loading") {
-    return <ArtifactLoading className={className} />;
-  }
-  return <img src={source.value} alt={alt} className={className} />;
+  return (
+    <ArtifactPicture
+      source={source}
+      alt={alt}
+      fallback={fallback}
+      className={className}
+    />
+  );
 }
 
 /**
  * Authenticated video.
  *
- * `preload="metadata"` is a lie here: the bytes arrive through the transport as a
- * blob, so by the time the `<video>` exists the whole file is already in memory.
- * On the Shipped feed that meant one 2 MB clip was downloaded just to paint a
- * thumbnail nobody had pressed play on — more than every image on the page
- * combined. So unless the caller actually wants playback now (`autoPlay`, i.e.
- * the full-page viewer), wait for the tap.
+ * On the blob path `preload="metadata"` would be a lie: the bytes arrive
+ * through the transport as one blob, so by the time the `<video>` exists the
+ * whole file is already in memory. On the Shipped feed that meant one 2 MB clip
+ * was downloaded just to paint a thumbnail nobody had pressed play on — more
+ * than every image on the page combined. So unless the caller actually wants
+ * playback now (`autoPlay`, i.e. the full-page viewer), wait for the tap. A
+ * direct URL keeps that gate and adds real streaming: the element requests byte
+ * ranges, which the server already serves.
  */
 export function AuthenticatedArtifactVideo({
   path,
@@ -247,7 +374,14 @@ export function AuthenticatedArtifactVideo({
   className?: string;
 }) {
   const [requested, setRequested] = useState(autoPlay);
-  const source = useArtifactBlobUrl(requested ? path : null);
+  const source = useArtifactSource(requested ? path : null);
+  const direct = source.status === "direct" ? source.value : null;
+  const [directFailed, setDirectFailed] = useState(false);
+
+  useEffect(() => {
+    if (direct === null) return;
+    setDirectFailed(false);
+  }, [direct]);
 
   if (!requested) {
     return (
@@ -269,7 +403,7 @@ export function AuthenticatedArtifactVideo({
       </button>
     );
   }
-  if (source.status === "error") {
+  if (source.status === "error" || directFailed) {
     return <ArtifactLoadError className={className} />;
   }
   if (source.status === "loading") {
@@ -284,6 +418,7 @@ export function AuthenticatedArtifactVideo({
       autoPlay
       playsInline
       aria-label={label}
+      onError={direct === null ? undefined : () => setDirectFailed(true)}
       className={className}
     />
   );

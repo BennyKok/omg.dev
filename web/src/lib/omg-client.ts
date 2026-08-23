@@ -135,6 +135,37 @@ export function openOmgSocket(path: string): Promise<OmgSocket> {
   return omgTransport.openSocket(path);
 }
 
+/**
+ * Can the browser load this API path by itself, in an element `src`?
+ *
+ * Split out from `omgDirectUrl` so it can be tested without touching the
+ * module-level transport. Three answers, all of them real:
+ *
+ * - a string, on standalone LFG, where the runtime is the same origin and the
+ *   element inherits the cookies;
+ * - `null`, from a host transport that says outright that it signs requests;
+ * - `null` again, from an OLDER host bundled against a client that never heard
+ *   of `assetUrl`. That one is why the method is optional.
+ *
+ * `null` means "fetch the bytes and make a blob", which is what every caller
+ * did before this existed, so an old host is unaffected.
+ */
+export function selectDirectUrl(transport: OmgTransport, path: string): string | null {
+  return transport.assetUrl?.(path) ?? null;
+}
+
+/**
+ * The element-loadable URL for an API path, or `null`.
+ *
+ * Prefer this over `omgFetch` for image and video bytes. A blob URL belongs to
+ * the component that created it, so the virtualized transcript re-downloads
+ * every picture each time its row scrolls back on screen; a direct URL is held
+ * in the browser's own HTTP cache, which outlives the component.
+ */
+export function omgDirectUrl(path: string): string | null {
+  return selectDirectUrl(omgTransport, path);
+}
+
 export function omgAssetUrl(path: string): string {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${omgAssetBaseUrl}${normalizedPath}`;

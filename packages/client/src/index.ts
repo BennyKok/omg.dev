@@ -57,6 +57,20 @@ export interface OmgTransport {
   ): Promise<Response>;
   request<T>(path: string, init?: RequestInit): Promise<T>;
   /**
+   * A URL the BROWSER itself can load, for `<img src>` / `<video src>`.
+   *
+   * Only a transport that needs no per-request credential can answer this: an
+   * element attribute carries no `Authorization` header, so a transport that
+   * signs each request must return `null` (or omit the method) and let the
+   * caller fetch bytes and build a blob instead.
+   *
+   * Answering it is worth a lot. A blob URL is owned by one mounted component,
+   * so a virtualized list re-downloads and re-decodes the same picture every
+   * time a row scrolls back into view. A plain URL is cached by the browser
+   * under its own rules, survives unmount, and needs no revoke.
+   */
+  assetUrl?(path: string): string | null;
+  /**
    * Authenticated WebSocket access for application surfaces such as live
    * transcripts and terminals. Hosts own this boundary just like HTTP: an
    * embedded surface must never infer a socket origin from `location`.
@@ -259,6 +273,10 @@ export function createSameOriginTransport(
     fetch(path: string, init?: RequestInit): Promise<Response> {
       return fetchImpl(path, init);
     },
+    // Same origin, same cookies: the element can fetch this itself.
+    assetUrl(path: string): string {
+      return normalizedPath(path);
+    },
     ...(XMLHttpRequestImpl
       ? {
           upload(
@@ -354,6 +372,9 @@ export function createGrantTransport(options: CreateGrantTransportOptions): OmgT
   return {
     fetch: authenticatedFetch,
     ...(authenticatedUpload ? { upload: authenticatedUpload } : {}),
+    // Deliberately null. Every request here carries a short-lived bearer grant,
+    // and an `<img src>` cannot carry a header. Callers fall back to the blob.
+    assetUrl: () => null,
     async request<T>(path: string, init: RequestInit = {}): Promise<T> {
       const response = await authenticatedFetch(path, init);
       const { data, text } = await readBody(response);
