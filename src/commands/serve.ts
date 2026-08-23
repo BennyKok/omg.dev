@@ -228,7 +228,7 @@ import {
   listSessionsCached,
   noteListSessionsClientActivity,
 } from "../session-cache.ts";
-import { buildSessionUsageReport } from "../session-usage.ts";
+import { buildSessionUsageReport, findSessionDevServerPids } from "../session-usage.ts";
 import { memoryReclaimCandidates } from "../idle-archive.ts";
 import { CODING_AGENT_ADAPTERS, resolveActiveSessionAgent, usesCommandFileRuntime } from "../coding-agent-adapters.ts";
 import { launchCodingAgentSession } from "../coding-agent-provider.ts";
@@ -1775,6 +1775,52 @@ async function replaySessionCreation(record: ManagedSession): Promise<Response> 
 
 type CloseOutcome = { ok: true; mode: string } | { ok: false; status: number; reason: string };
 
+// A closed session's agent, tmux pane, and browser are all stopped above (see
+// closeLiveSession) — but a dev server the agent started inside its worktree
+// (`expo start`, `vite dev`, ...) is none of those three, and nothing else
+// ever reaped it. That is exactly the leak the Storage panel surfaces as
+// "N closed sessions" holding hundreds of MB with "those keep running until
+// something reclaims them". This is that reclaim, run automatically at the
+// one place every close already funnels through, instead of waiting on an
+// operator to notice the panel.
+//
+// findSessionDevServerPids does the identification (env/cgroup/cwd
+// inheritance — see src/session-usage.ts) and is read-only; killing is this
+// function's job alone, and it only ever signals pids that scan already
+// attributed to THIS managed name. A dev server on a shared port, or one
+// started by hand in the same worktree, carries none of lfg's session env
+// and is never in that list.
+//
+// SIGTERM is sent and waited for here (cheap: no processes, or a few, per
+// close). The SIGKILL follow-up runs on an unref'd timer instead of being
+// awaited, so archiveIdleDurableAgentsForMemory's reclaim-under-pressure loop
+// (which checks available memory again right after each close) is never
+// blocked on a dev server's shutdown grace period.
+async function reapSessionDevServers(managedName: string): Promise<void> {
+  const targets = await findSessionDevServerPids(managedName).catch(() => []);
+  if (!targets.length) return;
+  console.log(
+    `[close] reaping ${targets.length} dev server(s) for ${managedName}: ${targets.map((t) => t.label).join(", ")}`,
+  );
+  for (const { pid } of targets) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {}
+  }
+  setTimeout(() => {
+    for (const { pid } of targets) {
+      try {
+        process.kill(pid, 0); // still alive?
+      } catch {
+        continue; // exited on its own within the grace window
+      }
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {}
+    }
+  }, 3000).unref();
+}
+
 // Tear down one live session. Shared by every teardown caller in this file
 // (the single-session /close route, memory-pressure reclaim, bot rotation,
 // session-continue archival, and more) so they all take the exact same path
@@ -1819,6 +1865,11 @@ async function closeLiveSession(
     }
     clearResolved(id);
     invalidateListSessionsCache();
+    // Command-file sessions are always lfg-launched (no "attached to someone
+    // else's process" case exists for this runtime), so tmuxName alone is a
+    // safe key here — see the sess.managed gate on the tmux path below for why
+    // that one is stricter.
+    if (sess.tmuxName) await reapSessionDevServers(sess.tmuxName);
     evlog("session_close_done", {
       ...closeLog,
       agent: sess.agent,
@@ -1871,6 +1922,11 @@ async function closeLiveSession(
   }
   clearResolved(id);
   invalidateListSessionsCache();
+  // Only for a session lfg itself started and owns the whole tmux session
+  // for (sess.managed) — an attached session may be a tmux pane the user was
+  // already running by hand, and lfg never started anything inside it that
+  // needs reclaiming.
+  if (sess.managed && sess.tmuxName) await reapSessionDevServers(sess.tmuxName);
   const mode = sess.managed && sess.tmuxName ? "tmux_session" : "tmux_pane";
   evlog("session_close_done", {
     ...closeLog,
