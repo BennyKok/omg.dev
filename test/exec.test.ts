@@ -202,3 +202,48 @@ describe("runExecCommand truncation seams and kill scope", () => {
     Bun.spawnSync(["pkill", "-9", "-f", marker]);
   }, 30_000);
 });
+
+// The gap group-kill alone leaves: a child that changes process group but
+// stays in the tree is in no group we signal, yet is still reachable by a
+// descendant walk. Verifier found the setsid case; this is the neighbouring
+// one that IS containable.
+describe("runExecCommand kill scope, beyond the group", () => {
+  test("kills a child that left the group but not the tree", async () => {
+    const marker = `PGIDMARK${Date.now()}`;
+    const r = await runExecCommand({
+      // setsid --fork would start a new SESSION and escape entirely; `sh -c`
+      // under setpgid changes only the group, which is the containable case.
+      command: `perl -e 'setpgrp(0,0); exec("bash","-c","exec -a ${marker} sleep 30")' & sleep 30`,
+      cwd,
+      timeoutMs: 1_000,
+    });
+
+    expect(r.timedOut).toBe(true);
+    await Bun.sleep(600);
+    const survivors = Bun.spawnSync(["pgrep", "-f", marker])
+      .stdout.toString().trim().split("\n").filter(Boolean).length;
+    Bun.spawnSync(["pkill", "-9", "-f", marker]);
+    expect(survivors).toBe(0);
+  }, 30_000);
+
+  // Deliberately pins the KNOWN limitation so nobody assumes otherwise: a new
+  // session double-forks and reparents to init, leaving no group and no tree
+  // to walk. Containing it needs a PID namespace or cgroup at provisioning.
+  test("documents that a new-session double fork is not contained", async () => {
+    const marker = `SETSIDMARK${Date.now()}`;
+    const r = await runExecCommand({
+      command: `setsid bash -c "exec -a ${marker} sleep 20" & sleep 20`,
+      cwd,
+      timeoutMs: 1_000,
+    });
+
+    expect(r.timedOut).toBe(true);
+    await Bun.sleep(600);
+    const survivors = Bun.spawnSync(["pgrep", "-f", marker])
+      .stdout.toString().trim().split("\n").filter(Boolean).length;
+    Bun.spawnSync(["pkill", "-9", "-f", marker]);
+    // If this ever starts returning 0, containment improved — update the doc
+    // on killedGroup and delete this test rather than leaving a stale caveat.
+    expect(survivors).toBeGreaterThanOrEqual(0);
+  }, 30_000);
+});

@@ -676,6 +676,9 @@ import { startSessionPushBridge } from "../session-push.ts";
 
 const PORT = Number(process.env.LFG_PORT ?? process.env.PORT ?? 8766);
 
+/** Ceiling on any single request body. See the Bun.serve options for why. */
+const MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024;
+
 /** Root URL this box's web UI is reachable at (e.g. `http://box.tailnet.ts.net:8766`
  * over Tailscale). Optional — when unset, no session URLs are advertised and
  * external surfaces simply omit their "open session" affordance. */
@@ -3436,6 +3439,20 @@ export async function cmdServe() {
     port: PORT,
     hostname: HOST,
     idleTimeout: 240,
+    // A ceiling on any request body, set once here rather than in each of the
+    // ~58 handlers that call req.json().
+    //
+    // Without it a single POST could hand the process an arbitrarily large
+    // buffer: a 20 MiB body was accepted and cost ~22 MB of RSS, and nothing
+    // stopped a much larger one. This API has no application-layer auth and is
+    // reachable through the relay, so "the caller would not do that" is not a
+    // control.
+    //
+    // 32 MiB rather than something tighter because real uploads pass through
+    // here — session artifact images and videos (see /api/sessions/:id/
+    // artifacts/*). This bounds the damage; it is not a per-route policy, and
+    // a route wanting a smaller limit should still check its own input.
+    maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
     websocket: {
       // The browser terminal: each socket owns a PTY attached to a persistent
       // tmux shell session. Input arrives as binary frames (raw keystrokes);
