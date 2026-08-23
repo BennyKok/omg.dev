@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { PATHS, localServeHost } from "../config.ts";
 import {
@@ -1124,7 +1125,10 @@ async function pollSessionEvents(seen: Map<string, SeenSession>, getSocket: () =
 
 function connectSocket(
   relayUrl: string,
-  hello: ({ type: "pair"; code: string } | { type: "hello"; token: string }) & { computerUrl?: string },
+  hello: ({ type: "pair"; code: string } | { type: "hello"; token: string }) & {
+    computerUrl?: string;
+    name?: string;
+  },
 ): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(relayUrl);
@@ -1141,11 +1145,28 @@ function connectSocket(
 }
 
 /** Redeems a one-time pairing code, persists the returned token, then falls through to the persistent connect loop. */
+/**
+ * This machine's hostname, sent so a relay can offer a human-readable handle
+ * instead of a UUID.
+ *
+ * Generic on purpose: a hostname is not an omg concept, and a relay that does
+ * not want it simply ignores the field. Best-effort — a box with no resolvable
+ * hostname sends nothing and the relay falls back on its own.
+ */
+function boxName(): string | undefined {
+  try {
+    const name = hostname().trim().replace(/\.local$/i, "");
+    return name || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function pair(code: string, explicitComputerUrl?: string): Promise<void> {
   const relayUrl = requireRelayUrl();
   const computerUrl = normalizeComputerUrl(explicitComputerUrl ?? process.env.LFG_PUBLIC_URL);
   console.log(`lfg connect: redeeming pairing code against ${relayUrl} …`);
-  const ws = await connectSocket(relayUrl, { type: "pair", code, ...(computerUrl ? { computerUrl } : {}) });
+  const ws = await connectSocket(relayUrl, { type: "pair", code, name: boxName(), ...(computerUrl ? { computerUrl } : {}) });
 
   const paired = await new Promise<{ token: string; boxId: string }>((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error("timed out waiting for relay to confirm pairing")), 15_000);
@@ -1232,6 +1253,9 @@ async function runConnectLoop(explicitComputerUrl?: string): Promise<void> {
       const ws = await connectSocket(creds.relayUrl, {
         type: "hello",
         token: creds.token,
+        // Re-sent on every reconnect, not just at pairing, so a renamed
+        // machine reads correctly without re-pairing.
+        name: boxName(),
         ...(computerUrl ? { computerUrl } : {}),
       });
       currentWs = ws;

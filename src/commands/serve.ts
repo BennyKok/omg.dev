@@ -342,6 +342,7 @@ import {
 } from "../repos-store.ts";
 import { projectName, reposRoot } from "../projects.ts";
 import { listConfiguredRepos } from "../repo-list.ts";
+import { runExecCommand, clampExecTimeout, MAX_EXEC_TIMEOUT_MS } from "../exec.ts";
 import {
   cwdIsWithin,
   repoContainingCwd,
@@ -6249,6 +6250,45 @@ a{color:#60a5fa}
           if (e instanceof FolderDeleteError) return err(e.status, e.message);
           return err(400, e instanceof Error ? e.message : String(e));
         }
+      }
+
+      // One-shot command execution. See src/exec.ts for why this exists and
+      // why it is capped; the short version is that a remote caller has no
+      // shell on this box, and spawning a whole session to read a file is
+      // absurd. Seconds here; minutes belong in a session.
+      if (path === "/api/exec" && req.method === "POST") {
+        const b = (await req.json().catch(() => null)) as {
+          command?: unknown;
+          cwd?: unknown;
+          timeoutMs?: unknown;
+        } | null;
+        const command = typeof b?.command === "string" ? b.command.trim() : "";
+        if (!command) return err(400, "expected { command }");
+
+        // cwd resolves through the same repo allowlist that POST
+        // /api/sessions/new uses, rather than accepting any absolute path.
+        // Two reasons: an agent that mistypes a path gets "unknown repo"
+        // instead of silently running in $HOME, and the box keeps ONE answer
+        // to "where may work happen" instead of a second one here.
+        const repos = await listRepos();
+        const requestedCwd = typeof b?.cwd === "string" ? b.cwd.trim() : "";
+        const repo = requestedCwd
+          ? repoForRequestedSessionCwd(repos, requestedCwd, undefined)
+          : (repos.find((r) => r.cwd === SELF_REPO) ?? repos[0]);
+        if (!repo) {
+          return err(
+            400,
+            requestedCwd
+              ? `unknown repo: ${requestedCwd}`
+              : "no repositories are configured on this computer",
+          );
+        }
+
+        const timeoutMs = clampExecTimeout(b?.timeoutMs);
+        if (typeof b?.timeoutMs === "number" && b.timeoutMs > MAX_EXEC_TIMEOUT_MS) {
+          return err(400, `timeoutMs may not exceed ${MAX_EXEC_TIMEOUT_MS}`);
+        }
+        return json(await runExecCommand({ command, cwd: repo.cwd, timeoutMs }));
       }
 
       if (path === "/api/repos") {
