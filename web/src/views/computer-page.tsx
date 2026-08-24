@@ -134,7 +134,15 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
     // Full bleed: the screen is the page. No title, no chrome, no padding --
     // every pixel spent on framing is a pixel not spent on the desktop.
     <div className="relative h-full min-h-0 w-full overflow-hidden bg-[#0b0b0d]">
-      <div ref={screenRef} className="absolute inset-0" />
+      {/* touch-none is load-bearing on mobile: noVNC's GestureHandler needs the
+          raw touch stream. Without it the browser claims the gestures for page
+          panning and zooming, and the desktop appears to ignore every touch.
+          select-none stops long-press from raising the text-selection callout
+          over the canvas, which otherwise eats the right-click gesture. */}
+      <div
+        ref={screenRef}
+        className="absolute inset-0 touch-none select-none [-webkit-touch-callout:none] [overscroll-behavior:none]"
+      />
 
       {/* Controls float over the screen, top right, rather than occupying a
           header band. Stop is gone on purpose: leaving the page is how you
@@ -180,6 +188,18 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
           </Button>
         ) : null}
       </div>
+
+      {/* Connecting covers a real gap: the desktop can be up while the RFB
+          handshake is still running, so without this the page is just black
+          and reads as broken. */}
+      {running && phase !== "live" && !error ? (
+        <div className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center">
+          <div className="flex items-center gap-2 rounded-full bg-card/90 px-4 py-2 text-sm shadow-lg backdrop-blur">
+            <Loader2 className="size-4 animate-spin" />
+            {phase === "starting" ? "Starting the computer…" : "Connecting to the screen…"}
+          </div>
+        </div>
+      ) : null}
 
       {/* Everything below only appears when there is no picture to show. */}
       {!running || error || (deps && !deps.ok) ? (
