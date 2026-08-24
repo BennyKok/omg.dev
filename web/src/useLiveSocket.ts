@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MessageAuthorRef } from "../../src/conversation-contract";
 import { visibilityRecoveryAction } from "./live-visibility";
-import { api, omgFetch, openOmgLiveSocket } from "./lib/omg-client";
+import { evlog } from "./lib/evlog";
+import { api, openOmgLiveSocket } from "./lib/omg-client";
 import type { OmgQueueMessage } from "./lib/omg-chat-transport";
 import {
   queueRowHydration,
@@ -140,24 +141,6 @@ export function liveTransportMode(): "sse" | "ws" {
   const runtime = typeof window !== "undefined" ? window.__LFG_CONFIG__?.liveTransport : undefined;
   const build = import.meta.env.VITE_LIVE_TRANSPORT;
   return runtime === "sse" || build === "sse" ? "sse" : "ws";
-}
-
-function evlog(event: string, fields: Record<string, unknown> = {}) {
-  try {
-    const payload = JSON.stringify({
-      event,
-      source: "browser",
-      pageMs: Math.round(performance.now() * 1000) / 1000,
-      path: location.pathname + location.search,
-      ...fields,
-    });
-    void omgFetch("/api/evlog", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: payload,
-      keepalive: true,
-    }).catch(() => {});
-  } catch {}
 }
 
 function parseJson<T>(data: string): T | null {

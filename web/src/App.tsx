@@ -185,6 +185,7 @@ import {
   type SimpleFreq,
   type SimpleSchedule,
 } from "./cron";
+import { evlog } from "./lib/evlog";
 import { liveTransportMode, useLiveSocket, type ConnectionState } from "./useLiveSocket";
 import {
   OmgChatStreamOwnership,
@@ -1872,26 +1873,6 @@ function slashSkillAt(value: string, cursor: number | null | undefined): SlashSk
     end: cursor,
     query: match[2].toLowerCase(),
   };
-}
-
-function evlog(event: string, fields: Record<string, unknown> = {}) {
-  try {
-    const payload = JSON.stringify({
-      event,
-      source: "browser",
-      pageMs: Math.round(performance.now() * 1000) / 1000,
-      path: location.pathname + location.search,
-      ...fields,
-    });
-    void omgFetch("/api/evlog", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: payload,
-      keepalive: true,
-    }).catch(() => {});
-  } catch {
-    // Diagnostics must never affect the UI path being measured.
-  }
 }
 
 function formatBytes(bytes: number): string {

@@ -3630,6 +3630,46 @@ export async function cmdServe() {
         return await serveOmgMcpRequest(req);
       }
 
+      // Browser-side diagnostics. This is the ingest half of the live
+      // transport instrumentation in docs/live-ws-protocol.md: the client
+      // emits ws_client_open / ws_client_first_msg / ws_client_reconnect, and
+      // they must land in the same daily evlog file the server writes
+      // ws_connect / ws_subscribe / ws_backlog to. Only the client knows the
+      // close code and the retry count, so without this route a reconnect
+      // cannot be read end to end.
+      //
+      // 8841a1a deleted this route as having zero callers. That was wrong —
+      // web/src had 16. The GET reader it also deleted really did have zero
+      // callers and stays deleted; read the file on disk instead.
+      if (path === "/api/evlog") {
+        if (req.method !== "POST") return err(405, "method not allowed");
+        const declaredLength = Number(req.headers.get("content-length") ?? "0");
+        if (Number.isFinite(declaredLength) && declaredLength > 64_000) {
+          return err(413, "request too large");
+        }
+        const raw = await req.text();
+        if (raw.length > 64_000) return err(413, "request too large");
+        let body: Record<string, unknown> | null = null;
+        try {
+          const parsed: unknown = JSON.parse(raw);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            body = parsed as Record<string, unknown>;
+          }
+        } catch {
+          // A malformed diagnostic is still worth recording as an event.
+        }
+        const event = typeof body?.event === "string" ? body.event : "client_event";
+        evlog(event, {
+          source: "browser",
+          href: req.headers.get("referer") ?? undefined,
+          ...(body ?? {}),
+        });
+        // The client fires and forgets. It never reads this body, so do not
+        // hand the browser server-side filesystem paths the way the original
+        // handler did.
+        return json({ ok: true });
+      }
+
       if (path === "/api/live/ws") {
         if (!isLiveWsEnabled()) return err(404, "live websocket disabled");
         const ok = server.upgrade(req, {
