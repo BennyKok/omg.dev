@@ -77,7 +77,12 @@ export interface DepReport {
 
 const DEPS = [
   { bin: "Xvfb", pkg: "xvfb" },
-  { bin: "openbox", pkg: "openbox" },
+  // A full desktop session, not just a window manager. openbox alone draws a
+  // title bar and nothing else, so a single maximised Chrome looks like a
+  // kiosk browser rather than a computer -- no wallpaper, no panel, no way to
+  // launch anything else. xfce4 gives a desktop you can actually use; openbox
+  // stays as a fallback so a box without xfce still gets a usable screen.
+  { bin: "startxfce4", pkg: "xfce4", alt: ["startxfce4", "xfce4-session", "openbox"] },
   { bin: "x11vnc", pkg: "x11vnc" },
   { bin: "google-chrome", pkg: "google-chrome-stable", alt: ["chromium", "chromium-browser", "google-chrome-stable"] },
 ];
@@ -106,6 +111,28 @@ export function ensureDeps(): DepReport {
       ? `Install the computer dependencies: sudo apt-get install -y ${missing.join(" ")}`
       : "",
   };
+}
+
+/**
+ * How to start the desktop session, best first.
+ *
+ * xfce4 wants a session D-Bus; `dbus-launch` provides one when we are not
+ * already inside a session bus, and without it the panel and settings daemon
+ * die on startup leaving a blank root window.
+ */
+export function desktopSessionCommand(): { cmd: string; args: string[] } | null {
+  const startxfce4 = which("startxfce4");
+  if (startxfce4) {
+    const dbus = which("dbus-launch");
+    return dbus
+      ? { cmd: dbus, args: ["--exit-with-session", startxfce4] }
+      : { cmd: startxfce4, args: [] };
+  }
+  const xfceSession = which("xfce4-session");
+  if (xfceSession) return { cmd: xfceSession, args: [] };
+  const openbox = which("openbox");
+  if (openbox) return { cmd: openbox, args: [] };
+  return null;
 }
 
 /** The Chrome binary to drive, or null when none is installed. */
@@ -212,10 +239,15 @@ export async function startDesktop(partial: Partial<DesktopConfig> = {}): Promis
   );
   await Bun.sleep(1200);
 
-  // A window manager, or Chrome opens undecorated and nothing can be focused,
-  // moved or raised -- which is most of what "control my desktop" means.
-  next.wm = spawn("openbox", [], { stdio: "ignore", env, detached: false });
-  await Bun.sleep(400);
+  // The desktop session: wallpaper, panel, file manager, a terminal, and a
+  // window manager. This is the difference between streaming a browser and
+  // streaming a computer.
+  const session = desktopSessionCommand();
+  if (!session) throw new Error("no desktop session found (install xfce4 or openbox)");
+  next.wm = spawn(session.cmd, session.args, { stdio: "ignore", env, detached: false });
+  // xfce4 has a panel, a settings daemon and a desktop to bring up, so it needs
+  // longer than a bare window manager before anything else should appear.
+  await Bun.sleep(3500);
 
   // -localhost is the security boundary: the RFB port never leaves this box.
   // The browser reaches it through our own websocket bridge in serve.ts, which
@@ -243,8 +275,11 @@ export async function startDesktop(partial: Partial<DesktopConfig> = {}): Promis
     "--no-first-run",
     "--no-default-browser-check",
     "--disable-gpu",
-    `--window-position=0,0`,
-    `--window-size=${config.width},${config.height - 40}`,
+    // Deliberately NOT full screen. A maximised Chrome hides the desktop and
+    // makes the stream look like a browser again; leaving the edges visible is
+    // what makes it read as a computer you could open something else on.
+    `--window-position=60,40`,
+    `--window-size=${Math.round(config.width * 0.82)},${Math.round(config.height * 0.78)}`,
   ];
   // Guus's setup runs each browser behind a webshare proxy; this is that knob.
   if (config.proxy) chromeArgs.push(`--proxy-server=${config.proxy}`);
