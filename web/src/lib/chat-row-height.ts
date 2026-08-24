@@ -80,6 +80,12 @@ export const CODE_BLOCK_CHROME_PX = 0;
  *  full cache key, so a model change and a CSS change both flush the cache. */
 export const HEIGHT_MODEL_VERSION = 1;
 
+/** One rendered line in a user bubble before the row gap. */
+export const USER_SINGLE_LINE_PX = 42;
+
+/** One rendered assistant line before the row gap. */
+export const ASSISTANT_SINGLE_LINE_PX = 26;
+
 // ---------------------------------------------------------------------------
 // Injected measurement
 // ---------------------------------------------------------------------------
@@ -699,4 +705,31 @@ export function estimateRowHeight<T extends RowMessage>(
     height = messageRowHeight(item.message, ctx);
   }
   return Math.max(1, Math.round(height + ROW_GAP_PX + (ctx.speakerChanged ? SPEAKER_CHANGE_PX : 0)));
+}
+
+/**
+ * Conservative estimate used only before the CSS probe and markdown splitter
+ * are ready. Most transcript rows are one-line prose, collapsed thinking, or
+ * tool pills. Treating all of them as 64px made the first total systematically
+ * too large. Fixed row shapes are known without font metrics. Prose starts at
+ * one real line and can grow after the full model arrives.
+ */
+export function estimateUnprobedRowHeight<T extends RowMessage>(
+  item: ChatRenderItem<T>,
+  speakerChanged = false,
+): number {
+  let height: number;
+  if (item.type === "tools") {
+    height = TOOL_PILL_PX;
+  } else {
+    const message = item.message;
+    if (isInterrupted(message)) height = INTERRUPTED_PX;
+    else if (message.kind === "thinking") height = COLLAPSED_THINKING_PX;
+    else if (message.kind === "html") height = HTML_ARTIFACT_PX;
+    else if (message.kind === "image" || message.kind === "video") {
+      height = mediaHeight(message.width, message.height, 1);
+    } else if (message.role === "user") height = USER_SINGLE_LINE_PX;
+    else height = ASSISTANT_SINGLE_LINE_PX;
+  }
+  return Math.max(1, Math.round(height + ROW_GAP_PX + (speakerChanged ? SPEAKER_CHANGE_PX : 0)));
 }

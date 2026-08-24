@@ -11,6 +11,8 @@ import {
 
 export type OmgMessage = {
   id?: string;
+  /** Client-only React identity. It is never required on the wire. */
+  renderKey?: string;
   role?: string;
   kind?: string;
   text?: string;
@@ -270,7 +272,7 @@ function upsertOmgUIMessage(current: OmgChatMessage[], incoming: OmgChatMessage)
     });
     if (pendingIndex >= 0) {
       next = [...current];
-      next[pendingIndex] = incoming;
+      next[pendingIndex] = withStableUserRenderKey(incoming, current[pendingIndex]);
       return next;
     }
   }
@@ -363,9 +365,20 @@ function omgQueueReconcileRow(message: OmgChatMessage): QueueReconcileMessage {
 export function reconcileOmgQueueMessages(
   current: OmgChatMessage[],
   queue: OmgQueueMessage[],
+  opts: { retainPendingQueueRows?: boolean } = {},
 ): OmgChatMessage[] {
   const visible = queue.filter(queueRowNeedsBubble);
   const visibleIds = new Set(visible.map((item) => queuedMessageId(item.id)));
+  if (opts.retainPendingQueueRows) {
+    for (const message of current) {
+      if (
+        message.id.startsWith(QUEUE_MESSAGE_ID_PREFIX) &&
+        message.metadata?.omgMessage?.pending
+      ) {
+        visibleIds.add(message.id);
+      }
+    }
+  }
   let next = current.filter(
     (message) => !message.id.startsWith(QUEUE_MESSAGE_ID_PREFIX) || visibleIds.has(message.id),
   );
@@ -408,8 +421,13 @@ export function reconcileOmgQueueMessages(
     // and splitQueuedRenderItems needs both flags.
     const replaced = next[existingIndex >= 0 ? existingIndex : optimisticIndex];
     const hydration = queueRowHydration(item);
+    const renderKey =
+      replaced?.metadata?.omgMessage?.renderKey ??
+      replaced?.id ??
+      id;
     const row: OmgMessage = {
       id,
+      renderKey,
       role: "user",
       kind: "text",
       text: item.text,
@@ -617,8 +635,26 @@ function appendHeldRow(current: OmgChatMessage[], incoming: OmgChatMessage): Omg
       );
     });
     if (pendingIndex >= 0) next = current.filter((_, index) => index !== pendingIndex);
+    if (pendingIndex >= 0) incoming = withStableUserRenderKey(incoming, current[pendingIndex]);
   }
   return [...next, incoming];
+}
+
+function withStableUserRenderKey(
+  incoming: OmgChatMessage,
+  previous: OmgChatMessage,
+): OmgChatMessage {
+  const base = incoming.metadata?.omgMessage;
+  if (!base) return incoming;
+  const renderKey = previous.metadata?.omgMessage?.renderKey ?? previous.id;
+  if (!renderKey || base.renderKey === renderKey) return incoming;
+  return {
+    ...incoming,
+    metadata: {
+      ...incoming.metadata,
+      omgMessage: { ...base, renderKey },
+    },
+  };
 }
 
 export function appendOmgTranscriptEvent(
@@ -653,7 +689,11 @@ function applyOmgTranscriptEvent(
   if (event.type === "ai_part") {
     return opts.streamActive ? current : updateDraftText(current, event.part);
   }
-  if (event.type === "queue") return reconcileOmgQueueMessages(current, event.queue);
+  if (event.type === "queue") {
+    return reconcileOmgQueueMessages(current, event.queue, {
+      retainPendingQueueRows: opts.streamActive,
+    });
+  }
   if (event.type === "busy" && !event.busy) {
     // Turn ended: any assistant message still marked streaming is a stale
     // draft. The server never emits an explicit end for drafts (it just stops

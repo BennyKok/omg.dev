@@ -349,11 +349,11 @@ import {
 } from "./lib/transcript-paging";
 import { nextScrollMode } from "./lib/transcript-stick";
 import {
+  ASSISTANT_SINGLE_LINE_PX,
   estimateRowHeight,
+  estimateUnprobedRowHeight,
   HEIGHT_MODEL_VERSION,
   ROW_GAP_PX,
-  SPEAKER_CHANGE_PX,
-  TOOL_PILL_PX,
   type RowContext,
 } from "./lib/chat-row-height";
 import {
@@ -16934,9 +16934,6 @@ const onTouchStart = (e: ReactTouchEvent) => {
  */
 const CHAT_TAIL_ROWS = 30;
 
-/** Coarse row height used before the CSS probe and the block splitter land. */
-const CHAT_ROW_FALLBACK_PX = 64;
-
 /** The virtualizer must never write scrollTop. See the wiring comment below. */
 const noVirtualizerScroll = () => {};
 
@@ -17128,11 +17125,10 @@ const ChatStream = memo(function ChatStream({
   const estimateSize = useCallback(
     (index: number) => {
       const item = items[index];
-      if (!item) return CHAT_ROW_FALLBACK_PX + ROW_GAP_PX;
+      if (!item) return ASSISTANT_SINGLE_LINE_PX + ROW_GAP_PX;
       const speakerChanged = index > 0 && speakerRunEdges(speakers, index).firstOfRun;
-      const gap = ROW_GAP_PX + (speakerChanged ? SPEAKER_CHANGE_PX : 0);
       if (!rowContext) {
-        return (item.type === "tools" ? TOOL_PILL_PX : CHAT_ROW_FALLBACK_PX) + gap;
+        return estimateUnprobedRowHeight(item, speakerChanged);
       }
       const text = item.type === "tools" ? "" : (item.message.text ?? "");
       const key = `${item.key}|${metrics.version}|${HEIGHT_MODEL_VERSION}|${speakerChanged ? 1 : 0}|${text.length}`;
@@ -17173,6 +17169,23 @@ const ChatStream = memo(function ChatStream({
   });
   // Not an option, an instance field: the library reads it directly.
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => false;
+
+  // TanStack does not include estimateSize in its measurement memo key. A new
+  // metrics.version therefore changes our callback but leaves every old
+  // fallback offset intact unless the instance is explicitly invalidated.
+  // Re-measure mounted rows in the same layout pass so real DOM sizes stay
+  // authoritative while unmounted rows switch to the harvested CSS model.
+  const measuredMetricsVersionRef = useRef(0);
+  useLayoutEffect(() => {
+    if (!rowContext || metrics.version === measuredMetricsVersionRef.current) return;
+    measuredMetricsVersionRef.current = metrics.version;
+    virtualizer.measure();
+    const container = virtualContainerRef.current;
+    if (!container) return;
+    for (const row of container.querySelectorAll<HTMLElement>("[data-index]")) {
+      virtualizer.measureElement(row);
+    }
+  }, [metrics.version, rowContext, virtualizer]);
 
   const virtualRows = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();
@@ -17700,7 +17713,8 @@ const ChatStream = memo(function ChatStream({
     // Only write when we're not already pinned: a redundant assignment still
     // emits a scroll event, which flips `stick` and re-runs this effect — an
     // self-sustaining loop that React kills with "maximum update depth".
-    if (el.scrollTop === el.scrollHeight - el.clientHeight) {
+    const bottom = el.scrollHeight - el.clientHeight;
+    if (Math.abs(el.scrollTop - bottom) <= 0.5) {
       stopGlide();
       return;
     }
@@ -17721,12 +17735,12 @@ const ChatStream = memo(function ChatStream({
       // The bottom offset, not the content height. The browser clamped the
       // old form to the same place, so this changes nothing on screen; it
       // stops the line from claiming an offset that does not exist.
-      el.scrollTop = el.scrollHeight - el.clientHeight;
+      el.scrollTop = bottom;
       lastScrollTopRef.current = el.scrollTop;
       // Our write, not theirs: the event this raises must not move the mode.
       userDrivenRef.current = false;
     }
-  }, [visibleMessages, busy, stick, items.length, showTypingIndicator, startGlide, stopGlide]);
+  }, [visibleMessages, busy, stick, items.length, showTypingIndicator, totalSize, startGlide, stopGlide]);
 
   // The virtual list sits below the loading-older spinner, so the offsets the
   // virtualizer hands out are shifted by however much chrome is above it.

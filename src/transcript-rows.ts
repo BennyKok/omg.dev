@@ -15,6 +15,8 @@
 
 export type ChatRenderMessage = {
   id?: string | null;
+  /** Client-only row identity kept across optimistic, queued, and settled ids. */
+  renderKey?: string;
   kind?: string;
   text?: string;
   ts?: number | null;
@@ -74,7 +76,7 @@ function matchesTool(name: string, verb: string): boolean {
 }
 
 function messageKey(message: ChatRenderMessage, index: number): string {
-  return message.id ?? `${message.kind}-${message.ts}-${index}`;
+  return message.renderKey ?? message.id ?? `${message.kind}-${message.ts}-${index}`;
 }
 
 // Display/publish tools already have a purpose-built visual result. Pair the
