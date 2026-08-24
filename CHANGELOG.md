@@ -2,6 +2,30 @@
 
 Recent product updates and deployment notes.
 
+## August 24, 2026 - Scrolling does what you tell it (v0.5.1)
+
+- **The transcript no longer scrolls itself.** Following the newest message was
+  decided by measuring the distance to the bottom on every scroll event. That
+  works only while the total height is stable, and it stopped being stable when
+  the transcript started keeping only the visible rows in the page: a row that
+  comes into view replaces its estimated height with its real one, the total
+  moves, and the view could re-pin itself with no new message and no input from
+  you. Following is now a stored state that only a real gesture can change.
+  Scroll away and it stays away. Scroll back to the bottom, or press New
+  activity, and it follows again. A re-measure cannot change it. Nor can a
+  prepend, or the page correcting its own position. Keyboard scrolling counts
+  as a gesture now, which it did not before.
+- **Tool calls send less over the wire.** The arguments of a tool call are no
+  longer streamed with the transcript. The name and the count are, which is all
+  a collapsed pill shows, and the arguments load when you open one. Measured on
+  real sessions this cuts a transcript load by 13 to 31 percent. The trade is
+  that opening a pill now waits for one small request.
+- **Connection diagnostics are recorded again.** The browser posted five kinds
+  of websocket event to a route that had been deleted as unused, so every one
+  returned 404 and the client half of the connection record was lost. The route
+  is back. Only the browser knows the close code and the retry count, so the
+  server could not stand in for it.
+
 ## August 24, 2026 - A transcript that stays fast, and can be searched (v0.5.0)
 
 - **Tool-heavy sessions are readable again.** The transcript asked the server for
