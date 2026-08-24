@@ -11,7 +11,9 @@
 // itself. Agents whose CLI can register an HTTP MCP server are pointed here
 // instead, and the per-session processes disappear.
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { aliasLegacyToolNames, buildOmgMcpServer, withCallerSession } from "./commands/mcp.ts";
+import { buildComputerMcpServer } from "./computer/mcp.ts";
 
 /**
  * Which OMG session this request speaks for.
@@ -49,11 +51,36 @@ function callerSessionFromRequest(req: Request): string | undefined {
 export async function serveOmgMcpRequest(req: Request): Promise<Response> {
   // Bind the caller for the whole request, so every tool handler it reaches
   // resolves the same session the agent is running as.
-  return await withCallerSession(callerSessionFromRequest(req), () => answerOne(req));
+  return await withCallerSession(callerSessionFromRequest(req), () =>
+    answerOne(req, buildOmgMcpServer, true),
+  );
 }
 
-async function answerOne(req: Request): Promise<Response> {
-  const server = buildOmgMcpServer();
+/**
+ * Answer one Computer Use MCP request, on its own endpoint.
+ *
+ * A SECOND catalog beside the omg one rather than more tools inside it. The omg
+ * server is the general contract every session gets, hosted ones included; the
+ * Computer tools drive a real desktop that only exists where someone installed
+ * the X stack on this box. Keeping them apart means a cloud session is never
+ * offered a screen it does not have, and the two catalogs can be turned on and
+ * off independently.
+ *
+ * No legacy alias here: these tools are new, so no session has ever called them
+ * by an older name.
+ */
+export async function serveComputerMcpRequest(req: Request): Promise<Response> {
+  return await withCallerSession(callerSessionFromRequest(req), () =>
+    answerOne(req, buildComputerMcpServer, false),
+  );
+}
+
+async function answerOne(
+  req: Request,
+  build: () => McpServer,
+  aliasLegacy: boolean,
+): Promise<Response> {
+  const server = build();
   const transport = new WebStandardStreamableHTTPServerTransport({
     // Omitting sessionIdGenerator selects stateless mode.
     sessionIdGenerator: undefined,
@@ -66,7 +93,9 @@ async function answerOne(req: Request): Promise<Response> {
   try {
     await server.connect(transport);
     // After connect, so the server's own handler is the one being wrapped.
-    aliasLegacyToolNames(transport as unknown as { onmessage?: (m: unknown, e?: unknown) => void });
+    if (aliasLegacy) {
+      aliasLegacyToolNames(transport as unknown as { onmessage?: (m: unknown, e?: unknown) => void });
+    }
     response = await transport.handleRequest(req);
   } catch (e) {
     void transport.close().catch(() => {});

@@ -315,6 +315,8 @@ import {
   Volume2,
   Vibrate,
   Sun,
+  Monitor,
+  Plug,
   TerminalSquare,
   TextSelect,
   Trash2,
@@ -408,6 +410,8 @@ const SessionTokenUsageDialog = lazyWithReload("SessionTokenUsageDialog", () =>
 const CodingAgentsPage = lazyWithReload("CodingAgentsPage", () =>
   import("./views/coding-agents-page"),
 );
+// noVNC and the RFB plumbing only load when someone opens the Computer.
+const ComputerPage = lazyWithReload("ComputerPage", () => import("./views/computer-page"));
 const ResumeSessionSheet = lazyWithReload("ResumeSessionSheet", () =>
   import("./views/resume-session-sheet"),
 );
@@ -968,6 +972,9 @@ type GlobalSettings = {
   maxBotSchedules: number;
   botAutoCompactionEnabled: boolean;
   botCompactionThresholdPercent: number;
+  // Whether this box offers the Computer Use MCP to agents. Off by default;
+  // see the MCP servers section in SettingsView.
+  computerMcpEnabled: boolean;
   transcriptView: TranscriptView;
   // The update the "What's new" drawer's Skip button last dismissed. See
   // UpdateProvider in components/update-drawer.tsx.
@@ -5740,6 +5747,7 @@ export function App() {
     maxLiveAgents: 16,
     maxBotSchedules: 5,
     botAutoCompactionEnabled: true,
+    computerMcpEnabled: false,
     botCompactionThresholdPercent: 78,
     transcriptView: "full",
     skippedUpdateVersion: "",
@@ -6043,6 +6051,7 @@ export function App() {
       maxLiveAgents: 16,
       maxBotSchedules: 5,
       botAutoCompactionEnabled: true,
+      computerMcpEnabled: false,
       botCompactionThresholdPercent: 78,
       transcriptView: "full",
       skippedUpdateVersion: "",
@@ -8547,6 +8556,13 @@ export function App() {
           </Suspense>
         ) : null}
         {tab === "storage" ? <StoragePage /> : null}
+        {tab === "computer" ? (
+          <Suspense
+            fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}
+          >
+            <ComputerPage active />
+          </Suspense>
+        ) : null}
         {tab === "more" ? (
           <MoreView
             // Same source the Settings root used before Ping moved here.
@@ -8555,6 +8571,7 @@ export function App() {
             toggleTheme={toggleTheme}
             user={userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : null}
             onOpenTerminal={() => setTab("term")}
+            onOpenComputer={() => setTab("computer")}
             onOpenUsage={() => setTab("usage")}
             onOpenChangelog={() => setTab("changelog")}
             // Same row, different flow per surface — which is the whole point
@@ -8580,6 +8597,7 @@ export function App() {
         tab !== "term" &&
         tab !== "bots" &&
         tab !== "storage" &&
+        tab !== "computer" &&
         tab !== "more" &&
         !extNavTabs.some((t) => t.id === tab) ? (
           <SettingsView
@@ -26020,6 +26038,53 @@ function SettingsView({
         onChange={onSettingsChange}
       />
 
+      {/* MCP servers this box offers agents. Two catalogs, deliberately kept
+          apart: the omg one is the general contract every session gets, and the
+          Computer one drives a real desktop that only exists where the X stack
+          is installed. Listing both here is what makes that split legible —
+          otherwise "why can this agent not see my screen" is invisible. */}
+      <section className="space-y-2">
+        <h2 className="px-4 text-xs font-semibold text-muted-foreground">MCP servers</h2>
+        <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+          <div className="flex w-full items-center justify-between gap-4 px-4 py-2.5">
+            <div className="flex items-center gap-3">
+              <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
+                <Plug className="size-4" />
+              </span>
+              <span>
+                <span className="block text-sm font-medium">omg MCP</span>
+                <span className="block text-xs text-muted-foreground">
+                  Sessions, bots, schedules, artifacts. Always on.
+                </span>
+              </span>
+            </div>
+            <span className="text-xs text-muted-foreground">Always on</span>
+          </div>
+          <div className="flex w-full items-center justify-between gap-4 px-4 py-2.5">
+            <div className="flex items-center gap-3">
+              <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
+                <Monitor className="size-4" />
+              </span>
+              <span>
+                <span className="block text-sm font-medium">Computer Use MCP</span>
+                <span className="block text-xs text-muted-foreground">
+                  Lets agents drive this box&rsquo;s desktop and browser. Local only.
+                </span>
+              </span>
+            </div>
+            <Switch
+              checked={settings.computerMcpEnabled}
+              onCheckedChange={(next) => void onSettingsChange({ computerMcpEnabled: next })}
+              aria-label={
+                settings.computerMcpEnabled
+                  ? "Disable the Computer Use MCP"
+                  : "Enable the Computer Use MCP"
+              }
+            />
+          </div>
+        </div>
+      </section>
+
       {/* More — the long tail lives on its own page so this one stays scannable.
           Hidden on a host-mounted surface: everything behind it (push,
           appearance, sound, haptics, install) describes the DEVICE, and the
@@ -26063,6 +26128,7 @@ function MoreView({
   toggleTheme,
   user,
   onOpenTerminal,
+  onOpenComputer,
   onOpenUsage,
   onOpenChangelog,
   onRedoOnboarding,
@@ -26074,6 +26140,7 @@ function MoreView({
   toggleTheme: () => void;
   user: string | null;
   onOpenTerminal: () => void;
+  onOpenComputer: () => void;
   onOpenUsage: () => void;
   onOpenChangelog: () => void;
   onRedoOnboarding: () => Promise<void>;
@@ -26118,6 +26185,21 @@ function MoreView({
                 <TerminalSquare className="size-4" />
               </span>
               <span className="text-sm font-medium">Open terminal</span>
+            </div>
+            <ChevronRight className="size-4 text-muted-foreground/60" />
+          </button>
+          {/* The Computer sits next to the Terminal on purpose: both are ways
+              into this box itself rather than into a session. */}
+          <button
+            type="button"
+            onClick={onOpenComputer}
+            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
+          >
+            <div className="flex items-center gap-3">
+              <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
+                <Monitor className="size-4" />
+              </span>
+              <span className="text-sm font-medium">Open computer</span>
             </div>
             <ChevronRight className="size-4 text-muted-foreground/60" />
           </button>

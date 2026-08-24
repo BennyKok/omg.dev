@@ -23,6 +23,9 @@ export const TAB_VALUES = [
   "changelog",
   "term",
   "browser",
+  // The Computer: this box's desktop, streamed and controllable. A page rather
+  // than a sheet — it is a place you go to and hand someone a link to.
+  "computer",
 ] as const;
 export type Tab = (typeof TAB_VALUES)[number];
 export const DEFAULT_TAB: Tab = "live";

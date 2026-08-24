@@ -21,7 +21,7 @@ import {
   sourceUpdateStatus,
 } from "../self-update.ts";
 import { compressedAssetResponse, maybeCompressResponse } from "../http-compress.ts";
-import { serveOmgMcpRequest } from "../mcp-http.ts";
+import { serveOmgMcpRequest, serveComputerMcpRequest } from "../mcp-http.ts";
 import * as pwaBootLog from "../pwa-boot-log.ts";
 import { botRuntimeContract, shortSessionId } from "../omg-capabilities.ts";
 import {
@@ -297,6 +297,21 @@ import {
 import { reconcileCommandFileSessions } from "../session-recovery.ts";
 import { resolveResumeModel } from "../resume-model.ts";
 import { PtyBridge, termSessionName } from "../pty.ts";
+import { RfbBridge } from "../computer/rfb-bridge.ts";
+import {
+  desktopStatus,
+  startDesktop,
+  stopDesktop,
+  rfbPort as computerRfbPort,
+} from "../computer/desktop.ts";
+import {
+  browserClick,
+  browserNavigate,
+  browserPress,
+  browserReadText,
+  browserScreenshot,
+  browserType,
+} from "../computer/browser.ts";
 import { capturePaneScroll, capturePaneEscaped, paneWidth } from "../tmux.ts";
 import { detectUrls } from "../links.ts";
 import type { ServerWebSocket } from "bun";
@@ -3425,7 +3440,19 @@ const termBridges = new WeakMap<object, PtyBridge>();
 type SttStreamSocketData = { sttStream: true };
 const sttBridges = new WeakMap<object, SttStreamBridge>();
 
-type AppSocketData = TermSocketData | SttStreamSocketData | LiveWsSocketData;
+// ---- computer (remote desktop) sockets ----
+// The Computer tab holds a websocket to /api/computer carrying raw RFB in both
+// directions, bridged to the local x11vnc port by RfbBridge. Tagged in ws.data
+// so the shared open/message/close handlers can tell it apart from the terminal
+// and STT sockets.
+type ComputerSocketData = { computer: true };
+const computerBridges = new WeakMap<object, RfbBridge>();
+
+type AppSocketData =
+  | TermSocketData
+  | SttStreamSocketData
+  | LiveWsSocketData
+  | ComputerSocketData;
 
 // Parse a terminal dimension from a query param, clamped to a sane range so a
 // bogus value can't allocate an absurd pty winsize.
@@ -3513,6 +3540,25 @@ export async function cmdServe() {
           liveWs.open(ws as unknown as ServerWebSocket<unknown>);
           return;
         }
+        // Computer socket: bridge this websocket to the local RFB port. The
+        // desktop must already be running -- the route below refuses the
+        // upgrade otherwise, so a bridge here always has a port to reach.
+        if ((ws.data as unknown as ComputerSocketData)?.computer) {
+          const port = computerRfbPort();
+          if (!port) {
+            try {
+              ws.close();
+            } catch {}
+            return;
+          }
+          const bridge = new RfbBridge(ws as unknown as ServerWebSocket<unknown>, {
+            port,
+            onClose: () => computerBridges.delete(ws),
+          });
+          computerBridges.set(ws, bridge);
+          void bridge.open();
+          return;
+        }
         // Streaming-STT bridge socket: open the upstream realtime-STT bridge and
         // pipe its results back as {partial,final} text frames. Built synchronously
         // (the bridge queues outbound audio until its upstream connects), so the
@@ -3582,6 +3628,13 @@ export async function cmdServe() {
           liveWs.message(ws as unknown as ServerWebSocket<unknown>, message);
           return;
         }
+        // Computer socket: every frame is raw RFB destined for x11vnc. The
+        // bridge never parses it -- noVNC and x11vnc own the protocol.
+        const computerBridge = computerBridges.get(ws);
+        if (computerBridge) {
+          if (typeof message !== "string") computerBridge.write(message as Uint8Array);
+          return;
+        }
         // Streaming-STT bridge: binary frames are raw 16 kHz PCM; text frames are
         // the worker's {"type":"flush"|"eof"} control messages.
         const sttBridge = sttBridges.get(ws);
@@ -3618,6 +3671,15 @@ export async function cmdServe() {
       close(ws: ServerWebSocket<AppSocketData>) {
         if (liveWs.isLiveSocket(ws as unknown as ServerWebSocket<unknown>)) {
           liveWs.close(ws as unknown as ServerWebSocket<unknown>);
+          return;
+        }
+        // Computer socket: drop our RFB connection. The desktop itself keeps
+        // running, so reopening the tab reattaches to the same screen with the
+        // same windows rather than restarting the stack.
+        const computerBridge = computerBridges.get(ws);
+        if (computerBridge) {
+          computerBridges.delete(ws);
+          computerBridge.close();
           return;
         }
         // Streaming-STT bridge: tear the upstream realtime-STT socket down.
@@ -3695,6 +3757,17 @@ export async function cmdServe() {
         return json({ ok: true });
       }
 
+      // The Computer Use MCP, on its own endpoint beside the omg one. Gated by
+      // a setting rather than always on: an agent should not be shown tools for
+      // a desktop this box may not have, and the owner may want the screen off
+      // limits even when it does. A 404 (not a 403) when disabled, so a client
+      // that probes for it simply finds nothing there.
+      if (path === "/mcp/computer") {
+        const { computerMcpEnabled } = await getGlobalSettings();
+        if (!computerMcpEnabled) return err(404, "the computer MCP is disabled");
+        return await serveComputerMcpRequest(req);
+      }
+
       if (path === "/api/live/ws") {
         if (!isLiveWsEnabled()) return err(404, "live websocket disabled");
         const ok = server.upgrade(req, {
@@ -3711,6 +3784,101 @@ export async function cmdServe() {
         const rows = clampDim(url.searchParams.get("rows"), 24);
         const ok = server.upgrade(req, {
           data: { sessionName, cwd, cols, rows },
+        });
+        if (ok) return undefined; // upgraded — Bun takes over the socket
+        return err(400, "expected a websocket upgrade");
+      }
+
+      // ---- the computer: a shared desktop, streamed and controllable ----
+      // Status is safe to poll and reports what is installed, so the UI can
+      // show the exact apt command when the stack is missing rather than a
+      // dead screen.
+      if (path === "/api/computer/status" && req.method === "GET") {
+        return json(desktopStatus());
+      }
+
+      if (path === "/api/computer/start" && req.method === "POST") {
+        try {
+          const body = (await req.json().catch(() => ({}))) as {
+            width?: number;
+            height?: number;
+            proxy?: string;
+          };
+          const status = await startDesktop({
+            ...(body.width ? { width: body.width } : {}),
+            ...(body.height ? { height: body.height } : {}),
+            ...(body.proxy ? { proxy: body.proxy } : {}),
+          });
+          return json(status);
+        } catch (e) {
+          return err(500, e instanceof Error ? e.message : "failed to start the computer");
+        }
+      }
+
+      if (path === "/api/computer/stop" && req.method === "POST") {
+        await stopDesktop();
+        return json(desktopStatus());
+      }
+
+      // Agent control of the browser on that desktop, via Bun.WebView attached
+      // over DevTools. These are what the MCP tools call; they act on the one
+      // visible tab, so whatever the agent does shows up on the streamed screen.
+      if (path.startsWith("/api/computer/browser/") && req.method === "POST") {
+        if (!desktopStatus().running) return err(409, "the computer is not running");
+        const action = path.slice("/api/computer/browser/".length);
+        try {
+          const body = (await req.json().catch(() => ({}))) as {
+            url?: string;
+            selector?: string;
+            x?: number;
+            y?: number;
+            text?: string;
+            key?: string;
+          };
+          switch (action) {
+            case "navigate": {
+              if (!body.url) return err(400, "url is required");
+              return json(await browserNavigate(body.url));
+            }
+            case "click": {
+              if (body.selector) await browserClick(body.selector);
+              else if (typeof body.x === "number" && typeof body.y === "number")
+                await browserClick(body.x, body.y);
+              else return err(400, "selector or x/y is required");
+              return json({ ok: true });
+            }
+            case "type": {
+              if (!body.text) return err(400, "text is required");
+              await browserType(body.text);
+              return json({ ok: true });
+            }
+            case "press": {
+              if (!body.key) return err(400, "key is required");
+              await browserPress(body.key);
+              return json({ ok: true });
+            }
+            case "text": {
+              return json({ text: await browserReadText() });
+            }
+            case "screenshot": {
+              const blob = await browserScreenshot();
+              return new Response(blob, { headers: { "content-type": "image/png" } });
+            }
+            default:
+              return err(404, `unknown browser action: ${action}`);
+          }
+        } catch (e) {
+          return err(500, e instanceof Error ? e.message : "browser action failed");
+        }
+      }
+
+      // The RFB stream itself. Refuse the upgrade when the desktop is down, so
+      // the client gets a clear error instead of a socket that opens and then
+      // dies on the first frame.
+      if (path === "/api/computer") {
+        if (!computerRfbPort()) return err(409, "the computer is not running");
+        const ok = server.upgrade(req, {
+          data: { computer: true } satisfies ComputerSocketData,
         });
         if (ok) return undefined; // upgraded — Bun takes over the socket
         return err(400, "expected a websocket upgrade");
@@ -4246,6 +4414,11 @@ a{color:#60a5fa}
             if (!validTranscriptView(b.transcriptView))
               return err(400, "transcriptView must be full or user-lfg-output");
             patch.transcriptView = b.transcriptView;
+          }
+          if (b?.computerMcpEnabled !== undefined) {
+            if (typeof b.computerMcpEnabled !== "boolean")
+              return err(400, "computerMcpEnabled must be a boolean");
+            patch.computerMcpEnabled = b.computerMcpEnabled;
           }
           if (b?.botAutoCompactionEnabled !== undefined) {
             if (typeof b.botAutoCompactionEnabled !== "boolean")
