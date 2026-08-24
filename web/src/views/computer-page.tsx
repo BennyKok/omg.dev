@@ -10,8 +10,9 @@
 // rendered by noVNC. This page is lazily loaded -- noVNC is not on the path to
 // first paint, and most sessions never open the Computer at all.
 import { useCallback, useEffect, useRef, useState } from "react";
+import type React from "react";
 import RFB from "@novnc/novnc";
-import { Loader2, MousePointer2, Power, RotateCcw, X } from "lucide-react";
+import { Keyboard, Loader2, MousePointer2, Power, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { omgFetch, openOmgSocket } from "@/lib/omg-client";
 import { RfbChannel } from "@/lib/rfb-channel";
@@ -43,8 +44,20 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
   // Read-only is the safe default for a shared screen: opening the tab should
   // not let a stray click land on whatever the agent is doing mid-task.
   const [viewOnly, setViewOnly] = useState(true);
+  // Trackpad (relative) pointer, on by default for touch. Absolute pointing is
+  // wrong on a touchscreen: your finger lands ON the target and hides it, and
+  // there is no hover, so precise work is guesswork. Relative movement is how
+  // every remote-desktop client on a phone actually behaves.
+  const [trackpad, setTrackpad] = useState(
+    typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches,
+  );
   const screenRef = useRef<HTMLDivElement | null>(null);
   const rfbRef = useRef<RFB | null>(null);
+  const keyboardRef = useRef<HTMLTextAreaElement | null>(null);
+  // The virtual cursor, in client coordinates. noVNC reads clientX/clientY off
+  // real mouse events, so we keep a position here and synthesize events at it.
+  const cursorRef = useRef<{ x: number; y: number } | null>(null);
+  const touchRef = useRef<{ x: number; y: number; moved: boolean; at: number } | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -84,6 +97,9 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
       });
       rfb.scaleViewport = true;
       rfb.background = "#0b0b0d";
+      // Without this the remote cursor can be invisible, which makes a relative
+      // pointer impossible to aim.
+      rfb.showDotCursor = true;
       rfb.viewOnly = viewOnly;
       rfb.addEventListener("connect", () => setPhase("live"));
       rfb.addEventListener("disconnect", () => {
@@ -102,6 +118,18 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
     if (rfbRef.current) rfbRef.current.viewOnly = viewOnly;
   }, [viewOnly]);
 
+  // Opening the Computer means you want the computer. Pressing Start on an
+  // empty black page is a step with no decision in it -- the only reason it
+  // existed was that starting is slow, which a progress indicator solves
+  // better than a button does. Guarded on `starting` so the status poll cannot
+  // fire a second start while the first is still coming up.
+  useEffect(() => {
+    if (!active || !status || status.running) return;
+    if (!status.deps.ok || phase === "starting" || error) return;
+    void start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, status?.running, status?.deps.ok, phase, error]);
+
   // Connect once the desktop is up and this tab is on screen.
   useEffect(() => {
     if (!active) {
@@ -112,6 +140,97 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
   }, [active, status?.running, connect, disconnect]);
 
   useEffect(() => disconnect, [disconnect]);
+
+
+  // noVNC translates ordinary DOM mouse events on its canvas into remote
+  // pointer events, so we drive a virtual cursor by synthesizing them at a
+  // position we control. This uses only public behaviour -- no reaching into
+  // RFB internals -- and keeps noVNC as the single owner of the RFB protocol.
+  const canvas = useCallback(
+    () => screenRef.current?.querySelector("canvas") ?? null,
+    [],
+  );
+
+  const emitMouse = useCallback(
+    (type: "mousemove" | "mousedown" | "mouseup", buttons: number, button = 0) => {
+      const c = canvas();
+      const at = cursorRef.current;
+      if (!c || !at) return;
+      c.dispatchEvent(
+        new MouseEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          clientX: at.x,
+          clientY: at.y,
+          button,
+          buttons,
+        }),
+      );
+    },
+    [canvas],
+  );
+
+  /** Move the virtual cursor by a delta, clamped to the visible screen. */
+  const moveCursor = useCallback(
+    (dx: number, dy: number) => {
+      const c = canvas();
+      if (!c) return;
+      const box = c.getBoundingClientRect();
+      const at = cursorRef.current ?? { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+      cursorRef.current = {
+        x: Math.min(box.right - 1, Math.max(box.left, at.x + dx)),
+        y: Math.min(box.bottom - 1, Math.max(box.top, at.y + dy)),
+      };
+      emitMouse("mousemove", 0);
+    },
+    [canvas, emitMouse],
+  );
+
+  const clickAtCursor = useCallback(
+    (button: 0 | 2) => {
+      emitMouse("mousedown", button === 2 ? 2 : 1, button);
+      emitMouse("mouseup", 0, button);
+    },
+    [emitMouse],
+  );
+
+  // Touch handling for trackpad mode. The overlay sits above noVNC's canvas so
+  // its own gesture handler never sees these -- two pointer models fighting
+  // over one finger is worse than either alone.
+  const onTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length !== 1) return;
+    const t = e.touches[0];
+    touchRef.current = { x: t.clientX, y: t.clientY, moved: false, at: Date.now() };
+  };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    const prev = touchRef.current;
+    if (!prev || e.touches.length !== 1) return;
+    const t = e.touches[0];
+    const dx = t.clientX - prev.x;
+    const dy = t.clientY - prev.y;
+    if (Math.abs(dx) > 1 || Math.abs(dy) > 1) prev.moved = true;
+    // Mild acceleration: slow drags stay precise, fast ones cross the screen.
+    const speed = Math.min(2.5, 1 + Math.hypot(dx, dy) / 12);
+    moveCursor(dx * speed, dy * speed);
+    prev.x = t.clientX;
+    prev.y = t.clientY;
+  };
+
+  const onTouchEnd = () => {
+    const prev = touchRef.current;
+    touchRef.current = null;
+    // A tap is a click WHERE THE CURSOR IS, not where the finger landed. That
+    // is the whole point of trackpad mode.
+    if (prev && !prev.moved && Date.now() - prev.at < 400) clickAtCursor(0);
+  };
+
+  /** Raise the soft keyboard. A canvas cannot hold focus on iOS, so we focus a
+   *  hidden field and forward what it receives. */
+  const openKeyboard = useCallback(() => {
+    setViewOnly(false);
+    keyboardRef.current?.focus();
+  }, []);
 
   const start = async () => {
     setPhase("starting");
@@ -144,6 +263,72 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
         className="absolute inset-0 touch-none select-none [-webkit-touch-callout:none] [overscroll-behavior:none]"
       />
 
+      {/* Trackpad surface. Mounted only while controlling AND in trackpad mode,
+          so absolute pointing (a mouse, a stylus, or by choice) still reaches
+          noVNC's own handlers untouched. Two pointer models fighting over one
+          finger is worse than either alone. */}
+      {running && !viewOnly && trackpad ? (
+        <div
+          className="absolute inset-0 z-[6] touch-none"
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEnd}
+          onTouchCancel={onTouchEnd}
+          onDoubleClick={() => clickAtCursor(0)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            clickAtCursor(2);
+          }}
+        />
+      ) : null}
+
+      {/* Exists only to raise the soft keyboard: a canvas cannot take focus on
+          iOS, so the OS has nothing to attach a keyboard to. Whatever lands
+          here is forwarded a character at a time and the field is emptied. */}
+      <textarea
+        ref={keyboardRef}
+        aria-hidden
+        tabIndex={-1}
+        className="pointer-events-none absolute size-px opacity-0"
+        autoCapitalize="off"
+        autoCorrect="off"
+        spellCheck={false}
+        onChange={(e) => {
+          const rfb = rfbRef.current;
+          const text = e.target.value;
+          e.target.value = "";
+          if (!rfb) return;
+          for (const ch of text) {
+            const cp = ch.codePointAt(0) ?? 0;
+            // Latin-1 is its own keysym; anything above uses the Unicode plane
+            // offset X11 defines.
+            const keysym = cp < 0x100 ? cp : 0x01000000 + cp;
+            rfb.sendKey(keysym, null, true);
+            rfb.sendKey(keysym, null, false);
+          }
+        }}
+        onKeyDown={(e) => {
+          const rfb = rfbRef.current;
+          if (!rfb) return;
+          // Keys that produce no character still have to reach the desktop.
+          const named: Record<string, number> = {
+            Enter: 0xff0d,
+            Backspace: 0xff08,
+            Tab: 0xff09,
+            Escape: 0xff1b,
+            ArrowLeft: 0xff51,
+            ArrowUp: 0xff52,
+            ArrowRight: 0xff53,
+            ArrowDown: 0xff54,
+          };
+          const keysym = named[e.key];
+          if (!keysym) return;
+          e.preventDefault();
+          rfb.sendKey(keysym, e.code || null, true);
+          rfb.sendKey(keysym, e.code || null, false);
+        }}
+      />
+
       {/* Controls float over the screen, top right, rather than occupying a
           header band. Stop is gone on purpose: leaving the page is how you
           stop watching, and the desktop deliberately keeps running so an
@@ -160,6 +345,32 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
               <MousePointer2 className="mr-1.5 size-3.5" />
               {viewOnly ? "Take control" : "Controlling"}
             </Button>
+            {!viewOnly ? (
+              <>
+                <Button
+                  variant={trackpad ? "default" : "secondary"}
+                  size="icon-sm"
+                  className="shadow-lg"
+                  onClick={() => setTrackpad((t) => !t)}
+                  aria-label={trackpad ? "Switch to direct touch" : "Switch to trackpad"}
+                  title={
+                    trackpad ? "Trackpad: drag to move, tap to click" : "Direct touch"
+                  }
+                >
+                  <MousePointer2 className="size-3.5" />
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="icon-sm"
+                  className="shadow-lg"
+                  onClick={openKeyboard}
+                  aria-label="Show the keyboard"
+                  title="Keyboard"
+                >
+                  <Keyboard className="size-3.5" />
+                </Button>
+              </>
+            ) : null}
             <Button
               variant="secondary"
               size="icon-sm"

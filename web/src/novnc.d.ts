@@ -15,6 +15,10 @@ declare module "@novnc/novnc" {
     scaleViewport: boolean;
     /** Ask the server to resize the desktop to match the container. */
     resizeSession: boolean;
+    /** Draw a dot where the remote cursor is when it has no visible shape. */
+    showDotCursor: boolean;
+    /** Send one key to the remote. keysym per X11; code is a DOM code. */
+    sendKey(keysym: number, code: string | null, down?: boolean): void;
     background: string;
     focusOnClick: boolean;
     disconnect(): void;
