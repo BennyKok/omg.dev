@@ -345,6 +345,7 @@ import {
   transcriptPagePath,
   windowLiveMessages,
 } from "./lib/transcript-paging";
+import { nextStick } from "./lib/transcript-stick";
 import {
   estimateRowHeight,
   HEIGHT_MODEL_VERSION,
@@ -16952,6 +16953,13 @@ const ChatStream = memo(function ChatStream({
   // The row the viewport is currently pinned to, kept fresh from real scroll
   // events so a correction always has something to restore.
   const anchorRef = useRef<{ key: string; offset: number } | null>(null);
+  // The last offset this component saw on the pane, its OWN writes included.
+  // `stick` is now re-armed from a direction rather than from a distance (see
+  // lib/transcript-stick), and a direction needs somewhere to measure from.
+  // Every direct `el.scrollTop = ...` below records itself here, so the scroll
+  // event that write raises reports no movement and cannot be mistaken for the
+  // reader travelling back to the bottom.
+  const lastScrollTopRef = useRef(0);
   const transcriptMessages = useMemo(
     () => {
       const filtered = messages.filter(
@@ -17193,10 +17201,12 @@ const ChatStream = memo(function ChatStream({
         const delta = target - el.scrollTop;
         if (Math.abs(delta) < 1) {
           el.scrollTop = target;
+          lastScrollTopRef.current = el.scrollTop;
           stopGlide();
           return;
         }
         el.scrollTop += delta * 0.3;
+        lastScrollTopRef.current = el.scrollTop;
         glideRafRef.current = requestAnimationFrame(step);
       };
       glideRafRef.current = requestAnimationFrame(step);
@@ -17276,6 +17286,7 @@ const ChatStream = memo(function ChatStream({
       const target = measurement.start - Math.round(el.clientHeight * FIND_HIT_HEADROOM);
       const clamped = Math.max(0, Math.min(target, el.scrollHeight - el.clientHeight));
       el.scrollTop = clamped;
+      lastScrollTopRef.current = el.scrollTop;
       // Hand the landed row to the anchor the layout effect restores from, so
       // rows above it settling from estimate to measured height keep it under
       // the reader rather than sliding it off screen.
@@ -17489,6 +17500,7 @@ const ChatStream = memo(function ChatStream({
     // Same fallback the layout effect uses when an anchor row did not survive.
     const next = start != null && restore.anchor ? start + restore.anchor.offset : restore.top;
     el.scrollTop = Math.max(0, Math.min(next, el.scrollHeight - el.clientHeight));
+    lastScrollTopRef.current = el.scrollTop;
     anchorRef.current = restore.anchor ? { ...restore.anchor } : null;
   }, [indexByKey, stopGlide, virtualizer]);
 
@@ -17554,6 +17566,9 @@ const ChatStream = memo(function ChatStream({
     setHasOlder(true);
     preserveScrollRef.current = null;
     anchorRef.current = null;
+    // A new transcript in the same pane. The offset the old one left behind is
+    // not a baseline any direction can be measured against.
+    lastScrollTopRef.current = ref.current?.scrollTop ?? 0;
     heightCacheRef.current.clear();
     growthKeyRef.current = null;
     justSwitchedRef.current = true;
@@ -17610,7 +17625,11 @@ const ChatStream = memo(function ChatStream({
       }
     } else {
       stopGlide();
-      el.scrollTop = el.scrollHeight;
+      // The bottom offset, not the content height. The browser clamped the
+      // old form to the same place, so this changes nothing on screen; it
+      // stops the line from claiming an offset that does not exist.
+      el.scrollTop = el.scrollHeight - el.clientHeight;
+      lastScrollTopRef.current = el.scrollTop;
     }
   }, [visibleMessages, busy, stick, items.length, showTypingIndicator, startGlide, stopGlide]);
 
@@ -17663,6 +17682,13 @@ const ChatStream = memo(function ChatStream({
     if (next == null) return;
     const clamped = Math.max(0, Math.min(next, el.scrollHeight - el.clientHeight));
     if (Math.abs(clamped - el.scrollTop) > 0.5) el.scrollTop = clamped;
+    // Whatever this pass settled on is where the pane now is, and none of it
+    // was the reader moving: either this effect wrote the offset to hold one
+    // row still, or the browser clamped it because the content shrank past
+    // them. Recording it keeps the scroll event either one raises from reading
+    // as a move toward the bottom and re-arming the pin. See
+    // lib/transcript-stick.
+    lastScrollTopRef.current = el.scrollTop;
     anchorRef.current = { key: anchor.anchorKey, offset: anchor.anchorOffset };
   }, [visibleMessages, totalSize, stick, indexByKey, virtualizer]);
 
@@ -17733,13 +17759,30 @@ const ChatStream = memo(function ChatStream({
       onPointerDown={stopGlide}
       onScroll={(event) => {
         const el = event.currentTarget;
+        // Read the baseline before it is replaced: `nextStick` needs the
+        // offset this component last saw, and every event — the glide's
+        // included — moves that baseline forward.
+        const previousScrollTop = lastScrollTopRef.current;
+        lastScrollTopRef.current = el.scrollTop;
         // Our own glide fires `scroll` events on every intermediate frame,
         // same as a user drag would. Reading `stick` from those would catch
         // the glide mid-flight (still >72px away, early on) and read it as
         // the user stepping back — dropping `stick` in the middle of the
         // motion that only exists because `stick` was true.
         if (!programmaticScrollRef.current) {
-          setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 72);
+          // NOT a distance. A re-measure can shrink the modelled total past
+          // the reader, and the browser then clamps `scrollTop` and raises a
+          // scroll event that a distance test reads as "they came back to the
+          // bottom" — which is the snap that happens with no new message.
+          // lib/transcript-stick carries the measurements and the rule.
+          setStick((prev) =>
+            nextStick(prev, {
+              scrollTop: el.scrollTop,
+              scrollHeight: el.scrollHeight,
+              clientHeight: el.clientHeight,
+              previousScrollTop,
+            }),
+          );
           // Remember where the reader actually is, so a later re-measure or a
           // prepend can put them back on the same row.
           captureAnchor(el);
