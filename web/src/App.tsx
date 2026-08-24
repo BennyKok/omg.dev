@@ -345,7 +345,7 @@ import {
   transcriptPagePath,
   windowLiveMessages,
 } from "./lib/transcript-paging";
-import { nextStick } from "./lib/transcript-stick";
+import { nextScrollMode } from "./lib/transcript-stick";
 import {
   estimateRowHeight,
   HEIGHT_MODEL_VERSION,
@@ -16918,6 +16918,17 @@ const FIND_MAX_LOAD_PAGES = 12;
 /** Where in the viewport a hit lands, as a fraction of the viewport height. */
 const FIND_HIT_HEADROOM = 0.3;
 
+/** Keys that scroll a pane. A keyboard scroll is a gesture like any other. */
+const SCROLL_KEYS = new Set([
+  "PageUp",
+  "PageDown",
+  "Home",
+  "End",
+  "ArrowUp",
+  "ArrowDown",
+  " ",
+]);
+
 const ChatStream = memo(function ChatStream({
   sid,
   messages,
@@ -16968,6 +16979,15 @@ const ChatStream = memo(function ChatStream({
   // event that write raises reports no movement and cannot be mistaken for the
   // reader travelling back to the bottom.
   const lastScrollTopRef = useRef(0);
+  // Is a real input gesture driving the pane right now?
+  //
+  // This is what makes the state machine in lib/transcript-stick honest. Only
+  // a gesture may change the mode, so a clamp, a re-measure, a prepend
+  // correction or our own glide can never pin or unpin the reader. Momentum
+  // after a flick still counts, because the gesture that started it did: the
+  // flag stays set until WE write `scrollTop` again, rather than expiring on a
+  // timer that a long momentum scroll would outlive.
+  const userDrivenRef = useRef(false);
   const transcriptMessages = useMemo(
     () => {
       const filtered = messages.filter(
@@ -17194,6 +17214,18 @@ const ChatStream = memo(function ChatStream({
   }, []);
   useEffect(() => stopGlide, [stopGlide]);
 
+  /**
+   * A real input gesture arrived on the pane.
+   *
+   * Two jobs, deliberately together: hand scroll control back to the reader
+   * (73a578b), and mark the events that follow as theirs, so the state machine
+   * in lib/transcript-stick is allowed to act on them.
+   */
+  const beginUserScroll = useCallback(() => {
+    userDrivenRef.current = true;
+    stopGlide();
+  }, [stopGlide]);
+
   // Eases toward the bottom rather than tweening a fixed start/end: re-reads
   // `scrollHeight` every frame, so a message that keeps growing while this is
   // in flight (a discrete arrival immediately followed by its own streamed
@@ -17210,11 +17242,15 @@ const ChatStream = memo(function ChatStream({
         if (Math.abs(delta) < 1) {
           el.scrollTop = target;
           lastScrollTopRef.current = el.scrollTop;
+          // Our write, not theirs: the event this raises must not move the mode.
+          userDrivenRef.current = false;
           stopGlide();
           return;
         }
         el.scrollTop += delta * 0.3;
         lastScrollTopRef.current = el.scrollTop;
+        // Our write, not theirs: the event this raises must not move the mode.
+        userDrivenRef.current = false;
         glideRafRef.current = requestAnimationFrame(step);
       };
       glideRafRef.current = requestAnimationFrame(step);
@@ -17295,6 +17331,8 @@ const ChatStream = memo(function ChatStream({
       const clamped = Math.max(0, Math.min(target, el.scrollHeight - el.clientHeight));
       el.scrollTop = clamped;
       lastScrollTopRef.current = el.scrollTop;
+      // Our write, not theirs: the event this raises must not move the mode.
+      userDrivenRef.current = false;
       // Hand the landed row to the anchor the layout effect restores from, so
       // rows above it settling from estimate to measured height keep it under
       // the reader rather than sliding it off screen.
@@ -17509,6 +17547,8 @@ const ChatStream = memo(function ChatStream({
     const next = start != null && restore.anchor ? start + restore.anchor.offset : restore.top;
     el.scrollTop = Math.max(0, Math.min(next, el.scrollHeight - el.clientHeight));
     lastScrollTopRef.current = el.scrollTop;
+    // Our write, not theirs: the event this raises must not move the mode.
+    userDrivenRef.current = false;
     anchorRef.current = restore.anchor ? { ...restore.anchor } : null;
   }, [indexByKey, stopGlide, virtualizer]);
 
@@ -17577,6 +17617,8 @@ const ChatStream = memo(function ChatStream({
     // A new transcript in the same pane. The offset the old one left behind is
     // not a baseline any direction can be measured against.
     lastScrollTopRef.current = ref.current?.scrollTop ?? 0;
+    // Our write, not theirs: the event this raises must not move the mode.
+    userDrivenRef.current = false;
     heightCacheRef.current.clear();
     growthKeyRef.current = null;
     justSwitchedRef.current = true;
@@ -17638,6 +17680,8 @@ const ChatStream = memo(function ChatStream({
       // stops the line from claiming an offset that does not exist.
       el.scrollTop = el.scrollHeight - el.clientHeight;
       lastScrollTopRef.current = el.scrollTop;
+      // Our write, not theirs: the event this raises must not move the mode.
+      userDrivenRef.current = false;
     }
   }, [visibleMessages, busy, stick, items.length, showTypingIndicator, startGlide, stopGlide]);
 
@@ -17697,6 +17741,8 @@ const ChatStream = memo(function ChatStream({
     // as a move toward the bottom and re-arming the pin. See
     // lib/transcript-stick.
     lastScrollTopRef.current = el.scrollTop;
+    // Our write, not theirs: the event this raises must not move the mode.
+    userDrivenRef.current = false;
     anchorRef.current = { key: anchor.anchorKey, offset: anchor.anchorOffset };
   }, [visibleMessages, totalSize, stick, indexByKey, virtualizer]);
 
@@ -17762,9 +17808,14 @@ const ChatStream = memo(function ChatStream({
       // dragged up, `stick` was never re-read, and the glide kept hauling
       // them back to the bottom. These three CAN only come from a person, so
       // they cancel the glide outright and hand control back.
-      onWheel={stopGlide}
-      onTouchStart={stopGlide}
-      onPointerDown={stopGlide}
+      onWheel={beginUserScroll}
+      onTouchStart={beginUserScroll}
+      onPointerDown={beginUserScroll}
+      onKeyDown={(event) => {
+        // Keyboard scrolling is a gesture too. Without this, PageUp could move
+        // the view while the machine still believed nothing had happened.
+        if (SCROLL_KEYS.has(event.key)) beginUserScroll();
+      }}
       onScroll={(event) => {
         const el = event.currentTarget;
         // Read the baseline before it is replaced: `nextStick` needs the
@@ -17784,12 +17835,13 @@ const ChatStream = memo(function ChatStream({
           // bottom" — which is the snap that happens with no new message.
           // lib/transcript-stick carries the measurements and the rule.
           setStick((prev) =>
-            nextStick(prev, {
+            nextScrollMode(prev ? "pinned" : "free", {
               scrollTop: el.scrollTop,
               scrollHeight: el.scrollHeight,
               clientHeight: el.clientHeight,
               previousScrollTop,
-            }),
+              userDriven: userDrivenRef.current,
+            }) === "pinned",
           );
           // Remember where the reader actually is, so a later re-measure or a
           // prepend can put them back on the same row.

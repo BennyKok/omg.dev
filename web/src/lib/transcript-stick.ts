@@ -1,74 +1,84 @@
-// What is allowed to re-arm the transcript pin.
+// Whether the transcript follows the newest message, as an explicit state
+// machine.
 //
-// `stick` decides whether ChatStream follows the tail. It used to be
-// re-derived on every scroll event from one distance:
+// THE HISTORY IS THE ARGUMENT FOR THIS SHAPE. `stick` used to be recomputed
+// from a measurement on every scroll event:
 //
 //     setStick(el.scrollHeight - el.scrollTop - el.clientHeight < 72)
 //
-// That was sound while `scrollHeight` only changed when a message arrived.
-// Virtualizing the transcript (38a0b1a) ended that. Scrolling up mounts rows
-// that were only ever estimated, `virtualizer.measureElement` replaces each
-// estimate with the real height, and the modelled total moves for a reason
-// the reader never asked for.
+// That is sound only while `scrollHeight` is stable. Virtualization made the
+// total size move on its own, because a row that mounts replaces its estimate
+// with a real height. So the state changed from arithmetic the reader never
+// caused, and three separate bugs came out of that one root:
 //
-// Measured in Chromium over CDP, on a 400px pane with 4000px of content and
-// the reader parked at scrollTop 2000:
+//   d595fb3  the glide restarted on every trigger and stuttered
+//   73a578b  the reader could not escape the glide
+//   af3a8a1  a clamp re-armed the pin, and being pinned then switched off the
+//            anchor correction, so every later re-measure moved them again
 //
-//     shrink 4000 -> 2600   scrollTop 2000        distance 1600 -> 200   0 scroll events
-//     shrink 2600 -> 2450   scrollTop 2000        distance  200 ->  50   0 scroll events
-//     shrink 2450 -> 2200   scrollTop 2000 -> 1800 (CLAMPED)  distance 0  1 scroll event
-//     grow  above  + hold   scrollTop 2100 -> 2600            distance unchanged  1 scroll event
+// Each was a patch on a symptom. This is the root: STORE the state, and change
+// it only on events a person actually caused.
 //
-// A shrink that stays below the reader is silent, so it can never move the
-// pin. A shrink that passes the reader makes the browser clamp `scrollTop`
-// and raise a scroll event that reads, by distance alone, exactly like a
-// person arriving at the bottom. The old rule believed it, re-armed the pin,
-// and the pin effect then wrote `scrollTop` and held the reader down — with
-// no new message anywhere in that sequence.
+//   pinned --[user gesture that moves away from the bottom]--> free
+//   free   --[the user's OWN scroll reaches the bottom]------> pinned
+//   free   --[the jump-to-latest button]---------------------> pinned
 //
-// The distance cannot separate the two cases. The direction can:
-//
-//   - a clamp only ever moves `scrollTop` DOWN (2000 -> 1800 above),
-//   - a re-measure above the reader is corrected by ChatStream itself, which
-//     records the offset it wrote, so its own event measures no movement,
-//   - a reader travelling back to the bottom is then the only thing left that
-//     moves `scrollTop` UP.
-//
-// So arming asks for an upward move. Disarming still asks only for distance:
-// nothing but the reader can push the viewport away from the bottom.
+// Nothing else transitions. Not a re-measure, not a clamp, not a prepend, not
+// content growing, not a write ChatStream makes itself. A clamp is not a
+// gesture, so it cannot pin. A re-measure is not a gesture, so it cannot pin.
+// The distance threshold is consulted ONLY to answer "did this reader's own
+// scroll reach the bottom", never to decide the state by itself.
 
 /** How close to the bottom still counts as "at the bottom". */
 export const STICK_BOTTOM_SLACK_PX = 72;
 
-export type StickMetrics = {
+export type ScrollMode = "pinned" | "free";
+
+export type ScrollEventInput = {
   scrollTop: number;
   scrollHeight: number;
   clientHeight: number;
-  /**
-   * The offset ChatStream last saw, INCLUDING the offsets it wrote itself.
-   * Every direct `scrollTop` write in ChatStream records itself here, so the
-   * scroll event that write raises reports no movement and cannot be read as
-   * the reader asking to go back to the bottom.
-   */
+  /** The offset ChatStream last saw, including offsets it wrote itself. */
   previousScrollTop: number;
+  /**
+   * Is this scroll attributable to the reader?
+   *
+   * True only while a real input gesture is driving: wheel, touch, pointer or
+   * a scroll key. Momentum after a flick still counts, because the gesture
+   * that started it did. ChatStream clears this whenever it writes `scrollTop`
+   * itself, so its own events are never attributed to the reader.
+   */
+  userDriven: boolean;
 };
 
 /**
- * The next value of `stick` for one scroll event.
+ * The next mode for one scroll event.
  *
- * Call it only for events the reader could have caused. ChatStream already
- * skips its own glide through `programmaticScrollRef`.
+ * Pure on purpose. Every transition and, more importantly, every NON-
+ * transition is unit-tested without a DOM.
  */
-export function nextStick(stick: boolean, metrics: StickMetrics): boolean {
-  const { scrollTop, scrollHeight, clientHeight, previousScrollTop } = metrics;
-  // A transcript that does not overflow sits at the top and at the bottom at
-  // the same time. There is nothing to be scrolled away from, so the pin is
-  // the only meaningful state — the same reading the backfill path takes.
-  if (scrollHeight <= clientHeight) return true;
+export function nextScrollMode(mode: ScrollMode, input: ScrollEventInput): ScrollMode {
+  const { scrollTop, scrollHeight, clientHeight, previousScrollTop, userDriven } = input;
+  // A transcript shorter than its viewport is at the top and the bottom at
+  // once. There is nothing to be scrolled away from, so following is the only
+  // meaningful state.
+  if (scrollHeight <= clientHeight) return "pinned";
+  // Not the reader: a clamp, a re-measure, a prepend correction, or our own
+  // glide. None of these express intent, so none of them may change the mode.
+  if (!userDriven) return mode;
   const distance = scrollHeight - scrollTop - clientHeight;
-  // Only the reader can push the viewport away from the bottom, so leaving is
-  // always believed.
-  if (distance >= STICK_BOTTOM_SLACK_PX) return false;
-  if (stick) return true;
-  return scrollTop > previousScrollTop;
+  if (mode === "pinned") {
+    return distance >= STICK_BOTTOM_SLACK_PX ? "free" : "pinned";
+  }
+  // free -> pinned needs the reader to arrive at the bottom under their own
+  // power. `scrollTop > previousScrollTop` is belt and braces next to
+  // `userDriven`: a clamp only ever moves the offset DOWN, so even a clamp
+  // that somehow arrives mid-gesture cannot be mistaken for arriving.
+  if (distance >= STICK_BOTTOM_SLACK_PX) return "free";
+  return scrollTop > previousScrollTop ? "pinned" : "free";
+}
+
+/** The reader asked to go back to the bottom. The one unconditional pin. */
+export function pinnedByRequest(): ScrollMode {
+  return "pinned";
 }
