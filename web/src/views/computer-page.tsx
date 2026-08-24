@@ -345,8 +345,12 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
               <MousePointer2 className="mr-1.5 size-3.5" />
               {viewOnly ? "Take control" : "Controlling"}
             </Button>
-            {!viewOnly ? (
-              <>
+            {/* Always visible while the desktop is up, NOT gated on having
+                taken control. Hiding them until you are already controlling
+                makes them undiscoverable -- you cannot find the keyboard
+                without first guessing that another button reveals it. Both
+                take control themselves when used. */}
+            <>
                 <Button
                   variant={trackpad ? "default" : "secondary"}
                   size="icon-sm"
@@ -369,8 +373,7 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
                 >
                   <Keyboard className="size-3.5" />
                 </Button>
-              </>
-            ) : null}
+            </>
             <Button
               variant="secondary"
               size="icon-sm"
