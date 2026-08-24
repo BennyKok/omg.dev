@@ -2,6 +2,31 @@
 
 Recent product updates and deployment notes.
 
+## August 24, 2026 - The Computer: a desktop you and your agents share (v0.6.0)
+
+- **This box now has a screen you can watch and take over.** The Computer is a
+  real desktop -- a window manager, a panel, a file manager, a terminal, and a
+  browser -- streamed into the app and controllable from it. Open it from the
+  Pages menu, press Take control, and you have the pointer and keyboard. On a
+  phone or tablet the usual gestures work: tap to click, two-finger tap for a
+  right click, drag to move, two-finger drag to scroll, pinch to zoom.
+- **Agents drive the browser on that same screen.** A new Computer Use MCP gives
+  them navigate, click, type, press, read and screenshot. Because they work in a
+  visible window on the desktop you are watching, you see what they do as they
+  do it, rather than reading about it afterwards.
+- **Chrome runs headful, not headless.** Headless Chrome announces itself in the
+  user agent and is trivially fingerprinted. This is an ordinary browser that
+  happens to have no monitor, with a persistent profile, so a site you sign into
+  stays signed in and an agent can pick up where you left off.
+- **It costs nothing until you ask for it.** No part of the desktop is installed
+  by setup, and nothing starts until you press the button. The screen reaches
+  the browser over the existing websocket -- no extra proxy process and no new
+  runtime dependency.
+- **The Computer Use MCP is off by default and separate from the omg MCP.** It
+  drives a screen that only exists where the desktop is installed, so it is its
+  own catalog with its own switch, next to the omg.dev MCP on the Coding agents
+  page rather than buried in Settings.
+
 ## August 24, 2026 - Scrolling does what you tell it (v0.5.1)
 
 - **The transcript no longer scrolls itself.** Following the newest message was
