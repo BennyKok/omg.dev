@@ -1,5 +1,5 @@
-// Data and pure state-machine helpers for the 4-question survey the embedded
-// connect gate shows before its agent/tool connect pages (see
+// Data and pure state-machine helpers for the survey the embedded connect
+// gate shows before its agent/tool connect pages (see
 // components/embedded-connect-gate.tsx for where this renders).
 //
 // Kept framework-free on purpose: no React, no DOM. `icon` on each option is
@@ -8,6 +8,20 @@
 // keeps this file testable under plain `bun test` and keeps the question
 // data, the page-flow sequencing, and the skip/multi-select mechanics in one
 // place the component just renders.
+//
+// Pre-connect flow is 2 questions, not 4. The original 4-question version
+// (identity, pain, daily tools, AI tools used) shipped in PR #185; a rework
+// cut the last two ahead of the connect gate:
+//   - the AI-tools question is answered with far better fidelity by which
+//     coding agent the user actually connects on the very next screen, and
+//   - the daily-tools question changes nothing about the next sixty seconds
+//     of onboarding.
+// DAILY_TOOL_OPTIONS, AI_TOOL_OPTIONS and their types are kept below rather
+// than deleted — they are meant to run again post-activation (after a
+// user's first successful agent run), where "what do you already use" is
+// actually actionable. They are simply unreferenced by buildGateFlow/
+// SURVEY_PAGES now; nothing in embedded-connect-gate.tsx imports them. See
+// PARKED_FOR_POST_ACTIVATION below.
 
 export type SurveyIdentity = "founder" | "designer" | "creator" | "side-hustle";
 export type SurveyPain = "waiting" | "phone" | "context" | "offline";
@@ -49,6 +63,13 @@ export const PAIN_OPTIONS: readonly SurveyOption<SurveyPain>[] = [
   { value: "offline", label: "My agent stops when I close my laptop", icon: "laptop" },
 ];
 
+// PARKED_FOR_POST_ACTIVATION: not part of buildGateFlow / SURVEY_PAGES, and
+// not imported by embedded-connect-gate.tsx. Kept intact — data, types and
+// the brand-icons.tsx marks they point at — for a post-activation survey
+// (after a user's first successful agent run) where "what do you use every
+// day" is worth asking again. See the file header for why it left the
+// pre-connect flow.
+//
 // Real brand marks (see ../lib/brand-icons.tsx), not generic clipart — a
 // notebook glyph for Notion, a box for Dropbox and a hard-drive glyph for
 // Google Drive read as nothing in particular, next to an actually-recognisable
@@ -82,28 +103,36 @@ const AI_TOOL_LABELS: Record<SurveyAiTool, string> = {
   opencode: "OpenCode",
 };
 
+// PARKED_FOR_POST_ACTIVATION (see DAILY_TOOL_OPTIONS above): the AI-tools
+// question drops out of the pre-connect flow because the very next screen
+// (connect a coding agent) answers the same question with better fidelity —
+// which agent someone actually signs into beats which ones they click in a
+// survey. Kept for reuse after first successful agent run, where it can ask
+// something the connect page can't (e.g. tools beyond the 5-agent showcase).
 export const AI_TOOL_OPTIONS: readonly SurveyOption<SurveyAiTool>[] = SHOWCASE_AGENT_KINDS.map((kind) => ({
   value: kind,
   label: AI_TOOL_LABELS[kind],
   icon: `agent:${kind}`,
 }));
 
-export type SurveyPageId = "survey-identity" | "survey-pain" | "survey-tools" | "survey-ai";
+// Pre-connect flow page ids. "survey-tools" and "survey-ai" (the parked
+// questions above) are deliberately not page ids here — nothing routes to
+// them, so there is nothing to keep in sync with a page that can't be
+// reached. A post-activation flow gets its own ids when it's built.
+export type SurveyPageId = "survey-identity" | "survey-pain";
+// "install" is the optional add-to-home-screen page appended by
+// buildGateFlow below (see feat/connect-gate-install-step, #213) — kept
+// alongside the survey-page trim here since both live in the same union.
 export type ConnectPageId = "agents" | "tools" | "value" | "install";
 export type GatePage = SurveyPageId | ConnectPageId;
 
-export const SURVEY_PAGES: readonly SurveyPageId[] = [
-  "survey-identity",
-  "survey-pain",
-  "survey-tools",
-  "survey-ai",
-];
+export const SURVEY_PAGES: readonly SurveyPageId[] = ["survey-identity", "survey-pain"];
 
 export function isSurveyPage(page: GatePage): page is SurveyPageId {
   return (SURVEY_PAGES as readonly GatePage[]).includes(page);
 }
 
-// The full first-run flow: 4 survey questions, then the existing connect
+// The full first-run flow: 2 survey questions, then the existing connect
 // pages. `toolsUsable` is the same "skip the tools page when nothing on it
 // can be connected" check the gate already does — see its own comment in
 // embedded-connect-gate.tsx for why that page can disappear from the flow.
@@ -138,30 +167,33 @@ export function toggleMulti<T>(list: readonly T[], value: T): T[] {
 export type SurveyAnswers = {
   identity: SurveyIdentity | null;
   pain: SurveyPain | null;
-  dailyTools: SurveyDailyTool[];
-  aiTools: SurveyAiTool[];
 };
 
 export const EMPTY_SURVEY_ANSWERS: SurveyAnswers = {
   identity: null,
   pain: null,
-  dailyTools: [],
-  aiTools: [],
 };
 
-export type SurveyAnalyticsEvent = { name: string; data: Record<string, unknown> };
+// Wire shape matches `lfg:analytics` exactly (see lib/embed-host-signal.ts):
+// `{ event, props }`. This module never tracks anything itself — a framed
+// tracker mints its own Umami visitor/session on the sandbox's per-Computer
+// origin and would never join the host's activation events (see
+// embed-host-signal.ts header) — it only builds the event, and
+// embedded-connect-gate.tsx posts it up via emitAnalyticsToHost.
+export type SurveyAnalyticsEvent = { event: string; props: Record<string, string | number | boolean> };
 
-const ANSWER_EVENT_NAMES: Record<SurveyPageId, string> = {
-  "survey-identity": "onboarding_survey_identity",
-  "survey-pain": "onboarding_survey_pain",
-  "survey-tools": "onboarding_survey_daily_tools",
-  "survey-ai": "onboarding_survey_ai_tools",
-};
+// One event name for every question, not one per question — question id and
+// answer travel as PROPERTIES so per-question drop-off is one query with a
+// `group by question`, not a separate query per question name.
+const SURVEY_QUESTION_EVENT = "onboarding_survey_question";
+const SURVEY_COMPLETE_EVENT = "onboarding_survey_complete";
 
-// Fired the moment a question is actually answered (not skipped) — single
-// value for single-select pages, array for multi-select.
-export function surveyAnswerEvent(page: SurveyPageId, value: string | string[]): SurveyAnalyticsEvent {
-  return { name: ANSWER_EVENT_NAMES[page], data: { value } };
+// Fired the moment a question is actually answered (not skipped).
+export function surveyQuestionEvent(
+  question: "identity" | "pain",
+  answer: string,
+): SurveyAnalyticsEvent {
+  return { event: SURVEY_QUESTION_EVENT, props: { question, answer } };
 }
 
 // Fired once, when the survey is left (finished or skipped through). Each
@@ -169,12 +201,10 @@ export function surveyAnswerEvent(page: SurveyPageId, value: string | string[]):
 // the completion event alone tells the whole story of the run.
 export function surveyCompleteEvent(answers: SurveyAnswers): SurveyAnalyticsEvent {
   return {
-    name: "onboarding_survey_complete",
-    data: {
+    event: SURVEY_COMPLETE_EVENT,
+    props: {
       identity: answers.identity ?? "skipped",
       pain: answers.pain ?? "skipped",
-      dailyTools: answers.dailyTools.length ? answers.dailyTools : "skipped",
-      aiTools: answers.aiTools.length ? answers.aiTools : "skipped",
     },
   };
 }
