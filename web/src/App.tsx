@@ -346,6 +346,7 @@ import {
   windowLiveMessages,
 } from "./lib/transcript-paging";
 import { nextScrollMode } from "./lib/transcript-stick";
+import { shouldApplyAnchorCorrection } from "./lib/transcript-anchor";
 import {
   ASSISTANT_SINGLE_LINE_PX,
   estimateRowHeight,
@@ -16987,6 +16988,12 @@ const ChatStream = memo(function ChatStream({
   // flag stays set until WE write `scrollTop` again, rather than expiring on a
   // timer that a long momentum scroll would outlive.
   const userDrivenRef = useRef(false);
+  // When the last NON-programmatic scroll event landed. Recency is what tells
+  // "a fling is in flight right now" apart from "they scrolled and stopped":
+  // `userDrivenRef` stays true for both, but only a live fling keeps raising
+  // events. Consumed by the anchor restore through lib/transcript-anchor —
+  // a scrollTop write landing mid-fling cancels the momentum dead.
+  const lastUserScrollAtRef = useRef(Number.NEGATIVE_INFINITY);
   const transcriptMessages = useMemo(
     () => {
       const filtered = messages.filter(
@@ -17634,6 +17641,7 @@ const ChatStream = memo(function ChatStream({
     lastScrollTopRef.current = ref.current?.scrollTop ?? 0;
     // Our write, not theirs: the event this raises must not move the mode.
     userDrivenRef.current = false;
+    lastUserScrollAtRef.current = Number.NEGATIVE_INFINITY;
     heightCacheRef.current.clear();
     growthKeyRef.current = null;
     justSwitchedRef.current = true;
@@ -17736,6 +17744,20 @@ const ChatStream = memo(function ChatStream({
             height: el.scrollHeight,
           });
     if (!anchor) return;
+    // A write landing while a fling is live cancels the momentum — the
+    // mid-scroll dead stop. Skipping is debt-free: captureAnchor re-records
+    // the anchor from the very next scroll event, so the shift this write
+    // would have corrected is absorbed there instead. A requested prepend
+    // hold still applies unconditionally. See lib/transcript-anchor.
+    if (
+      !shouldApplyAnchorCorrection({
+        requested: requested != null,
+        userDriven: userDrivenRef.current,
+        msSinceUserScroll: performance.now() - lastUserScrollAtRef.current,
+      })
+    ) {
+      return;
+    }
     const index = indexByKey.get(anchor.anchorKey);
     const start = index == null ? undefined : virtualizer.measurementsCache[index]?.start;
     // No anchor row survived the update (it scrolled out of the loaded page).
@@ -17845,6 +17867,7 @@ const ChatStream = memo(function ChatStream({
         // the user stepping back — dropping `stick` in the middle of the
         // motion that only exists because `stick` was true.
         if (!programmaticScrollRef.current) {
+          lastUserScrollAtRef.current = performance.now();
           // NOT a distance. A re-measure can shrink the modelled total past
           // the reader, and the browser then clamps `scrollTop` and raises a
           // scroll event that a distance test reads as "they came back to the
