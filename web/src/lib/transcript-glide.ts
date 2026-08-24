@@ -4,6 +4,32 @@ export type TranscriptGlideState = {
   accumulatedOffsetPx: number;
 };
 
+export type TranscriptGlideAction = "start" | "continue" | "snap";
+
+/**
+ * Decide how transcript growth interacts with the current glide.
+ *
+ * Once a discrete arrival starts a glide, later streamed text and tool status
+ * changes must leave it alive. Its RAF reads the new bottom every frame. A
+ * snap is still correct for ordinary streaming when no glide is in flight.
+ */
+export function transcriptGlideAction({
+  discrete,
+  reengaged,
+  reducedMotion,
+  running,
+}: {
+  discrete: boolean;
+  reengaged: boolean;
+  reducedMotion: boolean;
+  running: boolean;
+}): TranscriptGlideAction {
+  if (reducedMotion) return "snap";
+  if (reengaged) return "start";
+  if (running) return "continue";
+  return discrete ? "start" : "snap";
+}
+
 /**
  * The spring used by AI Elements through use-stick-to-bottom.
  *

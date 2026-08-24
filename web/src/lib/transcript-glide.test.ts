@@ -4,6 +4,7 @@ import {
   completeTranscriptGlideFrame,
   createTranscriptGlideState,
   nextTranscriptGlideFrame,
+  transcriptGlideAction,
   TRANSCRIPT_GLIDE_SPRING,
 } from "./transcript-glide";
 
@@ -68,5 +69,40 @@ describe("the transcript glide spring", () => {
     expect(moving.offsetPx).toBeGreaterThan(0);
     expect(clamped.accumulatedOffsetPx).toBe(moving.offsetPx);
     expect(applied.accumulatedOffsetPx).toBe(0);
+  });
+});
+
+describe("transcript follow action", () => {
+  const action = (overrides: Partial<Parameters<typeof transcriptGlideAction>[0]> = {}) =>
+    transcriptGlideAction({
+      discrete: false,
+      reengaged: false,
+      reducedMotion: false,
+      running: false,
+      ...overrides,
+    });
+
+  test("a message, tool row, or indicator change starts a glide", () => {
+    expect(action({ discrete: true })).toBe("start");
+  });
+
+  test("ordinary stream growth does not cancel a glide already in flight", () => {
+    expect(action({ running: true })).toBe("continue");
+  });
+
+  test("another discrete arrival lets the live glide keep chasing its target", () => {
+    expect(action({ discrete: true, running: true })).toBe("continue");
+  });
+
+  test("a manual jump to latest deliberately restarts the glide", () => {
+    expect(action({ discrete: true, reengaged: true, running: true })).toBe("start");
+  });
+
+  test("ordinary stream growth still snaps when no glide is active", () => {
+    expect(action()).toBe("snap");
+  });
+
+  test("reduced motion always snaps", () => {
+    expect(action({ discrete: true, running: true, reducedMotion: true })).toBe("snap");
   });
 });
