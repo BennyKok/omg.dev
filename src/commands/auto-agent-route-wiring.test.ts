@@ -78,6 +78,34 @@ describe("POST /api/auto/agents (create/edit)", () => {
   });
 });
 
+// The Schedules list toggles `enabled` inline. It cannot reuse the full-object
+// POST above, because a list response carries a TRUNCATED prompt
+// (AUTO_AGENT_LIST_PROMPT_CHARS) and re-posting the row would persist the
+// preview over the real prompt. These pin that the PATCH reads the STORED row
+// server-side, guards it like every other mutation, and touches nothing but
+// `enabled`.
+describe("PATCH /api/auto/agents/:id (inline enable toggle)", () => {
+  const handler = block('if (m && req.method === "PATCH") {', 900);
+
+  test("runs the row through the same ownership guard before saving", () => {
+    expect(handler).toContain("const agent = await getAutoAgent(m[1])");
+    expect(handler).toContain("await assertCanModifyAutoAgent(agent, await callerBotId(req))");
+    expect(handler).toContain("if (!allowed.ok) return err(allowed.status, allowed.error)");
+  });
+
+  test("rejects anything but a boolean enabled", () => {
+    expect(handler).toContain('if (typeof b?.enabled !== "boolean")');
+  });
+
+  // The whole point: every other field comes from the stored row, so a
+  // truncated prompt in the client's list state can never reach the store.
+  test("spreads the STORED row and overrides only enabled", () => {
+    expect(handler).toContain("saveAutoAgent({ ...agent, enabled: b.enabled })");
+    expect(handler).not.toContain("b.prompt");
+    expect(handler).not.toContain("b.schedule");
+  });
+});
+
 describe("DELETE /api/auto/agents/:id", () => {
   test("looks up the row and runs it through the ownership guard before deleting", () => {
     const guardAt = SERVE.indexOf("await assertCanModifyAutoAgent(agent, await callerBotId(req));\n          if (!allowed.ok) return err(allowed.status, allowed.error);\n          await deleteAutoAgent(m[1]);");
