@@ -78,10 +78,16 @@ describe("the virtualizer still supplies offsets only", () => {
 });
 
 describe("the glide is still cancellable by a person (73a578b, d595fb3)", () => {
-  test("stopGlide is bound to onWheel, onTouchStart and onPointerDown", () => {
+  test("every gesture handler cancels the glide", () => {
+    // beginUserScroll replaced the bare stopGlide binding: it cancels the
+    // glide and marks the scroll as the reader's. The guarded property is
+    // unchanged, so assert the handler AND that it still calls stopGlide.
     for (const handler of ["onWheel", "onTouchStart", "onPointerDown"]) {
-      expect(CHAT_STREAM).toContain(`${handler}={stopGlide}`);
+      expect(CHAT_STREAM).toContain(`${handler}={beginUserScroll}`);
     }
+    const begin = CHAT_STREAM.indexOf("const beginUserScroll = useCallback(");
+    expect(begin).toBeGreaterThan(-1);
+    expect(CHAT_STREAM.slice(begin, begin + 220)).toContain("stopGlide();");
   });
 
   test("startGlide still has exactly one call site", () => {

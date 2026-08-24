@@ -16,9 +16,16 @@ describe("the user can always get out of the scroll glide", () => {
   // Regression guard for 73a578b "Let the user out of the scroll glide".
   test("wheel, touchstart and pointerdown still cancel the glide", async () => {
     const source = await app();
-    expect(source).toContain("onWheel={stopGlide}");
-    expect(source).toContain("onTouchStart={stopGlide}");
-    expect(source).toContain("onPointerDown={stopGlide}");
+    // The handler is beginUserScroll now: it cancels the glide AND marks the
+    // scroll as the reader's, which is what lets the state machine act on it.
+    // Assert the whole chain, so this stays a guard on the BEHAVIOUR and not
+    // on one identifier.
+    expect(source).toContain("onWheel={beginUserScroll}");
+    expect(source).toContain("onTouchStart={beginUserScroll}");
+    expect(source).toContain("onPointerDown={beginUserScroll}");
+    const begin = source.indexOf("const beginUserScroll = useCallback(");
+    expect(begin).toBeGreaterThan(-1);
+    expect(source.slice(begin, begin + 220)).toContain("stopGlide();");
   });
 
   // Regression guard for d595fb3 "Stop the chat scroll glide from restarting
