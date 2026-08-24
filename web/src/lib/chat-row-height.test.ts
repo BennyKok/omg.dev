@@ -14,6 +14,7 @@ import {
   MEDIA_CARD_CHROME_PX,
   MEDIA_MAX_PX,
   messageRowHeight,
+  OMG_INSTRUCTIONS_LEADING_PX,
   RICH_INLINE_RE,
   ROW_GAP_PX,
   SPEAKER_CHANGE_PX,
@@ -448,6 +449,29 @@ describe("message rows", () => {
     expect(messageRowHeight(long, ctx)).toBe(clamp + USER_BUBBLE_TOGGLE_PX + 18);
   });
 
+  test("a launch envelope models the collapsed instructions chip and visible task", () => {
+    const userMetrics = metrics({
+      contentWidth: 100,
+      root: box({ paddingTop: 8, paddingBottom: 8, borderTop: 1, borderBottom: 1 }),
+    });
+    const ctx = context({ user: userMetrics });
+    const instructions = "hidden agent instruction ".repeat(80);
+    const task = "visible task";
+    const envelope: RowMessage = {
+      role: "user",
+      kind: "text",
+      text: `=== omg.dev RUNTIME CONTRACT (capability version 2026-08-21.1) ===\n${instructions}\n=== END omg.dev RUNTIME CONTRACT ===\n\n=== USER TASK ===\n${task}`,
+    };
+    const plainTask: RowMessage = { role: "user", kind: "text", text: task };
+
+    expect(messageRowHeight(envelope, ctx)).toBe(
+      messageRowHeight(plainTask, ctx) + OMG_INSTRUCTIONS_LEADING_PX,
+    );
+    expect(messageRowHeight(envelope, ctx)).toBeLessThan(
+      USER_BUBBLE_CLAMP_LINES * userMetrics.blocks.p.lineHeight,
+    );
+  });
+
   test("an assistant turn is its markdown plus the root box", () => {
     const ctx = context();
     const message: RowMessage = { role: "assistant", kind: "text", text: "x".repeat(20) };
@@ -534,5 +558,21 @@ describe("estimateUnprobedRowHeight", () => {
     expect(user).toBe(50);
     expect(assistant).toBeLessThan(64 + ROW_GAP_PX);
     expect(user).toBeLessThan(64 + ROW_GAP_PX);
+  });
+
+  test("reserves the collapsed instructions chip before markdown metrics arrive", () => {
+    const envelope = {
+      type: "msg" as const,
+      key: "contract",
+      message: {
+        role: "user",
+        kind: "text",
+        text: `=== omg.dev RUNTIME CONTRACT ===\nDo not expose this.\n=== END omg.dev RUNTIME CONTRACT ===\n\n=== USER TASK ===\nVisible task`,
+      },
+    };
+
+    expect(estimateUnprobedRowHeight(envelope)).toBe(
+      50 + OMG_INSTRUCTIONS_LEADING_PX,
+    );
   });
 });

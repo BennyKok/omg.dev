@@ -17703,7 +17703,13 @@ const ChatStream = memo(function ChatStream({
   }, [findOpen, findHitRow, findTerms, virtualWindowKey]);
   useEffect(() => clearFindHighlight, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    // Scroll intent belongs to one transcript. A free-scrolled session must
+    // not make the next session open away from latest or leave its jump pill
+    // visible on a transcript that does not even overflow. Layout timing keeps
+    // that old state out of the first paint.
+    setStick(true);
+    prevStickRef.current = true;
     setHasOlder(true);
     preserveScrollRef.current = null;
     anchorRef.current = null;

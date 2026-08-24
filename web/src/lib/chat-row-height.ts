@@ -18,6 +18,7 @@
 
 import type { ChatRenderItem, ChatRenderMessage } from "./chat-render-items";
 import type { BoxMetrics, MarkdownMetrics } from "./markdown-metrics";
+import { parseOmgPromptEnvelope } from "./omg-prompt-envelope";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -67,6 +68,11 @@ export const USER_BUBBLE_CLAMP_LINES = 10;
 /** "Show more" toggle under a clamped user bubble: 12px/1.2 + `mt-1`. */
 export const USER_BUBBLE_TOGGLE_PX = 18;
 
+/** The collapsed omg.dev instructions chip (30px) plus the `gap-1.5` (6px)
+ * between it and the visible task bubble. The renderer removes the full
+ * agent-facing contract from the bubble and draws this fixed chrome instead. */
+export const OMG_INSTRUCTIONS_LEADING_PX = 36;
+
 /** CopyableMarkdownLink appends an external-link glyph and a copy button to
  *  every rendered link, which occupy inline width the raw markdown does not. */
 export const LINK_CHROME_PX = 38;
@@ -78,7 +84,7 @@ export const CODE_BLOCK_CHROME_PX = 0;
 /** Bumped whenever the arithmetic below changes in a way that invalidates a
  *  cached height. Combined with `MarkdownMetrics.metricsVersion` it forms the
  *  full cache key, so a model change and a CSS change both flush the cache. */
-export const HEIGHT_MODEL_VERSION = 1;
+export const HEIGHT_MODEL_VERSION = 2;
 
 /** One rendered line in a user bubble before the row gap. */
 export const USER_SINGLE_LINE_PX = 42;
@@ -660,7 +666,10 @@ export function messageRowHeight(message: RowMessage, ctx: RowContext): number {
     return mediaHeight(message.width, message.height, cardWidth);
   }
 
-  const text = message.text ?? "";
+  const rawText = message.text ?? "";
+  const envelope = message.role === "user" ? parseOmgPromptEnvelope(rawText) : null;
+  const text = envelope?.task ?? rawText;
+  const leading = envelope ? OMG_INSTRUCTIONS_LEADING_PX : 0;
   if (!text.trim()) return TYPING_INDICATOR_PX;
 
   if (message.role === "user") {
@@ -672,8 +681,15 @@ export function messageRowHeight(message: RowMessage, ctx: RowContext): number {
     const clamp = USER_BUBBLE_CLAMP_LINES * box.lineHeight;
     const clamped = Math.min(body, clamp);
     const toggle = body > clamp + 1 ? USER_BUBBLE_TOGGLE_PX : 0;
-    return clamped + toggle + metrics.root.paddingTop + metrics.root.paddingBottom +
-      metrics.root.borderTop + metrics.root.borderBottom;
+    return (
+      leading +
+      clamped +
+      toggle +
+      metrics.root.paddingTop +
+      metrics.root.paddingBottom +
+      metrics.root.borderTop +
+      metrics.root.borderBottom
+    );
   }
 
   const metrics = ctx.assistant;
@@ -723,13 +739,16 @@ export function estimateUnprobedRowHeight<T extends RowMessage>(
     height = TOOL_PILL_PX;
   } else {
     const message = item.message;
+    const envelope =
+      message.role === "user" ? parseOmgPromptEnvelope(message.text ?? "") : null;
     if (isInterrupted(message)) height = INTERRUPTED_PX;
     else if (message.kind === "thinking") height = COLLAPSED_THINKING_PX;
     else if (message.kind === "html") height = HTML_ARTIFACT_PX;
     else if (message.kind === "image" || message.kind === "video") {
       height = mediaHeight(message.width, message.height, 1);
-    } else if (message.role === "user") height = USER_SINGLE_LINE_PX;
-    else height = ASSISTANT_SINGLE_LINE_PX;
+    } else if (message.role === "user") {
+      height = USER_SINGLE_LINE_PX + (envelope ? OMG_INSTRUCTIONS_LEADING_PX : 0);
+    } else height = ASSISTANT_SINGLE_LINE_PX;
   }
   return Math.max(1, Math.round(height + ROW_GAP_PX + (speakerChanged ? SPEAKER_CHANGE_PX : 0)));
 }

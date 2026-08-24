@@ -14,3 +14,17 @@ test("harvested markdown metrics invalidate TanStack's stale fallback offsets", 
   expect(effect).toContain("[metrics.version, rowContext, virtualizer]");
   expect(effect).not.toContain("scrollTop =");
 });
+
+test("a session switch resets transcript following before paint", () => {
+  const comment = "// A new transcript in the same pane.";
+  const at = APP.indexOf(comment);
+  const start = APP.lastIndexOf("useLayoutEffect(() => {", at);
+  const end = APP.indexOf("}, [sid, stopGlide]);", at);
+  const effect = APP.slice(start, end);
+
+  expect(at).toBeGreaterThan(0);
+  expect(start).toBeGreaterThan(0);
+  expect(end).toBeGreaterThan(start);
+  expect(effect).toContain("setStick(true);");
+  expect(effect).toContain("prevStickRef.current = true;");
+});
