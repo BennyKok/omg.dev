@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## August 24, 2026 - Hosted onboarding answers reach analytics (v0.6.3)
+
+- **The hosted onboarding survey now sends answers through the host.** The
+  embedded package previously expected an analytics account at package-build
+  time. Release builds do not own one, so the survey event code compiled to a
+  no-op. The host now supplies the analytics handler that already identifies
+  the signed-in user. Role, friction, daily-tool, AI-tool, completion, and skip
+  results can reach the hosted product's existing analytics account.
+
 ## August 24, 2026 - The Computer on a phone, and Schedules as a real list (v0.6.2)
 
 - **The Computer survives a restart.** Its lifecycle used to live only in the
@@ -22,7 +31,6 @@ Recent product updates and deployment notes.
   schedule fits on one line, and the findings banner is gone -- findings have
   their own surface, and a banner about them was the loudest thing on a page
   meant to be a list of schedules.
-
 ## August 24, 2026 - Fix the release bundle (v0.6.1)
 
 - **The v0.6.0 release bundle failed to build.** The Computer pulls in noVNC,
