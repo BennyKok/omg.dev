@@ -143,6 +143,12 @@ export default defineConfig({
   },
   build: {
     outDir: "dist-lib",
+    // Same floor as the app build (see vite.config.ts): noVNC, pulled in by the
+    // Computer page, ships top-level await for one WebCodecs probe, and Vite's
+    // default `modules` target rejects it. This config was missed when the app
+    // one was raised, which broke `build:lib` -- and therefore the release --
+    // while the app build stayed green.
+    target: "es2022",
     sourcemap: false,
     lib: {
       entry: path.resolve(dirname, "src/embedded.tsx"),

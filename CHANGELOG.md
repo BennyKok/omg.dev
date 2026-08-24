@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## August 24, 2026 - Fix the release bundle (v0.6.1)
+
+- **The v0.6.0 release bundle failed to build.** The Computer pulls in noVNC,
+  which ships top-level await, and the embedded-library build targeted a browser
+  set that predates it. The app build had already been raised; this config was
+  missed, so the app was fine and only the release bundle broke.
+
 ## August 24, 2026 - The Computer: a desktop you and your agents share (v0.6.0)
 
 - **This box now has a screen you can watch and take over.** The Computer is a
