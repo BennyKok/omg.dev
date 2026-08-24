@@ -13310,8 +13310,8 @@ function BotRosterRow({
               )}
             />
           </span>
-          {/* Collapsed rows show only the mark, so the unread state has to
-              live on it instead of the expanded row's inline dot. */}
+          {/* Collapsed rows show only the mark, so the unread dot has to live
+              on it instead of the expanded row's indicator. */}
           {unread && collapsed ? (
             <span className="absolute -right-0.5 -top-0.5">{unreadDot}</span>
           ) : null}
@@ -13324,22 +13324,11 @@ function BotRosterRow({
       }
       titleBadge={<BotRosterActivityBadge state={activity} />}
       preview={
-        <span className="flex min-w-0 items-center gap-1.5">
-          {unread ? (
-            <span
-              role="status"
-              aria-label={`Unread conversation with ${bot.name}`}
-              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary"
-            >
-              <span className={BOT_UNREAD_DOT_CLASS} aria-hidden="true" />
-              Unread
-            </span>
-          ) : null}
-          <span className={cn("min-w-0 truncate", previewClassName, unread && "font-medium text-foreground")}>
-            {preview}
-          </span>
+        <span className={cn(previewClassName, unread && "font-medium text-foreground")}>
+          {preview}
         </span>
       }
+      indicator={unread ? unreadDot : null}
       attention={unread}
       trailingStatic={timestamp ? relTime(timestamp) : null}
       trailingHover={
