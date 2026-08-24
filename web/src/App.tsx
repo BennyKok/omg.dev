@@ -9401,6 +9401,7 @@ function PagesMenu({
     tab === "bots" ||
     tab === "notifications" ||
     tab === "artifacts" ||
+    tab === "computer" ||
     (showSettings && tab === "settings");
   const value = known || extraTabs.some((t) => t.id === tab) ? tab : "live";
   // Controlled so a selection dismisses the menu. Radio items don't close on
@@ -9447,6 +9448,12 @@ function PagesMenu({
           <DropdownMenuRadioItem value="artifacts">
             <LayoutDashboard className="size-5 shrink-0 text-muted-foreground" />
             Artifacts
+          </DropdownMenuRadioItem>
+          {/* The Computer is a page like the others, not a tool buried under
+              More: it is a place you go to and hand someone a link to. */}
+          <DropdownMenuRadioItem value="computer">
+            <Monitor className="size-5 shrink-0 text-muted-foreground" />
+            Computer
           </DropdownMenuRadioItem>
           {showSettings ? (
             <>
