@@ -189,6 +189,7 @@ export function EmbeddedConnectGate({
   onInstall,
   onConnectTool,
   onDone,
+  onAnalyticsEvent,
 }: {
   options: ConnectOption[];
   toolConnections?: ToolConnectOption[];
@@ -198,6 +199,7 @@ export function EmbeddedConnectGate({
   onInstall: (kind: string) => void;
   onConnectTool: (key: ToolConnectOption["key"]) => void;
   onDone: () => void;
+  onAnalyticsEvent?: (name: string, data?: Record<string, unknown>) => void;
 }) {
   const [page, setPage] = useState<GatePage>("survey-identity");
   const [surveyAnswers, setSurveyAnswers] = useState<SurveyAnswers>(EMPTY_SURVEY_ANSWERS);
@@ -225,6 +227,7 @@ export function EmbeddedConnectGate({
   const installIsLastPage = flow[flow.length - 1] === "install";
   const goNext = () => setPage(stepAfter(flow, page));
   const goBack = () => setPage(stepBefore(flow, page));
+  const emitAnalytics = onAnalyticsEvent ?? trackEvent;
 
   // Survey handlers. Selecting fires the per-question Umami event (skipped
   // questions never do — see the file header) and single-select advances on
@@ -232,11 +235,11 @@ export function EmbeddedConnectGate({
   // event fires exactly once, whichever way the last question is left.
   const trackAnswer = (surveyPage: (typeof SURVEY_PAGES)[number], value: string | string[]) => {
     const event = surveyAnswerEvent(surveyPage, value);
-    trackEvent(event.name, event.data);
+    emitAnalytics(event.name, event.data);
   };
   const trackComplete = (answers: SurveyAnswers) => {
     const event = surveyCompleteEvent(answers);
-    trackEvent(event.name, event.data);
+    emitAnalytics(event.name, event.data);
   };
   const selectIdentity = (value: SurveyIdentity) => {
     setSurveyAnswers((prev) => ({ ...prev, identity: value }));

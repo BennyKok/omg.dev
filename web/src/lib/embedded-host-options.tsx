@@ -11,6 +11,14 @@ export interface EmbeddedHostOptions {
    */
   connectionOnboarding: boolean;
   /**
+   * Send product events to the embedding host's analytics owner.
+   *
+   * An embedded library is built before it knows which host or analytics
+   * account will consume it. The host must therefore own delivery instead of
+   * relying on Vite environment values baked into the library artifact.
+   */
+  onAnalyticsEvent?: EmbeddedAnalyticsEventHandler;
+  /**
    * Presentation-only identity supplied by an embedding host. It is deliberately
    * separate from LFG's roster: a hosted Computer is already account-scoped,
    * and showing its viewer must never assign sessions or change authorization.
@@ -112,6 +120,11 @@ export interface EmbeddedViewer {
   name: string;
   avatar?: string;
 }
+
+export type EmbeddedAnalyticsEventHandler = (
+  name: string,
+  data?: Record<string, unknown>,
+) => void;
 
 const EmbeddedHostOptionsContext = createContext<EmbeddedHostOptions>({
   defaultAgent: "aisdk",

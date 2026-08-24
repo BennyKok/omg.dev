@@ -18,6 +18,7 @@ import {
 import { BareSurfaceProvider } from "./lib/bare-surface";
 import {
   EmbeddedHostOptionsProvider,
+  type EmbeddedAnalyticsEventHandler,
   type EmbeddedViewer,
   type HostedTranscription,
   type HostSettingsPage,
@@ -28,6 +29,7 @@ import { createOmgRouter } from "./router";
 import type { AgentKind } from "./lib/coding-agent-options";
 
 export type {
+  EmbeddedAnalyticsEventHandler,
   EmbeddedViewer,
   HostedTranscription,
   PlanLimitDetail,
@@ -68,6 +70,8 @@ export interface OmgAppSurfaceProps {
    * keep provider connections as an optional Settings action.
    */
   connectionOnboarding?: boolean;
+  /** Deliver embedded product events through the host's analytics client. */
+  onAnalyticsEvent?: EmbeddedAnalyticsEventHandler;
   /**
    * Presentation-only identity for the person viewing a hosted surface.
    * This personalizes welcome/status copy but never participates in LFG's
@@ -325,6 +329,7 @@ export function OmgAppSurface({
   className,
   defaultAgent = "aisdk",
   connectionOnboarding = true,
+  onAnalyticsEvent,
   viewer,
   hostedTranscription,
   hostedPush,
@@ -356,6 +361,7 @@ export function OmgAppSurface({
         value={{
           defaultAgent,
           connectionOnboarding,
+          onAnalyticsEvent,
           viewer,
           hostedTranscription,
           onOpenSettingsPage,
