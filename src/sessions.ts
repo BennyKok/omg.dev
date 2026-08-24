@@ -298,6 +298,29 @@ export type SessionMsg = {
   author?: MessageAuthorRef;
 };
 
+// The single rule for which transcript messages a client is allowed to see.
+//
+// `tool_result` bodies are the largest payload in a transcript — file contents
+// and command output, clipped at TOOL_RESULT_TEXT_MAX (8 000 chars) each. On a
+// real 4 732-message session they are 1 713 messages and 895 KB, 36 percent of
+// the messages and 40 percent of the bytes. Nothing renders them: a run of
+// tool calls collapses into one pill whose label comes from `toolGroupLabel`,
+// which only COUNTS results and never reads their text. So they are dropped
+// here, before any transport, rather than streamed and then ignored.
+//
+// This is deliberately not a "defer and fetch on expand" scheme. There is
+// nothing to fetch back: the expanded pill shows the tool CALLS, and the
+// server-side transcript index keeps the full result text either way, so
+// `POST /api/sessions/:id/transcript/search` still matches inside a result.
+//
+// Every client-facing path routes through this: the /messages endpoint and the
+// SSE streams in src/commands/serve.ts, and the websocket snapshot and delta
+// publishes in src/live-ws.ts. It lives here, with SessionMsg, because a
+// second copy would let the transports drift apart.
+export function visibleTranscriptMessages<T extends { kind: string }>(messages: T[]): T[] {
+  return messages.filter((message) => message.kind !== "tool_result");
+}
+
 export type Session = {
   agent: CodingAgentKind;
   runtime?: "tmux" | "command-file";

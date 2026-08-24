@@ -6,6 +6,7 @@ import { PATHS } from "./config.ts";
 import {
   resolveTranscript,
   pendingToolPrompt,
+  visibleTranscriptMessages,
   type PendingPrompt,
   type Session,
 } from "./sessions.ts";
@@ -176,10 +177,6 @@ function normalizeMediaIdentity<T extends { kind: string; id?: string | null; ar
   const id = mediaIdentity(message);
   if (!id || id === message.id) return message;
   return { ...message, id };
-}
-
-function visibleTranscriptMessages<T extends { kind: string }>(messages: T[]): T[] {
-  return messages.filter((message) => message.kind !== "tool_result");
 }
 
 function withImageArtifacts<T extends { role: string; kind: string; text: string; ts?: number | null; id?: string | null }>(
