@@ -349,6 +349,11 @@ import {
 import { nextScrollMode } from "./lib/transcript-stick";
 import { shouldApplyAnchorCorrection } from "./lib/transcript-anchor";
 import {
+  completeTranscriptGlideFrame,
+  createTranscriptGlideState,
+  nextTranscriptGlideFrame,
+} from "./lib/transcript-glide";
+import {
   ASSISTANT_SINGLE_LINE_PX,
   estimateRowHeight,
   estimateUnprobedRowHeight,
@@ -17294,6 +17299,7 @@ const ChatStream = memo(function ChatStream({
   // before.
   const programmaticScrollRef = useRef(false);
   const glideRafRef = useRef<number | null>(null);
+  const glideSpringRef = useRef(createTranscriptGlideState());
   const growthKeyRef = useRef<{ len: number; typing: boolean } | null>(null);
   const prevStickRef = useRef(stick);
   const justSwitchedRef = useRef(true);
@@ -17303,6 +17309,7 @@ const ChatStream = memo(function ChatStream({
       cancelAnimationFrame(glideRafRef.current);
       glideRafRef.current = null;
     }
+    glideSpringRef.current = createTranscriptGlideState();
     programmaticScrollRef.current = false;
   }, []);
   useEffect(() => stopGlide, [stopGlide]);
@@ -17319,17 +17326,19 @@ const ChatStream = memo(function ChatStream({
     stopGlide();
   }, [stopGlide]);
 
-  // Eases toward the bottom rather than tweening a fixed start/end: re-reads
+  // Springs toward the bottom rather than tweening a fixed start/end: re-reads
   // `scrollHeight` every frame, so a message that keeps growing while this is
   // in flight (a discrete arrival immediately followed by its own streamed
-  // text) is chased instead of overshot-then-corrected. `programmaticScrollRef`
-  // marks the window so the scroll handler below doesn't mistake our own
-  // motion for the user grabbing the scrollbar mid-glide.
+  // text) is chased instead of overshot-then-corrected. The spring integration
+  // is time-corrected, so a faster display does not simply run the animation
+  // twice as fast. `programmaticScrollRef` marks the window so the scroll
+  // handler below doesn't mistake our own motion for the user grabbing the
+  // scrollbar mid-glide.
   const startGlide = useCallback(
     (el: HTMLDivElement) => {
       stopGlide();
       programmaticScrollRef.current = true;
-      const step = () => {
+      const step = (tickMs: number) => {
         const target = el.scrollHeight - el.clientHeight;
         const delta = target - el.scrollTop;
         if (Math.abs(delta) < 1) {
@@ -17340,7 +17349,14 @@ const ChatStream = memo(function ChatStream({
           stopGlide();
           return;
         }
-        el.scrollTop += delta * 0.3;
+        const next = nextTranscriptGlideFrame(glideSpringRef.current, delta, tickMs);
+        glideSpringRef.current = next.state;
+        const previousScrollTop = el.scrollTop;
+        el.scrollTop += next.offsetPx;
+        glideSpringRef.current = completeTranscriptGlideFrame(
+          glideSpringRef.current,
+          el.scrollTop !== previousScrollTop,
+        );
         lastScrollTopRef.current = el.scrollTop;
         // Our write, not theirs: the event this raises must not move the mode.
         userDrivenRef.current = false;
