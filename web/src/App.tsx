@@ -17031,6 +17031,10 @@ const ChatStream = memo(function ChatStream({
   const ref = useRef<HTMLDivElement>(null);
   const transcriptView = useContext(TranscriptViewContext);
   const [stick, setStick] = useState(true);
+  // The new transcript stays transparent for its first layout pass. That pass
+  // lands the scroller at its final bottom, then this marker starts one global
+  // fade. No intermediate scroll position can be painted during a switch.
+  const [revealedSid, setRevealedSid] = useState<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasOlder, setHasOlder] = useState(true);
   const [diffBarVisible, setDiffBarVisible] = useState(false);
@@ -17730,9 +17734,6 @@ const ChatStream = memo(function ChatStream({
     setHasOlder(true);
     preserveScrollRef.current = null;
     anchorRef.current = null;
-    // A new transcript in the same pane. The offset the old one left behind is
-    // not a baseline any direction can be measured against.
-    lastScrollTopRef.current = ref.current?.scrollTop ?? 0;
     // Our write, not theirs: the event this raises must not move the mode.
     userDrivenRef.current = false;
     lastUserScrollAtRef.current = Number.NEGATIVE_INFINITY;
@@ -17740,6 +17741,20 @@ const ChatStream = memo(function ChatStream({
     growthKeyRef.current = null;
     justSwitchedRef.current = true;
     stopGlide();
+    // A session switch is not a live arrival. Put the new transcript at its
+    // final bottom before the browser can paint it, then reveal the whole
+    // surface with one opacity-only fade. The normal spring remains reserved
+    // for messages, tools, and working-state changes inside this session.
+    const el = ref.current;
+    if (el) {
+      const bottom = Math.max(0, el.scrollHeight - el.clientHeight);
+      el.scrollTop = bottom;
+      lastScrollTopRef.current = el.scrollTop;
+      userDrivenRef.current = false;
+    } else {
+      lastScrollTopRef.current = 0;
+    }
+    setRevealedSid(sid);
   }, [sid, stopGlide]);
 
   // A manual jump-to-latest click is itself a discrete event — route it
@@ -17935,7 +17950,9 @@ const ChatStream = memo(function ChatStream({
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
     <Conversation
+      key={sid ?? "no-session"}
       ref={ref}
+      data-session-ready={revealedSid === sid ? "true" : "false"}
       // A scroll event cannot say who caused it, and the glide emits one per
       // frame. Suppressing the handler for the glide's duration therefore
       // also swallowed the user's own scroll if it landed mid-flight: they
@@ -17986,7 +18003,7 @@ const ChatStream = memo(function ChatStream({
         if (intent !== "none") void maybeLoadOlder(intent);
       }}
       className={cn(
-        "chat-stream min-h-0 flex-1 overflow-y-auto bg-background px-3 pt-3",
+        "chat-stream lfg-transcript-session min-h-0 flex-1 overflow-y-auto bg-background px-3 pt-3",
         // Only reserve room for the floating "files changed / Review" bar
         // while it's actually shown, so it never overlaps the last message.
         diffBarVisible ? "pb-16" : "pb-3",

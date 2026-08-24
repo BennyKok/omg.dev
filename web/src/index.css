@@ -947,6 +947,33 @@ html.lfg-keyboard-open {
     -webkit-overflow-scrolling: touch;
   }
 
+  /* A session change swaps the transcript at its final bottom position, then
+     fades that complete surface in once. Keep this opacity-only: translating
+     the scroller would make every row look like it is gliding together and
+     would compete with the spring reserved for live arrivals. */
+  .lfg-transcript-session[data-session-ready="false"] {
+    opacity: 0;
+  }
+
+  @keyframes lfg-transcript-session-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  .lfg-transcript-session[data-session-ready="true"] {
+    animation: lfg-transcript-session-in 180ms ease-out both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .lfg-transcript-session[data-session-ready="true"] {
+      animation: none;
+    }
+  }
+
   .user-bubble.markdown {
     --user-bubble-fill: rgba(255, 255, 255, 0.72);
     --user-bubble-padding: 8px 12px;

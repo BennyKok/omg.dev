@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 const APP = await Bun.file(new URL("./App.tsx", import.meta.url)).text();
+const CSS = await Bun.file(new URL("./index.css", import.meta.url)).text();
 
 test("harvested markdown metrics invalidate TanStack's stale fallback offsets", () => {
   const start = APP.indexOf("const measuredMetricsVersionRef = useRef(0);");
@@ -16,7 +17,7 @@ test("harvested markdown metrics invalidate TanStack's stale fallback offsets", 
 });
 
 test("a session switch resets transcript following before paint", () => {
-  const comment = "// A new transcript in the same pane.";
+  const comment = "// A session switch is not a live arrival.";
   const at = APP.indexOf(comment);
   const start = APP.lastIndexOf("useLayoutEffect(() => {", at);
   const end = APP.indexOf("}, [sid, stopGlide]);", at);
@@ -27,4 +28,23 @@ test("a session switch resets transcript following before paint", () => {
   expect(end).toBeGreaterThan(start);
   expect(effect).toContain("setStick(true);");
   expect(effect).toContain("prevStickRef.current = true;");
+  expect(effect).toContain("const bottom = Math.max(0, el.scrollHeight - el.clientHeight);");
+  expect(effect).toContain("el.scrollTop = bottom;");
+  expect(effect).toContain("setRevealedSid(sid);");
+  expect(effect.indexOf("el.scrollTop = bottom;")).toBeLessThan(effect.indexOf("setRevealedSid(sid);"));
+});
+
+test("a session switch reveals the complete transcript with one opacity-only fade", () => {
+  expect(APP).toContain('key={sid ?? "no-session"}');
+  expect(APP).toContain('"chat-stream lfg-transcript-session');
+  expect(APP).toContain('data-session-ready={revealedSid === sid ? "true" : "false"}');
+  expect(CSS).toContain("@keyframes lfg-transcript-session-in");
+  expect(CSS).toContain('.lfg-transcript-session[data-session-ready="true"]');
+
+  const start = CSS.indexOf("@keyframes lfg-transcript-session-in");
+  const end = CSS.indexOf(".lfg-transcript-session", start);
+  const keyframes = CSS.slice(start, end);
+  expect(keyframes).toContain("opacity: 0;");
+  expect(keyframes).toContain("opacity: 1;");
+  expect(keyframes).not.toContain("transform:");
 });
