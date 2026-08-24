@@ -130,9 +130,11 @@ describe("bot conversation unread presentation", () => {
   });
 
   test("uses one visible dot convention for aggregate, mobile rows, and desktop rows", () => {
-    expect(BOT_UNREAD_DOT_CLASS).toContain("size-2.5");
+    expect(BOT_UNREAD_DOT_CLASS).toContain("inline-block");
+    expect(BOT_UNREAD_DOT_CLASS).toContain("size-2");
     expect(BOT_UNREAD_DOT_CLASS).toContain("rounded-full");
-    expect(BOT_UNREAD_DOT_CLASS).toContain("ring-primary/20");
+    expect(BOT_UNREAD_DOT_CLASS).toContain("bg-primary");
+    expect(BOT_UNREAD_DOT_CLASS).not.toContain("ring-");
   });
 
   test("keeps activity and read state explicit and independent", () => {

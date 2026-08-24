@@ -112,7 +112,7 @@ export function botConversationRows<
 }
 
 export const BOT_UNREAD_DOT_CLASS =
-  "size-2.5 shrink-0 rounded-full bg-primary ring-2 ring-primary/20";
+  "inline-block size-2 shrink-0 rounded-full bg-primary";
 
 export function botUnreadActionForTranscript(input: {
   role?: string;
