@@ -27937,17 +27937,38 @@ function AutoManageView({
                     {group.items.map((a) => {
                       const openFindings = openByAgent.get(a.id) ?? 0;
                       return (
-                        <div key={a.id} className="flex items-center gap-2 px-3 py-2">
-                          {/* Name is the only elastic part of the row, so it
-                              absorbs every bit of squeeze and the meta cluster
-                              on the right never has to reflow. That reflow is
-                              what used to collide the schedule and the model
-                              into overlapping text. */}
+                        <div
+                          key={a.id}
+                          className={cn(
+                            // Below sm the name takes a line of its own and
+                            // everything else drops under it.
+                            //
+                            // Name-absorbs-the-squeeze works while there is
+                            // squeeze to absorb. On a 390px phone there is
+                            // not: the cron text, the agent, run, edit and the
+                            // switch are all fixed width and take about 300px
+                            // between them, so the elastic part collapsed to
+                            // roughly 60px. "Design review" rendered as "Des…",
+                            // and on a row carrying an "N open" badge the name
+                            // lost the last of its width to the badge and
+                            // disappeared, leaving a row that says "2 open"
+                            // about nothing. The name is what you scan the
+                            // list for, so it stops paying for the other five.
+                            "grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] items-center gap-x-1 gap-y-0.5 px-3 py-2",
+                            // From sm there is width for one line, which is
+                            // the denser read when you can have it.
+                            "sm:flex sm:gap-2",
+                          )}
+                        >
+                          {/* Full width on its own line below sm; from sm it is
+                              the elastic cell again and the meta cluster on the
+                              right still never reflows. `col-span-full` is a
+                              grid property, so the flex row at sm ignores it. */}
                           <button
                             type="button"
                             onClick={() => onEdit(a)}
                             title={a.prompt}
-                            className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                            className="col-span-full flex min-w-0 items-center gap-1.5 text-left sm:flex-1"
                           >
                             <span
                               className={cn(
@@ -27968,14 +27989,14 @@ function AutoManageView({
                               </span>
                             ) : null}
                           </button>
-                          {/* When the schedule sat on a second line under the
-                              name its icon and baseline never lined up with
-                              anything. It belongs with the other per-run
-                              facts, so it moves into one centred meta cluster
-                              beside the agent it runs on. The relative tail
-                              ("next in 17 hours") is the first thing to go
-                              when the row gets narrow. */}
-                          <span className="flex shrink-0 items-center gap-1 whitespace-nowrap text-xs text-muted-foreground">
+                          {/* The schedule belongs with the other per-run facts,
+                              never floating alone under the name: below sm it
+                              leads the second line and the agent, run, edit and
+                              switch sit on that same line with it, so its icon
+                              shares a baseline with them. The relative tail
+                              ("next in 17 hours") is the first thing to go when
+                              the row gets narrow. */}
+                          <span className="flex min-w-0 items-center gap-1 whitespace-nowrap text-xs text-muted-foreground sm:shrink-0">
                             <ScheduleSummary
                               expr={a.schedule}
                               tz={tz}
