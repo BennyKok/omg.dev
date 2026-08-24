@@ -8,8 +8,8 @@ import type {
 } from "../App";
 import { agentIconAlt, agentIconSrc } from "../lib/session-ui";
 import { agentStatusNote, binaryMissing } from "../lib/coding-agent-status-note";
-import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
 import { toast } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 import {
@@ -20,6 +20,7 @@ import {
   Loader2,
   Play,
   RotateCcw,
+  Monitor,
   TerminalSquare,
   Trash2,
   X,
@@ -194,6 +195,8 @@ export default function CodingAgentsPage({
   onDisconnectProvider,
   onSetupCheck,
   onRefresh,
+  computerMcpEnabled,
+  onComputerMcpChange,
 }: {
   setupChecks: SetupCheckGroup[];
   agents: CodingAgentInfo[];
@@ -206,6 +209,8 @@ export default function CodingAgentsPage({
   onDisconnectProvider: (kind: AgentKind, provider: PiProviderInfo) => void;
   onSetupCheck: (key: string) => void;
   onRefresh: () => void | Promise<void>;
+  computerMcpEnabled: boolean;
+  onComputerMcpChange: (next: boolean) => void;
 }) {
   const [refreshing, setRefreshing] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -277,6 +282,32 @@ export default function CodingAgentsPage({
               </Button>
             </ExpandableRow>
           ))}
+          {/* The Computer Use MCP sits in this same list as a peer of the
+              omg.dev MCP, not in Settings. MCP belongs in one place: the
+              omg.dev row above says which CLIs the general server is
+              registered with, and this row is the second server this box can
+              offer. Splitting them across two pages is what made "where do I
+              turn MCP on" unanswerable. */}
+          <div className="flex items-center justify-between gap-4 px-4 py-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <Monitor className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-medium">Computer Use MCP</span>
+                <span className="block text-xs text-muted-foreground">
+                  {computerMcpEnabled
+                    ? "Agents can drive this box's desktop and browser."
+                    : "Off. Agents cannot see or drive the desktop."}
+                </span>
+              </span>
+            </div>
+            <Switch
+              checked={computerMcpEnabled}
+              onCheckedChange={onComputerMcpChange}
+              aria-label={
+                computerMcpEnabled ? "Disable the Computer Use MCP" : "Enable the Computer Use MCP"
+              }
+            />
+          </div>
         </div>
       ) : null}
 
