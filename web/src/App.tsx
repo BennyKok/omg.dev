@@ -85,6 +85,9 @@ import {
 import {
   BOT_UNREAD_DOT_CLASS,
   botConversationRows,
+  botRosterActivityState,
+  botRosterRowAriaLabel,
+  type BotRosterActivityState,
   botUnreadActionForTranscript,
   botConversationSubscriptionIds,
   clearBotConversationUnread,
@@ -12882,10 +12885,10 @@ const RailRow = memo(function RailRow({
   titleBadge,
   preview,
   indicator,
+  attention,
   trailingStatic,
   trailingHover,
   trailingHoverAlwaysVisible,
-  trailingExtra,
   onActivate,
   onSwipeRight,
   onSwipeLeft,
@@ -12904,12 +12907,12 @@ const RailRow = memo(function RailRow({
   preview: ReactNode;
   /** Extra state shown only in the expanded row, between the text column and the trailing slot (e.g. an unread dot). */
   indicator?: ReactNode;
+  /** Gives an unread or otherwise attention-worthy row a persistent treatment. */
+  attention?: boolean;
   trailingStatic?: ReactNode;
   trailingHover?: ReactNode;
   /** Keeps the hover content shown once it represents committed state rather than an offer (a session's pin, once pinned). */
   trailingHoverAlwaysVisible?: boolean;
-  /** Content appended after the trailing slot that is not part of the hover cross-fade (e.g. a "Disabled" badge). */
-  trailingExtra?: ReactNode;
   onActivate: (shiftKey: boolean) => void;
   /** Swipe right. Leading edge of the reveal, e.g. a session's pin. */
   onSwipeRight?: { icon: ReactNode; onCommit: () => void };
@@ -13035,7 +13038,9 @@ const RailRow = memo(function RailRow({
             : active
               ? // Open-in-stage rows wear the mobile card's glass edge instead of a flat tint.
                 "lfg-gborder border-transparent bg-card shadow-[0_8px_24px_-18px_rgba(0,0,0,0.55)]"
-              : "border-transparent hover:bg-muted/70",
+              : attention
+                ? "border-primary/20 bg-primary/[0.07] hover:bg-primary/10"
+                : "border-transparent hover:bg-muted/70",
         )}
       >
         <span className={cn("relative flex shrink-0 items-center justify-center", markBoxClassName)}>
@@ -13086,7 +13091,6 @@ const RailRow = memo(function RailRow({
               ) : null}
               {trailingHover}
             </span>
-            {trailingExtra}
           </>
         ) : null}
       </div>
@@ -13230,12 +13234,11 @@ const RailItem = memo(function RailItem({
  * desktop rail used to hand-match this row to RailItem's 16px/14px scale and
  * landed on 14px/13px instead, nobody catching it because nothing forced the
  * two to agree. What is still bot-specific: the identity mark is BotAvatar,
- * not AgentMark (the creature carries "working" in its own posture, so it
- * takes no spinner — see AgentMark's docstring for the session side of that
- * split), and the one swipe/menu action a bot row offers is marking its
- * conversation read. There is no roster equivalent of archiving a session —
- * nothing here is deleted from the row — so no `onSwipeLeft` is offered and
- * the row does not rubber-band left.
+ * not AgentMark, and the row shows activity and read state as separate facts.
+ * The one swipe/menu action a bot row offers is marking its conversation read.
+ * There is no roster equivalent of archiving a session — nothing here is
+ * deleted from the row — so no `onSwipeLeft` is offered and the row does not
+ * rubber-band left.
  */
 function BotRosterRow({
   bot,
@@ -13247,7 +13250,6 @@ function BotRosterRow({
   previewClassName,
   unread,
   timestamp,
-  trailingExtra,
   onOpen,
   onMarkRead,
 }: {
@@ -13260,15 +13262,24 @@ function BotRosterRow({
   previewClassName?: string;
   unread: boolean;
   timestamp?: number | null;
-  trailingExtra?: ReactNode;
   onOpen: () => void;
   /** Marks the conversation read. Omitted once it already is — there is
    *  nothing left for the gesture or the menu item to commit to. */
   onMarkRead?: () => void;
 }) {
-  const unreadDot = (
+  const activity = botRosterActivityState(bot.enabled, busy);
+  const unreadMark = collapsed ? (
     <span role="status" aria-label={`Unread conversation with ${bot.name}`}>
       <span className={BOT_UNREAD_DOT_CLASS} aria-hidden="true" />
+    </span>
+  ) : (
+    <span
+      role="status"
+      aria-label={`Unread conversation with ${bot.name}`}
+      className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary/10 px-2 py-1 text-[10px] font-semibold leading-none text-primary"
+    >
+      <span className={BOT_UNREAD_DOT_CLASS} aria-hidden="true" />
+      Unread
     </span>
   );
   return (
@@ -13276,21 +13287,48 @@ function BotRosterRow({
       collapsed={collapsed}
       active={active}
       cursored={false}
-      ariaLabel={`${bot.name}${unread ? ", unread conversation" : ""}`}
-      tooltip={collapsed ? bot.name : undefined}
+      ariaLabel={botRosterRowAriaLabel({
+        name: bot.name,
+        enabled: bot.enabled,
+        working: busy,
+        unread,
+      })}
+      tooltip={collapsed ? `${bot.name} · ${activity}${unread ? " · unread" : ""}` : undefined}
       mark={
         <>
           <BotAvatar bot={bot} working={busy} size={avatarSize} />
+          {/* Activity and unread are independent. Keep them on opposite
+              corners so a working bot with a new reply shows both facts. */}
+          <span className="absolute -bottom-0.5 -right-0.5" aria-hidden="true">
+            <SessionStatusDot
+              busy={activity === "working"}
+              variant="inline"
+              className={cn(
+                "ring-2 ring-card",
+                activity === "disabled" && "bg-muted-foreground/40",
+              )}
+            />
+          </span>
           {/* Collapsed rows show only the mark, so the unread state has to
               live on it instead of the expanded row's inline dot. */}
           {unread && collapsed ? (
-            <span className="absolute -right-0.5 -top-0.5">{unreadDot}</span>
+            <span className="absolute -right-0.5 -top-0.5">{unreadMark}</span>
           ) : null}
         </>
       }
-      title={<span className={cn(!bot.enabled && "text-muted-foreground")}>{bot.name}</span>}
-      preview={<span className={previewClassName}>{preview}</span>}
-      indicator={unread ? unreadDot : null}
+      title={
+        <span className={cn(!bot.enabled && "text-muted-foreground", unread && "font-bold")}>
+          {bot.name}
+        </span>
+      }
+      titleBadge={<BotRosterActivityBadge state={activity} />}
+      preview={
+        <span className={cn(previewClassName, unread && "font-medium text-foreground")}>
+          {preview}
+        </span>
+      }
+      indicator={unread ? unreadMark : null}
+      attention={unread}
       trailingStatic={timestamp ? relTime(timestamp) : null}
       trailingHover={
         onMarkRead ? (
@@ -13307,12 +13345,42 @@ function BotRosterRow({
           </button>
         ) : null
       }
-      trailingExtra={trailingExtra}
       onActivate={onOpen}
       onSwipeRight={
         onMarkRead ? { icon: <CheckCheck className="size-4 text-primary" />, onCommit: onMarkRead } : undefined
       }
     />
+  );
+}
+
+function BotRosterActivityBadge({ state }: { state: BotRosterActivityState }) {
+  const label = state === "working" ? "Working" : state === "idle" ? "Idle" : "Disabled";
+  return (
+    <span
+      role="status"
+      aria-label={`Bot is ${state}`}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none",
+        state === "working"
+          ? "bg-primary/10 text-primary"
+          : state === "idle"
+            ? "bg-success/10 text-success"
+            : "bg-muted text-muted-foreground",
+      )}
+    >
+      {state === "working" ? (
+        <Loader2 className="size-2.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+      ) : (
+        <span
+          className={cn(
+            "size-1.5 rounded-full",
+            state === "idle" ? "bg-success/60" : "bg-muted-foreground/50",
+          )}
+          aria-hidden="true"
+        />
+      )}
+      {label}
+    </span>
   );
 }
 
@@ -27209,7 +27277,6 @@ function BotsView({
               previewClassName={stopped ? "text-destructive" : undefined}
               unread={row.unread}
               timestamp={row.lastMessageTs || item.lastMessageAt}
-              trailingExtra={!item.enabled ? <Badge variant="secondary">Disabled</Badge> : null}
               onOpen={openRow}
               onMarkRead={markRead}
             />

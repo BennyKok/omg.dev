@@ -21,6 +21,34 @@ export type BotConversationRow<B, S> = {
   lastMessageTs?: number | null;
 };
 
+export type BotRosterActivityState = "working" | "idle" | "disabled";
+
+/**
+ * The bot roster's shared activity vocabulary.
+ *
+ * Keep this separate from conversation read state. A bot can finish work and
+ * leave an unread reply, so combining the two facts into one badge would make
+ * one state overwrite the other.
+ */
+export function botRosterActivityState(
+  enabled: boolean,
+  working: boolean,
+): BotRosterActivityState {
+  if (!enabled) return "disabled";
+  return working ? "working" : "idle";
+}
+
+/** A complete row label. Read state must not be communicated by colour alone. */
+export function botRosterRowAriaLabel(input: {
+  name: string;
+  enabled: boolean;
+  working: boolean;
+  unread: boolean;
+}): string {
+  const activity = botRosterActivityState(input.enabled, input.working);
+  return `${input.name}, ${activity}, ${input.unread ? "unread" : "read"} conversation`;
+}
+
 export function hasUnreadBotConversation(conversations: BotConversationUnread[]): boolean {
   return conversations.some((conversation) => conversation.unread);
 }
@@ -38,10 +66,11 @@ export function hasUnreadBotConversation(conversations: BotConversationUnread[])
  * collapses to one row instead of showing the duplicates again.
  */
 export function botConversationRows<
-  B extends { id: string; sessionId?: string },
+  B extends { id: string; sessionId?: string; lastMessageAt?: number | null },
   S extends BotSessionCandidate & { sessionId: string | null },
 >(bots: B[], sessions: S[], conversations: BotConversationUnread[]): BotConversationRow<B, S>[] {
-  return bots.map((bot) => {
+  const inputOrder = new Map(bots.map((bot, index) => [bot.id, index]));
+  const rows = bots.map((bot) => {
     const own = conversations.filter((conversation) => conversation.botId === bot.id);
     // Both sides run the same resolver, but not over the same input: the server
     // resolves against every session it knows, the client only against the
@@ -72,9 +101,18 @@ export function botConversationRows<
       lastMessageTs: conversation?.lastMessageTs,
     };
   });
+  // Both the desktop rail and mobile page use this result, so recency has one
+  // owner. The canonical conversation timestamp wins over the bot record's
+  // fallback. Equal or missing timestamps keep the saved bot order stable.
+  return rows.sort((a, b) => {
+    const aTs = a.lastMessageTs ?? a.bot.lastMessageAt ?? 0;
+    const bTs = b.lastMessageTs ?? b.bot.lastMessageAt ?? 0;
+    return bTs - aTs || (inputOrder.get(a.bot.id) ?? 0) - (inputOrder.get(b.bot.id) ?? 0);
+  });
 }
 
-export const BOT_UNREAD_DOT_CLASS = "size-2 shrink-0 rounded-full bg-primary";
+export const BOT_UNREAD_DOT_CLASS =
+  "size-2.5 shrink-0 rounded-full bg-primary ring-2 ring-primary/20";
 
 export function botUnreadActionForTranscript(input: {
   role?: string;

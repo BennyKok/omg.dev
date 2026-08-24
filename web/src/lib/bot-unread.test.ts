@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { BOT_UNREAD_DOT_CLASS, botConversationRows, botUnreadActionForTranscript, hasUnreadBotConversation } from "./bot-unread";
+import {
+  BOT_UNREAD_DOT_CLASS,
+  botConversationRows,
+  botRosterActivityState,
+  botRosterRowAriaLabel,
+  botUnreadActionForTranscript,
+  hasUnreadBotConversation,
+} from "./bot-unread";
 
 describe("bot conversation unread presentation", () => {
   test("gives one bot one row, backed by its configured primary", () => {
@@ -59,6 +66,26 @@ describe("bot conversation unread presentation", () => {
     expect(keys(withChildren)).toEqual(["bot:a", "bot:b"]);
   });
 
+  test("orders the bot roster by most recent conversation", () => {
+    const rows = botConversationRows(
+      [
+        { id: "old", sessionId: "old-1", lastMessageAt: 5 },
+        { id: "new", sessionId: "new-1", lastMessageAt: 6 },
+        { id: "unstarted" },
+      ],
+      [
+        { sessionId: "old-1", botId: "old" },
+        { sessionId: "new-1", botId: "new" },
+      ],
+      [
+        { sessionId: "old-1", botId: "old", unread: false, lastMessageTs: 10 },
+        { sessionId: "new-1", botId: "new", unread: false, lastMessageTs: 20 },
+      ],
+    );
+
+    expect(rows.map((row) => row.bot.id)).toEqual(["new", "old", "unstarted"]);
+  });
+
   // The server resolves the bot's conversation against every session it knows;
   // this client only has the fleet list it is holding. A bot whose conversation
   // is not in that list resolves differently on the two sides, and the row then
@@ -102,8 +129,22 @@ describe("bot conversation unread presentation", () => {
     expect(botUnreadActionForTranscript({ role: "user", text: "[Peer message from A (a) to B (b)]", conversationId: "one", selectedConversationId: null, botsVisible: false })).toBe("refresh");
   });
 
-  test("uses one quiet dot convention for aggregate, mobile rows, and desktop rows", () => {
-    expect(BOT_UNREAD_DOT_CLASS).toContain("size-2");
+  test("uses one visible dot convention for aggregate, mobile rows, and desktop rows", () => {
+    expect(BOT_UNREAD_DOT_CLASS).toContain("size-2.5");
     expect(BOT_UNREAD_DOT_CLASS).toContain("rounded-full");
+    expect(BOT_UNREAD_DOT_CLASS).toContain("ring-primary/20");
+  });
+
+  test("keeps activity and read state explicit and independent", () => {
+    expect(botRosterActivityState(true, true)).toBe("working");
+    expect(botRosterActivityState(true, false)).toBe("idle");
+    expect(botRosterActivityState(false, true)).toBe("disabled");
+
+    expect(
+      botRosterRowAriaLabel({ name: "Scout", enabled: true, working: false, unread: true }),
+    ).toBe("Scout, idle, unread conversation");
+    expect(
+      botRosterRowAriaLabel({ name: "Scout", enabled: true, working: true, unread: false }),
+    ).toBe("Scout, working, read conversation");
   });
 });
