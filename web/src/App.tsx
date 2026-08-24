@@ -12321,7 +12321,7 @@ function RailStage({
         // A background task's report is machinery, not conversation: it is
         // hidden inside the chat, so it must not surface as the roster preview
         // either — the row would read `[subagent complete] …`.
-        const preview = plainPreviewText(botRosterPreview(rawPreview, busy));
+        const preview = plainPreviewText(botRosterPreview(rawPreview));
         const open = () => {
           onOpenBot?.(bot.id, row.conversationId);
           if (sid) activate(sid, false);
@@ -13298,18 +13298,6 @@ function BotRosterRow({
       mark={
         <>
           <BotAvatar bot={bot} working={busy} size={avatarSize} />
-          {/* Activity and unread are independent. Keep them on opposite
-              corners so a working bot with a new reply shows both facts. */}
-          <span className="absolute -bottom-0.5 -right-0.5" aria-hidden="true">
-            <SessionStatusDot
-              busy={activity === "working"}
-              variant="inline"
-              className={cn(
-                "ring-2 ring-card",
-                activity === "disabled" && "bg-muted-foreground/40",
-              )}
-            />
-          </span>
           {/* Collapsed rows show only the mark, so the unread dot has to live
               on it instead of the expanded row's indicator. */}
           {unread && collapsed ? (
@@ -13318,18 +13306,17 @@ function BotRosterRow({
         </>
       }
       title={
-        <span className={cn(!bot.enabled && "text-muted-foreground", unread && "font-bold")}>
+        <span className={cn(!bot.enabled && "text-muted-foreground")}>
           {bot.name}
         </span>
       }
       titleBadge={<BotRosterActivityBadge state={activity} />}
       preview={
-        <span className={cn(previewClassName, unread && "font-medium text-foreground")}>
+        <span className={previewClassName}>
           {preview}
         </span>
       }
       indicator={unread ? unreadDot : null}
-      attention={unread}
       trailingStatic={timestamp ? relTime(timestamp) : null}
       trailingHover={
         onMarkRead ? (
@@ -13355,7 +13342,8 @@ function BotRosterRow({
 }
 
 function BotRosterActivityBadge({ state }: { state: BotRosterActivityState }) {
-  const label = state === "working" ? "Working" : state === "idle" ? "Idle" : "Disabled";
+  if (state === "idle") return null;
+  const label = state === "working" ? "Working" : "Disabled";
   return (
     <span
       role="status"
@@ -13364,21 +13352,13 @@ function BotRosterActivityBadge({ state }: { state: BotRosterActivityState }) {
         "inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none",
         state === "working"
           ? "bg-primary/10 text-primary"
-          : state === "idle"
-            ? "bg-success/10 text-success"
-            : "bg-muted text-muted-foreground",
+          : "bg-muted text-muted-foreground",
       )}
     >
       {state === "working" ? (
         <Loader2 className="size-2.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
       ) : (
-        <span
-          className={cn(
-            "size-1.5 rounded-full",
-            state === "idle" ? "bg-success/60" : "bg-muted-foreground/50",
-          )}
-          aria-hidden="true"
-        />
+        <span className="size-1.5 rounded-full bg-muted-foreground/50" aria-hidden="true" />
       )}
       {label}
     </span>
@@ -27255,7 +27235,7 @@ function BotsView({
         const working = !!(session?.sessionId && busyBySid[session.sessionId]);
         const rawPreview = session?.last?.text || session?.lastUserText || row.lastMessagePreview || item.lastMessagePreview || "";
         // See the rail roster: a `[subagent …]` report is not preview material.
-        const preview = plainPreviewText(botRosterPreview(rawPreview, working));
+        const preview = plainPreviewText(botRosterPreview(rawPreview));
         const stopped = !working && isCodingAgentStoppedText(rawPreview);
         const openRow = () => onOpen(item.id, row.conversationId);
         const markRead = row.unread && row.sessionId ? () => markBotRowRead(row.sessionId!) : undefined;
