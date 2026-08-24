@@ -3,8 +3,14 @@
 //
 // This is deliberately ONE desktop, not one per session. The Settings UI already
 // calls this box "the Computer", and a person has one screen, one mouse and one
-// keyboard. Sessions take turns on it (see holder/claim below) rather than each
-// spawning a display nobody watches.
+// keyboard, so a display per session would mostly mean displays nobody watches.
+//
+// There is deliberately no input lock. Agents drive the browser over CDP, into
+// a specific tab; a person drives over RFB, at the X level. Those are separate
+// channels, so a desktop-wide lock would mostly block the person from their own
+// machine. The contention that IS real is agents sharing one browser tab (see
+// browser.ts), and the fix for that is a tab per session rather than a mutex
+// over the whole screen.
 //
 // The stack, bottom to top:
 //   Xvfb     a virtual X display with no physical screen
@@ -62,8 +68,6 @@ interface DesktopState {
   vnc?: Proc;
   chrome?: Proc;
   startedAt?: number;
-  /** Session id currently holding the input lock, if any. */
-  holder?: string | null;
   /**
    * Pids of a desktop we adopted after a restart. Set only when this process
    * did not spawn the stack itself, so it has no child handles to kill.
@@ -177,7 +181,6 @@ async function adoptOrReap(): Promise<boolean> {
   state = {
     config: record.config,
     startedAt: record.startedAt,
-    holder: null,
     adoptedPids: record.pids,
   };
   return true;
@@ -266,7 +269,6 @@ export interface DesktopStatus {
   width: number;
   height: number;
   startedAt: number | null;
-  holder: string | null;
   deps: DepReport;
 }
 
@@ -281,7 +283,6 @@ export function desktopStatus(): DesktopStatus {
       width: DEFAULT_DESKTOP.width,
       height: DEFAULT_DESKTOP.height,
       startedAt: null,
-      holder: null,
       deps,
     };
   }
@@ -293,7 +294,6 @@ export function desktopStatus(): DesktopStatus {
     width: state.config.width,
     height: state.config.height,
     startedAt: state.startedAt ?? null,
-    holder: state.holder ?? null,
     deps,
   };
 }
@@ -360,7 +360,7 @@ export async function startDesktop(partial: Partial<DesktopConfig> = {}): Promis
   const config: DesktopConfig = { ...DEFAULT_DESKTOP, ...partial };
   const display = `:${config.display}`;
   const env = { ...process.env, DISPLAY: display };
-  const next: DesktopState = { config, holder: null };
+  const next: DesktopState = { config };
 
   // Xvfb first: everything below needs a display to attach to.
   next.xvfb = spawn(
@@ -481,26 +481,6 @@ export async function stopDesktop(): Promise<void> {
       if (p && p.exitCode == null) p.kill("SIGKILL");
     } catch {}
   }
-}
-
-/**
- * The input lock. A shared desktop has one cursor, so two agents clicking at
- * once produce garbage. A session claims the computer, acts, then releases.
- * Returns false when someone else holds it.
- */
-export function claimComputer(sessionId: string): boolean {
-  if (!state) return false;
-  if (state.holder && state.holder !== sessionId) return false;
-  state.holder = sessionId;
-  return true;
-}
-
-export function releaseComputer(sessionId: string): void {
-  if (state && state.holder === sessionId) state.holder = null;
-}
-
-export function computerHolder(): string | null {
-  return state?.holder ?? null;
 }
 
 /** The DevTools websocket URL Bun.WebView attaches to, or null when down. */
