@@ -7,6 +7,22 @@ export type TestBuild = {
   readonly inputs: readonly string[];
 };
 
+/**
+ * What `bun test` genuinely cannot resolve without a build.
+ *
+ * ONLY these two. The chain is narrow: src/plan-limit-error.test.ts imports
+ * web/src/lib/omg-client.ts, which imports @omg-dev/client, which resolves
+ * through package.json "main" to dist, and client's dist imports
+ * @omg-dev/protocol's dist in turn.
+ *
+ * packages/react used to be listed here and nothing under test imports it.
+ * It was demanded only by this file's own assertion, so it cost every fresh
+ * worktree a tsc build and a stylesheet copy to satisfy a guard rather than a
+ * dependency. Measured with both removed: 2571 tests, no resolution failure.
+ *
+ * Do not add an entry here to make a check pass. Add one only when a test
+ * cannot resolve a module without it.
+ */
 export const TEST_BUILDS = [
   {
     output: "packages/protocol/dist/index.js",
@@ -26,22 +42,6 @@ export const TEST_BUILDS = [
       "packages/client/tsconfig.build.json",
       "packages/protocol/dist/index.js",
     ],
-  },
-  {
-    output: "packages/react/dist/index.js",
-    build: ["run", "--cwd", "packages/react", "build"],
-    inputs: [
-      "packages/react/src",
-      "packages/react/package.json",
-      "packages/react/tsconfig.build.json",
-      "packages/client/dist/index.js",
-      "packages/protocol/dist/index.js",
-    ],
-  },
-  {
-    output: "packages/react/dist/styles.css",
-    build: ["run", "--cwd", "packages/react", "build"],
-    inputs: ["packages/react/src/styles.css"],
   },
 ] as const;
 

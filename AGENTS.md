@@ -71,6 +71,18 @@ cannot read that package from source the way `web/tsconfig.json` does. In a
 fresh worktree, run `bun run --cwd packages/client build` once. That is a few
 seconds, not the full `build:packages`.
 
+`bun run test` builds exactly two prerequisites: `packages/protocol` and
+`packages/client`. That is the whole chain. `src/plan-limit-error.test.ts`
+imports `web/src/lib/omg-client.ts`, which imports `@omg-dev/client`, which
+resolves through its manifest to `dist`, and that `dist` imports the protocol
+`dist`. Nothing else under test needs a build.
+
+`packages/react` used to be a prerequisite and nothing imports it under test.
+It was demanded only by the assertion in `scripts/test-builds.ts`, so every
+fresh worktree paid a `tsc` build and a stylesheet copy for a guard rather
+than a dependency. Do not add an entry to `TEST_BUILDS` to make a check pass.
+Add one only when a test cannot resolve a module without it.
+
 Run full tests and typecheck sequentially. Package-build tests can temporarily
 replace workspace artifacts and cause false module-resolution errors.
 Use a real install in each worktree. Do not share or symlink `node_modules`

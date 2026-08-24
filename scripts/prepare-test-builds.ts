@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
   EMBED_TEST_BUILDS,
@@ -40,5 +41,17 @@ if (before.length > 0) {
   }
 }
 
-const after = unreadyTestBuilds(root, builds);
-if (after.length > 0) throw testBuildPrerequisiteError(after);
+// Re-check EXISTENCE, not staleness.
+//
+// The old check re-ran the full mtime comparison. When several prerequisites
+// rebuild in one pass, a downstream output can still look stale, because its
+// input was rewritten seconds earlier by the build that ran just before it.
+// That threw even though every build command had exited 0, which made
+// `bun run test` fail spuriously on a tree that was actually fine.
+//
+// A build command that exits 0 and produced its output has done its job. Only
+// a MISSING output means the prerequisite is genuinely unmet.
+const missing = builds
+  .map(({ output }) => output)
+  .filter((output) => !existsSync(join(root, output)));
+if (missing.length > 0) throw testBuildPrerequisiteError(missing);
