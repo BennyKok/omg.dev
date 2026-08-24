@@ -352,6 +352,7 @@ import {
   completeTranscriptGlideFrame,
   createTranscriptGlideState,
   nextTranscriptGlideFrame,
+  transcriptGlideAction,
 } from "./lib/transcript-glide";
 import {
   ASSISTANT_SINGLE_LINE_PX,
@@ -17779,18 +17780,20 @@ const ChatStream = memo(function ChatStream({
       return;
     }
     const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-    if (discrete && !reducedMotion) {
-      // A glide already in flight is already chasing the live target every
-      // frame — restarting it (startGlide's first move is stopGlide) buys
-      // nothing and is exactly what produced the stutter: three triggers
-      // (append, typing indicator, stick) firing within a few frames each
-      // cancelled and rescheduled the RAF loop. Only a genuine re-engage
-      // deserves to preempt an in-flight glide; "more content arrived" is a
-      // no-op when one is already running.
-      if (reengaged || glideRafRef.current == null) {
-        startGlide(el);
-      }
-    } else {
+    const glideAction = transcriptGlideAction({
+      discrete,
+      reengaged,
+      reducedMotion,
+      running: glideRafRef.current != null,
+    });
+    // A glide already in flight is already chasing the live target every
+    // frame. Both another discrete arrival and ordinary streamed growth must
+    // leave it alone. Restarting stutters; stopping it snaps. Only a genuine
+    // re-engage preempts it, while ordinary growth with no active glide keeps
+    // the existing instant-follow policy.
+    if (glideAction === "start") {
+      startGlide(el);
+    } else if (glideAction === "snap") {
       stopGlide();
       // The bottom offset, not the content height. The browser clamped the
       // old form to the same place, so this changes nothing on screen; it
