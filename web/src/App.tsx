@@ -191,6 +191,8 @@ import {
   OmgChatStreamOwnership,
   OmgChatTransport,
   appendOmgTranscriptEvent,
+  commitHeldOmgRows,
+  heldRowDuringOwnedStream,
   mergeHistoryPage,
   omgMessagesToUIMessages,
   omgUIMessagesToMessages,
@@ -14300,9 +14302,24 @@ function SessionChatBody({
         return;
       }
       if (event.type === "busy") setLiveBusy(event.busy);
+      const streamActive = ownedChatStreams.owns(sid);
+      // Park-and-commit runs OUT here, not inside the updater, because React
+      // may call an updater more than once for one event. Holding twice would
+      // duplicate the row; committing twice is harmless, because every held
+      // row carries a server id and upserting one is idempotent.
+      if (streamActive) {
+        const row = heldRowDuringOwnedStream(event);
+        if (row) {
+          ownedChatStreams.hold(sid, row);
+          return;
+        }
+      }
+      const held = streamActive ? [] : ownedChatStreams.release(sid);
       setMessages((current) => {
-        const next = appendOmgTranscriptEvent(current, event, {
-          streamActive: ownedChatStreams.owns(sid),
+        // The turn released the stream: replay what the server wrote during it,
+        // in the order the server wrote it, before this event lands.
+        const next = appendOmgTranscriptEvent(commitHeldOmgRows(current, held), event, {
+          streamActive,
         });
         // Keep the cached page current so the next re-open paints the newest
         // state rather than a stale snapshot.
@@ -14311,6 +14328,21 @@ function SessionChatBody({
       });
     });
   }, [onError, onSubscribeTranscript, ownedChatStreams, setMessages, sid]);
+
+  // Commit whatever the turn parked, as soon as the turn lets go of the stream.
+  // The listener above would get there too, on its next event, but the next
+  // event can be a poll away — and the interrupt divider belongs on screen with
+  // the answer it cut off, not a second later.
+  const commitHeldTranscriptRows = useCallback(() => {
+    if (!sid || ownedChatStreams.owns(sid)) return;
+    const held = ownedChatStreams.release(sid);
+    if (!held.length) return;
+    setMessages((current) => {
+      const next = commitHeldOmgRows(current, held);
+      if (next !== current) updateTranscriptCacheMessages(sid, next);
+      return next;
+    });
+  }, [ownedChatStreams, setMessages, sid]);
 
   const loadOlderMessages = useCallback(async () => {
     if (!sid || nextBefore == null) return false;
@@ -14343,13 +14375,23 @@ function SessionChatBody({
     const text = (overrideText ?? messageText).trim();
     const files = attachments;
     if (!sid || (!text && !files.length)) return;
-    // A queued send is a genuinely different state from a steered one: the agent
-    // is still on the previous turn and has not read this text yet. The bubble
-    // carries that state itself (waiting style, pinned under the running turn)
-    // instead of a toast that is gone before the distinction becomes visible.
-    // Only real queueing counts — an idle session cannot be interrupted, so both
-    // modes deliver immediately there and the bubble is an ordinary send.
-    const queuedBehindTurn = mode === "queue" && chatBusy;
+    // A send that lands behind a running turn is a genuinely different state
+    // from one the agent reads at once: the agent has not read this text yet.
+    // The bubble carries that state itself (waiting style, pinned under the
+    // running turn) instead of a toast that is gone before the distinction
+    // becomes visible.
+    //
+    // This is about the TURN, not about `mode`. A steer does not skip the send
+    // queue — src/sendq.ts parks any non-command text behind the running turn
+    // and reports it back as status "queued" either way. The bubble used to
+    // claim otherwise for a plain Enter, so a mid-turn send painted itself as
+    // an ordinary in-flight message, sat in the transcript ABOVE the answer it
+    // was interrupting, and then jumped into the queued rail when the server's
+    // first queue event contradicted it. Start where the server is going to
+    // end. Only real queueing counts — an idle session cannot be interrupted,
+    // so both modes deliver immediately there and the bubble is an ordinary
+    // send.
+    const queuedBehindTurn = chatBusy;
     messageInputRef.current?.blur();
     const stashed = stagePromptSend({
       contextKey: stashContext,
@@ -14416,7 +14458,8 @@ function SessionChatBody({
           setPromptStashStatus(stashed?.id, "draft");
           setMessageTextState((current) => current || text);
           onError(err instanceof Error ? err.message : String(err));
-        });
+        })
+        .finally(commitHeldTranscriptRows);
       // Typing here IS the answer to any question this session is waiting on:
       // the agent receives the text through the send above, so the ask store
       // only has to record it and take the badge, the card, and the sticky push

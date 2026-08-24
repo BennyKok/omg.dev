@@ -4,11 +4,13 @@ import {
   OmgChatStreamOwnership,
   OmgChatTransport,
   appendOmgTranscriptEvent,
+  commitHeldOmgRows,
+  heldRowDuringOwnedStream,
   omgUIMessagesToMessages,
   type OmgChatMessage,
   type OmgTranscriptEvent,
 } from "./omg-chat-transport";
-import { buildChatRenderItems } from "./chat-render-items";
+import { buildChatRenderItems, splitQueuedRenderItems } from "./chat-render-items";
 
 // Lives here rather than in test/ so `ai` / `@ai-sdk/react` resolve out of
 // web/node_modules — this exercises the real AI SDK Chat, which is the whole
@@ -45,21 +47,45 @@ function harness(SID = nextSid()) {
   });
   const owned = new OmgChatStreamOwnership();
   const chat = new Chat<OmgChatMessage>({ id: SID, transport });
-  // The passive listener SessionChat installs next to the transport.
+  // Replay everything the turn parked, in the order the server sent it.
+  const commitHeld = () => {
+    if (owned.owns(SID)) return;
+    const next = commitHeldOmgRows(chat.messages, owned.release(SID));
+    if (next !== chat.messages) chat.messages = next;
+  };
+  // The passive listener SessionChat installs next to the transport, including
+  // its park-and-commit: a row that would land past the live turn waits in the
+  // ownership record until the turn lets go.
   listeners.add((event) => {
-    const next = appendOmgTranscriptEvent(chat.messages, event, { streamActive: owned.owns(SID) });
+    const streamActive = owned.owns(SID);
+    if (streamActive) {
+      const row = heldRowDuringOwnedStream(event);
+      if (row) {
+        owned.hold(SID, row);
+        return;
+      }
+    } else {
+      commitHeld();
+    }
+    const next = appendOmgTranscriptEvent(chat.messages, event, { streamActive });
     if (next !== chat.messages) chat.messages = next;
   });
   const emit = (event: OmgTranscriptEvent) => {
     for (const listener of [...listeners]) listener(event);
   };
-  const send = (text: string) =>
-    owned.run(SID, () =>
-      chat.sendMessage({
-        text,
-        metadata: { omgMessage: { role: "user", kind: "text", text, ts: Date.now(), pending: true } },
-      }),
-    );
+  // `queued` mirrors SessionChat: a send that lands behind a running turn shows
+  // as queued, because that is what the send queue is about to report anyway.
+  const send = (text: string, queued = false) =>
+    owned
+      .run(SID, () =>
+        chat.sendMessage({
+          text,
+          metadata: {
+            omgMessage: { role: "user", kind: "text", text, ts: Date.now(), pending: true, queued },
+          },
+        }),
+      )
+      .finally(commitHeld);
   return { chat, emit, posts, send, SID };
 }
 
@@ -255,6 +281,70 @@ describe("sending while the assistant is streaming", () => {
     emit({ type: "busy", busy: false });
     await sleep(200);
     await Promise.allSettled([first, second]);
+  });
+
+  // The order the reader has to end up with. The server writes the interrupted
+  // turn in one true sequence — the partial answer, the interrupt marker, then
+  // the steering message that caused it — and the client's only job is to
+  // mirror it.
+  //
+  // It used to invert it. AbstractChat appends the steering message the instant
+  // it is sent, and every chunk of a live response picks replace-vs-append by
+  // comparing its own id against the TAIL of the list, so withStreamingTurnLast
+  // has to re-seat the streaming bubble at the end to stop the turn duplicating
+  // itself. Re-seating necessarily pushed the still-streaming answer BELOW the
+  // message that interrupted it, and there it stayed.
+  test("commits an interrupted turn in the order the server wrote it", async () => {
+    const { chat, emit, send, SID } = harness();
+    // Server rows are written AFTER the local sends, so they must be stamped
+    // after them: upsertOmgUIMessage places a settled row by timestamp.
+    const base = Date.now() + 1_000;
+    const answer = "Good — that is the verification that counts.";
+
+    const first = send("ship it");
+    await sleep(20);
+    emit({ type: "busy", busy: true });
+    emit({ type: "ai_part", part: { type: "text-delta", id: `draft-${SID}`, text: "Good", reset: true, ts: base + 10 } });
+    await sleep(10);
+    emit({ type: "ai_part", part: { type: "text-delta", id: `draft-${SID}`, text: answer, reset: true, ts: base + 20 } });
+    await sleep(10);
+
+    // Sent mid-stream, so it shows as queued rather than as a transcript row.
+    const second = send("stop, do this instead", true);
+    await sleep(20);
+
+    // While the turn is still live the reader must NOT see the steering message
+    // sitting above the answer it interrupted: it is pinned outside the
+    // transcript, under the running turn, by splitQueuedRenderItems.
+    const live = omgUIMessagesToMessages(chat.messages);
+    const { items: liveItems, queued } = splitQueuedRenderItems(buildChatRenderItems(live));
+    expect(liveItems.filter((item) => item.type === "msg").map((item) => item.message.text)).toEqual([
+      "ship it",
+      answer,
+    ]);
+    expect(queued.map((item) => (item.type === "msg" ? item.message.text : null))).toEqual([
+      "stop, do this instead",
+    ]);
+
+    emit({ type: "message", message: { id: "row-901", role: "assistant", kind: "text", text: answer, ts: base + 30 } });
+    emit({ type: "message", message: { id: "row-902", role: "user", kind: "text", text: "[Request interrupted by user]", ts: base + 31 } });
+    emit({ type: "message", message: { id: "row-903", role: "user", kind: "text", text: "stop, do this instead", ts: base + 32 } });
+    await sleep(300);
+    emit({ type: "busy", busy: false });
+    await sleep(200);
+    await Promise.allSettled([first, second]);
+
+    // The steered turn's own answer, on the far side of the interrupt.
+    emit({ type: "message", message: { id: "row-904", role: "assistant", kind: "text", text: "Doing that instead.", ts: base + 40 } });
+    await sleep(20);
+
+    expect(omgUIMessagesToMessages(chat.messages).map((message) => message.text)).toEqual([
+      "ship it",
+      answer,
+      "[Request interrupted by user]",
+      "stop, do this instead",
+      "Doing that instead.",
+    ]);
   });
 
   test("a steering send alone does not duplicate the live turn", async () => {

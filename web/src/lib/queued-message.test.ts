@@ -129,6 +129,26 @@ describe("a message queued behind a running turn", () => {
     expect(next[0].id).toBe("queue-send-1");
   });
 
+  // The send queue reports a message behind a running turn as pending, then
+  // sending, then queued, one event each. Reading `queued` straight off the
+  // status dropped the bubble out of the queued rail and back into the
+  // transcript in between, so one mid-turn send visibly flickered and re-ran
+  // its entrance animation on every crossing.
+  test("stays in the queued rail across the queue's own status churn", () => {
+    let messages = [optimisticQueued("look at the tests too")];
+    const rail: ("queued" | "list")[] = [];
+    for (const status of ["pending", "sending", "queued"] as const) {
+      messages = reconcileOmgQueueMessages(messages, [
+        { id: "send-1", text: "look at the tests too", status, createdAt: TS },
+      ]);
+      const { queued } = splitQueuedRenderItems(
+        buildChatRenderItems(omgUIMessagesToMessages(messages)),
+      );
+      rail.push(queued.length ? "queued" : "list");
+    }
+    expect(rail).toEqual(["queued", "queued", "queued"]);
+  });
+
   test("removes the restored bubble when the queue reports delivery", () => {
     const queued = reconcileOmgQueueMessages([], [
       {
