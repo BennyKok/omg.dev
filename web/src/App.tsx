@@ -5304,7 +5304,12 @@ export function App() {
   // Host-mounted single page: suppress every piece of LFG shell chrome the
   // host already renders (header, brand, nav, composer).
   const bare = useBareSurface();
-  const { connectionOnboarding, defaultAgent, viewer } = useEmbeddedHostOptions();
+  const {
+    connectionOnboarding,
+    defaultAgent,
+    viewer,
+    onAnalyticsEvent,
+  } = useEmbeddedHostOptions();
   // Session deep-links win over filter/identity work so the target card opens
   // as soon as bootstrap returns sessions.
   const prioritizeSession = shouldPrioritizeSession(deepLinkSearch) || !!sessionDeepLinkRef.current;
@@ -7879,6 +7884,7 @@ export function App() {
           options={embeddedConnectOptions(codingAgents)}
           toolConnections={toolConnections}
           pendingKind={connectPendingKind}
+          onAnalyticsEvent={onAnalyticsEvent}
           onConnect={(kind) => {
             setConnectPendingKind(kind as AgentKind);
             void loginCodingAgent(kind as AgentKind).finally(() =>

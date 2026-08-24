@@ -99,6 +99,11 @@ export interface EmbeddedViewer {
   avatar?: string;
 }
 
+export type EmbeddedAnalyticsEventHandler = (
+  name: string,
+  data?: Record<string, unknown>,
+) => void;
+
 export interface OmgAppSurfaceProps {
   transport: OmgTransport;
   assetBaseUrl?: string;
@@ -112,6 +117,8 @@ export interface OmgAppSurfaceProps {
    * keep provider connections as an optional Settings action.
    */
   connectionOnboarding?: boolean;
+  /** Deliver embedded product events through the host's analytics client. */
+  onAnalyticsEvent?: EmbeddedAnalyticsEventHandler;
   /**
    * Personalizes hosted welcome/status copy without changing LFG roster,
    * session ownership, filtering, or authorization semantics.

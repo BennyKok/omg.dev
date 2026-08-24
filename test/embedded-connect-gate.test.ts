@@ -334,6 +334,19 @@ describe("App wiring", () => {
     expect(gate.slice(0, gate.indexOf("</>"))).toContain("loginTool(key)");
   });
 
+  test("the embedded host owns survey analytics delivery", () => {
+    const entry = require("node:fs").readFileSync("web/src/embedded.tsx", "utf8") as string;
+    const component = require("node:fs").readFileSync(
+      "web/src/components/embedded-connect-gate.tsx",
+      "utf8",
+    ) as string;
+    expect(entry).toContain("onAnalyticsEvent?: EmbeddedAnalyticsEventHandler");
+    expect(entry).toContain("onAnalyticsEvent,");
+    expect(app).toContain("onAnalyticsEvent={onAnalyticsEvent}");
+    expect(component).toContain("const emitAnalytics = onAnalyticsEvent ?? trackEvent");
+    expect(component).toContain("emitAnalytics(event.name, event.data)");
+  });
+
   test("the gate includes a second tools page with a real GitHub connection", () => {
     const component = require("node:fs").readFileSync(
       "web/src/components/embedded-connect-gate.tsx",
