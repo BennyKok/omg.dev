@@ -11,9 +11,8 @@
 // first paint, and most sessions never open the Computer at all.
 import { useCallback, useEffect, useRef, useState } from "react";
 import RFB from "@novnc/novnc";
-import { Loader2, Monitor, MousePointer2, Power, RotateCcw, Square } from "lucide-react";
+import { Loader2, MousePointer2, Power, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { omgFetch, openOmgSocket } from "@/lib/omg-client";
 import { RfbChannel } from "@/lib/rfb-channel";
 
@@ -37,7 +36,7 @@ interface ComputerStatus {
 
 type Phase = "idle" | "starting" | "connecting" | "live" | "stopping";
 
-export function ComputerPage({ active }: { active: boolean }) {
+export function ComputerPage({ active, onClose }: { active: boolean; onClose?: () => void }) {
   const [status, setStatus] = useState<ComputerStatus | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -127,118 +126,93 @@ export function ComputerPage({ active }: { active: boolean }) {
     }
   };
 
-  const stop = async () => {
-    setPhase("stopping");
-    disconnect();
-    try {
-      const res = await omgFetch("/api/computer/stop", { method: "POST" });
-      if (res.ok) setStatus((await res.json()) as ComputerStatus);
-    } finally {
-      setPhase("idle");
-    }
-  };
 
   const deps = status?.deps;
   const running = !!status?.running;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 p-4">
-      <header className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2">
-          <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
-            <Monitor className="size-4" />
-          </span>
-          <h1 className="text-sm font-semibold">Computer</h1>
-        </div>
-        <span
-          className={cn(
-            "rounded-full px-2 py-0.5 text-xs",
-            phase === "live"
-              ? "bg-emerald-500/15 text-emerald-600"
-              : "bg-muted text-muted-foreground",
-          )}
-        >
-          {phase === "live"
-            ? `live ${status?.width}x${status?.height}`
-            : running
-              ? phase
-              : "stopped"}
-        </span>
-        {status?.holder ? (
-          <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-600">
-            held by {status.holder}
-          </span>
-        ) : null}
+    // Full bleed: the screen is the page. No title, no chrome, no padding --
+    // every pixel spent on framing is a pixel not spent on the desktop.
+    <div className="relative h-full min-h-0 w-full overflow-hidden bg-[#0b0b0d]">
+      <div ref={screenRef} className="absolute inset-0" />
 
-        <div className="ml-auto flex items-center gap-2">
-          {running ? (
-            <>
-              <Button
-                variant={viewOnly ? "outline" : "default"}
-                size="sm"
-                onClick={() => setViewOnly((v) => !v)}
-                title={viewOnly ? "Take control of the pointer and keyboard" : "Stop sending input"}
-              >
-                <MousePointer2 className="mr-1.5 size-3.5" />
-                {viewOnly ? "Take control" : "Controlling"}
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => { disconnect(); void connect(); }}>
-                <RotateCcw className="mr-1.5 size-3.5" />
-                Reconnect
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => void stop()}>
-                <Square className="mr-1.5 size-3.5" />
-                Stop
-              </Button>
-            </>
-          ) : (
+      {/* Controls float over the screen, top right, rather than occupying a
+          header band. Stop is gone on purpose: leaving the page is how you
+          stop watching, and the desktop deliberately keeps running so an
+          agent's work survives you closing the tab. */}
+      <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
+        {running ? (
+          <>
             <Button
+              variant={viewOnly ? "secondary" : "default"}
               size="sm"
-              disabled={phase === "starting" || deps?.ok === false}
-              onClick={() => void start()}
+              className="shadow-lg"
+              onClick={() => setViewOnly((v) => !v)}
             >
-              {phase === "starting" ? (
-                <Loader2 className="mr-1.5 size-3.5 animate-spin" />
-              ) : (
-                <Power className="mr-1.5 size-3.5" />
-              )}
-              Start the computer
+              <MousePointer2 className="mr-1.5 size-3.5" />
+              {viewOnly ? "Take control" : "Controlling"}
             </Button>
-          )}
-        </div>
-      </header>
+            <Button
+              variant="secondary"
+              size="icon-sm"
+              className="shadow-lg"
+              onClick={() => {
+                disconnect();
+                void connect();
+              }}
+              aria-label="Reconnect"
+              title="Reconnect"
+            >
+              <RotateCcw className="size-3.5" />
+            </Button>
+          </>
+        ) : null}
+        {onClose ? (
+          <Button
+            variant="secondary"
+            size="icon-sm"
+            className="shadow-lg"
+            onClick={onClose}
+            aria-label="Close the computer"
+            title="Close"
+          >
+            <X className="size-4" />
+          </Button>
+        ) : null}
+      </div>
 
-      {deps && !deps.ok ? (
-        <div className="rounded-lg border border-border bg-card/40 p-3 text-sm">
-          <p className="font-medium">The computer needs a few packages.</p>
-          <p className="mt-1 text-muted-foreground">
-            Missing: {deps.missing.join(", ")}
-          </p>
-          <pre className="mt-2 overflow-x-auto rounded bg-muted p-2 text-xs">{deps.hint}</pre>
+      {/* Everything below only appears when there is no picture to show. */}
+      {!running || error || (deps && !deps.ok) ? (
+        <div className="absolute inset-0 z-[5] flex items-center justify-center p-6">
+          <div className="w-full max-w-md space-y-3 rounded-2xl border border-border bg-card/90 p-5 text-center backdrop-blur">
+            {deps && !deps.ok ? (
+              <>
+                <p className="text-sm font-medium">The computer needs a few packages.</p>
+                <p className="text-xs text-muted-foreground">Missing: {deps.missing.join(", ")}</p>
+                <pre className="overflow-x-auto rounded bg-muted p-2 text-left text-xs">
+                  {deps.hint}
+                </pre>
+              </>
+            ) : error ? (
+              <p className="text-sm text-destructive">{error}</p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Start the computer to open a desktop with a browser the agent can drive.
+              </p>
+            )}
+            {!running ? (
+              <Button disabled={phase === "starting" || deps?.ok === false} onClick={() => void start()}>
+                {phase === "starting" ? (
+                  <Loader2 className="mr-1.5 size-4 animate-spin" />
+                ) : (
+                  <Power className="mr-1.5 size-4" />
+                )}
+                Start the computer
+              </Button>
+            ) : null}
+          </div>
         </div>
       ) : null}
-
-      {error ? (
-        <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </div>
-      ) : null}
-
-      <div
-        ref={screenRef}
-        className={cn(
-          "min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-[#0b0b0d]",
-          viewOnly ? "cursor-default" : "cursor-none",
-        )}
-      />
-
-      <p className="text-xs text-muted-foreground">
-        {running
-          ? viewOnly
-            ? "Watching. Take control to move the pointer and type."
-            : "You have the pointer and keyboard. The agent drives the browser on this same screen."
-          : "The computer is stopped. Starting it opens a desktop with a browser the agent can drive."}
-      </p>
     </div>
   );
 }
