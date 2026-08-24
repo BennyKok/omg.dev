@@ -31,7 +31,6 @@ interface ComputerStatus {
   width: number;
   height: number;
   startedAt: number | null;
-  holder: string | null;
   deps: DepReport;
 }
 
