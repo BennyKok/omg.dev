@@ -2,6 +2,27 @@
 
 Recent product updates and deployment notes.
 
+## August 24, 2026 - The Computer on a phone, and Schedules as a real list (v0.6.2)
+
+- **The Computer survives a restart.** Its lifecycle used to live only in the
+  server's memory, so a deploy or a crash left the desktop running with nobody
+  holding it: the screen stayed up while the tab went dead, and the next start
+  failed because the ports were still taken. A restarted server now reattaches
+  to a healthy desktop instead of orphaning it, so a deploy is invisible to
+  whoever is watching and to an agent mid-task.
+- **Touch works properly.** Dragging moves the pointer by offset, the way a
+  trackpad does, instead of teleporting it to wherever your finger landed --
+  which on a touchscreen put the target under your own hand. A tap clicks where
+  the cursor is. There is a keyboard button, because a canvas cannot take focus
+  on iOS and there was previously no way to raise the soft keyboard at all.
+- **Opening the Computer starts it.** The Start button is gone: opening the
+  page was already the decision, and the progress indicator covers the wait.
+- **Schedules is a list you can work.** The enable switch moves to the right
+  edge where a thumb already is, the agent icon becomes a quick switch, each
+  schedule fits on one line, and the findings banner is gone -- findings have
+  their own surface, and a banner about them was the loudest thing on a page
+  meant to be a list of schedules.
+
 ## August 24, 2026 - Fix the release bundle (v0.6.1)
 
 - **The v0.6.0 release bundle failed to build.** The Computer pulls in noVNC,
