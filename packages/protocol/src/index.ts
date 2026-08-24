@@ -59,6 +59,18 @@ export interface OmgMessage {
   pending?: boolean;
   seed?: boolean;
   catchUp?: boolean;
+  /**
+   * Length in characters of the tool_use arguments the server left out.
+   *
+   * Present only on a `tool_use` message, and only when the connection asked
+   * for the `deferToolArgs` capability. `text` is then the bare tool name
+   * instead of `Name: <json>`, and the arguments are fetched on demand from
+   * `GET /api/sessions/:id/messages/:messageId/tool-args`.
+   *
+   * A client that never asks for the capability never sees this field and
+   * keeps receiving the full inline text.
+   */
+  toolArgsLen?: number;
 }
 
 export interface OmgAiStreamPart {
@@ -97,6 +109,21 @@ export interface OmgLiveChannel {
   kind: OmgLiveChannelKind;
   key: string;
   resumeFromSeq?: number;
+}
+
+/**
+ * Optional capabilities a client declares on its `subscribe` frame.
+ *
+ * Every field is additive and defaults to the pre-capability behaviour, so a
+ * client that sends none keeps the exact wire it had before.
+ */
+export interface OmgLiveSubscribeCapabilities {
+  /**
+   * Leave tool_use arguments out of transcript frames and send the bare tool
+   * name instead. The client fetches the arguments of a call when a reader
+   * opens it. Latches on for the life of the connection once requested.
+   */
+  deferToolArgs?: boolean;
 }
 
 export interface OmgStatusRow {

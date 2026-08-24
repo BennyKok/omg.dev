@@ -2,7 +2,12 @@ import { mkdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
 import { PATHS } from "./config.ts";
-import { isCursorTurnEndedLine, normalizeLineMessages, type SessionMsg } from "./sessions.ts";
+import {
+  isCursorTurnEndedLine,
+  normalizeLineMessages,
+  splitToolUseText,
+  type SessionMsg,
+} from "./sessions.ts";
 import { traceLog } from "./trace-log.ts";
 import {
   messageAuthorForSession,
@@ -1516,6 +1521,35 @@ export async function indexedRecentMessages(
 ): Promise<SessionMsg[]> {
   const page = await indexedMessagePage(path, sessionId, { limit });
   return page.messages;
+}
+
+// Read back the arguments of ONE tool_use, for a reader who opened its pill.
+//
+// This is the other half of the deferToolArgs capability (see deferToolUseArgs
+// in src/sessions.ts): the stream carries `Name`, and this returns the `<json>`
+// that was cut out of it. The index keeps the full clipped text either way, so
+// nothing had to be stored differently to make this work, and transcript
+// search still matches inside arguments the client never received.
+//
+// Scoped by PATH as well as by message id. Ids are globally unique, so an
+// unscoped lookup would let any caller read a message out of a session it did
+// not ask for.
+export function indexedToolUseArgs(
+  path: string,
+  messageId: string,
+): { messageId: string; name: string; args: string } | null {
+  init();
+  const row = database()
+    .query<{ kind: string; text: string }, [string, string]>(
+      `SELECT kind, text
+         FROM transcript_messages
+        WHERE path = ? AND message_id = ?
+        LIMIT 1`,
+    )
+    .get(path, messageId);
+  if (!row || row.kind !== "tool_use") return null;
+  const { name, args } = splitToolUseText(row.text);
+  return { messageId, name, args };
 }
 
 export function indexedMessagesAfterRowid(

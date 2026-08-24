@@ -219,6 +219,7 @@ import {
   cwdForTranscript,
   cwdForCodexTranscript,
   findCodexTranscriptById,
+  deferToolUseArgs,
   visibleTranscriptMessages,
   type PendingPrompt,
   type Session,
@@ -238,6 +239,7 @@ import {
   enqueueTranscriptIndex,
   indexedMessagePage,
   indexedMessageRowPage,
+  indexedToolUseArgs,
   indexArtifactMessage,
   indexedArtifactPlacement,
   indexTranscript,
@@ -2196,8 +2198,31 @@ function withImageArtifacts<T extends { role: string; kind: string; text: string
 function transcriptMessagesForClient<T extends { role: string; kind: string; text: string; ts?: number | null; id?: string | null }>(
   sessionId: string,
   messages: T[],
+  opts: { deferToolArgs?: boolean } = {},
 ): Array<T | ImageArtifactMessage> {
-  return withImageArtifacts(sessionId, visibleTranscriptMessages(messages));
+  const visible = withImageArtifacts(sessionId, visibleTranscriptMessages(messages));
+  return opts.deferToolArgs ? deferToolUseArgs(visible) : visible;
+}
+
+// The live half of transcriptMessagesForClient. A streamed message needs the
+// same two wire filters, but not the artifact hydration: artifacts arrive on
+// their own subscription, already hydrated.
+function liveTranscriptMessagesForClient<T extends { kind: string; text: string }>(
+  messages: T[],
+  opts: { deferToolArgs?: boolean } = {},
+): T[] {
+  const visible = visibleTranscriptMessages(messages);
+  return opts.deferToolArgs ? (deferToolUseArgs(visible) as T[]) : visible;
+}
+
+// The `deferToolArgs` capability, as a query parameter.
+//
+// Additive and optional, the same way `rows` is: without it the payload is the
+// old one, byte for byte, so an older client keeps its exact behaviour. This
+// is a property of the CONNECTION, not of the server, which is why there is no
+// environment variable and no configuration for it.
+function requestedDeferToolArgs(url: URL): boolean {
+  return url.searchParams.get("deferToolArgs") === "1";
 }
 
 // Rows as the client will count them: the shared row model applied to the
@@ -8414,6 +8439,7 @@ a{color:#60a5fa}
           // With it the page grows backward until it renders that many rows,
           // because a run of tool calls collapses into one.
           const rows = requestedRows(url);
+          const deferToolArgs = requestedDeferToolArgs(url);
           if (url.searchParams.get("page") === "backward") {
             const rawLimit = parseInt(url.searchParams.get("limit") ?? "220", 10);
             const limit = Number.isFinite(rawLimit) ? rawLimit : 220;
@@ -8432,7 +8458,7 @@ a{color:#60a5fa}
               id: m[1],
               total: page.total,
               nextBefore: page.nextBefore,
-              messages: transcriptMessagesForClient(m[1], page.messages).map(msgWithHtml),
+              messages: transcriptMessagesForClient(m[1], page.messages, { deferToolArgs }).map(msgWithHtml),
             });
           }
           const full = url.searchParams.get("full") === "1";
@@ -8452,8 +8478,30 @@ a{color:#60a5fa}
             id: m[1],
             total: page.total,
             nextBefore: page.nextBefore,
-            messages: transcriptMessagesForClient(m[1], page.messages).map(msgWithHtml),
+            messages: transcriptMessagesForClient(m[1], page.messages, { deferToolArgs }).map(msgWithHtml),
           });
+        }
+      }
+
+      {
+        // The other half of the deferToolArgs capability: the arguments of ONE
+        // tool call, fetched when a reader opens its pill.
+        //
+        // A pill shows a name and a count, so the arguments are dead weight on
+        // the stream until someone asks. A client that opted out of receiving
+        // them inline comes here for the one it opened. The index still holds
+        // the full text, so nothing is lost and search is unaffected.
+        const m = path.match(
+          /^\/api\/sessions\/([0-9a-fA-F-]{36})\/messages\/([^/]{1,200})\/tool-args$/,
+        );
+        if (m && req.method === "GET") {
+          const tp = await resolveTranscript(m[1]);
+          if (!tp) return err(404, "session transcript not found");
+          await ensureChatTranscriptCaughtUp(tp, m[1], "api-tool-args");
+          const messageId = decodeURIComponent(m[2]);
+          const found = indexedToolUseArgs(tp, messageId);
+          if (!found) return err(404, "tool call not found");
+          return json({ id: m[1], messageId: found.messageId, name: found.name, args: found.args });
         }
       }
 
@@ -8760,7 +8808,10 @@ a{color:#60a5fa}
           .map((s) => s.trim())
           .filter((s) => /^[0-9a-fA-F-]{36}$/.test(s))
           .slice(0, 24);
-        evlog("live_stream_request", { rid, ids, idsCount: ids.length });
+        // Per-connection capability, declared on the stream URL. Absent means
+        // the old payload, so an older EventSource client is unchanged.
+        const deferToolArgs = requestedDeferToolArgs(url);
+        evlog("live_stream_request", { rid, ids, idsCount: ids.length, deferToolArgs });
         type LivePane = { sid: string; tp: string | null; target: string | null; agent: Session["agent"] | null };
         let panes: LivePane[] = [];
 
@@ -8816,7 +8867,7 @@ a{color:#60a5fa}
                 p.sid,
                 subscribeChatTranscript(tp, p.sid, (event) => {
                   if (closed) return;
-                  const messages = visibleTranscriptMessages(event.messages);
+                  const messages = liveTranscriptMessagesForClient(event.messages, { deferToolArgs });
                   if (messages.length) markMessage(p.sid);
                   for (const msg of messages) {
                     send(`event: msg\ndata: ${JSON.stringify({ sid: p.sid, m: msgWithHtml(msg) })}\n\n`);
@@ -8972,7 +9023,9 @@ a{color:#60a5fa}
                   });
                   const readMs = performance.now() - backlogT0;
                   const renderT0 = performance.now();
-                  const msgs = transcriptMessagesForClient(p.sid, page.messages).map(msgWithHtml);
+                  const msgs = transcriptMessagesForClient(p.sid, page.messages, {
+                    deferToolArgs,
+                  }).map(msgWithHtml);
                   evlog("live_stream_backlog", {
                     rid,
                     sid: p.sid,
@@ -9054,6 +9107,8 @@ a{color:#60a5fa}
           const tp = await resolveTranscript(m[1]);
           if (!tp) return err(404, "session transcript not found");
           const target = session?.tmuxTarget ?? null;
+          // Same per-connection capability as /api/live/stream.
+          const deferToolArgs = requestedDeferToolArgs(url);
           let iv: ReturnType<typeof setInterval> | null = null;
           let pi: ReturnType<typeof setInterval> | null = null;
           let di: ReturnType<typeof setInterval> | null = null;
@@ -9101,7 +9156,7 @@ a{color:#60a5fa}
                   if (!transcriptUnsub) {
                     transcriptUnsub = subscribeChatTranscript(tp, sid, (event) => {
                       if (closed) return;
-                      const messages = visibleTranscriptMessages(event.messages);
+                      const messages = liveTranscriptMessagesForClient(event.messages, { deferToolArgs });
                       if (messages.length) lastMessageAt = Date.now();
                       for (const msg of messages) send(`event: msg\ndata: ${JSON.stringify(msgWithHtml(msg))}\n\n`);
                     });
@@ -9131,6 +9186,7 @@ a{color:#60a5fa}
                 const msgs = transcriptMessagesForClient(
                   sid,
                   page.messages,
+                  { deferToolArgs },
                 ).map(msgWithHtml);
                 for (const msg of msgs)
                   send(`event: msg\ndata: ${JSON.stringify(msg)}\n\n`);

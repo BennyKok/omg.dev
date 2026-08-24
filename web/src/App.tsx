@@ -336,8 +336,11 @@ import {
   toolGroupLabel,
   type ChatRenderItem,
 } from "./lib/chat-render-items";
+import { isDeferredToolUse, useDeferredToolArgs } from "./lib/deferred-tool-args";
 import {
+  DEFER_TOOL_ARGS_PARAM,
   loadOlderIntent,
+  toolArgsPath,
   transcriptOlderPagePath,
   transcriptPagePath,
   windowLiveMessages,
@@ -843,6 +846,10 @@ type Message = {
   queueError?: string;
   queueId?: string;
   seed?: boolean;
+  // Set on a tool_use when the server left its arguments out of the payload
+  // (the `deferToolArgs` capability). `text` is then the bare tool name, and
+  // this is the length of what was cut. ToolGroup fetches it on expand.
+  toolArgsLen?: number;
   // A draft assistant turn we joined mid-stream: its text was already fully
   // accumulated when we connected, so it renders settled instead of replaying
   // the word-by-word streaming reveal. See DRAFT_CATCHUP_MIN_CHARS.
@@ -4614,7 +4621,9 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
     // in-flight draft in full (catch-up); later ones are live growth.
     const draftSeen = new Set<string>();
     evlog("live_stream_client_start", { rid, ids, idsCount: ids.length });
-    const es = new EventSource(`/api/live/stream?ids=${ids.join(",")}&rid=${encodeURIComponent(rid)}`);
+    const es = new EventSource(
+      `/api/live/stream?ids=${ids.join(",")}&rid=${encodeURIComponent(rid)}&${DEFER_TOOL_ARGS_PARAM}`,
+    );
     es.onopen = () => {
       evlog("live_stream_client_open", {
         rid,
@@ -17795,7 +17804,7 @@ const ChatStream = memo(function ChatStream({
                   }}
                 >
                   {item.type === "tools" ? (
-                    <ToolGroup items={item.items} live={busy && index === items.length - 1} />
+                    <ToolGroup items={item.items} live={busy && index === items.length - 1} sid={sid} />
                   ) : (
                     <MessageBubble
                       message={item.message}
@@ -18085,10 +18094,14 @@ function OrganicActivityEffect({
 // reference check on `items` would never bail. The Message objects inside it
 // are stable for any group that isn't the live one (same reasoning as
 // MessageBubble above), so compare contents instead of array identity.
-const ToolGroup = memo(function ToolGroup({ items, live }: { items: Message[]; live: boolean }) {
+const ToolGroup = memo(function ToolGroup({ items, live, sid }: { items: Message[]; live: boolean; sid?: string | null }) {
   const label = toolGroupLabel(items);
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
+  // Arguments are not on the wire until a reader opens the pill. The label
+  // above is built from the tool NAMES, which are, so the counter still ticks
+  // up live during a run without any of this having resolved.
+  const toolArgs = useDeferredToolArgs(sid, items, open);
   const openRef = useRef(open);
   openRef.current = open;
   const hoverOpenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -18173,14 +18186,34 @@ const ToolGroup = memo(function ToolGroup({ items, live }: { items: Message[]; l
         const title = isUse
           ? (separator >= 0 ? text.slice(0, separator) : text) || "Command"
           : `Result${items.filter((entry) => entry.kind === "tool_result").length > 1 ? ` ${index + 1}` : ""}`;
-        const body = isUse && separator >= 0 ? text.slice(separator + 1).trim() : isUse ? "" : text;
+        const inlineBody = isUse && separator >= 0 ? text.slice(separator + 1).trim() : isUse ? "" : text;
+        // A deferred call has no inline arguments at all: the server sent the
+        // name only. Whatever the fetch has reached is the body instead.
+        const deferred = isDeferredToolUse(item) ? toolArgs[item.id!] : undefined;
+        const body = deferred?.status === "ready" ? deferred.args : inlineBody;
         return (
           <div key={item.id ?? `${item.kind}-${item.ts}-${index}`} className="min-w-0">
             <div className="mb-1 flex items-center gap-2 text-xs font-semibold text-foreground">
               <span className={cn("size-1.5 rounded-full", isUse ? "bg-primary" : "bg-muted-foreground/60")} />
               <span className="truncate font-mono">{title}</span>
             </div>
-            {body ? (
+            {deferred?.status === "loading" ? (
+              <div
+                className="rounded-xl bg-muted/60 p-2.5 text-[11px] leading-relaxed text-muted-foreground"
+                role="status"
+                data-testid="tool-args-loading"
+              >
+                Loading command details...
+              </div>
+            ) : deferred?.status === "error" ? (
+              <div
+                className="rounded-xl bg-destructive/10 p-2.5 text-[11px] leading-relaxed text-destructive"
+                role="alert"
+                data-testid="tool-args-error"
+              >
+                {deferred.error}
+              </div>
+            ) : body ? (
               <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-muted/60 p-2.5 font-mono text-[11px] leading-relaxed text-muted-foreground">
                 {body}
               </pre>
