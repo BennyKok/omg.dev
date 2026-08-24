@@ -8160,7 +8160,7 @@ export function App() {
             className="glass-island flex h-11 shrink-0 items-center gap-1.5 rounded-full px-2"
           />
         </header>
-      ) : liveDesktopWorkspace ? null : (
+      ) : liveDesktopWorkspace || tab === "computer" ? null : (
       /* Embedded used to be suppressed here too, which left Shipped and
          Artifacts with no chrome at all — no way back to Live except browser
          history. The host owns identity/settings chrome, not LFG's page
@@ -8561,7 +8561,7 @@ export function App() {
           <Suspense
             fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}
           >
-            <ComputerPage active />
+            <ComputerPage active onClose={() => setTab("live")} />
           </Suspense>
         ) : null}
         {tab === "more" ? (
