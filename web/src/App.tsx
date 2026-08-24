@@ -314,7 +314,6 @@ import {
   Vibrate,
   Sun,
   Monitor,
-  Plug,
   TerminalSquare,
   TextSelect,
   Trash2,
@@ -8504,6 +8503,8 @@ export function App() {
             onConnectProvider={(kind, provider) => void loginAgentProvider(kind, provider)}
             onDisconnectProvider={(kind, provider) => void disconnectAgentProvider(kind, provider)}
             onSetupCheck={runSetupCheck}
+            computerMcpEnabled={settings.computerMcpEnabled}
+            onComputerMcpChange={(next) => void updateSettings({ computerMcpEnabled: next })}
             onRefresh={() => void refreshCodingAgents({ refreshModels: true })}
           />
           </Suspense>
@@ -26019,53 +26020,6 @@ function SettingsView({
         settings={settings}
         onChange={onSettingsChange}
       />
-
-      {/* MCP servers this box offers agents. Two catalogs, deliberately kept
-          apart: the omg one is the general contract every session gets, and the
-          Computer one drives a real desktop that only exists where the X stack
-          is installed. Listing both here is what makes that split legible —
-          otherwise "why can this agent not see my screen" is invisible. */}
-      <section className="space-y-2">
-        <h2 className="px-4 text-xs font-semibold text-muted-foreground">MCP servers</h2>
-        <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
-          <div className="flex w-full items-center justify-between gap-4 px-4 py-2.5">
-            <div className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
-                <Plug className="size-4" />
-              </span>
-              <span>
-                <span className="block text-sm font-medium">omg MCP</span>
-                <span className="block text-xs text-muted-foreground">
-                  Sessions, bots, schedules, artifacts. Always on.
-                </span>
-              </span>
-            </div>
-            <span className="text-xs text-muted-foreground">Always on</span>
-          </div>
-          <div className="flex w-full items-center justify-between gap-4 px-4 py-2.5">
-            <div className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
-                <Monitor className="size-4" />
-              </span>
-              <span>
-                <span className="block text-sm font-medium">Computer Use MCP</span>
-                <span className="block text-xs text-muted-foreground">
-                  Lets agents drive this box&rsquo;s desktop and browser. Local only.
-                </span>
-              </span>
-            </div>
-            <Switch
-              checked={settings.computerMcpEnabled}
-              onCheckedChange={(next) => void onSettingsChange({ computerMcpEnabled: next })}
-              aria-label={
-                settings.computerMcpEnabled
-                  ? "Disable the Computer Use MCP"
-                  : "Enable the Computer Use MCP"
-              }
-            />
-          </div>
-        </div>
-      </section>
 
       {/* More — the long tail lives on its own page so this one stays scannable.
           Hidden on a host-mounted surface: everything behind it (push,
