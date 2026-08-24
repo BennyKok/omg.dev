@@ -97,6 +97,46 @@ function userTextMessage(text: string): SessionMsg {
 }
 
 /**
+ * Commit local user rows at the point their turn can be ordered safely.
+ *
+ * An ordinary send has no earlier runtime row to wait for, so it keeps the
+ * existing immediate commit. A send paired with an interrupt is different:
+ * the Claude CLI first emits the interrupted assistant text and its synthetic
+ * interrupt marker. Keep that local row pending until either the SDK echoes
+ * the user turn itself or the interrupted turn ends. `order_seq` then records
+ * the same append order the SDK produced instead of the command-dispatch race.
+ */
+export class AisdkUserRowCommitter {
+  private deferred: SessionMsg[] = [];
+
+  constructor(private readonly commit: (messages: SessionMsg[]) => void) {}
+
+  send(text: string, afterInterrupt: boolean): void {
+    const row = userTextMessage(text);
+    if (afterInterrupt) this.deferred.push(row);
+    else this.commit([row]);
+  }
+
+  sdk(messages: SessionMsg[]): void {
+    const unmatched = [...this.deferred];
+    for (const message of messages) {
+      if (message.role !== "user" || message.kind !== "text") continue;
+      const index = unmatched.findIndex((row) => row.text.trim() === message.text.trim());
+      if (index >= 0) unmatched.splice(index, 1);
+    }
+    this.deferred = unmatched;
+    this.commit(messages);
+  }
+
+  turnEnded(): void {
+    if (!this.deferred.length) return;
+    const rows = this.deferred;
+    this.deferred = [];
+    this.commit(rows);
+  }
+}
+
+/**
  * Why the SDK stream ended, phrased for the person looking at the session.
  *
  * The bad case is a stream that ends *without* throwing. `for await` simply
@@ -395,6 +435,10 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
   };
 
   let q: ReturnType<typeof query>;
+  let interruptedTurnOpen = false;
+  const userRows = new AisdkUserRowCommitter((messages) => {
+    indexSessionMessagesDirect(sessionId, messages);
+  });
 
   const refreshUsageSnapshot = () => {
     const request = ++usageRefresh;
@@ -512,7 +556,10 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
     if (type === "assistant" || type === "user") {
       setBusy(true);
       const messages = normalizeSdkEnvelope(msg);
-      if (messages.length) indexSessionMessagesDirect(sessionId, messages);
+      if (messages.length) {
+        if (type === "user") userRows.sdk(messages);
+        else indexSessionMessagesDirect(sessionId, messages);
+      }
       // A finalized assistant message supersedes the streamed draft. Without
       // this reset the draft accumulates EVERY text block of a long multi-tool
       // turn (it only cleared on `result`), so the live view rendered one
@@ -524,6 +571,11 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
       return;
     }
     if (type === "result") {
+      // The CLI's interrupt marker is part of the interrupted turn and arrives
+      // before its result. Commit a steering row only after that boundary when
+      // the SDK did not already echo the row itself.
+      userRows.turnEnded();
+      interruptedTurnOpen = false;
       const result = msg as {
         usage?: Record<string, unknown>;
         total_cost_usd?: number;
@@ -558,11 +610,11 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
     }
   }
 
-  function send(text: string): void {
+  function send(text: string, afterInterrupt = false): void {
     draft = "";
     publishDraft("", true);
     setBusy(true);
-    indexSessionMessagesDirect(sessionId, [userTextMessage(text)]);
+    userRows.send(text, afterInterrupt);
     input.push(text);
   }
 
@@ -598,9 +650,13 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
 
   function dispatch(cmd: AisdkCommand): void {
     if (cmd.type === "send") {
-      if (cmd.text.trim()) send(cmd.text);
+      if (cmd.text.trim()) send(cmd.text, interruptedTurnOpen);
     } else if (cmd.type === "interrupt") {
-      void q.interrupt().catch(() => {});
+      interruptedTurnOpen = true;
+      void q.interrupt().catch(() => {
+        interruptedTurnOpen = false;
+        userRows.turnEnded();
+      });
     } else if (cmd.type === "set_thinking_level") {
       const nextEffort = effortFor(cmd.thinkingLevel);
       // The query launch option accepts `max`, but the SDK's documented live
@@ -634,7 +690,8 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
     cmdOffset = offset;
     for (const line of lines) {
       try {
-        dispatch(JSON.parse(line) as AisdkCommand);
+        const command = JSON.parse(line) as AisdkCommand;
+        dispatch(command);
       } catch {}
     }
     // Record what we consumed so a restart resumes here rather than re-reading
@@ -722,6 +779,7 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
   } finally {
     clearInterval(poll);
     clearInterval(watchdog);
+    userRows.turnEnded();
     // A transcript row is the only channel the web UI actually reads. Stamp it
     // as an api error so computeStatus turns the session "blocked" with a
     // reason, rather than leaving it to spin.

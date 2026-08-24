@@ -5,6 +5,7 @@ import {
   classifyBlock,
   COLLAPSED_THINKING_PX,
   estimateRowHeight,
+  estimateUnprobedRowHeight,
   INTERRUPTED_PX,
   inlineRuns,
   LINK_CHROME_PX,
@@ -490,5 +491,48 @@ describe("estimateRowHeight", () => {
     const height = estimateRowHeight(item, context());
     expect(Number.isInteger(height)).toBe(true);
     expect(height).toBeGreaterThan(0);
+  });
+});
+
+describe("estimateUnprobedRowHeight", () => {
+  test("uses known fixed row shapes before markdown metrics arrive", () => {
+    expect(
+      estimateUnprobedRowHeight({
+        type: "msg",
+        key: "t",
+        message: { role: "assistant", kind: "thinking", text: "x" },
+      }),
+    ).toBe(24);
+    expect(
+      estimateUnprobedRowHeight({
+        type: "msg",
+        key: "i",
+        message: { role: "user", kind: "text", text: "[Request interrupted by user]" },
+      }),
+    ).toBe(28);
+    expect(
+      estimateUnprobedRowHeight({
+        type: "tools",
+        key: "tools",
+        items: [{ role: "assistant", kind: "tool_use", text: "Read" }],
+      }),
+    ).toBe(32);
+  });
+
+  test("starts prose at one line instead of the old 64px body", () => {
+    const assistant = estimateUnprobedRowHeight({
+      type: "msg",
+      key: "a",
+      message: { role: "assistant", kind: "text", text: "short" },
+    });
+    const user = estimateUnprobedRowHeight({
+      type: "msg",
+      key: "u",
+      message: { role: "user", kind: "text", text: "short" },
+    });
+    expect(assistant).toBe(34);
+    expect(user).toBe(50);
+    expect(assistant).toBeLessThan(64 + ROW_GAP_PX);
+    expect(user).toBeLessThan(64 + ROW_GAP_PX);
   });
 });

@@ -127,4 +127,13 @@ describe("ChatStream wiring", () => {
     expect(APP).not.toMatch(/setStick\([^)]*scrollHeight - [a-z]+\.scrollTop - [a-z]+\.clientHeight < 72/);
     expect(APP).toContain("nextScrollMode(");
   });
+
+  test("content growth re-runs the guarded bottom pin", () => {
+    const start = APP.indexOf("const scrollToBottom = useCallback(");
+    const end = APP.indexOf("// The virtual list sits below", start);
+    const pin = APP.slice(start, end);
+    expect(pin).toContain("const bottom = el.scrollHeight - el.clientHeight;");
+    expect(pin).toContain("Math.abs(el.scrollTop - bottom) <= 0.5");
+    expect(pin).toContain("showTypingIndicator, totalSize, startGlide");
+  });
 });

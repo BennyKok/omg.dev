@@ -88,6 +88,7 @@ describe("a message queued behind a running turn", () => {
     const rendered = omgUIMessagesToMessages(next);
     expect(rendered).toHaveLength(1);
     expect(rendered[0].id).toBe("row-9");
+    expect(buildChatRenderItems(rendered)[0]?.key).toBe(`optimistic-${TS}`);
     expect(rendered[0].queued).toBeUndefined();
     expect(splitQueuedRenderItems(buildChatRenderItems(rendered)).queued).toHaveLength(0);
   });
@@ -127,6 +128,37 @@ describe("a message queued behind a running turn", () => {
 
     expect(next).toHaveLength(1);
     expect(next[0].id).toBe("queue-send-1");
+    // The server id changes for reconciliation. The React row identity does not.
+    expect(next[0].metadata?.omgMessage?.renderKey).toBe(`optimistic-${TS}`);
+  });
+
+  test("never disappears between a delivered queue event and the held server row", () => {
+    const text = "stop, do this instead";
+    const optimistic = [optimisticQueued(text)];
+    const queued = reconcileOmgQueueMessages(optimistic, [
+      { id: "send-1", text, status: "queued", createdAt: TS },
+    ]);
+    const duringDelivered = appendOmgTranscriptEvent(
+      queued,
+      {
+        type: "queue",
+        queue: [{ id: "send-1", text, status: "delivered", createdAt: TS }],
+      },
+      { streamActive: true },
+    );
+    const settled = appendOmgTranscriptEvent(duringDelivered, {
+      type: "message",
+      message: { id: "row-9", role: "user", kind: "text", text, ts: TS + 1 },
+    });
+
+    expect([optimistic.length, queued.length, duringDelivered.length, settled.length]).toEqual([
+      1, 1, 1, 1,
+    ]);
+    expect(
+      [optimistic, queued, duringDelivered, settled].map(
+        (messages) => buildChatRenderItems(omgUIMessagesToMessages(messages))[0]?.key,
+      ),
+    ).toEqual(Array(4).fill(`optimistic-${TS}`));
   });
 
   // The send queue reports a message behind a running turn as pending, then
