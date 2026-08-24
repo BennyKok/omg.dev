@@ -7937,7 +7937,7 @@ export function App() {
   // not also become blank layout space.
   const mainBottomPadding = mobileComposerVisible
     ? "pb-[calc(var(--lfg-inline-composer-height,var(--lfg-composer-clear))+var(--lfg-mobile-surface-dock-height))] [scroll-padding-bottom:calc(var(--lfg-inline-composer-height,var(--lfg-composer-clear))+var(--lfg-mobile-surface-dock-height))]"
-    : isMobile && tab === "bots"
+    : isMobile && (tab === "bots" || tab === "auto")
       ? "pb-[calc(var(--lfg-mobile-surface-dock-height)+var(--lfg-device-safe-bottom))] [scroll-padding-bottom:calc(var(--lfg-mobile-surface-dock-height)+var(--lfg-device-safe-bottom))]"
     : tab === "live"
       ? keyboardOpen
@@ -8349,6 +8349,7 @@ export function App() {
               onOpenAsk={() => setTab("notifications")}
               onOpenBots={() => setTab("bots")}
               onOpenSessions={() => setTab("live")}
+              onOpenAuto={() => setTab("auto")}
               railSurface={tab === "bots" ? "chat" : "sessions"}
               bots={bots}
               selectedBotId={selectedBotId}
@@ -8436,6 +8437,7 @@ export function App() {
             onOpen={openBot}
             onBack={closeBot}
             onOpenSessions={() => setTab("live")}
+            onOpenAuto={() => setTab("auto")}
             onNew={() => openBotEditor("new")}
             onEdit={(bot) => openBotEditor(bot)}
             onRefreshBots={refreshBots}
@@ -8599,6 +8601,7 @@ export function App() {
           aboveComposer={mobileComposerVisible}
           onOpenSessions={() => setTab("live")}
           onOpenBots={() => setTab("bots")}
+          onOpenAuto={() => setTab("auto")}
         />
       ) : null}
 
@@ -9411,9 +9414,9 @@ function PagesMenu({
           }}
         >
           <DropdownMenuLabel>Pages</DropdownMenuLabel>
-          {/* Live and Bots are not listed. The Chat/Bots switch bar sits right
+          {/* Live, Bots, and Scheduled are not listed. The shared switch bar sits right
               under this menu on every surface that renders it, and it is the
-              control for that choice — repeating the pair here made one
+              control for that choice — repeating the destinations here made one
               decision reachable two ways, with the menu's version giving no
               hint that the faster one was inches below it. */}
           <DropdownMenuRadioItem value="notifications">
@@ -10599,6 +10602,7 @@ function LiveView({
   onOpenAsk,
   onOpenBots,
   onOpenSessions,
+  onOpenAuto,
   railSurface = "sessions",
   bots = [],
   selectedBotId = null,
@@ -10630,6 +10634,7 @@ function LiveView({
   onOpenAsk?: () => void;
   onOpenBots: () => void;
   onOpenSessions?: () => void;
+  onOpenAuto: () => void;
   /** Which list the rail is showing. Bots ride the same rail as sessions. */
   railSurface?: "sessions" | "chat";
   bots?: PersistentBot[];
@@ -10999,6 +11004,7 @@ function LiveView({
         onOpenAsk={onOpenAsk}
         onOpenBots={onOpenBots}
         onOpenSessions={onOpenSessions}
+        onOpenAuto={onOpenAuto}
         railSurface={railSurface}
         bots={bots}
         selectedBotId={selectedBotId}
@@ -11180,6 +11186,7 @@ function RailStage({
   onOpenAsk,
   onOpenBots,
   onOpenSessions = () => {},
+  onOpenAuto,
   railSurface = "sessions",
   bots = [],
   selectedBotId = null,
@@ -11208,6 +11215,7 @@ function RailStage({
   onOpenAsk?: () => void;
   onOpenBots: () => void;
   onOpenSessions?: () => void;
+  onOpenAuto: () => void;
   railSurface?: "sessions" | "chat";
   bots?: PersistentBot[];
   selectedBotId?: string | null;
@@ -12343,7 +12351,7 @@ function RailStage({
                 once a bot is selected (`selectedBotId`, mirroring the mobile
                 guard added in 1b3ca7d) stranded desktop users on the Bots
                 surface with no way back to Chat. Always render it here. */}
-            <SurfaceToggle active={railSurface} onOpenSessions={onOpenSessions} onOpenBots={onOpenBots} />
+            <SurfaceToggle active={railSurface} onOpenSessions={onOpenSessions} onOpenBots={onOpenBots} onOpenAuto={onOpenAuto} />
           </div>
         )}
         <div className="session-list-scroll min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
@@ -26205,16 +26213,18 @@ function SurfaceToggle({
   active,
   onOpenSessions,
   onOpenBots,
+  onOpenAuto,
   compact = false,
 }: {
-  active: "sessions" | "chat";
+  active: "sessions" | "chat" | "auto";
   onOpenSessions: () => void;
   onOpenBots: () => void;
+  onOpenAuto: () => void;
   compact?: boolean;
 }) {
   const { any: botsUnread } = useContext(BotUnreadContext);
   // This is the one segmented-toggle component both the desktop rail header
-  // (RailStage, isWide-only) and the mobile Chat/Bots header render — one
+  // (RailStage, isWide-only) and the mobile primary-surface dock render — one
   // navigation idiom, two mount points, instead of a second control. It used
   // to hard-hide at mobile widths (docs/design/bot-mode/spec.md §2.1 predates
   // the mobile primary-nav toggle); callers now decide where it mounts.
@@ -26269,7 +26279,7 @@ function SurfaceToggle({
       className={cn(
         "t-tabs lfg-surface-toggle",
         compact
-          ? "lfg-surface-toggle--dock w-[13rem] max-w-[calc(100vw-2rem)]"
+          ? "lfg-surface-toggle--dock w-[20rem] max-w-[calc(100vw-2rem)]"
           : "w-full",
       )}
       role="tablist"
@@ -26279,6 +26289,7 @@ function SurfaceToggle({
       {([
         ["sessions", "Chat", onOpenSessions],
         ["chat", "Bots", onOpenBots],
+        ["auto", "Scheduled", onOpenAuto],
       ] as const).map(([value, label, onClick]) => (
         <button
           key={value}
@@ -26289,7 +26300,13 @@ function SurfaceToggle({
           className="t-tab flex flex-1 items-center justify-center gap-1.5 text-xs font-semibold"
         >
           {compact ? (
-            value === "sessions" ? <MessageSquare className="size-3.5" /> : <Bot className="size-3.5" />
+            value === "sessions" ? (
+              <MessageSquare className="size-3.5" aria-hidden="true" />
+            ) : value === "chat" ? (
+              <Bot className="size-3.5" aria-hidden="true" />
+            ) : (
+              <CalendarClock className="size-3.5" aria-hidden="true" />
+            )
           ) : null}
           <span>{label}</span>
           {value === "chat" && botsUnread ? (
@@ -26308,11 +26325,13 @@ function MobileSurfaceDock({
   aboveComposer,
   onOpenSessions,
   onOpenBots,
+  onOpenAuto,
 }: {
-  active: "sessions" | "chat";
+  active: "sessions" | "chat" | "auto";
   aboveComposer: boolean;
   onOpenSessions: () => void;
   onOpenBots: () => void;
+  onOpenAuto: () => void;
 }) {
   return (
     <div
@@ -26324,6 +26343,7 @@ function MobileSurfaceDock({
         active={active}
         onOpenSessions={onOpenSessions}
         onOpenBots={onOpenBots}
+        onOpenAuto={onOpenAuto}
       />
     </div>
   );
@@ -26694,6 +26714,7 @@ function BotsView({
   onOpen,
   onBack,
   onOpenSessions,
+  onOpenAuto,
   onNew,
   onEdit,
   onRefreshBots,
@@ -26708,6 +26729,7 @@ function BotsView({
   onOpen: (id: string, conversationId?: string | null) => void;
   onBack: () => void;
   onOpenSessions: () => void;
+  onOpenAuto: () => void;
   onNew: () => void;
   onEdit: (bot: PersistentBot) => void;
   onRefreshBots: () => Promise<void>;
@@ -26871,10 +26893,10 @@ function BotsView({
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-2" data-lfg-page-column>
       {/* Tablet band only (no persistent header toggle there yet) — real
-          mobile gets the pinned Chat/Bot toggle in the app shell's mobile
+          mobile gets the pinned Chat/Bots/Scheduled toggle in the app shell's mobile
           chrome instead, so it isn't doubled here. */}
       {shouldShowInlineBotsSurfaceToggle(isMobile) ? (
-        <SurfaceToggle active="chat" onOpenSessions={onOpenSessions} onOpenBots={() => {}} />
+        <SurfaceToggle active="chat" onOpenSessions={onOpenSessions} onOpenBots={() => {}} onOpenAuto={onOpenAuto} />
       ) : null}
       {/* No page title: the switch bar directly above already says Bots, and a
           32px heading under it said it twice while pushing the first row off

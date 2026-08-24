@@ -1,5 +1,5 @@
 /**
- * Pure decision logic for the mobile "Chat | Bot" surface toggle.
+ * Pure decision logic for the mobile Chat/Bots/Scheduled surface toggle.
  *
  * Desktop reaches the bots surface through `SurfaceToggle` in the rail
  * header (`RailStage`), which only mounts at `isWide` widths. Mobile uses one
@@ -11,11 +11,11 @@
  * drift apart.
  */
 
-/** The two tabs the mobile surface toggle switches between. */
-export type PrimaryMobileTab = "live" | "bots";
+/** The three primary destinations in the mobile surface toggle. */
+export type PrimaryMobileTab = "live" | "bots" | "auto";
 
 /** `SurfaceToggle`'s own active-segment vocabulary (desktop rail history). */
-export type SurfaceToggleActive = "sessions" | "chat";
+export type SurfaceToggleActive = "sessions" | "chat" | "auto";
 
 /**
  * Flat roster treatment for a bot roster, on every width.
@@ -37,7 +37,7 @@ export const BOT_ROSTER_ROW_CLASS =
 
 /**
  * The persistent mobile bottom toggle shows only at real mobile widths, and
- * only on the two tabs it switches between. Other
+ * only on the three tabs it switches between. Other
  * pages (Notifications, Artifacts, Settings, extension tabs) stay reachable
  * through the existing `PagesMenu` overflow — this keeps exactly one
  * additional navigation affordance, not a competing tab-bar model.
@@ -47,12 +47,14 @@ export function shouldShowMobileSurfaceToggle(
   tab: string,
   selectedBotId: string | null = null,
 ): tab is PrimaryMobileTab {
-  return isMobile && (tab === "live" || (tab === "bots" && !selectedBotId));
+  return isMobile && (tab === "live" || tab === "auto" || (tab === "bots" && !selectedBotId));
 }
 
 /** Maps the current tab to `SurfaceToggle`'s active-segment value. */
 export function mobileSurfaceToggleActive(tab: string): SurfaceToggleActive {
-  return tab === "bots" ? "chat" : "sessions";
+  if (tab === "bots") return "chat";
+  if (tab === "auto") return "auto";
+  return "sessions";
 }
 
 /**
