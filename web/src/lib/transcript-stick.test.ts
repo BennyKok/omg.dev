@@ -134,6 +134,6 @@ describe("ChatStream wiring", () => {
     const pin = APP.slice(start, end);
     expect(pin).toContain("const bottom = el.scrollHeight - el.clientHeight;");
     expect(pin).toContain("Math.abs(el.scrollTop - bottom) <= 0.5");
-    expect(pin).toContain("showTypingIndicator, totalSize, startGlide");
+    expect(pin).toContain("showTypingIndicator, totalSize, revealedSid, sid, startGlide");
   });
 });

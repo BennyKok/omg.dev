@@ -17741,21 +17741,31 @@ const ChatStream = memo(function ChatStream({
     growthKeyRef.current = null;
     justSwitchedRef.current = true;
     stopGlide();
-    // A session switch is not a live arrival. Put the new transcript at its
-    // final bottom before the browser can paint it, then reveal the whole
-    // surface with one opacity-only fade. The normal spring remains reserved
-    // for messages, tools, and working-state changes inside this session.
-    const el = ref.current;
-    if (el) {
+    lastScrollTopRef.current = 0;
+  }, [sid, stopGlide]);
+
+  // A session switch is not a live arrival. The virtualizer can publish its
+  // new total after the sid layout effect above, so revealing there can expose
+  // a second pass that starts at scrollTop 0. Keep the surface hidden through
+  // that pass. On the next frame, the complete transcript exists: snap it to
+  // its live bottom, then start the opacity-only reveal. The follow effect
+  // below also keeps snapping while this marker is pending, so no spring can
+  // run behind the fade.
+  useLayoutEffect(() => {
+    if (loading || revealedSid === sid) return;
+    const frame = requestAnimationFrame(() => {
+      const el = ref.current;
+      if (!el) return;
+      stopGlide();
       const bottom = Math.max(0, el.scrollHeight - el.clientHeight);
       el.scrollTop = bottom;
       lastScrollTopRef.current = el.scrollTop;
+      // Our write, not theirs: the event this raises must not move the mode.
       userDrivenRef.current = false;
-    } else {
-      lastScrollTopRef.current = 0;
-    }
-    setRevealedSid(sid);
-  }, [sid, stopGlide]);
+      setRevealedSid(sid);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [loading, revealedSid, sid, stopGlide]);
 
   // A manual jump-to-latest click is itself a discrete event — route it
   // through the same `stick` transition the effect below already treats as
@@ -17773,6 +17783,7 @@ const ChatStream = memo(function ChatStream({
     const key = { len: items.length, typing: showTypingIndicator };
     const prevKey = growthKeyRef.current;
     const switched = justSwitchedRef.current;
+    const switching = revealedSid !== sid;
     // Re-engaging stick (jump-to-latest, or scrolling back within range) is a
     // fresh intent — the user asked to go to the bottom — and deserves its
     // own glide even if one happens to be running. An appended item or a
@@ -17785,11 +17796,22 @@ const ChatStream = memo(function ChatStream({
     const discrete = reengaged || grew;
     growthKeyRef.current = key;
     prevStickRef.current = stick;
-    justSwitchedRef.current = false;
     // Only write when we're not already pinned: a redundant assignment still
     // emits a scroll event, which flips `stick` and re-runs this effect — an
     // self-sustaining loop that React kills with "maximum update depth".
     const bottom = el.scrollHeight - el.clientHeight;
+    if (switching) {
+      // The switch reveal owns this interval. Keep the virtualizer's late
+      // layout passes pinned without starting the live-arrival spring; the
+      // pane is still transparent, so only the final position can be seen.
+      stopGlide();
+      if (Math.abs(el.scrollTop - bottom) > 0.5) el.scrollTop = bottom;
+      lastScrollTopRef.current = el.scrollTop;
+      // Our write, not theirs: the event this raises must not move the mode.
+      userDrivenRef.current = false;
+      return;
+    }
+    justSwitchedRef.current = false;
     if (Math.abs(el.scrollTop - bottom) <= 0.5) {
       stopGlide();
       return;
@@ -17818,7 +17840,7 @@ const ChatStream = memo(function ChatStream({
       // Our write, not theirs: the event this raises must not move the mode.
       userDrivenRef.current = false;
     }
-  }, [visibleMessages, busy, stick, items.length, showTypingIndicator, totalSize, startGlide, stopGlide]);
+  }, [visibleMessages, busy, stick, items.length, showTypingIndicator, totalSize, revealedSid, sid, startGlide, stopGlide]);
 
   // The virtual list sits below the loading-older spinner, so the offsets the
   // virtualizer hands out are shifted by however much chrome is above it.
