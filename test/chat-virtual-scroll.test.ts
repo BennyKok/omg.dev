@@ -36,6 +36,13 @@ describe("the user can always get out of the scroll glide", () => {
     expect(source.match(/startGlide\(el\)/g)?.length).toBe(1);
     expect(source).toContain("if (reengaged || glideRafRef.current == null) {");
   });
+
+  test("the glide uses the time-corrected spring", async () => {
+    const source = await app();
+    expect(source).toContain("nextTranscriptGlideFrame(glideSpringRef.current, delta, tickMs)");
+    expect(source).toContain("completeTranscriptGlideFrame(");
+    expect(source).not.toContain("el.scrollTop += delta * 0.3");
+  });
 });
 
 describe("the virtualizer supplies offsets only", () => {
