@@ -6,6 +6,7 @@ import { PATHS } from "./config.ts";
 import {
   resolveTranscript,
   pendingToolPrompt,
+  deferToolUseArgs,
   visibleTranscriptMessages,
   type PendingPrompt,
   type Session,
@@ -123,6 +124,60 @@ function safeSend(ws: LiveWs, payload: unknown): boolean {
   } catch {
     return false;
   }
+}
+
+// The `deferToolArgs` capability on a fan-out transport.
+//
+// A websocket frame is built ONCE and sent to every socket subscribed to the
+// channel, and the resume ring keeps that one frame under one seq. The
+// capability, though, belongs to the socket: two clients on the same session
+// can disagree about it, and one of them may be a pinned older build.
+//
+// So the builders and the ring keep the FULL frame, which stays the canonical
+// record, and the capability is applied here, on the way out to one socket.
+// The transformed copy is cached against the frame it came from, so a frame
+// going to twenty capable sockets is transformed once, not twenty times.
+const deferredFrames = new WeakMap<Record<string, unknown>, Record<string, unknown>>();
+
+function deferMessageField(container: Record<string, unknown>, field: string): boolean {
+  const value = container[field];
+  if (!value || typeof value !== "object") return false;
+  container[field] = deferToolUseArgs([value as { kind: string; text: string }])[0];
+  return true;
+}
+
+export function deferToolArgsInFrame(frame: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...frame };
+  // Snapshot and batch frames carry a list.
+  if (Array.isArray(next.messages)) {
+    next.messages = deferToolUseArgs(next.messages as Array<{ kind: string; text: string }>);
+  }
+  // A delta wraps the single new message, under `message` or the short `m`.
+  const delta = next.delta;
+  if (delta && typeof delta === "object") {
+    const copy = { ...(delta as Record<string, unknown>) };
+    const changed = deferMessageField(copy, "message") || deferMessageField(copy, "m");
+    if (Array.isArray(copy.messages)) {
+      copy.messages = deferToolUseArgs(copy.messages as Array<{ kind: string; text: string }>);
+    }
+    if (changed || Array.isArray(copy.messages)) next.delta = copy;
+  }
+  deferMessageField(next, "message");
+  deferMessageField(next, "m");
+  return next;
+}
+
+/** The frame one socket should receive, honouring the capability it declared. */
+export function frameForSocket(
+  state: { deferToolArgs?: boolean },
+  frame: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!state.deferToolArgs) return frame;
+  const cached = deferredFrames.get(frame);
+  if (cached) return cached;
+  const deferred = deferToolArgsInFrame(frame);
+  deferredFrames.set(frame, deferred);
+  return deferred;
 }
 
 function roundMs(ms: number): number {
@@ -254,6 +309,11 @@ type SocketState = {
   closed: boolean;
   lastTraffic: number;
   heartbeat: ReturnType<typeof setInterval> | null;
+  // Capability declared on a subscribe frame. Latches on: a client either
+  // knows how to fetch tool arguments on demand or it does not, and that does
+  // not change while the socket is open. Absent means the full inline payload,
+  // which is what every client built before the capability existed receives.
+  deferToolArgs: boolean;
 };
 
 type ChannelState = {
@@ -361,7 +421,7 @@ export function createLiveWsSupport(opts: {
     for (const ws of openSockets) {
       const state = sockets.get(ws);
       if (!state || state.closed || !state.subscribed.has(id)) continue;
-      safeSend(ws, frame);
+      safeSend(ws, frameForSocket(state, frame));
     }
   };
 
@@ -706,7 +766,7 @@ export function createLiveWsSupport(opts: {
     const id = channelId(channel);
     for (const ws of tail.sockets) {
       const state = sockets.get(ws);
-      if (state && !state.closed && state.subscribed.has(id)) safeSend(ws, frame);
+      if (state && !state.closed && state.subscribed.has(id)) safeSend(ws, frameForSocket(state, frame));
     }
   }
 
@@ -723,7 +783,7 @@ export function createLiveWsSupport(opts: {
       let replayed = 0;
       for (const item of chState.ring) {
         if (item.seq > resumeFromSeq) {
-          safeSend(state.ws, item.frame);
+          safeSend(state.ws, frameForSocket(state, item.frame));
           replayed++;
         }
       }
@@ -731,7 +791,7 @@ export function createLiveWsSupport(opts: {
       return true;
     }
     if (resumeFromSeq != null && resumeFromSeq > 0) safeSend(state.ws, stamp(channel, { t: "gap" }));
-    safeSend(state.ws, stamp(channel, await snapshot()));
+    safeSend(state.ws, frameForSocket(state, stamp(channel, await snapshot())));
     return false;
   };
 
@@ -904,6 +964,7 @@ export function createLiveWsSupport(opts: {
         closed: false,
         lastTraffic: Date.now(),
         heartbeat: null,
+        deferToolArgs: false,
       };
       sockets.set(ws, state);
       openSockets.add(ws);
@@ -944,6 +1005,7 @@ export function createLiveWsSupport(opts: {
         before?: unknown;
         limit?: unknown;
         resync?: unknown;
+        deferToolArgs?: unknown;
       };
       if (input.t === "pong") return;
       // Browser-initiated ping probes measure the real WebSocket round trip.
@@ -955,6 +1017,11 @@ export function createLiveWsSupport(opts: {
         return;
       }
       if (input.t === "subscribe") {
+        // Capability handshake. Additive and optional: a client that omits it
+        // keeps the full inline tool arguments it has always received. It is
+        // latched, never cleared, so a resubscribe cannot silently downgrade a
+        // client that already renders pills from the deferred shape.
+        if (input.deferToolArgs === true) state.deferToolArgs = true;
         const requested = Array.isArray(input.channels) ? input.channels : [];
         const channels = requested
           .map(validChannel)

@@ -321,6 +321,50 @@ export function visibleTranscriptMessages<T extends { kind: string }>(messages: 
   return messages.filter((message) => message.kind !== "tool_result");
 }
 
+// A tool_use message carries its arguments inline: the text is `Name` when the
+// call took none, and `Name: <json>` when it did (see compactToolText, which
+// clips the arguments at TOOL_USE_TEXT_MAX). This splits the two apart.
+//
+// The separator is the FIRST colon, which is how the text was assembled and how
+// `toolName` in src/transcript-rows.ts reads it back. Keeping the three readers
+// on one rule is the point of putting it here.
+export function splitToolUseText(text: string): { name: string; args: string } {
+  const separator = text.indexOf(":");
+  if (separator < 0) return { name: text, args: "" };
+  return { name: text.slice(0, separator), args: text.slice(separator + 1).trim() };
+}
+
+// Drop tool_use ARGUMENTS from a client payload, keeping the name.
+//
+// After visibleTranscriptMessages has removed the results, the arguments are
+// what is left of the tool traffic, and they are most of the payload: on a real
+// 4 732-message session the surviving 3 019 messages are 1 690 KB, of which
+// 1 095 KB is tool_use arguments. Nothing shows them until a reader opens the
+// pill, so a capable client asks for them to be left out and fetches the one it
+// opened from
+// `GET /api/sessions/:id/messages/:messageId/tool-args`.
+//
+// This is OPT IN, per connection. A client that does not ask keeps receiving
+// the full inline text, byte for byte, because three clients consume this wire
+// and one of them ships as a pinned package. See the deferToolArgs capability
+// in src/commands/serve.ts and src/live-ws.ts.
+//
+// Only the text shrinks. The kind, the id and the order are untouched, so the
+// row rule in src/transcript-rows.ts folds the run into exactly the same pill
+// with exactly the same label, and the counter still ticks up live.
+export function deferToolUseArgs<T extends { kind: string; text: string }>(
+  messages: T[],
+): Array<T & { toolArgsLen?: number }> {
+  return messages.map((message) => {
+    if (message.kind !== "tool_use") return message;
+    const { name, args } = splitToolUseText(message.text);
+    // No arguments, or a name we cannot split off: send it unchanged. There is
+    // nothing to fetch back, so a marker would only cost a round trip.
+    if (!args) return message;
+    return { ...message, text: name, toolArgsLen: args.length };
+  });
+}
+
 export type Session = {
   agent: CodingAgentKind;
   runtime?: "tmux" | "command-file";

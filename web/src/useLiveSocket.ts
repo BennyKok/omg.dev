@@ -456,7 +456,7 @@ export function useLiveSocket(
 
   const subscribeChannels = useCallback((channels: LiveChannel[]) => {
     if (!channels.length) return false;
-    return send({ t: "subscribe", channels: channels.map(channelWithResume) });
+    return send({ t: "subscribe", channels: channels.map(channelWithResume), deferToolArgs: true });
   }, [channelWithResume, send]);
 
   const unsubscribeChannels = useCallback((channels: LiveChannel[]) => {
@@ -740,7 +740,7 @@ export function useLiveSocket(
         probeLatency();
         const channels = [...desiredChannelsRef.current.values()];
         if (channels.length) {
-          ws.send(JSON.stringify({ t: "subscribe", channels: channels.map(channelWithResume) }));
+          ws.send(JSON.stringify({ t: "subscribe", channels: channels.map(channelWithResume), deferToolArgs: true }));
           subscribedChannelsRef.current = new Set(channels.map(channelId));
           subscribedRef.current = new Set(channels.filter((channel) => channel.kind === "transcript").map((channel) => channel.key));
         }

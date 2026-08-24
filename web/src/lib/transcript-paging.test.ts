@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { countTranscriptRows, type ChatRenderMessage } from "./chat-render-items";
 import {
+  DEFER_TOOL_ARGS_PARAM,
   LIVE_WINDOW_MAX_MESSAGES,
   LIVE_WINDOW_ROWS,
   loadOlderIntent,
+  toolArgsPath,
   transcriptOlderPagePath,
   transcriptPagePath,
   windowLiveMessages,
@@ -45,6 +47,25 @@ describe("the transcript page request", () => {
     expect(transcriptPagePath("abc")).toContain(`rows=${TRANSCRIPT_PAGE_ROWS}`);
     expect(transcriptOlderPagePath("abc", 512)).toContain(`rows=${TRANSCRIPT_PAGE_ROWS}`);
     expect(transcriptOlderPagePath("abc", 512)).toContain("page=backward&before=512");
+  });
+
+  test("declares the deferToolArgs capability on both pages", () => {
+    // Opt in, per request. The server sends the old payload without it, which
+    // is what keeps a pinned older bundle working.
+    expect(transcriptPagePath("abc")).toContain(DEFER_TOOL_ARGS_PARAM);
+    expect(transcriptOlderPagePath("abc", 512)).toContain(DEFER_TOOL_ARGS_PARAM);
+  });
+
+  test("the capability is a query parameter, not a setting", () => {
+    expect(DEFER_TOOL_ARGS_PARAM).toBe("deferToolArgs=1");
+  });
+
+  test("the arguments of one call have a session-scoped path", () => {
+    expect(toolArgsPath("abc", "u1")).toBe("/api/sessions/abc/messages/u1/tool-args");
+  });
+
+  test("both parts of the arguments path are encoded", () => {
+    expect(toolArgsPath("a/b", "u 1")).toBe("/api/sessions/a%2Fb/messages/u%201/tool-args");
   });
 });
 

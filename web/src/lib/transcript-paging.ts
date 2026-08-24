@@ -25,12 +25,28 @@ export const LIVE_WINDOW_ROWS = 150;
 // of tool calls, so the row window alone is not a memory bound.
 export const LIVE_WINDOW_MAX_MESSAGES = 3000;
 
+// The `deferToolArgs` capability, as this client declares it on HTTP.
+//
+// The server sends the bare tool name instead of `Name: <json>` and marks the
+// message with `toolArgsLen`. The arguments are 1 095 KB of the 1 690 KB a
+// tool-heavy session used to send, and nothing shows them until a reader opens
+// a pill, so they are fetched one at a time from `toolArgsPath` instead.
+//
+// It is a query parameter and not a setting: an older bundle simply omits it
+// and receives the payload it has always received.
+export const DEFER_TOOL_ARGS_PARAM = "deferToolArgs=1";
+
 export function transcriptPagePath(sid: string): string {
-  return `/api/sessions/${encodeURIComponent(sid)}/messages?limit=${TRANSCRIPT_PAGE_LIMIT}&rows=${TRANSCRIPT_PAGE_ROWS}`;
+  return `/api/sessions/${encodeURIComponent(sid)}/messages?limit=${TRANSCRIPT_PAGE_LIMIT}&rows=${TRANSCRIPT_PAGE_ROWS}&${DEFER_TOOL_ARGS_PARAM}`;
 }
 
 export function transcriptOlderPagePath(sid: string, before: number): string {
-  return `/api/sessions/${encodeURIComponent(sid)}/messages?page=backward&before=${before}&limit=${TRANSCRIPT_PAGE_LIMIT}&rows=${TRANSCRIPT_PAGE_ROWS}`;
+  return `/api/sessions/${encodeURIComponent(sid)}/messages?page=backward&before=${before}&limit=${TRANSCRIPT_PAGE_LIMIT}&rows=${TRANSCRIPT_PAGE_ROWS}&${DEFER_TOOL_ARGS_PARAM}`;
+}
+
+/** Where the arguments of one deferred tool call are fetched from. */
+export function toolArgsPath(sid: string, messageId: string): string {
+  return `/api/sessions/${encodeURIComponent(sid)}/messages/${encodeURIComponent(messageId)}/tool-args`;
 }
 
 /**
