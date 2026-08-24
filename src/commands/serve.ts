@@ -300,6 +300,7 @@ import { PtyBridge, termSessionName } from "../pty.ts";
 import { RfbBridge } from "../computer/rfb-bridge.ts";
 import {
   desktopStatus,
+  ensureDesktopAdopted,
   startDesktop,
   stopDesktop,
   rfbPort as computerRfbPort,
@@ -3796,6 +3797,10 @@ export async function cmdServe() {
       // show the exact apt command when the stack is missing rather than a
       // dead screen.
       if (path === "/api/computer/status" && req.method === "GET") {
+        // Reattach first: this process may have restarted while the desktop
+        // kept running, and reporting "stopped" for a live screen is worse
+        // than the extra probe costs.
+        await ensureDesktopAdopted();
         return json(desktopStatus());
       }
 
@@ -3878,6 +3883,7 @@ export async function cmdServe() {
       // the client gets a clear error instead of a socket that opens and then
       // dies on the first frame.
       if (path === "/api/computer") {
+        await ensureDesktopAdopted();
         if (!computerRfbPort()) return err(409, "the computer is not running");
         const ok = server.upgrade(req, {
           data: { computer: true } satisfies ComputerSocketData,

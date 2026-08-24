@@ -26,7 +26,8 @@
 // when someone asks for it.
 
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 export interface DesktopConfig {
   /** X display number. 99 keeps us clear of any real session on :0. */
@@ -63,11 +64,124 @@ interface DesktopState {
   startedAt?: number;
   /** Session id currently holding the input lock, if any. */
   holder?: string | null;
+  /**
+   * Pids of a desktop we adopted after a restart. Set only when this process
+   * did not spawn the stack itself, so it has no child handles to kill.
+   */
+  adoptedPids?: { xvfb?: number; wm?: number; vnc?: number; chrome?: number };
 }
 
 // Module-level singleton: one box, one desktop. A second owner of this state
 // would mean two stacks fighting over the same display number and ports.
 let state: DesktopState | null = null;
+
+// Where the running desktop is recorded, so a RESTARTED server can find it.
+//
+// The lifecycle used to live only in this module's memory. When serve exited --
+// a crash, a deploy, a systemctl restart -- Xvfb, the session, x11vnc and
+// Chrome all kept running, but nothing knew about them: the Computer tab went
+// dead while the desktop was still up, and the next start failed because ports
+// 5900 and 9222 were taken by processes we no longer had a handle on.
+//
+// So the pids go on disk. On the next start we ADOPT a desktop that is still
+// healthy rather than killing it, which is what makes a server restart
+// invisible to whoever is watching the screen and to an agent mid-task.
+const STATE_FILE = `${process.env.HOME ?? "/tmp"}/.omg/computer/desktop.json`;
+
+interface PersistedDesktop {
+  config: DesktopConfig;
+  pids: { xvfb?: number; wm?: number; vnc?: number; chrome?: number };
+  startedAt: number;
+}
+
+function writeStateFile(next: DesktopState): void {
+  try {
+    mkdirSync(dirname(STATE_FILE), { recursive: true });
+    const record: PersistedDesktop = {
+      config: next.config,
+      pids: {
+        xvfb: next.xvfb?.pid,
+        wm: next.wm?.pid,
+        vnc: next.vnc?.pid,
+        chrome: next.chrome?.pid,
+      },
+      startedAt: next.startedAt ?? Date.now(),
+    };
+    writeFileSync(STATE_FILE, JSON.stringify(record));
+  } catch {
+    // Losing the record only costs us adoption on the next boot; never fail a
+    // working start because the file could not be written.
+  }
+}
+
+function clearStateFile(): void {
+  try {
+    rmSync(STATE_FILE, { force: true });
+  } catch {}
+}
+
+function readStateFile(): PersistedDesktop | null {
+  try {
+    if (!existsSync(STATE_FILE)) return null;
+    return JSON.parse(readFileSync(STATE_FILE, "utf8")) as PersistedDesktop;
+  } catch {
+    return null;
+  }
+}
+
+function alive(pid: number | undefined): boolean {
+  if (!pid) return false;
+  try {
+    // Signal 0 tests for existence without touching the process.
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function killPid(pid: number | undefined, signal: NodeJS.Signals = "SIGTERM"): void {
+  if (!pid) return;
+  try {
+    process.kill(pid, signal);
+  } catch {}
+}
+
+/**
+ * Reattach to a desktop this box left running, or clean up its remains.
+ *
+ * Returns true when a healthy desktop was adopted. Called before we consider
+ * starting a new one, so a restarted server neither orphans the old stack nor
+ * trips over the ports it still holds.
+ */
+async function adoptOrReap(): Promise<boolean> {
+  const record = readStateFile();
+  if (!record) return false;
+
+  const { xvfb, vnc } = record.pids;
+  // Xvfb and x11vnc are the two that matter: without them there is no screen
+  // and nothing to stream, whatever else survived.
+  const healthy =
+    alive(xvfb) && alive(vnc) && (await waitForPort(record.config.rfbPort, 1500));
+
+  if (!healthy) {
+    for (const pid of Object.values(record.pids)) killPid(pid);
+    await Bun.sleep(500);
+    for (const pid of Object.values(record.pids)) killPid(pid, "SIGKILL");
+    clearStateFile();
+    return false;
+  }
+
+  // Adopt. We have pids but no child handles, so stopDesktop() works off the
+  // persisted pids for an adopted desktop -- see the adoptedPids branch there.
+  state = {
+    config: record.config,
+    startedAt: record.startedAt,
+    holder: null,
+    adoptedPids: record.pids,
+  };
+  return true;
+}
 
 export interface DepReport {
   ok: boolean;
@@ -216,12 +330,29 @@ function waitForPort(port: number, timeoutMs: number): Promise<boolean> {
 }
 
 /**
+ * Reattach to a desktop left by a previous server process, if there is one.
+ *
+ * `desktopStatus()` is synchronous and adoption needs to probe a port, so the
+ * read paths call this first. Without it a restarted server reports "stopped"
+ * for a desktop that is plainly still running, and the person watching has to
+ * press Start on something already started.
+ */
+export async function ensureDesktopAdopted(): Promise<void> {
+  if (state) return;
+  await adoptOrReap();
+}
+
+/**
  * Start the desktop. Idempotent: a second call while it is up is a no-op and
  * returns the current status, so two sessions racing to open the Computer tab
  * cannot start two stacks.
  */
 export async function startDesktop(partial: Partial<DesktopConfig> = {}): Promise<DesktopStatus> {
   if (state) return desktopStatus();
+
+  // A desktop this box left running survives a server restart. Reattach to it
+  // rather than starting a second stack on the same display and ports.
+  if (await adoptOrReap()) return desktopStatus();
 
   const deps = ensureDeps();
   if (!deps.ok) throw new Error(deps.hint);
@@ -290,6 +421,7 @@ export async function startDesktop(partial: Partial<DesktopConfig> = {}): Promis
   // early return here used to orphan Xvfb, openbox, x11vnc and Chrome.
   next.startedAt = Date.now();
   state = next;
+  writeStateFile(next);
 
   let rfbUp = false;
   let cdpUp = false;
@@ -316,7 +448,28 @@ export async function startDesktop(partial: Partial<DesktopConfig> = {}): Promis
 export async function stopDesktop(): Promise<void> {
   const s = state;
   state = null;
-  if (!s) return;
+  clearStateFile();
+  if (!s) {
+    // Nothing in memory, but a previous process may have left a desktop
+    // running. Reap it so "stop" means stopped regardless of who started it.
+    const record = readStateFile();
+    if (record) {
+      for (const pid of Object.values(record.pids)) killPid(pid);
+      await Bun.sleep(500);
+      for (const pid of Object.values(record.pids)) killPid(pid, "SIGKILL");
+    }
+    return;
+  }
+
+  // An adopted desktop has pids but no child handles.
+  if (s.adoptedPids) {
+    const pids = Object.values(s.adoptedPids);
+    for (const pid of pids) killPid(pid);
+    await Bun.sleep(600);
+    for (const pid of pids) killPid(pid, "SIGKILL");
+    return;
+  }
+
   for (const p of [s.chrome, s.vnc, s.wm, s.xvfb]) {
     try {
       p?.kill("SIGTERM");

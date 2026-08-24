@@ -79,17 +79,36 @@ describe("page navigation reachability", () => {
     expect(app).toContain("showSettings={!embedded}");
   });
 
+  test("a chromeless page still offers a way back", () => {
+    // Skipping the app header is only allowed when the page supplies its own
+    // route home. The Computer hides the header, so it must render a close
+    // control wired to a handler the shell points at Live.
+    const page = readFileSync("web/src/views/computer-page.tsx", "utf8");
+    expect(page, "the Computer must accept an onClose").toContain("onClose");
+    expect(page, "the Computer must render a close control").toContain(
+      'aria-label="Close the computer"',
+    );
+    expect(app, "the shell must send the Computer home").toContain(
+      'onClose={() => setTab("live")}',
+    );
+  });
+
   test("the header is not suppressed wholesale when embedded", () => {
     // The regression that left Notifications/Artifacts with no chrome at all: the
     // header was `null` for every embedded page, so there was no way back to
     // Live except browser history. Only the live-desktop case may skip it,
     // because there the rail is the chrome.
     expect(app).not.toContain("embedded || liveDesktopWorkspace ? null");
-    expect(app).toContain(") : liveDesktopWorkspace ? null : (");
+    expect(app).toContain(") : chromelessSurface ? null : (");
+    // The exemption is a named, enumerated list -- not an ad-hoc condition
+    // inlined at the branch, which is how this regression hid last time.
+    expect(app).toContain(
+      'const chromelessSurface = liveDesktopWorkspace || tab === "computer";',
+    );
   });
 
   test("the embedded header keeps questions but hides host-owned chrome", () => {
-    const headerStart = app.indexOf(") : liveDesktopWorkspace ? null : (");
+    const headerStart = app.indexOf(") : chromelessSurface ? null : (");
     const askAt = app.indexOf("<AskNavButton", headerStart);
     expect(askAt, "AskNavButton not found in the header").toBeGreaterThan(0);
     expect(app).toMatch(

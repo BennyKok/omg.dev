@@ -7976,6 +7976,13 @@ export function App() {
   // scroll survive the trip into the editor and back.
   const workspaceVisible = (tab === "live" || botsInWorkspace) && !botEditor;
   const liveDesktopWorkspace = workspaceVisible && isWide;
+  // Surfaces that render their own chrome, so the app header must not also
+  // render over them. Each one owes the user a way back by its own means:
+  // the live desktop workspace has the rail, and the Computer carries a close
+  // control on the screen itself (see views/computer-page.tsx). Adding a case
+  // here without that is how Notifications and Artifacts once ended up with no
+  // route home at all -- see test/pages-nav.test.ts.
+  const chromelessSurface = liveDesktopWorkspace || tab === "computer";
 
   return (
     <AgentAccessModeContext.Provider
@@ -8160,7 +8167,7 @@ export function App() {
             className="glass-island flex h-11 shrink-0 items-center gap-1.5 rounded-full px-2"
           />
         </header>
-      ) : liveDesktopWorkspace || tab === "computer" ? null : (
+      ) : chromelessSurface ? null : (
       /* Embedded used to be suppressed here too, which left Shipped and
          Artifacts with no chrome at all — no way back to Live except browser
          history. The host owns identity/settings chrome, not LFG's page
