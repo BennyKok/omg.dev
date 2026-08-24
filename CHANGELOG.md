@@ -2,6 +2,18 @@
 
 Recent product updates and deployment notes.
 
+## August 24, 2026 - Bot status and recent conversations stand out (v0.6.5)
+
+- **Bot state is explicit.** Each roster row now labels the bot as Working,
+  Idle, or Disabled. Unread conversations have a larger badge, stronger text,
+  and a highlighted row. Activity and unread state stay separate, so a bot can
+  show both Working and Unread at the same time.
+- **The newest bot conversation is first.** The desktop rail and mobile Bots
+  page now use the same recency order. Bots with no conversation stay at the
+  end.
+- **Schedule names have more room on mobile.** The name now has its own line
+  instead of sharing a cramped row with the enable switch.
+
 ## August 24, 2026 - Chat updates glide instead of jumping (v0.6.4)
 
 - **New messages, tool calls, and the working indicator now move the chat
