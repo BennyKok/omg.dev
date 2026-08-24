@@ -329,3 +329,56 @@ describe("fix-dispatch lifecycle — the #185 postmortem", () => {
     expect(row?.status).toBe("open");
   });
 });
+
+// The Schedules list toggles `enabled` inline via PATCH /api/auto/agents/:id,
+// which is implemented as `saveAutoAgent({ ...storedRow, enabled })`. That
+// spread is the whole safety argument for the route, so pin it here: a toggle
+// must move `enabled` and NOTHING else.
+describe("saveAutoAgent — the inline enable toggle spread", () => {
+  const full = {
+    name: "Repo review",
+    // Deliberately longer than AUTO_AGENT_LIST_PROMPT_CHARS (200). The list
+    // response truncates to a preview, so if a toggle ever went through the
+    // client's list state instead of the stored row, this is the field that
+    // would silently lose its tail.
+    prompt: `You are a code reviewer for the vibes repo. ${"detail ".repeat(60)}end-marker`,
+    schedule: "0 9 * * *",
+    enabled: true,
+    cwd: "/home/dev/repos/vibes",
+    agent: "grok" as const,
+    model: "grok-4.5",
+    tools: ["Bash"],
+  };
+
+  test("toggling enabled off preserves the full prompt and every other field", async () => {
+    const created = await store.saveAutoAgent(full);
+    expect(created.prompt.length).toBeGreaterThan(200);
+
+    const stored = await store.getAutoAgent(created.id);
+    expect(stored).not.toBeNull();
+    const toggled = await store.saveAutoAgent({ ...stored!, enabled: false });
+
+    expect(toggled.enabled).toBe(false);
+    // Everything else is byte-identical to what was stored.
+    expect({ ...toggled, enabled: true }).toEqual({ ...stored!, enabled: true });
+    expect(toggled.prompt).toBe(full.prompt);
+    expect(toggled.prompt.endsWith("end-marker")).toBe(true);
+    expect(toggled.owner).toEqual({ kind: "user" });
+    expect(toggled.model).toBe("grok-4.5");
+    expect(toggled.tools).toEqual(["Bash"]);
+  });
+
+  test("toggling back on is a clean round trip, not a one-way door", async () => {
+    const created = await store.saveAutoAgent(full);
+    const off = await store.saveAutoAgent({ ...(await store.getAutoAgent(created.id))!, enabled: false });
+    const on = await store.saveAutoAgent({ ...(await store.getAutoAgent(off.id))!, enabled: true });
+    expect(on.enabled).toBe(true);
+    expect(on).toEqual(created);
+  });
+
+  test("a bot-owned row keeps its owner across a toggle", async () => {
+    const created = await store.saveAutoAgent({ ...full, owner: { kind: "bot", botId: "landing-bot" } });
+    const toggled = await store.saveAutoAgent({ ...(await store.getAutoAgent(created.id))!, enabled: false });
+    expect(toggled.owner).toEqual({ kind: "bot", botId: "landing-bot" });
+  });
+});

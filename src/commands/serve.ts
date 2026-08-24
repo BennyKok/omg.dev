@@ -5889,6 +5889,21 @@ a{color:#60a5fa}
           if (!agent) return err(404, "unknown auto agent");
           return json({ agent: withAutoAgentMeta(agent) });
         }
+        // Flip one row on or off, and nothing else. The list view truncates
+        // `prompt` (AUTO_AGENT_LIST_PROMPT_CHARS), so a row toggle cannot go
+        // through POST /api/auto/agents: that route demands a whole prompt and
+        // would persist the preview. This reads the stored row on the server
+        // and carries every other field forward untouched.
+        if (m && req.method === "PATCH") {
+          const agent = await getAutoAgent(m[1]);
+          if (!agent) return err(404, "unknown auto agent");
+          const allowed = await assertCanModifyAutoAgent(agent, await callerBotId(req));
+          if (!allowed.ok) return err(allowed.status, allowed.error);
+          const b = (await req.json().catch(() => null)) as { enabled?: unknown } | null;
+          if (typeof b?.enabled !== "boolean") return err(400, "enabled (boolean) is required");
+          const saved = await saveAutoAgent({ ...agent, enabled: b.enabled });
+          return json({ agent: withAutoAgentMeta(saved) });
+        }
         if (m && req.method === "DELETE") {
           const agent = await getAutoAgent(m[1]);
           if (!agent) return err(404, "unknown auto agent");

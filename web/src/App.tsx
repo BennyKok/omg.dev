@@ -7249,6 +7249,28 @@ export function App() {
     }
   }
 
+  // Flip one schedule on or off straight from the list. This is a PATCH, not
+  // the full-object POST the editor uses: the list ships a truncated `prompt`
+  // (promptTruncated), so re-posting the row from list state would persist the
+  // preview over the real prompt. The server reads the stored row and carries
+  // every other field forward.
+  async function setAutoAgentEnabled(id: string, enabled: boolean) {
+    const before = autoAgents;
+    // Optimistic: the switch has to move under the finger, not after a
+    // round-trip. Roll the whole list back on failure.
+    setAutoAgents((prev) => prev.map((a) => (a.id === id ? { ...a, enabled } : a)));
+    try {
+      await api(`/api/auto/agents/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+    } catch (e) {
+      setAutoAgents(before);
+      toast.error(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function launchAutoTriage(scopeFindings: AutoFinding[]) {
     if (!scopeFindings.length || autoTriageBusy) return;
     setAutoTriageBusy(true);
@@ -8490,6 +8512,7 @@ export function App() {
             tz={schedTz}
             onEdit={setEditingAgent}
             onRunNow={runAutoNow}
+            onToggleEnabled={(id, enabled) => void setAutoAgentEnabled(id, enabled)}
             onTriageFindings={() => void launchAutoTriage(findings)}
             autoTriageBusy={autoTriageBusy}
             settings={settings}
@@ -26631,7 +26654,15 @@ function DrivenByBotBadge({ session }: { session: Session }) {
  *  inside the row's own onEdit button, and a nested <button> is invalid HTML
  *  (and fights the parent for the click). Keyboard-operable via Enter/Space
  *  to keep it a real control despite the element choice. */
-function AutoAgentOwnerBadge({ owner }: { owner: AutoAgentOwner | undefined }) {
+function AutoAgentOwnerBadge({
+  owner,
+  nameClassName = "max-w-20",
+}: {
+  owner: AutoAgentOwner | undefined;
+  /** Width cap on the bot name. The inline-in-a-row use needs a tight cap; the
+   *  Schedules section header has a whole line and should show the full name. */
+  nameClassName?: string;
+}) {
   const directory = useContext(BotDirectoryContext);
   const openBot = useContext(OpenBotContext);
   if (!owner || owner.kind !== "bot") return null;
@@ -26659,7 +26690,7 @@ function AutoAgentOwnerBadge({ owner }: { owner: AutoAgentOwner | undefined }) {
         state="idle"
         seed={owner.botId.length}
       />
-      <span className="max-w-20 truncate">{bot?.name ?? "deleted bot"}</span>
+      <span className={cn("truncate", nameClassName)}>{bot?.name ?? "deleted bot"}</span>
     </span>
   );
 }
@@ -27567,6 +27598,7 @@ function AutoManageView({
   tz,
   onEdit,
   onRunNow,
+  onToggleEnabled,
   onTriageFindings,
   autoTriageBusy = false,
   settings,
@@ -27577,12 +27609,58 @@ function AutoManageView({
   tz: string;
   onEdit: (agent: AutoAgent | "new") => void;
   onRunNow: (id: string) => void;
+  onToggleEnabled: (id: string, enabled: boolean) => void;
   onTriageFindings: () => void;
   autoTriageBusy?: boolean;
   settings?: GlobalSettings;
   onSettingsChange?: (patch: Partial<GlobalSettings>) => Promise<void>;
 }) {
-  const openByAgent = (id: string) => findings.filter((f) => f.agentId === id).length;
+  const directory = useContext(BotDirectoryContext);
+  // One pass over findings, not one filter per row. The old per-row
+  // `findings.filter(...).length` was O(rows × findings) on every re-render,
+  // and this view re-renders on the 5s auto poll.
+  const openByAgent = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const f of findings) counts.set(f.agentId, (counts.get(f.agentId) ?? 0) + 1);
+    return counts;
+  }, [findings]);
+
+  // Ownership is the only division that changes what a row MEANS: a bot-owned
+  // routine fires as a nudge into that bot's conversation, a user-owned one
+  // runs headless and emits a finding. One flat list hid that, so the bot
+  // badge had to repeat it on every row. Grouping states it once, in the
+  // section header, and the rows get quieter for free.
+  const groups = useMemo(() => {
+    const unassigned: AutoAgent[] = [];
+    const byBot = new Map<string, AutoAgent[]>();
+    for (const a of autoAgents) {
+      if (a.owner?.kind === "bot") {
+        const list = byBot.get(a.owner.botId) ?? [];
+        list.push(a);
+        byBot.set(a.owner.botId, list);
+      } else unassigned.push(a);
+    }
+    const botGroups = [...byBot.entries()]
+      .map(([botId, items]) => ({
+        key: `bot:${botId}`,
+        botId,
+        label: directory.get(botId)?.name ?? "deleted bot",
+        items,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    // Unassigned leads: it is the human's own list and, on this box, the bulk
+    // of it. Bot-owned routines read as an appendix belonging to that bot.
+    return [
+      { key: "unassigned", botId: null, label: "Unassigned", items: unassigned },
+      ...botGroups,
+    ].filter((g) => g.items.length);
+  }, [autoAgents, directory]);
+
+  // Collapsed sections are remembered by key only for this mount. Every
+  // section starts open: hiding schedules by default would be a worse kind of
+  // noise than showing them.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-2" data-lfg-page-column>
       <div className="px-1 pb-2">
@@ -27617,81 +27695,145 @@ function AutoManageView({
           No schedules yet.
         </div>
       ) : (
-        // One shared card with dividers, not a card per row — a schedule is a
-        // line in a list, the same treatment the Settings rows above it use.
-        <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
-          {autoAgents.map((a) => (
-            <div
-              key={a.id}
-              className="flex flex-wrap items-center gap-x-2.5 gap-y-1 px-4 py-2.5"
-            >
-              <span
-                className={cn(
-                  "order-1 size-2.5 shrink-0 rounded-full",
-                  a.enabled ? "bg-success" : "bg-muted-foreground/40",
-                )}
-              />
-              <button
-                type="button"
-                onClick={() => onEdit(a)}
-                className="order-2 flex min-w-0 flex-1 flex-col gap-0.5 text-left"
+        <div className="flex flex-col gap-4">
+          {groups.map((group) => {
+            const open = !collapsed[group.key];
+            const onCount = group.items.filter((a) => a.enabled).length;
+            return (
+              <Collapsible
+                key={group.key}
+                open={open}
+                onOpenChange={(next) =>
+                  setCollapsed((prev) => ({ ...prev, [group.key]: !next }))
+                }
               >
-                <span className="flex items-center gap-2">
-                  <span className="truncate text-sm font-medium leading-tight">{a.name}</span>
-                  <AutoAgentOwnerBadge owner={a.owner} />
-                  {openByAgent(a.id) ? (
-                    <span className="shrink-0 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                      {openByAgent(a.id)} open
-                    </span>
-                  ) : null}
-                  {a.running ? (
-                    <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                      <Loader2 className="size-2.5 animate-spin" /> running
-                    </span>
-                  ) : null}
-                </span>
-                <span className="truncate text-xs leading-tight text-muted-foreground">{a.prompt}</span>
-              </button>
-              {/* On phones this wraps to its own full-width line under the name; inline on sm+ */}
-              <div className="order-5 flex w-full min-w-0 items-center gap-1 pl-5 text-xs text-muted-foreground sm:order-3 sm:w-auto sm:max-w-[11rem] sm:pl-0">
-                <ScheduleSummary expr={a.schedule} tz={tz} />
-              </div>
-              <div className="order-6 flex w-full min-w-0 items-center gap-1 pl-5 text-xs text-muted-foreground sm:order-4 sm:w-auto sm:max-w-[10rem] sm:pl-0">
-                <img
-                  src={agentIconSrc(a.agent ?? "aisdk")}
-                  alt=""
-                  className="size-3.5 shrink-0"
-                />
-                <span className="truncate">
-                  {AUTO_AGENT_OPTIONS.find((o) => o.key === (a.agent ?? "aisdk"))?.label ?? "claude"}
-                  {a.model ? <span className="text-muted-foreground/70"> · {a.model}</span> : null}
-                </span>
-              </div>
-              <Button
-                size="icon-sm"
-                variant="tint"
-                className="order-3 shrink-0 sm:order-5"
-                onClick={() => onRunNow(a.id)}
-                disabled={a.running}
-                aria-label={a.running ? "Running…" : "Run now"}
-              >
-                {a.running ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Play className="size-4" />
-                )}
-              </Button>
-              <Button
-                size="icon-sm"
-                variant="tint"
-                className="order-4 shrink-0 sm:order-6"
-                onClick={() => onEdit(a)}
-                aria-label="Edit"
-              >
-                <Pencil className="size-4" />
-              </Button>
-            </div>
-          ))}
+                <CollapsibleTrigger className="flex w-full items-center gap-2 px-1 pb-1.5 text-left">
+                  <ChevronRight
+                    className={cn(
+                      "size-3.5 shrink-0 text-muted-foreground transition-transform duration-150",
+                      open && "rotate-90",
+                    )}
+                  />
+                  {/* The owner pill moves from every row up to the header it
+                      now describes — same component, so "open the owning bot"
+                      survives the regrouping instead of being lost with the
+                      per-row badge. */}
+                  {group.botId ? (
+                    <AutoAgentOwnerBadge owner={{ kind: "bot", botId: group.botId }} nameClassName="max-w-56" />
+                  ) : (
+                    <>
+                      <UserRound className="size-3.5 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {group.label}
+                      </span>
+                    </>
+                  )}
+                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground/60">
+                    {onCount}/{group.items.length} on
+                  </span>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  {/* One shared card with dividers, not a card per row — a
+                      schedule is a line in a list, the same treatment the
+                      Settings rows above it use. */}
+                  <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+                    {group.items.map((a) => {
+                      const openFindings = openByAgent.get(a.id) ?? 0;
+                      const backend = a.agent ?? "aisdk";
+                      const backendLabel =
+                        AUTO_AGENT_OPTIONS.find((o) => o.key === backend)?.label ?? "claude";
+                      return (
+                        <div key={a.id} className="flex items-center gap-3 px-3 py-2">
+                          {/* A real switch, not the old read-only status dot.
+                              Enabling a schedule was an edit-sheet round trip
+                              before; it is the one thing you come to this list
+                              to do. Scaled to 0.75 so fifteen of them do not
+                              shout, still a 38 × 23 target. */}
+                          <span className="flex w-[38px] shrink-0 justify-start">
+                            <Switch
+                              checked={a.enabled}
+                              onCheckedChange={(next) => onToggleEnabled(a.id, next)}
+                              className="origin-left scale-75"
+                              aria-label={`${a.enabled ? "Disable" : "Enable"} ${a.name}`}
+                            />
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => onEdit(a)}
+                            title={a.prompt}
+                            className="flex min-w-0 flex-1 flex-col gap-0.5 text-left"
+                          >
+                            <span className="flex min-w-0 items-center gap-1.5">
+                              <span
+                                className={cn(
+                                  "truncate text-sm font-medium leading-tight",
+                                  !a.enabled && "text-muted-foreground",
+                                )}
+                              >
+                                {a.name}
+                              </span>
+                              {openFindings ? (
+                                <span className="shrink-0 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                                  {openFindings} open
+                                </span>
+                              ) : null}
+                              {a.running ? (
+                                <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                                  <Loader2 className="size-2.5 animate-spin" /> running
+                                </span>
+                              ) : null}
+                            </span>
+                            {/* The one secondary line. The prompt preview used
+                                to sit here and the schedule and the model each
+                                had their own truncating column, which is what
+                                collided into unreadable overlapping text. The
+                                prompt now lives in the title tooltip and in the
+                                editor, where you can actually read it. */}
+                            <span className="truncate text-xs leading-tight text-muted-foreground">
+                              <ScheduleSummary expr={a.schedule} tz={tz} />
+                            </span>
+                          </button>
+                          {/* Backend as its icon alone. The spelled-out
+                              "codex · gpt-5.6-sol" was the loudest thing in
+                              the row and the least useful; hover or open the
+                              editor for the exact model. */}
+                          <img
+                            src={agentIconSrc(backend)}
+                            alt=""
+                            title={a.model ? `${backendLabel} · ${a.model}` : backendLabel}
+                            className="size-4 shrink-0 opacity-60"
+                          />
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            className="shrink-0 text-muted-foreground"
+                            onClick={() => onRunNow(a.id)}
+                            disabled={a.running}
+                            aria-label={a.running ? "Running…" : "Run now"}
+                          >
+                            {a.running ? (
+                              <Loader2 className="size-4 animate-spin" />
+                            ) : (
+                              <Play className="size-4" />
+                            )}
+                          </Button>
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            className="shrink-0 text-muted-foreground"
+                            onClick={() => onEdit(a)}
+                            aria-label="Edit"
+                          >
+                            <Pencil className="size-4" />
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            );
+          })}
         </div>
       )}
       <button
