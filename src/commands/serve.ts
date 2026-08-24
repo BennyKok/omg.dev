@@ -433,6 +433,7 @@ import {
 } from "../claude-accounts.ts";
 import {
   AUTO_AGENT_BACKENDS,
+  type AutoAgentBackend,
   defaultModelForAgent,
   listModelCatalog,
   modelsForAgent,
@@ -3210,6 +3211,110 @@ export async function assertCanModifyAutoAgent(
 }
 
 /**
+ * The single place that validates the RUNTIME fields of an auto agent — which
+ * backend it runs on, which model, which Claude account it bills to, and which
+ * thinking level.
+ *
+ * Split out of POST /api/auto/agents so the inline row picker on the Schedules
+ * page (PATCH /api/auto/agents/:id) cannot drift into a second, laxer copy of
+ * these rules. A PATCH changes the backend without resending name/prompt/
+ * schedule, so it passes the STORED backend as `fallbackBackend` — otherwise
+ * "set model to grok-4.5" on a grok row would be validated against claude.
+ *
+ * `agent` comes back possibly-undefined on purpose: absent means "leave the
+ * stored backend alone", which is not the same as "aisdk".
+ */
+export function resolveAutoAgentRuntime(
+  b: {
+    agent?: string;
+    claudeAccountId?: string | null;
+    model?: string;
+    thinkingLevel?: string;
+  },
+  fallbackBackend: AutoAgentBackend = "aisdk",
+):
+  | {
+      ok: true;
+      agent?: AutoAgentBackend;
+      claudeAccountId?: string | null;
+      model?: string;
+      thinkingLevel?: string;
+    }
+  | { ok: false; status: number; error: string } {
+  const autoAgent = b.agent?.trim() || undefined;
+  if (autoAgent && !AUTO_AGENT_BACKENDS.includes(autoAgent as any)) {
+    return { ok: false, status: 400, error: `unknown auto agent provider "${autoAgent}"` };
+  }
+  const autoBackend = (autoAgent || fallbackBackend) as AutoAgentBackend;
+  // Pinning the account a scheduled run bills to is Claude-only. Reject an id
+  // for any other backend rather than storing a field its runner will silently
+  // ignore.
+  //
+  // The tri-state matters: an ABSENT field means "don't touch the pin" (the CLI
+  // and the refine endpoint save without one), while an empty field means the
+  // user picked Claude · Auto and the pin must go. Folding both into undefined
+  // made un-pinning impossible.
+  const claudeAccountId =
+    b.claudeAccountId === undefined
+      ? undefined
+      : (typeof b.claudeAccountId === "string" ? b.claudeAccountId.trim() : "") || null;
+  if (claudeAccountId) {
+    if (autoBackend !== "aisdk")
+      return {
+        ok: false,
+        status: 400,
+        error: `claudeAccountId is not supported for ${autoBackend} auto agents`,
+      };
+    if (!resolveClaudeAccount(claudeAccountId))
+      return { ok: false, status: 400, error: "Claude account is missing or not connected" };
+  }
+  const model = b.model?.trim() || undefined;
+  if (autoBackend === "aisdk" && model) {
+    const allowed = modelsForAgent("aisdk");
+    if (!allowed.includes(model))
+      return {
+        ok: false,
+        status: 400,
+        error: `unknown model "${model}" (expected one of ${allowed.join(", ")})`,
+      };
+  }
+  if (autoBackend === "codex-aisdk" && model && !/^[A-Za-z0-9_.:-]{1,80}$/.test(model))
+    return { ok: false, status: 400, error: "invalid codex model name" };
+  if (autoBackend === "grok" && model) {
+    const allowed = modelsForAgent("grok");
+    if (!allowed.includes(model))
+      return {
+        ok: false,
+        status: 400,
+        error: `unknown model "${model}" (expected one of ${allowed.join(", ")})`,
+      };
+  }
+  if (autoBackend === "cursor" && model && !/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
+    return { ok: false, status: 400, error: "invalid cursor model name" };
+  if (autoBackend === "fx" && model && !/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
+    return { ok: false, status: 400, error: "invalid fx model name" };
+  if (autoBackend === "opencode" && model && !/^[A-Za-z0-9_.:\/-]{1,80}$/.test(model))
+    return { ok: false, status: 400, error: "invalid opencode model name" };
+  const thinkingLevel = b.thinkingLevel?.trim() || undefined;
+  if (thinkingLevel) {
+    const allowed = thinkingLevelsForAgent(autoBackend);
+    if (!allowed)
+      return {
+        ok: false,
+        status: 400,
+        error: `thinkingLevel is not supported for ${autoBackend} auto agents`,
+      };
+    if (!allowed.includes(thinkingLevel))
+      return {
+        ok: false,
+        status: 400,
+        error: `unknown thinking level "${thinkingLevel}" for ${autoBackend} (expected one of ${allowed.join(", ")})`,
+      };
+  }
+  return { ok: true, agent: autoAgent as AutoAgentBackend | undefined, claudeAccountId, model, thinkingLevel };
+}
+
+/**
  * The single place that decides which owner a POST /api/auto/agents write ends
  * up with. Split out of the route so the migration rules are unit-testable and
  * so there is one owner of "who may set which owner," not a rule per caller.
@@ -5765,56 +5870,11 @@ a{color:#60a5fa}
               );
             }
           }
-          const autoAgent = b.agent?.trim() || undefined;
-          if (autoAgent && !AUTO_AGENT_BACKENDS.includes(autoAgent as any)) {
-            return err(400, `unknown auto agent provider "${autoAgent}"`);
-          }
-          const autoBackend = autoAgent || "aisdk";
-          // Pinning the account a scheduled run bills to is Claude-only. Reject
-          // an id for any other backend rather than storing a field its runner
-          // will silently ignore.
-          //
-          // The tri-state matters: an ABSENT field means "don't touch the pin"
-          // (the CLI and the refine endpoint save without one), while an empty
-          // field means the user picked Claude · Auto and the pin must go.
-          // Folding both into undefined made un-pinning impossible.
-          const claudeAccountId =
-            b.claudeAccountId === undefined
-              ? undefined
-              : (typeof b.claudeAccountId === "string" ? b.claudeAccountId.trim() : "") || null;
-          if (claudeAccountId) {
-            if (autoBackend !== "aisdk")
-              return err(400, `claudeAccountId is not supported for ${autoBackend} auto agents`);
-            if (!resolveClaudeAccount(claudeAccountId))
-              return err(400, "Claude account is missing or not connected");
-          }
-          const model = b.model?.trim() || undefined;
-          if (autoBackend === "aisdk" && model) {
-            const allowed = modelsForAgent("aisdk");
-            if (!allowed.includes(model))
-              return err(400, `unknown model "${model}" (expected one of ${allowed.join(", ")})`);
-          }
-          if (autoBackend === "codex-aisdk" && model && !/^[A-Za-z0-9_.:-]{1,80}$/.test(model))
-            return err(400, "invalid codex model name");
-          if (autoBackend === "grok" && model) {
-            const allowed = modelsForAgent("grok");
-            if (!allowed.includes(model))
-              return err(400, `unknown model "${model}" (expected one of ${allowed.join(", ")})`);
-          }
-          if (autoBackend === "cursor" && model && !/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
-            return err(400, "invalid cursor model name");
-          if (autoBackend === "fx" && model && !/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
-            return err(400, "invalid fx model name");
-          if (autoBackend === "opencode" && model && !/^[A-Za-z0-9_.:\/-]{1,80}$/.test(model))
-            return err(400, "invalid opencode model name");
-          const thinkingLevel = b.thinkingLevel?.trim() || undefined;
-          if (thinkingLevel) {
-            const allowed = thinkingLevelsForAgent(autoBackend);
-            if (!allowed)
-              return err(400, `thinkingLevel is not supported for ${autoBackend} auto agents`);
-            if (!allowed.includes(thinkingLevel))
-              return err(400, `unknown thinking level "${thinkingLevel}" for ${autoBackend} (expected one of ${allowed.join(", ")})`);
-          }
+          // Backend, model, Claude account pin and thinking level all get
+          // validated in one shared place, which PATCH uses too.
+          const runtime = resolveAutoAgentRuntime(b);
+          if (!runtime.ok) return err(runtime.status, runtime.error);
+          const { agent: autoAgent, claudeAccountId, model, thinkingLevel } = runtime;
           const agent = await saveAutoAgent({
             id: b.id,
             name: b.name,
@@ -5899,9 +5959,46 @@ a{color:#60a5fa}
           if (!agent) return err(404, "unknown auto agent");
           const allowed = await assertCanModifyAutoAgent(agent, await callerBotId(req));
           if (!allowed.ok) return err(allowed.status, allowed.error);
-          const b = (await req.json().catch(() => null)) as { enabled?: unknown } | null;
-          if (typeof b?.enabled !== "boolean") return err(400, "enabled (boolean) is required");
-          const saved = await saveAutoAgent({ ...agent, enabled: b.enabled });
+          const b = (await req.json().catch(() => null)) as {
+            enabled?: unknown;
+            agent?: string;
+            model?: string;
+            thinkingLevel?: string;
+            claudeAccountId?: string | null;
+          } | null;
+          if (!b || typeof b !== "object") return err(400, "a JSON body is required");
+          if (b.enabled !== undefined && typeof b.enabled !== "boolean")
+            return err(400, "enabled must be a boolean");
+          // The stored backend is the fallback, not "aisdk": a body that sets
+          // only `model` on a grok row must be validated against grok.
+          //
+          // A legacy hermes row is the one exception. hermes left
+          // AUTO_AGENT_BACKENDS but such rows still exist on disk, force-
+          // disabled by autoAgentEnabledForBackend. There is no hermes model
+          // list to validate against, so it falls back to the default rather
+          // than making the row uneditable.
+          const storedBackend = (AUTO_AGENT_BACKENDS as readonly string[]).includes(
+            agent.agent ?? "",
+          )
+            ? (agent.agent as AutoAgentBackend)
+            : "aisdk";
+          const runtime = resolveAutoAgentRuntime(b, storedBackend);
+          if (!runtime.ok) return err(runtime.status, runtime.error);
+          const touched =
+            b.enabled !== undefined ||
+            runtime.agent !== undefined ||
+            runtime.model !== undefined ||
+            runtime.thinkingLevel !== undefined ||
+            runtime.claudeAccountId !== undefined;
+          if (!touched) return err(400, "no supported field to update");
+          const saved = await saveAutoAgent({
+            ...agent,
+            enabled: b.enabled ?? agent.enabled,
+            agent: runtime.agent ?? agent.agent,
+            model: runtime.model ?? agent.model,
+            thinkingLevel: runtime.thinkingLevel ?? agent.thinkingLevel,
+            claudeAccountId: runtime.claudeAccountId,
+          });
           return json({ agent: withAutoAgentMeta(saved) });
         }
         if (m && req.method === "DELETE") {

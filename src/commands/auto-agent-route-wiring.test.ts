@@ -85,7 +85,7 @@ describe("POST /api/auto/agents (create/edit)", () => {
 // server-side, guards it like every other mutation, and touches nothing but
 // `enabled`.
 describe("PATCH /api/auto/agents/:id (inline enable toggle)", () => {
-  const handler = block('if (m && req.method === "PATCH") {', 900);
+  const handler = block('if (m && req.method === "PATCH") {', 2600);
 
   test("runs the row through the same ownership guard before saving", () => {
     expect(handler).toContain("const agent = await getAutoAgent(m[1])");
@@ -93,16 +93,52 @@ describe("PATCH /api/auto/agents/:id (inline enable toggle)", () => {
     expect(handler).toContain("if (!allowed.ok) return err(allowed.status, allowed.error)");
   });
 
-  test("rejects anything but a boolean enabled", () => {
-    expect(handler).toContain('if (typeof b?.enabled !== "boolean")');
+  test("rejects a non-boolean enabled", () => {
+    expect(handler).toContain('if (b.enabled !== undefined && typeof b.enabled !== "boolean")');
   });
 
-  // The whole point: every other field comes from the stored row, so a
-  // truncated prompt in the client's list state can never reach the store.
-  test("spreads the STORED row and overrides only enabled", () => {
-    expect(handler).toContain("saveAutoAgent({ ...agent, enabled: b.enabled })");
+  // The whole point: name/prompt/schedule always come from the stored row, so
+  // a truncated prompt in the client's list state can never reach the store.
+  test("spreads the STORED row and never reads a prompt or schedule off the body", () => {
+    expect(handler).toContain("saveAutoAgent({\n            ...agent,");
     expect(handler).not.toContain("b.prompt");
     expect(handler).not.toContain("b.schedule");
+    expect(handler).not.toContain("b.name");
+  });
+
+  // The agent/model quick switch in the Schedules row goes through here, so it
+  // must reach the SAME validator the full POST uses rather than trusting the
+  // body. A model is only valid relative to a backend, so the stored backend
+  // has to be the fallback — validating a grok row's model against claude
+  // would reject every legitimate switch.
+  test("runtime fields go through the shared validator, keyed off the stored backend", () => {
+    expect(handler).toContain("resolveAutoAgentRuntime(b, storedBackend)");
+    expect(handler).toContain("if (!runtime.ok) return err(runtime.status, runtime.error)");
+  });
+
+  test("an empty patch is rejected rather than saved as a no-op write", () => {
+    expect(handler).toContain('if (!touched) return err(400, "no supported field to update")');
+  });
+});
+
+// One validator, two routes. The inline row picker must not become a second,
+// laxer copy of the backend/model/account rules.
+describe("resolveAutoAgentRuntime — shared by POST and PATCH", () => {
+  test("POST delegates to it instead of validating inline", () => {
+    const post = block('if (path === "/api/auto/agents") {', 6000);
+    expect(post).toContain("const runtime = resolveAutoAgentRuntime(b)");
+    expect(post).toContain("if (!runtime.ok) return err(runtime.status, runtime.error)");
+    // The inline copies are gone, not merely bypassed.
+    expect(post).not.toContain('return err(400, "invalid codex model name")');
+    expect(post).not.toContain('return err(400, "invalid cursor model name")');
+  });
+
+  test("the validator still enforces the account pin and thinking-level rules", () => {
+    const fn = block("function resolveAutoAgentRuntime(", 4200);
+    expect(fn).toContain("claudeAccountId is not supported for");
+    expect(fn).toContain("Claude account is missing or not connected");
+    expect(fn).toContain("thinkingLevel is not supported for");
+    expect(fn).toContain("unknown auto agent provider");
   });
 });
 

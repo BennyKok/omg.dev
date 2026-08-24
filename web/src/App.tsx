@@ -7249,27 +7249,37 @@ export function App() {
     }
   }
 
-  // Flip one schedule on or off straight from the list. This is a PATCH, not
-  // the full-object POST the editor uses: the list ships a truncated `prompt`
-  // (promptTruncated), so re-posting the row from list state would persist the
-  // preview over the real prompt. The server reads the stored row and carries
-  // every other field forward.
-  async function setAutoAgentEnabled(id: string, enabled: boolean) {
+  // Edit one field of a schedule straight from the list row — the enable
+  // switch and the agent/model quick switch both land here.
+  //
+  // This is a PATCH, not the full-object POST the editor sheet uses. The list
+  // ships a truncated `prompt` (promptTruncated), so re-posting a row from
+  // list state would persist the 200-character preview over the real prompt.
+  // The server reads the stored row and carries every other field forward.
+  async function patchAutoAgent(id: string, patch: Record<string, unknown>) {
     const before = autoAgents;
     // Optimistic: the switch has to move under the finger, not after a
     // round-trip. Roll the whole list back on failure.
-    setAutoAgents((prev) => prev.map((a) => (a.id === id ? { ...a, enabled } : a)));
+    setAutoAgents((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
     try {
       await api(`/api/auto/agents/${encodeURIComponent(id)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled }),
+        body: JSON.stringify(patch),
       });
     } catch (e) {
       setAutoAgents(before);
       toast.error(e instanceof Error ? e.message : String(e));
     }
   }
+
+  const setAutoAgentEnabled = (id: string, enabled: boolean) =>
+    patchAutoAgent(id, { enabled });
+
+  const patchAutoAgentRuntime = (
+    id: string,
+    patch: { agent: AutoAgentBackend; model?: string; claudeAccountId?: string | null },
+  ) => patchAutoAgent(id, patch);
 
   async function launchAutoTriage(scopeFindings: AutoFinding[]) {
     if (!scopeFindings.length || autoTriageBusy) return;
@@ -8513,8 +8523,7 @@ export function App() {
             onEdit={setEditingAgent}
             onRunNow={runAutoNow}
             onToggleEnabled={(id, enabled) => void setAutoAgentEnabled(id, enabled)}
-            onTriageFindings={() => void launchAutoTriage(findings)}
-            autoTriageBusy={autoTriageBusy}
+            onChangeAgent={(id, patch) => void patchAutoAgentRuntime(id, patch)}
             settings={settings}
             onSettingsChange={updateSettings}
           />
@@ -24017,7 +24026,18 @@ function AgentEditorSheet({
 
 const navLocale = typeof navigator !== "undefined" ? navigator.language : undefined;
 
-function ScheduleSummary({ expr, tz }: { expr: string; tz: string }) {
+function ScheduleSummary({
+  expr,
+  tz,
+  relativeClassName,
+}: {
+  expr: string;
+  tz: string;
+  /** Extra classes on the "· next in 17 hours" tail. The Schedules row hides
+   *  it below sm, where the row has no width to spare and the cron
+   *  description is the part you actually scan for. */
+  relativeClassName?: string;
+}) {
   // describeCron is cheap; nextRunAt scans, so compute it only when expr/tz
   // change — NOT on every 30s re-render.
   const desc = useMemo(() => describeCron(expr, navLocale), [expr]);
@@ -24035,7 +24055,11 @@ function ScheduleSummary({ expr, tz }: { expr: string; tz: string }) {
       <CalendarClock className="size-3.5 shrink-0" />
       <span className="truncate">
         {desc}
-        {next ? <span className="text-muted-foreground/70"> · next {formatRelative(next, navLocale)}</span> : null}
+        {next ? (
+          <span className={cn("text-muted-foreground/70", relativeClassName)}>
+            {" "}· next {formatRelative(next, navLocale)}
+          </span>
+        ) : null}
       </span>
     </span>
   );
@@ -27592,6 +27616,117 @@ function BotEditorPage({
   );
 }
 
+/**
+ * Quick switch for the backend and model a schedule runs on, hung off the
+ * agent icon in the Schedules row.
+ *
+ * Two radio groups in one DropdownMenu — the same idiom the session header
+ * already uses to change a running session's model, so there is one popover
+ * layer and nothing nests. The roster comes from `configuredLaunchOptions`
+ * with `scheduledOnly`, which IS the shared agent catalog narrowed to what the
+ * headless runner can drive, so this picker can never drift from the composer
+ * or the editor sheet. Claude fans out per connected account there, so picking
+ * a specific account here pins it, exactly as it does everywhere else.
+ *
+ * Deliberately NOT AgentModelRow, which is otherwise the shared control: it
+ * mounts three self-correcting effects that call setBackend/setModel when the
+ * current pick is not launchable. In a list of thirty rows those fire on mount
+ * and are indistinguishable from a real choice, so every one would become a
+ * silent write. The editor sheet, which is one row at a time and has an
+ * explicit Save, keeps using AgentModelRow.
+ */
+function ScheduleAgentPicker({
+  agent,
+  onChange,
+}: {
+  agent: AutoAgent;
+  onChange: (patch: {
+    agent: AutoAgentBackend;
+    model?: string;
+    /** undefined leaves the stored pin alone; null clears it. */
+    claudeAccountId?: string | null;
+  }) => void;
+}) {
+  const codingAgents = useContext(CodingAgentsContext);
+  const accessMode = useContext(AgentAccessModeContext);
+  const catalog = useAgentModelCatalog();
+  const backend = (agent.agent ?? "aisdk") as AutoAgentBackend;
+  const options = useMemo(
+    () => configuredLaunchOptions(codingAgents, accessMode, { scheduledOnly: true }),
+    [accessMode, codingAgents],
+  );
+  const models = catalog.models[backend] ?? AGENT_MODELS[backend] ?? [];
+  const defaultModelFor = (key: AgentKind) => catalog.defaults[key] ?? AGENT_DEFAULT_MODEL[key];
+  // Same id scheme as AgentModelRow's selectedLaunchId: a bare backend key
+  // means "no account pinned", which is what Claude · Auto is.
+  const selectedId =
+    backend === "aisdk" && agent.claudeAccountId ? `aisdk:${agent.claudeAccountId}` : backend;
+  const label = AUTO_AGENT_OPTIONS.find((o) => o.key === backend)?.label ?? "claude";
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            className="flex size-7 shrink-0 items-center justify-center rounded-full hover:bg-muted"
+            aria-label={`Change coding agent — currently ${label}${agent.model ? ` · ${agent.model}` : ""}`}
+            title={agent.model ? `${label} · ${agent.model}` : label}
+          />
+        }
+      >
+        <img src={agentIconSrc(backend)} alt="" className="size-4 opacity-70" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-44">
+        <DropdownMenuRadioGroup
+          value={selectedId}
+          onValueChange={(value) => {
+            const id = typeof value === "string" ? value : "";
+            const picked = options.find((o) => (o.selectorId ?? o.key) === id);
+            if (!picked) return;
+            const key = picked.key as AutoAgentBackend;
+            onChange({
+              agent: key,
+              // Switching backend takes that backend's default model; picking a
+              // different Claude ACCOUNT for the same backend must not reset it.
+              model: key === backend ? agent.model : defaultModelFor(key),
+              claudeAccountId: key === "aisdk" ? picked.accountId ?? null : null,
+            });
+          }}
+        >
+          <DropdownMenuLabel>Coding agent</DropdownMenuLabel>
+          {options.map((option) => {
+            const id = option.selectorId ?? option.key;
+            return (
+              <DropdownMenuRadioItem key={id} value={id}>
+                <span className="flex items-center gap-2">
+                  <img src={agentIconSrc(option.key)} alt="" className="size-3.5" />
+                  {option.label}
+                </span>
+              </DropdownMenuRadioItem>
+            );
+          })}
+        </DropdownMenuRadioGroup>
+        {models.length ? (
+          <DropdownMenuRadioGroup
+            value={agent.model ?? ""}
+            onValueChange={(value) =>
+              onChange({ agent: backend, model: typeof value === "string" ? value : undefined })
+            }
+          >
+            <DropdownMenuLabel>Model</DropdownMenuLabel>
+            {models.map((item) => (
+              <DropdownMenuRadioItem key={item} value={item}>
+                {item}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function AutoManageView({
   autoAgents = [],
   findings = [],
@@ -27599,19 +27734,21 @@ function AutoManageView({
   onEdit,
   onRunNow,
   onToggleEnabled,
-  onTriageFindings,
-  autoTriageBusy = false,
+  onChangeAgent,
   settings,
   onSettingsChange,
 }: {
   autoAgents: AutoAgent[];
+  /** Only for the per-row "N open" badge now — the triage banner is gone. */
   findings: AutoFinding[];
   tz: string;
   onEdit: (agent: AutoAgent | "new") => void;
   onRunNow: (id: string) => void;
   onToggleEnabled: (id: string, enabled: boolean) => void;
-  onTriageFindings: () => void;
-  autoTriageBusy?: boolean;
+  onChangeAgent: (
+    id: string,
+    patch: { agent: AutoAgentBackend; model?: string; claudeAccountId?: string | null },
+  ) => void;
   settings?: GlobalSettings;
   onSettingsChange?: (patch: Partial<GlobalSettings>) => Promise<void>;
 }) {
@@ -27663,33 +27800,23 @@ function AutoManageView({
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-2" data-lfg-page-column>
-      <div className="px-1 pb-2">
-        <h1 className="text-lg font-semibold leading-tight">Schedules</h1>
-        <p className="text-sm text-muted-foreground">
-          Prompts that run on a timer on this computer
-        </p>
-      </div>
-      {findings.length ? (
-        <div className="mb-2 flex items-center gap-3 rounded-xl border border-primary/25 bg-primary/5 px-3 py-3">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/12 text-primary">
-            <Sparkles className="size-4" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-semibold">
-              {findings.length} open finding{findings.length === 1 ? "" : "s"}
-            </span>
-            <span className="block text-xs text-muted-foreground">
-              Group related work, dismiss verified noise, and launch linked agents.
-            </span>
-          </span>
-          <AutoTriageButton
-            count={findings.length}
-            busy={autoTriageBusy}
-            onClick={onTriageFindings}
-            prominent
-          />
+      {/* Title and the one action you came here to take, on the same line.
+          "New schedule" used to be a dashed full-width button under 40 rows,
+          which is a long scroll from where you land. The findings/triage card
+          that sat here is gone: findings have their own surface, and a banner
+          about them was the loudest thing on a page that is meant to be a
+          list of schedules. The per-row "N open" badge still points at them. */}
+      <div className="flex items-end justify-between gap-3 px-1 pb-2">
+        <div className="min-w-0">
+          <h1 className="text-lg font-semibold leading-tight">Schedules</h1>
+          <p className="text-sm text-muted-foreground">
+            Prompts that run on a timer on this computer
+          </p>
         </div>
-      ) : null}
+        <Button size="sm" variant="tint" className="shrink-0" onClick={() => onEdit("new")}>
+          <Plus className="size-4" /> New
+        </Button>
+      </div>
       {autoAgents.length === 0 ? (
         <div className="px-4 py-10 text-center text-sm text-muted-foreground">
           No schedules yet.
@@ -27739,69 +27866,55 @@ function AutoManageView({
                   <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
                     {group.items.map((a) => {
                       const openFindings = openByAgent.get(a.id) ?? 0;
-                      const backend = a.agent ?? "aisdk";
-                      const backendLabel =
-                        AUTO_AGENT_OPTIONS.find((o) => o.key === backend)?.label ?? "claude";
                       return (
-                        <div key={a.id} className="flex items-center gap-3 px-3 py-2">
-                          {/* A real switch, not the old read-only status dot.
-                              Enabling a schedule was an edit-sheet round trip
-                              before; it is the one thing you come to this list
-                              to do. Scaled to 0.75 so fifteen of them do not
-                              shout, still a 38 × 23 target. */}
-                          <span className="flex w-[38px] shrink-0 justify-start">
-                            <Switch
-                              checked={a.enabled}
-                              onCheckedChange={(next) => onToggleEnabled(a.id, next)}
-                              className="origin-left scale-75"
-                              aria-label={`${a.enabled ? "Disable" : "Enable"} ${a.name}`}
-                            />
-                          </span>
+                        <div key={a.id} className="flex items-center gap-2 px-3 py-2">
+                          {/* Name is the only elastic part of the row, so it
+                              absorbs every bit of squeeze and the meta cluster
+                              on the right never has to reflow. That reflow is
+                              what used to collide the schedule and the model
+                              into overlapping text. */}
                           <button
                             type="button"
                             onClick={() => onEdit(a)}
                             title={a.prompt}
-                            className="flex min-w-0 flex-1 flex-col gap-0.5 text-left"
+                            className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
                           >
-                            <span className="flex min-w-0 items-center gap-1.5">
-                              <span
-                                className={cn(
-                                  "truncate text-sm font-medium leading-tight",
-                                  !a.enabled && "text-muted-foreground",
-                                )}
-                              >
-                                {a.name}
+                            <span
+                              className={cn(
+                                "truncate text-sm font-medium leading-tight",
+                                !a.enabled && "text-muted-foreground",
+                              )}
+                            >
+                              {a.name}
+                            </span>
+                            {openFindings ? (
+                              <span className="shrink-0 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                                {openFindings} open
                               </span>
-                              {openFindings ? (
-                                <span className="shrink-0 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                                  {openFindings} open
-                                </span>
-                              ) : null}
-                              {a.running ? (
-                                <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                                  <Loader2 className="size-2.5 animate-spin" /> running
-                                </span>
-                              ) : null}
-                            </span>
-                            {/* The one secondary line. The prompt preview used
-                                to sit here and the schedule and the model each
-                                had their own truncating column, which is what
-                                collided into unreadable overlapping text. The
-                                prompt now lives in the title tooltip and in the
-                                editor, where you can actually read it. */}
-                            <span className="truncate text-xs leading-tight text-muted-foreground">
-                              <ScheduleSummary expr={a.schedule} tz={tz} />
-                            </span>
+                            ) : null}
+                            {a.running ? (
+                              <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                                <Loader2 className="size-2.5 animate-spin" /> running
+                              </span>
+                            ) : null}
                           </button>
-                          {/* Backend as its icon alone. The spelled-out
-                              "codex · gpt-5.6-sol" was the loudest thing in
-                              the row and the least useful; hover or open the
-                              editor for the exact model. */}
-                          <img
-                            src={agentIconSrc(backend)}
-                            alt=""
-                            title={a.model ? `${backendLabel} · ${a.model}` : backendLabel}
-                            className="size-4 shrink-0 opacity-60"
+                          {/* When the schedule sat on a second line under the
+                              name its icon and baseline never lined up with
+                              anything. It belongs with the other per-run
+                              facts, so it moves into one centred meta cluster
+                              beside the agent it runs on. The relative tail
+                              ("next in 17 hours") is the first thing to go
+                              when the row gets narrow. */}
+                          <span className="flex shrink-0 items-center gap-1 whitespace-nowrap text-xs text-muted-foreground">
+                            <ScheduleSummary
+                              expr={a.schedule}
+                              tz={tz}
+                              relativeClassName="hidden sm:inline"
+                            />
+                          </span>
+                          <ScheduleAgentPicker
+                            agent={a}
+                            onChange={(patch) => onChangeAgent(a.id, patch)}
                           />
                           <Button
                             size="icon-sm"
@@ -27826,6 +27939,18 @@ function AutoManageView({
                           >
                             <Pencil className="size-4" />
                           </Button>
+                          {/* Rightmost, where an iOS settings row puts it, and
+                              the last thing under your thumb. Scaled to 0.75
+                              so thirty of them do not shout, still a 38 x 23
+                              target. */}
+                          <span className="flex w-[38px] shrink-0 justify-end">
+                            <Switch
+                              checked={a.enabled}
+                              onCheckedChange={(next) => onToggleEnabled(a.id, next)}
+                              className="origin-right scale-75"
+                              aria-label={`${a.enabled ? "Disable" : "Enable"} ${a.name}`}
+                            />
+                          </span>
                         </div>
                       );
                     })}
@@ -27836,14 +27961,6 @@ function AutoManageView({
           })}
         </div>
       )}
-      <button
-        type="button"
-        onClick={() => onEdit("new")}
-        className="mt-1 flex items-center justify-center gap-2 rounded-2xl border border-dashed border-border py-3 text-sm font-medium text-muted-foreground hover:text-foreground"
-      >
-        <Plus className="size-4" /> New schedule
-      </button>
-
       {/* Timezone lives here rather than in Settings: schedules are the only
           thing it affects, so it reads as part of scheduling. */}
       {settings && onSettingsChange ? (
