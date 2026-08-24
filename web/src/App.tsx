@@ -13278,18 +13278,9 @@ function BotRosterRow({
   onMarkRead?: () => void;
 }) {
   const activity = botRosterActivityState(bot.enabled, busy);
-  const unreadMark = collapsed ? (
+  const unreadDot = (
     <span role="status" aria-label={`Unread conversation with ${bot.name}`}>
       <span className={BOT_UNREAD_DOT_CLASS} aria-hidden="true" />
-    </span>
-  ) : (
-    <span
-      role="status"
-      aria-label={`Unread conversation with ${bot.name}`}
-      className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-primary/10 px-2 py-1 text-[10px] font-semibold leading-none text-primary"
-    >
-      <span className={BOT_UNREAD_DOT_CLASS} aria-hidden="true" />
-      Unread
     </span>
   );
   return (
@@ -13322,7 +13313,7 @@ function BotRosterRow({
           {/* Collapsed rows show only the mark, so the unread state has to
               live on it instead of the expanded row's inline dot. */}
           {unread && collapsed ? (
-            <span className="absolute -right-0.5 -top-0.5">{unreadMark}</span>
+            <span className="absolute -right-0.5 -top-0.5">{unreadDot}</span>
           ) : null}
         </>
       }
@@ -13333,11 +13324,22 @@ function BotRosterRow({
       }
       titleBadge={<BotRosterActivityBadge state={activity} />}
       preview={
-        <span className={cn(previewClassName, unread && "font-medium text-foreground")}>
-          {preview}
+        <span className="flex min-w-0 items-center gap-1.5">
+          {unread ? (
+            <span
+              role="status"
+              aria-label={`Unread conversation with ${bot.name}`}
+              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary"
+            >
+              <span className={BOT_UNREAD_DOT_CLASS} aria-hidden="true" />
+              Unread
+            </span>
+          ) : null}
+          <span className={cn("min-w-0 truncate", previewClassName, unread && "font-medium text-foreground")}>
+            {preview}
+          </span>
         </span>
       }
-      indicator={unread ? unreadMark : null}
       attention={unread}
       trailingStatic={timestamp ? relTime(timestamp) : null}
       trailingHover={
