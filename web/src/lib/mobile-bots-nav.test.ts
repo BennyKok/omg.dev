@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   BOT_ROSTER_ROW_CLASS,
+  isPrimarySurfaceTab,
   mobileSurfaceDockBottom,
   mobileSurfaceToggleActive,
   shouldShowBotsInSessionList,
@@ -97,5 +98,36 @@ describe("shouldShowInlineBotsSurfaceToggle", () => {
 
   test("shown in the tablet band, where there is no persistent bottom toggle", () => {
     expect(shouldShowInlineBotsSurfaceToggle(false)).toBe(true);
+  });
+});
+
+describe("isPrimarySurfaceTab", () => {
+  test("covers every segment of the switch bar", () => {
+    expect(isPrimarySurfaceTab("live")).toBe(true);
+    expect(isPrimarySurfaceTab("bots")).toBe(true);
+    expect(isPrimarySurfaceTab("auto")).toBe(true);
+  });
+
+  // The regression this predicate exists for. Scheduled was missing from the
+  // hand-written tab lists in the header, so it took the secondary-page
+  // chrome and its back button ran a hardcoded setTab("settings") — you left
+  // Scheduled through Settings no matter how you arrived.
+  test("Scheduled is a peer of Live, not a page under Settings", () => {
+    expect(isPrimarySurfaceTab("auto")).toBe(isPrimarySurfaceTab("live"));
+  });
+
+  test("secondary pages are not primary surfaces", () => {
+    for (const tab of ["settings", "notifications", "artifacts", "computer", "storage", "more"]) {
+      expect(isPrimarySurfaceTab(tab)).toBe(false);
+    }
+  });
+
+  // Every tab the switch bar can show must be a primary surface, or that tab
+  // gets a back button out of a bar that has no "back".
+  test("agrees with the tabs the mobile dock renders on", () => {
+    for (const tab of ["live", "bots", "auto"]) {
+      expect(shouldShowMobileSurfaceToggle(true, tab)).toBe(true);
+      expect(isPrimarySurfaceTab(tab)).toBe(true);
+    }
   });
 });

@@ -50,6 +50,26 @@ export function shouldShowMobileSurfaceToggle(
   return isMobile && (tab === "live" || tab === "auto" || (tab === "bots" && !selectedBotId));
 }
 
+/**
+ * Live, Bots and Scheduled are peers. The switch bar owns the choice between
+ * them, so none of the three is reached by descending from another page and
+ * none of them owes you a back button.
+ *
+ * The chrome did not agree. Live and Bots were listed by hand at each header
+ * branch and Scheduled was left out of every one, so it fell through to the
+ * generic secondary-page header — the one whose back button is a HARDCODED
+ * `setTab("settings")`, not history. Scheduled is reachable from the switch
+ * bar, from a deep link, and from Settings, and it sent all three to Settings
+ * on the way out. Settings links to it, which is what made the wrong answer
+ * look plausible.
+ *
+ * One predicate, so adding a fourth surface cannot repeat this by being
+ * missed at one branch out of three.
+ */
+export function isPrimarySurfaceTab(tab: string): tab is PrimaryMobileTab {
+  return tab === "live" || tab === "bots" || tab === "auto";
+}
+
 /** Maps the current tab to `SurfaceToggle`'s active-segment value. */
 export function mobileSurfaceToggleActive(tab: string): SurfaceToggleActive {
   if (tab === "bots") return "chat";
