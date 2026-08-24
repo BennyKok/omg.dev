@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## August 24, 2026 - Bot roster status is quieter (v0.6.7)
+
+- **Unread is one small dot on its conversation row.** Unread rows no longer
+  use a blue outline or stronger text. Idle bots no longer show a status chip.
+  Working bots use one spinner and keep their latest message preview visible.
+
 ## August 24, 2026 - Bot unread state stays quiet (v0.6.6)
 
 - **Unread is now one clear dot.** The highlighted row and stronger text keep
