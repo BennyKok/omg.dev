@@ -2,6 +2,33 @@
 
 Recent product updates and deployment notes.
 
+## August 24, 2026 - A transcript that stays fast, and can be searched (v0.5.0)
+
+- **Tool-heavy sessions are readable again.** The transcript asked the server for
+  80 raw messages, but the screen shows collapsed rows, and one run of tool calls
+  collapses into a single pill. A session that was mostly tool work therefore
+  arrived as three rows on an otherwise empty screen, and it could not page back,
+  because the page did not overflow and the backfill only ran when it did.
+  Paging is now measured in rows, so a page always carries enough to read. The
+  row rule has one definition that the server and the browser share.
+- **A find bar for the transcript.** Virtualization keeps only the rows near the
+  viewport in the page, so the browser find command can only see those. Search
+  now runs on the server, over the whole session, and jumps to the row that
+  matched. It reports how many matches exist, walks forward and backward, and
+  keeps loading older pages while it hunts for a match that is not loaded yet.
+  It does not take over Control+F, because that would be a hostile default.
+- **Sending a message during a reply no longer doubles the reply.** The chat
+  library appends a new copy of a message when the incoming update does not
+  match the end of the list. Sending mid-reply moved the reply away from the
+  end, so a second copy appeared, and the two drew on top of each other. The
+  live turn is now kept at the end, and an older copy of it is dropped.
+- **Images no longer reload when you scroll back to them.** Off-screen rows are
+  removed from the page, so returning to an image used to download it again and
+  show the loading pulse again. Images and video now load in the element itself,
+  so the browser cache serves them. Video also seeks properly now, instead of
+  downloading the whole file first. The hosted surface keeps the previous path,
+  because it authenticates with a header.
+
 ## August 23, 2026 - A quieter composer, and Manage sessions is gone (v0.4.0)
 
 - **New: one-shot commands over the API.** `POST /api/exec` runs a single
