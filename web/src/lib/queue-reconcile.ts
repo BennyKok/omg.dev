@@ -23,6 +23,7 @@ export type QueueMessageRow = {
   error?: string;
   createdAt?: number;
   updatedAt?: number;
+  queuedBehindTurn?: boolean;
 };
 
 export type QueueReconcileMessage = {
@@ -101,7 +102,10 @@ export function queueRowHydration(
   if (item.status === "failed") {
     return { failed: true, queueError: item.error, queueId: item.id };
   }
-  return { pending: true, queued: item.status === "queued" };
+  return {
+    pending: true,
+    queued: item.status === "queued" && item.queuedBehindTurn !== false,
+  };
 }
 
 /**

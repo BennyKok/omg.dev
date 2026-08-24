@@ -106,7 +106,7 @@ export function enqueueMessage(
     attempts: 0,
     createdAt: now,
     updatedAt: now,
-    ...(opts.queuedBehindTurn ? { queuedBehindTurn: true } : {}),
+    queuedBehindTurn: opts.queuedBehindTurn === true,
   };
   s.msgs.push(msg);
   persist(sessionId, msg);
@@ -137,7 +137,7 @@ export function recordCommandFileMessage(
     attempts: 0,
     createdAt: now,
     updatedAt: now,
-    ...(queuedBehindTurn ? { queuedBehindTurn: true } : {}),
+    queuedBehindTurn,
   };
   s.msgs.push(msg);
   persist(sessionId, msg);

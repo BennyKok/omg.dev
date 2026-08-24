@@ -33,6 +33,30 @@ function assistantRow(id: string, text: string, ts: number): OmgMessage {
 }
 
 describe("a message queued behind a running turn", () => {
+  test("keeps an ordinary steering row visible when its server row arrives", () => {
+    const text = "stop, do this instead";
+    const optimistic: OmgChatMessage[] = [{
+      ...optimisticQueued(text),
+      metadata: {
+        omgMessage: { role: "user", kind: "text", text, ts: TS, pending: true },
+      },
+    }];
+    const settled = appendOmgTranscriptEvent(
+      optimistic,
+      {
+        type: "message",
+        message: { id: "row-9", role: "user", kind: "text", text, ts: TS + 1 },
+      },
+      { streamActive: true },
+    );
+
+    expect(settled).toHaveLength(1);
+    expect(omgUIMessagesToMessages(settled)[0]).toMatchObject({
+      id: "row-9",
+      text,
+    });
+  });
+
   test("keeps its queued state through the render pipeline", () => {
     const [rendered] = omgUIMessagesToMessages([optimisticQueued("look at the tests too")]);
     expect(rendered.queued).toBe(true);
@@ -132,24 +156,29 @@ describe("a message queued behind a running turn", () => {
     expect(next[0].metadata?.omgMessage?.renderKey).toBe(`optimistic-${TS}`);
   });
 
-  test("never disappears between a delivered queue event and the held server row", () => {
+  test("keeps one ordinary row through delivery and its live server echo", () => {
     const text = "stop, do this instead";
-    const optimistic = [optimisticQueued(text)];
+    const optimistic: OmgChatMessage[] = [{
+      ...optimisticQueued(text),
+      metadata: {
+        omgMessage: { role: "user", kind: "text", text, ts: TS, pending: true },
+      },
+    }];
     const queued = reconcileOmgQueueMessages(optimistic, [
-      { id: "send-1", text, status: "queued", createdAt: TS },
+      { id: "send-1", text, status: "queued", createdAt: TS, queuedBehindTurn: false },
     ]);
     const duringDelivered = appendOmgTranscriptEvent(
       queued,
       {
-        type: "queue",
-        queue: [{ id: "send-1", text, status: "delivered", createdAt: TS }],
+        type: "queue", queue: [{ id: "send-1", text, status: "delivered", createdAt: TS, queuedBehindTurn: false }],
       },
       { streamActive: true },
     );
-    const settled = appendOmgTranscriptEvent(duringDelivered, {
-      type: "message",
-      message: { id: "row-9", role: "user", kind: "text", text, ts: TS + 1 },
-    });
+    const settled = appendOmgTranscriptEvent(
+      duringDelivered,
+      { type: "message", message: { id: "row-9", role: "user", kind: "text", text, ts: TS + 1 } },
+      { streamActive: true },
+    );
 
     expect([optimistic.length, queued.length, duringDelivered.length, settled.length]).toEqual([
       1, 1, 1, 1,
@@ -179,6 +208,27 @@ describe("a message queued behind a running turn", () => {
       rail.push(queued.length ? "queued" : "list");
     }
     expect(rail).toEqual(["queued", "queued", "queued"]);
+  });
+
+  test("never labels an ordinary tap queued during queue status churn", () => {
+    const text = "stop, do this instead";
+    let messages: OmgChatMessage[] = [{
+      ...optimisticQueued(text),
+      metadata: {
+        omgMessage: { role: "user", kind: "text", text, ts: TS, pending: true },
+      },
+    }];
+    for (const status of ["pending", "sending", "queued"] as const) {
+      messages = reconcileOmgQueueMessages(messages, [
+        { id: "send-1", text, status, createdAt: TS, queuedBehindTurn: false },
+      ]);
+      const rendered = omgUIMessagesToMessages(messages);
+      expect(rendered).toHaveLength(1);
+      expect(rendered[0]?.queued).toBe(false);
+      const split = splitQueuedRenderItems(buildChatRenderItems(rendered));
+      expect(split.queued).toHaveLength(0);
+      expect(split.items[0]?.type === "msg" && split.items[0].message.text).toBe(text);
+    }
   });
 
   test("removes the restored bubble when the queue reports delivery", () => {

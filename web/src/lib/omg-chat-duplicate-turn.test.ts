@@ -4,13 +4,11 @@ import {
   OmgChatStreamOwnership,
   OmgChatTransport,
   appendOmgTranscriptEvent,
-  commitHeldOmgRows,
-  heldRowDuringOwnedStream,
   omgUIMessagesToMessages,
   type OmgChatMessage,
   type OmgTranscriptEvent,
 } from "./omg-chat-transport";
-import { buildChatRenderItems, splitQueuedRenderItems } from "./chat-render-items";
+import { buildChatRenderItems } from "./chat-render-items";
 
 // Lives here rather than in test/ so `ai` / `@ai-sdk/react` resolve out of
 // web/node_modules — this exercises the real AI SDK Chat, which is the whole
@@ -47,45 +45,21 @@ function harness(SID = nextSid()) {
   });
   const owned = new OmgChatStreamOwnership();
   const chat = new Chat<OmgChatMessage>({ id: SID, transport });
-  // Replay everything the turn parked, in the order the server sent it.
-  const commitHeld = () => {
-    if (owned.owns(SID)) return;
-    const next = commitHeldOmgRows(chat.messages, owned.release(SID));
-    if (next !== chat.messages) chat.messages = next;
-  };
-  // The passive listener SessionChat installs next to the transport, including
-  // its park-and-commit: a row that would land past the live turn waits in the
-  // ownership record until the turn lets go.
+  // The passive listener SessionChat installs next to the transport.
   listeners.add((event) => {
-    const streamActive = owned.owns(SID);
-    if (streamActive) {
-      const row = heldRowDuringOwnedStream(event);
-      if (row) {
-        owned.hold(SID, row);
-        return;
-      }
-    } else {
-      commitHeld();
-    }
-    const next = appendOmgTranscriptEvent(chat.messages, event, { streamActive });
+    const next = appendOmgTranscriptEvent(chat.messages, event, { streamActive: owned.owns(SID) });
     if (next !== chat.messages) chat.messages = next;
   });
   const emit = (event: OmgTranscriptEvent) => {
     for (const listener of [...listeners]) listener(event);
   };
-  // `queued` mirrors SessionChat: a send that lands behind a running turn shows
-  // as queued, because that is what the send queue is about to report anyway.
-  const send = (text: string, queued = false) =>
-    owned
-      .run(SID, () =>
-        chat.sendMessage({
-          text,
-          metadata: {
-            omgMessage: { role: "user", kind: "text", text, ts: Date.now(), pending: true, queued },
-          },
-        }),
-      )
-      .finally(commitHeld);
+  const send = (text: string) =>
+    owned.run(SID, () =>
+      chat.sendMessage({
+        text,
+        metadata: { omgMessage: { role: "user", kind: "text", text, ts: Date.now(), pending: true } },
+      }),
+    );
   return { chat, emit, posts, send, SID };
 }
 
@@ -303,31 +277,34 @@ describe("sending while the assistant is streaming", () => {
 
     const first = send("ship it");
     await sleep(20);
+    emit({ type: "message", message: { id: "row-900", role: "user", kind: "text", text: "ship it", ts: base } });
     emit({ type: "busy", busy: true });
     emit({ type: "ai_part", part: { type: "text-delta", id: `draft-${SID}`, text: "Good", reset: true, ts: base + 10 } });
     await sleep(10);
     emit({ type: "ai_part", part: { type: "text-delta", id: `draft-${SID}`, text: answer, reset: true, ts: base + 20 } });
     await sleep(10);
 
-    // Sent mid-stream, so it shows as queued rather than as a transcript row.
-    const second = send("stop, do this instead", true);
+    const second = send("stop, do this instead");
     await sleep(20);
 
-    // While the turn is still live the reader must NOT see the steering message
-    // sitting above the answer it interrupted: it is pinned outside the
-    // transcript, under the running turn, by splitQueuedRenderItems.
+    // An ordinary tap is visible at once. It is not a queued row.
     const live = omgUIMessagesToMessages(chat.messages);
-    const { items: liveItems, queued } = splitQueuedRenderItems(buildChatRenderItems(live));
-    expect(liveItems.filter((item) => item.type === "msg").map((item) => item.message.text)).toEqual([
+    expect(live.filter((message) => message.text === "stop, do this instead")).toHaveLength(1);
+    expect(live.find((message) => message.text === "stop, do this instead")?.queued).toBeUndefined();
+    expect(live.filter((message) => message.kind === "text").map((message) => message.text)).toEqual([
       "ship it",
       answer,
-    ]);
-    expect(queued.map((item) => (item.type === "msg" ? item.message.text : null))).toEqual([
       "stop, do this instead",
     ]);
 
     emit({ type: "message", message: { id: "row-901", role: "assistant", kind: "text", text: answer, ts: base + 30 } });
     emit({ type: "message", message: { id: "row-902", role: "user", kind: "text", text: "[Request interrupted by user]", ts: base + 31 } });
+    expect(omgUIMessagesToMessages(chat.messages).map((message) => message.text)).toEqual([
+      "ship it",
+      answer,
+      "[Request interrupted by user]",
+      "stop, do this instead",
+    ]);
     emit({ type: "message", message: { id: "row-903", role: "user", kind: "text", text: "stop, do this instead", ts: base + 32 } });
     await sleep(300);
     emit({ type: "busy", busy: false });

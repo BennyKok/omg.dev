@@ -2337,7 +2337,11 @@ function sendPromptToLiveSession(
     traceLog("session_send_aisdk_cmd", { sessionId: sid, key, chars: prompt.length });
     return {
       ok: true,
-      msg: recordCommandFileMessage(sid, prompt, !!session.busy),
+      msg: recordCommandFileMessage(
+        sid,
+        prompt,
+        opts.mode === "queue" && !!session.busy,
+      ),
     };
   }
   if (!session.tmuxTarget) return { ok: false, error: "session is not in a tmux pane — cannot send" };
@@ -2345,9 +2349,7 @@ function sendPromptToLiveSession(
   return {
     ok: true,
     msg: enqueueMessage(sid, transportPrompt, {
-      // Jcode's REPL buffers a complete stdin line while its current turn is
-      // active. It accepted the line, but the agent has not read it yet.
-      queuedBehindTurn: session.agent === "jcode" && !!session.busy,
+      queuedBehindTurn: opts.mode === "queue" && !!session.busy,
     }),
   };
 }
