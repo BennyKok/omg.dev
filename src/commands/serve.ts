@@ -219,6 +219,7 @@ import {
   cwdForTranscript,
   cwdForCodexTranscript,
   findCodexTranscriptById,
+  visibleTranscriptMessages,
   type PendingPrompt,
   type Session,
   type SessionMsg,
@@ -2181,10 +2182,6 @@ function msgWithHtml<T extends HtmlMessage>(m: T) {
     return { ...m, html };
   }
   return m;
-}
-
-function visibleTranscriptMessages<T extends { kind: string }>(messages: T[]): T[] {
-  return messages.filter((message) => message.kind !== "tool_result");
 }
 
 function withImageArtifacts<T extends { role: string; kind: string; text: string; ts?: number | null; id?: string | null }>(
