@@ -44,10 +44,19 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
   // Read-only is the safe default for a shared screen: opening the tab should
   // not let a stray click land on whatever the agent is doing mid-task.
   const [viewOnly, setViewOnly] = useState(true);
-  // Trackpad (relative) pointer, on by default for touch. Absolute pointing is
-  // wrong on a touchscreen: your finger lands ON the target and hides it, and
-  // there is no hover, so precise work is guesswork. Relative movement is how
-  // every remote-desktop client on a phone actually behaves.
+  // Relative (trackpad) pointing for FINGERS ONLY -- never a decision the
+  // person has to make.
+  //
+  // Absolute pointing is right for a mouse and wrong for a finger. With a
+  // mouse the cursor is already separate from the hand, so pointing straight
+  // at a target is exactly what you want. With a finger the target ends up
+  // underneath your own hand, there is no hover to aim with, and a tap
+  // teleports the cursor instead of moving it.
+  //
+  // So this follows the input device rather than a toggle. It starts from the
+  // media query and then corrects on first use, because a device can have both
+  // -- an iPad with a trackpad attached reports coarse until a real mouse
+  // event arrives.
   const [trackpad, setTrackpad] = useState(
     typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches,
   );
@@ -194,36 +203,68 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
     [emitMouse],
   );
 
-  // Touch handling for trackpad mode. The overlay sits above noVNC's canvas so
-  // its own gesture handler never sees these -- two pointer models fighting
-  // over one finger is worse than either alone.
-  const onTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length !== 1) return;
-    const t = e.touches[0];
-    touchRef.current = { x: t.clientX, y: t.clientY, moved: false, at: Date.now() };
-  };
+  // Touch handling for trackpad mode, bound natively rather than through React.
+  //
+  // Two reasons it cannot be React's onTouch* props. React registers touch
+  // listeners as PASSIVE, so preventDefault there is ignored -- and without it
+  // the browser fires its compatibility mouse events (and a synthesized click,
+  // and possibly a dblclick) a moment after each touchend. Those arrive while
+  // the next finger is already down, which is what made a drag immediately
+  // after a tap feel stuck: the browser was still resolving whether the first
+  // tap was half of a double-tap.
+  //
+  // The overlay also sits above noVNC's canvas so its own gesture handler never
+  // sees these. Two pointer models fighting over one finger is worse than
+  // either alone.
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = overlayRef.current;
+    if (!el) return;
 
-  const onTouchMove = (e: React.TouchEvent) => {
-    const prev = touchRef.current;
-    if (!prev || e.touches.length !== 1) return;
-    const t = e.touches[0];
-    const dx = t.clientX - prev.x;
-    const dy = t.clientY - prev.y;
-    if (Math.abs(dx) > 1 || Math.abs(dy) > 1) prev.moved = true;
-    // Mild acceleration: slow drags stay precise, fast ones cross the screen.
-    const speed = Math.min(2.5, 1 + Math.hypot(dx, dy) / 12);
-    moveCursor(dx * speed, dy * speed);
-    prev.x = t.clientX;
-    prev.y = t.clientY;
-  };
+    const onStart = (e: TouchEvent) => {
+      // Suppress the compatibility mouse/click/dblclick burst outright.
+      e.preventDefault();
+      if (e.touches.length !== 1) return;
+      const t = e.touches[0];
+      touchRef.current = { x: t.clientX, y: t.clientY, moved: false, at: Date.now() };
+    };
 
-  const onTouchEnd = () => {
-    const prev = touchRef.current;
-    touchRef.current = null;
-    // A tap is a click WHERE THE CURSOR IS, not where the finger landed. That
-    // is the whole point of trackpad mode.
-    if (prev && !prev.moved && Date.now() - prev.at < 400) clickAtCursor(0);
-  };
+    const onMove = (e: TouchEvent) => {
+      e.preventDefault();
+      const prev = touchRef.current;
+      if (!prev || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      const dx = t.clientX - prev.x;
+      const dy = t.clientY - prev.y;
+      // 3px of slop, so the tiny wobble of a real tap is not read as a drag.
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) prev.moved = true;
+      // Mild acceleration: slow drags stay precise, fast ones cross the screen.
+      const speed = Math.min(2.5, 1 + Math.hypot(dx, dy) / 12);
+      moveCursor(dx * speed, dy * speed);
+      prev.x = t.clientX;
+      prev.y = t.clientY;
+    };
+
+    const onEnd = (e: TouchEvent) => {
+      e.preventDefault();
+      const prev = touchRef.current;
+      touchRef.current = null;
+      // A tap clicks WHERE THE CURSOR IS, not where the finger landed. That is
+      // the whole point of relative pointing.
+      if (prev && !prev.moved && Date.now() - prev.at < 400) clickAtCursor(0);
+    };
+
+    el.addEventListener("touchstart", onStart, { passive: false });
+    el.addEventListener("touchmove", onMove, { passive: false });
+    el.addEventListener("touchend", onEnd, { passive: false });
+    el.addEventListener("touchcancel", onEnd, { passive: false });
+    return () => {
+      el.removeEventListener("touchstart", onStart);
+      el.removeEventListener("touchmove", onMove);
+      el.removeEventListener("touchend", onEnd);
+      el.removeEventListener("touchcancel", onEnd);
+    };
+  }, [moveCursor, clickAtCursor, status?.running, viewOnly, trackpad]);
 
   /** Raise the soft keyboard. A canvas cannot hold focus on iOS, so we focus a
    *  hidden field and forward what it receives. */
@@ -252,7 +293,18 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
   return (
     // Full bleed: the screen is the page. No title, no chrome, no padding --
     // every pixel spent on framing is a pixel not spent on the desktop.
-    <div className="relative h-full min-h-0 w-full overflow-hidden bg-[#0b0b0d]">
+    <div
+      className="relative h-full min-h-0 w-full overflow-hidden bg-[#0b0b0d]"
+      // Correct the mode from what actually touched the screen. The media
+      // query cannot distinguish an iPad from an iPad with a trackpad, so a
+      // real mouse event switches to absolute pointing and a finger switches
+      // back. Capture phase, because in trackpad mode the overlay above stops
+      // these from bubbling.
+      onPointerDownCapture={(e) => {
+        const wants = e.pointerType === "touch";
+        setTrackpad((current) => (current === wants ? current : wants));
+      }}
+    >
       {/* touch-none is load-bearing on mobile: noVNC's GestureHandler needs the
           raw touch stream. Without it the browser claims the gestures for page
           panning and zooming, and the desktop appears to ignore every touch.
@@ -263,18 +315,16 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
         className="absolute inset-0 touch-none select-none [-webkit-touch-callout:none] [overscroll-behavior:none]"
       />
 
-      {/* Trackpad surface. Mounted only while controlling AND in trackpad mode,
-          so absolute pointing (a mouse, a stylus, or by choice) still reaches
-          noVNC's own handlers untouched. Two pointer models fighting over one
-          finger is worse than either alone. */}
+      {/* Trackpad surface. Mounted only while controlling AND on a finger, so a
+          mouse keeps absolute pointing and reaches noVNC's own handlers
+          untouched. Listeners are attached natively in the effect above, not
+          here: React's touch props are passive, and preventDefault is the whole
+          point. No onDoubleClick either -- the browser synthesizes dblclick
+          from taps, and reacting to it is what made a tap-then-drag stall. */}
       {running && !viewOnly && trackpad ? (
         <div
-          className="absolute inset-0 z-[6] touch-none"
-          onTouchStart={onTouchStart}
-          onTouchMove={onTouchMove}
-          onTouchEnd={onTouchEnd}
-          onTouchCancel={onTouchEnd}
-          onDoubleClick={() => clickAtCursor(0)}
+          ref={overlayRef}
+          className="absolute inset-0 z-[6] touch-none select-none"
           onContextMenu={(e) => {
             e.preventDefault();
             clickAtCursor(2);
@@ -345,24 +395,10 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
               <MousePointer2 className="mr-1.5 size-3.5" />
               {viewOnly ? "Take control" : "Controlling"}
             </Button>
-            {/* Always visible while the desktop is up, NOT gated on having
-                taken control. Hiding them until you are already controlling
-                makes them undiscoverable -- you cannot find the keyboard
-                without first guessing that another button reveals it. Both
-                take control themselves when used. */}
+            {/* Keyboard is visible whether or not you have taken control, and
+                takes control itself when used. Hiding it until you are already
+                controlling made it undiscoverable. */}
             <>
-                <Button
-                  variant={trackpad ? "default" : "secondary"}
-                  size="icon-sm"
-                  className="shadow-lg"
-                  onClick={() => setTrackpad((t) => !t)}
-                  aria-label={trackpad ? "Switch to direct touch" : "Switch to trackpad"}
-                  title={
-                    trackpad ? "Trackpad: drag to move, tap to click" : "Direct touch"
-                  }
-                >
-                  <MousePointer2 className="size-3.5" />
-                </Button>
                 <Button
                   variant="secondary"
                   size="icon-sm"
