@@ -2,6 +2,18 @@
 
 Recent product updates and deployment notes.
 
+## August 24, 2026 - Chat updates glide instead of jumping (v0.6.4)
+
+- **New messages, tool calls, and the working indicator now move the chat
+  smoothly.** A time-based spring follows the live bottom of the transcript.
+  Streamed text and tool-status updates no longer cancel that motion and snap
+  the view. Changing sessions also no longer paints a provisional transcript
+  height that makes the layout flicker before it settles.
+- **Computer control now follows the input device.** There is one Take control
+  toggle. A mouse points directly, while touch acts like a trackpad. A tap no
+  longer blocks the next drag, and agent browser input no longer shows a
+  desktop-wide lock that did not protect a shared resource.
+
 ## August 24, 2026 - Hosted onboarding answers reach analytics (v0.6.3)
 
 - **The hosted onboarding survey now sends answers through the host.** The
