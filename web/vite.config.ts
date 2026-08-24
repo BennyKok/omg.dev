@@ -113,7 +113,19 @@ export default defineConfig({
   // frame back to the original source in web/src. "hidden" keeps the .map files
   // out of the served bundle's sourceMappingURL (no end-user devtools exposure),
   // while still writing web/dist/assets/*.js.map for server-side / agent use.
+  // noVNC (the Computer's RFB client) ships top-level await for one optional
+  // WebCodecs feature probe, and Vite's default `modules` target predates it —
+  // esbuild fails the dep scan with "Top-level await is not available". es2022
+  // is the first target that allows it.
+  //
+  // This raises the browser floor to roughly Chrome 89 / Safari 15 / Firefox 89
+  // (all 2021). Nothing here targeted anything older deliberately: the previous
+  // floor was Vite's default rather than a stated support policy.
+  optimizeDeps: {
+    esbuildOptions: { target: "es2022" },
+  },
   build: {
+    target: "es2022",
     sourcemap: BUILD_SOURCEMAP,
     rollupOptions: {
       output: {

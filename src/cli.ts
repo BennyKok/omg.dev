@@ -87,6 +87,13 @@ async function main() {
       const { cmdMcp } = await import("./commands/mcp.ts");
       return await cmdMcp();
     }
+    // Deliberately NOT reachable as `omg computer mcp`: that unwraps to `mcp`
+    // (the hosted omg catalog) via unwrapComputerNamespace. The Computer's
+    // tools are a separate, local-only server -- see src/computer/mcp.ts.
+    case "computer-mcp": {
+      const { cmdComputerMcp } = await import("./computer/mcp.ts");
+      return await cmdComputerMcp();
+    }
     case "connect": {
       const { cmdConnect } = await import("./commands/connect.ts");
       return await cmdConnect(rest);

@@ -26,6 +26,12 @@ export type GlobalSettings = {
   // rotates when a human applies a configuration change, and a long-lived
   // conversation eventually fails at the wall the way it does today.
   botAutoCompactionEnabled: boolean;
+  // Expose the Computer Use MCP to agents on this box. Off by default and
+  // deliberately opt-in: its tools drive a real desktop that only exists where
+  // someone installed the X stack, and advertising them where there is no
+  // screen would offer an agent capabilities it cannot use. Local only -- this
+  // never travels to a hosted Computer.
+  computerMcpEnabled: boolean;
   // Share of the model's context window at which that rotation fires. Bounded
   // well away from both ends: see sanitizeBotCompactionThreshold for why 40 and
   // 95 are the limits. There is no matching setting for the re-arm mark, which
@@ -110,6 +116,8 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
     ? input.skippedUpdateVersion
     : "";
   const botAutoCompactionEnabled = input?.botAutoCompactionEnabled !== false;
+  // Note the polarity: unlike bot auto-compaction, this defaults OFF.
+  const computerMcpEnabled = input?.computerMcpEnabled === true;
   const botCompactionThresholdPercent = sanitizeBotCompactionThreshold(
     input?.botCompactionThresholdPercent,
   );
@@ -119,6 +127,7 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
     maxBotSchedules,
     transcriptView,
     botAutoCompactionEnabled,
+    computerMcpEnabled,
     botCompactionThresholdPercent,
     skippedUpdateVersion,
   };
@@ -221,6 +230,7 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
     write.run("maxBotSchedules", JSON.stringify(next.maxBotSchedules), now);
     write.run("transcriptView", JSON.stringify(next.transcriptView), now);
     write.run("botAutoCompactionEnabled", JSON.stringify(next.botAutoCompactionEnabled), now);
+    write.run("computerMcpEnabled", JSON.stringify(next.computerMcpEnabled), now);
     write.run("botCompactionThresholdPercent", JSON.stringify(next.botCompactionThresholdPercent), now);
     write.run("skippedUpdateVersion", JSON.stringify(next.skippedUpdateVersion), now);
   })();
