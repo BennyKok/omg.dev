@@ -79,6 +79,8 @@ export type OmgTranscriptSubscribe = (
   listener: (event: OmgTranscriptEvent) => void,
 ) => () => void;
 
+const EMPTY_HELD: OmgMessage[] = [];
+
 // A focused chat consumes transcript events twice: once through useChat's
 // transport and once through the passive subscription that also handles turns
 // started outside this browser. The transport must claim a locally-started
@@ -86,9 +88,38 @@ export type OmgTranscriptSubscribe = (
 // involved because its render notification can lag behind that event.
 export class OmgChatStreamOwnership {
   readonly #counts = new Map<string, number>();
+  readonly #held = new Map<string, OmgMessage[]>();
 
   owns(sid: string): boolean {
     return (this.#counts.get(sid) ?? 0) > 0;
+  }
+
+  /**
+   * Park a transcript row that must NOT enter the message list yet.
+   *
+   * While a local send owns the live stream, AbstractChat requires its own
+   * streaming assistant message to be the LAST entry of the list, and it
+   * re-asserts that on every chunk (see withStreamingTurnLast). A row that
+   * chronologically belongs BEFORE the streaming turn therefore cannot be
+   * inserted while the stream runs: either it displaces the streaming bubble
+   * and mints a duplicate turn, or the bubble is re-seated past it and the
+   * reader sees the rows in the wrong order.
+   *
+   * So the row waits here, in arrival order, which IS the server's
+   * chronological order, and is committed verbatim once the stream releases.
+   */
+  hold(sid: string, message: OmgMessage): void {
+    const queue = this.#held.get(sid);
+    if (queue) queue.push(message);
+    else this.#held.set(sid, [message]);
+  }
+
+  /** Take everything parked for this session. Empty for the common path. */
+  release(sid: string): OmgMessage[] {
+    const queue = this.#held.get(sid);
+    if (!queue) return EMPTY_HELD;
+    this.#held.delete(sid);
+    return queue;
   }
 
   async run<T>(sid: string, task: () => Promise<T>): Promise<T> {
@@ -347,6 +378,36 @@ export function reconcileOmgQueueMessages(
       next = next.filter((message) => message.id !== id);
       continue;
     }
+    const existingIndex = next.findIndex((candidate) => candidate.id === id);
+    const exactText = normText(item.text);
+    const optimisticIndex =
+      existingIndex >= 0
+        ? -1
+        : next.findIndex((candidate, index) => {
+            if (claimedOptimistic.has(index)) return false;
+            if (candidate.id.startsWith(QUEUE_MESSAGE_ID_PREFIX)) return false;
+            const pending = candidate.metadata?.omgMessage;
+            return (
+              candidate.role === "user" &&
+              !!pending?.pending &&
+              !pending.failed &&
+              pending?.kind === "text" &&
+              normText(pending.text) === exactText
+            );
+          });
+
+    // `queued` only ever goes on, never off, for as long as one bubble lives.
+    // The send queue reports a message behind a running turn as pending, then
+    // sending, then queued, and each of those is a separate event. Reading the
+    // flag straight off the status made the bubble drop out of the queued rail
+    // and back into the transcript between them, so a single mid-turn send
+    // visibly flickered "queued → sending → queued" and re-ran its entrance
+    // animation on every crossing. Delivery state is the server's; whether the
+    // agent has read the text yet is not in doubt while the bubble exists.
+    // A failed row still leaves the rail: queueRowHydration drops `pending`,
+    // and splitQueuedRenderItems needs both flags.
+    const replaced = next[existingIndex >= 0 ? existingIndex : optimisticIndex];
+    const hydration = queueRowHydration(item);
     const row: OmgMessage = {
       id,
       role: "user",
@@ -354,32 +415,18 @@ export function reconcileOmgQueueMessages(
       text: item.text,
       html: escapeHtml(item.text).replace(/\n/g, "<br>"),
       ts: item.createdAt ?? item.updatedAt ?? Date.now(),
-      ...queueRowHydration(item),
+      ...hydration,
+      queued: hydration.queued || !!replaced?.metadata?.omgMessage?.queued,
     };
     const [message] = omgMessagesToUIMessages([row]);
     if (!message) continue;
 
-    const existingIndex = next.findIndex((candidate) => candidate.id === id);
     if (existingIndex >= 0) {
       // Refresh in place: the same row moves pending → queued → failed.
       next = [...next];
       next[existingIndex] = message;
       continue;
     }
-
-    const exactText = normText(item.text);
-    const optimisticIndex = next.findIndex((candidate, index) => {
-      if (claimedOptimistic.has(index)) return false;
-      if (candidate.id.startsWith(QUEUE_MESSAGE_ID_PREFIX)) return false;
-      const pending = candidate.metadata?.omgMessage;
-      return (
-        candidate.role === "user" &&
-        !!pending?.pending &&
-        !pending.failed &&
-        pending?.kind === "text" &&
-        normText(pending.text) === exactText
-      );
-    });
     if (optimisticIndex >= 0) {
       claimedOptimistic.add(optimisticIndex);
       next = [...next];
@@ -505,6 +552,75 @@ function withStreamingTurnLast(messages: OmgChatMessage[]): OmgChatMessage[] {
   return [...deduped.slice(0, streamingIndex), ...deduped.slice(streamingIndex + 1), streaming];
 }
 
+/**
+ * The row an event carries that must survive an owned stream rather than be
+ * dropped by it.
+ *
+ * Only user rows qualify. Everything else the runtime writes during a turn is
+ * already reaching the transcript through the AI SDK stream itself, so holding
+ * it would paint it twice. A user row is the opposite case: OmgChunkEmitter
+ * skips user text on purpose, so the passive listener is its only route in.
+ */
+export function heldRowDuringOwnedStream(event: OmgTranscriptEvent): OmgMessage | null {
+  if (event.type !== "message") return null;
+  if (event.message.seed) return null;
+  return event.message.role === "user" ? event.message : null;
+}
+
+/**
+ * Commit the rows a live turn parked, in the order the server sent them.
+ *
+ * Deliberately NOT upsertOmgUIMessage: that inserts by timestamp, and a
+ * timestamp is the wrong key here. Nothing on the wire carries the server's
+ * ordering column (`order_seq` in src/transcript-index.ts) — `ts` is a wall
+ * clock stamped by whichever process wrote the row, so sorting by it makes
+ * transcript order depend on the browser's clock agreeing with the server's.
+ * These rows arrived in the server's own order and are by construction the
+ * newest, so arrival order at the tail IS the server's order.
+ *
+ * The one thing that does move is the optimistic bubble the send put up: its
+ * echo takes its place at the tail rather than in the slot AbstractChat
+ * happened to append it to, which is what puts the steering message BELOW the
+ * answer it interrupted instead of above it.
+ */
+export function commitHeldOmgRows(
+  current: OmgChatMessage[],
+  rows: readonly OmgMessage[],
+): OmgChatMessage[] {
+  let next = current;
+  for (const row of rows) {
+    const [message] = omgMessagesToUIMessages([row]);
+    if (message) next = appendHeldRow(next, message);
+  }
+  return next;
+}
+
+function appendHeldRow(current: OmgChatMessage[], incoming: OmgChatMessage): OmgChatMessage[] {
+  const byIdIndex = current.findIndex((message) => message.id === incoming.id);
+  if (byIdIndex >= 0) {
+    if (current[byIdIndex] === incoming) return current;
+    const next = [...current];
+    next[byIdIndex] = incoming;
+    return next;
+  }
+  let next = current;
+  const incomingLfg = incoming.metadata?.omgMessage;
+  if (incomingLfg?.role === "user" && incomingLfg.kind === "text") {
+    const incomingText = normText(incomingLfg.text);
+    const pendingIndex = current.findIndex((message) => {
+      const lfg = message.metadata?.omgMessage;
+      return (
+        message.role === "user" &&
+        !!lfg?.pending &&
+        lfg.kind === "text" &&
+        normText(lfg.text) === incomingText
+      );
+    });
+    if (pendingIndex >= 0) next = current.filter((_, index) => index !== pendingIndex);
+  }
+  return [...next, incoming];
+}
+
 export function appendOmgTranscriptEvent(
   current: OmgChatMessage[],
   event: OmgTranscriptEvent,
@@ -527,7 +643,10 @@ function applyOmgTranscriptEvent(
 ): OmgChatMessage[] {
   if (event.type === "message") {
     if (event.message.seed) return current;
-    if (opts.streamActive && event.message.role !== "user") return current;
+    // No transcript row may enter the list while a local send owns the live
+    // stream. Assistant rows are already being painted by the AI SDK from the
+    // same stream, and user rows have to wait: see OmgChatStreamOwnership.hold.
+    if (opts.streamActive) return current;
     const [message] = omgMessagesToUIMessages([event.message]);
     return message ? upsertOmgUIMessage(current, message) : current;
   }
