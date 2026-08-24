@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
+import { isPrimarySurfaceTab } from "../web/src/lib/mobile-bots-nav";
 
 const app = () => readFile("web/src/App.tsx", "utf8");
 const sonner = () => readFile("web/src/components/ui/sonner.tsx", "utf8");
@@ -10,18 +11,28 @@ describe("contextual mobile Live header", () => {
     const source = await app();
     expect(source).toContain("setShowHeaderBrandIntro(false), 2000");
     expect(source).toContain("function LiveHeaderContext({");
-    // Bots shares this header now: it is the same surface with a different
-    // list in it, so swapping the whole top of the screen between them read as
-    // changing app rather than changing list.
-    expect(source).toContain('isMobile && (tab === "live" || tab === "bots")');
+    // Bots and Scheduled share this header now: they are the same surface
+    // with a different list in it, so swapping the whole top of the screen
+    // between them read as changing app rather than changing list. The gate is
+    // one predicate rather than a hand-written tab list, because Scheduled was
+    // missed by every hand-written copy and inherited the secondary-page
+    // header — whose back button is a hardcoded setTab("settings").
+    expect(source).toContain("isMobile && isPrimarySurfaceTab(tab)");
+    expect(isPrimarySurfaceTab("live")).toBe(true);
+    expect(isPrimarySurfaceTab("bots")).toBe(true);
+    expect(isPrimarySurfaceTab("auto")).toBe(true);
     expect(source).toContain("hosted={embedded}");
     expect(source).toContain("viewerName={viewer?.name}");
     expect(source).toContain("<ProductBrand compact hosted={hosted} />");
     expect(source).toContain(
       'w-[min(17rem,calc(100vw-var(--lfg-host-top-inset)-1.5rem))]',
     );
+    // Shared gate -> welcome -> island. The roster filter is skipped on
+    // Scheduled (that page reads the unscoped list and groups by owner, so the
+    // control would do nothing there), but the Pages menu must survive: it is
+    // the only way off the surface that the switch bar does not cover.
     expect(source).toMatch(
-      /isMobile && \(tab === "live" \|\| tab === "bots"\)[\s\S]*?<LiveHeaderContext[\s\S]*?embedded \? null : \([\s\S]*?<UserFilterMenu[\s\S]*?<PagesMenu/,
+      /isMobile && isPrimarySurfaceTab\(tab\)[\s\S]*?<LiveHeaderContext[\s\S]*?tab === "auto" \? null : \([\s\S]*?<UserFilterMenu[\s\S]*?<PagesMenu/,
     );
     expect(source).not.toContain('|| tab === "bots") && !embedded');
     expect(source).toContain(
@@ -79,10 +90,11 @@ describe("contextual mobile Live header", () => {
     expect(source).toContain("const { questions } = useAsk();");
     expect(source).toContain("Tap to open notifications");
     expect(source).toContain("const showCard = intro;");
-    // The headline is rendered under the shared Live/Bots gate, so it never
-    // covers a hosted DESKTOP surface. That is why the ask badge must stay in
-    // the header: if the headline is ever made to cover desktop, revisit this.
-    expect(source).toContain('{isMobile && (tab === "live" || tab === "bots") ? (');
+    // The headline is rendered under the shared switch-bar-surface gate, so it
+    // never covers a hosted DESKTOP surface. That is why the ask badge must
+    // stay in the header: if the headline is ever made to cover desktop,
+    // revisit this.
+    expect(source).toContain("{isMobile && isPrimarySurfaceTab(tab) ? (");
     expect(source).toMatch(
       /\{isMobile \? null : \(\s*<>\s*\{embedded \? null : <UpdateNavButton \/>\}\s*<AskNavButton/,
     );

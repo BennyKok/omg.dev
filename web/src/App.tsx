@@ -64,6 +64,7 @@ import { groupNodesByProject, type ProjectGroup } from "./lib/session-groups";
 import { pathnameToSessionId, sessionToPath } from "./lib/app-search";
 import {
   BOT_ROSTER_ROW_CLASS,
+  isPrimarySurfaceTab,
   mobileSurfaceDockBottom,
   mobileSurfaceToggleActive,
   shouldShowBotsInSessionList,
@@ -8090,11 +8091,14 @@ export function App() {
           isMobile && "mobile-scroll-header-fade",
         )}
       >
-      {isMobile && (tab === "live" || tab === "bots") ? (
-        /* Live and Bots share one mobile header. They are the same surface with
-           a different list in it — the switch bar below picks which — so
-           swapping the entire top of the screen between them read as changing
-           app rather than changing list. The
+      {isMobile && isPrimarySurfaceTab(tab) ? (
+        /* Live, Bots and Scheduled share one mobile header. They are the same
+           surface with a different list in it — the switch bar below picks
+           which — so swapping the entire top of the screen between them read as
+           changing app rather than changing list. Scheduled used to do exactly
+           that: it took the secondary-page header, so moving between two
+           segments of one switch bar swapped the welcome for a back button
+           pointing at Settings. The
            host still owns the right-side account/settings island; its inset
            narrows this shared welcome instead of selecting a different header
            implementation. That keeps welcome, activity, and Ask transitions
@@ -8166,11 +8170,18 @@ export function App() {
           ) : (
             <NavIsland className="shrink-0">
               <div className="glass-island flex h-11 items-center gap-1.5 rounded-full px-2">
-                <UserFilterMenu
-                  value={userFilter}
-                  users={users}
-                  onChange={changeUserFilter}
-                />
+                {/* Not on Scheduled. The roster filter scopes sessions, and
+                    Schedules reads the unscoped list — it groups by OWNER
+                    (Unassigned, then each bot) instead. Carrying the control
+                    onto a page it cannot change would make the shared header
+                    a promise the page does not keep. */}
+                {tab === "auto" ? null : (
+                  <UserFilterMenu
+                    value={userFilter}
+                    users={users}
+                    onChange={changeUserFilter}
+                  />
+                )}
                 <PagesMenu
                   tab={tab}
                   onOpenTab={setTab}
@@ -8232,7 +8243,7 @@ export function App() {
                 <ChevronLeft className="size-[18px]" />
                 <span>Live</span>
               </button>
-            ) : tab === "live" || tab === "bots" || tab === "notifications" || tab === "artifacts" ? (
+            ) : isPrimarySurfaceTab(tab) || tab === "notifications" || tab === "artifacts" ? (
               <button
                 type="button"
                 onClick={() => setTab("live")}
@@ -9451,8 +9462,7 @@ function PagesMenu({
   // is also the only "where am I" signal these pages have — Shipped and
   // Artifacts render no title chrome of their own in the rail layout.
   const known =
-    tab === "live" ||
-    tab === "bots" ||
+    isPrimarySurfaceTab(tab) ||
     tab === "notifications" ||
     tab === "artifacts" ||
     tab === "computer" ||
@@ -27944,13 +27954,20 @@ function AutoManageView({
           about them was the loudest thing on a page that is meant to be a
           list of schedules. The per-row "N open" badge still points at them. */}
       <div className="flex items-end justify-between gap-3 px-1 pb-2">
-        <div className="min-w-0">
+        {/* Below md the switch bar is on screen with "Scheduled" lit, so a
+            title that repeats it is two answers to a question nobody asked
+            twice — and it costs a row of the list on the smallest screen.
+            From md there is no switch bar and the Pages menu does not list
+            this page, so the heading is the only thing that names it. */}
+        <div className="hidden min-w-0 md:block">
           <h1 className="text-lg font-semibold leading-tight">Schedules</h1>
           <p className="text-sm text-muted-foreground">
             Prompts that run on a timer on this computer
           </p>
         </div>
-        <Button size="sm" variant="tint" className="shrink-0" onClick={() => onEdit("new")}>
+        {/* ml-auto, not justify-between: with the heading hidden this is the
+            only child, and justify-between would park it on the left. */}
+        <Button size="sm" variant="tint" className="ml-auto shrink-0" onClick={() => onEdit("new")}>
           <Plus className="size-4" /> New
         </Button>
       </div>
