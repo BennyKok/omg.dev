@@ -21,11 +21,12 @@ describe("page navigation reachability", () => {
     for (const page of ["notifications", "artifacts", "settings"]) {
       expect(body, `PagesMenu is missing ${page}`).toContain(`value="${page}"`);
     }
-    // Live and Bots are deliberately absent: the Chat/Bots switch bar is the
+    // Live, Bots, and Scheduled are deliberately absent: the shared switch bar is the
     // control for that choice and sits directly under this menu wherever it
-    // renders, so listing the pair here made one decision reachable two ways.
+    // renders, so listing them here would make one decision reachable two ways.
     expect(body).not.toContain('value="live"');
     expect(body).not.toContain('value="bots"');
+    expect(body).not.toContain('value="auto"');
   });
 
   // ...but "not in the menu" must not become "not reachable", which is the
@@ -38,7 +39,7 @@ describe("page navigation reachability", () => {
     );
     // And the switch bar reaches Bots from there.
     expect(app).toContain(
-      "<SurfaceToggle active={railSurface} onOpenSessions={onOpenSessions} onOpenBots={onOpenBots} />",
+      "<SurfaceToggle active={railSurface} onOpenSessions={onOpenSessions} onOpenBots={onOpenBots} onOpenAuto={onOpenAuto} />",
     );
     expect(app).toContain("shouldShowMobileSurfaceToggle(isMobile, tab, selectedBotId)");
   });

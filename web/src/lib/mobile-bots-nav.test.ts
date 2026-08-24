@@ -31,6 +31,10 @@ describe("shouldShowMobileSurfaceToggle", () => {
     expect(shouldShowMobileSurfaceToggle(true, "bots")).toBe(true);
   });
 
+  test("shows on the Scheduled tab at mobile widths", () => {
+    expect(shouldShowMobileSurfaceToggle(true, "auto")).toBe(true);
+  });
+
   test("stays off an open bot conversation", () => {
     expect(shouldShowMobileSurfaceToggle(true, "bots", "bot_scout")).toBe(false);
   });
@@ -54,6 +58,10 @@ describe("shouldShowMobileSurfaceToggle", () => {
 describe("mobileSurfaceToggleActive", () => {
   test("bots tab maps to the chat segment", () => {
     expect(mobileSurfaceToggleActive("bots")).toBe("chat");
+  });
+
+  test("auto tab maps to the scheduled segment", () => {
+    expect(mobileSurfaceToggleActive("auto")).toBe("auto");
   });
 
   test("live and any other tab map to the sessions segment", () => {

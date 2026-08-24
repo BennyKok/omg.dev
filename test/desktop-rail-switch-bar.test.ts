@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
 const APP = readFileSync(new URL("../web/src/App.tsx", import.meta.url), "utf8");
+const CSS = readFileSync(new URL("../web/src/index.css", import.meta.url), "utf8");
 
 /**
  * Regression coverage for a desktop-only bug: commit 1b3ca7d added a
@@ -38,7 +39,18 @@ describe("the desktop rail keeps its Chat/Bots switch bar", () => {
   test("RailStage always mounts a SurfaceToggle wired to railSurface", () => {
     const body = railStageBody();
     expect(body).toContain(
-      "<SurfaceToggle active={railSurface} onOpenSessions={onOpenSessions} onOpenBots={onOpenBots} />",
+      "<SurfaceToggle active={railSurface} onOpenSessions={onOpenSessions} onOpenBots={onOpenBots} onOpenAuto={onOpenAuto} />",
     );
+  });
+
+  test("the shared toggle exposes Scheduled as its third destination", () => {
+    const toggle = APP.slice(APP.indexOf("function SurfaceToggle("), APP.indexOf("function MobileSurfaceDock("));
+    expect(toggle).toContain('["auto", "Scheduled", onOpenAuto]');
+    expect(toggle).toContain("<CalendarClock");
+  });
+
+  test("the compact dock keeps touch-sized targets and a visible focus ring", () => {
+    expect(CSS).toMatch(/\.lfg-surface-toggle--dock \.t-tab,[\s\S]*?height: 44px;/);
+    expect(CSS).toMatch(/\.t-tab:focus-visible \{[\s\S]*?outline: 2px solid var\(--ring\);/);
   });
 });
