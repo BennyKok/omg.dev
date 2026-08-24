@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## August 24, 2026 - Bot unread state stays quiet (v0.6.6)
+
+- **Unread is now one clear dot.** The highlighted row and stronger text keep
+  unread conversations easy to scan without a label that crowds the bot name.
+  Working, Idle, and Disabled remain explicit and separate from unread state.
+
 ## August 24, 2026 - Bot status and recent conversations stand out (v0.6.5)
 
 - **Bot state is explicit.** Each roster row now labels the bot as Working,
