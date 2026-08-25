@@ -31,7 +31,9 @@ export function transcriptGlideAction({
 }
 
 /**
- * The spring used by AI Elements through use-stick-to-bottom.
+ * The spring used by AI Elements through use-stick-to-bottom, with slightly
+ * higher stiffness so transcript arrivals settle sooner without losing the
+ * spring's gradual takeoff.
  *
  * The constants and frame integration are adapted from the MIT-licensed
  * use-stick-to-bottom implementation:
@@ -39,7 +41,7 @@ export function transcriptGlideAction({
  */
 export const TRANSCRIPT_GLIDE_SPRING = {
   damping: 0.7,
-  stiffness: 0.05,
+  stiffness: 0.06,
   mass: 1.25,
 } as const;
 

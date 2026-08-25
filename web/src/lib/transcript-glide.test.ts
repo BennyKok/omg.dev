@@ -35,12 +35,19 @@ function simulate(frameMs: number, targetAt: (elapsedMs: number) => number): Sim
 }
 
 describe("the transcript glide spring", () => {
-  test("uses the AI Elements spring defaults", () => {
+  test("uses the tuned AI Elements spring", () => {
     expect(TRANSCRIPT_GLIDE_SPRING).toEqual({
       damping: 0.7,
-      stiffness: 0.05,
+      stiffness: 0.06,
       mass: 1.25,
     });
+  });
+
+  test("settles sooner without collapsing into a jump", () => {
+    const result = simulate(1000 / 60, () => 400);
+
+    expect(result.elapsedMs).toBeGreaterThan(450);
+    expect(result.elapsedMs).toBeLessThan(800);
   });
 
   test("is time-corrected across 60 Hz and 120 Hz displays", () => {
