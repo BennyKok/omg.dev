@@ -527,17 +527,38 @@ export function thinkingLevelsForAgent(agent: string): readonly string[] | null 
   return null;
 }
 
+/**
+ * Agents whose "connected" state means A PERSON SIGNED THIS BOX IN, which is
+ * what the hosted-visitor guard is really asking about.
+ *
+ * `opencode` belongs here, and leaving it out was a real bug. Someone who pays
+ * for OpenCode Go and uses nothing else connected their key, saw
+ * `opencode-go: connected`, and still got the free Zen tier forever — because
+ * this set decided the box was anonymous. The paid models they were being
+ * billed for never appeared. It looked like a stale catalog and was not: the
+ * catalog had all 23, and this gate dropped them.
+ *
+ * It hid behind the fact that most boxes have Claude or Codex signed in too,
+ * so the gate passed for the wrong reason and the bug only showed on a box
+ * with OpenCode alone.
+ *
+ * This does NOT weaken the second gate. `openCodeConnectedFrom` still decides
+ * whether OpenCode itself can reach a paid provider, so a Claude account
+ * cannot unlock opencode-go/* on a box OpenCode was never signed into — see
+ * the test that pins exactly that.
+ */
 const ACCOUNT_OWNED_AGENT_KEYS = new Set<CodingAgentKind>([
   "claude",
   "aisdk",
   "codex",
   "codex-aisdk",
+  "opencode",
 ]);
 
 /** Prefixes that gate a pi model behind a sign-in, from pi-auth's provider list. */
 const PI_GATED_PROVIDER_IDS = new Set<string>(PI_AUTH_PROVIDER_IDS);
 
-function hasConnectedModelAccount(codingAgents: CodingAgentInfo[]): boolean {
+export function hasConnectedModelAccount(codingAgents: CodingAgentInfo[]): boolean {
   return codingAgents.some(
     (agent) =>
       ACCOUNT_OWNED_AGENT_KEYS.has(agent.key) &&
