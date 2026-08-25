@@ -60,6 +60,7 @@ export type Message = {
 export type AiStreamPart = {
   type: "text-delta" | "text-start" | "text-end" | "error" | string;
   id?: string;
+  kind?: "text" | "thinking";
   delta?: string;
   text?: string;
   reset?: boolean;
@@ -205,7 +206,7 @@ function seedMessageForSession(session: Session): Message | null {
 function isDraftAssistantMessage(message: Message) {
   return (
     message.role === "assistant" &&
-    message.kind === "text" &&
+    (message.kind === "text" || message.kind === "thinking") &&
     typeof message.id === "string" &&
     message.id.startsWith("draft-")
   );
@@ -628,7 +629,14 @@ export function useLiveSocket(
         const text = part.reset ? (part.text ?? part.delta ?? "") : `${existing?.text ?? ""}${part.delta ?? ""}`;
         if (!text) return prev;
         const catchUp = existing?.catchUp ?? (firstDraftForSid && !!part.reset && text.length > DRAFT_CATCHUP_MIN_CHARS);
-        const message: Message = { id: part.id, role: "assistant", kind: "text", text, ts: part.ts ?? Date.now(), catchUp };
+        const message: Message = {
+          id: part.id,
+          role: "assistant",
+          kind: part.kind ?? "text",
+          text,
+          ts: part.ts ?? Date.now(),
+          catchUp,
+        };
         return {
           ...prev,
           [sid]: windowLiveMessages([

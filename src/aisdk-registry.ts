@@ -58,6 +58,9 @@ export type AisdkEntry = {
   model: string;
   busy: boolean; // true while a turn is generating — feeds the live-view busy dot
   draftText?: string | null; // transient streamed assistant text; never persisted to transcripts
+  // The live wire must keep reasoning separate from user-facing answer text.
+  // Older registry rows omit this and are treated as normal text.
+  draftKind?: "text" | "thinking" | null;
   draftUpdatedAt?: number | null;
   title?: string | null; // first user prompt, for the card before a transcript exists
   // Display-name override for this session, from a custom agent profile (see

@@ -135,11 +135,11 @@ export async function runManagedSdkSession(options: ManagedSdkSessionOptions): P
   const sink: ManagedSdkEventSink = {
     draft(next) {
       draft = next;
-      publishDraft(next);
+      publishDraft(next, false, "text");
     },
     thinking(next) {
       thought = next;
-      if (!draft) publishDraft(next);
+      if (!draft) publishDraft(next, false, "thinking");
     },
     commitText(next) {
       const body = next.trim();
@@ -180,7 +180,7 @@ export async function runManagedSdkSession(options: ManagedSdkSessionOptions): P
           selected: index === 0,
         })),
       };
-      patchEntry(key, { busy: false, prompt, draftText: null, draftUpdatedAt: null });
+      patchEntry(key, { busy: false, prompt, draftText: null, draftKind: null, draftUpdatedAt: null });
       publishDraft("", true);
       return new Promise<number | null>((resolve) => {
         promptResolver = resolve;
@@ -241,11 +241,11 @@ export async function runManagedSdkSession(options: ManagedSdkSessionOptions): P
     try {
       while (queue.length && !closing) {
         const prompt = queue.shift()!;
-        patchEntry(key, { busy: true, prompt: null, draftText: null, draftUpdatedAt: null });
+        patchEntry(key, { busy: true, prompt: null, draftText: null, draftKind: null, draftUpdatedAt: null });
         try {
           await runTurn(prompt);
         } finally {
-          if (!closing) patchEntry(key, { busy: false, prompt: null, draftText: null, draftUpdatedAt: null });
+          if (!closing) patchEntry(key, { busy: false, prompt: null, draftText: null, draftKind: null, draftUpdatedAt: null });
         }
       }
     } finally {

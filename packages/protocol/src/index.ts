@@ -76,6 +76,8 @@ export interface OmgMessage {
 export interface OmgAiStreamPart {
   type: "text-delta" | "text-start" | "text-end" | "error" | string;
   id?: string;
+  /** Defaults to text for compatibility with older servers. */
+  kind?: "text" | "thinking";
   delta?: string;
   text?: string;
   reset?: boolean;

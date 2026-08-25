@@ -44,7 +44,7 @@ export type LiveWsSocketData = { liveWs: true; rid: string };
 type Evlog = (event: string, fields?: Record<string, unknown>) => void;
 type LiveWs = ServerWebSocket<unknown>;
 type SendType = "batch" | "msg" | "busy" | "prompt" | "queue" | "ai_part" | "error";
-type DraftState = { id: string; text: string };
+type DraftState = { id: string; text: string; kind: "text" | "thinking" };
 type HtmlMessage = {
   kind: string;
   text: string;
@@ -266,25 +266,31 @@ async function resolveSessionPrompt(
 function sendAiTextDeltaPart(
   emit: (type: SendType, fields: Record<string, unknown>) => void,
   sid: string,
-  entry: { sessionId: string; draftText?: string | null; draftUpdatedAt?: number | null },
+  entry: {
+    sessionId: string;
+    draftText?: string | null;
+    draftKind?: "text" | "thinking" | null;
+    draftUpdatedAt?: number | null;
+  },
   lastDraft: Map<string, DraftState>,
 ): void {
   const id = `draft-${entry.sessionId}`;
   const text = entry.draftText ?? "";
+  const kind = entry.draftKind ?? "text";
   const prev = lastDraft.get(sid);
   if (!text) {
     if (prev) lastDraft.delete(sid);
     return;
   }
-  let part: { type: "text-delta"; id: string; delta?: string; text?: string; reset?: boolean; ts: number };
-  if (!prev || prev.id !== id || !text.startsWith(prev.text)) {
-    part = { type: "text-delta", id, text, reset: true, ts: entry.draftUpdatedAt ?? Date.now() };
+  let part: { type: "text-delta"; id: string; kind: "text" | "thinking"; delta?: string; text?: string; reset?: boolean; ts: number };
+  if (!prev || prev.id !== id || prev.kind !== kind || !text.startsWith(prev.text)) {
+    part = { type: "text-delta", id, kind, text, reset: true, ts: entry.draftUpdatedAt ?? Date.now() };
   } else {
     const delta = text.slice(prev.text.length);
     if (!delta) return;
-    part = { type: "text-delta", id, delta, ts: entry.draftUpdatedAt ?? Date.now() };
+    part = { type: "text-delta", id, kind, delta, ts: entry.draftUpdatedAt ?? Date.now() };
   }
-  lastDraft.set(sid, { id, text });
+  lastDraft.set(sid, { id, text, kind });
   emit("ai_part", { part });
 }
 

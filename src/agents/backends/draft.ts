@@ -22,17 +22,20 @@ import { patchEntry } from "../../aisdk-registry.ts";
 //   - clears the draft (writes null) whenever the text is empty.
 export function makeDraftPublisher(
   sessionId: string,
-): (text: string, force?: boolean) => void {
+): (text: string, force?: boolean, kind?: "text" | "thinking") => void {
   let lastAt = 0;
   let lastText: string | undefined;
-  return function publishDraft(text: string, force = false): void {
+  let lastKind: "text" | "thinking" | undefined;
+  return function publishDraft(text: string, force = false, kind = "text"): void {
     const now = Date.now();
     if (!force && now - lastAt < 150) return;
-    if (!force && text === lastText) return;
+    if (!force && text === lastText && kind === lastKind) return;
     lastAt = now;
     lastText = text;
+    lastKind = kind;
     patchEntry(sessionId, {
       draftText: text ? text.slice(-12_000) : null,
+      draftKind: text ? kind : null,
       draftUpdatedAt: text ? now : null,
     });
   };

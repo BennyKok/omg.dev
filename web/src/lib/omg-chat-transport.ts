@@ -44,6 +44,7 @@ export type OmgMessage = {
 export type OmgAiStreamPart = {
   type: "text-delta" | "text-start" | "text-end" | "error" | string;
   id?: string;
+  kind?: "text" | "thinking";
   delta?: string;
   text?: string;
   reset?: boolean;
@@ -484,6 +485,9 @@ export function reconcileOmgQueueMessages(
 
 function updateDraftText(current: OmgChatMessage[], part: OmgAiStreamPart): OmgChatMessage[] {
   if (!part.id) return current;
+  // The AI SDK chat stream accepts answer text. Reasoning is delivered later
+  // as a typed transcript row and renders in the collapsed Thought control.
+  if (part.kind === "thinking") return current;
   const existingIndex = current.findIndex(
     (message) =>
       message.role === "assistant" &&
@@ -721,6 +725,9 @@ class OmgChunkEmitter {
 
   private handlePart(part: OmgAiStreamPart) {
     if (!part.id) return;
+    // Do not turn a provider reasoning draft into a normal assistant answer.
+    // The finalized thinking row arrives through handleMessage instead.
+    if (part.kind === "thinking") return;
     if (part.type === "text-end") {
       this.endText(part.id);
       this.finishSoon();
