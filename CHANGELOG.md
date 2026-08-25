@@ -2,6 +2,19 @@
 
 Recent product updates and deployment notes.
 
+## August 25, 2026 - Tagging a bot with @ now reaches the bot (v0.6.12)
+
+- **An `@` tag in a session chat delivers the message to that bot.** Before,
+  the tag was only text and routed nowhere. The tag carries the bot identity,
+  so renaming a bot or having two bots with the same name cannot send the
+  message to the wrong one.
+- The tagged bot joins the conversation from the point it was tagged. It does
+  not read the earlier history of that session.
+- A tag for a bot that is unknown, disabled, or restarting is reported instead
+  of being dropped without a word.
+- **Note:** the tagged bot answers in its own chat. Its reply does not appear
+  in the session that tagged it.
+
 ## August 25, 2026 - Tag a bot with @ in the composer (v0.6.11)
 
 - **Typing `@` in the message box opens a bot picker.** Search your bots by
