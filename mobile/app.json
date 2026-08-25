@@ -38,7 +38,8 @@
         "@siteed/audio-studio",
         {
           "iosConfig": {
-            "microphoneUsageDescription": "omg.dev records audio only while dictation is on. You tap the microphone button to start and tap it again to stop. The recording is sent to ElevenLabs, our speech-to-text provider, to convert it into text. For example, say \"fix the login bug on the settings page\" and those words appear as a typed message to your coding agent. omg.dev does not use the audio for any other purpose."
+            "microphoneUsageDescription": "omg.dev records audio only while dictation is on. You tap the microphone button to start and tap it again to stop. The recording is sent to ElevenLabs, our speech-to-text provider, to convert it into text. For example, say \"fix the login bug on the settings page\" and those words appear as a typed message to your coding agent. omg.dev does not use the audio for any other purpose.",
+            "notificationUsageDescription": "omg.dev sends you a notification when a coding agent finishes a task, needs your input, or when a session you are watching changes state."
           }
         }
       ],
