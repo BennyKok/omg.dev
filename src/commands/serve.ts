@@ -11,6 +11,7 @@ import {
   computerAgentAdmissionContext,
 } from "../agent-admission.ts";
 import { PATHS, appVersion, installInfo } from "../config.ts";
+import { createConnectManager } from "../connect-manager.ts";
 import { claudeOauthToken as sharedClaudeOauthToken } from "../claude-creds.ts";
 import {
   applyReleaseUpdate,
@@ -3645,6 +3646,7 @@ export async function cmdServe() {
     getAgentRun: agentRunSnapshot,
     subscribeAgentRun,
   });
+  const connectManager = createConnectManager();
   const server = Bun.serve<AppSocketData>({
     port: PORT,
     hostname: HOST,
@@ -3849,6 +3851,10 @@ export async function cmdServe() {
       // so the transport owns method handling rather than this router.
       if (path === "/mcp") {
         return await serveOmgMcpRequest(req);
+      }
+
+      if (path === "/api/connect/reconcile" && req.method === "POST") {
+        return json(await connectManager.reconcile());
       }
 
       // Browser-side diagnostics. This is the ingest half of the live
@@ -9703,6 +9709,8 @@ a{color:#60a5fa}
     },
   });
 
+  connectManager.start();
+
   const recovered = await reconcileCommandFileSessions((l) => console.log(l));
   if (recovered.adopted || recovered.recovered || recovered.failed || recovered.skippedLegacy) {
     console.log(`[session-recovery] adopted=${recovered.adopted} recovered=${recovered.recovered} recoveredTmux=${recovered.recoveredTmux} failed=${recovered.failed} skippedLegacy=${recovered.skippedLegacy}`);
@@ -9748,11 +9756,14 @@ a{color:#60a5fa}
   // Refresh scripts are detached process groups so timeouts can kill their
   // descendants. Tear all of them down before the server exits on either
   // interactive or service-manager shutdown.
-  const stopRefreshOnExit = () => stopArtifactRefresh();
+  const stopRefreshOnExit = () => {
+    stopArtifactRefresh();
+    connectManager.stop();
+  };
   process.once("exit", stopRefreshOnExit);
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     const handler = () => {
-      stopArtifactRefresh();
+      stopRefreshOnExit();
       process.off("exit", stopRefreshOnExit);
       process.off(signal, handler);
       process.kill(process.pid, signal);

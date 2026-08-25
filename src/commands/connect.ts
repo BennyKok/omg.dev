@@ -1,7 +1,8 @@
 import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join } from "node:path";
-import { PATHS, localServeHost } from "../config.ts";
+import { PATHS, localServeBaseUrl, localServeHost } from "../config.ts";
+import { CONNECT_AUTH_REJECTED_EXIT_CODE } from "../connect-manager.ts";
 import {
   BOX_CAPS,
   CAP_BINARY,
@@ -181,6 +182,7 @@ Usage:
                            process manager after a restart); shows this help if never paired
   lfg connect status       Show the current relay binding, if any
   lfg connect disconnect   Drop the saved binding and stop
+  lfg connect --foreground Keep the relay in this terminal instead of handing it to lfg serve
   lfg connect help         Show this help
 
 Env:
@@ -1196,7 +1198,29 @@ async function pair(code: string, explicitComputerUrl?: string): Promise<void> {
   await writeCredentials({ relayUrl, token: paired.token, boxId: paired.boxId, pairedAt: Date.now(), computerUrl });
   console.log(`lfg connect: paired as ${paired.boxId} — credentials saved to ${CREDENTIALS_PATH}`);
   ws.close();
-  await runConnectLoop();
+}
+
+async function askDaemonToReconcile(): Promise<boolean> {
+  try {
+    const response = await fetch(`${localServeBaseUrl()}/api/connect/reconcile`, {
+      method: "POST",
+      signal: AbortSignal.timeout(1_500),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function runInDaemonOrForeground(explicitComputerUrl?: string, forceForeground = false): Promise<void> {
+  if (!forceForeground && await askDaemonToReconcile()) {
+    console.log("lfg connect: the omg.dev background service now owns this connection.");
+    return;
+  }
+  if (!forceForeground) {
+    console.log("lfg connect: no omg.dev background service is reachable; staying connected in this terminal.");
+  }
+  await runConnectLoop(explicitComputerUrl);
 }
 
 /** Long-running: reconnects with backoff and proxies relayed HTTP frames onto local serve, forever. */
@@ -1384,7 +1408,7 @@ async function runConnectLoop(explicitComputerUrl?: string): Promise<void> {
       if (error instanceof RelayAuthError) {
         console.error(`lfg connect: ${error.message}`);
         console.error("lfg connect: run `lfg connect <code>` with a fresh pairing code to reconnect.");
-        process.exit(1);
+        process.exit(process.env.OMG_CONNECT_MANAGED === "1" ? CONNECT_AUTH_REJECTED_EXIT_CODE : 1);
       }
       console.error(`lfg connect: ${String(error)}`);
     }
@@ -1446,16 +1470,26 @@ async function disconnect(): Promise<void> {
     return;
   }
   await rm(CREDENTIALS_PATH, { force: true });
+  await askDaemonToReconcile();
   console.log(`lfg connect: cleared local binding to ${creds.relayUrl}. (The relay may still hold a stale token until it expires — this command only clears this box's side.)`);
 }
 
 export async function cmdConnect(args: string[]): Promise<void> {
-  const urlIndex = args.indexOf("--url");
-  if (urlIndex >= 0 && (urlIndex === args.length - 1 || args.filter((arg) => arg === "--url").length > 1)) {
+  // The daemon gives its worker a private stdin pipe. If the daemon crashes,
+  // the kernel closes that pipe and this process exits instead of becoming an
+  // orphan that competes with the replacement worker after service restart.
+  if (process.env.OMG_CONNECT_MANAGED === "1") {
+    process.stdin.resume();
+    process.stdin.once("end", () => process.exit(0));
+  }
+  const forceForeground = args.includes("--foreground") || process.env.OMG_CONNECT_MANAGED === "1";
+  const filteredArgs = args.filter((arg) => arg !== "--foreground");
+  const urlIndex = filteredArgs.indexOf("--url");
+  if (urlIndex >= 0 && (urlIndex === filteredArgs.length - 1 || filteredArgs.filter((arg) => arg === "--url").length > 1)) {
     throw new Error("lfg connect: --url requires exactly one value");
   }
-  const explicitComputerUrl = urlIndex >= 0 ? args[urlIndex + 1] : undefined;
-  const positional = urlIndex >= 0 ? args.filter((_, index) => index !== urlIndex && index !== urlIndex + 1) : args;
+  const explicitComputerUrl = urlIndex >= 0 ? filteredArgs[urlIndex + 1] : undefined;
+  const positional = urlIndex >= 0 ? filteredArgs.filter((_, index) => index !== urlIndex && index !== urlIndex + 1) : filteredArgs;
   const [sub, ...rest] = positional;
   switch (sub) {
     case "status":
@@ -1468,13 +1502,12 @@ export async function cmdConnect(args: string[]): Promise<void> {
       console.log(HELP);
       return;
     case undefined: {
-      // A process manager (systemd `Restart=always`, etc.) re-invokes `lfg
-      // connect` with no arguments on every restart — it doesn't have a fresh
-      // pairing code to hand it, and shouldn't need one: the saved token is
-      // still good. Resume the connect loop from it; only fall back to HELP
-      // when there's genuinely nothing paired yet.
+      // The daemon worker, or an external process manager, re-invokes `lfg
+      // connect` with no arguments. It does not have a fresh pairing code and
+      // does not need one because the saved token is still valid. Resume the
+      // binding; only fall back to HELP when nothing has been paired yet.
       const creds = await readCredentials();
-      if (creds) return runConnectLoop(explicitComputerUrl);
+      if (creds) return runInDaemonOrForeground(explicitComputerUrl, forceForeground);
       console.log(HELP);
       return;
     }
@@ -1485,6 +1518,7 @@ export async function cmdConnect(args: string[]): Promise<void> {
         process.exit(1);
       }
       // Anything else is treated as a pairing code.
-      return pair(sub, explicitComputerUrl);
+      await pair(sub, explicitComputerUrl);
+      return runInDaemonOrForeground(explicitComputerUrl, forceForeground);
   }
 }

@@ -59,11 +59,14 @@ remain provider-agnostic.
 ### Custom relay
 
 ```bash
-# redeem a one-time pairing code, then stay connected
+# redeem a one-time pairing code; the omg.dev service keeps it connected
 OMG_RELAY_URL=wss://your-relay.example/connect omg connect ABC123
 
-# resume the saved binding (e.g. after a restart) — no code needed
+# resume the saved binding — no code needed
 OMG_RELAY_URL=wss://your-relay.example/connect omg connect
+
+# keep the connection attached to this terminal (for hosts without `omg setup`)
+OMG_RELAY_URL=wss://your-relay.example/connect omg connect --foreground
 
 omg connect status       # show the current binding, if any
 omg connect disconnect   # drop the saved binding locally
@@ -72,9 +75,16 @@ omg connect disconnect   # drop the saved binding locally
 `OMG_RELAY_URL` is required and has no default — this must never hardcode a
 specific operator's relay.
 
-Run it under a process supervisor (systemd, `pm2`, etc. — not bundled) for a box
-that should stay connected: a bare `omg connect` re-invocation resumes the saved
-binding on its own, so a crash or reboot recovers without operator action.
+On a normal `omg setup` installation, the existing omg.dev background service
+owns the relay after the first pairing. It reconnects after a network failure,
+process failure, service restart, or reboot. `omg connect disconnect` removes
+the saved binding and stops the managed relay worker.
+
+When the background service is not reachable, `omg connect` preserves the
+standalone behavior and stays connected in the current terminal. Use
+`--foreground` to request that behavior explicitly. A custom installation can
+also supervise `omg connect --foreground` with systemd, `pm2`, or an equivalent
+process manager.
 
 The saved binding token lives in `data/relay-credentials.json` (mode `0600`). If
 the relay reports the token invalid, expired, or revoked, reconnecting stops and
