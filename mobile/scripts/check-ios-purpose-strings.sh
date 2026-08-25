@@ -14,7 +14,7 @@
 set -euo pipefail
 
 MIN_LEN=${MIN_LEN:-80}
-KEYS=(NSMicrophoneUsageDescription NSCameraUsageDescription)
+KEYS=(NSMicrophoneUsageDescription NSCameraUsageDescription NSPhotoLibraryUsageDescription NSUserNotificationsUsageDescription)
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 tmp=$(mktemp -d)
