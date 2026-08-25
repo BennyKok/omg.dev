@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## August 25, 2026 - Chat streams more smoothly (v0.6.8)
+
+- **Assistant markdown now uses Streamdown 2.6.** Word-by-word streaming
+  animation stays on one timeline, so sibling sections no longer fade in on
+  top of each other. The renderer also picks up the 2.6 accessibility and
+  download fixes. Long code and tables stay full height, so the transcript
+  layout model still matches what you see.
+
 ## August 24, 2026 - Bot roster status is quieter (v0.6.7)
 
 - **Unread is one small dot on its conversation row.** Unread rows no longer
