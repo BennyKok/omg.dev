@@ -10,6 +10,7 @@ import Reanimated, {
   withTiming,
 } from "react-native-reanimated";
 
+import { AiConsentScreen, useAiDataConsent } from "../src/omg/ai-consent";
 import { BrandMark } from "../src/omg/brand-mark";
 import { LaunchScreen } from "../src/omg/launch";
 import { useLucideFont } from "../src/omg/lucide";
@@ -136,7 +137,8 @@ function LaunchGate() {
 }
 
 function RootNavigator() {
-  const { authStatus } = useOmg();
+  const { authStatus, signOut } = useOmg();
+  const consent = useAiDataConsent();
   /**
    * A tapped notification goes to the thing it is about.
    *
@@ -187,8 +189,29 @@ function RootNavigator() {
   // the user can perceive on a warm start.
   const glyphsReady = useLucideFont();
 
-  if (authStatus === "loading" || !glyphsReady) {
+  if (authStatus === "loading" || !glyphsReady || consent.state === "loading") {
     return <Splash />;
+  }
+
+  /*
+   * Guidelines 5.1.1(i) and 5.1.2(i) rejected 1.0 (34): the app shared personal
+   * data with third-party AI services without disclosing it in the app and
+   * asking first. So the gate sits HERE, in front of the entire signed-in
+   * tree — above the composer, dictation and attachments alike — rather than
+   * on any one send path. One screen that cannot be routed around beats three
+   * checks that can each be forgotten.
+   *
+   * It is deliberately BELOW the signed-out branch. Someone who is not signed
+   * in cannot transmit anything, so asking them first would be a consent
+   * prompt with nothing behind it.
+   */
+  if (authStatus === "signed-in" && consent.state === "needed") {
+    return (
+      <>
+        <StatusBar style={isDark ? "light" : "dark"} />
+        <AiConsentScreen onAccept={consent.accept} onDecline={() => void signOut()} />
+      </>
+    );
   }
 
   if (authStatus === "signed-out") {

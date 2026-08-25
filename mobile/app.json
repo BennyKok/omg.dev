@@ -11,8 +11,7 @@
       "bundleIdentifier": "dev.omg.computer",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSCameraUsageDescription": "omg.dev uses the camera only when you choose to attach a photo to a message. The photo is uploaded to your own omg.dev cloud computer, and the coding agent you are messaging can then open that file. For example, photograph an error on your screen and send it so the agent can debug it.",
-        "NSMicrophoneUsageDescription": "omg.dev records audio only while dictation is on. You tap the microphone button to start and tap it again to stop. The recording is sent to ElevenLabs, our speech-to-text provider, to convert it into text. For example, say \"fix the login bug on the settings page\" and those words appear as a typed message to your coding agent. omg.dev does not use the audio for any other purpose."
+        "NSCameraUsageDescription": "omg.dev uses the camera only when you choose to attach a photo to a message. The photo is uploaded to your own omg.dev cloud computer, and the coding agent you are messaging can then open that file. For example, photograph an error on your screen and send it so the agent can debug it."
       },
       "runtimeVersion": {
         "policy": "appVersion"
@@ -35,7 +34,14 @@
       "expo-router",
       "expo-font",
       "expo-asset",
-      "@siteed/audio-studio",
+      [
+        "@siteed/audio-studio",
+        {
+          "iosConfig": {
+            "microphoneUsageDescription": "omg.dev records audio only while dictation is on. You tap the microphone button to start and tap it again to stop. The recording is sent to ElevenLabs, our speech-to-text provider, to convert it into text. For example, say \"fix the login bug on the settings page\" and those words appear as a typed message to your coding agent. omg.dev does not use the audio for any other purpose."
+          }
+        }
+      ],
       [
         "expo-notifications",
         {
