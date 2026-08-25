@@ -244,7 +244,11 @@ import {
 } from "./lib/folder-browser-recovery";
 import { setThemePreference, THEME_CHANGE_EVENT } from "./lib/theme";
 import { startsInBottomSystemGestureZone } from "./lib/touch-gestures";
-import { retainLivePinnedSessions } from "./lib/pinned-sessions";
+import {
+  clearLegacyPinnedSessions,
+  readLegacyPinnedSessions,
+  togglePinnedSession,
+} from "./lib/session-pins";
 import { pendingLiveFocusRequest } from "./lib/live-focus";
 import { ConnectionStatusToasts } from "./ConnectionStatus";
 import type {
@@ -1111,6 +1115,7 @@ type BootstrapPayload = {
   models?: ModelCatalogItem[] | null;
   settings?: GlobalSettings | null;
   sessions?: Session[] | null;
+  sessionPins?: string[] | null;
   conversations?: ProductConversation[] | null;
   /** Which conversation participant, if any, "I" am — see fetchBootstrap. */
   viewer?: { managed: boolean; participantId: string | null } | null;
@@ -5491,6 +5496,12 @@ export function App() {
   );
   const [setupChecks, setSetupChecks] = useState<SetupCheckGroup[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [topPinned, setTopPinned] = useState<string[]>([]);
+  const topPinnedRef = useRef(topPinned);
+  topPinnedRef.current = topPinned;
+  const pinMutationRevisionRef = useRef(0);
+  const pinMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pinMutationsPendingRef = useRef(0);
   // Rename is optimistic: the visible title changes before the request starts.
   // Polls that began before persistence completed must not flash the old title
   // back into the UI, so pending titles mask fetched rows until a fetch that
@@ -6079,6 +6090,22 @@ export function App() {
     // call `.filter()` unconditionally on render, so a malformed/empty payload
     // must degrade to an empty live view rather than crash.
     setSessions(payload.sessions ?? []);
+    setTopPinned(payload.sessionPins ?? []);
+    try {
+      const legacyPins = readLegacyPinnedSessions();
+      if (legacyPins.length) {
+        const migrated = await api<{ sessionIds: string[] }>("/api/session-pins/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionIds: legacyPins }),
+        });
+        setTopPinned(migrated.sessionIds ?? []);
+        clearLegacyPinnedSessions();
+      }
+    } catch {
+      // Keep legacy state for the next load. An older server can still serve
+      // the upgraded web app briefly during a rolling restart.
+    }
     setViewerParticipantId(payload.viewer?.participantId ?? null);
     setUsers(payload.users ?? []);
     setRepos(payload.repos ?? []);
@@ -6268,6 +6295,54 @@ export function App() {
     });
   }, []);
 
+  const refreshSessionPins = useCallback(async () => {
+    if (pinMutationsPendingRef.current > 0) return;
+    const payload = await api<{ sessionIds: string[] }>("/api/session-pins", {
+      cache: "no-store",
+    });
+    const next = payload.sessionIds ?? [];
+    topPinnedRef.current = next;
+    setTopPinned(next);
+  }, []);
+
+  const toggleTopPin = useCallback((sessionId: string) => {
+    const pinned = topPinnedRef.current.includes(sessionId);
+    const optimistic = togglePinnedSession(topPinnedRef.current, sessionId);
+    topPinnedRef.current = optimistic;
+    setTopPinned(optimistic);
+    haptic("selection");
+    toast.success(pinned ? "Session unpinned" : "Session pinned to top");
+
+    const revision = ++pinMutationRevisionRef.current;
+    pinMutationsPendingRef.current += 1;
+    const operation = pinMutationQueueRef.current.catch(() => {}).then(async () => {
+      const payload = await api<{ sessionIds: string[] }>(
+        `/api/session-pins/${encodeURIComponent(sessionId)}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pinned: !pinned }),
+        },
+      );
+      if (pinMutationRevisionRef.current !== revision) return;
+      const canonical = payload.sessionIds ?? [];
+      topPinnedRef.current = canonical;
+      setTopPinned(canonical);
+    });
+    pinMutationQueueRef.current = operation;
+    operation
+      .catch(() => {
+        if (pinMutationRevisionRef.current !== revision) return;
+        toast.error("Could not sync session pin");
+      })
+      .finally(() => {
+        pinMutationsPendingRef.current -= 1;
+        if (pinMutationRevisionRef.current === revision) {
+          void refreshSessionPins().catch(() => {});
+        }
+      });
+  }, [refreshSessionPins]);
+
   const renameSession = useCallback<RenameSession>(
     async (sid, nextTitle) => {
       const title = nextTitle.trim().slice(0, 200);
@@ -6370,6 +6445,7 @@ export function App() {
     let id: number | null = null;
     const tick = () => {
       refreshSessions().catch(() => {});
+      refreshSessionPins().catch(() => {});
       refreshAuto().catch(() => {});
       refreshBots().catch(() => {});
     };
@@ -6396,7 +6472,7 @@ export function App() {
       stop();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [refreshSessions, refreshAuto, refreshBots]);
+  }, [refreshSessions, refreshSessionPins, refreshAuto, refreshBots]);
 
   // Refresh the user roster when the tab regains focus. The roster rarely
   // changes, so it isn't worth the 5s poll above — but avatars carry a
@@ -8414,6 +8490,8 @@ export function App() {
               sessions={liveSessions}
               shippedReview={shippedReview}
               liveSessionIds={liveStatusIds}
+              topPinned={topPinned}
+              onToggleTopPin={toggleTopPin}
               users={users}
               userFilter={userFilter}
               projectFilter={projectFilter}
@@ -10592,24 +10670,6 @@ function sessionStableId(session: Session): string {
   return session.sessionId || session.nativeSessionId || session.tmuxName || "";
 }
 
-const PINNED_SESSIONS_KEY = "lfg_pinned_sessions";
-const LEGACY_MOBILE_PINNED_SESSIONS_KEY = "lfg_mobile_pinned_sessions";
-
-function readPinnedSessions(): string[] {
-  try {
-    const parsed = JSON.parse(
-      localStorage.getItem(PINNED_SESSIONS_KEY) ??
-        localStorage.getItem(LEGACY_MOBILE_PINNED_SESSIONS_KEY) ??
-        "[]",
-    );
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === "string")
-      : [];
-  } catch {
-    return [];
-  }
-}
-
 function buildSessionTree(
   sessions: Session[],
   busyOrFresh: (session: Session) => boolean,
@@ -10676,6 +10736,8 @@ function LiveView({
   sessions = [],
   shippedReview,
   liveSessionIds,
+  topPinned,
+  onToggleTopPin,
   users,
   userFilter,
   projectFilter,
@@ -10722,6 +10784,8 @@ function LiveView({
   onOpenSessionPage?: (sid: string) => void;
   onCloseSessionPage?: () => void;
   liveSessionIds: string[];
+  topPinned: string[];
+  onToggleTopPin: (sid: string) => void;
   users: User[];
   userFilter: string;
   projectFilter: string;
@@ -10772,44 +10836,7 @@ function LiveView({
   // component's. Only the morph origin is local: it anchors the open/close
   // animation to the row that was tapped, and a DOMRect cannot live in a URL.
   const [sheetOrigin, setSheetOrigin] = useState<DOMRect | null>(null);
-  const [topPinned, setTopPinned] = useState<string[]>(readPinnedSessions);
-  const topPinnedRef = useRef(topPinned);
-  topPinnedRef.current = topPinned;
-
-  // Top pins are browser-local workspace preferences shared by mobile and
-  // desktop. Sync other tabs without requiring server state.
   useEffect(() => {
-    const sync = (event: StorageEvent) => {
-      if (
-        event.key === PINNED_SESSIONS_KEY ||
-        event.key === LEGACY_MOBILE_PINNED_SESSIONS_KEY
-      ) {
-        setTopPinned(readPinnedSessions());
-      }
-    };
-    window.addEventListener("storage", sync);
-    return () => window.removeEventListener("storage", sync);
-  }, []);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(PINNED_SESSIONS_KEY, JSON.stringify(topPinned));
-    } catch {
-      /* private mode / quota — non-fatal */
-    }
-  }, [topPinned]);
-
-  // Pins are browser-local, so deleting a session on the server does not clean
-  // them up automatically. Reconcile against the unfiltered live-session list:
-  // using the currently filtered `sessions` here would erase valid pins merely
-  // because the user switched project or owner.
-  useEffect(() => {
-    setTopPinned((current) => {
-      const next = retainLivePinnedSessions(current, liveSessionIds);
-      if (next.length === current.length) return current;
-      topPinnedRef.current = next;
-      return next;
-    });
     // The open session ended and is no longer listed: leave its page instead
     // of holding a URL that names nothing.
     //
@@ -10832,15 +10859,7 @@ function LiveView({
   const sessionsSeenRef = useRef(false);
   if (liveSessionIds.length) sessionsSeenRef.current = true;
 
-  const toggleTopPin = useCallback((sid: string) => {
-    const current = topPinnedRef.current;
-    const pinned = current.includes(sid);
-    const next = pinned ? current.filter((id) => id !== sid) : [...current, sid];
-    topPinnedRef.current = next;
-    setTopPinned(next);
-    haptic("selection");
-    toast.success(pinned ? "Session unpinned" : "Session pinned to top");
-  }, []);
+  const toggleTopPin = onToggleTopPin;
 
   // Narrow layout: a focus request goes straight to the session's page.
   useEffect(() => {
