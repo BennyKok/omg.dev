@@ -1,6 +1,6 @@
 import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import Reanimated, {
   Easing,
@@ -137,8 +137,8 @@ function LaunchGate() {
 }
 
 function RootNavigator() {
-  const { authStatus, signOut } = useOmg();
-  const consent = useAiDataConsent();
+  const { authStatus, signOut, user } = useOmg();
+  const consent = useAiDataConsent(user?.id ?? null);
   /**
    * A tapped notification goes to the thing it is about.
    *
@@ -150,7 +150,14 @@ function RootNavigator() {
    * is consumed, so gating waits rather than pushing into a tree that does not
    * exist yet.
    */
-  useNotificationTapRouting(authStatus === "signed-in");
+  /*
+   * Gated on consent as well as auth. While the consent gate is showing there
+   * is NO navigator mounted -- the gate returns a plain View, not a Stack -- so
+   * a notification tap routed here would push into a tree that does not exist.
+   * `useLastNotificationResponse` holds the response until it is consumed, so
+   * waiting costs nothing and the tap still lands after the gate clears.
+   */
+  useNotificationTapRouting(authStatus === "signed-in" && consent.state === "granted");
   /**
    * Land on sign-in the moment ANY path sets authStatus to "signed-out" —
    * an explicit Sign out, a session that expired underneath the app, a
@@ -187,6 +194,18 @@ function RootNavigator() {
   // Shares the splash with auth, rather than flashing an icon-less bar for a
   // frame: the font resolves from a bundled asset, so this is never a wait
   // the user can perceive on a warm start.
+  /*
+   * Declining signs out. `signOut` can REJECT -- it throws SignOutFailedError
+   * when the server did not confirm the session was revoked -- and an unhandled
+   * rejection here would leave the person staring at the consent screen with no
+   * feedback and no way forward. So the local state is cleared either way: the
+   * gate must never become a dead end, and a session that outlives the device's
+   * belief about it is the ordinary signed-out recovery path anyway.
+   */
+  const handleDecline = useCallback(() => {
+    void signOut().catch(() => {});
+  }, [signOut]);
+
   const glyphsReady = useLucideFont();
 
   if (authStatus === "loading" || !glyphsReady || consent.state === "loading") {
@@ -209,7 +228,7 @@ function RootNavigator() {
     return (
       <>
         <StatusBar style={isDark ? "light" : "dark"} />
-        <AiConsentScreen onAccept={consent.accept} onDecline={() => void signOut()} />
+        <AiConsentScreen onAccept={consent.accept} onDecline={handleDecline} />
       </>
     );
   }
@@ -247,9 +266,29 @@ function RootNavigator() {
           <Stack.Protected guard>
             <Stack.Screen name="sign-in" options={{ headerShown: false }} />
           </Stack.Protected>
+          {/*
+           * EVERY non-sign-in route, not just these two.
+           *
+           * expo-router 57 auto-registers any file route that is not explicitly
+           * protected, so listing a subset left `computers`, `settings`,
+           * `plan`, `notifications` and the whole `bots` tree reachable by deep
+           * link while signed out. `bots/[id]` reuses the composer, dictation
+           * and attachments. The old comment claiming sign-in was this Stack's
+           * only screen was simply wrong.
+           *
+           * Adding a file under app/ therefore means adding it HERE too.
+           */}
           <Stack.Protected guard={false}>
             <Stack.Screen name="index" options={{ title: "Sessions" }} />
             <Stack.Screen name="session/[id]" options={{ title: "Session" }} />
+            <Stack.Screen name="computers" />
+            <Stack.Screen name="settings" />
+            <Stack.Screen name="notifications" />
+            <Stack.Screen name="plan" />
+            <Stack.Screen name="bots/index" />
+            <Stack.Screen name="bots/new" />
+            <Stack.Screen name="bots/[id]/index" />
+            <Stack.Screen name="bots/[id]/edit" />
           </Stack.Protected>
         </Stack>
       </>
