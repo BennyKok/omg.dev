@@ -11,6 +11,11 @@ import {
   computerAgentAdmissionContext,
 } from "../agent-admission.ts";
 import { PATHS, appVersion, installInfo } from "../config.ts";
+import {
+  importSessionPins,
+  pruneSessionPins,
+  setSessionPinned,
+} from "../session-pins.ts";
 import { createConnectManager } from "../connect-manager.ts";
 import { claudeOauthToken as sharedClaudeOauthToken } from "../claude-creds.ts";
 import {
@@ -4512,6 +4517,49 @@ a{color:#60a5fa}
       if (path === "/api/server/session-usage" && req.method === "GET") {
         return json({ usage: await sessionUsage() });
       }
+      if (path === "/api/session-pins" && req.method === "GET") {
+        return json({ sessionIds: pruneSessionPins(await liveSessionIdsCached()) });
+      }
+      if (path === "/api/session-pins/import" && req.method === "POST") {
+        const body = (await req.json().catch(() => null)) as { sessionIds?: unknown } | null;
+        if (!Array.isArray(body?.sessionIds) || body.sessionIds.length > 500) {
+          return err(400, "sessionIds must be an array with at most 500 entries");
+        }
+        const liveIds = await liveSessionIdsCached();
+        const sessionIds = [
+          ...new Set(
+            body.sessionIds.filter(
+              (value): value is string =>
+                typeof value === "string" &&
+                value.length > 0 &&
+                value.length <= 200 &&
+                liveIds.has(value),
+            ),
+          ),
+        ];
+        importSessionPins(sessionIds);
+        return json({ sessionIds: pruneSessionPins(liveIds) });
+      }
+      {
+        const match = path.match(/^\/api\/session-pins\/([^/]+)$/);
+        if (match && req.method === "PUT") {
+          let sessionId = "";
+          try {
+            sessionId = decodeURIComponent(match[1]!);
+          } catch {
+            return err(400, "invalid session id");
+          }
+          if (!sessionId || sessionId.length > 200) return err(400, "invalid session id");
+          const body = (await req.json().catch(() => null)) as { pinned?: unknown } | null;
+          if (typeof body?.pinned !== "boolean") {
+            return err(400, "pinned must be a boolean");
+          }
+          const liveIds = await liveSessionIdsCached();
+          if (body.pinned && !liveIds.has(sessionId)) return err(404, "live session not found");
+          setSessionPinned(sessionId, body.pinned);
+          return json({ sessionIds: pruneSessionPins(liveIds) });
+        }
+      }
       if (path === "/api/settings") {
         if (req.method === "GET") {
           const settings = await getGlobalSettings();
@@ -4623,12 +4671,16 @@ a{color:#60a5fa}
         const reposTask = listRepos();
         const codingAgentsTask = listCodingAgentsCached();
         const settingsTask = getGlobalSettings();
+        const sessionPinsTask = sessionsTask.then((sessions) =>
+          pruneSessionPins(liveSessionIds(sessions)),
+        );
         const tasks = {
           agents: listAgentSummaries(),
           codingAgents: codingAgentsTask,
           models: codingAgentsTask.then((agents) => listModelCatalog(agents)),
           settings: settingsTask,
           sessions: sessionsTask,
+          sessionPins: sessionPinsTask,
           conversations: conversationsTask,
           users: Promise.resolve(userRoster()),
           repos: reposTask,
@@ -4649,6 +4701,7 @@ a{color:#60a5fa}
           models?: ReturnType<typeof listModelCatalog> | null;
           settings?: GlobalSettings | null;
           sessions?: Awaited<ReturnType<typeof listSessionsCached>> | null;
+          sessionPins?: string[] | null;
           conversations?: Awaited<typeof conversationsTask> | null;
           users?: ReturnType<typeof userRoster> | null;
           repos?: Awaited<ReturnType<typeof listRepos>> | null;
@@ -4663,6 +4716,7 @@ a{color:#60a5fa}
             models: boot.models ?? null,
             settings: boot.settings ?? null,
             sessions: boot.sessions ? boot.sessions.map(sessionListRow) : null,
+            sessionPins: boot.sessionPins ?? null,
             conversations: boot.conversations ?? null,
             // Not an authorization signal — never gates what the UI is allowed
             // to show. It only tells the transcript renderer which already-
