@@ -27,11 +27,27 @@ ln -s "$here/node_modules" "$tmp/node_modules"
 
 ( cd "$tmp" && npx --yes expo prebuild --platform ios --no-install >/dev/null 2>&1 )
 
-plist=$(find "$tmp/ios" -name Info.plist -not -path '*/Pods/*' | head -1)
-if [ -z "$plist" ]; then
+# `head -1` over an unordered `find` was picking AN Info.plist, not THE one.
+# A prebuild emits several (Pods, test targets, expo-dev-client), so asserting on
+# an arbitrary match could pass while the app target shipped something else --
+# the exact class of bug this script exists to catch. Demand exactly one
+# candidate and fail loudly otherwise.
+mapfile -t plists < <(find "$tmp/ios" -name Info.plist \
+  -not -path '*/Pods/*' \
+  -not -path '*Tests*' \
+  -not -path '*/build/*' | sort)
+
+if [ "${#plists[@]}" -eq 0 ]; then
   echo "::error::prebuild produced no Info.plist" >&2
   exit 1
 fi
+if [ "${#plists[@]}" -gt 1 ]; then
+  echo "::error::expected exactly one app Info.plist, found ${#plists[@]}:" >&2
+  printf '::error::  %s\n' "${plists[@]}" >&2
+  exit 1
+fi
+plist="${plists[0]}"
+echo "asserting on ${plist#"$tmp/"}"
 
 fail=0
 for key in "${KEYS[@]}"; do

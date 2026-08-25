@@ -40,9 +40,18 @@ import { Text } from "./text";
 import { useTheme } from "./theme";
 
 /** Bump whenever DISCLOSURES changes. See the header. */
-export const CONSENT_VERSION = 1;
+export const CONSENT_VERSION = 2;
 
-const STORAGE_KEY = "omg:mobile:ai-data-consent";
+/**
+ * Consent is PER ACCOUNT, not per install.
+ *
+ * The first version of this stored one flag for the whole device. Sign out,
+ * sign in as someone else, and their messages went to the model providers
+ * having never been asked — the previous person's tap answered for them. That
+ * is not consent in any sense Apple or a user would recognise, so the account
+ * id is part of the key.
+ */
+const storageKeyFor = (userId: string) => `omg:mobile:ai-data-consent:${userId}`;
 
 type Disclosure = {
   icon: { ios: SFSymbol; android: AndroidSymbol };
@@ -76,11 +85,31 @@ export const DISCLOSURES: Disclosure[] = [
     who: "The same AI provider as your messages",
     when: "When you send them.",
   },
+  {
+    icon: { ios: "chevron.left.forwardslash.chevron.right", android: "code" },
+    what: "Code and files from the repository you are working in",
+    who: "The same AI provider as your messages",
+    when: "When an agent reads or edits files to carry out your request.",
+  },
 ];
 
 type ConsentState = "loading" | "needed" | "granted";
 
-export function useAiDataConsent(): {
+/**
+ * Only a plain run of digits counts.
+ *
+ * `Number()` was the original test and it is far too permissive: `Number("0x10")`
+ * is 16 and `Number("Infinity")` is Infinity, so a corrupted value read as a
+ * GRANT. The file header claimed a read failure falls back to asking again;
+ * that claim was false for every non-decimal string AsyncStorage could hold.
+ */
+function grantedVersion(raw: string | null): number {
+  if (!raw || !/^\d+$/.test(raw)) return 0;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) ? value : 0;
+}
+
+export function useAiDataConsent(userId: string | null): {
   state: ConsentState;
   accept: () => void;
 } {
@@ -88,10 +117,18 @@ export function useAiDataConsent(): {
 
   useEffect(() => {
     let cancelled = false;
-    AsyncStorage.getItem(STORAGE_KEY)
+    // No account yet means nothing to consent FOR. The gate is only consulted
+    // once signed in, so this simply parks in "loading" rather than inventing
+    // an answer for an unknown person.
+    if (!userId) {
+      setState("loading");
+      return;
+    }
+    setState("loading");
+    AsyncStorage.getItem(storageKeyFor(userId))
       .then((raw) => {
         if (cancelled) return;
-        setState(raw && Number(raw) >= CONSENT_VERSION ? "granted" : "needed");
+        setState(grantedVersion(raw) >= CONSENT_VERSION ? "granted" : "needed");
       })
       .catch(() => {
         // A read failure must not silently imply consent. Ask again; the cost
@@ -101,21 +138,22 @@ export function useAiDataConsent(): {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [userId]);
 
   const accept = useCallback(() => {
+    if (!userId) return;
     // Flip the UI first. Persisting is best-effort: a storage failure should
     // re-ask on next launch, not block someone who just tapped Agree.
     setState("granted");
-    void AsyncStorage.setItem(STORAGE_KEY, String(CONSENT_VERSION)).catch(() => {});
-  }, []);
+    void AsyncStorage.setItem(storageKeyFor(userId), String(CONSENT_VERSION)).catch(() => {});
+  }, [userId]);
 
   return { state, accept };
 }
 
-/** Test/support hook: forget the grant so the screen shows again. */
-export async function resetAiDataConsent(): Promise<void> {
-  await AsyncStorage.removeItem(STORAGE_KEY);
+/** Test/support hook: forget one account's grant so the screen shows again. */
+export async function resetAiDataConsent(userId: string): Promise<void> {
+  await AsyncStorage.removeItem(storageKeyFor(userId));
 }
 
 export function AiConsentScreen({
