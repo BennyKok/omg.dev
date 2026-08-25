@@ -264,6 +264,7 @@ import type {
 import {
   Activity,
   Archive,
+  ArrowLeftRight,
   ArrowDown,
   ArrowUp,
   Bot,
@@ -331,6 +332,7 @@ import { toast } from "@/lib/notify";
 import { haptic } from "@/lib/haptics";
 import { feedback } from "@/lib/feedback";
 import { useUiFeedbackPrefs, setUiFeedbackPrefs } from "@/lib/ui-feedback-prefs";
+import { useNavigationPrefs, setNavigationPrefs } from "@/lib/navigation-prefs";
 import { useProjectListPrefs, setProjectListPrefs } from "@/lib/project-list-prefs";
 import { useSendMorph } from "@/lib/use-send-morph";
 import { reportError } from "./lib/report-error";
@@ -15746,6 +15748,7 @@ function SessionTitleSheet({
   onTogglePin?: (sid: string) => void;
   onClose: () => void;
 }) {
+  const navigationPrefs = useNavigationPrefs();
   const [error, setError] = useState<string | null>(null);
   const [renamingInline, setRenamingInline] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -15856,6 +15859,7 @@ function SessionTitleSheet({
   // horizontal swipe is committed, so scrolling and controls behave normally.
   // Native non-passive listeners (React's are passive) so preventDefault holds.
   useEffect(() => {
+    if (!navigationPrefs.swipeBetweenChats) return;
     const body = bodyRef.current;
     if (!body) return;
     const SWIPE_COMMIT = 60; // px of travel needed to flip sessions
@@ -15935,7 +15939,7 @@ function SessionTitleSheet({
       body.removeEventListener("touchend", onEnd);
       body.removeEventListener("touchcancel", onEnd);
     };
-  }, [go, prevSid, nextSid]);
+  }, [go, navigationPrefs.swipeBetweenChats, prevSid, nextSid]);
 
   // The transform that maps the full-screen panel onto the title's rect.
   // transform-origin is the top-left corner, so scale shrinks toward (0,0) and
@@ -26319,6 +26323,7 @@ function MoreView({
   connection: ConnectionState | null;
 }) {
   const uiFeedback = useUiFeedbackPrefs();
+  const navigationPrefs = useNavigationPrefs();
 
   return (
     <div className="mx-auto max-w-xl space-y-8 pb-10" data-lfg-page-column>
@@ -26447,6 +26452,19 @@ function MoreView({
               checked={uiFeedback.sound}
               onCheckedChange={(v) => setUiFeedbackPrefs({ sound: v })}
               aria-label="Toggle UI sound effects"
+            />
+          </div>
+          <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+            <div className="flex items-center gap-3">
+              <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
+                <ArrowLeftRight className="size-4" />
+              </span>
+              <span className="text-sm font-medium">Swipe between chats</span>
+            </div>
+            <Switch
+              checked={navigationPrefs.swipeBetweenChats}
+              onCheckedChange={(v) => setNavigationPrefs({ swipeBetweenChats: v })}
+              aria-label="Toggle swipe between chats"
             />
           </div>
         </div>

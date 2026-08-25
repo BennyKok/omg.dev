@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## August 26, 2026 - Chat navigation swipe can be disabled
+
+- **Swipe between chats is now optional per device.** The new switch under
+  Settings > More > This device disables only the horizontal chat-switching
+  gesture; vertical scrolling, native text selection, and other gestures keep
+  working normally.
+
 ## August 26, 2026 - iPhone text selection works normally
 
 - **Long-press uses the native iPhone selection controls again.** A user can
