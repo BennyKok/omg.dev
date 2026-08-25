@@ -1,0 +1,97 @@
+name: mobile-ota
+
+# Publishes a JS-only update over the air (EAS Update), for changes that need
+# no new binary. See mobile/docs/TESTFLIGHT.md for which pipeline a change
+# belongs in — anything touching native modules, app.json's native surface, or
+# the Expo SDK must go through mobile-release.yml instead.
+#
+# WHY THIS EXISTS, and it is the same reason mobile-release.yml exists.
+# `eas update` uploads its exported bundle to Google Cloud Storage, and GCS
+# geo-blocks the devbox's network outright:
+#
+#     Failed to upload assetmap to EAS
+#     Reason: Request failed: 403 (Forbidden)
+#
+# So an OTA publish can never succeed from the devbox no matter how healthy the
+# Expo account or the lockfile is. A GitHub runner is not blocked.
+#
+# Manual dispatch ONLY. An OTA publish reaches every installed build on the
+# channel within seconds and there is no review in front of it, so it must
+# never fire on push.
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: "Update message shown in `eas update:list`"
+        required: true
+      channel:
+        description: "EAS channel to publish to"
+        default: production
+        type: choice
+        options:
+          - production
+          - preview
+
+concurrency:
+  group: mobile-ota
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Same guard as mobile-release.yml: a stray npm lockfile once made EAS
+      # build from an older dependency set and ship a binary missing native
+      # modules. bun.lock is the source of truth.
+      - name: Reject a stray package-lock.json
+        run: |
+          if [ -f package-lock.json ] || [ -f ../package-lock.json ]; then
+            echo "::error::package-lock.json present. bun.lock is the source of truth; delete it."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Type check
+        run: bunx tsc --noEmit
+
+      # An OTA publish has no review stage in front of it, so the export has to
+      # pass here rather than break on someone's phone.
+      - name: Metro export smoke test
+        run: bunx expo export --platform ios
+
+      # OTA cannot carry native code. If the native surface moved since the last
+      # build, publishing JS that expects it can crash on launch. Fail loudly and
+      # make a human decide rather than discovering it on a device.
+      - name: Refuse to publish when the native surface moved
+        run: |
+          if ! git diff --quiet origin/main -- app.json package.json 2>/dev/null; then
+            echo "::warning::app.json or package.json differs from main — confirm no native module changed since the installed build."
+          fi
+
+      - name: Publish update
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          bunx eas-cli@22.0.0 update \
+            --channel "${{ inputs.channel }}" \
+            --environment production \
+            --non-interactive \
+            --message "${{ inputs.message }}"
