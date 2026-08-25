@@ -26596,7 +26596,7 @@ function SurfaceToggle({
       {([
         ["sessions", "Chat", onOpenSessions],
         ["chat", "Bots", onOpenBots],
-        ["auto", "Scheduled", onOpenAuto],
+        ["auto", "Schedules", onOpenAuto],
       ] as const).map(([value, label, onClick]) => (
         <button
           key={value}
@@ -27925,7 +27925,7 @@ function AutoManageView({
           about them was the loudest thing on a page that is meant to be a
           list of schedules. The per-row "N open" badge still points at them. */}
       <div className="flex items-end justify-between gap-3 px-1 pb-2">
-        {/* Below md the switch bar is on screen with "Scheduled" lit, so a
+        {/* Below md the switch bar is on screen with "Schedules" lit, so a
             title that repeats it is two answers to a question nobody asked
             twice — and it costs a row of the list on the smallest screen.
             From md there is no switch bar and the Pages menu does not list
