@@ -87,9 +87,16 @@ describe("matchBots", () => {
     expect(matchBots([{ id: "x", name: "   " }], "")).toEqual([]);
   });
 
-  it("honours the limit", () => {
+  it("honours an explicit limit", () => {
     const many = Array.from({ length: 20 }, (_, i) => ({ id: `b${i}`, name: `bot${i}` }));
     expect(matchBots(many, "", 3)).toHaveLength(3);
+  });
+
+  // Regression: the cap was 8, so a roster of 10 could never show its tail on
+  // a bare `@`. The popover scrolls, so every bot must be reachable.
+  it("shows a roster larger than the old cap of 8", () => {
+    const roster = Array.from({ length: 11 }, (_, i) => ({ id: `b${i}`, name: `bot${i}` }));
+    expect(matchBots(roster, "")).toHaveLength(11);
   });
 
   it("treats a missing enabled flag as usable", () => {

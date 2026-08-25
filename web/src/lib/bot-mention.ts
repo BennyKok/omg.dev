@@ -68,7 +68,10 @@ function fold(text: string): string {
 export function matchBots(
   bots: readonly MentionableBot[],
   query: string,
-  limit = 8,
+  // Generous on purpose. This was 8, which silently hid bots from anyone with
+  // a roster bigger than that: a bare `@` could never reach the tail of the
+  // list. The popover scrolls, so the cap only needs to bound the DOM.
+  limit = 50,
 ): MentionableBot[] {
   const q = fold(query);
   const usable = bots.filter((bot) => bot.enabled !== false && bot.name.trim().length > 0);

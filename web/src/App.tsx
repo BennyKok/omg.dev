@@ -13991,20 +13991,27 @@ function SkillSlashSuggest({
  */
 function BotMentionSuggest({
   active,
-  bots,
+  matches,
+  selected,
+  onHover,
   onPick,
 }: {
   active: BotMentionState | null;
-  bots: PersistentBot[];
+  /** Owned by SkillTextarea, because the arrow keys arrive at the textarea. */
+  matches: PersistentBot[];
+  selected: number;
+  onHover: (index: number) => void;
   onPick: (bot: PersistentBot) => void;
 }) {
-  const [selected, setSelected] = useState(0);
-  useEffect(() => setSelected(0), [active?.query]);
+  const listRef = useRef<HTMLDivElement>(null);
 
-  const matches = useMemo(
-    () => (active ? (matchBots(bots, active.query) as PersistentBot[]) : []),
-    [active, bots],
-  );
+  // Arrow keys can walk the highlight past the scroll viewport. A highlight
+  // you cannot see reads as a menu that stopped responding.
+  useEffect(() => {
+    listRef.current
+      ?.querySelector<HTMLElement>(`[data-bot-mention-option="${selected}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
 
   if (!active || !matches.length) return null;
 
@@ -14017,17 +14024,21 @@ function BotMentionSuggest({
       onTouchEnd={(event) => event.stopPropagation()}
       className="absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-xl"
     >
-      <div className="max-h-[min(18rem,42dvh)] overflow-y-auto overscroll-contain p-1 touch-pan-y">
+      <div
+        ref={listRef}
+        className="max-h-[min(18rem,42dvh)] overflow-y-auto overscroll-contain p-1 touch-pan-y"
+      >
         {matches.map((bot, idx) => (
           <button
             key={bot.id}
             type="button"
-            data-bot-mention-option
+            data-bot-mention-option={idx}
+            aria-selected={idx === selected}
             onMouseDown={(event) => {
               event.preventDefault();
             }}
             onClick={() => onPick(bot)}
-            onMouseEnter={() => setSelected(idx)}
+            onMouseEnter={() => onHover(idx)}
             className={cn(
               "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm",
               idx === selected ? "bg-accent text-accent-foreground" : "hover:bg-accent/70",
@@ -14109,8 +14120,18 @@ function SkillTextarea({
   const multilineRef = useRef(false);
   const [skillSuggest, setSkillSuggest] = useState<SlashSkillState | null>(null);
   const [botMention, setBotMention] = useState<BotMentionState | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
   const botDirectory = useContext(BotDirectoryContext);
   const mentionableBots = useMemo(() => Array.from(botDirectory.values()), [botDirectory]);
+  // Owned here rather than in the popover: the arrow keys land on the
+  // textarea, so the keyboard handler needs the list it is walking.
+  const mentionMatches = useMemo(
+    () => (botMention ? (matchBots(mentionableBots, botMention.query) as PersistentBot[]) : []),
+    [botMention, mentionableBots],
+  );
+  // A new query is a new list, so the highlight returns to the top. Keyed on
+  // the query text, not the state object, which is rebuilt on every keyup.
+  useEffect(() => setMentionIndex(0), [botMention?.query]);
 
   // CSS `field-sizing: content` is still flaky across browsers (and loses to
   // rows/min-height combos), so grow from scrollHeight. max-height in className
@@ -14213,7 +14234,13 @@ function SkillTextarea({
   return (
     <div ref={wrapRef} className="relative min-w-0 flex-1">
       <SkillSlashSuggest active={skillSuggest} onPick={pickSkill} />
-      <BotMentionSuggest active={botMention} bots={mentionableBots} onPick={pickBot} />
+      <BotMentionSuggest
+        active={botMention}
+        matches={mentionMatches}
+        selected={mentionIndex}
+        onHover={setMentionIndex}
+        onPick={pickBot}
+      />
       <Textarea
         {...props}
         ref={setFieldRef}
@@ -14249,15 +14276,32 @@ function SkillTextarea({
               return;
           }
           // Runs before the caller's onKeyDown so Enter picks a bot instead of
-          // submitting the message.
-          if (botMention) {
+          // submitting the message, and so the arrows walk the menu instead of
+          // moving the caret.
+          if (botMention && mentionMatches.length) {
+            const count = mentionMatches.length;
             if (event.key === "Escape") {
               event.preventDefault();
               setBotMention(null);
               return;
             }
-            if (handleSuggestKey(event, botMention, wrapRef.current, "[data-bot-mention-option]"))
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setMentionIndex((current) => (current + 1) % count);
               return;
+            }
+            if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setMentionIndex((current) => (current - 1 + count) % count);
+              return;
+            }
+            if (event.key === "Enter" || event.key === "Tab") {
+              event.preventDefault();
+              // Clamped: the list can shrink under a stale index between the
+              // last keystroke and this one.
+              pickBot(mentionMatches[Math.min(mentionIndex, count - 1)]);
+              return;
+            }
           }
           onKeyDown?.(event);
         }}
