@@ -2,6 +2,17 @@
 
 Recent product updates and deployment notes.
 
+## August 25, 2026 - Mobile chat stays focused and Grok thoughts stay private (v0.6.10)
+
+- **Grok reasoning no longer appears as an assistant answer while it streams.**
+  The live protocol now keeps thinking and answer text as separate typed data.
+  The fix does not inspect Grok text or depend on provider-specific markers.
+- **Mobile chat keeps the hardware keyboard ready after send.** The composer
+  retains focus without reopening the software keyboard.
+- **Live transcript motion is faster and the keyboard gap is gone.** New chat
+  activity reaches the bottom sooner, and the composer no longer leaves an
+  empty inset after the mobile keyboard closes.
+
 ## August 25, 2026 - Switch bar says Schedules (v0.6.9)
 
 - **The Chat / Bots / Schedules toggle now says Schedules.** The page heading
