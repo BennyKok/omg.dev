@@ -2,6 +2,20 @@
 
 Recent product updates and deployment notes.
 
+## August 25, 2026 - OpenCode Go models appear without a Claude account (v0.6.14)
+
+- **An OpenCode Go key alone now unlocks OpenCode's paid models.** If OpenCode
+  was the only agent signed in on a box, the picker showed the free Zen tier
+  and nothing else — even with a Go key connected and every `opencode-go/*`
+  model already discovered. The box was being treated as anonymous because the
+  "is someone signed in here" check counted only Claude and Codex. Anyone
+  paying for OpenCode Go and using nothing else was being billed for models the
+  picker hid from them.
+- The check that stops a *Claude* account from unlocking OpenCode's paid
+  providers is unchanged. A box whose OpenCode was never signed into still gets
+  the free tier, because offering models that fail at launch is worse than
+  offering fewer.
+
 ## August 25, 2026 - Pin a bot to a specific Claude account (v0.6.13)
 
 - **The bot editor now lets you choose which Claude account a bot runs on.**
