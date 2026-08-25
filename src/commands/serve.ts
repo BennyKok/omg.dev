@@ -5140,6 +5140,18 @@ a{color:#60a5fa}
             : undefined;
           const config = validateBotAgent(agentValue, model, thinkingLevel);
           if ("error" in config) return err(400, config.error);
+          // Inherit the creating bot's Claude account pin, the same way cwd and
+          // owner are inherited, so a bot family stays on one account. The pin
+          // is not an argument here: a bot picks its child's backend, not the
+          // human's account. It is dropped on a non-Claude backend and dropped
+          // when the account is gone, because neither is a reason to refuse the
+          // new bot.
+          const inheritedClaudeAccountId =
+            config.agent === "aisdk" &&
+            actor.bot.claudeAccountId &&
+            resolveClaudeAccount(actor.bot.claudeAccountId)
+              ? actor.bot.claudeAccountId
+              : undefined;
           const cwd = actor.bot.cwd;
           if (cwd && !(await listRepos()).some((repo) => repo.cwd === cwd))
             return err(409, "calling bot workspace is no longer approved");
@@ -5156,6 +5168,7 @@ a{color:#60a5fa}
             agent: config.agent,
             model,
             thinkingLevel,
+            claudeAccountId: inheritedClaudeAccountId,
             cwd,
             owner: actor.user,
             ownerQuota: quotaPolicy,
