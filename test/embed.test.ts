@@ -141,6 +141,13 @@ describe("host bottom inset contract", () => {
     );
   });
 
+  test("embedded keyboard layout does not reserve the host pill twice", () => {
+    const css = require("node:fs").readFileSync("web/src/index.css", "utf8") as string;
+    expect(css).toMatch(
+      /html\[data-lfg-embed="true"\]\.lfg-keyboard-open\s*\{[^}]*--lfg-safe-bottom:\s*0px/,
+    );
+  });
+
   test("inline home uses device pad (standalone) and cancels under embed", () => {
     const app = require("node:fs").readFileSync("web/src/App.tsx", "utf8") as string;
     // Standalone: original home-indicator via --lfg-device-safe-bottom.

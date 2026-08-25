@@ -181,11 +181,17 @@ html[data-lfg-embed="true"] {
 /* Soft keyboard up: the orb is tucked away, so toasts and the dictation pill no
    longer need to clear the orb stack — hike them up to sit just above the
    keyboard. --lfg-keyboard-height is published live from the visualViewport
-   sync in App.tsx. Keep host inset: the omg pill is on the parent document and
-   may still cover the iframe bottom while our soft keyboard is up. */
+   sync in App.tsx. */
 html.lfg-keyboard-open {
   --lfg-orb-stack-bottom: calc(var(--lfg-keyboard-height, 0px) + 1rem);
   --lfg-above-orb: calc(var(--lfg-keyboard-height, 0px) + 1rem);
+}
+
+/* The visual viewport already ends at the keyboard. The embedded host pill is
+   outside that visible band, so reserving its inset here double-pads composers
+   and leaves a dead strip above the keyboard. */
+html[data-lfg-embed="true"].lfg-keyboard-open {
+  --lfg-safe-bottom: 0px;
 }
 
 /* A bottom sheet that has morphed into a page.
