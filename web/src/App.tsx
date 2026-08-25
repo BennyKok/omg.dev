@@ -117,6 +117,7 @@ import {
   type TranscriptSearchResponse,
 } from "./lib/transcript-find";
 import { clearFindHighlight, paintFindHighlight } from "./lib/find-highlight";
+import { applyBotMention, botMentionAt, matchBots, type BotMentionState } from "./lib/bot-mention";
 import { uploadFile as uploadFileThroughTransport } from "./lib/upload";
 import { compressImageFile, isCompressibleImage } from "./lib/image-compress";
 import { AppCrash } from "./components/app-crash";
@@ -13976,15 +13977,90 @@ function SkillSlashSuggest({
   );
 }
 
-function handleSkillSuggestKey(
+/**
+ * The `@` bot picker. Mirrors SkillSlashSuggest's shell (position, swipe/wheel
+ * guards, option rows) so the two composer pickers stay visually identical.
+ *
+ * Source of truth is BotDirectoryContext, the roster the app already loaded
+ * from GET /api/bots. No fetch here: the list is small and already in memory,
+ * so the picker opens instantly and cannot show a spinner or a stale network
+ * error.
+ */
+function BotMentionSuggest({
+  active,
+  bots,
+  onPick,
+}: {
+  active: BotMentionState | null;
+  bots: PersistentBot[];
+  onPick: (bot: PersistentBot) => void;
+}) {
+  const [selected, setSelected] = useState(0);
+  useEffect(() => setSelected(0), [active?.query]);
+
+  const matches = useMemo(
+    () => (active ? (matchBots(bots, active.query) as PersistentBot[]) : []),
+    [active, bots],
+  );
+
+  if (!active || !matches.length) return null;
+
+  return (
+    <div
+      data-no-composer-swipe
+      onWheel={(event) => event.stopPropagation()}
+      onTouchStart={(event) => event.stopPropagation()}
+      onTouchMove={(event) => event.stopPropagation()}
+      onTouchEnd={(event) => event.stopPropagation()}
+      className="absolute bottom-full left-0 right-0 z-50 mb-2 overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-xl"
+    >
+      <div className="max-h-[min(18rem,42dvh)] overflow-y-auto overscroll-contain p-1 touch-pan-y">
+        {matches.map((bot, idx) => (
+          <button
+            key={bot.id}
+            type="button"
+            data-bot-mention-option
+            onMouseDown={(event) => {
+              event.preventDefault();
+            }}
+            onClick={() => onPick(bot)}
+            onMouseEnter={() => setSelected(idx)}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm",
+              idx === selected ? "bg-accent text-accent-foreground" : "hover:bg-accent/70",
+            )}
+          >
+            <BotMascot
+              shape={bot.shape}
+              colorway={bot.colorway}
+              size={16}
+              state="idle"
+              seed={bot.id.length}
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-medium">
+                <span className="font-mono text-primary">@</span>
+                {bot.name}
+              </span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// One owner for composer-picker keys, shared by the `/` skill picker and the
+// `@` bot picker. `selector` names the option rows of whichever picker is open;
+// only one ever is, because their trigger characters are distinct.
+function handleSuggestKey(
   event: ReactKeyboardEvent<HTMLTextAreaElement>,
-  active: SlashSkillState | null,
+  active: SlashSkillState | BotMentionState | null,
   wrapper: HTMLElement | null,
+  selector: string,
 ) {
   if (!active) return false;
-  const buttons = Array.from(
-    wrapper?.querySelectorAll<HTMLButtonElement>("[data-skill-suggest-option]") ?? [],
-  );
+  const buttons = Array.from(wrapper?.querySelectorAll<HTMLButtonElement>(selector) ?? []);
   if ((event.key === "Enter" || event.key === "Tab") && buttons[0]) {
     event.preventDefault();
     buttons[0].click();
@@ -14029,6 +14105,9 @@ function SkillTextarea({
   const followedScrollNonceRef = useRef(scrollToEndNonce);
   const multilineRef = useRef(false);
   const [skillSuggest, setSkillSuggest] = useState<SlashSkillState | null>(null);
+  const [botMention, setBotMention] = useState<BotMentionState | null>(null);
+  const botDirectory = useContext(BotDirectoryContext);
+  const mentionableBots = useMemo(() => Array.from(botDirectory.values()), [botDirectory]);
 
   // CSS `field-sizing: content` is still flaky across browsers (and loses to
   // rows/min-height combos), so grow from scrollHeight. max-height in className
@@ -14071,8 +14150,33 @@ function SkillTextarea({
     }
   }, [value, resizeField, scrollToEndNonce]);
 
+  // `sync` only runs on change/click/keyup, so a programmatic edit — most
+  // importantly sendMessage clearing the draft — can leave a picker open over
+  // text that no longer has a trigger. Blur used to hide that, but the composer
+  // now keeps focus after send when only a hardware-keyboard helper is up.
+  // Revalidate against the real value instead of relying on focus loss.
+  useLayoutEffect(() => {
+    if (!botMention) return;
+    const caret = fieldRef.current?.selectionStart ?? value.length;
+    if (!botMentionAt(value, caret)) setBotMention(null);
+  }, [value, botMention]);
+
   function sync(target: HTMLTextAreaElement) {
     setSkillSuggest(slashSkillAt(target.value, target.selectionStart));
+    setBotMention(botMentionAt(target.value, target.selectionStart));
+  }
+
+  function pickBot(bot: PersistentBot) {
+    if (!botMention) return;
+    const textarea = fieldRef.current;
+    const next = applyBotMention(value, botMention, bot);
+    onValueChange(next.value);
+    setBotMention(null);
+    requestAnimationFrame(() => {
+      textarea?.focus();
+      textarea?.setSelectionRange(next.cursor, next.cursor);
+      resizeField(textarea);
+    });
   }
 
   function pickSkill(skill: SkillCatalogItem) {
@@ -14106,6 +14210,7 @@ function SkillTextarea({
   return (
     <div ref={wrapRef} className="relative min-w-0 flex-1">
       <SkillSlashSuggest active={skillSuggest} onPick={pickSkill} />
+      <BotMentionSuggest active={botMention} bots={mentionableBots} onPick={pickBot} />
       <Textarea
         {...props}
         ref={setFieldRef}
@@ -14124,7 +14229,12 @@ function SkillTextarea({
         }}
         onClick={(event) => sync(event.currentTarget)}
         onKeyUp={(event) => sync(event.currentTarget)}
-        onBlur={() => window.setTimeout(() => setSkillSuggest(null), 120)}
+        onBlur={() =>
+          window.setTimeout(() => {
+            setSkillSuggest(null);
+            setBotMention(null);
+          }, 120)
+        }
         onKeyDown={(event) => {
           if (skillSuggest) {
             if (event.key === "Escape") {
@@ -14132,7 +14242,19 @@ function SkillTextarea({
               setSkillSuggest(null);
               return;
             }
-            if (handleSkillSuggestKey(event, skillSuggest, wrapRef.current)) return;
+            if (handleSuggestKey(event, skillSuggest, wrapRef.current, "[data-skill-suggest-option]"))
+              return;
+          }
+          // Runs before the caller's onKeyDown so Enter picks a bot instead of
+          // submitting the message.
+          if (botMention) {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setBotMention(null);
+              return;
+            }
+            if (handleSuggestKey(event, botMention, wrapRef.current, "[data-bot-mention-option]"))
+              return;
           }
           onKeyDown?.(event);
         }}
