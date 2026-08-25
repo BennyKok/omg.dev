@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Bot } from "./bots/store.ts";
 import { sanitizeBotClaudeAccountId } from "./bots/store.ts";
+import { BOT_SELF_CREATE_FIELDS, BOT_SELF_UPDATE_FIELDS } from "./bots/self-management.ts";
 import {
   SESSION_BOUND_BOT_FIELDS,
   sessionBoundConfigChanged,
@@ -41,9 +42,10 @@ describe("bot Claude account pin", () => {
       sessionBoundConfigOf(before),
       sessionBoundConfigOf({ ...before, claudeAccountId: "acct-2" }),
     )).toBe(true);
+    const cosmeticOnly: Bot = { ...before, colorway: "forest" };
     expect(sessionBoundConfigChanged(
       sessionBoundConfigOf(before),
-      sessionBoundConfigOf({ ...before, colorway: "forest" }),
+      sessionBoundConfigOf(cosmeticOnly),
     )).toBe(false);
   });
 });
@@ -59,5 +61,18 @@ describe("bot launch honours the pin", () => {
 
   test("launch passes the pin to the account picker", () => {
     expect(serve).toContain("explicitAccountId: bot.claudeAccountId");
+  });
+
+  test("a bot-created bot inherits the creating bot's pin", () => {
+    expect(serve).toContain("const inheritedClaudeAccountId =");
+    expect(serve).toContain("claudeAccountId: inheritedClaudeAccountId");
+    // Dropped on a different backend and on an account that is gone, so
+    // neither case refuses the new bot.
+    expect(serve).toContain("resolveClaudeAccount(actor.bot.claudeAccountId)");
+  });
+
+  test("a bot cannot choose the account itself", () => {
+    expect(BOT_SELF_CREATE_FIELDS.has("claudeAccountId")).toBe(false);
+    expect(BOT_SELF_UPDATE_FIELDS.has("claudeAccountId")).toBe(false);
   });
 });
