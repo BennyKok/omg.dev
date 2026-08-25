@@ -62,10 +62,18 @@ import {
  * stated as a fact in the app and followed up by email, which is allowed in
  * every storefront.
  *
- * STOREKIT HAS NOW LANDED, and the honest fix arrived as predicted: the "Plan"
- * row in the Computer card pushes app/plan.tsx, an in-app purchase. The web
- * link did NOT come back and must not — an in-app paywall that also offers an
- * external checkout is the same 3.1.1(a) violation with an extra step.
+ * STOREKIT HAS NOW LANDED, and the honest fix arrived as predicted: the
+ * "Subscription and plan" row in the Computer card pushes app/plan.tsx, an
+ * in-app purchase. The web link did NOT come back and must not — an in-app
+ * paywall that also offers an external checkout is the same 3.1.1(a) violation
+ * with an extra step.
+ *
+ * THE ROW IS NAMED FOR THE REVIEWER, NOT FOR US. It read "Plan", under a
+ * heading reading "Computer", and App Review rejected 1.0 (34) under guideline
+ * 2.1(b) saying they "cannot locate the In-App Purchases within the app".
+ * Nothing on the path to the paywall contained the word subscription. Someone
+ * hunting for in-app purchases had no reason to open a row called Plan. Do not
+ * rename this back to something shorter.
  */
 /**
  * Legal documents, on omg.dev rather than app.omg.dev.
@@ -301,7 +309,9 @@ export default function SettingsScreen() {
             with an extra step. */}
         <Separator inset="text" />
         <Row onPress={() => router.push("/plan")}>
-          <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>Plan</Text>
+          <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>
+            Subscription and plan
+          </Text>
           <Icon
             ios="chevron.right"
             android="chevron_right"

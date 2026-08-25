@@ -457,7 +457,7 @@ function RootNavigator() {
               Settings — the two places someone learns they need to pay. It is
               a normal pushed screen rather than a modal so the back gesture
               behaves the same as everywhere else. */}
-          <Stack.Screen name="plan" options={{ title: "Plan", headerLargeTitle: true }} />
+          <Stack.Screen name="plan" options={{ title: "Subscription", headerLargeTitle: true }} />
         </Stack.Protected>
       </Stack>
     </>
