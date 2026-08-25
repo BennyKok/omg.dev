@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## August 26, 2026 - iPhone text selection works normally
+
+- **Long-press uses the native iPhone selection controls again.** A user can
+  select and adjust any part of a message, while the separate copy button
+  remains available for copying the whole message in one tap.
+
 ## August 25, 2026 - OpenCode Go models appear without a Claude account (v0.6.14)
 
 - **An OpenCode Go key alone now unlocks OpenCode's paid models.** If OpenCode
@@ -77,7 +83,6 @@ Recent product updates and deployment notes.
   top of each other. The renderer also picks up the 2.6 accessibility and
   download fixes. Long code and tables stay full height, so the transcript
   layout model still matches what you see.
-
 ## August 24, 2026 - Bot roster status is quieter (v0.6.7)
 
 - **Unread is one small dot on its conversation row.** Unread rows no longer

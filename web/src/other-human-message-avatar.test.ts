@@ -146,11 +146,11 @@ describe("OtherHumanMessageBubble: avatar, accessible name, and bot-reply separa
     expect(avatar).toMatch(/initial/);
   });
 
-  test("reuses UserBubble (same copy/long-press/clamp affordances) with a distinguishing tint, not the viewer's own tint", () => {
+  test("reuses UserBubble (same copy/native-selection/clamp affordances) with a distinguishing tint, not the viewer's own tint", () => {
     expect(component).toContain("<UserBubble html={html} otherAuthor />");
   });
 
-  test("passes isUser={false} to MessageActions so copy/long-press position on the correct side", () => {
+  test("passes isUser={false} to MessageActions so the copy button stays on the correct side", () => {
     expect(component).toContain('<MessageActions text={message.text || ""} isUser={false}>');
   });
 });
@@ -224,7 +224,7 @@ describe("grouping: consecutive other-human beats hide repeated name+face", () =
 
 describe("no horizontal overflow at 390px: the other-human bubble reuses the existing width caps", () => {
   test("MessageActions already caps non-user content at 92%-of-row minus the copy-button gutter — reused as-is", () => {
-    const actions = slice("function MessageActions(", "onPointerDown={onPointerDown}");
+    const actions = slice("function MessageActions(", '<div ref={contentRef}');
     expect(actions).toContain("max-w-[min(92%,calc(100%-2.25rem))]");
   });
 

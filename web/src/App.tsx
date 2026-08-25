@@ -320,7 +320,6 @@ import {
   Sun,
   Monitor,
   TerminalSquare,
-  TextSelect,
   Trash2,
   TriangleAlert,
   UserRound,
@@ -19015,9 +19014,6 @@ function OmgInstructionsBlock({
   );
 }
 
-const MESSAGE_LONG_PRESS_MS = 460;
-const MESSAGE_LONG_PRESS_SLOP_PX = 10;
-
 async function copyMessageText(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
@@ -19045,21 +19041,8 @@ function MessageActions({
   children: ReactNode;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
-  const timerRef = useRef<number | null>(null);
-  const originRef = useRef({ x: 0, y: 0 });
-  const longPressFiredRef = useRef(false);
-  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   const [selecting, setSelecting] = useState(false);
   const [copied, setCopied] = useState(false);
-
-  const clearTimer = useCallback(() => {
-    if (timerRef.current !== null) {
-      window.clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => clearTimer, [clearTimer]);
 
   const copy = useCallback(async () => {
     if (!text) return;
@@ -19074,82 +19057,23 @@ function MessageActions({
     }
   }, [text]);
 
-  const selectText = useCallback(() => {
-    const content = contentRef.current;
-    if (!content) return;
-    setSelecting(true);
-    setMenuAt(null);
-    // Apply user-select:text before creating the range so iOS shows its native
-    // selection handles instead of immediately collapsing the selection.
-    window.requestAnimationFrame(() => {
-      const selection = window.getSelection();
-      const range = document.createRange();
-      range.selectNodeContents(content);
-      selection?.removeAllRanges();
-      selection?.addRange(range);
-    });
-  }, []);
-
   useEffect(() => {
-    if (!selecting) return;
     const onSelectionChange = () => {
       const selection = window.getSelection();
       const content = contentRef.current;
-      if (
-        !selection ||
-        selection.isCollapsed ||
-        !content ||
-        !selection.anchorNode ||
-        !selection.focusNode ||
-        !content.contains(selection.anchorNode) ||
-        !content.contains(selection.focusNode)
-      ) {
-        setSelecting(false);
-      }
+      const selectionTouchesMessage = Boolean(
+        selection &&
+          !selection.isCollapsed &&
+          content &&
+          selection.anchorNode &&
+          selection.focusNode &&
+          (content.contains(selection.anchorNode) || content.contains(selection.focusNode)),
+      );
+      setSelecting(selectionTouchesMessage);
     };
     document.addEventListener("selectionchange", onSelectionChange);
     return () => document.removeEventListener("selectionchange", onSelectionChange);
-  }, [selecting]);
-
-  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!text || (event.pointerType !== "touch" && event.pointerType !== "pen")) return;
-    if ((event.target as HTMLElement).closest("button, a, input, textarea")) return;
-    longPressFiredRef.current = false;
-    originRef.current = { x: event.clientX, y: event.clientY };
-    clearTimer();
-    timerRef.current = window.setTimeout(() => {
-      timerRef.current = null;
-      longPressFiredRef.current = true;
-      window.getSelection()?.removeAllRanges();
-      haptic("selection");
-      setMenuAt({ x: originRef.current.x, y: originRef.current.y });
-    }, MESSAGE_LONG_PRESS_MS);
-  };
-
-  const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (timerRef.current === null) return;
-    if (
-      Math.abs(event.clientX - originRef.current.x) > MESSAGE_LONG_PRESS_SLOP_PX ||
-      Math.abs(event.clientY - originRef.current.y) > MESSAGE_LONG_PRESS_SLOP_PX
-    ) {
-      clearTimer();
-    }
-  };
-
-  const endPress = (event: React.PointerEvent<HTMLDivElement>) => {
-    clearTimer();
-    if (longPressFiredRef.current) {
-      event.preventDefault();
-      longPressFiredRef.current = false;
-    }
-  };
-
-  const menuStyle = menuAt
-    ? {
-        left: Math.max(12, Math.min(menuAt.x - 72, window.innerWidth - 156)),
-        top: Math.max(12, Math.min(menuAt.y - 58, window.innerHeight - 116)),
-      }
-    : undefined;
+  }, []);
 
   return (
     <div
@@ -19175,13 +19099,6 @@ function MessageActions({
           : "max-w-[min(92%,calc(100%-2.25rem))] items-start",
         selecting && "is-selecting",
       )}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={endPress}
-      onPointerCancel={endPress}
-      onContextMenu={(event) => {
-        if (window.matchMedia?.("(pointer: coarse)").matches) event.preventDefault();
-      }}
     >
       <div ref={contentRef} className="min-w-0 max-w-full">
         {children}
@@ -19207,46 +19124,6 @@ function MessageActions({
           {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
         </button>
       ) : null}
-      {menuAt
-        ? createPortal(
-            <div
-              className="fixed inset-0 z-[180]"
-              role="presentation"
-              onPointerDown={() => setMenuAt(null)}
-            >
-              <div
-                role="menu"
-                aria-label="Message actions"
-                className="dark fixed min-w-36 rounded-2xl bg-popover p-1 text-popover-foreground shadow-2xl ring-1 ring-foreground/10"
-                style={menuStyle}
-                onPointerDown={(event) => event.stopPropagation()}
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm outline-none hover:bg-foreground/10 focus-visible:bg-foreground/10"
-                  onClick={() => {
-                    setMenuAt(null);
-                    void copy();
-                  }}
-                >
-                  <Copy className="size-4" />
-                  Copy
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm outline-none hover:bg-foreground/10 focus-visible:bg-foreground/10"
-                  onClick={selectText}
-                >
-                  <TextSelect className="size-4" />
-                  Select text
-                </button>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
     </div>
   );
 }

@@ -30,7 +30,7 @@ const MESSAGE_ACTIONS = APP.slice(APP.indexOf("function MessageActions("));
 // The wrap is the positioned parent; the button is the element inside it.
 const WRAP_CLASSES = MESSAGE_ACTIONS.slice(
   MESSAGE_ACTIONS.indexOf('"message-actions-wrap'),
-  MESSAGE_ACTIONS.indexOf("onPointerDown={onPointerDown}"),
+  MESSAGE_ACTIONS.indexOf('<div ref={contentRef}'),
 );
 const BUTTON_CLASSES = MESSAGE_ACTIONS.slice(
   MESSAGE_ACTIONS.indexOf('"message-copy-button'),

@@ -757,14 +757,10 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
     font-size: 11px;
   }
 
-  /* The visible copy button steps out of the way until hover/focus on
-     pointer-precise (mouse/trackpad) devices, which have no other way to
-     reach it. Long press already owns copy on touch: the pointer-coarse
-     block below used to force this button to full opacity too, which put a
-     second, always-visible copy control next to every mobile bubble and
-     duplicated that gesture on screen. Leaving it at opacity 0 (still
-     reachable via focus-within, e.g. an external keyboard) keeps touch on
-     just the one, intended interaction.
+  /* The whole-message copy button steps out of the way until hover/focus on
+     pointer-precise devices. Touch has no hover, so the coarse-pointer rule
+     below keeps the button visible. Long press remains free for the browser's
+     native word/range selection instead of duplicating this action.
 
      pointer-events go with the opacity. The button is positioned out of flow
      beside its bubble, so an invisible-but-clickable box would sit in the
@@ -789,17 +785,9 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
   }
 
   @media (pointer: coarse) {
-    .message-actions-wrap {
-      touch-action: pan-y;
-      -webkit-touch-callout: none;
-      -webkit-user-select: none;
-      user-select: none;
-    }
-
-    .message-actions-wrap.is-selecting,
-    .message-actions-wrap.is-selecting * {
-      -webkit-user-select: text;
-      user-select: text;
+    .message-copy-button {
+      opacity: 1;
+      pointer-events: auto;
     }
 
     /* WebKit paints native selection handles outside the selected line box.
