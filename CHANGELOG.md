@@ -2,6 +2,16 @@
 
 Recent product updates and deployment notes.
 
+## August 25, 2026 - Tag a bot with @ in the composer (v0.6.11)
+
+- **Typing `@` in the message box opens a bot picker.** Search your bots by
+  name, then press Enter or Tab to insert the tag. The picker is available in
+  every composer, including chat and the new-session box.
+- The picker skips bots that are disabled, because a disabled bot cannot
+  accept a message. It does not open on an email address such as
+  `name@example.com`.
+- The tag is text in the message. It does not notify or route to the bot yet.
+
 ## August 25, 2026 - Mobile chat stays focused and Grok thoughts stay private (v0.6.10)
 
 - **Grok reasoning no longer appears as an assistant answer while it streams.**
