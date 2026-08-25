@@ -208,29 +208,8 @@ function RootNavigator() {
 
   const glyphsReady = useLucideFont();
 
-  if (authStatus === "loading" || !glyphsReady || consent.state === "loading") {
+  if (authStatus === "loading" || !glyphsReady) {
     return <Splash />;
-  }
-
-  /*
-   * Guidelines 5.1.1(i) and 5.1.2(i) rejected 1.0 (34): the app shared personal
-   * data with third-party AI services without disclosing it in the app and
-   * asking first. So the gate sits HERE, in front of the entire signed-in
-   * tree — above the composer, dictation and attachments alike — rather than
-   * on any one send path. One screen that cannot be routed around beats three
-   * checks that can each be forgotten.
-   *
-   * It is deliberately BELOW the signed-out branch. Someone who is not signed
-   * in cannot transmit anything, so asking them first would be a consent
-   * prompt with nothing behind it.
-   */
-  if (authStatus === "signed-in" && consent.state === "needed") {
-    return (
-      <>
-        <StatusBar style={isDark ? "light" : "dark"} />
-        <AiConsentScreen onAccept={consent.accept} onDecline={handleDecline} />
-      </>
-    );
   }
 
   if (authStatus === "signed-out") {
@@ -294,6 +273,44 @@ function RootNavigator() {
       </>
     );
   }
+
+  /*
+   * Guidelines 5.1.1(i) and 5.1.2(i) rejected 1.0 (34): the app shared personal
+   * data with third-party AI services without disclosing it in the app and
+   * asking first. So the gate sits HERE, in front of the entire signed-in
+   * tree — above the composer, dictation and attachments alike — rather than
+   * on any one send path. One screen that cannot be routed around beats three
+   * checks that can each be forgotten.
+   *
+   * It is deliberately BELOW the signed-out branch. Someone who is not signed
+   * in cannot transmit anything, so asking them first would be a consent
+   * prompt with nothing behind it.
+   *
+   * THE `loading` CHECK MUST ALSO SIT BELOW IT, and that is not a style
+   * preference. It used to be folded into the first Splash condition, above
+   * the signed-out branch:
+   *
+   *     if (authStatus === "loading" || !glyphsReady || consent.state === "loading")
+   *
+   * Consent is keyed by account id, so signing out returns the hook to
+   * `loading` and it stays there — there is no account to read a grant for.
+   * That made the splash condition permanently true and the signed-out branch
+   * unreachable: sign out, and the app hung on the splash until it was
+   * reinstalled. Keep every consent check below the signed-out branch.
+   */
+  if (consent.state === "loading") {
+    return <Splash />;
+  }
+
+  if (consent.state === "needed") {
+    return (
+      <>
+        <StatusBar style={isDark ? "light" : "dark"} />
+        <AiConsentScreen onAccept={consent.accept} onDecline={handleDecline} />
+      </>
+    );
+  }
+
 
   return (
     <>
