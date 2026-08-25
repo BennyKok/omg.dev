@@ -26,10 +26,32 @@ describe("the @ bot picker is wired into the shared composer field", () => {
   // onKeyDown ran first, Enter would send the message instead of picking the
   // highlighted bot.
   test("Enter picks a bot before the composer can submit", () => {
-    const handled = SKILL_TEXTAREA.indexOf('"[data-bot-mention-option]"');
+    const handled = SKILL_TEXTAREA.indexOf("pickBot(mentionMatches[");
     const caller = SKILL_TEXTAREA.indexOf("onKeyDown?.(event)");
     expect(handled).toBeGreaterThan(-1);
     expect(caller).toBeGreaterThan(handled);
+  });
+
+  // Enter used to click the first row no matter which one was highlighted, so
+  // hovering or arrowing down and pressing Enter inserted the wrong bot.
+  test("Enter inserts the highlighted bot, not the first one", () => {
+    expect(SKILL_TEXTAREA).toContain("pickBot(mentionMatches[Math.min(mentionIndex, count - 1)])");
+  });
+
+  test("the arrows walk the menu and wrap at both ends", () => {
+    expect(SKILL_TEXTAREA).toContain("(current + 1) % count");
+    expect(SKILL_TEXTAREA).toContain("(current - 1 + count) % count");
+  });
+
+  // Without preventDefault the arrows would also move the caret in the
+  // textarea, scrolling the draft while the menu is open.
+  test("the arrows do not also move the caret", () => {
+    const block = SKILL_TEXTAREA.slice(SKILL_TEXTAREA.indexOf('event.key === "ArrowDown"'));
+    expect(block.slice(0, 200)).toContain("event.preventDefault()");
+  });
+
+  test("a new query returns the highlight to the top", () => {
+    expect(SKILL_TEXTAREA).toContain("useEffect(() => setMentionIndex(0), [botMention?.query])");
   });
 
   test("Escape closes the picker without reaching the caller", () => {
@@ -43,10 +65,9 @@ describe("the @ bot picker is wired into the shared composer field", () => {
   });
 });
 
-describe("both composer pickers share one keyboard owner", () => {
-  test("the skill picker and the bot picker call the same handler", () => {
+describe("the skill picker keeps its own keyboard owner", () => {
+  test("the slash picker still routes through handleSuggestKey", () => {
     expect(APP).toContain('handleSuggestKey(event, skillSuggest, wrapRef.current, "[data-skill-suggest-option]")');
-    expect(APP).toContain('handleSuggestKey(event, botMention, wrapRef.current, "[data-bot-mention-option]")');
     expect(APP).not.toContain("function handleSkillSuggestKey(");
   });
 });
