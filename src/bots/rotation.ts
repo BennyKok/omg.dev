@@ -78,6 +78,7 @@ export const SESSION_BOUND_BOT_FIELDS: ReadonlySet<string> = new Set([
   "agent",
   "model",
   "thinkingLevel",
+  "claudeAccountId",
   "cwd",
   "user",
 ]);
@@ -105,7 +106,8 @@ export function botPatchTouchesSessionBoundField(body: Record<string, unknown>):
 /** The projection of a bot that the launch prompt is built from. */
 export type SessionBoundConfig = Pick<
   Bot,
-  "name" | "persona" | "description" | "capabilities" | "agent" | "model" | "thinkingLevel" | "cwd" | "owner"
+  | "name" | "persona" | "description" | "capabilities" | "agent" | "model"
+  | "thinkingLevel" | "claudeAccountId" | "cwd" | "owner"
 >;
 
 export function sessionBoundConfigOf(bot: SessionBoundConfig): SessionBoundConfig {
@@ -117,6 +119,7 @@ export function sessionBoundConfigOf(bot: SessionBoundConfig): SessionBoundConfi
     agent: bot.agent,
     model: bot.model,
     thinkingLevel: bot.thinkingLevel,
+    claudeAccountId: bot.claudeAccountId,
     cwd: bot.cwd,
     owner: bot.owner,
   };
@@ -150,6 +153,7 @@ export function sessionBoundConfigChanged(
     norm(before.agent) !== norm(after.agent) ||
     norm(before.model) !== norm(after.model) ||
     norm(before.thinkingLevel) !== norm(after.thinkingLevel) ||
+    norm(before.claudeAccountId) !== norm(after.claudeAccountId) ||
     norm(before.cwd) !== norm(after.cwd) ||
     norm(before.owner).toLowerCase() !== norm(after.owner).toLowerCase()
   ) {

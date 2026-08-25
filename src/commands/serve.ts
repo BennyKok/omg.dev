@@ -2397,6 +2397,7 @@ function validateBotAgent(
   agentValue: string | undefined,
   model: string | undefined,
   thinkingLevel: string | undefined,
+  claudeAccountId?: string | null,
 ): { agent: NonNullable<ReturnType<typeof resolveActiveSessionAgent>> } | { error: string } {
   const agent = resolveActiveSessionAgent(agentValue || "aisdk");
   if (!agent) return { error: `unknown coding agent "${agentValue ?? ""}"` };
@@ -2416,6 +2417,14 @@ function validateBotAgent(
     if (!allowed) return { error: `thinkingLevel is not supported for ${agent} bots` };
     if (!allowed.includes(thinkingLevel))
       return { error: `unknown thinking level "${thinkingLevel}" for ${agent} (expected one of ${allowed.join(", ")})` };
+  }
+  // A pinned Claude account is only meaningful on the Claude backend, and only
+  // when that account is still connected. Both checks fail here, at save time,
+  // rather than at launch, where the bot would simply refuse to start.
+  const pin = typeof claudeAccountId === "string" ? claudeAccountId.trim() : "";
+  if (pin) {
+    if (agent !== "aisdk") return { error: `claudeAccountId is not supported for ${agent} bots` };
+    if (!resolveClaudeAccount(pin)) return { error: "Claude account is missing or not connected" };
   }
   return { agent };
 }
@@ -2513,7 +2522,7 @@ async function launchBotSession(
   } = {},
 ): Promise<{ session: Session; delivered: boolean } | Response> {
   const firstMessage = opts.firstMessage;
-  const config = validateBotAgent(bot.agent, bot.model, bot.thinkingLevel);
+  const config = validateBotAgent(bot.agent, bot.model, bot.thinkingLevel, bot.claudeAccountId);
   if ("error" in config) return err(400, config.error);
   const repos = await listRepos();
   const repo = bot.cwd
@@ -2527,6 +2536,14 @@ async function launchBotSession(
     const agent = config.agent;
     const selectedClaudeAccount = agent === "aisdk"
       ? await pickClaudeAccountForNewSession({
+          // A bot with a pinned account always launches on that account. An
+          // unpinned bot keeps the old behaviour and takes the account with the
+          // most headroom. A pin that went away degrades to the same pick,
+          // because a dead pin must not block the bot from starting.
+          explicitAccountId: bot.claudeAccountId,
+          readCapacity: (account) => getProviderUsage(`claude:${account.id}`),
+        })
+        ?? await pickClaudeAccountForNewSession({
           readCapacity: (account) => getProviderUsage(`claude:${account.id}`),
         })
       : null;
@@ -5327,6 +5344,7 @@ a{color:#60a5fa}
             agent?: unknown;
             model?: unknown;
             thinkingLevel?: unknown;
+            claudeAccountId?: unknown;
             cwd?: unknown;
             user?: unknown;
             shape?: unknown;
@@ -5340,7 +5358,10 @@ a{color:#60a5fa}
           const thinkingLevel = typeof body?.thinkingLevel === "string"
             ? body.thinkingLevel.trim() || undefined
             : undefined;
-          const config = validateBotAgent(agentValue, model, thinkingLevel);
+          const claudeAccountId = typeof body?.claudeAccountId === "string"
+            ? body.claudeAccountId.trim() || undefined
+            : undefined;
+          const config = validateBotAgent(agentValue, model, thinkingLevel, claudeAccountId);
           if ("error" in config) return err(400, config.error);
           const cwd = typeof body?.cwd === "string" ? body.cwd.trim() || undefined : undefined;
           if (cwd && !(await listRepos()).some((repo) => repo.cwd === cwd))
@@ -5363,6 +5384,7 @@ a{color:#60a5fa}
               agent: config.agent,
               model,
               thinkingLevel,
+              claudeAccountId,
               cwd,
               owner: ownerTag.owner,
               ownerQuota: quotaPolicy,
@@ -5679,7 +5701,14 @@ a{color:#60a5fa}
             const thinkingLevel = body.thinkingLevel === undefined
               ? current.thinkingLevel
               : typeof body.thinkingLevel === "string" ? body.thinkingLevel.trim() || undefined : undefined;
-            const config = validateBotAgent(agentValue, model, thinkingLevel);
+            // Omitted = keep the stored pin. Empty string or null = clear it,
+            // which is the "Claude - Auto" selection in the editor.
+            const claudeAccountId = body.claudeAccountId === undefined
+              ? current.claudeAccountId
+              : typeof body.claudeAccountId === "string"
+                ? body.claudeAccountId.trim() || undefined
+                : undefined;
+            const config = validateBotAgent(agentValue, model, thinkingLevel, claudeAccountId);
             if ("error" in config) return err(400, config.error);
             const cwd = body.cwd === undefined
               ? current.cwd
@@ -5707,6 +5736,7 @@ a{color:#60a5fa}
               agent: config.agent,
               model,
               thinkingLevel,
+              claudeAccountId,
               cwd,
               owner,
             };
