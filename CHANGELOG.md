@@ -2,6 +2,21 @@
 
 Recent product updates and deployment notes.
 
+## August 25, 2026 - Pin a bot to a specific Claude account (v0.6.13)
+
+- **The bot editor now lets you choose which Claude account a bot runs on.**
+  Open Edit bot, then Advanced. The agent row lists Claude - Auto and every
+  connected account, the same picker sessions and routines already had. Before,
+  a bot always fell back to the automatic account pick.
+- Claude - Auto keeps the old behavior. It picks the connected account with the
+  most headroom at launch.
+- Changing the account is a launch setting, so the bot reads "Update available"
+  after you save. The new account applies when you press Apply changes.
+- A pinned account that is removed or signed out falls back to Claude - Auto.
+  The bot still starts.
+- A bot created by another bot inherits that bot's account, the same way it
+  already inherits the repo and the owner.
+
 ## August 25, 2026 - Tagging a bot with @ now reaches the bot (v0.6.12)
 
 - **An `@` tag in a session chat delivers the message to that bot.** Before,
