@@ -14479,7 +14479,13 @@ function SessionChatBody({
     // so both modes deliver immediately there and the bubble is an ordinary
     // send.
     const queuedBehindTurn = mode === "queue" && chatBusy;
-    messageInputRef.current?.blur();
+    // Dismiss a real soft keyboard so the newly-sent turn has room to read.
+    // Keep focus when iPadOS only shows its compact hardware-keyboard helper:
+    // blurring that field hides the helper, and WebKit restoring focus after
+    // submit shows it again, producing two visualViewport layout shifts.
+    if (document.documentElement.classList.contains("lfg-keyboard-open")) {
+      messageInputRef.current?.blur();
+    }
     const stashed = stagePromptSend({
       contextKey: stashContext,
       source: "session",
