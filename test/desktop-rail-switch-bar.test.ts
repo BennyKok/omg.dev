@@ -43,9 +43,9 @@ describe("the desktop rail keeps its Chat/Bots switch bar", () => {
     );
   });
 
-  test("the shared toggle exposes Scheduled as its third destination", () => {
+  test("the shared toggle exposes Schedules as its third destination", () => {
     const toggle = APP.slice(APP.indexOf("function SurfaceToggle("), APP.indexOf("function MobileSurfaceDock("));
-    expect(toggle).toContain('["auto", "Scheduled", onOpenAuto]');
+    expect(toggle).toContain('["auto", "Schedules", onOpenAuto]');
     expect(toggle).toContain("<CalendarClock");
   });
 
