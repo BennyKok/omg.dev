@@ -2,10 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 
 describe("composer focus after send", () => {
-  test("dismisses the live-session message input after a valid send", async () => {
+  test("dismisses the live-session input only for a visible soft keyboard", async () => {
     const app = await readFile("web/src/App.tsx", "utf8");
     expect(app).toContain("const messageInputRef = useRef<HTMLTextAreaElement>(null)");
-    expect(app).toContain("messageInputRef.current?.blur()");
+    expect(app).toContain(
+      'if (document.documentElement.classList.contains("lfg-keyboard-open")) {',
+    );
+    expect(app).toMatch(
+      /classList\.contains\("lfg-keyboard-open"\)\)\s*\{\s*messageInputRef\.current\?\.blur\(\)/,
+    );
     expect(app).toContain("textareaRef={messageInputRef}");
   });
 
