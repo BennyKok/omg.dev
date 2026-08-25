@@ -81,6 +81,7 @@ import {
   persistentBotQuotaPolicy,
 } from "../bots/quota.ts";
 import { botCanonicalSessionId, botConversationRef, findBotMainSession } from "../bots/session.ts";
+import { dispatchBotMentions, resolveBotMentions } from "../bots/mentions.ts";
 import { botVisibleUserText } from "../bots/transcript.ts";
 import {
   CHECKPOINT_MAX_TURNS,
@@ -145,6 +146,7 @@ import {
 import {
   botAuthorEmailFromText,
   formatBotAttribution,
+  formatBotMentionAttribution,
   resolveBotMessageAuthor,
 } from "../bots/authorship.ts";
 import {
@@ -8549,7 +8551,52 @@ a{color:#60a5fa}
               }, 1_500);
             }
           }
-          return json({ ok: true, msg: sentMsg });
+          // An `@` tag in the composer also delivers the turn to that bot.
+          // Only for a human composer send: an agent-to-agent update carrying
+          // a token must not fan out, or two bots quoting each other would
+          // loop. `mentionsOf` resolves synchronously so the caller learns
+          // about an unknown or disabled tag right away, while delivery runs
+          // in the background because a cold bot start takes seconds and must
+          // not hold the send response open.
+          let mentionOutcomes: unknown;
+          if (!body?.fromSessionId && rawText.includes("](omg:bot_")) {
+            const viewer = botViewerFromRequest(req, undefined);
+            const { author } = resolveBotMessageAuthor({
+              viewer,
+              rosterTagUser: sess.assignedUser ?? undefined,
+              botOwner: undefined,
+              envUser: process.env.OMG_USER,
+            });
+            const { targets, skipped } = resolveBotMentions(rawText, await listBots());
+            mentionOutcomes = [
+              ...targets.map((t) => ({ botId: t.bot.id, label: t.mention.label, delivered: true })),
+              ...skipped,
+            ];
+            const conversationId = sess.conversationId ?? undefined;
+            void dispatchBotMentions(targets, conversationId, {
+              addParticipant: (id, bot) => {
+                upsertConversationParticipant(
+                  id,
+                  conversationBotParticipant(bot, { historyAccess: "from_join" }),
+                );
+              },
+              attribute: (bot) =>
+                `${formatBotMentionAttribution(author, bot.name, {
+                  sessionId: sess.sessionId ?? m[1],
+                  title: sess.title,
+                })}\n\n${rawText}`,
+              // serializeBotWork is the per-bot critical section that keeps a
+              // delivery from interleaving with a rotation on bot.sessionId.
+              deliver: (bot, text) =>
+                serializeBotWork(bot.id, async () => {
+                  const result = await deliverBotMessage(bot, text);
+                  return "error" in result ? { error: result.error } : {};
+                }),
+              onError: (bot, error) =>
+                console.error(`[mention] delivery to ${bot.id} failed:`, error),
+            }).catch((error) => console.error("[mention] fan-out failed:", error));
+          }
+          return json({ ok: true, msg: sentMsg, mentions: mentionOutcomes });
         }
       }
 

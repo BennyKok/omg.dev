@@ -132,6 +132,31 @@ export function formatBotAttribution(author: string, botName: string): string {
 }
 
 /**
+ * The prefix for a turn that reached a bot because someone tagged it with `@`
+ * in an ordinary coding session, rather than by writing in the bot's own chat.
+ *
+ * The standard attribution line stays FIRST and unchanged. That is load
+ * bearing: `ATTRIBUTION_AT_START` is anchored at position zero, so moving it
+ * would strip the author off the turn and render it with no face. The mention
+ * context is a second line, following the convention of the other non-direct
+ * inbound turns (`[Scheduled routine: ...]`, `[Peer message from ...]`) so the
+ * bot can tell it was tagged in someone else's session and is not being
+ * addressed in its own chat.
+ */
+export function formatBotMentionAttribution(
+  author: string,
+  botName: string,
+  context: { sessionId: string; title?: string | null },
+): string {
+  // Short id only. The full uuid is noise in a prompt, and the session routes
+  // resolve an 8-char prefix.
+  const short = context.sessionId.slice(0, 8);
+  const title = context.title?.trim();
+  const where = title ? `${title} (${short})` : short;
+  return `${formatBotAttribution(author, botName)}\n[Mentioned by ${author} in session ${where}]`;
+}
+
+/**
  * Read the author back off a stored turn, as an opaque id.
  *
  * Returns undefined — never a guess — when the turn has no server-authored

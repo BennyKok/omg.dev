@@ -5,12 +5,12 @@
  * the caret, ranks the viewer's bots, and produces the text to insert. It is
  * deliberately pure so the composer in App.tsx stays a thin shell over it.
  *
- * What this does NOT do: route anything. A tagged bot is text in the message
- * body. Delivery today is by URL path (`POST /api/bots/:id/messages` ->
- * `deliverBotMessage`), and `docs/bot-mode-design.md` still lists mention
- * routing as unbuilt. Nothing here should be read as "the tagged bot was
- * notified".
+ * The inserted token carries the bot id, not just the name. The grammar has a
+ * single owner in `src/bots/mention-token.ts`, which the server parses on send
+ * to deliver the message to the tagged bot.
  */
+
+import { formatBotMentionToken } from "../../../src/bots/mention-token.ts";
 
 /** The minimum shape this module needs. `PersistentBot` satisfies it. */
 export type MentionableBot = {
@@ -88,13 +88,12 @@ export function matchBots(
 }
 
 /**
- * The inserted token keeps the bot's real name verbatim, including spaces, so
- * the message reads the way a human wrote it. There is no parser consuming
- * this yet; when mention routing is built it should carry the bot id rather
- * than try to recover a multi-word name from this text.
+ * The tag carries the bot id, so a rename or a duplicate display name can
+ * never redirect a mention to the wrong bot. It renders as `@Name` for the
+ * reader; `src/bots/mention-token.ts` owns the exact shape.
  */
 export function formatBotMention(bot: MentionableBot): string {
-  return `@${bot.name} `;
+  return `${formatBotMentionToken(bot.id, bot.name)} `;
 }
 
 /** Replace the active trigger with the tag. Returns the new value and caret. */
