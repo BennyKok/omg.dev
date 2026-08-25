@@ -6,6 +6,7 @@ import {
   matchBots,
   type MentionableBot,
 } from "./bot-mention";
+import { parseBotMentions } from "../../../src/bots/mention-token.ts";
 
 const BOTS: MentionableBot[] = [
   { id: "bot_00000001", name: "Research Bot", enabled: true },
@@ -97,24 +98,39 @@ describe("matchBots", () => {
 });
 
 describe("applyBotMention", () => {
-  it("replaces the trigger and keeps the name verbatim", () => {
+  it("replaces the trigger with an id-carrying token", () => {
     const value = "hey @res";
     const active = botMentionAt(value, value.length)!;
-    expect(applyBotMention(value, active, BOTS[0])).toEqual({
-      value: "hey @Research Bot ",
-      cursor: 18,
-    });
+    const result = applyBotMention(value, active, BOTS[0]);
+    expect(result.value).toBe("hey [@Research Bot](omg:bot_00000001) ");
+    expect(result.cursor).toBe(result.value.length);
   });
 
   it("preserves text after the caret and lands the caret before it", () => {
     const value = "@dep please ship";
     const active = botMentionAt(value, 4)!;
     const result = applyBotMention(value, active, BOTS[1]);
-    expect(result.value).toBe("@deploy  please ship");
+    expect(result.value).toBe("[@deploy](omg:bot_00000002)  please ship");
     expect(result.value.slice(result.cursor)).toBe(" please ship");
   });
 
   it("formats a tag with a single trailing space", () => {
-    expect(formatBotMention(BOTS[1])).toBe("@deploy ");
+    expect(formatBotMention(BOTS[1])).toBe("[@deploy](omg:bot_00000002) ");
+  });
+
+  it("survives a name containing markdown link characters", () => {
+    const bot = { id: "bot_0000000a", name: "Ops (staging) [eu]" };
+    const token = formatBotMention(bot).trim();
+    expect(parseBotMentions(token)).toEqual([
+      { botId: "bot_0000000a", label: "Ops staging eu" },
+    ]);
+  });
+
+  it("round-trips through the server parser", () => {
+    const text = `hi ${formatBotMention(BOTS[0])}and ${formatBotMention(BOTS[1])}now`;
+    expect(parseBotMentions(text).map((m) => m.botId)).toEqual([
+      "bot_00000001",
+      "bot_00000002",
+    ]);
   });
 });
