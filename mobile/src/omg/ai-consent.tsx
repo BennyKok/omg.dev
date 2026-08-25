@@ -60,21 +60,21 @@ type Disclosure = {
 export const DISCLOSURES: Disclosure[] = [
   {
     icon: { ios: "mic.fill", android: "mic" },
-    what: "Voice recordings, and the text they become",
-    who: "ElevenLabs (Scribe speech-to-text)",
-    when: "Only while dictation is on. You start and stop it with the microphone button.",
+    what: "Voice recordings",
+    who: "ElevenLabs, for speech to text",
+    when: "Only while dictation is on.",
   },
   {
     icon: { ios: "text.bubble.fill", android: "chat_bubble" },
-    what: "The messages you type",
-    who: "The AI model provider behind the coding agent you pick, such as Anthropic, OpenAI or xAI",
-    when: "When you send a message to an agent.",
+    what: "Messages you type",
+    who: "Your agent's AI provider: Anthropic, OpenAI or xAI",
+    when: "When you send a message.",
   },
   {
     icon: { ios: "paperclip", android: "attach_file" },
     what: "Files and photos you attach",
-    who: "The same AI model provider as your messages",
-    when: "When you attach a file and send it.",
+    who: "The same AI provider as your messages",
+    when: "When you send them.",
   },
 ];
 
@@ -141,9 +141,8 @@ export function AiConsentScreen({
           Your data and AI providers
         </Text>
         <Text style={{ ...type.body, color: colors.textMuted }}>
-          omg.dev runs coding agents for you. To do that it sends some of what you
-          type, attach and say to AI companies outside omg.dev. Here is exactly
-          what goes out, and to whom.
+          To run coding agents, omg.dev sends some of your data to AI companies
+          outside omg.dev.
         </Text>
 
         <View
@@ -171,9 +170,8 @@ export function AiConsentScreen({
         </View>
 
         <Text style={{ ...type.footnote, color: colors.textMuted }}>
-          omg.dev does not send your contacts, your location, your health data or
-          your device identifiers to any AI provider. You can read the full
-          detail in the privacy policy at omg.dev/privacy.
+          Never sent: contacts, location, health data, device identifiers. Full
+          detail at omg.dev/privacy.
         </Text>
       </ScrollView>
 
