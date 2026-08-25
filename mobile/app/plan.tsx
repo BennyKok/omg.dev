@@ -328,8 +328,8 @@ export default function PlanScreen() {
               lineHeight: 18,
             }}
           >
-            Your cloud computer runs on a monthly plan. Pick the size you need — you can change
-            or cancel it any time in the App Store.
+            Your cloud computer runs on an auto-renewable monthly subscription. Pick the
+            size you need — you can change or cancel it any time in the App Store.
           </Text>
 
           {loadError ? (
@@ -348,7 +348,7 @@ export default function PlanScreen() {
 
           {products.length > 0 ? (
             <>
-              <SectionLabel>Computer plans</SectionLabel>
+              <SectionLabel>Monthly subscriptions</SectionLabel>
               {products.map((product) => (
                 <TierCard
                   key={product.productId}
