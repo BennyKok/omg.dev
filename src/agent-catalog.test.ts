@@ -5,8 +5,10 @@ import {
   curateOpenCodeModels,
   defaultModelForAgent,
   discoveredModelsOrFallback,
+  hasConnectedModelAccount,
   listModelCatalog,
   MODEL_OPTIONS,
+  modelsForAgent,
   OPENCODE_MODELS,
 } from "./agent-catalog.ts";
 
@@ -146,6 +148,26 @@ describe("OpenCode catalog default", () => {
   // whose `opencode` had never been signed into offered openai/* and
   // opencode-go/* — models that fail the moment they launch — and hid the free
   // Zen models it could actually run.
+  // The bug this pins: an OpenCode Go subscriber with no Claude or Codex
+  // account got the free Zen tier forever. Their key was connected and the
+  // catalog held every paid model; this gate still reported the box as
+  // anonymous, because `opencode` was missing from ACCOUNT_OWNED_AGENT_KEYS.
+  //
+  // It only reproduced on a box running OpenCode ALONE. Anywhere Claude or
+  // Codex was also signed in the gate passed for the wrong reason, which is
+  // why it survived so long.
+  //
+  // Asserted on the gate itself, NOT through listModelCatalog: that path reads
+  // the running box's discovery cache, so on a box holding only free models
+  // the assertion passes with or without the fix and pins nothing.
+  test("an OpenCode credential alone counts as a connected account", () => {
+    expect(hasConnectedModelAccount([codingAgent("opencode", true)])).toBe(true);
+  });
+
+  test("an unconnected OpenCode box is still anonymous", () => {
+    expect(hasConnectedModelAccount([codingAgent("opencode", false)])).toBe(false);
+  });
+
   test("does not let another agent's account unlock OpenCode's paid providers", () => {
     expect(accessibleModelsForAgent("opencode", DISCOVERED, true, [], false)).toEqual([
       "opencode/deepseek-v4-flash-free",
