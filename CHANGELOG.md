@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## August 25, 2026 - Switch bar says Schedules (v0.6.9)
+
+- **The Chat / Bots / Schedules toggle now says Schedules.** The page heading
+  already used that word. The third segment was still labeled Scheduled.
+
 ## August 25, 2026 - Chat streams more smoothly (v0.6.8)
 
 - **Assistant markdown now uses Streamdown 2.6.** Word-by-word streaming
