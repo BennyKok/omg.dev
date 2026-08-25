@@ -875,6 +875,7 @@ type Message = {
 type AiStreamPart = {
   type: "text-delta" | "text-start" | "text-end" | "error" | string;
   id?: string;
+  kind?: "text" | "thinking";
   delta?: string;
   text?: string;
   reset?: boolean;
@@ -2740,7 +2741,7 @@ function latestLine(messages: Message[]): string {
 function isDraftAssistantMessage(message: Message) {
   return (
     message.role === "assistant" &&
-    message.kind === "text" &&
+    (message.kind === "text" || message.kind === "thinking") &&
     typeof message.id === "string" &&
     message.id.startsWith("draft-")
   );
@@ -4769,6 +4770,7 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
           ? (part.text ?? part.delta ?? "")
           : `${existing?.text ?? ""}${part.delta ?? ""}`;
         if (!text) return prev;
+        const kind = part.kind ?? "text";
         // A draft we're joining mid-stream (first snapshot on this connection,
         // already carrying substantial text) renders settled — otherwise the
         // whole accumulated blob blur-reveals word-by-word for seconds on every
@@ -4780,7 +4782,7 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
         const message: Message = {
           id: part.id,
           role: "assistant",
-          kind: "text",
+          kind,
           text,
           ts: part.ts ?? Date.now(),
           catchUp,

@@ -33,6 +33,58 @@ async function waitFor(check: () => boolean, timeoutMs = 2_000): Promise<void> {
 }
 
 describe("managed SDK startup journaling and first-launch commands", () => {
+  test("marks live reasoning drafts so clients do not render them as answer text", async () => {
+    let releaseThought = () => {};
+    let releaseAnswer = () => {};
+    const thoughtPaused = new Promise<void>((resolve) => {
+      releaseThought = resolve;
+    });
+    const answerPaused = new Promise<void>((resolve) => {
+      releaseAnswer = resolve;
+    });
+    const done = runManagedSdkSession({
+      key: KEY,
+      agent: "grok",
+      cwd: root,
+      model: "grok-4.6",
+      managedName: "lfg-draft-kind",
+      exitProcess: () => {},
+      async createRuntime(sink) {
+        return {
+          nativeSessionId: "native-grok-draft-kind",
+          async runTurn() {
+            await Bun.sleep(170);
+            sink.thinking("private plan");
+            await thoughtPaused;
+            await Bun.sleep(170);
+            sink.draft("public answer");
+            await answerPaused;
+            return { text: "public answer", thinking: "private plan" };
+          },
+          interrupt() {},
+          close() {},
+        };
+      },
+    });
+
+    await waitFor(() => readEntry(KEY)?.commandWakeSignal === "SIGUSR1");
+    appendCmd(KEY, { type: "send", text: "go" });
+    wakeHarnessCommandReader(readEntry(KEY)!);
+    await waitFor(() => readEntry(KEY)?.draftText === "private plan");
+    expect(readEntry(KEY)?.draftKind).toBe("thinking");
+
+    releaseThought();
+    await waitFor(() => readEntry(KEY)?.draftText === "public answer");
+    expect(readEntry(KEY)?.draftKind).toBe("text");
+
+    releaseAnswer();
+    await waitFor(() => readEntry(KEY)?.busy === false);
+    expect(readEntry(KEY)?.draftKind ?? null).toBeNull();
+    appendCmd(KEY, { type: "close" });
+    wakeHarnessCommandReader(readEntry(KEY)!);
+    await done;
+  });
+
   test("writes a recoverable registry entry before createRuntime connects", async () => {
     let resumeConnect = () => {};
     const connecting = new Promise<void>((resolve) => {

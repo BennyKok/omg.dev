@@ -2267,11 +2267,12 @@ export function requestedRows(url: URL): number | null {
   return Math.min(500, rows);
 }
 
-type DraftState = { id: string; text: string };
+type DraftState = { id: string; text: string; kind: "text" | "thinking" };
 
 type AiTextDeltaPart = {
   type: "text-delta";
   id: string;
+  kind: "text" | "thinking";
   delta?: string;
   text?: string;
   reset?: boolean;
@@ -2281,26 +2282,32 @@ type AiTextDeltaPart = {
 function sendAiTextDeltaPart(
   send: (s: string) => void,
   sid: string,
-  entry: { sessionId: string; draftText?: string | null; draftUpdatedAt?: number | null },
+  entry: {
+    sessionId: string;
+    draftText?: string | null;
+    draftKind?: "text" | "thinking" | null;
+    draftUpdatedAt?: number | null;
+  },
   lastDraft: Map<string, DraftState>,
   wrapSid: boolean,
 ): void {
   const id = `draft-${entry.sessionId}`;
   const text = entry.draftText ?? "";
+  const kind = entry.draftKind ?? "text";
   const prev = lastDraft.get(sid);
   if (!text) {
     if (prev) lastDraft.delete(sid);
     return;
   }
   let part: AiTextDeltaPart;
-  if (!prev || prev.id !== id || !text.startsWith(prev.text)) {
-    part = { type: "text-delta", id, text, reset: true, ts: entry.draftUpdatedAt ?? Date.now() };
+  if (!prev || prev.id !== id || prev.kind !== kind || !text.startsWith(prev.text)) {
+    part = { type: "text-delta", id, kind, text, reset: true, ts: entry.draftUpdatedAt ?? Date.now() };
   } else {
     const delta = text.slice(prev.text.length);
     if (!delta) return;
-    part = { type: "text-delta", id, delta, ts: entry.draftUpdatedAt ?? Date.now() };
+    part = { type: "text-delta", id, kind, delta, ts: entry.draftUpdatedAt ?? Date.now() };
   }
-  lastDraft.set(sid, { id, text });
+  lastDraft.set(sid, { id, text, kind });
   const data = wrapSid ? { sid, part } : part;
   send(`event: ai_part\ndata: ${JSON.stringify(data)}\n\n`);
 }

@@ -121,7 +121,7 @@ function applyTranscriptEvent(
   return mergeMessage(messages, {
     id: part.id,
     role: "assistant",
-    kind: "text",
+    kind: part.kind ?? "text",
     text,
     ts: part.ts ?? Date.now(),
   });

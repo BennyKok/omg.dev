@@ -65,6 +65,21 @@ function harness(SID = nextSid()) {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+test("live reasoning never becomes a normal assistant answer", () => {
+  const next = appendOmgTranscriptEvent([], {
+    type: "ai_part",
+    part: {
+      type: "text-delta",
+      id: "draft-reasoning",
+      kind: "thinking",
+      text: "private plan",
+      reset: true,
+      ts: TS,
+    },
+  });
+  expect(next).toEqual([]);
+});
+
 // The turn from the reported session: thinking, a streamed then finalized text
 // block, and two WebSearch tool calls.
 async function emitTurn(emit: (event: OmgTranscriptEvent) => void, SID: string) {
