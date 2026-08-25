@@ -44,6 +44,13 @@ export type Bot = {
   agent: string;
   model?: string;
   thinkingLevel?: string;
+  /**
+   * Pinned Claude account for a Claude-backed bot. Empty/absent means "Auto",
+   * which lets the launcher pick the account with the most headroom. Only the
+   * Claude backend ("aisdk") has accounts, so the pin is dropped on any other
+   * agent — the same rule an auto agent follows.
+   */
+  claudeAccountId?: string;
   cwd?: string;
   /**
    * Roster email of whoever created the bot. The bot's backing session is
@@ -167,6 +174,24 @@ export async function getBot(id: string): Promise<Bot | null> {
   return (await listBots()).find((bot) => bot.id === id) ?? null;
 }
 
+/**
+ * Keep a Claude account pin only where accounts exist.
+ *
+ * The pin names a local Claude credential set, and only the Claude backend
+ * ("aisdk") reads one. A bot moved to any other agent must not keep a stored
+ * pin, because nothing would honour it and it would come back if the bot were
+ * moved to Claude again. An empty string or null clears the pin, which is the
+ * "Claude - Auto" selection.
+ */
+export function sanitizeBotClaudeAccountId(
+  value: string | null | undefined,
+  agent: string,
+): string | undefined {
+  if (agent !== "aisdk") return undefined;
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return trimmed || undefined;
+}
+
 export async function createBot(input: {
   name: string;
   persona: string;
@@ -175,6 +200,7 @@ export async function createBot(input: {
   agent?: string;
   model?: string;
   thinkingLevel?: string;
+  claudeAccountId?: string | null;
   cwd?: string;
   owner?: string;
   shape?: BotShape;
@@ -208,6 +234,7 @@ export async function createBot(input: {
     agent,
     model: input.model,
     thinkingLevel: sanitizeThinkingLevel(input.thinkingLevel, agent),
+    claudeAccountId: sanitizeBotClaudeAccountId(input.claudeAccountId, agent),
     cwd: input.cwd,
     owner: input.owner,
     enabled: true,
@@ -220,7 +247,7 @@ export async function createBot(input: {
 export type BotPatch = Partial<Pick<
   Bot,
   | "name" | "shape" | "colorway" | "persona" | "description" | "capabilities"
-  | "agent" | "model" | "thinkingLevel" | "cwd" | "owner" | "enabled"
+  | "agent" | "model" | "thinkingLevel" | "claudeAccountId" | "cwd" | "owner" | "enabled"
   | "conversationId" | "sessionId" | "lastMessageAt" | "runtimeRefreshPending"
   | "configRevision" | "appliedConfigRevision" | "rotationState"
   | "rotationReason" | "rotationExpectedSessionId" | "rotationError" | "rotationUpdatedAt" | "lastRotatedAt"
@@ -235,6 +262,12 @@ function applyPatch(current: Bot, patch: BotPatch): Bot {
     agent,
     thinkingLevel: sanitizeThinkingLevel(
       Object.hasOwn(patch, "thinkingLevel") ? patch.thinkingLevel : current.thinkingLevel,
+      agent,
+    ),
+    // Same rule as the thinking level: carry the pin forward on a plain edit,
+    // but never past a backend switch that has no Claude accounts at all.
+    claudeAccountId: sanitizeBotClaudeAccountId(
+      Object.hasOwn(patch, "claudeAccountId") ? patch.claudeAccountId : current.claudeAccountId,
       agent,
     ),
   };

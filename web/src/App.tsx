@@ -769,6 +769,8 @@ export type PersistentBot = {
   agent: string;
   model?: string;
   thinkingLevel?: string;
+  /** Pinned Claude account, when the bot must always run on one account. */
+  claudeAccountId?: string;
   cwd?: string;
   enabled: boolean;
   conversationId?: string;
@@ -7171,6 +7173,7 @@ export function App() {
     agent: AgentKind;
     model?: string;
     thinkingLevel?: string;
+    claudeAccountId?: string | null;
     cwd?: string;
     enabled: boolean;
   }): Promise<PersistentBot | null> {
@@ -27444,6 +27447,7 @@ function BotEditorPage({
     agent: AgentKind;
     model?: string;
     thinkingLevel?: string;
+    claudeAccountId?: string | null;
     cwd?: string;
     enabled: boolean;
   }) => Promise<PersistentBot | null>;
@@ -27488,6 +27492,7 @@ function BotEditorPage({
       : BOT_COLORWAYS[Math.floor(Math.random() * BOT_COLORWAYS.length)],
   );
   const [backend, setBackend] = useState<AgentKind>(initialAgent);
+  const [claudeAccountId, setClaudeAccountId] = useState(editing ? bot.claudeAccountId ?? "" : "");
   const [model, setModel] = useState(editing ? bot.model ?? defaultModel : defaultModel);
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(editing ? bot.thinkingLevel ?? savedThinkingLevel() : savedThinkingLevel());
   const [advanced, setAdvanced] = useState(false);
@@ -27504,6 +27509,22 @@ function BotEditorPage({
   useEffect(() => {
     if (!models.includes(model)) setModel(backendDefault);
   }, [backendDefault, model, models]);
+  // A stored pin can name an account that was since removed or signed out.
+  // Saving that id back is a hard 400, so the row shows Claude - Auto instead,
+  // which is also what the launcher falls back to for a dead pin.
+  const connectedClaudeAccountIds = useMemo(
+    () =>
+      new Set(
+        (codingAgents?.find((agent) => agent.key === "aisdk")?.status.accounts ?? [])
+          .filter((account) => account.connected)
+          .map((account) => account.id),
+      ),
+    [codingAgents],
+  );
+  const livePin =
+    backend === "aisdk" && claudeAccountId && connectedClaudeAccountIds.has(claudeAccountId)
+      ? claudeAccountId
+      : "";
   // On a phone this page covers the app, so the list behind it must not scroll
   // under it — the same lock the bot chat takes when it goes full screen.
   useEffect(() => {
@@ -27528,6 +27549,7 @@ function BotEditorPage({
       agent: backend,
       model: model || undefined,
       thinkingLevel: agentSupportsThinking(backend) ? thinkingLevel : undefined,
+      claudeAccountId: backend === "aisdk" ? livePin || null : null,
       cwd: cwd || undefined,
       enabled,
     });
@@ -27755,6 +27777,8 @@ function BotEditorPage({
             thinkingLevel={thinkingLevel}
             setThinkingLevel={setThinkingLevel}
             codingAgents={codingAgents}
+            claudeAccountId={livePin}
+            setClaudeAccountId={setClaudeAccountId}
             scheduledOnly={false}
           />
         </CollapsibleContent>
