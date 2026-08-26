@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { PersistentBot } from "../App";
-import { pausedProviderErrorDetail, resolveSessionHeaderIdentity } from "./session-ui";
+import {
+  pausedProviderErrorDetail,
+  projectFaviconSrc,
+  resolveSessionHeaderIdentity,
+} from "./session-ui";
 
 // A mobile bot conversation's header used to always wear the harness's agent
 // mark (e.g. the Claude/Codex icon), even for a session driven by a bot with
@@ -72,5 +76,14 @@ describe("pausedProviderErrorDetail", () => {
     });
 
     expect(detail).toContain("Check the OpenCode provider logs or switch models.");
+  });
+});
+
+describe("projectFaviconSrc", () => {
+  test("addresses the project by its encoded identity, never by a local path", () => {
+    expect(projectFaviconSrc("my app/日本語")).toBe(
+      "/api/repos/favicon?project=my%20app%2F%E6%97%A5%E6%9C%AC%E8%AA%9E",
+    );
+    expect(projectFaviconSrc("  ")).toBeNull();
   });
 });

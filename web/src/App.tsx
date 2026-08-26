@@ -157,6 +157,7 @@ import {
   SessionAgentIcon,
   GALLERY_PAGE,
   pausedProviderErrorDetail,
+  projectFaviconSrc,
   resolveSessionHeaderIdentity,
   titleForSession,
   useClaudeAccountNumber,
@@ -1721,9 +1722,8 @@ const STATUS_DOT_IDLE = "bg-success/30 ring-1 ring-inset ring-success/20";
  * the same session read as amber in its header and blue in the rail. One
  * component now, used by both.
  *
- * A badge is the thing that does not work here. It has to sit ON the artwork,
- * and at rail size there is no room: a 14px disc punched a hole through
- * Claude's starburst and took its top-right rays with it.
+ * The rail can place this compact mark on its own small plate at the corner
+ * of the larger project favicon. The plate keeps the provider artwork intact.
  *
  * The parent must be `relative` — the spinner is absolutely positioned so the
  * mark does not shift when it appears.
@@ -1732,24 +1732,34 @@ function AgentMark({
   session,
   busy,
   rounding = "rounded-lg",
+  compact = false,
 }: {
   session: Session;
   busy: boolean;
   rounding?: string;
+  /** Smaller secondary identity used in the rail's project badge. */
+  compact?: boolean;
 }) {
   return (
     <>
       {busy ? (
         <Loader2
           aria-label="working"
-          className="pointer-events-none absolute inset-0 m-auto size-6 animate-spin text-warning motion-reduce:animate-none"
+          className={cn(
+            "pointer-events-none absolute inset-0 m-auto animate-spin text-warning motion-reduce:animate-none",
+            compact ? "size-4" : "size-6",
+          )}
           strokeWidth={1.75}
         />
       ) : null}
       <SessionAgentIcon
         session={session}
-        className={cn(rounding, "transition-all duration-300 ease-ios", busy ? "size-4" : "size-6")}
-        size={busy ? "sm" : "md"}
+        className={cn(
+          rounding,
+          "transition-all duration-300 ease-ios",
+          busy ? (compact ? "size-3" : "size-4") : compact ? "size-4" : "size-6",
+        )}
+        size={busy || compact ? "sm" : "md"}
       />
     </>
   );
@@ -12920,9 +12930,10 @@ function RailGroup({
  * column and its type scale, the trailing slot's hover cross-fade, and the
  * swipe gesture, so a row can only be sized or gestured one way. RailItem
  * (session rows) and the bot roster row both wrap this; what each still
- * supplies on its own is the identity mark (AgentMark vs BotAvatar — see
- * AgentMark's docstring for why that split is deliberate) and which swipe
- * actions, if any, make sense for what the row represents.
+ * supplies on its own is the identity mark (project favicon with an agent
+ * badge when available, otherwise the agent mark; BotAvatar for a bot
+ * conversation) and which swipe actions, if any, make sense for what the row
+ * represents.
  */
 const RailRow = memo(function RailRow({
   railKey,
@@ -13129,13 +13140,12 @@ const RailRow = memo(function RailRow({
                 scanning, the action is what you want once you have stopped
                 on a row. Fixed width so the swap cannot reflow the title
                 beside it. */}
-            <span className="relative flex h-6 w-9 shrink-0 items-center justify-end">
+            <span className="relative flex h-10 w-9 shrink-0 items-center justify-end">
               {trailingStatic ? (
                 <span
-                  aria-hidden={trailingHoverAlwaysVisible ? "true" : undefined}
                   className={cn(
                     "text-xs leading-tight tabular-nums text-muted-foreground/70 transition-opacity duration-150",
-                    trailingHoverAlwaysVisible ? "opacity-0" : "group-hover:opacity-0",
+                    !trailingHoverAlwaysVisible && "group-hover:opacity-0",
                   )}
                 >
                   {trailingStatic}
@@ -13179,6 +13189,9 @@ const RailItem = memo(function RailItem({
   const botDirectory = useContext(BotDirectoryContext);
   const drivingBotId = productBotId(session);
   const drivingBot = drivingBotId ? botDirectory.get(drivingBotId) : undefined;
+  const faviconSrc = projectFaviconSrc(session.project);
+  const [failedFaviconSrc, setFailedFaviconSrc] = useState<string | null>(null);
+  const showFavicon = !!faviconSrc && failedFaviconSrc !== faviconSrc;
 
   return (
     <RailRow
@@ -13197,22 +13210,43 @@ const RailItem = memo(function RailItem({
       }
       mark={
         <>
-          {/* A bot-backed row wears the bot's face, the same rule the chat
-              header already follows: the creature says which agent is driving,
-              so the harness mark next to it would be saying it twice.
-              This was inverted — Claude's mark at full size with the creature
-              shrunk to a 14px corner badge — which made the row you know as
-              "Scout" look like every other Claude session in the list. */}
+          {/* A normal thread is anchored by its project when that project has
+              a favicon. The small corner badge then says which agent drives
+              it. Without a favicon, the agent mark remains the full identity
+              instead of putting a badge on a generic folder. A bot conversation
+              keeps the bot's own face because that is its durable identity
+              across projects and harness changes. */}
           {drivingBot ? (
             // The creature carries busy in its own posture, so a bot-backed
             // row would be saying it twice.
             <BotAvatar bot={drivingBot} working={busy} size={44} />
+          ) : showFavicon ? (
+            <img
+              src={faviconSrc}
+              alt=""
+              aria-hidden="true"
+              className="size-6 rounded-md object-contain"
+              loading="lazy"
+              decoding="async"
+              onError={() => setFailedFaviconSrc(faviconSrc)}
+            />
           ) : (
             <AgentMark session={session} busy={busy} rounding="rounded-md" />
           )}
+          {!drivingBot && showFavicon ? (
+            <span
+              title={session.agentLabel || agentIconAlt(session.agent)}
+              className="absolute bottom-1 right-1 flex size-[18px] items-center justify-center rounded-md bg-card ring-2 ring-card"
+            >
+              <AgentMark session={session} busy={busy} rounding="rounded-sm" compact />
+            </span>
+          ) : null}
           {/* Blocked keeps the corner badge: it is a state, not a progress,
               and a solid glyph on a filled pill reads at this size. */}
-          <SessionStatusDot paused={session.status === "blocked"} variant="avatar" />
+          <SessionStatusDot
+            paused={session.status === "blocked"}
+            variant="avatar"
+          />
           {topPinned && collapsed ? (
             <Pin
               aria-label="Pinned to top"
@@ -13236,8 +13270,8 @@ const RailItem = memo(function RailItem({
       }
       trailingHoverAlwaysVisible={pinned}
       trailingHover={
-        // The pin lives in the same slot the timestamp does, and a pinned
-        // row keeps it visible, since that is state rather than an offer.
+        // A committed pin becomes a small corner badge. The timestamp remains
+        // readable because it is identity, not hover UI.
         <button
           type="button"
           onClick={(e) => {
@@ -13246,13 +13280,19 @@ const RailItem = memo(function RailItem({
           }}
           aria-label={pinned ? "Unpin column" : "Pin as column"}
           className={cn(
-            "absolute inset-y-0 right-0 flex size-6 items-center justify-center rounded-md transition-opacity duration-150",
+            "absolute right-0 flex size-6 rounded-md transition-opacity duration-150",
             pinned
-              ? "text-primary opacity-100"
-              : "text-muted-foreground opacity-0 hover:bg-muted group-hover:opacity-100 focus-visible:opacity-100",
+              ? "-bottom-1 -right-1 items-end justify-end text-primary opacity-100"
+              : "inset-y-0 items-center justify-center text-muted-foreground opacity-0 hover:bg-muted group-hover:opacity-100 focus-visible:opacity-100",
           )}
         >
-          <Pin className="size-3.5" fill={pinned ? "currentColor" : "none"} />
+          {pinned ? (
+            <span className="flex size-3.5 items-center justify-center rounded-full bg-card ring-1 ring-border">
+              <Pin className="size-2.5" fill="currentColor" />
+            </span>
+          ) : (
+            <Pin className="size-3.5" />
+          )}
         </button>
       }
       onActivate={onActivate}

@@ -46,6 +46,13 @@ export function agentIconAlt(agent?: string): string {
   return "Claude";
 }
 
+/** Element-loadable URL for a configured project's discovered favicon. */
+export function projectFaviconSrc(project?: string | null): string | null {
+  const key = project?.trim();
+  if (!key) return null;
+  return omgAssetUrl(`/api/repos/favicon?project=${encodeURIComponent(key)}`);
+}
+
 /** Recovery copy for a provider failure, scoped to the session that failed. */
 export function pausedProviderErrorDetail(
   session: Pick<Session, "agent" | "statusDetail">,
