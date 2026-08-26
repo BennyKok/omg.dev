@@ -116,10 +116,16 @@ window.parent.postMessage(
   library — there is no in-frame Umami tracker to fall back to.
 - **Event names** (`snake_case`, surface prefix first): `onboarding_survey_question`
   (props: `question` — `"identity"` or `"pain"`, and `answer` — the selected
-  option's value) fires once per answered question, never for a skipped one.
+  option's value) fires once per distinct answer, never for a skipped one. The
+  survey is re-enterable (the connect page after it has a Back button), so
+  re-selecting an answer already reported sends nothing; changing it to a
+  different option does send again, because that is a real correction.
   `onboarding_survey_complete` (props: `identity`, `pain`, each either the
-  answered value or the literal string `"skipped"`) fires exactly once, when
-  the 2-question survey is left, however it was left.
+  answered value or the literal string `"skipped"`) fires exactly once per
+  mount, when the 2-question survey is left, however it was left. Enforced by
+  a latch rather than by the page flow, because walking Back into the survey
+  and leaving it a second time would otherwise report a second completion and
+  make the funnel rate wrong.
 - **Target origin**: resolved the same way as `lfg:session-created` above —
   see that section. Both messages share one cached resolution per document.
 

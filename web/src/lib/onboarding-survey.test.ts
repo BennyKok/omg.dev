@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   AI_TOOL_OPTIONS,
   buildGateFlow,
+  createSurveyAnalyticsLatch,
   DAILY_TOOL_OPTIONS,
   EMPTY_SURVEY_ANSWERS,
   IDENTITY_OPTIONS,
@@ -164,5 +165,42 @@ describe("analytics event shapes", () => {
       event: "onboarding_survey_complete",
       props: { identity: "founder", pain: "skipped" },
     });
+  });
+});
+
+describe("createSurveyAnalyticsLatch", () => {
+  // The bug this exists for: the connect page after the survey has a Back
+  // button, and stepBefore lands on the last survey page. Answer, Back,
+  // answer again, and the completion event fired twice for one run.
+  test("the completion event fires once however many times it is asked", () => {
+    const latch = createSurveyAnalyticsLatch();
+    expect(latch.shouldFireComplete()).toBe(true);
+    expect(latch.shouldFireComplete()).toBe(false);
+    expect(latch.shouldFireComplete()).toBe(false);
+  });
+
+  test("re-answering a question with the same value reports nothing new", () => {
+    const latch = createSurveyAnalyticsLatch();
+    expect(latch.shouldFireQuestion("identity", "founder")).toBe(true);
+    expect(latch.shouldFireQuestion("identity", "founder")).toBe(false);
+  });
+
+  test("a genuine correction is still recorded", () => {
+    const latch = createSurveyAnalyticsLatch();
+    expect(latch.shouldFireQuestion("identity", "founder")).toBe(true);
+    expect(latch.shouldFireQuestion("identity", "designer")).toBe(true);
+    expect(latch.shouldFireQuestion("identity", "founder")).toBe(false);
+  });
+
+  test("the two questions latch independently", () => {
+    const latch = createSurveyAnalyticsLatch();
+    expect(latch.shouldFireQuestion("identity", "founder")).toBe(true);
+    expect(latch.shouldFireQuestion("pain", "founder")).toBe(true);
+  });
+
+  test("a fresh run starts clean", () => {
+    const first = createSurveyAnalyticsLatch();
+    first.shouldFireComplete();
+    expect(createSurveyAnalyticsLatch().shouldFireComplete()).toBe(true);
   });
 });

@@ -208,3 +208,45 @@ export function surveyCompleteEvent(answers: SurveyAnswers): SurveyAnalyticsEven
     },
   };
 }
+
+/**
+ * Fire-once bookkeeping for the survey's two analytics events.
+ *
+ * The survey pages are reachable more than once. The connect page after the
+ * survey has a Back button, and `stepBefore` lands straight back on the last
+ * survey page, so answering, going Back, then answering or skipping again
+ * would report a second completion for one run. That number is the funnel
+ * denominator, so a duplicate does not add noise, it makes the rate wrong.
+ *
+ * Question events key on question AND answer. Someone who comes back and
+ * picks something different has genuinely changed their answer, which is worth
+ * recording. Someone who comes back and re-picks what they already had, or
+ * just passes through, is not new information.
+ *
+ * Framework-free like the rest of this module: the component holds one of
+ * these in a ref, and the whole rule is testable without React or a DOM.
+ */
+export type SurveyAnalyticsLatch = {
+  /** True when this question/answer pair has not been reported yet. */
+  shouldFireQuestion(question: string, answer: string): boolean;
+  /** True the first time only, for the whole life of the latch. */
+  shouldFireComplete(): boolean;
+};
+
+export function createSurveyAnalyticsLatch(): SurveyAnalyticsLatch {
+  const firedQuestions = new Set<string>();
+  let completeFired = false;
+  return {
+    shouldFireQuestion(question, answer) {
+      const key = `${question}:${answer}`;
+      if (firedQuestions.has(key)) return false;
+      firedQuestions.add(key);
+      return true;
+    },
+    shouldFireComplete() {
+      if (completeFired) return false;
+      completeFired = true;
+      return true;
+    },
+  };
+}
