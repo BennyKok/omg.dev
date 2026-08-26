@@ -716,13 +716,42 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
     line-height: 1.55;
   }
 
-  .msg-text.markdown h1,
-  .msg-text.markdown h2,
-  .msg-text.markdown h3 {
+  /* Small, flat headings belong to YOUR bubble: it is short, it is already
+     visually bounded, and a 21px h1 inside it would shout.
+
+     This used to apply to every message. `msg-text` is on the assistant's
+     markdown too, and `.msg-text.markdown h2` outranks `.markdown h2`, so an
+     answer rendered all three heading levels at 14px -- three pixels SMALLER
+     than the 17px body they introduce, and identical to one another. Structure
+     in a reply came out weaker than the prose around it, and the base
+     `.markdown` heading scale below was reachable only from the changelog. */
+  .msg-text.markdown.user-bubble h1,
+  .msg-text.markdown.user-bubble h2,
+  .msg-text.markdown.user-bubble h3 {
     margin: 0.5em 0 0.3em;
     border: none;
     padding: 0;
     font-size: 14px;
+  }
+
+  /* The assistant's headings, sized off the 17px chat body rather than the
+     16px the base scale was drawn against: there a 15px h3 still reads as a
+     heading, here it would sit below its own paragraph. Only size and rhythm
+     are set, so h2 keeps the base scale's hairline -- that line is what
+     separates sections in a long answer. */
+  .msg-text.markdown h1 {
+    font-size: 21px;
+    margin: 1.1em 0 0.4em;
+  }
+
+  .msg-text.markdown h2 {
+    font-size: 19px;
+    margin: 1.15em 0 0.4em;
+  }
+
+  .msg-text.markdown h3 {
+    font-size: 17.5px;
+    margin: 1em 0 0.3em;
   }
 
   .msg-text.markdown p {
