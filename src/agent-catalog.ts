@@ -180,6 +180,8 @@ export type ModelCatalogItem = {
   defaultModel: string;
   models: string[];
   thinkingLevels: string[];
+  /** Model-specific levels for providers whose variants differ per model. */
+  thinkingLevelsByModel?: Record<string, string[]>;
   session: boolean;
   auto: boolean;
   visible?: boolean;
@@ -370,7 +372,10 @@ function opencodeFamily(model: string): string | null {
   return null;
 }
 
-export function curateOpenCodeModels(models: string[]): string[] {
+export function curateOpenCodeModels(
+  models: string[],
+  connectedProviderIds: readonly string[] = [],
+): string[] {
   const out: string[] = [];
   // OpenCode publishes credential-free models in its live catalog. Keep these
   // dynamic instead of pinning one release in LFG: anonymous installs can then
@@ -413,6 +418,11 @@ export function curateOpenCodeModels(models: string[]): string[] {
     "fugu",
   ];
   for (const family of order) addLatest(out, byFamily.get(family) ?? []);
+  const connected = new Set(connectedProviderIds);
+  for (const model of models) {
+    const provider = model.slice(0, model.indexOf("/"));
+    if (connected.has(provider) && !out.includes(model)) out.push(model);
+  }
   return out.length ? out : models.slice(0, 16);
 }
 
@@ -462,9 +472,13 @@ function curateFxModels(models: string[]): string[] {
   return out.length ? out : models;
 }
 
-function curateModels(agent: CodingAgentKind, models: string[]): string[] {
+function curateModels(
+  agent: CodingAgentKind,
+  models: string[],
+  connectedProviderIds: readonly string[] = [],
+): string[] {
   if (agent === "cursor") return curateCursorModels(models);
-  if (agent === "opencode") return curateOpenCodeModels(models);
+  if (agent === "opencode") return curateOpenCodeModels(models, connectedProviderIds);
   if (agent === "codex" || agent === "codex-aisdk") return curateCodexModels(models);
   if (agent === "grok") return curateGrokModels(models);
   if (agent === "fx") return curateFxModels(models);
@@ -480,8 +494,11 @@ export function rawModelsForAgent(agent: CodingAgentKind): string[] {
   return discoveredModelsOrFallback(fallback, provider);
 }
 
-export function modelsForAgent(agent: CodingAgentKind): string[] {
-  return curateModels(agent, rawModelsForAgent(agent));
+export function modelsForAgent(
+  agent: CodingAgentKind,
+  connectedProviderIds: readonly string[] = [],
+): string[] {
+  return curateModels(agent, rawModelsForAgent(agent), connectedProviderIds);
 }
 
 export function resolveModelForAgent(
@@ -515,7 +532,16 @@ export function resolveModelForAgent(
   return [...variants].sort((a, b) => score(b) - score(a))[0]?.raw ?? model;
 }
 
-export function thinkingLevelsForAgent(agent: string): readonly string[] | null {
+export function thinkingLevelsForAgent(
+  agent: string,
+  model?: string,
+): readonly string[] | null {
+  if (agent === "opencode") {
+    const variants = readModelDiscoveryCacheSync()?.providers?.opencode?.variants ?? {};
+    if (model) return variants[model] ?? null;
+    const levels = [...new Set(Object.values(variants).flat())];
+    return levels.length ? levels : null;
+  }
   if (agent === "claude" || agent === "aisdk") return CLAUDE_THINKING_LEVELS;
   // grok and pi drive their own CLIs with narrower vocabularies; offering more
   // hands the user a level that either kills the session or does nothing.
@@ -593,6 +619,12 @@ function openCodeConnectedFrom(codingAgents: CodingAgentInfo[]): boolean {
   return codingAgents.find((agent) => agent.key === "opencode")?.status.accountConnected === true;
 }
 
+function openCodeProvidersFrom(codingAgents: CodingAgentInfo[]): string[] {
+  return (codingAgents.find((agent) => agent.key === "opencode")?.status.providers ?? [])
+    .filter((provider) => provider.connected)
+    .map((provider) => provider.id);
+}
+
 /** Models the current user can honestly launch from the picker. */
 export function accessibleModelsForAgent(
   key: CodingAgentKind,
@@ -652,11 +684,12 @@ export function defaultModelForAgent(
 ): string {
   const accountConnected = hasConnectedModelAccount(codingAgents);
   const openCodeConnected = openCodeConnectedFrom(codingAgents);
+  const openCodeProviders = openCodeProvidersFrom(codingAgents);
   return defaultModelForCatalogItem(
     key,
     accessibleModelsForAgent(
       key,
-      modelsForAgent(key),
+      modelsForAgent(key, key === "opencode" ? openCodeProviders : []),
       accountConnected,
       piProvidersFrom(codingAgents),
       openCodeConnected,
@@ -669,22 +702,37 @@ export function listModelCatalog(codingAgents: CodingAgentInfo[] = []): ModelCat
   const configured = new Map(codingAgents.map((agent) => [agent.key, agent]));
   const accountConnected = hasConnectedModelAccount(codingAgents);
   const openCodeConnected = openCodeConnectedFrom(codingAgents);
+  const openCodeProviders = openCodeProvidersFrom(codingAgents);
   const piProviders = piProvidersFrom(codingAgents);
   return MODEL_CATALOG_KEYS.map((key) => {
     const status = configured.get(key);
     const models = accessibleModelsForAgent(
       key,
-      modelsForAgent(key),
+      modelsForAgent(key, key === "opencode" ? openCodeProviders : []),
       accountConnected,
       piProviders,
       openCodeConnected,
     );
+    const thinkingLevelsByModel = key === "opencode"
+      ? Object.fromEntries(
+          models.flatMap((model) => {
+            const levels = thinkingLevelsForAgent(key, model);
+            return levels?.length ? [[model, [...levels]]] : [];
+          }),
+        )
+      : undefined;
+    const thinkingLevels = key === "opencode"
+      ? [...new Set(Object.values(thinkingLevelsByModel ?? {}).flat())]
+      : [...(thinkingLevelsForAgent(key) ?? [])];
     return {
       key,
       label: LABELS[key],
       defaultModel: defaultModelForCatalogItem(key, models, accountConnected && openCodeConnected),
       models,
-      thinkingLevels: [...(thinkingLevelsForAgent(key) ?? [])],
+      thinkingLevels,
+      ...(thinkingLevelsByModel && Object.keys(thinkingLevelsByModel).length
+        ? { thinkingLevelsByModel }
+        : {}),
       session: key !== "claude" && key !== "codex",
       auto: (AUTO_AGENT_BACKENDS as readonly string[]).includes(key),
       visible: status?.visible,

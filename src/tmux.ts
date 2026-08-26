@@ -1228,6 +1228,7 @@ export function spawnManagedOpencodeAisdkSession(opts: {
   prompt?: string;
   model: string;
   key: string;
+  thinkingLevel?: string;
   omgSessionId?: string;
   omgUser?: string | null;
   resume?: string;
@@ -1248,6 +1249,7 @@ export function spawnManagedOpencodeAisdkSession(opts: {
     "--cwd", opts.cwd,
     "--managed-name", opts.name,
   ];
+  if (opts.thinkingLevel) argv.push("--thinking-level", opts.thinkingLevel);
   if (opts.resume) argv.push("--resume", opts.resume);
   if (opts.recoveredAt) argv.push("--recovered-at", String(opts.recoveredAt));
   const prompt = withOmgRuntimeContract(opts.prompt);

@@ -69,6 +69,21 @@ describe("curateOpenCodeModels", () => {
       "opencode-go/kimi-k3",
     ]);
   });
+
+  test("keeps every model from an authenticated custom provider", () => {
+    const models = [
+      ...DISCOVERED,
+      "zai-coding-plan/glm-5.2",
+      "zai-coding-plan/glm-5.3",
+      "zai-coding-plan/glm-5.3-highspeed",
+    ];
+    const out = curateOpenCodeModels(models, ["zai-coding-plan"]);
+    expect(out.filter((model) => model.startsWith("zai-coding-plan/"))).toEqual([
+      "zai-coding-plan/glm-5.2",
+      "zai-coding-plan/glm-5.3",
+      "zai-coding-plan/glm-5.3-highspeed",
+    ]);
+  });
 });
 
 function codingAgent(
