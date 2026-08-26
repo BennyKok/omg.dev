@@ -26,3 +26,27 @@ export function sessionMatchesUserFilter(
   if (userFilter === "__unassigned") return !session.assignedUser;
   return session.assignedUser === userFilter || !session.assignedUser;
 }
+
+/**
+ * A hosted surface can remember an explicit session filter. It must never use
+ * the standalone profile as its default because the signed host claim owns the
+ * viewer identity there.
+ */
+export function initialUserFilter({
+  savedFilter,
+  standaloneProfile,
+  hosted,
+}: {
+  savedFilter: string | null;
+  standaloneProfile: string | null;
+  hosted: boolean;
+}): string {
+  if (savedFilter) return savedFilter;
+  if (hosted) return "__all";
+  return standaloneProfile || "__all";
+}
+
+/** Filtering a hosted roster must not impersonate the selected person. */
+export function userFilterUpdatesStandaloneIdentity(value: string, hosted: boolean): boolean {
+  return !hosted && value !== "__all" && value !== "__unassigned";
+}

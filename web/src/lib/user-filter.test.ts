@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { sessionMatchesUserFilter } from "./user-filter";
+import {
+  initialUserFilter,
+  sessionMatchesUserFilter,
+  userFilterUpdatesStandaloneIdentity,
+} from "./user-filter";
 
 const benny = { assignedUser: "itechbenny@gmail.com" };
 const angel = { assignedUser: "lyyluiyanyan@gmail.com" };
@@ -38,5 +42,49 @@ describe("sessionMatchesUserFilter", () => {
     expect(sessionMatchesUserFilter({}, "itechbenny@gmail.com")).toBe(true);
     expect(sessionMatchesUserFilter({ assignedUser: "" }, "itechbenny@gmail.com")).toBe(true);
     expect(sessionMatchesUserFilter({}, "__unassigned")).toBe(true);
+  });
+});
+
+describe("initialUserFilter", () => {
+  test("starts a hosted surface with all users", () => {
+    expect(
+      initialUserFilter({
+        savedFilter: null,
+        standaloneProfile: "ada@example.com",
+        hosted: true,
+      }),
+    ).toBe("__all");
+  });
+
+  test("restores an explicit hosted roster selection", () => {
+    expect(
+      initialUserFilter({
+        savedFilter: "ada@example.com",
+        standaloneProfile: null,
+        hosted: true,
+      }),
+    ).toBe("ada@example.com");
+  });
+
+  test("uses the local profile on a standalone surface", () => {
+    expect(
+      initialUserFilter({
+        savedFilter: null,
+        standaloneProfile: "ada@example.com",
+        hosted: false,
+      }),
+    ).toBe("ada@example.com");
+  });
+});
+
+describe("userFilterUpdatesStandaloneIdentity", () => {
+  test("keeps hosted filtering separate from standalone identity", () => {
+    expect(userFilterUpdatesStandaloneIdentity("ada@example.com", true)).toBe(false);
+  });
+
+  test("updates standalone identity only for a concrete person", () => {
+    expect(userFilterUpdatesStandaloneIdentity("ada@example.com", false)).toBe(true);
+    expect(userFilterUpdatesStandaloneIdentity("__all", false)).toBe(false);
+    expect(userFilterUpdatesStandaloneIdentity("__unassigned", false)).toBe(false);
   });
 });

@@ -108,7 +108,11 @@ import {
   isCodingAgentStoppedText,
   isSubagentUpdateText,
 } from "./lib/bot-transcript";
-import { sessionMatchesUserFilter } from "./lib/user-filter";
+import {
+  initialUserFilter,
+  sessionMatchesUserFilter,
+  userFilterUpdatesStandaloneIdentity,
+} from "./lib/user-filter";
 import {
   buildFindRowIndex,
   stepFindHit,
@@ -132,6 +136,8 @@ import {
   type BotShape,
 } from "./components/BotAvatar";
 import { EmbeddedConnectGate } from "./components/embedded-connect-gate";
+import { SessionAssigneeAvatar } from "./components/session-assignee-avatar";
+import { UserFilterMenu } from "./components/user-filter-menu";
 import {
   AuthenticatedArtifactImage,
   AuthenticatedArtifactVideo,
@@ -5354,6 +5360,9 @@ export function App() {
   // default to all sessions. `?embed=1` is the explicit contract; framing alone
   // is enough as a defence-in-depth signal.
   const embedded = isEmbedded(deepLinkSearch);
+  // Native hosts can mount OmgAppSurface without an iframe. Keep filter policy
+  // identical for both host integrations.
+  const hostedSurface = embedded || isHostedSurface();
   // Host-mounted single page: suppress every piece of LFG shell chrome the
   // host already renders (header, brand, nav, composer).
   const bare = useBareSurface();
@@ -5824,13 +5833,6 @@ export function App() {
   const seededAuto = useRef(false);
   const seenFindings = useRef<Set<string>>(new Set());
   const [userFilter, setUserFilter] = useState(() => {
-    // Hosted Computer (iframe embed OR native OmgAppSurface) is already
-    // account-scoped. A leftover lfg_user / lfg_v2_user_filter from a prior
-    // standalone install would hide every session that has no assignedUser —
-    // which is all of them on a roster-less hosted box — while Settings still
-    // shows live>0. Force the open view. isHostedSurface() is set by
-    // OmgAppSurface before this tree mounts.
-    if (readLocationEmbedFlag() || isHostedSurface()) return "__all";
     // Session deep-links also start open so a linked session isn't filtered out
     // before the resolver runs.
     try {
@@ -5841,9 +5843,11 @@ export function App() {
     // "unset" and falling through to lfg_user made "Everyone" non-sticky: the
     // next load re-applied the profile and hid every unassigned session. That
     // looked like a project-filter failure when Settings still showed live>0.
-    const saved = localStorage.getItem("lfg_v2_user_filter");
-    if (saved) return saved;
-    return localStorage.getItem("lfg_user") || "__all";
+    return initialUserFilter({
+      savedFilter: localStorage.getItem("lfg_v2_user_filter"),
+      standaloneProfile: localStorage.getItem("lfg_user"),
+      hosted: readLocationEmbedFlag() || isHostedSurface(),
+    });
   });
   const [projectFilter, setProjectFilter] = useState(readCachedProjectFilter);
   const didDefaultFilter = useRef(false);
@@ -6524,12 +6528,10 @@ export function App() {
   // Once users load, pick a default profile to filter by (your saved profile,
   // else the first user) — runs once, so an explicit "All" later still sticks.
   useEffect(() => {
-    // Hosted Computer is already account-scoped — never pin a profile filter
-    // that would hide unassigned sessions (see userFilter initializer).
-    if (isHostedSurface()) {
-      if (userFilter !== "__all") setUserFilter("__all");
-      return;
-    }
+    // A hosted Computer receives the machine's authoritative roster from its
+    // host. Keep its saved filter, or the open "All users" default, rather than
+    // silently selecting the first person in that roster on first load.
+    if (hostedSurface) return;
     if (didDefaultFilter.current || !users.length) return;
     didDefaultFilter.current = true;
     // Embed + pending session links stay on "__all" so no owner is hidden.
@@ -6539,7 +6541,7 @@ export function App() {
     const profile = localStorage.getItem("lfg_user");
     const next = profile && users.some((u) => u.email === profile) ? profile : users[0]?.email;
     if (next) setUserFilter(next);
-  }, [users, userFilter, embedded, prioritizeSession]);
+  }, [hostedSurface, users, userFilter, embedded, prioritizeSession]);
 
   // Drop a filter that points at a user who no longer exists — or a concrete
   // email on a roster-less box, which hides every unassigned session forever
@@ -6555,15 +6557,15 @@ export function App() {
       userFilter === "__all" ||
       userFilter === "__unassigned" ||
       users.some((u) => u.email === userFilter);
-    if (!valid) setUserFilter(users[0]?.email ?? "__all");
-  }, [userFilter, users]);
+    if (!valid) setUserFilter(hostedSurface ? "__all" : users[0]?.email ?? "__all");
+  }, [hostedSurface, userFilter, users]);
 
   useEffect(() => {
-    // Don't clobber the standalone profile filter while framed inside omg or
-    // mounted as a native hosted surface (same origin as the host dashboard).
-    if (embedded || isHostedSurface()) return;
+    // This key is filter-only. Hosted surfaces use it too so a deliberate
+    // person selection survives reload. The host clears stale person filters
+    // before mounting an unshared machine, where the roster is not meaningful.
     localStorage.setItem("lfg_v2_user_filter", userFilter);
-  }, [userFilter, embedded]);
+  }, [userFilter]);
 
   useEffect(() => {
     // Project scope belongs to the LFG workspace even when the app is hosted
@@ -6575,11 +6577,13 @@ export function App() {
   const changeUserFilter = useCallback((value: string) => {
     setUserFilter(value);
     // Selecting a concrete user makes them the active profile (remembered as
-    // the default filter and pre-filled as the owner for new sessions).
-    if (value !== "__all" && value !== "__unassigned") {
+    // the default filter and pre-filled as the owner for new sessions). A
+    // hosted viewer comes from the host claim, so filtering must not impersonate
+    // the selected roster member through this standalone profile key.
+    if (userFilterUpdatesStandaloneIdentity(value, hostedSurface)) {
       localStorage.setItem("lfg_user", value);
     }
-  }, []);
+  }, [hostedSurface]);
 
   const allLiveSessions = useMemo(
     () =>
@@ -8238,20 +8242,21 @@ export function App() {
             onOpenNotifications={() => setTab("notifications")}
           />
           {embedded ? (
-            // The host owns identity/settings chrome here, but Pages (Bots,
-            // Notifications, Artifacts) has no other entry point on mobile —
-            // losing this island entirely left embedded mobile with no way to
-            // reach Bots, and so no way to create one. A trimmed island (no
-            // user filter, no Settings) keeps the host's chrome the only
-            // identity surface while still giving Live a way out.
+            // The host owns identity/settings chrome here, but the machine's
+            // shared roster is session data and stays in this surface. Pages
+            // also has no other entry point on mobile, so the island carries
+            // the roster filter, host actions, then our overflow menu.
             <NavIsland className="shrink-0">
               <div className="glass-island flex h-11 items-center gap-1.5 rounded-full px-2">
-                {/* Host actions first, our overflow menu last. The host's
-                    Computer control is the switcher people reach for; a "⋮" is
-                    an overflow, and an overflow that sits ahead of the primary
-                    control reads as the main event. Ours also stays adjacent
-                    to the screen edge, which is where a menu wants to open
-                    from. */}
+                {tab === "auto" ? null : (
+                  <UserFilterMenu
+                    value={userFilter}
+                    users={users}
+                    onChange={changeUserFilter}
+                  />
+                )}
+                {/* The machine roster comes first, then host actions, with our
+                    overflow menu beside the screen edge where it opens. */}
                 {/* Host-owned actions, in OUR island instead of beside it.
                     The host used to float its own island in this corner and we
                     slid left by --lfg-host-top-inset to make room, which meant a
@@ -8421,13 +8426,11 @@ export function App() {
                     onChange={changeProjectFilter}
                   />
                 ) : null}
-                {embedded ? null : (
-                  <UserFilterMenu
-                    value={userFilter}
-                    users={users}
-                    onChange={changeUserFilter}
-                  />
-                )}
+                <UserFilterMenu
+                  value={userFilter}
+                  users={users}
+                  onChange={changeUserFilter}
+                />
               </>
             ) : null}
             {isMobile ? null : (
@@ -8534,9 +8537,10 @@ export function App() {
               // header is hidden. The host owns identity/settings chrome, not
               // the LFG workspace's project scope.
               onProjectChange={changeProjectFilter}
-              // Embed: the host owns identity and settings. LFG still owns agent
-              // questions, so the hosted rail must keep their entry point.
-              onUserChange={embedded ? undefined : changeUserFilter}
+              // The host owns account/settings chrome. Session attribution is
+              // machine data, so the shared roster and its filter stay inside
+              // this surface in hosted mode too.
+              onUserChange={changeUserFilter}
               onOpenSettings={embedded ? undefined : () => setTab("settings")}
               onOpenAsk={() => setTab("notifications")}
               onOpenBots={() => setTab("bots")}
@@ -9227,77 +9231,6 @@ function LiveHeaderContext({
         </span>
       </button>
     </NavIsland>
-  );
-}
-
-function UserFilterMenu({
-  value,
-  users,
-  onChange,
-}: {
-  value: string;
-  users: User[];
-  onChange: (value: string) => void;
-}) {
-  const active = value !== "__all";
-  const selected = users.find((user) => user.email === value);
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <button
-            type="button"
-            aria-label="Filter live sessions by user"
-            title={
-              selected ? (selected.name ?? shortUser(selected.email)) : active ? "Unassigned" : "All users"
-            }
-            className={cn(
-              "relative inline-flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-full border transition",
-              active ? "border-primary/40 text-primary" : "border-border bg-muted/70 text-foreground",
-            )}
-          />
-        }
-      >
-        {selected?.avatar ? (
-          <img src={selected.avatar} alt="" className="size-full object-cover" />
-        ) : active ? (
-          <UserRound className="size-4 shrink-0" />
-        ) : (
-          <Globe className="size-4 shrink-0" />
-        )}
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-48">
-        <DropdownMenuRadioGroup
-          value={value}
-          onValueChange={(next) => onChange(typeof next === "string" ? next : "__all")}
-        >
-          <DropdownMenuLabel>Filter by user</DropdownMenuLabel>
-          <DropdownMenuRadioItem value="__all">
-            <Globe className="size-5 shrink-0 text-muted-foreground" />
-            All users
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="__unassigned">
-            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted">
-              <UserRound className="size-3" />
-            </span>
-            Unassigned
-          </DropdownMenuRadioItem>
-          {users.length ? <DropdownMenuSeparator /> : null}
-          {users.map((user) => (
-            <DropdownMenuRadioItem key={user.email} value={user.email}>
-              {user.avatar ? (
-                <img src={user.avatar} alt="" className="size-5 shrink-0 rounded-full object-cover" />
-              ) : (
-                <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted">
-                  <UserRound className="size-3" />
-                </span>
-              )}
-              <span className="truncate capitalize">{user.name ?? shortUser(user.email)}</span>
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 
@@ -11197,6 +11130,7 @@ function LiveView({
       >
         <RailItem
           session={session}
+          users={users}
           busy={!!busyBySid[sid]}
           latest={latestLine(messagesBySid[sid] ?? EMPTY_MESSAGES)}
           active={false}
@@ -12194,6 +12128,7 @@ function RailStage({
       >
         <RailItem
           session={session}
+          users={users}
           busy={!!busyBySid[sid]}
           latest={latestLine(messagesBySid[sid] ?? EMPTY_MESSAGES)}
           active={columnIds.includes(sid)}
@@ -13168,6 +13103,7 @@ const RailRow = memo(function RailRow({
 
 const RailItem = memo(function RailItem({
   session,
+  users,
   busy,
   latest,
   active,
@@ -13180,6 +13116,7 @@ const RailItem = memo(function RailItem({
   onArchive,
 }: {
   session: Session;
+  users: User[];
   busy: boolean;
   latest: string;
   active: boolean;
@@ -13266,6 +13203,14 @@ const RailItem = memo(function RailItem({
                 showAccountNumber={false}
               />
             </span>
+          ) : null}
+          {!drivingBot ? (
+            <SessionAssigneeAvatar
+              session={session}
+              users={users}
+              size="xs"
+              className="absolute bottom-0 left-0 ring-2 ring-card"
+            />
           ) : null}
           {/* Blocked keeps the corner badge: it is a state, not a progress,
               and a solid glyph on a filled pill reads at this size. */}
@@ -17152,6 +17097,9 @@ const onTouchStart = (e: ReactTouchEvent) => {
           >
             <Pin className="size-3.5" fill="currentColor" />
           </span>
+        ) : null}
+        {!headerBot ? (
+          <SessionAssigneeAvatar session={session} users={users} size="sm" />
         ) : null}
         {/* A bot-backed card is the authoritative desktop bot conversation.
             Keep its lifecycle menu on the same header instead of exposing the
