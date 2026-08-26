@@ -134,6 +134,24 @@ describe("ChatStream wiring", () => {
     const pin = APP.slice(start, end);
     expect(pin).toContain("const bottom = el.scrollHeight - el.clientHeight;");
     expect(pin).toContain("Math.abs(el.scrollTop - bottom) <= 0.5");
-    expect(pin).toContain("showTypingIndicator, totalSize, revealedSid, sid, startGlide");
+    // Asserted one dependency at a time rather than as one substring of the
+    // whole list. The list is open — `viewportHeight` joined it so a soft
+    // keyboard re-pins too — and a fixed substring made adding a reason to
+    // re-pin look like a regression.
+    const deps = pin.slice(pin.lastIndexOf("}, ["));
+    for (const dep of [
+      "visibleMessages",
+      "busy",
+      "stick",
+      "items.length",
+      "showTypingIndicator",
+      "totalSize",
+      "revealedSid",
+      "sid",
+      "startGlide",
+      "stopGlide",
+    ]) {
+      expect(deps).toContain(dep);
+    }
   });
 });

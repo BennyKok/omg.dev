@@ -75,3 +75,43 @@ test("a session switch reveals the complete transcript with one opacity-only fad
   expect(keyframes).toContain("opacity: 1;");
   expect(keyframes).not.toContain("transform:");
 });
+
+test("a keyboard show or hide re-pins a transcript that was following", () => {
+  // The soft keyboard resizes the scroll pane without changing any message, so
+  // none of the follow effect's content dependencies move. The pane's own
+  // height is what carries that event into the effect.
+  const at = APP.indexOf("const [viewportHeight, setViewportHeight] = useState(0);");
+  expect(at).toBeGreaterThan(0);
+
+  // The effect BODY, past the comment, so prose about scrollTop cannot pass or
+  // fail the "never writes scrollTop" assertion below.
+  const obsAt = APP.indexOf("// Publish the pane's own height", at);
+  const bodyAt = APP.indexOf("useLayoutEffect(() => {", obsAt);
+  const obsEnd = APP.indexOf("}, [sid]);", bodyAt);
+  const observer = APP.slice(bodyAt, obsEnd);
+  expect(obsAt).toBeGreaterThan(at);
+  expect(bodyAt).toBeGreaterThan(obsAt);
+  expect(observer).toContain("new ResizeObserver(read)");
+  expect(observer).toContain("setViewportHeight(Math.round(el.clientHeight))");
+  // Scroll position keeps one owner: the observer reports, it never writes.
+  expect(observer).not.toContain("scrollTop");
+  // The scroller carries key={sid}, so a switch replaces the element. An
+  // observer mounted once would be left watching the detached node.
+  expect(APP).toContain('key={sid ?? "no-session"}');
+  expect(APP.slice(obsEnd, obsEnd + "}, [sid]);".length)).toBe("}, [sid]);");
+
+  const follow = APP.indexOf("const switching = revealedSid !== sid;", obsEnd);
+  const deps = APP.indexOf("stopGlide]);", follow);
+  expect(follow).toBeGreaterThan(obsEnd);
+  expect(APP.slice(follow, deps)).toContain("el.scrollTop = bottom;");
+  expect(APP.slice(deps - 220, deps)).toContain("viewportHeight");
+});
+
+test("only the pane's height re-pins, so re-wrapping text cannot drag a reader down", () => {
+  const obsAt = APP.indexOf("useLayoutEffect(() => {", APP.indexOf("// Publish the pane's own height"));
+  const observer = APP.slice(obsAt, APP.indexOf("}, [sid]);", obsAt));
+
+  expect(obsAt).toBeGreaterThan(0);
+  expect(observer).not.toContain("clientWidth");
+  expect(observer).not.toContain("getBoundingClientRect");
+});

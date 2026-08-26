@@ -17287,6 +17287,16 @@ const ChatStream = memo(function ChatStream({
   const ref = useRef<HTMLDivElement>(null);
   const transcriptView = useContext(TranscriptViewContext);
   const [stick, setStick] = useState(true);
+  // The height of the scroll pane itself, as a value the follow effect below
+  // can depend on. The soft keyboard is the reason this exists: it resizes
+  // this pane without changing a single message, and a browser preserves
+  // `scrollTop` across that resize rather than the distance from the bottom.
+  // So a transcript pinned to the newest turn is left exactly one keyboard
+  // short of it the moment the keyboard opens — you tap the composer and the
+  // message you were reading slides away behind it. Nothing in the follow
+  // effect's other dependencies moves on a keyboard event, so without this it
+  // never re-pins.
+  const [viewportHeight, setViewportHeight] = useState(0);
   // The new transcript stays transparent for its first layout pass. That pass
   // lands the scroller at its final bottom, then this marker starts one global
   // fade. No intermediate scroll position can be painted during a switch.
@@ -18030,6 +18040,30 @@ const ChatStream = memo(function ChatStream({
     setStick(true);
   }, []);
 
+  // Publish the pane's own height so a keyboard show or hide reaches the
+  // follow effect. Height only: a width change re-wraps message text, which
+  // moves rows under the reader, and that is the anchor correction's job, not
+  // this one. Re-pinning on a width change would drag a free reader to the
+  // bottom every time the pane got narrower.
+  //
+  // This does NOT write scrollTop itself. Scroll position has one owner in
+  // this component (the effect below), and a resize is just another reason for
+  // that owner to run — the same way an arriving message is.
+  //
+  // Keyed on `sid` because the pane is: the scroller carries `key={sid}`, so a
+  // session switch gives us a NEW element. Mounting once would leave this
+  // observing the detached node of whichever session happened to open first,
+  // and the keyboard would stop re-pinning after the first switch.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const read = () => setViewportHeight(Math.round(el.clientHeight));
+    read();
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [sid]);
+
   useEffect(() => {
     const el = ref.current;
     if (!el || !stick) {
@@ -18096,7 +18130,7 @@ const ChatStream = memo(function ChatStream({
       // Our write, not theirs: the event this raises must not move the mode.
       userDrivenRef.current = false;
     }
-  }, [visibleMessages, busy, stick, items.length, showTypingIndicator, totalSize, revealedSid, sid, startGlide, stopGlide]);
+  }, [visibleMessages, busy, stick, items.length, showTypingIndicator, totalSize, viewportHeight, revealedSid, sid, startGlide, stopGlide]);
 
   // The virtual list sits below the loading-older spinner, so the offsets the
   // virtualizer hands out are shifted by however much chrome is above it.
