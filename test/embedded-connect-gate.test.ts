@@ -343,8 +343,17 @@ describe("App wiring", () => {
     expect(entry).toContain("onAnalyticsEvent?: EmbeddedAnalyticsEventHandler");
     expect(entry).toContain("onAnalyticsEvent,");
     expect(app).toContain("onAnalyticsEvent={onAnalyticsEvent}");
-    expect(component).toContain("const emitAnalytics = onAnalyticsEvent ?? trackEvent");
-    expect(component).toContain("emitAnalytics(event.name, event.data)");
+    // The native library mount's callback wins when a host supplies one.
+    expect(component).toContain("if (onAnalyticsEvent) {");
+    expect(component).toContain("onAnalyticsEvent(event, props);");
+    // Otherwise this renders in the cross-origin `?embed=1` iframe, where the
+    // only safe channel up is `lfg:analytics` — never an in-frame tracker.
+    expect(component).toContain("emitAnalyticsToHost(event, props, readLocationEmbedFlag());");
+    expect(component).toContain("emitAnalytics(event, props)");
+    // Fire-once is a latch, not a property of the page flow: the connect page
+    // after the survey can walk Back into it. See createSurveyAnalyticsLatch.
+    expect(component).toContain("latch.shouldFireComplete()");
+    expect(component).toContain("latch.shouldFireQuestion(question, answer)");
   });
 
   test("the gate includes a second tools page with a real GitHub connection", () => {
