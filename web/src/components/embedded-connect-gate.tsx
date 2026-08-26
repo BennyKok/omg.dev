@@ -31,7 +31,7 @@
 // "dead step is worse than no step" failure the tools-page skip below already
 // guards against, just for a question instead of a broken connect row.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   CalendarClock,
   Check,
@@ -60,6 +60,7 @@ import { OmgBrandMark } from "./omg-brand-mark";
 import { agentIconAlt, agentIconSrc } from "../lib/session-ui";
 import {
   buildGateFlow,
+  createSurveyAnalyticsLatch,
   EMPTY_SURVEY_ANSWERS,
   IDENTITY_OPTIONS,
   isSurveyPage,
@@ -71,7 +72,15 @@ import {
   surveyCompleteEvent,
   surveyQuestionEvent,
 } from "../lib/onboarding-survey";
-import type { ConnectPageId, GatePage, SurveyAnswers, SurveyIdentity, SurveyOption, SurveyPain } from "../lib/onboarding-survey";
+import type {
+  ConnectPageId,
+  GatePage,
+  SurveyAnalyticsLatch,
+  SurveyAnswers,
+  SurveyIdentity,
+  SurveyOption,
+  SurveyPain,
+} from "../lib/onboarding-survey";
 
 /**
  * The agents shown on the closing screen. Real marks, not generic glyphs —
@@ -240,6 +249,7 @@ export function EmbeddedConnectGate({
   // own; both questions here are single-select. The completion event fires
   // exactly once, right after the last question — "survey-pain" is the last
   // entry in SURVEY_PAGES — whichever way it's left (answered or skipped).
+  // "Exactly once" is enforced by a latch, not by the flow: see trackComplete.
   //
   // Delivery has two owners, never this frame's own tracker (see file
   // header): a host that mounts the native OmgAppSurface library wires
@@ -254,11 +264,22 @@ export function EmbeddedConnectGate({
     }
     emitAnalyticsToHost(event, props, readLocationEmbedFlag());
   };
+  // Fire-once rules live in ../lib/onboarding-survey (createSurveyAnalyticsLatch)
+  // so they are testable without React. The short version: the connect page
+  // after the survey has a Back button that lands back on "survey-pain", so an
+  // unlatched completion event fires twice for one run and corrupts the funnel
+  // denominator this file exists to produce.
+  const latchRef = useRef<SurveyAnalyticsLatch | null>(null);
+  if (!latchRef.current) latchRef.current = createSurveyAnalyticsLatch();
+  const latch = latchRef.current;
+
   const trackQuestion = (question: "identity" | "pain", answer: string) => {
+    if (!latch.shouldFireQuestion(question, answer)) return;
     const { event, props } = surveyQuestionEvent(question, answer);
     emitAnalytics(event, props);
   };
   const trackComplete = (answers: SurveyAnswers) => {
+    if (!latch.shouldFireComplete()) return;
     const { event, props } = surveyCompleteEvent(answers);
     emitAnalytics(event, props);
   };
