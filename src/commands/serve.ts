@@ -17,6 +17,7 @@ import {
   setSessionPinned,
 } from "../session-pins.ts";
 import { createConnectManager } from "../connect-manager.ts";
+import { findProjectFavicon, projectFaviconMime } from "../project-favicon.ts";
 import { claudeOauthToken as sharedClaudeOauthToken } from "../claude-creds.ts";
 import {
   applyReleaseUpdate,
@@ -6842,6 +6843,19 @@ a{color:#60a5fa}
           return json({ repos: await listRepos() });
         }
         return json({ repos: await listRepos() });
+      }
+
+      if (path === "/api/repos/favicon" && req.method === "GET") {
+        const project = url.searchParams.get("project")?.trim();
+        if (!project) return err(400, "project is required");
+        // Resolve the project through the configured repository list. The
+        // request never supplies a filesystem path, so this image endpoint
+        // cannot become a local-file reader for arbitrary paths.
+        const repo = (await listRepos()).find((entry) => entry.project === project);
+        if (!repo) return err(404, "project not found");
+        const favicon = await findProjectFavicon(repo.cwd);
+        if (!favicon) return err(404, "project favicon not found");
+        return staticAssetResponse(req, url, favicon, projectFaviconMime(favicon));
       }
 
       if (path === "/api/sessions") {
