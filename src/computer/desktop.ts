@@ -187,6 +187,13 @@ async function adoptOrReap(): Promise<boolean> {
     await Bun.sleep(500);
     for (const pid of Object.values(record.pids)) killPid(pid, "SIGKILL");
     clearStateFile();
+    // kill() returns before the kernel finishes tearing the process down, and
+    // a listening socket keeps accepting until it does. startDesktop() checks
+    // for busy ports immediately after this returns, so without this wait a
+    // reap could make the very next start refuse a port it had just freed
+    // itself -- worst on a loaded box, which is exactly when a stack is found
+    // unhealthy in the first place.
+    await waitForPortsFree([record.config.rfbPort, record.config.cdpPort], 3000);
     return false;
   }
 
@@ -335,12 +342,39 @@ function waitForPort(port: number, timeoutMs: number): Promise<boolean> {
           resolve(true);
         })
         .catch(() => {
-          if (Date.now() > deadline) resolve(false);
+          // `>=`, not `>`: a refused connect returns inside the same
+          // millisecond, so with timeoutMs 0 a strict `>` compared equal and
+          // scheduled a pointless 150ms retry. Zero now means one attempt,
+          // which is what every busy-port probe here asks for.
+          if (Date.now() >= deadline) resolve(false);
           else setTimeout(attempt, 150);
         });
     };
     attempt();
   });
+}
+
+/**
+ * Block until nothing answers on `ports`, or until `timeoutMs` runs out.
+ *
+ * Returns true when every port went quiet. A false return is not fatal on its
+ * own: the caller reports the busy port normally, which is the honest outcome
+ * when something really is still holding it.
+ */
+async function waitForPortsFree(ports: number[], timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    let busy = false;
+    for (const port of ports) {
+      if (await waitForPort(port, 0)) {
+        busy = true;
+        break;
+      }
+    }
+    if (!busy) return true;
+    if (Date.now() >= deadline) return false;
+    await Bun.sleep(100);
+  }
 }
 
 /**
@@ -397,7 +431,9 @@ export async function startDesktop(partial: Partial<DesktopConfig> = {}): Promis
   // that cannot work and cannot report that it does not work.
   const busy = await busyPort(config);
   if (busy !== null) {
-    const knob = busy === config.cdpPort ? "OMG_COMPUTER_CDP_PORT" : "OMG_COMPUTER_RFB_PORT";
+    // busyPort checks rfbPort first, so attribute a tie to rfb rather than
+    // naming the CDP knob for a port the RFB check matched.
+    const knob = busy === config.rfbPort ? "OMG_COMPUTER_RFB_PORT" : "OMG_COMPUTER_CDP_PORT";
     throw new Error(
       `port ${busy} is already in use by another process, so the Computer cannot claim it. ` +
         `Stop whatever holds it, or set ${knob} to a free port and restart the server.`,

@@ -13,7 +13,7 @@ import {
 import { PATHS, appVersion, installInfo } from "../config.ts";
 import {
   importSessionPins,
-  pruneSessionPins,
+  visibleSessionPins,
   setSessionPinned,
 } from "../session-pins.ts";
 import { createConnectManager } from "../connect-manager.ts";
@@ -4518,7 +4518,11 @@ a{color:#60a5fa}
         return json({ usage: await sessionUsage() });
       }
       if (path === "/api/session-pins" && req.method === "GET") {
-        return json({ sessionIds: pruneSessionPins(await liveSessionIdsCached()) });
+        // A roster probe failure must not take the pins endpoint down: pins are
+        // filtered against it, never deleted by it, so an empty set just renders
+        // no pins this poll and the next poll recovers.
+        const live = await liveSessionIdsCached().catch(() => new Set<string>());
+        return json({ sessionIds: visibleSessionPins(live) });
       }
       if (path === "/api/session-pins/import" && req.method === "POST") {
         const body = (await req.json().catch(() => null)) as { sessionIds?: unknown } | null;
@@ -4538,7 +4542,7 @@ a{color:#60a5fa}
           ),
         ];
         importSessionPins(sessionIds);
-        return json({ sessionIds: pruneSessionPins(liveIds) });
+        return json({ sessionIds: visibleSessionPins(liveIds) });
       }
       {
         const match = path.match(/^\/api\/session-pins\/([^/]+)$/);
@@ -4557,7 +4561,7 @@ a{color:#60a5fa}
           const liveIds = await liveSessionIdsCached();
           if (body.pinned && !liveIds.has(sessionId)) return err(404, "live session not found");
           setSessionPinned(sessionId, body.pinned);
-          return json({ sessionIds: pruneSessionPins(liveIds) });
+          return json({ sessionIds: visibleSessionPins(liveIds) });
         }
       }
       if (path === "/api/settings") {
@@ -4672,7 +4676,7 @@ a{color:#60a5fa}
         const codingAgentsTask = listCodingAgentsCached();
         const settingsTask = getGlobalSettings();
         const sessionPinsTask = sessionsTask.then((sessions) =>
-          pruneSessionPins(liveSessionIds(sessions)),
+          visibleSessionPins(liveSessionIds(sessions)),
         );
         const tasks = {
           agents: listAgentSummaries(),
