@@ -223,13 +223,17 @@ export function SessionAgentIcon({
   className,
   size,
   wrapperClassName,
+  showAccountNumber = true,
 }: {
   session: Pick<Session, "agent" | "agentLabel" | "claudeAccountId">;
   className?: string;
   size?: "sm" | "md";
   wrapperClassName?: string;
+  /** Lists can hide account routing detail while headers and pickers retain it. */
+  showAccountNumber?: boolean;
 }) {
-  const number = useClaudeAccountNumber(session.agent, session.claudeAccountId);
+  const accountNumber = useClaudeAccountNumber(session.agent, session.claudeAccountId);
+  const number = showAccountNumber ? accountNumber : null;
   const label = session.agentLabel || agentIconAlt(session.agent);
   const img = (
     <img

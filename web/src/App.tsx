@@ -1733,12 +1733,15 @@ function AgentMark({
   busy,
   rounding = "rounded-lg",
   compact = false,
+  showAccountNumber = true,
 }: {
   session: Session;
   busy: boolean;
   rounding?: string;
   /** Smaller secondary identity used in the rail's project badge. */
   compact?: boolean;
+  /** The rail omits account routing detail; headers keep it by default. */
+  showAccountNumber?: boolean;
 }) {
   return (
     <>
@@ -1754,6 +1757,7 @@ function AgentMark({
       ) : null}
       <SessionAgentIcon
         session={session}
+        showAccountNumber={showAccountNumber}
         className={cn(
           rounding,
           "transition-all duration-300 ease-ios",
@@ -13221,24 +13225,44 @@ const RailItem = memo(function RailItem({
             // row would be saying it twice.
             <BotAvatar bot={drivingBot} working={busy} size={44} />
           ) : showFavicon ? (
-            <img
-              src={faviconSrc}
-              alt=""
-              aria-hidden="true"
-              className="size-6 rounded-md object-contain"
-              loading="lazy"
-              decoding="async"
-              onError={() => setFailedFaviconSrc(faviconSrc)}
-            />
+            <>
+              {busy ? (
+                <Loader2
+                  aria-label="working"
+                  className="pointer-events-none absolute inset-0 m-auto size-9 animate-spin text-warning motion-reduce:animate-none"
+                  strokeWidth={1.75}
+                />
+              ) : null}
+              <img
+                src={faviconSrc}
+                alt=""
+                aria-hidden="true"
+                className="size-6 rounded-md object-contain"
+                loading="lazy"
+                decoding="async"
+                onError={() => setFailedFaviconSrc(faviconSrc)}
+              />
+            </>
           ) : (
-            <AgentMark session={session} busy={busy} rounding="rounded-md" />
+            <AgentMark
+              session={session}
+              busy={busy}
+              rounding="rounded-md"
+              showAccountNumber={false}
+            />
           )}
           {!drivingBot && showFavicon ? (
             <span
               title={session.agentLabel || agentIconAlt(session.agent)}
               className="absolute bottom-1 right-1 flex size-[18px] items-center justify-center rounded-md bg-card ring-2 ring-card"
             >
-              <AgentMark session={session} busy={busy} rounding="rounded-sm" compact />
+              <AgentMark
+                session={session}
+                busy={false}
+                rounding="rounded-sm"
+                compact
+                showAccountNumber={false}
+              />
             </span>
           ) : null}
           {/* Blocked keeps the corner badge: it is a state, not a progress,
