@@ -53,17 +53,25 @@ describe("assistant heading scale", () => {
   const h2 = fontSize(".msg-text.markdown h2");
   const h3 = fontSize(".msg-text.markdown h3");
 
-  test("every heading level is larger than the body text it introduces", () => {
-    // Deliberately a relation, not fixed numbers, so restyling the transcript
-    // cannot silently reintroduce headings that read as fine print.
-    expect(h1).toBeGreaterThan(body);
-    expect(h2).toBeGreaterThan(body);
-    expect(h3).toBeGreaterThan(body);
+  // Deliberately relations, not fixed numbers, so restyling the transcript
+  // cannot silently reintroduce headings that read as fine print.
+  //
+  // The margin is 1px rather than a bare `>`. h3 first shipped at 17.5px
+  // against a 17px body, which passes "larger than" and still renders as bold
+  // body text -- the weight was doing all the work and the size none of it. A
+  // relation this test can satisfy at half a pixel does not describe the
+  // requirement.
+  const MIN_STEP = 1;
+
+  test("every heading level is meaningfully larger than the body text", () => {
+    expect(h1).toBeGreaterThanOrEqual(body + MIN_STEP);
+    expect(h2).toBeGreaterThanOrEqual(body + MIN_STEP);
+    expect(h3).toBeGreaterThanOrEqual(body + MIN_STEP);
   });
 
   test("the three levels stay distinguishable from each other", () => {
-    expect(h1).toBeGreaterThan(h2);
-    expect(h2).toBeGreaterThan(h3);
+    expect(h1).toBeGreaterThanOrEqual(h2 + MIN_STEP);
+    expect(h2).toBeGreaterThanOrEqual(h3 + MIN_STEP);
   });
 
   test("flat 14px headings are scoped to the user's own bubble", () => {

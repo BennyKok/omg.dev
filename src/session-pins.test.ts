@@ -6,7 +6,7 @@ import { PATHS } from "./config.ts";
 import {
   importSessionPins,
   listSessionPins,
-  pruneSessionPins,
+  visibleSessionPins,
   resetSessionPinsDbConnectionForTests,
   setSessionPinned,
 } from "./session-pins.ts";
@@ -44,13 +44,30 @@ describe("server-owned session pins", () => {
     expect(listSessionPins()).toEqual(["beta", "phone", "shared", "laptop"]);
   });
 
-  test("prunes ended sessions against the authoritative live roster", () => {
-    expect(pruneSessionPins(new Set(["phone", "laptop"]))).toEqual(["phone", "laptop"]);
-    expect(listSessionPins()).toEqual(["phone", "laptop"]);
+  test("hides ended sessions from the live view", () => {
+    expect(visibleSessionPins(new Set(["phone", "laptop"]))).toEqual(["phone", "laptop"]);
+  });
+
+  // The regression this file exists for. The live roster comes from a /proc
+  // scan that reports an empty list on any read failure, so a read that
+  // DELETED against it would wipe every device's pins on one bad scan.
+  test("an empty roster hides every pin without destroying one", () => {
+    expect(visibleSessionPins(new Set())).toEqual([]);
+    expect(listSessionPins()).toEqual(["beta", "phone", "shared", "laptop"]);
+  });
+
+  test("a pin missing from one roster survives to be shown by the next", () => {
+    expect(visibleSessionPins(new Set(["phone"]))).toEqual(["phone"]);
+    expect(visibleSessionPins(new Set(["phone", "laptop"]))).toEqual(["phone", "laptop"]);
+  });
+
+  test("only an explicit unpin removes a row", () => {
+    setSessionPinned("shared", false);
+    expect(listSessionPins()).toEqual(["beta", "phone", "laptop"]);
   });
 
   test("survives a database reconnect", () => {
     resetSessionPinsDbConnectionForTests();
-    expect(listSessionPins()).toEqual(["phone", "laptop"]);
+    expect(listSessionPins()).toEqual(["beta", "phone", "laptop"]);
   });
 });

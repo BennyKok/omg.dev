@@ -3330,16 +3330,22 @@ function useDictation(opts: {
         });
         const data = (await res.json().catch(() => ({}))) as VoiceSttResponse;
         const text = (data.text || "").trim();
+        // Order matters: recovered text wins over reporting the failure that
+        // made us fall back. Reaching here at all means the realtime socket
+        // broke or gave nothing, so `streamed` is only set on the broken-socket
+        // path — and on the omg relay the batch call ALWAYS fails (it is
+        // realtime-only, 503 realtime_only). Toasting on !res.ok before
+        // checking `streamed` therefore told the user "record it again" while
+        // their words were being typed into the composer.
         if (res.ok && text) deliver(text);
-        else if (!res.ok) {
-          toast.error(voiceErrorMessage(data, res.status));
-          if (streamed) deliver(streamed);
-        } else if (streamed) deliver(streamed);
+        else if (streamed) deliver(streamed);
+        else if (!res.ok) toast.error(voiceErrorMessage(data, res.status));
         else toast.error("No speech was detected. Check the microphone and try again.");
       } catch {
-        // Batch also failed — fall back to whatever the stream gave us, if any.
-        toast.error("Could not reach speech transcription. Check the connection and try again.");
+        // Batch also failed — fall back to whatever the stream gave us, if any,
+        // and stay quiet when that fallback actually produced the text.
         if (streamed) deliver(streamed);
+        else toast.error("Could not reach speech transcription. Check the connection and try again.");
       }
       finish();
     },
@@ -12357,7 +12363,7 @@ function RailStage({
         // A background task's report is machinery, not conversation: it is
         // hidden inside the chat, so it must not surface as the roster preview
         // either — the row would read `[subagent complete] …`.
-        const preview = plainPreviewText(botRosterPreview(rawPreview));
+        const preview = plainPreviewText(botRosterPreview(rawPreview, busy));
         const open = () => {
           onOpenBot?.(bot.id, row.conversationId);
           if (sid) activate(sid, false);
@@ -27476,7 +27482,7 @@ function BotsView({
         const working = !!(session?.sessionId && busyBySid[session.sessionId]);
         const rawPreview = session?.last?.text || session?.lastUserText || row.lastMessagePreview || item.lastMessagePreview || "";
         // See the rail roster: a `[subagent …]` report is not preview material.
-        const preview = plainPreviewText(botRosterPreview(rawPreview));
+        const preview = plainPreviewText(botRosterPreview(rawPreview, working));
         const stopped = !working && isCodingAgentStoppedText(rawPreview);
         const openRow = () => onOpen(item.id, row.conversationId);
         const markRead = row.unread && row.sessionId ? () => markBotRowRead(row.sessionId!) : undefined;
