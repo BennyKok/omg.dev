@@ -10,6 +10,13 @@ Recent product updates and deployment notes.
   and the composer shows an actionable message without exposing the provider's
   response body. The mic also reports its starting and transcribing states to
   assistive technology.
+- **Long-press uses the native iPhone selection controls again.** A user can
+  select and adjust any part of a message, while the separate copy button
+  remains available for copying the whole message in one tap.
+- **Swipe between chats is now optional per device.** The new switch under
+  Settings > More > This device disables only the horizontal chat-switching
+  gesture. Vertical scrolling, native text selection, and other gestures keep
+  working normally.
 
 ## August 25, 2026 - OpenCode Go models appear without a Claude account (v0.6.14)
 
@@ -86,7 +93,6 @@ Recent product updates and deployment notes.
   top of each other. The renderer also picks up the 2.6 accessibility and
   download fixes. Long code and tables stay full height, so the transcript
   layout model still matches what you see.
-
 ## August 24, 2026 - Bot roster status is quieter (v0.6.7)
 
 - **Unread is one small dot on its conversation row.** Unread rows no longer
