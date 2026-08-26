@@ -50,12 +50,26 @@ export interface DesktopConfig {
   proxy?: string;
 }
 
+/**
+ * A port from the environment, or the default when unset or unparseable.
+ *
+ * The defaults are fine on a box that runs nothing else, but 9222 is the
+ * conventional Chrome debugging port, so it is exactly the one a box is most
+ * likely to have already spoken for.
+ */
+export function envPort(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 && n < 65536 ? n : fallback;
+}
+
 export const DEFAULT_DESKTOP: DesktopConfig = {
-  display: 99,
+  display: envPort("OMG_COMPUTER_DISPLAY", 99),
   width: 1280,
   height: 800,
-  rfbPort: 5900,
-  cdpPort: 9222,
+  rfbPort: envPort("OMG_COMPUTER_RFB_PORT", 5900),
+  cdpPort: envPort("OMG_COMPUTER_CDP_PORT", 9222),
   profileDir: `${process.env.HOME ?? "/tmp"}/.omg/computer/chrome-profile`,
 };
 
@@ -330,6 +344,25 @@ function waitForPort(port: number, timeoutMs: number): Promise<boolean> {
 }
 
 /**
+ * The first configured port already answering, or null when both are free.
+ *
+ * `waitForPort` only proves that *something* accepted a connection; it cannot
+ * tell our own Chrome from a stranger's. So a box that already has a browser on
+ * 9222 used to get a start that reported success: Chrome failed to bind its
+ * debugging port and exited, `waitForPort` saw the other process listening and
+ * called it healthy, and every agent then drove that browser instead of the one
+ * on the screen being watched -- with an empty desktop as the only symptom.
+ *
+ * Checking before we spawn anything turns that into an error you can act on.
+ */
+export async function busyPort(config: DesktopConfig): Promise<number | null> {
+  for (const port of [config.rfbPort, config.cdpPort]) {
+    if (await waitForPort(port, 0)) return port;
+  }
+  return null;
+}
+
+/**
  * Reattach to a desktop left by a previous server process, if there is one.
  *
  * `desktopStatus()` is synchronous and adoption needs to probe a port, so the
@@ -358,6 +391,18 @@ export async function startDesktop(partial: Partial<DesktopConfig> = {}): Promis
   if (!deps.ok) throw new Error(deps.hint);
 
   const config: DesktopConfig = { ...DEFAULT_DESKTOP, ...partial };
+
+  // Anything already holding these ports is not ours: adoption ran above, and
+  // it either reattached or reaped. Refuse now rather than starting a stack
+  // that cannot work and cannot report that it does not work.
+  const busy = await busyPort(config);
+  if (busy !== null) {
+    const knob = busy === config.cdpPort ? "OMG_COMPUTER_CDP_PORT" : "OMG_COMPUTER_RFB_PORT";
+    throw new Error(
+      `port ${busy} is already in use by another process, so the Computer cannot claim it. ` +
+        `Stop whatever holds it, or set ${knob} to a free port and restart the server.`,
+    );
+  }
   const display = `:${config.display}`;
   const env = { ...process.env, DISPLAY: display };
   const next: DesktopState = { config };
