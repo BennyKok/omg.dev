@@ -74,7 +74,11 @@ describe("native mobile message selection", () => {
   });
 
   test("tracks native selections so WebKit handles can escape message clipping", () => {
-    expect(messageActions).toContain('document.addEventListener("selectionchange", onSelectionChange)');
+    // Subscribes to the SHARED document listener (lib/selection-change.ts)
+    // rather than registering one per message. This asserted the inline
+    // addEventListener call before that was lifted out, which made a pure
+    // refactor look like a regression.
+    expect(messageActions).toContain("return subscribeSelectionChange(onSelectionChange)");
     expect(messageActions).toContain("content.contains(selection.anchorNode) ||");
     expect(messageActions).toContain("content.contains(selection.focusNode)");
   });

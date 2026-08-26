@@ -338,6 +338,7 @@ import { haptic } from "@/lib/haptics";
 import { feedback } from "@/lib/feedback";
 import { useUiFeedbackPrefs, setUiFeedbackPrefs } from "@/lib/ui-feedback-prefs";
 import { useNavigationPrefs, setNavigationPrefs } from "@/lib/navigation-prefs";
+import { subscribeSelectionChange } from "./lib/selection-change";
 import { useProjectListPrefs, setProjectListPrefs } from "@/lib/project-list-prefs";
 import { useSendMorph } from "@/lib/use-send-morph";
 import { reportError } from "./lib/report-error";
@@ -19209,8 +19210,11 @@ function MessageActions({
       );
       setSelecting(selectionTouchesMessage);
     };
-    document.addEventListener("selectionchange", onSelectionChange);
-    return () => document.removeEventListener("selectionchange", onSelectionChange);
+    // One shared document listener for every message, not one each: see
+    // lib/selection-change.ts. `selectionchange` fires continuously while a
+    // selection handle is dragged, so a per-message listener made that cost
+    // scale with the number of mounted messages.
+    return subscribeSelectionChange(onSelectionChange);
   }, []);
 
   return (
