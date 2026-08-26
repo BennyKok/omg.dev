@@ -107,7 +107,7 @@ describe("page navigation reachability", () => {
     );
   });
 
-  test("the embedded header keeps questions but hides host-owned chrome", () => {
+  test("the embedded header keeps questions and the machine roster filter", () => {
     const headerStart = app.indexOf(") : chromelessSurface ? null : (");
     const askAt = app.indexOf("<AskNavButton", headerStart);
     expect(askAt, "AskNavButton not found in the header").toBeGreaterThan(0);
@@ -115,12 +115,17 @@ describe("page navigation reachability", () => {
       /\{embedded \? null : <UpdateNavButton \/>\}\s*<AskNavButton/,
     );
 
-    for (const guarded of ["<UpdateNavButton", "<UserFilterMenu"]) {
-      const at = app.indexOf(guarded, headerStart);
-      expect(at, `${guarded} not found in the header`).toBeGreaterThan(0);
-      const before = app.slice(Math.max(0, at - 200), at);
-      expect(before, `${guarded} is not gated on embedded`).toContain("embedded ? null :");
-    }
+    const updateAt = app.indexOf("<UpdateNavButton", headerStart);
+    expect(updateAt, "UpdateNavButton not found in the header").toBeGreaterThan(0);
+    expect(app.slice(Math.max(0, updateAt - 200), updateAt)).toContain("embedded ? null :");
+
+    const filterAt = app.indexOf("<UserFilterMenu", headerStart);
+    expect(filterAt, "UserFilterMenu not found in the header").toBeGreaterThan(0);
+    expect(app.slice(Math.max(0, filterAt - 200), filterAt)).not.toContain(
+      "embedded ? null :",
+    );
+    expect(app).toContain("onUserChange={changeUserFilter}");
+    expect(app).not.toContain("onUserChange={embedded ? undefined : changeUserFilter}");
   });
 
   test("the hosted rail can open its question inbox", () => {
