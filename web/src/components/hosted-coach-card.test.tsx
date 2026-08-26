@@ -2,39 +2,20 @@
 // change fixes was a surface that never rendered, so a state-only test would
 // not have caught it: these assertions are about what reaches the DOM.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Window } from "happy-dom";
+// Shared DOM + React setup. Must come before importing the component, so the
+// globals exist by the time react-dom binds to them: see test-support/render.
+import { mount, type Mounted } from "../test-support/render";
 
-const window = new Window({ url: "https://app.omg.dev/" });
-Object.assign(globalThis, {
-  window,
-  document: window.document,
-  navigator: window.navigator,
-  HTMLElement: window.HTMLElement,
-  Element: window.Element,
-  Node: window.Node,
-  getComputedStyle: window.getComputedStyle.bind(window),
-  IS_REACT_ACT_ENVIRONMENT: true,
-});
-
-const { createRoot } = await import("react-dom/client");
-const { act } = await import("react");
 const { HostedCoachCard } = await import("./hosted-coach-card");
 const { hostedCoachSteps } = await import("../lib/hosted-coach");
 
-let host: HTMLElement;
-let root: ReturnType<typeof createRoot>;
-
+let ui: Mounted;
 beforeEach(() => {
-  host = document.createElement("div");
-  document.body.appendChild(host);
-  root = createRoot(host);
+  ui = mount();
 });
-afterEach(() => {
-  act(() => root.unmount());
-  host.remove();
-});
+afterEach(() => ui.cleanup());
 
-const render = (ui: React.ReactElement) => act(() => root.render(ui));
+const render = (el: React.ReactElement) => ui.render(el);
 
 describe("HostedCoachCard", () => {
   test("a fresh hosted box is told both things it can do", () => {
@@ -45,7 +26,7 @@ describe("HostedCoachCard", () => {
         onDismiss={() => {}}
       />,
     );
-    const text = host.textContent ?? "";
+    const text = ui.text() ?? "";
     expect(text).toContain("Getting started");
     expect(text).toContain("Start your first session");
     expect(text).toContain("Put an agent on a schedule");
@@ -61,8 +42,8 @@ describe("HostedCoachCard", () => {
         onDismiss={() => {}}
       />,
     );
-    const buttons = [...host.querySelectorAll("ol button")] as HTMLButtonElement[];
-    act(() => buttons[1]!.click());
+    const buttons = [...ui.host.querySelectorAll("ol button")] as HTMLButtonElement[];
+    ui.flush(() => buttons[1]!.click());
     expect(clicked).toEqual(["schedule"]);
   });
 
@@ -76,10 +57,10 @@ describe("HostedCoachCard", () => {
         onDismiss={() => {}}
       />,
     );
-    expect(host.textContent).toContain("1 of 2 done");
-    const buttons = [...host.querySelectorAll("ol button")] as HTMLButtonElement[];
+    expect(ui.text()).toContain("1 of 2 done");
+    const buttons = [...ui.host.querySelectorAll("ol button")] as HTMLButtonElement[];
     expect(buttons[0]!.disabled).toBe(true);
-    act(() => buttons[0]!.click());
+    ui.flush(() => buttons[0]!.click());
     expect(clicked).toEqual([]);
   });
 
@@ -94,11 +75,11 @@ describe("HostedCoachCard", () => {
         }}
       />,
     );
-    const button = host.querySelector(
+    const button = ui.host.querySelector(
       '[aria-label="Dismiss getting started"]',
     ) as HTMLButtonElement | null;
     expect(button).not.toBeNull();
-    act(() => button!.click());
+    ui.flush(() => button!.click());
     expect(dismissed).toBe(1);
   });
 });

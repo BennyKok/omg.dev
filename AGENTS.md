@@ -88,6 +88,58 @@ replace workspace artifacts and cause false module-resolution errors.
 Use a real install in each worktree. Do not share or symlink `node_modules`
 between checkouts because stale dependencies cause false test and type errors.
 
+### Do not assert on component source text
+
+Do not test a component by reading its file and matching strings:
+
+```ts
+const APP = readFileSync(join(root, "web", "src", "App.tsx"), "utf8");
+expect(APP).toContain('document.addEventListener("selectionchange", ...)');
+```
+
+This cannot tell a refactor from a regression. Renaming a local, lifting a
+listener into a module, or deleting a file makes it fail while the behavior is
+correct. It fails the same way when the behavior is genuinely broken, so the
+failures stop being read. A roster preview that never showed "Working" sat
+broken on `main` behind exactly such an assertion, because the red test looked
+like the usual noise.
+
+Render the component instead. `web/src/test-support/render.tsx` installs the
+DOM globals and returns a mounted root:
+
+```tsx
+import { mount, type Mounted } from "../test-support/render";
+const { Thing } = await import("./thing");
+
+let ui: Mounted;
+beforeEach(() => { ui = mount(); });
+afterEach(() => ui.cleanup());
+
+test("shows the step", () => {
+  ui.render(<Thing steps={steps} />);
+  expect(ui.text()).toContain("Connect an agent");
+});
+```
+
+`mount()` gives `render`, `flush`, `flushAsync`, `remount`, `text`, `query`,
+`queryAll`, `host` and `cleanup`. Import the harness BEFORE the component, and
+load the component with `await import()`. A static import is hoisted above the
+global assignment and react-dom then binds to a window that does not exist.
+
+There is no `@testing-library`. happy-dom plus `react-dom/client` and `act` is
+enough, and the harness is the only copy of that setup.
+
+Two constraints are real:
+
+- A component that is not exported cannot be rendered. Most of `App.tsx` is in
+  that state. Export it, or move it to its own file under `web/src/components`.
+- Roughly 47 existing test files still assert on component source. They are
+  being converted as the files they cover are touched. Do not add more, and do
+  not treat their presence as approval of the pattern.
+
+Server wiring is different: assert against the running behavior (call the
+handler, hit the endpoint) rather than against `serve.ts` as a string.
+
 ### Do not build the web bundle to check your work
 
 `bun run build:packages` and `vite build` are delivery steps, not verification
