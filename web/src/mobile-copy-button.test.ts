@@ -1,5 +1,5 @@
-// Regression coverage for hiding the always-visible per-message copy button
-// on mobile while keeping the long-press copy gesture and the desktop button.
+// Regression coverage for keeping native text selection and whole-message copy
+// as two separate actions on touch devices.
 //
 // App.tsx is a large, side-effect-bearing entry module (mounts the app on
 // import in a browser context), so — following the same pattern already used
@@ -26,14 +26,16 @@ describe("mobile message copy button", () => {
     expect(CSS).toMatch(rule);
   });
 
-  test("the pointer-coarse (touch) media block no longer forces the button visible", () => {
-    const coarseBlockMatch = /@media \(pointer: coarse\) \{([\s\S]*?)\n  \}/.exec(CSS);
-    expect(coarseBlockMatch).not.toBeNull();
-    const coarseBlock = coarseBlockMatch![1];
-    // This is exactly the regression this test guards: touch devices used to
-    // get `.message-copy-button { opacity: 1; }` here, duplicating the
-    // long-press gesture with an always-visible button on every bubble.
-    expect(coarseBlock).not.toContain(".message-copy-button");
+  test("is visible and tappable for a coarse pointer", () => {
+    const coarseStart = CSS.indexOf(
+      "@media (pointer: coarse) {",
+      CSS.indexOf(".group\\/message:hover"),
+    );
+    const coarseEnd = CSS.indexOf("  .msg-text.markdown hr", coarseStart);
+    expect(coarseStart).toBeGreaterThan(-1);
+    expect(coarseEnd).toBeGreaterThan(coarseStart);
+    const coarseBlock = CSS.slice(coarseStart, coarseEnd);
+    expect(coarseBlock).toMatch(/\.message-copy-button\s*\{[^}]*opacity:\s*1;[^}]*pointer-events:\s*auto;/);
   });
 
   test("hover reveals only for a fine pointer, while keyboard focus works everywhere", () => {
@@ -43,19 +45,43 @@ describe("mobile message copy button", () => {
   });
 });
 
-describe("mobile long-press copy gesture (App.tsx MessageActions)", () => {
-  test("long-press is still wired up for touch/pen pointers", () => {
-    expect(APP).toContain('event.pointerType !== "touch" && event.pointerType !== "pen"');
-    expect(APP).toMatch(/MESSAGE_LONG_PRESS_MS\s*=\s*\d+/);
+describe("native mobile message selection", () => {
+  const messageActions = APP.slice(
+    APP.indexOf("function MessageActions("),
+    APP.indexOf("// Memoized:", APP.indexOf("function MessageActions(")),
+  );
+  const coarseStart = CSS.indexOf(
+    "@media (pointer: coarse) {",
+    CSS.indexOf(".group\\/message:hover"),
+  );
+  const coarseEnd = CSS.indexOf("  .msg-text.markdown hr", coarseStart);
+  const coarseBlock = CSS.slice(coarseStart, coarseEnd);
+
+  test("does not suppress the native iOS callout or text selection", () => {
+    expect(coarseBlock).not.toContain("-webkit-touch-callout: none");
+    expect(coarseBlock).not.toContain("-webkit-user-select: none");
+    expect(coarseBlock).not.toContain("user-select: none");
   });
 
-  test("the long-press action menu still offers Copy", () => {
-    const menuSection = APP.slice(APP.indexOf("Message actions"));
-    expect(menuSection.slice(0, 800)).toContain("Copy");
+  test("does not intercept long-press or replace it with a custom menu", () => {
+    expect(APP).not.toContain("MESSAGE_LONG_PRESS_MS");
+    expect(APP).not.toContain("TextSelect");
+    expect(messageActions).not.toContain("MESSAGE_LONG_PRESS_MS");
+    expect(messageActions).not.toContain("onPointerDown=");
+    expect(messageActions).not.toContain("onContextMenu=");
+    expect(messageActions).not.toContain("Select text");
+    expect(messageActions).not.toContain("removeAllRanges");
   });
 
-  test("the visible (desktop) copy button and its copied/uncopied labels are still rendered", () => {
-    expect(APP).toContain("message-copy-button");
-    expect(APP).toContain('aria-label={copied ? "Message copied" : "Copy message"}');
+  test("tracks native selections so WebKit handles can escape message clipping", () => {
+    expect(messageActions).toContain('document.addEventListener("selectionchange", onSelectionChange)');
+    expect(messageActions).toContain("content.contains(selection.anchorNode) ||");
+    expect(messageActions).toContain("content.contains(selection.focusNode)");
+  });
+
+  test("keeps whole-message copy as a separate button", () => {
+    expect(messageActions).toContain("message-copy-button");
+    expect(messageActions).toContain("onClick={() => void copy()}");
+    expect(messageActions).toContain('aria-label={copied ? "Message copied" : "Copy message"}');
   });
 });
