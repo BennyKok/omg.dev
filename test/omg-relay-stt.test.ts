@@ -116,8 +116,9 @@ test("the relay reports batch transcription as unavailable rather than empty", a
   const { transcribeStt } = await import("../src/voice-providers.ts");
   const res = await transcribeStt(new ArrayBuffer(8));
   expect(res.status).toBe(503);
-  const body = (await res.json()) as { error?: string };
-  expect(body.error).toContain("realtime-only");
+  const body = (await res.json()) as { error?: string; code?: string };
+  expect(body.code).toBe("realtime_only");
+  expect(body.error).toBe("omg.dev live transcription is unavailable for this recording.");
 });
 
 test("without OMG_MEDIA_URL the relay is not offered", async () => {

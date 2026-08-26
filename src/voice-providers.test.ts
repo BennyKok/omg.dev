@@ -2,7 +2,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { writeEnvValue } from "./voice-providers.ts";
+import {
+  classifySttProviderError,
+  providerErrorResponse,
+  writeEnvValue,
+} from "./voice-providers.ts";
 
 let dir = "";
 
@@ -36,5 +40,54 @@ describe("writeEnvValue", () => {
     await writeEnvValue(created, "ELEVENLABS_API_KEY", "key");
     expect(await readFile(created, "utf8")).toBe("ELEVENLABS_API_KEY=key");
     expect((await stat(created)).mode & 0o777).toBe(0o600);
+  });
+});
+
+describe("classifySttProviderError", () => {
+  test("maps authentication failures without returning provider text", () => {
+    expect(classifySttProviderError("openai", 401, "invalid_api_key")).toEqual({
+      code: "invalid_api_key",
+      provider: "openai",
+      retryable: false,
+      upstreamStatus: 401,
+      message: "OpenAI rejected the API key. Add a valid key in Voice settings.",
+    });
+  });
+
+  test("separates exhausted credit from a temporary rate limit", () => {
+    expect(classifySttProviderError("openai", 429, "credit_balance_exhausted").code).toBe(
+      "credit_balance_exhausted",
+    );
+    expect(classifySttProviderError("openai", 429, "insufficient_quota").code).toBe(
+      "credit_balance_exhausted",
+    );
+    expect(classifySttProviderError("openai", 429).code).toBe("rate_limited");
+  });
+
+  test("keeps unknown provider failures generic", () => {
+    const failure = classifySttProviderError("elevenlabs", 418, "secret-provider-detail");
+    expect(failure.code).toBe("transcription_failed");
+    expect(failure.retryable).toBe(false);
+    expect(failure.message).not.toContain("secret-provider-detail");
+  });
+
+  test("returns the stable code without leaking the upstream response", async () => {
+    const response = await providerErrorResponse(
+      "openai",
+      new Response(
+        JSON.stringify({
+          error: {
+            code: "credit_balance_exhausted",
+            message: "private upstream account detail",
+          },
+        }),
+        { status: 429 },
+      ),
+    );
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(response.status).toBe(502);
+    expect(body.code).toBe("credit_balance_exhausted");
+    expect(body.provider).toBe("openai");
+    expect(JSON.stringify(body)).not.toContain("private upstream account detail");
   });
 });
