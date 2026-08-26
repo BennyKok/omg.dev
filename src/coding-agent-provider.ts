@@ -101,6 +101,7 @@ export const ACTIVE_CODING_AGENT_PROVIDERS = {
       prompt: request.prompt,
       model: request.model,
       key: request.sessionId,
+      thinkingLevel: request.thinkingLevel,
       omgSessionId: request.sessionId,
       omgUser: request.omgUser,
       containInAgentSlice: request.containInAgentSlice,

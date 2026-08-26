@@ -978,6 +978,7 @@ type ModelCatalogItem = {
   defaultModel: string;
   models: string[];
   thinkingLevels: string[];
+  thinkingLevelsByModel?: Record<string, string[]>;
   session: boolean;
   auto: boolean;
   visible?: boolean;
@@ -1206,8 +1207,8 @@ export type { AgentKind } from "./lib/coding-agent-options";
 
 // Which agents honor a thinking/reasoning-effort level. Claude (CLI + ai-sdk)
 // takes an `effort`; Codex (CLI + ai-sdk) takes a `reasoning_effort` — both
-// accept the low/medium/high/xhigh values the picker offers. OpenCode's provider
-// exposes no reasoning knob, so the selector is hidden for it.
+// accept the low/medium/high/xhigh values the picker offers. OpenCode maps this
+// control to the selected model's provider-specific `variant`.
 function agentSupportsThinking(agent: AgentKind): boolean {
   return (
     agent === "claude" ||
@@ -1216,6 +1217,7 @@ function agentSupportsThinking(agent: AgentKind): boolean {
     agent === "cursor" ||
     agent === "codex" ||
     agent === "codex-aisdk" ||
+    agent === "opencode" ||
     agent === "jcode" ||
     agent === "pi"
   );
@@ -1274,6 +1276,7 @@ type AgentModelCatalog = {
   models: Record<AgentKind, string[]>;
   defaults: Record<AgentKind, string>;
   thinkingLevels: Record<AgentKind, string[]>;
+  thinkingLevelsByModel: Record<AgentKind, Record<string, string[]>>;
 };
 
 function buildAgentModelCatalog(items?: ModelCatalogItem[] | null): AgentModelCatalog {
@@ -1284,13 +1287,17 @@ function buildAgentModelCatalog(items?: ModelCatalogItem[] | null): AgentModelCa
   const thinkingLevels = Object.fromEntries(
     Object.entries(AGENT_THINKING_LEVELS).map(([key, value]) => [key, [...value]]),
   ) as Record<AgentKind, string[]>;
+  const thinkingLevelsByModel = Object.fromEntries(
+    Object.keys(AGENT_MODELS).map((key) => [key, {}]),
+  ) as Record<AgentKind, Record<string, string[]>>;
   for (const item of items ?? []) {
     if (!AGENT_MODELS[item.key] || !item.models?.length) continue;
     models[item.key] = item.models;
     defaults[item.key] = item.defaultModel || defaults[item.key];
     thinkingLevels[item.key] = item.thinkingLevels ?? thinkingLevels[item.key];
+    thinkingLevelsByModel[item.key] = item.thinkingLevelsByModel ?? {};
   }
-  return { models, defaults, thinkingLevels };
+  return { models, defaults, thinkingLevels, thinkingLevelsByModel };
 }
 
 const AgentModelCatalogContext = createContext<AgentModelCatalog>(
@@ -1311,9 +1318,21 @@ function useAgentDefaultModel(agent: AgentKind): string {
   return catalog.defaults[agent] ?? AGENT_DEFAULT_MODEL[agent];
 }
 
-function useAgentThinkingLevels(agent: AgentKind): string[] {
-  const catalog = useAgentModelCatalog();
+function thinkingLevelsForSelection(
+  catalog: AgentModelCatalog,
+  agent: AgentKind,
+  model?: string,
+): string[] {
+  if (model && catalog.thinkingLevelsByModel[agent]?.[model]) {
+    return catalog.thinkingLevelsByModel[agent][model];
+  }
+  if (model && agent === "opencode") return [];
   return catalog.thinkingLevels[agent] ?? AGENT_THINKING_LEVELS[agent] ?? [];
+}
+
+function useAgentThinkingLevels(agent: AgentKind, model?: string): string[] {
+  const catalog = useAgentModelCatalog();
+  return thinkingLevelsForSelection(catalog, agent, model);
 }
 
 // Kept in sync with AUTO_AGENT_BACKENDS in src/agent-catalog.ts by construction:
@@ -7108,6 +7127,7 @@ export function App() {
     // back and the launch 400'd ("thinkingLevel is not supported for opencode
     // sessions") on a request the user never asked for.
     const launchAgent = opts.agent ?? sourceAgent?.agent ?? "aisdk";
+    const launchModel = opts.model ?? sourceAgent?.model;
     const inheritedThinkingLevel = opts.thinkingLevel ?? sourceAgent?.thinkingLevel;
     const agentCwd = sourceAgent?.cwd;
     const cwd = agentCwd || localStorage.getItem("lfg_v2_repo") || repos[0]?.cwd || "";
@@ -7132,8 +7152,10 @@ export function App() {
             title: title || undefined,
             user: owner || undefined,
             agent: launchAgent,
-            model: opts.model ?? sourceAgent?.model,
-            thinkingLevel: agentSupportsThinking(launchAgent) ? inheritedThinkingLevel : undefined,
+            model: launchModel,
+            thinkingLevel: thinkingLevelsForSelection(modelCatalog, launchAgent, launchModel).length
+              ? inheritedThinkingLevel
+              : undefined,
             overLimit: overLimit || undefined,
             // Only Claude has accounts to pin. No `?? sourceAgent` fallback here:
             // the sheet seeds its state FROM the source agent, so an absent value
@@ -7458,7 +7480,9 @@ export function App() {
           user: owner || undefined,
           agent: launchAgent,
           model: launchModel,
-          thinkingLevel: agentSupportsThinking(launchAgent) ? savedThinkingLevel() : undefined,
+          thinkingLevel: thinkingLevelsForSelection(modelCatalog, launchAgent, launchModel).length
+            ? savedThinkingLevel()
+            : undefined,
         }),
       });
       if (res.sessionId) markCreatedSid(res.sessionId);
@@ -15732,6 +15756,7 @@ const LIVE_THINKING_AGENTS = new Set([
   "codex-aisdk",
   "grok",
   "cursor",
+  "opencode",
   "pi",
 ]);
 
@@ -15746,7 +15771,7 @@ function SessionThinkingLevelSubmenu({
 }) {
   const sid = session.sessionId;
   const agent = session.agent as AgentKind | undefined;
-  const supportedLevels = useAgentThinkingLevels(agent ?? "aisdk");
+  const supportedLevels = useAgentThinkingLevels(agent ?? "aisdk", session.model ?? undefined);
   const levels = agent === "aisdk"
     ? supportedLevels.filter((level) => level !== "max")
     : supportedLevels;
@@ -16425,7 +16450,7 @@ function ForkSessionDialog({
   const [prompt, setPrompt] = useState("");
   const sid = session.sessionId;
   const models = catalog.models[agent] ?? AGENT_MODELS[agent];
-  const thinkingLevels = useAgentThinkingLevels(agent);
+  const thinkingLevels = useAgentThinkingLevels(agent, model);
   const selectedLaunchId =
     agent === "aisdk" && claudeAccountId ? `aisdk:${claudeAccountId}` : agent;
   // Same composer plumbing as the new-session composer: eager uploads, drag &
@@ -16472,7 +16497,7 @@ function ForkSessionDialog({
     }
     localStorage.setItem("lfg_fork_agent", agent);
     localStorage.setItem(`lfg_fork_model_${agent}`, model);
-    if (agentSupportsThinking(agent)) localStorage.setItem("lfg_thinking_level", thinkingLevel);
+    if (thinkingLevels.length) localStorage.setItem("lfg_thinking_level", thinkingLevel);
     const text = (overrideText ?? prompt).trim();
     const attached = files.attachments;
     onClose();
@@ -16491,7 +16516,7 @@ function ForkSessionDialog({
             user: session.assignedUser || undefined,
             agent,
             model,
-            thinkingLevel: agentSupportsThinking(agent) ? thinkingLevel : undefined,
+            thinkingLevel: thinkingLevels.length ? thinkingLevel : undefined,
             claudeAccountId: agent === "aisdk" ? claudeAccountId || undefined : undefined,
             archiveSource: continuing || undefined,
           }),
@@ -21093,7 +21118,7 @@ function NewSessionDialog({
   }, [open, defaultUser, users]);
 
   const models = catalog.models[agent] ?? AGENT_MODELS[agent];
-  const thinkingLevels = useAgentThinkingLevels(agent);
+  const thinkingLevels = useAgentThinkingLevels(agent, model);
   // When the live view is filtered to a specific project, lock new sessions to
   // that project's repo (and hide the picker below). Falls back to the normal
   // localStorage/first-repo default when viewing "All projects" or when the
@@ -21273,7 +21298,7 @@ function NewSessionDialog({
     localStorage.setItem("lfg_v2_agent", launchAgent);
     localStorage.setItem("lfg_v2_repo", selectedRepo);
     localStorage.setItem(`lfg_model_${launchAgent}`, launchModel);
-    if (agentSupportsThinking(launchAgent)) localStorage.setItem("lfg_thinking_level", launchThinkingLevel);
+    if (thinkingLevels.length) localStorage.setItem("lfg_thinking_level", launchThinkingLevel);
     if (launchAgent === "claude") localStorage.setItem("lfg_model", launchModel);
     if (launchUser) localStorage.setItem("lfg_user", launchUser);
     // Keep both composer variants mounted while the session boots so the
@@ -21304,7 +21329,7 @@ function NewSessionDialog({
             user: launchUser || undefined,
             agent: launchAgent,
             model: launchModel,
-            thinkingLevel: agentSupportsThinking(launchAgent) ? launchThinkingLevel : undefined,
+            thinkingLevel: thinkingLevels.length ? launchThinkingLevel : undefined,
             claudeAccountId: launchClaudeAccountId,
             overLimit: overLimit || undefined,
           }),
@@ -23083,7 +23108,7 @@ function AgentModelRow<K extends AgentKind>({
   const catalog = useAgentModelCatalog();
   const accessMode = useContext(AgentAccessModeContext);
   const models = useAgentModels(backend);
-  const thinkingLevels = useAgentThinkingLevels(backend);
+  const thinkingLevels = useAgentThinkingLevels(backend, model);
   const defaultModelFor = (key: AgentKind) =>
     catalog.defaults[key] ?? AGENT_DEFAULT_MODEL[key];
   // The catalog is keyed by the full AgentKind union; `scheduledOnly` narrows it
@@ -23295,7 +23320,7 @@ function FindingSheet({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const backendModels = useAgentModels(backend);
   const backendDefaultModel = useAgentDefaultModel(backend);
-  const supportsThinking = agentSupportsThinking(backend);
+  const supportsThinking = useAgentThinkingLevels(backend, model).length > 0;
 
   useEffect(() => {
     if (!backendModels.includes(model)) setModel(backendDefaultModel);
@@ -23783,7 +23808,7 @@ function NewAutoAgentComposer({
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(savedThinkingLevel());
   const backendModels = useAgentModels(backend);
   const backendDefaultModel = useAgentDefaultModel(backend);
-  const supportsThinking = agentSupportsThinking(backend);
+  const supportsThinking = useAgentThinkingLevels(backend, model).length > 0;
 
   useEffect(() => {
     if (!backendModels.includes(model)) setModel(backendDefaultModel);
@@ -23981,7 +24006,7 @@ function AgentEditorSheet({
   const nextPreview = useMemo(() => nextRunAt(schedule, tz), [schedule, tz]);
   const backendModels = useAgentModels(backend);
   const backendDefaultModel = useAgentDefaultModel(backend);
-  const supportsThinking = agentSupportsThinking(backend);
+  const supportsThinking = useAgentThinkingLevels(backend, model).length > 0;
 
   useEffect(() => {
     if (!backendModels.includes(model)) setModel(backendDefaultModel);
@@ -27583,6 +27608,7 @@ function BotEditorPage({
   const [rotationError, setRotationError] = useState(editing ? bot.rotationError : undefined);
   const models = useAgentModels(backend);
   const backendDefault = useAgentDefaultModel(backend);
+  const botThinkingLevels = useAgentThinkingLevels(backend, model);
   useEffect(() => {
     if (!models.includes(model)) setModel(backendDefault);
   }, [backendDefault, model, models]);
@@ -27625,7 +27651,7 @@ function BotEditorPage({
       persona: persona.trim(),
       agent: backend,
       model: model || undefined,
-      thinkingLevel: agentSupportsThinking(backend) ? thinkingLevel : undefined,
+      thinkingLevel: botThinkingLevels.length ? thinkingLevel : undefined,
       claudeAccountId: backend === "aisdk" ? livePin || null : null,
       cwd: cwd || undefined,
       enabled,

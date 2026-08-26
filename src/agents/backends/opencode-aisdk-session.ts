@@ -92,6 +92,23 @@ function modelRef(model: string): { providerID: string; modelID: string } | unde
   return { providerID: model.slice(0, i), modelID: model.slice(i + 1) };
 }
 
+/** @internal exported for unit tests */
+export function opencodePromptBody(
+  model: string,
+  thinkingLevel: string | undefined,
+  prompt: string,
+): {
+  model?: { providerID: string; modelID: string };
+  variant?: string;
+  parts: Array<{ type: "text"; text: string }>;
+} {
+  return {
+    ...(modelRef(model) ? { model: modelRef(model) } : {}),
+    ...(thinkingLevel ? { variant: thinkingLevel } : {}),
+    parts: [{ type: "text", text: prompt }],
+  };
+}
+
 type OcPart = {
   id?: string;
   type?: string;
@@ -444,7 +461,7 @@ async function autoRejectPendingQuestions(baseUrl: string, sessionId: string): P
 export async function pipeToOpencodeAiSdk(
   prompt: string,
   log: (s: string) => void,
-  opts: { model?: string; cwd?: string } = {},
+  opts: { model?: string; thinkingLevel?: string; cwd?: string } = {},
 ): Promise<string> {
   const model = opts.model ?? "opencode/big-pickle";
   const cwd = opts.cwd ?? process.cwd();
@@ -469,10 +486,7 @@ export async function pipeToOpencodeAiSdk(
       res = (await client.session.prompt({
         path: { id: ocId },
         query: { directory: cwd },
-        body: {
-          ...(modelRef(model) ? { model: modelRef(model) } : {}),
-          parts: [{ type: "text", text: prompt }],
-        },
+        body: opencodePromptBody(model, opts.thinkingLevel, prompt),
       })) as { error?: unknown; data?: { parts?: OcPart[] } };
     } finally {
       clearInterval(rejectTimer);
@@ -494,6 +508,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
   // synthetic direct-index path.
   const keyArg = arg(argv, "--key");
   let model = arg(argv, "--model") ?? "anthropic/claude-sonnet-4-6";
+  let thinkingLevel = arg(argv, "--thinking-level");
   const cwd = arg(argv, "--cwd") ?? process.cwd();
   const tmuxName = arg(argv, "--managed-name") ?? arg(argv, "--tmux") ?? "";
   const recoveredAt = Number(arg(argv, "--recovered-at")) || null;
@@ -619,6 +634,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     recoveredAt,
     cwd,
     model,
+    thinkingLevel: thinkingLevel ?? null,
     busy: false,
     prompt: null,
     title: initialPrompt ? initialPrompt.slice(0, 72) : null,
@@ -1009,10 +1025,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
         client.session.prompt({
           path: { id: ocSessionId! },
           query: { directory: cwd },
-          body: {
-            ...(modelRef(model) ? { model: modelRef(model) } : {}),
-            parts: [{ type: "text", text: prompt }],
-          },
+          body: opencodePromptBody(model, thinkingLevel, prompt),
         }),
         failed.promise,
       ]);
@@ -1134,6 +1147,12 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
       if (next) {
         model = next;
         patchEntry(key, { model });
+      }
+    } else if (cmd.type === "set_thinking_level") {
+      const next = cmd.thinkingLevel.trim();
+      if (next) {
+        thinkingLevel = next;
+        patchEntry(key, { thinkingLevel });
       }
     } else if (cmd.type === "answer") {
       void handleAnswerQuestion(cmd.index);

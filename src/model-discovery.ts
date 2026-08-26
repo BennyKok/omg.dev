@@ -13,6 +13,8 @@ export type DiscoveredModelProvider = {
   command?: string[];
   models: string[];
   labels?: Record<string, string>;
+  /** Per-model provider variants, such as OpenCode reasoning effort levels. */
+  variants?: Record<string, string[]>;
   error?: string;
   refreshedAt: number;
   durationMs: number;
@@ -169,7 +171,7 @@ function commandFor(key: ProviderKey): string[] | null {
   }
   if (key === "opencode") {
     const bin = opencodePath();
-    return bin ? [bin, "models"] : null;
+    return bin ? [bin, "models", "--verbose"] : null;
   }
   if (key === "fx") {
     const bin = fxPath();
@@ -253,6 +255,42 @@ function parsePlainModelLines(text: string): { models: string[]; labels: Record<
   return { models: ids, labels };
 }
 
+export function parseOpenCodeModels(text: string): {
+  models: string[];
+  labels: Record<string, string>;
+  variants: Record<string, string[]>;
+} {
+  const models: string[] = [];
+  const labels: Record<string, string> = {};
+  const variants: Record<string, string[]> = {};
+  const clean = cleanText(text);
+  const blocks = clean.matchAll(
+    /^([A-Za-z0-9_.:/\-[\],=]+)\r?\n(\{[\s\S]*?^\})/gm,
+  );
+  for (const match of blocks) {
+    const id = cleanId(match[1] ?? "");
+    if (!id) continue;
+    try {
+      const metadata = JSON.parse(match[2] ?? "{}") as {
+        name?: unknown;
+        variants?: unknown;
+      };
+      addModel(models, labels, id, typeof metadata.name === "string" ? metadata.name : undefined);
+      if (!metadata.variants || typeof metadata.variants !== "object" || Array.isArray(metadata.variants)) continue;
+      const levels = Object.keys(metadata.variants).filter((level) => cleanId(level) === level);
+      if (levels.length) variants[id] = levels;
+    } catch {
+      // One malformed metadata block must not hide the remaining providers.
+    }
+  }
+  // Older OpenCode builds may accept --verbose but still print only ids.
+  if (!models.length) {
+    const plain = parsePlainModelLines(clean);
+    return { ...plain, variants };
+  }
+  return { models, labels, variants };
+}
+
 export function parseJcodeModels(text: string): { models: string[]; labels: Record<string, string> } {
   const parsed = JSON.parse(text) as {
     models?: Array<string | { model?: unknown; available?: unknown }>;
@@ -289,11 +327,15 @@ export function parseFxModels(text: string): { models: string[]; labels: Record<
   return { models: ids, labels };
 }
 
-function parseModels(key: ProviderKey, text: string): { models: string[]; labels: Record<string, string> } {
+function parseModels(key: ProviderKey, text: string): {
+  models: string[];
+  labels: Record<string, string>;
+  variants?: Record<string, string[]>;
+} {
   if (key === "codex" || key === "codex-aisdk") return parseCodexModels(text);
   if (key === "grok") return parseBulletModels(text);
   if (key === "cursor") return parseDashListModels(text);
-  if (key === "opencode") return parsePlainModelLines(text);
+  if (key === "opencode") return parseOpenCodeModels(text);
   if (key === "fx") return parseFxModels(text);
   if (key === "jcode") return parseJcodeModels(text);
   return { models: [], labels: {} };
@@ -387,6 +429,7 @@ async function discoverProvider(key: ProviderKey): Promise<DiscoveredModelProvid
       command,
       models: parsed.models,
       labels: Object.keys(parsed.labels).length ? parsed.labels : undefined,
+      variants: parsed.variants && Object.keys(parsed.variants).length ? parsed.variants : undefined,
       refreshedAt,
       durationMs: Math.round((performance.now() - started) * 1000) / 1000,
     };

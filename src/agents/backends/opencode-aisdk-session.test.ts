@@ -3,11 +3,29 @@ import {
   answersForIndex,
   isTrustedUploadPermission,
   pendingToPrompt,
+  opencodePromptBody,
   permissionToPrompt,
   sessionErrorText,
   shouldPublishDraftPart,
   toolPartMessages,
 } from "./opencode-aisdk-session.ts";
+
+describe("OpenCode model variants", () => {
+  test("forwards the selected thinking level as OpenCode's prompt variant", () => {
+    expect(opencodePromptBody("zai-coding-plan/glm-5.3", "max", "hello")).toEqual({
+      model: { providerID: "zai-coding-plan", modelID: "glm-5.3" },
+      variant: "max",
+      parts: [{ type: "text", text: "hello" }],
+    });
+  });
+
+  test("omits the variant for models without a selected level", () => {
+    expect(opencodePromptBody("opencode/deepseek-v4-flash-free", undefined, "hello")).toEqual({
+      model: { providerID: "opencode", modelID: "deepseek-v4-flash-free" },
+      parts: [{ type: "text", text: "hello" }],
+    });
+  });
+});
 
 describe("opencode draft streaming", () => {
   test("does not publish OpenCode's streamed user prompt as an assistant draft", () => {

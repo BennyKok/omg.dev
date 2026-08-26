@@ -255,7 +255,11 @@ async function runSelectedBackend(
     onLog(`[auto] opencode run (${prompt.length} chars) in ${cwd} [model: ${agent.model ?? "default"}]`);
     const { pipeToOpencodeAiSdk } = await import("../agents/backends/opencode-aisdk-session.ts");
     return await runInCwd(cwd, () =>
-      pipeToOpencodeAiSdk(prompt, onLog, { cwd, model: agent.model }),
+      pipeToOpencodeAiSdk(prompt, onLog, {
+        cwd,
+        model: agent.model,
+        thinkingLevel: agent.thinkingLevel,
+      }),
     );
   }
   if (backend === "grok") {

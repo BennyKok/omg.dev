@@ -2420,7 +2420,7 @@ function validateBotAgent(
   if (agent === "jcode" && model && !/^[A-Za-z0-9_.:\/\-[\],=]{1,160}$/.test(model))
     return { error: "invalid jcode model name" };
   if (thinkingLevel) {
-    const allowed = thinkingLevelsForAgent(agent);
+    const allowed = thinkingLevelsForAgent(agent, model);
     if (!allowed) return { error: `thinkingLevel is not supported for ${agent} bots` };
     if (!allowed.includes(thinkingLevel))
       return { error: `unknown thinking level "${thinkingLevel}" for ${agent} (expected one of ${allowed.join(", ")})` };
@@ -3330,7 +3330,7 @@ export function resolveAutoAgentRuntime(
     return { ok: false, status: 400, error: "invalid opencode model name" };
   const thinkingLevel = b.thinkingLevel?.trim() || undefined;
   if (thinkingLevel) {
-    const allowed = thinkingLevelsForAgent(autoBackend);
+    const allowed = thinkingLevelsForAgent(autoBackend, model);
     if (!allowed)
       return {
         ok: false,
@@ -7665,15 +7665,13 @@ a{color:#60a5fa}
           return err(400, "invalid jcode model name");
         const thinkingLevel = body?.thinkingLevel?.trim() || undefined;
         // Thinking mode is supported on every agent kind that exposes a
-        // reasoning-effort knob: Codex (reasoning_effort) and Claude (the claude
-        // CLI's --effort / the claude-code provider's `effort`). opencode is the
-        // lone exception — its provider exposes no per-call thinking control
-        // (effort is set in opencode's own model config instead). Validate the
-        // value against THAT agent's own level set so an out-of-range value (a
+        // reasoning-effort knob. OpenCode exposes it as a model-specific
+        // `variant`, so validate against the selected model rather than against
+        // a global OpenCode vocabulary. An out-of-range value (a
         // voice-supplied `none` for Claude, or `max` for Codex) is a clean 400
         // rather than a session that boots straight into a provider error.
         if (thinkingLevel) {
-          const allowed = thinkingLevelsForAgent(agent);
+          const allowed = thinkingLevelsForAgent(agent, model);
           if (!allowed)
             return err(400, `thinkingLevel is not supported for ${agent} sessions`);
           if (!allowed.includes(thinkingLevel))
@@ -8812,7 +8810,7 @@ a{color:#60a5fa}
           if (!thinkingLevel) return err(400, "expected { thinkingLevel }");
           const sess = (await listSessions()).find((s) => s.sessionId === m[1]);
           if (!sess) return err(404, "session not found");
-          const supported = thinkingLevelsForAgent(sess.agent);
+          const supported = thinkingLevelsForAgent(sess.agent, sess.model ?? undefined);
           // Claude Agent SDK supports `max` as a launch option, but its live
           // Settings API currently accepts only through `xhigh`.
           const allowed = sess.agent === "aisdk"
@@ -8823,7 +8821,7 @@ a{color:#60a5fa}
           if (!allowed.includes(thinkingLevel))
             return err(400, `unknown thinking level "${thinkingLevel}" for ${sess.agent} (expected one of ${allowed.join(", ")})`);
 
-          if (sess.agent === "aisdk" || sess.agent === "codex-aisdk" || sess.agent === "pi" || (sess.agent === "jcode" && sess.runtime === "command-file")) {
+          if (sess.agent === "aisdk" || sess.agent === "codex-aisdk" || sess.agent === "opencode" || sess.agent === "pi" || (sess.agent === "jcode" && sess.runtime === "command-file")) {
             const entry = findAisdkEntryByAnyId(m[1]);
             if (!entry) return err(409, "session control process is unavailable");
             appendAisdkCmd(entry.sessionId, { type: "set_thinking_level", thinkingLevel });
