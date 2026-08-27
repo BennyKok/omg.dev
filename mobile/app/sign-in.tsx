@@ -377,11 +377,13 @@ export default function SignInScreen() {
             paddingBottom: Math.max(insets.bottom, space.xl),
             paddingLeft: Math.max(insets.left, space.xl),
             paddingRight: Math.max(insets.right, space.xl),
-            paddingTop: Math.max(insets.top, space.xxl) + space.xl,
+            paddingTop: Math.max(insets.top, space.xl),
           },
         ]}
         keyboardShouldPersistTaps="handled"
       >
+        <View style={styles.spacer} />
+
         <View style={styles.top}>
           {/* The shared mark, not a local copy. The copy that used to live here
               put the bite at right/top -4, hanging it off the rim — the exact
@@ -546,9 +548,10 @@ export default function SignInScreen() {
           )}
         </View>
 
+        <View style={styles.spacer} />
+
         {step === "email" ? (
           <>
-            <View style={styles.spacer} />
             <View style={styles.dividerRow}>
               <View style={[styles.dividerLine, { backgroundColor: colors.borderStrong }]} />
               <Text style={[type.footnote, { color: colors.textMuted }]}>or</Text>
@@ -573,19 +576,20 @@ const styles = StyleSheet.create({
   },
   content: {
     /**
-     * NO `space-between` HERE.
+     * STILL NO `space-between` HERE.
      *
-     * The container has three children — the form, the primary button, and
-     * the "or / iMessage" alternative — and space-between hands each GAP an
-     * equal share of whatever is left over. On a tall phone with a short form
-     * that is three arbitrary voids: the field floating a hundred points above
-     * its own Continue button, and the divider stranded in the middle of
-     * nothing. It only ever looked right on a screen whose content happened to
-     * fill it.
+     * space-between hands every GAP an equal share of the leftover space. With
+     * a short form on a tall phone that is several arbitrary voids: the field
+     * floating a hundred points above its own button, the divider stranded in
+     * the middle of nothing. It only ever looked right on a screen whose
+     * content happened to fill it.
      *
-     * The form stays together at the top and the alternative is pushed to the
-     * bottom by ONE deliberate spacer, so there is exactly one flexible gap
-     * and it is where a gap belongs.
+     * Two EXPLICIT spacers instead, one on each side of the form group. Equal
+     * flex on both means the group is centred between the top of the screen
+     * and whatever sits at the foot — which is a gap we chose and can reason
+     * about, not one the layout engine handed out. The "or / iMessage"
+     * alternative stays pinned to the bottom because it comes after the second
+     * spacer, not because a distribution rule happened to put it there.
      */
     flexGrow: 1,
   },
@@ -607,21 +611,28 @@ const styles = StyleSheet.create({
     top: (FIELD_HEIGHT - FIELD_ACTION_SIZE) / 2,
     width: FIELD_ACTION_SIZE,
   },
-  /** The single flexible gap: everything above it groups, everything below sits at the foot. */
+  /**
+   * One of the two flexible gaps that centre the form group. Used above AND
+   * below `top`; equal flex on each is what does the centring. Anything after
+   * the second one sits at the foot.
+   */
   spacer: {
     flex: 1,
     minHeight: 28,
   },
   top: {
+    alignItems: "center",
     width: "100%",
   },
   title: {
     marginTop: 32,
+    textAlign: "center",
   },
   helper: {
     lineHeight: 19,
     marginTop: 10,
     maxWidth: 320,
+    textAlign: "center",
   },
   field: {
     borderWidth: StyleSheet.hairlineWidth,
@@ -641,6 +652,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     marginTop: 14,
+    width: "100%",
   },
   error: {
     lineHeight: 18,

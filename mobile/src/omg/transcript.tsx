@@ -109,6 +109,27 @@ export type TranscriptItem =
     }
   | { type: "tools"; key: string; pairs: ToolPair[] };
 
+/**
+ * WHO IS TALKING, for spacing only.
+ *
+ * The transcript used to put the same gap between every pair of rows, so a
+ * six-row answer from one agent was spaced exactly like a change of speaker.
+ * Runs read as a list of separate objects rather than one turn. The web fixed
+ * this on 2026-08-23 (38a0b1a7e) by spacing rows tightly WITHIN a run and
+ * giving the extra air only to a speaker change; this is the same rule.
+ *
+ * Tool traffic belongs to the agent that ran it, so a tool row does not break
+ * the assistant's run. Anything that is neither user nor assistant is its own
+ * voice — a system notice interrupting a turn should read as an interruption.
+ */
+export function transcriptSpeaker(item: TranscriptItem): string {
+  if (item.type === "tools") return "assistant";
+  const role = item.message.role;
+  if (role === "user") return "user";
+  if (role === "assistant") return "assistant";
+  return "system";
+}
+
 const isCall = (message?: Entry) => message?.kind === "tool_use";
 const isResult = (message?: Entry) => message?.kind === "tool_result";
 
@@ -387,22 +408,31 @@ function ToolRun({ pairs }: { pairs: ToolPair[] }) {
         onPress={openSheet}
         accessibilityRole="button"
         accessibilityLabel={`${label}. Open`}
+        /**
+         * NO PILL. A tool call is a line in the transcript, not a card in it.
+         * The border and the card fill gave every "2 Bash" the same visual
+         * weight as a message, and a turn with six of them read as six objects
+         * stacked between the sentences. The web dropped the capsule for this
+         * reason on 2026-08-22 (0e9e5fbac, `.tool-call-row`); this is the same
+         * change on the phone.
+         *
+         * Pressed state moves to the LABEL's colour rather than a fill, since
+         * there is no longer a surface to tint.
+         */
         style={({ pressed }) => ({
           alignSelf: "flex-start",
           flexDirection: "row",
           alignItems: "center",
           gap: 5,
           minHeight: 26,
-          paddingHorizontal: space.sm,
+          // Only enough inset to keep the row's own touch target honest.
+          paddingHorizontal: space.xs,
           paddingVertical: 3,
-          borderRadius: radius.pill,
-          borderWidth: 1,
-          borderColor: colors.border,
-          backgroundColor: pressed ? colors.cardPressed : colors.card,
+          opacity: pressed ? 0.6 : 1,
         })}
       >
         <Icon ios={symbol.ios} android={symbol.android} size={12} color={colors.textMuted} />
-        <Text style={{ ...type.caption, fontWeight: "500", color: colors.text }}>{label}</Text>
+        <Text style={{ ...type.caption, fontWeight: "500", color: colors.textSecondary }}>{label}</Text>
         <Icon ios="chevron.right" android="chevron_right" size={10} color={colors.textMuted} />
       </Pressable>
 

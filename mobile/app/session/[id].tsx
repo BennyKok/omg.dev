@@ -96,7 +96,7 @@ import {
   buildTranscriptItems,
   TranscriptRow,
   type Entry,
-  type TranscriptItem,
+  type TranscriptItem,  transcriptSpeaker,
 } from "../../src/omg/transcript";
 
 /** Local id for the optimistic message, so it can be rolled back precisely. */
@@ -1502,7 +1502,11 @@ export function SessionScreenBody({
           // it were pushed as far apart as two separate turns. 16pt keeps the
           // turns legible while letting related things sit together, now that
           // a run of tool calls is one grouped surface instead of N tiles.
-          gap: space.lg,
+          /**
+           * NO FLAT GAP. Rows carry their own spacing so a run of turns from
+           * the same speaker sits tighter than a change of speaker — see
+           * transcriptSpeaker() and renderItem below.
+           */
         }}
         // This screen owns its bar and its own top padding; letting UIKit
         // add an inset on top of that would double-count the safe area.
@@ -1539,13 +1543,22 @@ export function SessionScreenBody({
         onScroll={onScroll}
         scrollEventThrottle={16}
         onContentSizeChange={handleContentSizeChange}
-        renderItem={({ item }) => (
-          <TranscriptRow
-            item={item}
-            fresh={contentReady && liveKeysRef.current.has(item.key)}
-            bot={bot}
-          />
-        )}
+        renderItem={({ item, index }) => {
+          // First row has nothing to be spaced against; the list's own
+          // paddingTop already clears the bar above it.
+          const previous = index > 0 ? data[index - 1] : undefined;
+          const speakerChanged =
+            !!previous && transcriptSpeaker(previous) !== transcriptSpeaker(item);
+          return (
+            <View style={{ paddingBottom: space.sm, paddingTop: speakerChanged ? 10 : 0 }}>
+              <TranscriptRow
+                item={item}
+                fresh={contentReady && liveKeysRef.current.has(item.key)}
+                bot={bot}
+              />
+            </View>
+          );
+        }}
         ListFooterComponent={
           thinking ? bot ? <BotWorkingIndicator bot={bot} /> : <ThinkingPill /> : null
         }
@@ -1813,28 +1826,6 @@ export function SessionScreenBody({
             glass circle, bottom-aligned so it stays level with the last line
             as the field grows. */}
         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: space.sm }}>
-        {/* No heading: a menu with two rows called "Photo Library" and "Take
-            Photo", hanging off a paperclip, does not need a title telling you
-            it attaches things. */}
-        <DropdownMenu options={attachments.options} style={{ width: 44, height: 44 }}>
-          <GlassSurface
-            variant="regular"
-            fallbackColor={colors.secondary}
-            style={{
-              width: 44,
-              height: 44,
-              borderRadius: 22,
-              alignItems: "center",
-              justifyContent: "center",
-              overflow: "hidden",
-            }}
-          >
-            <View accessibilityRole="button" accessibilityLabel="Attach a file">
-              <Icon ios="paperclip" android="attach_file" size={18} color={colors.textSecondary} />
-            </View>
-          </GlassSurface>
-        </DropdownMenu>
-
         <GlassSurface
           variant="regular"
           fallbackColor={colors.card}
@@ -1855,7 +1846,9 @@ export function SessionScreenBody({
             // controls on one row were visibly different heights, which reads
             // as a mistake rather than a hierarchy.
             minHeight: 44,
-            paddingLeft: space.md,
+            // The attach button lives inside the field now, so the text no
+            // longer starts at the field's own inset — the button provides it.
+            paddingLeft: space.xs,
             paddingRight: space.sm,
             paddingVertical: 6,
             overflow: "hidden",
@@ -1867,9 +1860,31 @@ export function SessionScreenBody({
           }}
         >
           {/* Attach sits at the HEAD of the field, where the thing it adds
-              will appear. It used to be a disc on a row underneath, which put
+              will appear. It used to be a disc OUTSIDE the field, which put
               two of the composer's three controls outside the box they act
-              on. */}
+              on — the web moved its own attach inside the composer pill on
+              2026-08-23 (32289caf7) for the same reason, and this comment has
+              described the intended arrangement since before the button
+              actually moved.
+              
+              The web draws it as a `+`; here it stays a paperclip, because
+              `plus` is already the send button's busy state (queue this turn)
+              and one glyph cannot mean both. */}
+          <DropdownMenu options={attachments.options} style={{ width: 32, height: 32 }}>
+            <View
+              accessibilityRole="button"
+              accessibilityLabel="Attach a file"
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 16,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Icon ios="paperclip" android="attach_file" size={18} color={colors.textSecondary} />
+            </View>
+          </DropdownMenu>
 
           <TextInput
             /**

@@ -576,7 +576,12 @@ export function SectionHeader({
 }: {
   label: string;
   count?: number;
-  dotColor: string;
+  /**
+   * Omit for a header that names a FOLDER rather than a status. The dot is a
+   * status marker; a folder does not have one, and painting a neutral dot
+   * there just to fill the slot reads as a status nobody defined.
+   */
+  dotColor?: string;
   actionLabel?: string;
   onAction?: () => void;
 }) {
@@ -587,15 +592,26 @@ export function SectionHeader({
         flexDirection: "row",
         alignItems: "center",
         gap: space.sm,
-        paddingHorizontal: space.lg,
-        paddingTop: space.xl,
-        paddingBottom: space.sm,
+        paddingHorizontal: space.md,
+        // 16/6, down from 24/8. A folder header is a label on a list, not a
+        // chapter opening: at the old spacing three folders cost most of a
+        // screenful before a single session was drawn. The web's group header
+        // sits at roughly this weight.
+        paddingTop: space.lg,
+        paddingBottom: 6,
       }}
     >
       {/* 6pt, as on the web (`size-1.5`) — the row dots are 8pt, and a section
           marker that matched them competed with the rows it introduces. */}
-      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: dotColor }} />
-      <Text style={{ ...type.overline, color: colors.textMuted, textTransform: "uppercase" }}>
+      {dotColor ? (
+        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: dotColor }} />
+      ) : null}
+      {/* NOT UPPERCASED. A folder is a name someone chose, and shouting it
+          made every group header compete with the session titles under it.
+          The web dropped the uppercase from its own group labels for the same
+          reason; tracking goes with it, since letterspacing exists to make
+          uppercase readable. */}
+      <Text style={{ ...type.overline, letterSpacing: 0, textTransform: "none", color: colors.textMuted }}>
         {label}
       </Text>
       {/* The count is a CHIP, not part of the label. Same as the web: a
@@ -651,6 +667,7 @@ export function SectionHeader({
 export function SessionCard({
   title,
   subtitle,
+  timestamp,
   agent,
   busy,
   blocked,
@@ -660,7 +677,14 @@ export function SessionCard({
   animateEntry = true,
 }: {
   title: string;
+  /**
+   * The preview line. ALWAYS occupies its line even when empty — a row that
+   * shrinks when a session has nothing to preview makes the list reflow as
+   * turns arrive, which is the thing a fixed row height exists to prevent.
+   */
   subtitle?: string | null;
+  /** Relative time of the last activity, e.g. "3m". Rendered in the trailing slot. */
+  timestamp?: string | null;
   agent?: string | null;
   busy?: boolean;
   blocked?: boolean;
@@ -692,9 +716,9 @@ export function SessionCard({
   // reused by four other pressables that have no list to belong to.
   const listMotion = useListItemMotion();
 
-  // The archive backdrop has to match the card it is revealed from, or the red
+  // The archive backdrop has to match the row it is revealed from, or the red
   // shows past the corners as four sharp ears.
-  const corners = { borderRadius: radius.xl };
+  const corners = { borderRadius: radius.md };
 
   // Swipe-to-archive — see useSwipeToCommit (swipe-row.ts) for the gesture
   // and arbitration-against-the-ScrollView reasoning. Same hook backs
@@ -730,7 +754,7 @@ export function SessionCard({
               left: 0,
               backgroundColor: colors.danger,
               ...corners,
-              marginHorizontal: space.lg,
+              marginHorizontal: space.sm,
               alignItems: "flex-end",
               justifyContent: "center",
               paddingRight: space.xl,
@@ -748,26 +772,30 @@ export function SessionCard({
             flexDirection: "row",
             alignItems: "center",
             gap: space.md,
-            backgroundColor: pressed ? colors.cardPressed : colors.card,
             /**
-             * A CARD PER SESSION, not one grouped surface.
-             *
-             * This was an inset-grouped list — shared surface, hairline
-             * separators, only the group's outer corners rounded — on the
-             * argument that six tiles read as six competing objects. On the
-             * device that argument lost: the web surface spaces its sessions
-             * apart and gives each one an edge, and a session IS a separate
-             * object (its own agent, its own state, its own swipe-to-archive).
-             * The rows now match the web.
+             * NOTHING AT REST. The web's rail row has no fill and no border
+             * until you touch it; the surface was the card's idea, and a list
+             * of filled rectangles is still a stack of cards however tightly
+             * it is packed.
              */
-            borderRadius: radius.xl,
-            // A full point, in the STRONGER border colour. `border` is
-            // rgba(84,84,88,.35) and even at 1pt it reads as a rumour against
-            // black; `borderStrong` is the same hue at .65 and gives the card
-            // an edge you can actually see, which is the point of having one.
-            borderWidth: 1,
-            borderColor: colors.borderStrong,
-            marginHorizontal: space.lg,
+            backgroundColor: pressed ? colors.cardPressed : "transparent",
+            /**
+             * A ROW, NOT A CARD.
+             *
+             * This was a bordered card per session, on the argument that a
+             * session is a separate object and the web gave each one an edge.
+             * The web stopped doing that on 2026-08-22 (bc762a0e0): a card
+             * that carries a transcript "cannot be scanned, only read, so the
+             * list was long before it was useful". Its rail row is 60px flat
+             * with no border and no fill, and the phone now matches it — the
+             * comment that used to live here cited a web surface that no
+             * longer exists.
+             *
+             * The corner radius stays only so the pressed tint and the archive
+             * reveal have a shape; at rest there is nothing drawn at all.
+             */
+            borderRadius: radius.md,
+            marginHorizontal: space.sm,
             /**
              * The mark needs room to be a mark.
              *
@@ -777,14 +805,19 @@ export function SessionCard({
              * and 16 gives it the same breathing room the title has from the
              * text beside it.
              */
-            paddingLeft: space.lg,
+            paddingLeft: space.sm,
             // More room on the right than the left: the status dot is a 10pt
             // circle with no visual mass of its own, so an equal inset leaves
             // it looking stuck to the group's edge. The avatar on the left is
             // big enough not to need the same help.
-            paddingRight: space.lg,
-            paddingVertical: 10,
-            minHeight: 60,
+            paddingRight: space.sm,
+            /**
+             * FIXED, not minimum. The preview line is always mounted, so the
+             * row is 60 whatever it holds and a streaming session cannot
+             * reflow the rows below it. Same height as the web's rail row
+             * (`h-[3.75rem]`).
+             */
+            height: 60,
           })}
         >
           {/* 22. The mark identifies the agent; it is not the subject of the
@@ -803,21 +836,44 @@ export function SessionCard({
             >
               {title}
             </Text>
-            {subtitle ? (
-              <Text numberOfLines={1} style={{ ...type.caption, fontWeight: "400", color: colors.textMuted }}>
-                {subtitle}
-              </Text>
-            ) : null}
+            {/* Rendered unconditionally — see the prop's note. An empty
+                preview keeps its line rather than collapsing the row. */}
+            <Text
+              numberOfLines={1}
+              style={{ ...type.caption, fontWeight: "400", color: colors.textMuted }}
+            >
+              {subtitle ?? ""}
+            </Text>
           </View>
           {/* One definition of "is this session working?", shared with the
               web — see SessionStatusDot. A spinner here was louder than the
               web's pulsing dot and in the brand orange rather than warning
               amber, so the two surfaces disagreed about the same session. */}
-          {blocked ? (
-            <Icon ios="pause.fill" android="pause" size={12} color={colors.warning} />
-          ) : (
-            <SessionStatusDot busy={busy} ended={ended} />
-          )}
+          {/* WHEN IT LAST MOVED, then what state it is in.
+              The list had no time on it at all, so a session that moved thirty
+              seconds ago looked exactly like one that moved yesterday. The web
+              reserves a fixed trailing slot for this; the same slot carries
+              the status marker here so the two never fight for the edge. */}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            {timestamp ? (
+              <Text
+                numberOfLines={1}
+                style={{
+                  ...type.caption,
+                  // Tabular so the column does not jitter between "9m" and "11m".
+                  fontVariant: ["tabular-nums"],
+                  color: colors.textMuted,
+                }}
+              >
+                {timestamp}
+              </Text>
+            ) : null}
+            {blocked ? (
+              <Icon ios="pause.fill" android="pause" size={12} color={colors.warning} />
+            ) : (
+              <SessionStatusDot busy={busy} ended={ended} />
+            )}
+          </View>
         </PressableScale>
       </Reanimated.View>
     </Reanimated.View>
@@ -1279,9 +1335,15 @@ export function HomeComposer({
             <ComposerCaptionButton
               ios="folder.fill"
               android="folder"
-              label={projectLabel ?? "Project"}
+              // No label when nothing is scoped. "Project" read as a chosen
+              // folder called Project, and the pill looked identical whether
+              // you had narrowed the list or not — the web collapses its own
+              // chip to the bare folder icon for exactly this reason.
+              label={projectLabel ?? ""}
               options={projectOptions}
-              accessibilityLabel={`Project: ${projectLabel ?? "none"}. Change`}
+              accessibilityLabel={
+                projectLabel ? `Project: ${projectLabel}. Change` : "All projects. Choose a project"
+              }
             />
           ) : null}
         </ScrollView>
@@ -1390,6 +1452,10 @@ function ComposerCaptionButton({
       {ios && android ? (
         <Icon ios={ios} android={android} size={15} color={colors.textSecondary} />
       ) : null}
+      {/* An EMPTY label is a real state, not a missing one: the project pill
+          collapses to a bare folder when nothing is scoped, so "everything"
+          does not wear the same shape as a chosen folder. */}
+      {label ? (
       <Text
         numberOfLines={1}
         /**
@@ -1406,6 +1472,7 @@ function ComposerCaptionButton({
       >
         {label}
       </Text>
+      ) : null}
     </GlassSurface>
   );
   if (!options.length) return pill;

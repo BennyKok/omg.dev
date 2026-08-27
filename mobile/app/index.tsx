@@ -42,6 +42,8 @@ import {
 } from "../src/omg/session-tree";
 import { AutoFindingCard } from "../src/omg/auto-agent-card";
 import { useOverlapWatch } from "../src/omg/list-overlap-watch";
+import { groupNodesByProject } from "../src/omg/session-groups";
+import { sessionPreview } from "../src/omg/session-preview";
 import { selectHomeAutoFindings, useAutoAgents, type AutoFindingRow } from "../src/omg/auto-agents";
 import { useComputerPicker } from "../src/omg/computer-picker";
 import { useDictation } from "../src/omg/dictation";
@@ -50,7 +52,7 @@ import { useResumable } from "../src/omg/resumable";
 import { useUsage } from "../src/omg/usage";
 import { LucideIcon } from "../src/omg/lucide";
 import { DropdownMenu } from "../src/omg/menu";
-import { useAgentPicker, useProjectPicker } from "../src/omg/session-options";
+import { ALL_PROJECTS, useAgentPicker, useProjectPicker } from "../src/omg/session-options";
 import { useOmg } from "../src/omg/provider";
 import { useToast } from "../src/omg/toast";
 import { SessionListSkeleton } from "../src/omg/skeleton";
@@ -96,7 +98,8 @@ function SessionFamily({
     <View style={{ alignSelf: "stretch" }}>
       <SessionCard
         title={session.title || session.lastUserText || "Untitled session"}
-        subtitle={session.title ? session.lastUserText : null}
+        subtitle={sessionPreview(session)}
+        timestamp={relativeTime(session.lastActivityAt ?? session.startedAt)}
         agent={session.agent ?? session.agentLabel}
         busy={!!session.busy}
         blocked={session.status === "blocked"}
@@ -735,15 +738,37 @@ export default function SessionsScreen() {
 
   /**
    * Families, not rows. A session that spawned subagents owns them, and the
-   * whole family is sectioned by whether ANYONE in it is working — see
-   * session-tree.ts for why the parent's own flag is not enough.
+   * family travels together — see session-tree.ts for why the parent's own
+   * flag is not enough to describe it.
    */
   const roots = useMemo(
     () => buildSessionTree(sessions.filter((session) => projectPicker.matches(session))),
     [sessions, projectPicker],
   );
+
+  /**
+   * GROUPED BY FOLDER, NOT BY WORKING/IDLE.
+   *
+   * The phone was the last surface still splitting the fleet by status while
+   * the rail split it by folder, so the same sessions read as two different
+   * shapes depending on the window. See src/omg/session-groups.ts, which is
+   * the rule both surfaces now share.
+   *
+   * A status split also moved a row between two groups every time an agent
+   * started or stopped, reordering the list to say something the row's own
+   * mark already says.
+   */
+  const projectGroups = useMemo(
+    () => groupNodesByProject(roots, (node) => flattenNodes([node]).length),
+    [roots],
+  );
+
+  /**
+   * Still needed, but only to COUNT — the ambient header says how many agents
+   * are building, and archive is refused on a running session. Neither one
+   * sections the list any more.
+   */
   const working = useMemo(() => roots.filter(nodeBusy), [roots]);
-  const idle = useMemo(() => roots.filter((node) => !nodeBusy(node)), [roots]);
 
   /**
    * Ended sessions, minus anything the live list is already showing.
@@ -1310,54 +1335,42 @@ export default function SessionsScreen() {
               />
             ) : null}
 
-            {working.length > 0 ? (
-              <>
-                {/* Amber, not brand orange: the web's Working header carries
-                    the same `bg-warning` as the busy row dot. */}
-                <SectionHeader
-                  label="Working"
-                  count={flattenNodes(working).length}
-                  dotColor={colors.warning}
-                />
-                {/* Each session is its own card now, so the rows need air
-                    between them — see SessionCard. */}
-                <View style={{ gap: space.sm }}>
-                  {working.map((node) => {
+            {/**
+             * ONE GROUP PER FOLDER.
+             *
+             * A folder header carries no status dot — it names a place, not a
+             * state. The row's own mark still says whether that session is
+             * running, which is the point: status belongs to the row, grouping
+             * belongs to the folder.
+             *
+             * Archive is offered per NODE rather than per section. It used to
+             * be a property of the Idle section — everything in it was
+             * archivable because everything in it was stopped. A folder mixes
+             * both, so the rule moves onto the row it was always really about:
+             * a running session has nothing to archive.
+             */}
+            {projectGroups.map((group) => (
+              <View key={group.key}>
+                <SectionHeader label={group.label} count={group.count} />
+                {/* 2pt, not 8. Rows are a list, not a stack of cards; the
+                    fixed row height does the separating. */}
+                <View style={{ gap: 2 }}>
+                  {group.nodes.map((node) => {
                     const id = sessionStableId(node.session);
                     return (
-                      <OverlapRow key={id} id={`working:${id}`}>
-                        <SessionFamily node={node} onOpen={openSession} animateEntry={animateEntry} />
-                      </OverlapRow>
-                    );
-                  })}
-                </View>
-              </>
-            ) : null}
-
-            {idle.length > 0 ? (
-              <>
-                <SectionHeader
-                  label="Idle"
-                  count={flattenNodes(idle).length}
-                  dotColor={colors.success}
-                />
-                <View style={{ gap: space.sm }}>
-                  {idle.map((node) => {
-                    const id = sessionStableId(node.session);
-                    return (
-                      <OverlapRow key={id} id={`idle:${id}`}>
+                      <OverlapRow key={id} id={`${group.key}:${id}`}>
                         <SessionFamily
                           node={node}
                           onOpen={openSession}
-                          onArchive={archiveSession}
+                          onArchive={nodeBusy(node) ? undefined : archiveSession}
                           animateEntry={animateEntry}
                         />
                       </OverlapRow>
                     );
                   })}
                 </View>
-              </>
-            ) : null}
+              </View>
+            ))}
 
             {/**
              * WHAT NEEDS A DECISION TODAY.
@@ -1527,7 +1540,9 @@ export default function SessionsScreen() {
           onChangeText={setDraft}
           onStart={() => void startSession()}
           starting={starting}
-          projectLabel={projectPicker.label}
+          // null, not the "All projects" label — the pill collapses to a bare
+          // folder when nothing is scoped. See ComposerCaptionButton.
+          projectLabel={projectPicker.filter === ALL_PROJECTS ? null : projectPicker.label}
           projectOptions={projectPicker.options}
           agent={agentPicker.agent}
           agentLabel={agentPicker.label}
