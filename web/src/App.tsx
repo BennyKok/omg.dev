@@ -83,8 +83,15 @@ import {
   speakerRunEdges,
   unknownConversationParticipant,
 } from "./lib/conversation-ui";
+import { UNREAD_DOT_CLASS } from "./lib/unread";
 import {
-  BOT_UNREAD_DOT_CLASS,
+  clearSessionUnread,
+  sameUnreadSessions,
+  sessionRosterRowAriaLabel,
+  sessionRosterTooltip,
+  unreadSessionIds,
+} from "./lib/session-unread";
+import {
   botConversationRows,
   botRosterActivityState,
   botRosterRowAriaLabel,
@@ -744,6 +751,12 @@ export type Session = {
   shippedReview?: boolean;
   /** Context badge for a historical session opened outside the Live roster. */
   reviewLabel?: string;
+  /**
+   * Stamped per viewer by `/api/sessions`: this session has landed output the
+   * person asking has not read. Held in `SessionUnreadContext` rather than read
+   * off the row — see web/src/lib/session-unread.ts for why.
+   */
+  unread?: boolean;
 };
 
 type User = { email: string; name?: string; avatar?: string };
@@ -831,6 +844,22 @@ const BotUnreadContext = createContext<{
    *  its own effect; this is the same call, offered from the row itself. */
   markRead: (sessionId: string) => void;
 }>({ conversations: [], any: false, selectedConversationId: null, markRead: () => {} });
+/**
+ * Which coding sessions have landed output this person has not read.
+ *
+ * The mirror of BotUnreadContext for the Chat roster. Held as a set of session
+ * ids rather than a flag on each session: the fleet list is also written by
+ * live events and optimistic edits, and those writers have never seen a read
+ * watermark.
+ */
+const SessionUnreadContext = createContext<{
+  unread: Set<string>;
+  any: boolean;
+  /** Marks one session read. Opening it does this too; this is the same call,
+   *  offered from the row itself for a session you do not want to open. */
+  markRead: (sessionId: string) => void;
+}>({ unread: new Set(), any: false, markRead: () => {} });
+
 const OpenBotContext = createContext<(id: string) => void>(() => {});
 /**
  * Editing a bot from wherever its chat is open. The bot chat is a session card
@@ -5547,6 +5576,16 @@ export function App() {
   );
   const [setupChecks, setSetupChecks] = useState<SetupCheckGroup[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
+  // Read state for the Chat roster. Only a full list payload writes this — see
+  // web/src/lib/session-unread.ts.
+  const [unreadSessions, setUnreadSessions] = useState<Set<string>>(() => new Set());
+  // Keeps the identity of the set stable when the answer has not changed. The
+  // list is polled every few seconds and almost always says the same thing; a
+  // new Set each time would re-render every roster row on a timer.
+  const applyUnreadSessions = useCallback((rows: Session[]) => {
+    const next = unreadSessionIds(rows);
+    setUnreadSessions((prev) => (sameUnreadSessions(prev, next) ? prev : next));
+  }, []);
   const [topPinned, setTopPinned] = useState<string[]>([]);
   const topPinnedRef = useRef(topPinned);
   topPinnedRef.current = topPinned;
@@ -6136,6 +6175,7 @@ export function App() {
     // call `.filter()` unconditionally on render, so a malformed/empty payload
     // must degrade to an empty live view rather than crash.
     setSessions(payload.sessions ?? []);
+    applyUnreadSessions(payload.sessions ?? []);
     setTopPinned(payload.sessionPins ?? []);
     try {
       const legacyPins = readLegacyPinnedSessions();
@@ -6330,6 +6370,9 @@ export function App() {
       sessionList.push(entry.session);
     }
     setSessions(sessionList);
+    // From the server's payload, not from `sessionList`: the seeded and renamed
+    // rows spliced in above were built by this client and carry no watermark.
+    applyUnreadSessions(payload.sessions ?? []);
     setError((current) => (current === "not found" ? null : current));
     // Prune tombstones the server has finally forgotten, so the set can't grow
     // unbounded and a recycled sid is never wrongly suppressed.
@@ -7014,12 +7057,42 @@ export function App() {
     });
   }, [botUnreadIdentity]);
 
+  // Same shape as markBotConversationVisible: clear the dot locally first and
+  // let the write go out behind the paint, so acknowledging a row never sits in
+  // front of the transcript the person just asked for.
+  const markSessionVisible = useCallback((sessionId: string) => {
+    setUnreadSessions((prev) => clearSessionUnread(prev, sessionId));
+    void api(`/api/sessions/${encodeURIComponent(sessionId)}/read`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user: botUnreadIdentity }),
+    }).catch(() => {});
+  }, [botUnreadIdentity]);
+
+  const sessionUnreadValue = useMemo(
+    () => ({ unread: unreadSessions, any: unreadSessions.size > 0, markRead: markSessionVisible }),
+    [unreadSessions, markSessionVisible],
+  );
+
   // Selection is committed before this effect runs, so a route preload or a
   // tap that never revealed the conversation cannot clear its watermark.
   useEffect(() => {
     if (tab !== "bots" || !selectedConversationSid || document.visibilityState !== "visible") return;
     void markBotConversationVisible(selectedConversationSid).catch(() => {});
   }, [markBotConversationVisible, selectedConversationSid, tab]);
+
+  // A session is read once it is actually on screen. `expandedIds` is the app's
+  // existing answer to "which sessions has this person opened" — the same list
+  // that decides which transcripts to stream — so opening a chat clears its dot
+  // and merely scrolling past the row does not. One write per new turn on an
+  // open session, not one per poll: the server advances the watermark to the
+  // turn that was read, so the next poll reports it read.
+  useEffect(() => {
+    if (!unreadSessions.size || document.visibilityState !== "visible") return;
+    for (const sid of expandedIds) {
+      if (unreadSessions.has(sid)) markSessionVisible(sid);
+    }
+  }, [expandedIds, markSessionVisible, unreadSessions]);
 
   // Reuse the transcript websocket. Every committed assistant row refreshes
   // the server-owned watermark view. The open conversation advances its own
@@ -8175,6 +8248,7 @@ export function App() {
     <OpenSettingsPageContext.Provider value={setTab}>
     <BotDirectoryContext.Provider value={botDirectory}>
     <ViewerIdentityContext.Provider value={viewerParticipantId}>
+    <SessionUnreadContext.Provider value={sessionUnreadValue}>
     <BotUnreadContext.Provider value={{ conversations: botConversations, any: hasUnreadBotConversation(botConversations), selectedConversationId: selectedBotConversationId, markRead: (sessionId) => void markBotConversationVisible(sessionId).catch(() => {}) }}>
     <OpenBotContext.Provider value={openBot}>
     <EditBotContext.Provider value={openBotEditor}>
@@ -8993,6 +9067,7 @@ export function App() {
     </EditBotContext.Provider>
     </OpenBotContext.Provider>
     </BotUnreadContext.Provider>
+    </SessionUnreadContext.Provider>
     </ViewerIdentityContext.Provider>
     </BotDirectoryContext.Provider>
     </OpenSettingsPageContext.Provider>
@@ -13144,6 +13219,18 @@ const RailItem = memo(function RailItem({
   const faviconSrc = projectFaviconSrc(session.project);
   const [failedFaviconSrc, setFailedFaviconSrc] = useState<string | null>(null);
   const showFavicon = !!faviconSrc && failedFaviconSrc !== faviconSrc;
+  // Read state, from the roster's own set. Working and unread are two facts
+  // here for the same reason they are on a bot row: a session can be busy
+  // again and still hold a turn you never read, and one badge for both would
+  // overwrite whichever arrived first.
+  const { unread: unreadSessions } = useContext(SessionUnreadContext);
+  const title = titleForSession(session);
+  const unread = !!session.sessionId && unreadSessions.has(session.sessionId);
+  const unreadDot = (
+    <span role="status" aria-label={`Unread reply in ${title}`}>
+      <span className={UNREAD_DOT_CLASS} aria-hidden="true" />
+    </span>
+  );
 
   return (
     <RailRow
@@ -13151,7 +13238,13 @@ const RailItem = memo(function RailItem({
       collapsed={collapsed}
       active={active}
       cursored={cursored}
-      tooltip={collapsed ? titleForSession(session) : undefined}
+      ariaLabel={sessionRosterRowAriaLabel({
+        title,
+        working: busy,
+        unread,
+        blocked: session.status === "blocked",
+      })}
+      tooltip={collapsed ? sessionRosterTooltip(title, unread) : undefined}
       markBoxClassName={
         // The creature is a silhouette with no plate behind it, so it reads
         // smaller than a square harness mark at the same box size. Giving
@@ -13227,7 +13320,16 @@ const RailItem = memo(function RailItem({
             paused={session.status === "blocked"}
             variant="avatar"
           />
-          {topPinned && collapsed ? (
+          {/* A collapsed row shows only the mark, so the dot has to live on it
+              instead of in the expanded row's indicator slot — the same place
+              a collapsed bot row puts it. The three other corners are taken
+              (working/paused, the agent badge, the assignee), so it shares the
+              top-left with the pin marker and wins it: a pin is permanent and
+              already stated by the row sitting in the Pinned group, while an
+              unread reply is the transient fact you opened the rail to find. */}
+          {unread && collapsed ? (
+            <span className="absolute -left-1 -top-1">{unreadDot}</span>
+          ) : topPinned && collapsed ? (
             <Pin
               aria-label="Pinned to top"
               className="absolute -left-1 -top-1 size-3 text-primary"
@@ -13236,13 +13338,15 @@ const RailItem = memo(function RailItem({
           ) : null}
         </>
       }
-      title={titleForSession(session)}
+      title={title}
       titleBadge={
         topPinned ? (
           <Pin aria-label="Pinned to top" className="size-3 shrink-0 text-primary" fill="currentColor" />
         ) : null
       }
       preview={latest}
+      indicator={unread ? unreadDot : null}
+      attention={unread}
       trailingStatic={
         session.lastActivityAt || session.startedAt
           ? relTime(session.lastActivityAt ?? session.startedAt ?? 0)
@@ -13342,7 +13446,7 @@ function BotRosterRow({
   const activity = botRosterActivityState(bot.enabled, busy);
   const unreadDot = (
     <span role="status" aria-label={`Unread conversation with ${bot.name}`}>
-      <span className={BOT_UNREAD_DOT_CLASS} aria-hidden="true" />
+      <span className={UNREAD_DOT_CLASS} aria-hidden="true" />
     </span>
   );
   return (
@@ -15524,6 +15628,8 @@ function RailSessionContextMenu({
     },
   });
   const transcriptView = useContext(TranscriptViewContext);
+  const { unread: unreadSessions, markRead } = useContext(SessionUnreadContext);
+  const unread = !!sid && unreadSessions.has(sid);
 
   return (
     <>
@@ -15544,6 +15650,15 @@ function RailSessionContextMenu({
             <MessageSquare className="size-4" />
             Open
           </ContextMenuItem>
+          {/* Offered only while there is something to commit to. Opening the
+              session clears it too; this is the same call for a row you have
+              decided you do not need to open. */}
+          {unread ? (
+            <ContextMenuItem onClick={() => sid && markRead(sid)}>
+              <CheckCheck className="size-4" />
+              Mark as read
+            </ContextMenuItem>
+          ) : null}
           <ContextMenuItem disabled={!sid} onClick={onToggleStagePin}>
             <Pin className="size-4" fill={stagePinned ? "currentColor" : "none"} />
             {stagePinned ? "Unpin column" : "Pin as column"}
@@ -26697,6 +26812,7 @@ function SurfaceToggle({
   compact?: boolean;
 }) {
   const { any: botsUnread } = useContext(BotUnreadContext);
+  const { any: sessionsUnread } = useContext(SessionUnreadContext);
   // This is the one segmented-toggle component both the desktop rail header
   // (RailStage, isWide-only) and the mobile primary-surface dock render — one
   // navigation idiom, two mount points, instead of a second control. It used
@@ -26785,7 +26901,12 @@ function SurfaceToggle({
           <span>{label}</span>
           {value === "chat" && botsUnread ? (
             <span className="ml-1 flex items-center" role="status" aria-label="Bots have unread conversations">
-              <span className={BOT_UNREAD_DOT_CLASS} aria-hidden="true" />
+              <span className={UNREAD_DOT_CLASS} aria-hidden="true" />
+            </span>
+          ) : null}
+          {value === "sessions" && sessionsUnread ? (
+            <span className="ml-1 flex items-center" role="status" aria-label="Chats have unread replies">
+              <span className={UNREAD_DOT_CLASS} aria-hidden="true" />
             </span>
           ) : null}
         </button>
