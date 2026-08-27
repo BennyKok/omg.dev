@@ -64,8 +64,25 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Prepare macOS icon
+        if: matrix.target == 'macos-arm64'
+        run: bun run --cwd desktop desktop:icon
+
       - name: Build native package
-        run: bun run desktop:build
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if bun run desktop:build; then
+            exit 0
+          fi
+
+          if [ "${{ matrix.target }}" != 'macos-arm64' ]; then
+            exit 1
+          fi
+
+          echo '::warning::The macOS disk image build failed once. Retrying a known transient hdiutil failure.'
+          bun run desktop:build
 
       - name: Verify package artifacts
         shell: bash
