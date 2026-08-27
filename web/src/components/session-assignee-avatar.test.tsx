@@ -39,6 +39,44 @@ describe("SessionAssigneeAvatar", () => {
     expect(ui.host.childElementCount).toBe(0);
   });
 
+  test("hides a redundant agent-mark badge for a one-person roster", () => {
+    ui.render(
+      <SessionAssigneeAvatar
+        session={{ assignedUser: "ada@example.com" }}
+        users={[{ email: "ada@example.com", name: "Ada" }]}
+        hideWhenRedundant
+      />,
+    );
+
+    expect(ui.host.childElementCount).toBe(0);
+  });
+
+  test("hides a redundant agent-mark badge when one user is selected", () => {
+    ui.render(
+      <SessionAssigneeAvatar
+        session={{ assignedUser: "ada@example.com" }}
+        users={[{ email: "ada@example.com" }, { email: "grace@example.com" }]}
+        hideWhenRedundant
+        userFilter="ada@example.com"
+      />,
+    );
+
+    expect(ui.host.childElementCount).toBe(0);
+  });
+
+  test("keeps the agent-mark badge in a shared all-users view", () => {
+    ui.render(
+      <SessionAssigneeAvatar
+        session={{ assignedUser: "ada@example.com" }}
+        users={[{ email: "ada@example.com" }, { email: "grace@example.com" }]}
+        hideWhenRedundant
+        userFilter="__all"
+      />,
+    );
+
+    expect(ui.query('[aria-label="Assigned to ada"]')).not.toBeNull();
+  });
+
   test("falls back to the configured placeholder when the avatar fails to load", () => {
     ui.render(
       <SessionAssigneeAvatar
