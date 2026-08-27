@@ -13154,15 +13154,19 @@ const RailRow = memo(function RailRow({
               ? // Open-in-stage rows wear the mobile card's glass edge instead of a flat tint.
                 "lfg-gborder border-transparent bg-card shadow-[0_8px_24px_-18px_rgba(0,0,0,0.55)]"
               : attention
-                ? // Dark carries a heavier tint than light on purpose. The same
-                  // 7% of the accent that reads clearly on a white card is
-                  // nearly lost on a near-black one: measured, it moved the row
-                  // by 18 points of red on white and by 15 points of blue on
-                  // #242428, and the second one has to survive a phone screen
-                  // at arm's length. The dot and the spoken label carry the
-                  // state either way — this only decides how far across the
-                  // room the row is legible.
-                  "border-primary/20 bg-primary/[0.07] hover:bg-primary/10 dark:border-primary/40 dark:bg-primary/[0.16] dark:hover:bg-primary/20"
+                ? // Both themes are tuned to the same strength, measured, not
+                  // guessed. The pair started at 7% for both, which reads on a
+                  // white card and is nearly lost on a near-black one; raising
+                  // only dark then made switching themes feel like the mark had
+                  // been turned off, because white needs a bigger share of the
+                  // accent to move at all. Measured row colour against the row
+                  // background: light 255,255,255 -> 219,236,255 and dark
+                  // 36,36,40 -> 32,51,74. The dot and the spoken label carry
+                  // the state in both — this decides how far across a room the
+                  // row is legible, and it has to be the same distance either
+                  // way, because a person switches themes and expects to see
+                  // the same list.
+                  "border-primary/45 bg-primary/[0.14] hover:bg-primary/20 dark:border-primary/40 dark:bg-primary/[0.16] dark:hover:bg-primary/20"
                 : "border-transparent hover:bg-muted/70",
         )}
       >
