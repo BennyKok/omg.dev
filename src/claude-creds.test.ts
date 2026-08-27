@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  CLAUDE_ENV_TOKEN_KEY,
   claudeOauthToken,
   claudeSignInIsDead,
   resetClaudeCredsCacheForTests,
@@ -11,6 +12,7 @@ import {
 
 describe("Claude account credentials", () => {
   const originalHome = process.env.HOME;
+  const originalEnvToken = process.env[CLAUDE_ENV_TOKEN_KEY];
   let testHome = "";
 
   // Stand in for a machine with nothing in the Keychain. The real reader is not
@@ -21,11 +23,16 @@ describe("Claude account credentials", () => {
 
   beforeEach(() => {
     resetClaudeCredsCacheForTests();
+    // These cases are about the stored login. A maintainer with the variable
+    // exported would otherwise see it answer every read.
+    delete process.env[CLAUDE_ENV_TOKEN_KEY];
   });
 
   afterEach(() => {
     if (originalHome === undefined) delete process.env.HOME;
     else process.env.HOME = originalHome;
+    if (originalEnvToken === undefined) delete process.env[CLAUDE_ENV_TOKEN_KEY];
+    else process.env[CLAUDE_ENV_TOKEN_KEY] = originalEnvToken;
     if (testHome) rmSync(testHome, { recursive: true, force: true });
     testHome = "";
     resetClaudeCredsCacheForTests();

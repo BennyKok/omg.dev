@@ -1340,9 +1340,11 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
     addAuth(
       "Claude auth",
       accountConnected || !!process.env.ANTHROPIC_API_KEY,
-      "use Login below or set ANTHROPIC_API_KEY",
+      "use Login below, or set CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY",
     );
-    instructions.push("Add Claude accounts below, or set ANTHROPIC_API_KEY.");
+    instructions.push(
+      "Add Claude accounts below, or set CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`, or set ANTHROPIC_API_KEY.",
+    );
   } else if (kind === "codex" || kind === "codex-aisdk") {
     accountConnected = await hasCodexAccountAuth();
     addBinary("Codex CLI", codexPath());

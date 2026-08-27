@@ -9,7 +9,11 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { PATHS } from "./config.ts";
-import { claudeOauthToken, claudeSignInIsDead } from "./claude-creds.ts";
+import {
+  claudeAccountUsesEnvToken,
+  claudeOauthToken,
+  claudeSignInIsDead,
+} from "./claude-creds.ts";
 
 export const DEFAULT_CLAUDE_ACCOUNT_ID = "default";
 
@@ -24,6 +28,12 @@ export type ClaudeAccount = {
    * say why rather than looking like an account that was never set up.
    */
   needsReconnect: boolean;
+  /**
+   * The credential is CLAUDE_CODE_OAUTH_TOKEN from the environment, not a login
+   * stored on this box. Nothing here can sign it out, and no browser sign-in
+   * was involved, so the row must not read as one.
+   */
+  fromEnv?: boolean;
   removable: boolean;
   createdAt: number;
 };
@@ -104,12 +114,14 @@ function defaultAccount(): StoredClaudeAccount {
 
 function publicAccount(account: StoredClaudeAccount): ClaudeAccount {
   const dead = claudeSignInIsDead(account.configDir);
+  const fromEnv = claudeAccountUsesEnvToken(account.configDir);
   return {
     id: account.id,
     number: account.number,
     label: account.label,
     connected: !dead && claudeOauthToken(account.configDir) !== null,
     needsReconnect: dead,
+    ...(fromEnv ? { fromEnv: true } : {}),
     removable: account.id !== DEFAULT_CLAUDE_ACCOUNT_ID,
     createdAt: account.createdAt,
   };

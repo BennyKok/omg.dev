@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { reposRoot } from "./projects";
 import { OMG_CAPABILITY_VERSION, withOmgRuntimeContract } from "./omg-capabilities.ts";
 import {
+  CLAUDE_ENV_TOKEN_KEY,
   CLAUDE_PLATFORM_ENV_KEYS,
   claudeOauthToken,
 } from "./claude-creds.ts";
@@ -298,7 +299,11 @@ export function claudeAccountLaunchCommand(
   return [
     envBin,
     ...CLAUDE_PLATFORM_ENV_KEYS.flatMap((key) => ["-u", key]),
-    ...(configDir ? [`CLAUDE_CONFIG_DIR=${configDir}`] : []),
+    // configDir is set only for an isolated account. CLAUDE_CODE_OAUTH_TOKEN is
+    // process-wide and outranks that directory, so it has to go with it or every
+    // account runs on one login. The default account keeps the variable, where
+    // it may be the credential itself.
+    ...(configDir ? ["-u", CLAUDE_ENV_TOKEN_KEY, `CLAUDE_CONFIG_DIR=${configDir}`] : []),
     ...command,
   ];
 }

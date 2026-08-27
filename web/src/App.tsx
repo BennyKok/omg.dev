@@ -607,6 +607,11 @@ export type ClaudeAccountInfo = {
   connected: boolean;
   /** Stored sign-in is dead and only a browser login can revive it. */
   needsReconnect?: boolean;
+  /**
+   * Credential is CLAUDE_CODE_OAUTH_TOKEN from the environment. It outranks any
+   * stored login, so a browser sign-in cannot change what this account uses.
+   */
+  fromEnv?: boolean;
   removable: boolean;
   createdAt: number;
 };

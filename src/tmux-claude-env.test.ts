@@ -32,4 +32,20 @@ describe("Claude account launch environment", () => {
       ...command,
     ]);
   });
+
+  // CLAUDE_CODE_OAUTH_TOKEN is process-wide and outranks the config directory,
+  // so an isolated account that inherited it would run on the wrong login.
+  test("removes the environment token for an isolated account", () => {
+    const argv = claudeAccountLaunchCommand(["claude"], true, "/data/claude/account-2");
+    expect(argv).toContain("CLAUDE_CODE_OAUTH_TOKEN");
+    expect(argv.indexOf("CLAUDE_CODE_OAUTH_TOKEN")).toBeGreaterThan(0);
+    expect(argv[argv.indexOf("CLAUDE_CODE_OAUTH_TOKEN") - 1]).toBe("-u");
+  });
+
+  // The default account may BE the environment token. Unsetting it there would
+  // delete the credential that made the account connected.
+  test("keeps the environment token for the default account", () => {
+    const argv = claudeAccountLaunchCommand(["claude"], true);
+    expect(argv).not.toContain("CLAUDE_CODE_OAUTH_TOKEN");
+  });
 });
