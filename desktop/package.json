@@ -1,0 +1,18 @@
+{
+  "name": "@omg-dev/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "desktop:prepare": "bunx electrobun@2.0.1 prepare",
+    "desktop:dev": "bunx electrobun@2.0.1 dev --watch",
+    "desktop:build": "bunx electrobun@2.0.1 build --env=stable",
+    "desktop:config": "bunx electrobun@2.0.1 config --env=dev",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "5.9.3"
+  }
+}
