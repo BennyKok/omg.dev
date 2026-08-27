@@ -38,4 +38,49 @@ describe("SessionAssigneeAvatar", () => {
     ui.render(<SessionAssigneeAvatar session={{ assignedUser: null }} users={[]} />);
     expect(ui.host.childElementCount).toBe(0);
   });
+
+  test("falls back to the configured placeholder when the avatar fails to load", () => {
+    ui.render(
+      <SessionAssigneeAvatar
+        session={{ assignedUser: "ada@example.com" }}
+        users={[
+          { email: "ada@example.com", name: "Ada", avatar: "https://www.gravatar.com/avatar/abc" },
+        ]}
+      />,
+    );
+
+    const img = ui.query("img") as HTMLImageElement | null;
+    expect(img).not.toBeNull();
+
+    // An unreachable gravatar.com on a self-hosted box surfaces as an error
+    // event, not an empty `avatar`, so this is the only signal to fall back on.
+    ui.flush(() => {
+      img?.dispatchEvent(new Event("error"));
+    });
+
+    expect(ui.query("img")).toBeNull();
+    expect(ui.query('[role="img"]')?.getAttribute("aria-label")).toBe("Assigned to Ada");
+  });
+
+  test("retries when the roster serves a different avatar URL", () => {
+    const render = (avatar: string) =>
+      ui.render(
+        <SessionAssigneeAvatar
+          session={{ assignedUser: "ada@example.com" }}
+          users={[{ email: "ada@example.com", name: "Ada", avatar }]}
+        />,
+      );
+
+    render("/api/avatars/abc.webp?v=1");
+    ui.flush(() => {
+      ui.query("img")?.dispatchEvent(new Event("error"));
+    });
+    expect(ui.query("img")).toBeNull();
+
+    // A fresh upload bumps `?v=`, so the failure must not stick to the user.
+    render("/api/avatars/abc.webp?v=2");
+    expect((ui.query("img") as HTMLImageElement | null)?.getAttribute("src")).toBe(
+      "/api/avatars/abc.webp?v=2",
+    );
+  });
 });
