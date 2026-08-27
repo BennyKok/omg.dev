@@ -85,6 +85,11 @@ import {
 } from "./lib/conversation-ui";
 import { UNREAD_DOT_CLASS } from "./lib/unread";
 import {
+  addVisibleTranscriptSid,
+  removeVisibleTranscriptSid,
+  useVisibleTranscriptSids,
+} from "./lib/visible-transcripts";
+import {
   clearSessionUnread,
   sameUnreadSessions,
   sessionRosterRowAriaLabel,
@@ -7007,6 +7012,7 @@ export function App() {
   // Wide-screen stage columns mark their session as expanded when previewed or
   // pinned; rail-only rows keep using lightweight list/status data.
   const expandedIds = useExpandedIds(liveSessions, false);
+  const visibleTranscripts = useVisibleTranscriptSids();
   const sseLiveStream = useLiveSessionStream(liveSessions, useWsLive ? [] : expandedIds);
   const wsLiveStream = useLiveSocket(liveSessions, expandedIds, {
     enabled: useWsLive,
@@ -7090,18 +7096,19 @@ export function App() {
     void markBotConversationVisible(selectedConversationSid).catch(() => {});
   }, [markBotConversationVisible, selectedConversationSid, tab]);
 
-  // A session is read once it is actually on screen. `expandedIds` is the app's
-  // existing answer to "which sessions has this person opened" — the same list
-  // that decides which transcripts to stream — so opening a chat clears its dot
-  // and merely scrolling past the row does not. One write per new turn on an
-  // open session, not one per poll: the server advances the watermark to the
-  // turn that was read, so the next poll reports it read.
+  // A session is read once its transcript is actually on screen: a stage column
+  // on the desktop, the session sheet on a phone, with the tab in the
+  // foreground. Registering surfaces rather than reading `expandedIds` is the
+  // whole point — see visibleTranscriptSids for what that list turned out to
+  // mean. One write per new turn on an open session, not one per poll: the
+  // server advances the watermark to the turn that was read, so the next poll
+  // reports it read.
   useEffect(() => {
     if (!unreadSessions.size || document.visibilityState !== "visible") return;
-    for (const sid of expandedIds) {
+    for (const sid of visibleTranscripts) {
       if (unreadSessions.has(sid)) markSessionVisible(sid);
     }
-  }, [expandedIds, markSessionVisible, unreadSessions]);
+  }, [visibleTranscripts, markSessionVisible, unreadSessions]);
 
   // Reuse the transcript websocket. Every committed assistant row refreshes
   // the server-owned watermark view. The open conversation advances its own
@@ -11724,6 +11731,17 @@ function RailStage({
     window.dispatchEvent(new Event("lfg-collapse-change"));
   }, [columnIds]);
 
+  // The same columns, as "on screen right now". Separate from the line above on
+  // purpose: that one writes a durable preference and never takes it back, which
+  // is right for a stream manager and wrong for read state. This pair drops the
+  // session again the moment its column closes.
+  useEffect(() => {
+    for (const sid of columnIds) addVisibleTranscriptSid(sid);
+    return () => {
+      for (const sid of columnIds) removeVisibleTranscriptSid(sid);
+    };
+  }, [columnIds]);
+
   // Never leave the stage empty when there's something to show: preview the
   // first working session (or the first session) on load. (A pending focus
   // request wins — don't race it with the default pick; the `focus` effect
@@ -16001,6 +16019,12 @@ function SessionTitleSheet({
   useEffect(() => {
     touchedRef.current.add(sid);
     addForcedStreamSid(sid);
+  }, [sid]);
+  // On screen for as long as this sheet is. Mobile opens a session here, so
+  // this is what makes opening a chat on a phone clear its unread mark.
+  useEffect(() => {
+    addVisibleTranscriptSid(sid);
+    return () => removeVisibleTranscriptSid(sid);
   }, [sid]);
   useEffect(
     () => () => {
