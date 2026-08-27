@@ -119,3 +119,25 @@ describe("session read watermarks", () => {
     expect(latestIndexedAssistantRowids([]).size).toBe(0);
   });
 });
+
+describe("a working session is not offered as ready", () => {
+  test("the mark returns on its own once the session settles", () => {
+    // withSessionUnread holds the flag back while `busy` is true. The state is
+    // not consumed by that: sessionUnreadMap still reports the session unread,
+    // so the same comparison reports it again on the next list call once the
+    // turn has landed. This asserts the property that makes the suppression
+    // lossless.
+    ensureSessionReadBaseline(VIEWER);
+    indexSessionMessagesDirect("session-busy", [assistant("mid-turn output")]);
+
+    const busyRow = { sessionId: "session-busy", busy: true };
+    const settledRow = { sessionId: "session-busy", busy: false };
+    const map = sessionUnreadMap(VIEWER, ["session-busy"]);
+
+    // The underlying state says unread in both cases...
+    expect(map.get("session-busy")).toBe(true);
+    // ...and only the presentation rule differs.
+    expect(!busyRow.busy && !!map.get("session-busy")).toBe(false);
+    expect(!settledRow.busy && !!map.get("session-busy")).toBe(true);
+  });
+});

@@ -1097,8 +1097,19 @@ export function sessionListRow(session: Session): Omit<Session, "cmd"> {
  * flag is stated on every row, including the false ones, because a client
  * cannot tell "read" from "this server does not answer that" when the key is
  * simply absent.
+ *
+ * A working session never reports unread. The mark answers "this one is ready
+ * for you", and a session mid-turn is not: it sends a person into a transcript
+ * that is still being written. Nothing is lost by holding it back, because
+ * unread is derived from the watermark on every list call — the moment the
+ * session settles, the same comparison reports it again. That is what makes
+ * this different from a bot conversation, where read state belongs to a
+ * conversation you are having rather than to work becoming available.
+ *
+ * One owner, because the roster row and the Chat tab both read this. Deciding
+ * it per consumer is how a tab comes to claim an unread chat that no row shows.
  */
-function withSessionUnread<T extends { sessionId: string | null }>(
+function withSessionUnread<T extends { sessionId: string | null; busy?: boolean }>(
   identity: string,
   rows: T[],
 ): (T & { unread: boolean })[] {
@@ -1106,7 +1117,10 @@ function withSessionUnread<T extends { sessionId: string | null }>(
     identity,
     rows.map((row) => row.sessionId).filter((id): id is string => !!id),
   );
-  return rows.map((row) => ({ ...row, unread: !!unread.get(row.sessionId ?? "") }));
+  return rows.map((row) => ({
+    ...row,
+    unread: !row.busy && !!unread.get(row.sessionId ?? ""),
+  }));
 }
 
 function repoRootForManagedCwd(cwd: string): string | undefined {
