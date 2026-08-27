@@ -66,7 +66,8 @@ describe("levels offered per agent", () => {
   });
 
   test("agents with no reasoning knob still report none", () => {
-    expect(thinkingLevelsForAgent("opencode")).toBeNull();
+    // OpenCode is intentionally absent: its levels come from each discovered
+    // model's `variants`, covered by the model-discovery regression tests.
     expect(thinkingLevelsForAgent("copilot")).toBeNull();
   });
 });
