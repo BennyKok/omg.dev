@@ -1281,7 +1281,7 @@ type ManagedStructuredSessionOptions = {
 };
 
 function spawnManagedStructuredSession(
-  moduleName: "grok-acp-session" | "cursor-acp-session" | "fx-acp-session" | "copilot-sdk-session" | "jcode-sdk-session",
+  moduleName: "grok-acp-session" | "cursor-acp-session" | "fx-acp-session" | "deepseek-acp-session" | "copilot-sdk-session" | "jcode-sdk-session",
   opts: ManagedStructuredSessionOptions,
 ): ManagedHarnessSpawnResult {
   const harnessPath = `${import.meta.dir}/agents/backends/${moduleName}.ts`;
@@ -1296,7 +1296,9 @@ function spawnManagedStructuredSession(
   if (opts.thinkingLevel) argv.push("--thinking-level", opts.thinkingLevel);
   if (opts.resume) argv.push("--resume", opts.resume);
   if (opts.recoveredAt) argv.push("--recovered-at", String(opts.recoveredAt));
-  const prompt = withOmgRuntimeContract(opts.prompt);
+  const prompt = moduleName === "deepseek-acp-session"
+    ? opts.prompt
+    : withOmgRuntimeContract(opts.prompt);
   if (prompt?.trim()) argv.push("--", prompt);
   return spawnManagedHarness(argv, {
     name: opts.name,
@@ -1315,6 +1317,9 @@ export const spawnManagedCursorAcpSession = (opts: ManagedStructuredSessionOptio
 
 export const spawnManagedFxAcpSession = (opts: ManagedStructuredSessionOptions) =>
   spawnManagedStructuredSession("fx-acp-session", opts);
+
+export const spawnManagedDeepseekAcpSession = (opts: ManagedStructuredSessionOptions) =>
+  spawnManagedStructuredSession("deepseek-acp-session", opts);
 
 export const spawnManagedCopilotSdkSession = (opts: ManagedStructuredSessionOptions) =>
   spawnManagedStructuredSession("copilot-sdk-session", opts);

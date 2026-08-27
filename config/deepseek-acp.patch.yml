@@ -1,0 +1,10 @@
+# omg.dev drives DeepSeek Harness through its automation-only ACP transport.
+# The base profile owns the agent loop, tools, persistence, and credentials.
+# This small overlay adds only the stdio bridge and lets each managed session
+# choose its model without rewriting the user's ~/.dsh profile.
+- insert:
+    - id: omg-acp
+      name: '@deepseek-ai/dsh-acp'
+      config:
+        provider: deepseek-official
+        model: !!js process.env.LFG_DEEPSEEK_MODEL ?? 'deepseek-v4-flash'

@@ -284,6 +284,9 @@ describe("coding agent auth detection", () => {
     tmpHome = mkdtempSync(join(tmpdir(), "lfg-copilot-auth-"));
     setEnv("HOME", tmpHome);
     for (const key of COPILOT_ENV_KEYS) setEnv(key, undefined);
+    setEnv("DEEPSEEK_API_KEY", undefined);
+    setEnv("DSH_HOME", undefined);
+    setEnv("LFG_DEEPSEEK_PATH", undefined);
     return tmpHome;
   };
 
@@ -375,6 +378,37 @@ describe("coding agent auth detection", () => {
     const status = await grokStatus(home);
     expect(status.configured).toBe(true);
     expect(status.accountConnected).toBe(false);
+  });
+
+  const deepseekStatus = async (home: string, withProfile: boolean) => {
+    const bin = join(home, "dsh");
+    writeFileSync(bin, "#!/bin/sh\nexit 0\n");
+    chmodSync(bin, 0o755);
+    setEnv("LFG_DEEPSEEK_PATH", bin);
+    if (withProfile) {
+      const root = join(home, ".dsh", "profiles", "omg");
+      mkdirSync(join(root, "node_modules", "@deepseek-ai", "dsh-acp"), { recursive: true });
+      writeFileSync(join(root, "package.json"), JSON.stringify({
+        dependencies: { "@deepseek-ai/dsh-acp": "0.1.1-rc.2" },
+      }));
+      writeFileSync(join(root, "node_modules", "@deepseek-ai", "dsh-acp", "package.json"), "{}");
+    }
+    const agents = await listCodingAgents();
+    const agent = agents.find((candidate) => candidate.key === "deepseek");
+    if (!agent) throw new Error("deepseek agent not registered");
+    return agent.status;
+  };
+
+  test("DeepSeek needs both the ACP profile and API key", async () => {
+    const home = useTmpHome();
+    setEnv("DEEPSEEK_API_KEY", "sk-test");
+    expect((await deepseekStatus(home, false)).configured).toBe(false);
+  });
+
+  test("DeepSeek is configured with the installed ACP profile and API key", async () => {
+    const home = useTmpHome();
+    setEnv("DEEPSEEK_API_KEY", "sk-test");
+    expect((await deepseekStatus(home, true)).configured).toBe(true);
   });
 
   const opencodeStatus = async (home: string) => {

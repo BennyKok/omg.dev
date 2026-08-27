@@ -10,6 +10,7 @@ export type CodingAgentProduct =
   | "grok"
   | "cursor"
   | "fx"
+  | "deepseek"
   | "pi"
   | "copilot";
 
@@ -70,6 +71,13 @@ export const CODING_AGENT_ADAPTERS = {
     // so LFG cannot pick a thinking level per launch.
     capabilities: { interrupt: "immediate", questions: true, modelChange: "none", thinkingChange: "none", scheduled: true, toolAccess: "mcp" },
   },
+  deepseek: {
+    product: "deepseek", driver: "rpc", transport: "command-file", managedLaunch: true,
+    // The public ACP surface creates fresh sessions only. The live harness is
+    // fully interactive, but it cannot reload one after its process exits.
+    recovery: "process-bound",
+    capabilities: { interrupt: "immediate", questions: false, modelChange: "none", thinkingChange: "none", scheduled: false, toolAccess: "contract-only" },
+  },
   copilot: {
     product: "copilot", driver: "sdk", transport: "command-file", managedLaunch: true,
     recovery: "durable",
@@ -116,6 +124,7 @@ export const ACTIVE_SESSION_AGENT_KINDS = [
   "grok",
   "cursor",
   "fx",
+  "deepseek",
   "pi",
   "copilot",
 ] as const satisfies readonly CodingAgentKind[];
@@ -147,6 +156,7 @@ export const SESSION_AGENT_KINDS = [
   "grok",
   "cursor",
   "fx",
+  "deepseek",
   "pi",
   "copilot",
 ] as const satisfies readonly CodingAgentKind[];
@@ -164,6 +174,7 @@ export const COMMAND_FILE_AGENT_KINDS = [
   "grok",
   "cursor",
   "fx",
+  "deepseek",
   "copilot",
   "jcode",
 ] as const satisfies readonly CodingAgentKind[];

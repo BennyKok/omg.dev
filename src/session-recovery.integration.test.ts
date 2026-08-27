@@ -59,6 +59,7 @@ describe("session recovery integration", () => {
     ]);
     expect(CODING_AGENT_ADAPTERS.copilot.recovery).toBe("durable");
     expect(CODING_AGENT_ADAPTERS.jcode.recovery).toBe("durable");
+    expect(CODING_AGENT_ADAPTERS.deepseek.recovery).toBe("process-bound");
   });
 
   test("every durable backend hands its recovery id across its process boundary", () => {

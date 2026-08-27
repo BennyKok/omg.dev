@@ -21,6 +21,7 @@ import {
   spawnManagedCopilotSession,
   spawnManagedCursorAcpSession,
   spawnManagedFxAcpSession,
+  spawnManagedDeepseekAcpSession,
   spawnManagedCursorSession,
   spawnManagedGrokAcpSession,
   spawnManagedGrokSession,
@@ -59,6 +60,7 @@ const launchers = {
   grok: spawnManagedGrokAcpSession,
   cursor: spawnManagedCursorAcpSession,
   fx: spawnManagedFxAcpSession,
+  deepseek: spawnManagedDeepseekAcpSession,
   pi: spawnManagedPiSession,
   copilot: spawnManagedCopilotSdkSession,
 } satisfies Record<(typeof SESSION_AGENT_KINDS)[number], unknown>;

@@ -66,6 +66,7 @@ export const FX_MODELS: string[] = [
   "moonshotai/kimi-k3",
   "zai/glm-5.2",
 ];
+export const DEEPSEEK_MODELS: string[] = ["deepseek-v4-flash", "deepseek-v4-pro"];
 export const HERMES_MODELS: string[] = [
   "nousresearch/hermes-4-405b",
   "nousresearch/hermes-4-70b",
@@ -146,6 +147,7 @@ const MODEL_CATALOG_KEYS: CodingAgentKind[] = [
   "grok",
   "cursor",
   "fx",
+  "deepseek",
   "opencode",
   "jcode",
   "pi",
@@ -196,6 +198,7 @@ const LABELS: Record<CodingAgentKind, string> = {
   grok: "grok",
   cursor: "cursor",
   fx: "fx",
+  deepseek: "deepseek",
   hermes: "hermes",
   pi: "pi",
   copilot: "copilot",
@@ -209,6 +212,7 @@ export const MODEL_OPTIONS: Record<CodingAgentKind, { defaultModel: string; mode
   grok: { defaultModel: "grok-4.6", models: GROK_MODELS },
   cursor: { defaultModel: "auto", models: CURSOR_MODELS },
   fx: { defaultModel: "auto", models: FX_MODELS },
+  deepseek: { defaultModel: "deepseek-v4-flash", models: DEEPSEEK_MODELS },
   hermes: { defaultModel: "nousresearch/hermes-4-405b", models: HERMES_MODELS },
   opencode: { defaultModel: "opencode/deepseek-v4-flash-free", models: OPENCODE_MODELS },
   jcode: { defaultModel: "auto", models: JCODE_MODELS },

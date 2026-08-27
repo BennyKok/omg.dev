@@ -1187,6 +1187,7 @@ const OPENCODE_MODELS = [
 // model id. Kept in sync with PI_MODELS in src/agent-catalog.ts (the server
 // catalog overrides this fallback at bootstrap).
 const PI_MODELS_FALLBACK = ["fable", "opus", "sonnet", "haiku", "deepseek/deepseek-v4-flash"];
+const DEEPSEEK_MODELS = ["deepseek-v4-flash", "deepseek-v4-pro"];
 // Kept in sync with COPILOT_MODELS in src/agent-catalog.ts (the server catalog
 // overrides this fallback at bootstrap).
 const COPILOT_MODELS = ["claude-sonnet-4.5", "claude-sonnet-4", "gpt-5"];
@@ -1243,6 +1244,7 @@ const AGENT_MODELS: Record<AgentKind, string[]> = {
   grok: GROK_MODELS,
   cursor: CURSOR_MODELS,
   fx: FX_MODELS,
+  deepseek: DEEPSEEK_MODELS,
   opencode: OPENCODE_MODELS,
   jcode: JCODE_MODELS,
   pi: PI_MODELS_FALLBACK,
@@ -1256,6 +1258,7 @@ const AGENT_DEFAULT_MODEL: Record<AgentKind, string> = {
   grok: "grok-4.6",
   cursor: "auto",
   fx: "auto",
+  deepseek: "deepseek-v4-flash",
   opencode: "opencode/deepseek-v4-flash-free",
   jcode: "auto",
   pi: "sonnet",
@@ -1272,6 +1275,7 @@ const AGENT_THINKING_LEVELS: Record<AgentKind, string[]> = {
   // fx keeps reasoning effort in ~/.fx/settings.json and takes no per-launch
   // flag on `fx acp`, so the selector stays hidden.
   fx: [],
+  deepseek: [],
   opencode: [],
   jcode: ["low", "medium", "high", "xhigh", "max"],
   // pi's own list, straight from its --thinking help. It has a real "off".
