@@ -13136,7 +13136,15 @@ const RailRow = memo(function RailRow({
               ? // Open-in-stage rows wear the mobile card's glass edge instead of a flat tint.
                 "lfg-gborder border-transparent bg-card shadow-[0_8px_24px_-18px_rgba(0,0,0,0.55)]"
               : attention
-                ? "border-primary/20 bg-primary/[0.07] hover:bg-primary/10"
+                ? // Dark carries a heavier tint than light on purpose. The same
+                  // 7% of the accent that reads clearly on a white card is
+                  // nearly lost on a near-black one: measured, it moved the row
+                  // by 18 points of red on white and by 15 points of blue on
+                  // #242428, and the second one has to survive a phone screen
+                  // at arm's length. The dot and the spoken label carry the
+                  // state either way — this only decides how far across the
+                  // room the row is legible.
+                  "border-primary/20 bg-primary/[0.07] hover:bg-primary/10 dark:border-primary/40 dark:bg-primary/[0.16] dark:hover:bg-primary/20"
                 : "border-transparent hover:bg-muted/70",
         )}
       >
@@ -13228,10 +13236,10 @@ const RailItem = memo(function RailItem({
   const faviconSrc = projectFaviconSrc(session.project);
   const [failedFaviconSrc, setFailedFaviconSrc] = useState<string | null>(null);
   const showFavicon = !!faviconSrc && failedFaviconSrc !== faviconSrc;
-  // Read state, from the roster's own set. Working and unread are two facts
-  // here for the same reason they are on a bot row: a session can be busy
-  // again and still hold a turn you never read, and one badge for both would
-  // overwrite whichever arrived first.
+  // Read state, from the roster's own set. A working session is never in that
+  // set — the server holds the mark back while a turn is running, because the
+  // dot means "ready for you" and a session mid-turn is not. It comes back on
+  // its own when the session settles; see withSessionUnread in serve.ts.
   const { unread: unreadSessions } = useContext(SessionUnreadContext);
   const title = titleForSession(session);
   const unread = !!session.sessionId && unreadSessions.has(session.sessionId);
