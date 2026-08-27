@@ -24,6 +24,8 @@ import type { OmgConnectionStatus } from "@omg-dev/client";
 
 import {
   EmptyState,
+  SESSION_ROW_MARK_X,
+  SESSION_ROW_MARK_Y,
   HomeComposer,
   IconButton,
   PrimaryButton,
@@ -48,7 +50,6 @@ import { selectHomeAutoFindings, useAutoAgents, type AutoFindingRow } from "../s
 import { useComputerPicker } from "../src/omg/computer-picker";
 import { useDictation } from "../src/omg/dictation";
 import { PressableScale } from "../src/omg/motion";
-import { useResumable } from "../src/omg/resumable";
 import { useUsage } from "../src/omg/usage";
 import { LucideIcon } from "../src/omg/lucide";
 import { DropdownMenu } from "../src/omg/menu";
@@ -129,10 +130,19 @@ function SessionFamily({
 /**
  * One child, plus the two lines that tie it to its parent.
  *
- * THE HEIGHT IS MEASURED, not assumed. The elbow has to meet the card on its
- * MIDLINE, and a card is 60pt with one line of text and ~72 with two — a
- * constant put the join above centre on some rows and below it on others, which
- * is exactly the sort of thing that makes a tree look hand-drawn.
+ * THE LINE AIMS AT THE MARK, and both ends come from one set of numbers.
+ *
+ * This used to MEASURE the branch and join at half its height, because a card
+ * was 60pt with one line of text and ~72 with two. Two things were wrong with
+ * that. The measured box is the whole family, so a child that had children of
+ * its own joined at the midline of the SUBTREE — far below its own row. And
+ * horizontally the line stopped at a literal copied from the row's old 16pt
+ * margin, so when the row's margin changed the line kept pointing at where the
+ * row used to be, arriving at the mark's left edge rather than its centre.
+ *
+ * The row is a fixed height now, so the join is exact arithmetic on
+ * SESSION_ROW rather than a measurement, and it is right on the first frame
+ * with no flash.
  *
  * The spine is one continuous run. Drawn per-child at `height: 100%` it stopped
  * at each card's bottom edge and left a gap-sized hole between every sibling —
@@ -155,13 +165,12 @@ function SessionBranch({
   animateEntry?: boolean;
 }) {
   const { colors, space } = useTheme();
-  const [cardHeight, setCardHeight] = useState(0);
-  // Until the row has been measured, a sane default keeps the line from
-  // flashing at the wrong place on first paint.
-  const midline = cardHeight ? cardHeight / 2 : 30;
+  // The mark's centre, both axes. Not measured — see the note above.
+  const midline = SESSION_ROW_MARK_Y;
+  const reach = SESSION_ROW_MARK_X - SPINE_INSET;
 
   return (
-    <View onLayout={(e) => setCardHeight(e.nativeEvent.layout.height)}>
+    <View>
       {/**
        * The last child gets a ROUNDED ELBOW drawn as one bordered box — a left
        * border and a bottom border meeting in a corner radius, which is how
@@ -173,9 +182,9 @@ function SessionBranch({
        * A child with siblings below it is a T-junction instead: the spine has
        * to carry on past the branch, so the corner cannot be part of it.
        *
-       * The card inside carries its own 16pt margin, so the branch crosses
-       * that too — sized to the indent alone it stopped in mid air, short of
-       * the row it points at.
+       * The row inside carries its own margin and padding, so the branch
+       * crosses both to reach the mark — sized to the indent alone it stopped
+       * in mid air, short of the row it points at.
        */}
       {last ? (
         <View
@@ -184,7 +193,7 @@ function SessionBranch({
             position: "absolute",
             left: SPINE_INSET,
             top: -space.sm,
-            width: space.lg - SPINE_INSET,
+            width: reach,
             height: midline + space.sm,
             borderLeftWidth: LINE,
             borderBottomWidth: LINE,
@@ -211,7 +220,7 @@ function SessionBranch({
               position: "absolute",
               left: SPINE_INSET,
               top: midline,
-              width: space.lg - SPINE_INSET,
+              width: reach,
               height: LINE,
               backgroundColor: colors.borderStrong,
             }}
@@ -221,45 +230,6 @@ function SessionBranch({
       <SessionFamily node={node} depth={depth} onOpen={onOpen} animateEntry={animateEntry} />
     </View>
   );
-}
-
-/**
- * What to call an ended session.
- *
- * The machine's resumable list falls back to the PROJECT or the worktree
- * folder when a session never earned a title, which on a phone produced a
- * column reading "vibes, vibes, vibes, lfg-7e4d5d" — twenty rows naming the
- * same repo and identifying none of them. The first thing the person actually
- * said is a far better name for a conversation, so a title that is only the
- * folder gets replaced by it.
- */
-function recentTitle(session: {
-  title?: string | null;
-  lastUserText?: string | null;
-  project?: string | null;
-  cwd?: string | null;
-}): string {
-  const title = session.title?.trim();
-  const said = session.lastUserText?.trim();
-  const folder = session.cwd?.split("/").filter(Boolean).pop();
-  const isFolderName =
-    !!title && (title === session.project?.trim() || title === folder);
-  if (title && !isFolderName) return title;
-  return said || title || "Session";
-}
-
-/** Nothing said, and named after the folder it ran in. See the Recent filter. */
-function isAnonymous(session: {
-  title?: string | null;
-  lastUserText?: string | null;
-  project?: string | null;
-  cwd?: string | null;
-}): boolean {
-  if (session.lastUserText?.trim()) return false;
-  const title = session.title?.trim();
-  if (!title) return true;
-  const folder = session.cwd?.split("/").filter(Boolean).pop();
-  return title === session.project?.trim() || title === folder;
 }
 
 /** Hairlines vanish against black at this length; a point and a half reads. */
@@ -387,7 +357,6 @@ export default function SessionsScreen() {
   // now (`/api/usage/summary`), and useUsage only does it itself when talking
   // to a box too old to have that endpoint.
   const { providers: usage, loading: usageLoading } = useUsage();
-  const { sessions: resumable, refresh: refreshResumable } = useResumable();
   const {
     agents: autoAgents,
     findings: autoFindings,
@@ -552,7 +521,7 @@ export default function SessionsScreen() {
    * `last.ts`) on a live-but-idle session just by having it open. Every field
    * in the response therefore changes on a schedule that has nothing to do
    * with what's on screen, and a naive `setSessions(freshArray)` would hand
-   * `roots`/`working`/`idle`/`recent` (all `useMemo`d off `sessions` by
+   * `roots`/`projectGroups`/`working` (all `useMemo`d off `sessions` by
    * reference) a brand-new array every single poll regardless — which
    * re-renders every mounted `SessionFamily`/`SessionCard` and re-arms each
    * one's `layout: LinearTransition` (see motion.tsx) even though not one row
@@ -631,18 +600,18 @@ export default function SessionsScreen() {
   );
 
   /**
-   * WHY AUTO/RECENT CAN PAINT BEFORE WORKING/IDLE, AND WHY THAT IS THE BUG.
+   * WHY AUTO CAN PAINT BEFORE THE SESSION LIST, AND WHY THAT IS THE BUG.
    *
    * `load()` above gates on `ready` — the machine's own wake/probe round
    * trip has to finish before it even ATTEMPTS `client.listSessions()`.
-   * `useAutoAgents()` and `useResumable()` (both above) gate their own
-   * fetches on nothing but the API client existing — no readiness check —
-   * so on a machine that needs waking, Auto and Recent's requests are
-   * already in flight, and often already answered, while Sessions hasn't
-   * started yet. The result: on the first render where `ready` flips true,
-   * Auto/Recent can already have rows to show while Working/Idle are still
-   * empty — and then Sessions resolves a beat later and mounts a batch of
-   * rows ABOVE Auto, shoving it down mid-settle. list-overlap-watch.tsx
+   * `useAutoAgents()` (above) gates its own fetch on nothing but the API
+   * client existing — no readiness check — so on a machine that needs
+   * waking, Auto's request is already in flight, and often already
+   * answered, while Sessions hasn't started yet. The result: on the first
+   * render where `ready` flips true, Auto can already have rows to show
+   * while the folder groups are still empty — and then Sessions resolves a
+   * beat later and mounts a batch of rows ABOVE Auto, shoving it down
+   * mid-settle. list-overlap-watch.tsx
    * caught this live, twice identically: Idle mounting late while Auto had
    * already-settled rows re-measuring, not newly mounting ones.
    *
@@ -769,36 +738,6 @@ export default function SessionsScreen() {
    * sections the list any more.
    */
   const working = useMemo(() => roots.filter(nodeBusy), [roots]);
-
-  /**
-   * Ended sessions, minus anything the live list is already showing.
-   *
-   * The machine excludes live ids server-side, but the two lists are fetched
-   * separately and a session that closes (or resumes) between the two reads
-   * would otherwise appear twice — the same row under two headings, which
-   * reads as a bug in the list rather than a race.
-   */
-  const recent = useMemo(() => {
-    const live = new Set(
-      sessions.flatMap((s) => [s.sessionId, (s as { nativeSessionId?: string }).nativeSessionId])
-        .filter((v): v is string => !!v),
-    );
-    return resumable.filter(
-      (session) =>
-        !live.has(session.sessionId) &&
-        // A session with no title of its own AND nothing anyone said is not a
-        // conversation you can return to — it is an agent process that
-        // existed. The machine lists them because they are technically
-        // resumable; on a phone they arrived as eight consecutive rows all
-        // reading "vibes", which is the repo, drowning the four real ones.
-        !!recentTitle(session).trim() &&
-        !isAnonymous(session) &&
-        projectPicker.matches({
-          project: session.project ?? undefined,
-          cwd: session.cwd ?? undefined,
-        }),
-    );
-  }, [resumable, sessions, projectPicker]);
 
   /**
    * OPEN FINDINGS, FILTERED DOWN TO THIS PROJECT.
@@ -1205,7 +1144,6 @@ export default function SessionsScreen() {
             refreshing={pulling}
             onRefresh={() => {
               setPulling(true);
-              refreshResumable();
               refreshAuto();
               void Promise.all([probe(), load(true)]).finally(() => setPulling(false));
             }}
@@ -1351,7 +1289,23 @@ export default function SessionsScreen() {
              */}
             {projectGroups.map((group) => (
               <View key={group.key}>
-                <SectionHeader label={group.label} count={group.count} />
+                {/* The heading IS the filter: tap to narrow to this folder,
+                    tap the cross to come back out. A group with no folder key
+                    ("No project") cannot be scoped to, so it stays inert. */}
+                <SectionHeader
+                  label={group.label}
+                  count={group.count}
+                  onPress={
+                    group.project && projectPicker.filter === ALL_PROJECTS
+                      ? () => projectPicker.setFilter(group.project)
+                      : undefined
+                  }
+                  onClear={
+                    projectPicker.filter !== ALL_PROJECTS
+                      ? () => projectPicker.setFilter(ALL_PROJECTS)
+                      : undefined
+                  }
+                />
                 {/* 2pt, not 8. Rows are a list, not a stack of cards; the
                     fixed row height does the separating. */}
                 <View style={{ gap: 2 }}>
@@ -1435,44 +1389,18 @@ export default function SessionsScreen() {
             ) : null}
 
             {/**
-             * WORK THAT FINISHED IS STILL WORK YOU WANT TO READ.
+             * NO "RECENT" SECTION.
              *
-             * A session that shipped and closed used to disappear from the
-             * phone entirely — the summary was in the notification centre
-             * behind the bell, and the transcript behind nothing at all. This
-             * is the web's "Recent sessions", in the place someone actually
-             * looks: under the ones still running.
+             * Finished sessions used to get their own group at the foot of the
+             * list. The web's mobile list does not carry one — resumable work
+             * is reached from the composer's history rather than from the live
+             * list — and on a phone the section was competing for the same
+             * scroll as the sessions that are actually running.
              *
-             * Tapping one READS it. Resuming costs an agent process and is
-             * asked for by sending a message, not by opening a row.
-             *
-             * Same `sessionsSettled` gate as Auto, same reason — `resumable`
-             * has no readiness gate on its own fetch either.
+             * Work that shipped is still reachable: the Recently shipped feed
+             * behind the bell lists it, and each entry opens its session. If
+             * that stops being true, this section is the thing to bring back.
              */}
-            {sessionsSettled && recent.length ? (
-              <>
-                <SectionHeader label="Recent" count={recent.length} dotColor={colors.textMuted} />
-                <View style={{ gap: space.sm }}>
-                  {recent.map((session) => (
-                    <OverlapRow key={session.sessionId} id={`recent:${session.sessionId}`}>
-                      <SessionCard
-                        title={recentTitle(session)}
-                        // WHEN, then what was last said. A list called Recent
-                        // that never says when is asking you to guess, and these
-                        // rows span minutes to weeks.
-                        subtitle={[relativeTime(session.lastActivityAt), session.lastUserText?.trim()]
-                          .filter(Boolean)
-                          .join(" · ")}
-                        agent={session.agent}
-                        ended
-                        onPress={() => router.push(`/session/${session.sessionId}`)}
-                        animateEntry={animateEntry}
-                      />
-                    </OverlapRow>
-                  ))}
-                </View>
-              </>
-            ) : null}
           </>
         )}
       </ScrollView>

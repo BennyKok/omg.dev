@@ -420,7 +420,16 @@ export function useProjectPicker() {
 
   const filterLabel = activeFilter === ALL_PROJECTS ? "All projects" : activeFilter;
 
-  return { cwd, label: filterLabel, options, matches, filter: activeFilter };
+  /**
+   * Exposed so the LIST can scope itself, not just the composer's pill.
+   *
+   * The folder heading on the home screen is the natural place to say "only
+   * this one" — it is already naming the group it would narrow to. Until now
+   * scoping lived solely on the composer pill, which is a control about where
+   * the NEXT session runs, so narrowing the list meant reaching for a widget
+   * that describes something else.
+   */
+  return { cwd, label: filterLabel, options, matches, filter: activeFilter, setFilter };
 }
 
 /** A repo's project key — see the note in useProjectPicker. */

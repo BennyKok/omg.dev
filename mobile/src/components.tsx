@@ -7,6 +7,7 @@
 import {
   ActivityIndicator,
   Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -571,6 +572,8 @@ export function SectionHeader({
   label,
   count,
   dotColor,
+  onPress,
+  onClear,
   actionLabel,
   onAction,
 }: {
@@ -582,12 +585,27 @@ export function SectionHeader({
    * there just to fill the slot reads as a status nobody defined.
    */
   dotColor?: string;
+  /**
+   * Makes the heading itself the filter. A folder heading already names the
+   * group it would narrow the list to, so it is the obvious control; the web
+   * made its own group title the filter for the same reason.
+   */
+  onPress?: () => void;
+  /** Shown INSTEAD of onPress when this group is the current scope — the way back out. */
+  onClear?: () => void;
   actionLabel?: string;
   onAction?: () => void;
 }) {
   const { colors, type, space } = useTheme();
+  const pressable = !!onPress || !!onClear;
   return (
-    <View
+    <Pressable
+      onPress={onClear ?? onPress}
+      disabled={!pressable}
+      accessibilityRole={pressable ? "button" : undefined}
+      accessibilityLabel={
+        onClear ? `${label}. Showing only this folder. Show all` : pressable ? `${label}. Show only this folder` : undefined
+      }
       style={{
         flexDirection: "row",
         alignItems: "center",
@@ -611,7 +629,7 @@ export function SectionHeader({
           The web dropped the uppercase from its own group labels for the same
           reason; tracking goes with it, since letterspacing exists to make
           uppercase readable. */}
-      <Text style={{ ...type.overline, letterSpacing: 0, textTransform: "none", color: colors.textMuted }}>
+      <Text style={{ ...type.overline, letterSpacing: 0, textTransform: "none", color: onClear ? colors.text : colors.textMuted }}>
         {label}
       </Text>
       {/* The count is a CHIP, not part of the label. Same as the web: a
@@ -639,31 +657,66 @@ export function SectionHeader({
           </Text>
         </View>
       ) : null}
+      {/* The scoped group carries the cross that clears the scope. It sits on
+          the heading rather than somewhere in the chrome because the heading
+          is what set it — the control that narrows and the control that widens
+          are the same object. */}
+      {onClear ? (
+        <Icon ios="xmark.circle.fill" android="cancel" size={14} color={colors.textMuted} />
+      ) : null}
       <View style={{ flex: 1 }} />
       {actionLabel && onAction ? (
         <Pressable onPress={onAction} hitSlop={8} style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })}>
           <Text style={{ ...type.subhead, color: colors.primary }}>{actionLabel}</Text>
         </Pressable>
       ) : null}
-    </View>
+    </Pressable>
   );
 }
 
 /**
- * One session as its own CARD, spaced from its neighbours and carrying its own
- * edge — the same shape the web Computer uses.
+ * One session as a ROW: a fixed-height line on the page, not a card.
  *
- * This spent a version as an inset-grouped list (one shared surface, hairline
- * separators, only the group's outer corners rounded) on the argument that
- * separate tiles compete with each other. Seen on the device, the grouped
- * version buried the thing that matters: a session is a separate object with
- * its own agent, its own state and its own swipe-to-archive, and the list is
- * short enough that it was never a scanning problem. Matching the web also
- * means the two surfaces stop describing the same session two ways.
+ * This spent versions as an inset-grouped list and then as a bordered card,
+ * the latter on the argument that a session is a separate object and the web
+ * gave each one an edge. The web stopped giving them edges in bc762a0e0 — a
+ * card that carries a transcript cannot be scanned, only read — and the phone
+ * follows, because two surfaces describing the same session two ways is the
+ * problem both changes were trying to solve.
  *
  * Avatar left, one-line title, muted one-line subtitle, state right: a spinner
  * while working, a green dot when idle, a pause glyph when blocked.
  */
+/**
+ * THE ROW'S GEOMETRY, published because the tree lines have to hit it.
+ *
+ * The spine and elbow that tie a subagent to its parent are drawn in
+ * app/index.tsx, but they aim at the agent mark drawn HERE. They aimed with
+ * literals copied from this file's margins, so changing a margin moved the row
+ * and left the line pointing where the row used to be — which is exactly what
+ * happened when the card became a row: the elbow stopped at the mark's left
+ * edge instead of its centre.
+ *
+ * Deriving both ends from one set of numbers makes that impossible.
+ */
+export const SESSION_ROW = {
+  /** Fixed, not minimum — see the note on the row's own height. */
+  height: 60,
+  /** Horizontal margin between the row and the edge of its column. */
+  inset: 8,
+  /** Inset from the row's own edge to the mark. */
+  padding: 8,
+  /** The agent mark's box. */
+  avatar: 22,
+} as const;
+
+/** The mark's centre, measured from the left edge of the row's column. */
+export const SESSION_ROW_MARK_X =
+  SESSION_ROW.inset + SESSION_ROW.padding + SESSION_ROW.avatar / 2;
+
+/** The mark's centre vertically. The row is a fixed height, so this is exact. */
+export const SESSION_ROW_MARK_Y = SESSION_ROW.height / 2;
+
 export function SessionCard({
   title,
   subtitle,
@@ -754,7 +807,7 @@ export function SessionCard({
               left: 0,
               backgroundColor: colors.danger,
               ...corners,
-              marginHorizontal: space.sm,
+              marginHorizontal: SESSION_ROW.inset,
               alignItems: "flex-end",
               justifyContent: "center",
               paddingRight: space.xl,
@@ -795,7 +848,7 @@ export function SessionCard({
              * reveal have a shape; at rest there is nothing drawn at all.
              */
             borderRadius: radius.md,
-            marginHorizontal: space.sm,
+            marginHorizontal: SESSION_ROW.inset,
             /**
              * The mark needs room to be a mark.
              *
@@ -805,7 +858,7 @@ export function SessionCard({
              * and 16 gives it the same breathing room the title has from the
              * text beside it.
              */
-            paddingLeft: space.sm,
+            paddingLeft: SESSION_ROW.padding,
             // More room on the right than the left: the status dot is a 10pt
             // circle with no visual mass of its own, so an equal inset leaves
             // it looking stuck to the group's edge. The avatar on the left is
@@ -817,14 +870,14 @@ export function SessionCard({
              * reflow the rows below it. Same height as the web's rail row
              * (`h-[3.75rem]`).
              */
-            height: 60,
+            height: SESSION_ROW.height,
           })}
         >
           {/* 22. The mark identifies the agent; it is not the subject of the
               row. Without a disc around it the artwork reads at full size, so
               what used to need 40pt of circle now says the same thing in half
               of that and stops competing with the session's name. */}
-          <AgentAvatar agent={agent} size={22} busy={busy} plain />
+          <AgentAvatar agent={agent} size={SESSION_ROW.avatar} busy={busy} plain />
           <View style={{ flex: 1, gap: 1, minWidth: 0 }}>
             {/* 15/12, down from 17/13. A session's name is a fragment of a
                 prompt, not a headline — at 17 a list of eight of them read as
@@ -960,6 +1013,12 @@ export function HomeComposer({
   bottomInset?: number;
 }) {
   const { colors, isDark, radius, type, space } = useTheme();
+  /**
+   * Which usage the sheet is showing: this agent's, or the whole fleet's.
+   * `null` is closed. See UsageSheet for why the fleet view is a long-press
+   * rather than the default.
+   */
+  const [usageSheet, setUsageSheet] = useState<"agent" | "all" | null>(null);
   /** The not-yet-settled words, when a live take is running. */
   const dictationTail =
     dictation.live && dictation.state === "recording" ? (dictation.partial ?? "").trim() : "";
@@ -1254,6 +1313,15 @@ export function HomeComposer({
                * smaller than where this started, with the rings still doing
                * the reading rather than the padding.
                */
+              <Pressable
+                key={provider.id}
+                onPress={() => setUsageSheet("agent")}
+                onLongPress={() => setUsageSheet("all")}
+                delayLongPress={350}
+                accessibilityRole="button"
+                accessibilityLabel={`${provider.label} usage. Long press for all agents.`}
+                style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+              >
               <GlassSurface
                 key={provider.id}
                 variant="regular"
@@ -1272,6 +1340,7 @@ export function HomeComposer({
                   windows={provider.available ? orderWindows(provider.windows ?? []) : []}
                 />
               </GlassSurface>
+              </Pressable>
             ))}
         </View>
 
@@ -1348,6 +1417,19 @@ export function HomeComposer({
           ) : null}
         </ScrollView>
       </View>
+
+      {/* Mounted here rather than at the screen, because the rings that open it
+          live here and the composer already holds the usage it shows. */}
+      <UsageSheet
+        visible={usageSheet !== null}
+        title={usageSheet === "all" ? "All agents" : "Usage"}
+        providers={
+          usageSheet === "all"
+            ? usage
+            : usage.filter((provider) => provider.kind === providerKindForAgent(agent))
+        }
+        onClose={() => setUsageSheet(null)}
+      />
     </View>
   );
 }
@@ -1668,6 +1750,162 @@ export function AttachmentStrip({
  * punched through so the next ring in shows.
  */
 const RING_COLORS = ["#fb923c", "#38bdf8", "#a78bfa", "#34d399"];
+
+/**
+ * How long until a window comes back. `relativeTime` measures the past.
+ *
+ * Deliberately coarse: a limit that restores in 3h14m is "in 3h". The number
+ * answers "can I keep going", not "when exactly", and a ticking minute count
+ * invites reading it as a countdown that matters.
+ */
+function resetsIn(ts?: number | null): string | null {
+  if (!ts) return null;
+  const delta = ts - Date.now();
+  if (delta <= 0) return "now";
+  const minutes = Math.round(delta / 60000);
+  if (minutes < 60) return `in ${Math.max(1, minutes)}m`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `in ${hours}h`;
+  return `in ${Math.round(hours / 24)}d`;
+}
+
+/**
+ * What the activity rings say when you ask them.
+ *
+ * The rings were unreadable by design — three arcs and no legend — and until
+ * now there was nothing to tap, so the only way to learn what an arc meant was
+ * to already know. The web opens a panel naming each window with its
+ * percentage and when it restores; this is that panel as a sheet.
+ *
+ * ONE provider on tap, EVERY provider on long-press, which is the web's split:
+ * the composer's question is about the agent that is about to run, and the
+ * fleet-wide view is a deliberate second gesture rather than a default.
+ */
+export function UsageSheet({
+  visible,
+  providers,
+  title,
+  onClose,
+}: {
+  visible: boolean;
+  providers: ProviderUsage[];
+  /** Names what is being shown, since the same sheet serves one agent and all of them. */
+  title: string;
+  onClose: () => void;
+}) {
+  const { colors, type, space, radius } = useTheme();
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            paddingHorizontal: space.lg,
+            paddingTop: space.lg,
+            paddingBottom: space.sm,
+          }}
+        >
+          <Text style={{ ...type.headline, color: colors.text, flex: 1 }}>{title}</Text>
+          <Pressable onPress={onClose} hitSlop={10} accessibilityRole="button" accessibilityLabel="Close">
+            <Text style={{ ...type.subhead, color: colors.primary }}>Done</Text>
+          </Pressable>
+        </View>
+
+        <ScrollView contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
+          {providers.length === 0 ? (
+            <Text style={{ ...type.footnote, color: colors.textMuted }}>
+              This machine reported no usage.
+            </Text>
+          ) : null}
+          {providers.map((provider) => {
+            const windows = provider.windows ?? [];
+            return (
+              <View
+                key={provider.id}
+                style={{
+                  gap: space.md,
+                  padding: space.lg,
+                  borderRadius: radius.lg,
+                  backgroundColor: colors.card,
+                }}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+                  <AgentAvatar agent={provider.kind} size={18} plain />
+                  <Text style={{ ...type.subhead, fontWeight: "600", color: colors.text }}>
+                    {provider.label}
+                  </Text>
+                  {provider.plan ? (
+                    <View
+                      style={{
+                        paddingHorizontal: 6,
+                        paddingVertical: 1,
+                        borderRadius: 999,
+                        backgroundColor: colors.secondary,
+                      }}
+                    >
+                      <Text style={{ ...type.caption, fontSize: 10, color: colors.textMuted }}>
+                        {provider.plan}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+
+                {windows.length ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: space.lg }}>
+                    <UsageRings windows={windows} size={52} />
+                    <View style={{ flex: 1, gap: 6 }}>
+                      {windows.slice(0, RING_COLORS.length).map((w, index) => {
+                        const resets = resetsIn(w.resetsAt);
+                        return (
+                          // Index, not label: two windows can share a label
+                          // ("session"), and a duplicate key drops a legend row.
+                          <View key={index} style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+                            <View
+                              style={{
+                                width: 8,
+                                height: 8,
+                                borderRadius: 4,
+                                backgroundColor: RING_COLORS[index % RING_COLORS.length],
+                              }}
+                            />
+                            <Text style={{ ...type.caption, color: colors.textSecondary, flex: 1 }} numberOfLines={1}>
+                              {w.label}
+                            </Text>
+                            <Text
+                              style={{
+                                ...type.caption,
+                                fontVariant: ["tabular-nums"],
+                                color: colors.text,
+                              }}
+                            >
+                              {w.pct === null || w.pct === undefined ? "—" : `${Math.round(w.pct)}%`}
+                            </Text>
+                            {resets ? (
+                              <Text style={{ ...type.caption, color: colors.textMuted }}>{resets}</Text>
+                            ) : null}
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : (
+                  <Text style={{ ...type.caption, color: colors.textMuted }}>
+                    {provider.available ? "No limits reported." : "Did not answer."}
+                  </Text>
+                )}
+
+                {provider.note ? (
+                  <Text style={{ ...type.caption, color: colors.textMuted }}>{provider.note}</Text>
+                ) : null}
+              </View>
+            );
+          })}
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
 
 export function UsageRings({
   windows,
