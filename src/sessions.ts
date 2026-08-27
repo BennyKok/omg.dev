@@ -1587,15 +1587,55 @@ async function codexThreads(opts?: { sinceMs?: number }): Promise<CodexThread[]>
   return out;
 }
 
-async function firstUserTextFromTop(path: string): Promise<string | null> {
+// Synthetic user turns codex writes ahead of the real prompt. They are
+// role "user" request items, so the exec fallback below has to look past them
+// or every non-interactive session would be titled "recommended_plugins".
+// Only tags observed in real rollouts (and in the codex binary's own strings)
+// are listed; this is deliberately not a catch-all for "starts with a tag",
+// because a genuine prompt may well open with markup.
+const CODEX_SYNTHETIC_USER_BLOCK =
+  /^<(?:recommended_plugins|environment_context|user_instructions|plugins|skill)[\s>]/;
+
+/**
+ * The prompt a codex rollout was started with, read from its head.
+ *
+ * Interactive runs record it as an `event_msg`/`user_message`, which is the
+ * canonical form and stays the primary source. `codex exec` never emits that
+ * event: its only user turn is a `response_item` message with role "user",
+ * which normalizeCodexLine drops (request items duplicate the conversation).
+ * Without the fallback every exec rollout returned null and the caller titled
+ * it `basename(cwd)` — so a batch of exec runs in one directory showed up as N
+ * identical, unidentifiable rows in the roster and in resume history.
+ */
+export async function firstUserTextFromTop(path: string): Promise<string | null> {
   try {
     const text = await Bun.file(path).slice(0, 256 * 1024).text();
+    let requestItemPrompt: string | null = null;
     for (const line of text.split("\n")) {
       const m = normalizeCodexLine(line);
       if (m?.role === "user" && m.kind === "text") return m.text.trim();
+      if (requestItemPrompt === null) requestItemPrompt = codexRequestItemUserText(line);
     }
+    return requestItemPrompt;
   } catch {}
   return null;
+}
+
+function codexRequestItemUserText(line: string): string | null {
+  // Cheap reject before a second JSON.parse of the same line: only user turns
+  // can match, and the head scan runs over every rollout on the box.
+  if (!line.includes('"user"')) return null;
+  let x: { type?: string; payload?: { type?: string; role?: string; content?: unknown } };
+  try {
+    x = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  const p = x.payload;
+  if (x.type !== "response_item" || p?.type !== "message" || p.role !== "user") return null;
+  const text = stripConversationPrefix(codexContentText(p.content).trim()).trim();
+  if (!text || CODEX_SYNTHETIC_USER_BLOCK.test(text)) return null;
+  return text;
 }
 
 function codexPromptFromCmd(cmd: string): string | null {
