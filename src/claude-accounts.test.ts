@@ -16,6 +16,7 @@ import {
 describe("Claude account registry", () => {
   const originalHome = process.env.HOME;
   const originalStore = process.env.LFG_CLAUDE_ACCOUNTS_PATH;
+  const originalEnvToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
   let root = "";
 
   function connect(configDir: string, token: string): void {
@@ -43,6 +44,9 @@ describe("Claude account registry", () => {
     root = mkdtempSync(join(tmpdir(), "lfg-claude-accounts-"));
     process.env.HOME = join(root, "home");
     process.env.LFG_CLAUDE_ACCOUNTS_PATH = join(root, "data", "accounts.json");
+    // Every case here is about stored logins. The environment token would
+    // connect the default account and change what each list assertion sees.
+    delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
   }
 
   afterEach(() => {
@@ -50,6 +54,8 @@ describe("Claude account registry", () => {
     else process.env.HOME = originalHome;
     if (originalStore === undefined) delete process.env.LFG_CLAUDE_ACCOUNTS_PATH;
     else process.env.LFG_CLAUDE_ACCOUNTS_PATH = originalStore;
+    if (originalEnvToken === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    else process.env.CLAUDE_CODE_OAUTH_TOKEN = originalEnvToken;
     if (root) rmSync(root, { recursive: true, force: true });
     root = "";
   });

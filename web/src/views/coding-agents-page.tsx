@@ -367,6 +367,14 @@ export default function CodingAgentsPage({
                             Sign-in expired
                           </span>
                         ) : null}
+                        {/* The variable outranks any stored login, so the row
+                            has to name it. Otherwise this reads as a browser
+                            sign-in that the user never made. */}
+                        {account.fromEnv ? (
+                          <span className="block truncate text-[11px] text-muted-foreground">
+                            From CLAUDE_CODE_OAUTH_TOKEN
+                          </span>
+                        ) : null}
                       </span>
                       {account.connected ? (
                         <>
@@ -374,16 +382,21 @@ export default function CodingAgentsPage({
                           {/* Signing in again is the only repair for an account
                               whose token the CLI can no longer renew, so the
                               action stays reachable while it reads Connected —
-                              a row that can only be deleted is a dead end. */}
-                          <button
-                            type="button"
-                            onClick={() => onLogin(agent.key, account.id)}
-                            title={`Sign in to ${account.label} again`}
-                            aria-label={`Sign in to ${account.label} again`}
-                            className="flex size-7 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
-                          >
-                            <RotateCcw className="size-3.5" />
-                          </button>
+                              a row that can only be deleted is a dead end.
+                              An env-backed account is the exception: the
+                              variable wins over whatever a browser login
+                              stores, so the button could not change anything. */}
+                          {account.fromEnv ? null : (
+                            <button
+                              type="button"
+                              onClick={() => onLogin(agent.key, account.id)}
+                              title={`Sign in to ${account.label} again`}
+                              aria-label={`Sign in to ${account.label} again`}
+                              className="flex size-7 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                            >
+                              <RotateCcw className="size-3.5" />
+                            </button>
+                          )}
                         </>
                       ) : (
                         <Button
