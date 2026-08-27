@@ -5910,6 +5910,13 @@ export function App() {
     (userFilter !== "__all" && userFilter !== "__unassigned"
       ? userFilter
       : users.length === 1 ? users[0].email : "");
+  // The session list is polled from a callback with no dependencies, so it
+  // cannot close over the identity. Read state is per person: a poll that asks
+  // without one is answered for a DIFFERENT watermark than the one bootstrap
+  // read and than the one "mark read" writes, and the two answers then take
+  // turns every five seconds. Ref, so the poll stays stable.
+  const botUnreadIdentityRef = useRef(botUnreadIdentity);
+  botUnreadIdentityRef.current = botUnreadIdentity;
   // The mobile Live header introduces the product mark, then gives that prime
   // strip of screen back to the person using it. Start the two-second hold only
   // once bootstrap is ready so a slow connection does not consume the intro
@@ -6329,7 +6336,9 @@ export function App() {
       );
     }
     const fetchRevision = ++sessionsFetchRevisionRef.current;
-    const payload = await api<{ sessions: Session[] }>("/api/sessions");
+    const payload = await api<{ sessions: Session[] }>(
+      `/api/sessions?user=${encodeURIComponent(botUnreadIdentityRef.current)}`,
+    );
     // Guard to [] — `sessions` is consumed by `.filter()`/`.map()` on render
     // (allLiveSessions) and just below, so a missing field must not crash.
     if (fetchRevision < sessionsAppliedFetchRevisionRef.current) return;
