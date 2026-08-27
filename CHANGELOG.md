@@ -2,6 +2,41 @@
 
 Recent product updates and deployment notes.
 
+## August 27, 2026 - The native iOS client, native push, and a matched dark theme (v0.6.16)
+
+- **The native omg.dev client for iOS now lives in this repository.** The
+  `mobile/` directory held a todo prototype while the real client was developed
+  on a branch. The real client is now on `main`: sign-in, sessions, transcript
+  and composer, dictation, the Bots roster and bot chat, shared Computers, and
+  the plan screen. It ships through TestFlight and EAS Update, not through this
+  release bundle.
+- **The dark theme is softer, and an installed app's status bar now matches
+  it.** The background moved from pure black to #141414, and body text moved
+  from pure white to a warm off-white. The chrome of an installed app kept its
+  own copies of the old colour, so an iPhone home-screen app painted a black
+  status bar above a lighter page. The theme colour, the splash, the safe-area
+  strips, the boot-failure page, and the web manifest now all use the same
+  value.
+- **The server can send push notifications to the native app.** Delivery goes
+  through Expo and APNs, and it is fanned out from the same path as every other
+  notification, so existing callers inherit it with the same user scoping. The
+  payload is deliberately redacted: it carries a per-kind title and a project
+  name, and never the question text. Delivery needs a native build and an APNs
+  key.
+- **The usage summary now arrives in one request.** `/api/usage/summary` groups
+  sources by kind, averages clamped windows by label, keeps the soonest reset,
+  and excludes accounts that did not report. A remote client no longer pays one
+  round trip per account. The per-account routes remain available.
+- **Batch dictation now picks a provider that can perform it.** The fallback
+  matched any provider that defined a transcribe function, which included the
+  hosted relay. That relay is realtime-only and always answers 503, so a
+  workspace with a working ElevenLabs or OpenAI key still failed. Batch-capable
+  providers are now marked, and only they are selected.
+- **A session row falls back to the local placeholder when an avatar cannot
+  load.** The fallback chain ended at Gravatar, which always returns a URL. On a
+  box that cannot reach gravatar.com, every row rendered a broken image. The
+  configured identity now stays visible without a network.
+
 ## August 27, 2026 - Session sharing, pinned chats sync, and env-token Claude accounts (v0.6.15)
 
 - **A Claude login held in `CLAUDE_CODE_OAUTH_TOKEN` now counts as a connected
