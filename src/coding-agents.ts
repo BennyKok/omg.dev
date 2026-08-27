@@ -46,6 +46,7 @@ export type CodingAgentKind =
   | "grok"
   | "cursor"
   | "fx"
+  | "deepseek"
   | "hermes"
   | "pi"
   | "copilot";
@@ -206,6 +207,7 @@ export const CODING_AGENT_KINDS: Exclude<CodingAgentKind, "claude" | "hermes">[]
   "grok",
   "cursor",
   "fx",
+  "deepseek",
   "opencode",
   "jcode",
   "copilot",
@@ -222,6 +224,7 @@ export const CODING_AGENT_LABELS: Record<CodingAgentKind, string> = {
   grok: "grok",
   cursor: "cursor",
   fx: "fx",
+  deepseek: "deepseek",
   hermes: "hermes",
   pi: "pi",
   copilot: "copilot",
@@ -439,6 +442,39 @@ function fxPath(): string | null {
     `${home}/.bun/bin/fx`,
     "/usr/local/bin/fx",
   ]);
+}
+
+function deepseekPath(): string | null {
+  const home = userHome();
+  return which("dsh", [
+    process.env.LFG_DEEPSEEK_PATH ?? "",
+    `${home}/.local/bin/dsh`,
+    `${home}/.bun/bin/dsh`,
+    "/usr/local/bin/dsh",
+  ]);
+}
+
+function deepseekHome(): string {
+  return process.env.DSH_HOME?.trim() || join(userHome(), ".dsh");
+}
+
+function hasDeepseekAuth(): boolean {
+  if (process.env.DEEPSEEK_API_KEY) return true;
+  for (const path of [join(deepseekHome(), ".credentials.yaml"), join(deepseekHome(), ".env")]) {
+    try {
+      if (/^\s*DEEPSEEK_API_KEY\s*[:=]\s*\S+/m.test(readFileSync(path, "utf8"))) return true;
+    } catch {}
+  }
+  return false;
+}
+
+function hasDeepseekAcpProfile(): boolean {
+  const root = join(deepseekHome(), "profiles", "omg");
+  const manifest = readJson<{ dependencies?: Record<string, unknown> }>(join(root, "package.json"));
+  return (
+    typeof manifest?.dependencies?.["@deepseek-ai/dsh-acp"] === "string" &&
+    existsSync(join(root, "node_modules", "@deepseek-ai", "dsh-acp", "package.json"))
+  );
 }
 
 function rejectGrokAgent(path: string | null): string | null {
@@ -746,6 +782,7 @@ function installCommandFor(kind: CodingAgentKind): string | null {
   if (kind === "grok") return "curl -fsSL https://x.ai/cli/install.sh | bash";
   if (kind === "cursor") return "curl -fsSL https://cursor.com/install | bash";
   if (kind === "fx") return "curl -fsSL https://fx.sh/setup.sh | bash";
+  if (kind === "deepseek") return "bun add -g @deepseek-ai/dsh@0.1.1-rc.2 pnpm && dsh plugin --profile omg add @deepseek-ai/dsh-acp@0.1.1-rc.2";
   if (kind === "copilot") return "npm install -g @github/copilot";
   // pi is no longer bundled. Its provider layer (@earendil-works/pi-ai) pulls
   // in eleven SDKs — Anthropic, OpenAI, Google GenAI, Mistral, Bedrock — which
@@ -769,6 +806,7 @@ function loginCommandPartsFor(kind: CodingAgentKind): string[] | null {
   if (kind === "grok") return [grokPath() ?? "grok", "login", "--device-auth"];
   if (kind === "cursor") return [cursorPath() ?? "cursor-agent", "login"];
   if (kind === "fx") return [fxPath() ?? "fx", "login"];
+  if (kind === "deepseek") return null;
   if (kind === "copilot") return [copilotPath() ?? "copilot"];
   // pi has no login subcommand — auth is file-based (~/.pi/agent/auth.json) or
   // ANTHROPIC_API_KEY, so there is no terminal login to offer.
@@ -1389,6 +1427,12 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
     addBinary("fx CLI", fxPath());
     addAuth("fx auth", hasFxAuth(), "use Login below or set AI_GATEWAY_API_KEY");
     instructions.push("Use Login to sign in to Vercel in your browser, or set AI_GATEWAY_API_KEY.");
+  } else if (kind === "deepseek") {
+    addBinary("DeepSeek Harness CLI", deepseekPath());
+    addAuth("DeepSeek ACP profile", hasDeepseekAcpProfile(), "run Setup to install the omg ACP profile");
+    addAuth("DeepSeek API key", hasDeepseekAuth(), "set DEEPSEEK_API_KEY or save it in ~/.dsh/.credentials.yaml");
+    instructions.push("Run Setup, then set DEEPSEEK_API_KEY or configure the key in DeepSeek Harness.");
+    canLoginInTerminal = false;
   } else if (kind === "pi") {
     const providers = piAuthProviders();
     accountConnected = providers.some((p) => p.connected && !p.fromEnv);
@@ -1695,6 +1739,7 @@ function setupEnvFor(kind: CodingAgentKind): Record<string, string> | null {
   if (kind === "grok") return { LFG_INSTALL_GROK: "1" };
   if (kind === "cursor") return { LFG_INSTALL_CURSOR: "1" };
   if (kind === "fx") return { LFG_INSTALL_FX: "1" };
+  if (kind === "deepseek") return { LFG_INSTALL_DEEPSEEK: "1" };
   if (kind === "copilot") return { LFG_INSTALL_COPILOT: "1" };
   return null;
 }
