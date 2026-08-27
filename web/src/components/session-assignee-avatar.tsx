@@ -21,11 +21,16 @@ export function SessionAssigneeAvatar({
   users,
   size = "sm",
   className,
+  hideWhenRedundant = false,
+  userFilter = "__all",
 }: {
   session: SessionAssignee;
   users: SessionRosterUser[];
   size?: "xs" | "sm";
   className?: string;
+  /** Agent marks only need an assignee badge when several people are visible. */
+  hideWhenRedundant?: boolean;
+  userFilter?: string;
 }) {
   // Which avatar URL failed to load. userRoster() (users.ts) ends its fallback
   // chain at gravatar(), which always returns a URL, so `avatar` is never empty
@@ -39,6 +44,8 @@ export function SessionAssigneeAvatar({
   // `?v=` on every upload, so a replaced icon is a new URL and gets retried,
   // while the URL that actually failed stays suppressed.
   const [failedAvatar, setFailedAvatar] = useState<string | null>(null);
+
+  if (hideWhenRedundant && (users.length <= 1 || userFilter !== "__all")) return null;
 
   const email = session.assignedUser?.trim();
   if (!email) return null;

@@ -11164,6 +11164,7 @@ function LiveView({
         <RailItem
           session={session}
           users={users}
+          userFilter={userFilter}
           busy={!!busyBySid[sid]}
           latest={latestLine(messagesBySid[sid] ?? EMPTY_MESSAGES)}
           active={false}
@@ -12162,6 +12163,7 @@ function RailStage({
         <RailItem
           session={session}
           users={users}
+          userFilter={userFilter}
           busy={!!busyBySid[sid]}
           latest={latestLine(messagesBySid[sid] ?? EMPTY_MESSAGES)}
           active={columnIds.includes(sid)}
@@ -13137,6 +13139,7 @@ const RailRow = memo(function RailRow({
 const RailItem = memo(function RailItem({
   session,
   users,
+  userFilter,
   busy,
   latest,
   active,
@@ -13150,6 +13153,7 @@ const RailItem = memo(function RailItem({
 }: {
   session: Session;
   users: User[];
+  userFilter: string;
   busy: boolean;
   latest: string;
   active: boolean;
@@ -13241,6 +13245,8 @@ const RailItem = memo(function RailItem({
             <SessionAssigneeAvatar
               session={session}
               users={users}
+              userFilter={userFilter}
+              hideWhenRedundant
               size="xs"
               className="absolute bottom-0 left-0 ring-2 ring-card"
             />
