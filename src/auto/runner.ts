@@ -11,6 +11,7 @@
 
 import { PATHS } from "../config.ts";
 import { notifyAll, type PushNotification } from "../push.ts";
+import { projectName } from "../projects.ts";
 import { runInCwd } from "./cwd-lock.ts";
 import { claudeAccountConfigDir, resolveClaudeAccount } from "../claude-accounts.ts";
 import { claudeAccountEnv } from "../claude-creds.ts";
@@ -78,13 +79,14 @@ const SEVERITY_RANK: Record<Severity, number> = { high: 0, med: 1, low: 2 };
  * after a contentless wake. That only works when the app and this box share an
  * origin, so the text is composed here instead and encrypted into the message.
  */
-function findingNotification(finding: Finding, occurrences?: number): PushNotification {
+function findingNotification(finding: Finding, occurrences?: number, project?: string): PushNotification {
   const body = finding.suggest || finding.reasoning?.[0] || "New activity in your sessions";
   return {
     title: occurrences && occurrences > 1 ? `${finding.title} (×${occurrences})` : finding.title,
     body,
     url: "/",
     tag: `finding-${finding.id}`,
+    project,
   };
 }
 
@@ -428,6 +430,9 @@ async function runAutoAgentInner(
   if (!agent.cwd) {
     onLog(`[auto] WARNING: agent "${agent.id}" has no base repo (cwd) — defaulting to ${PATHS.root}; set one in the editor`);
   }
+  // For the native push alert only — see push-native.ts — which names the
+  // project a finding is about instead of quoting the finding itself.
+  const project = projectName(cwd);
   const result = await runSelectedBackend(agent, prompt, cwd, onLog);
 
   const parsed = parseFindings(result);
@@ -462,7 +467,7 @@ async function runAutoAgentInner(
       // sighting says "this is persistent", and every 5th says "this is still
       // being ignored". Silence in between avoids retraining you to swipe it away.
       if (n === 2 || n % 5 === 0) {
-        void notifyAll({ notification: findingNotification(recurred, n) }).catch(() => {});
+        void notifyAll({ notification: findingNotification(recurred, n, project) }).catch(() => {});
       }
       filed.push(recurred);
       continue;
@@ -479,7 +484,7 @@ async function runAutoAgentInner(
     // Wake installed PWAs via Web Push, carrying the finding in the message so
     // devices on a hosted surface can render it without calling back to this
     // box. Best-effort — never let a push failure sink the run.
-    void notifyAll({ notification: findingNotification(finding) }).catch(() => {});
+    void notifyAll({ notification: findingNotification(finding, undefined, project) }).catch(() => {});
     filed.push(finding);
   }
   return filed;

@@ -190,7 +190,12 @@ import {
 } from "../session-diff.ts";
 import { listSessionTree, readSessionFile } from "../session-files.ts";
 import { reportClientError, listClientErrors } from "../client-errors.ts";
-import { getAllUsage, getProviderUsage, listUsageProviders } from "../usage.ts";
+import {
+  getAllUsage,
+  getProviderUsage,
+  getUsageSummary,
+  listUsageProviders,
+} from "../usage.ts";
 import { sessionTokenUsage } from "../session-token-usage.ts";
 import {
   vapidPublicKey,
@@ -201,6 +206,7 @@ import {
   notifyAll,
   type PushSubscription,
 } from "../push.ts";
+import { saveNativeToken, removeNativeToken } from "../push-native.ts";
 import {
   listQuestions,
   getQuestion,
@@ -3721,6 +3727,11 @@ export async function cmdServe() {
             },
           });
           if (!bridge) {
+            // Documented fallback (see openSttStream): no realtime-capable
+            // provider is configured on this machine. This used to close with
+            // zero trace anywhere — the exact condition a dictation bug report
+            // like "the mic just disconnects" needs a breadcrumb for.
+            console.log("[voice] stt-stream: no realtime provider configured, closing");
             try {
               ws.close();
             } catch {}
@@ -6009,6 +6020,262 @@ a{color:#60a5fa}
           return json({ agent: withAutoAgentMeta(agent) });
         }
       }
+      // ---- persistent bots (phase 1: record CRUD only, no chat/messaging —
+      // that stays out of scope until the New/Edit Bot sheet's own PR grows
+      // one; see src/bots/store.ts's header for the full boundary) ----
+      if (path === "/api/bots") {
+        if (req.method === "GET") {
+          return json({ bots: await listBots() });
+        }
+        if (req.method === "POST") {
+          const b = (await req.json().catch(() => null)) as {
+            name?: unknown;
+            persona?: unknown;
+            agent?: unknown;
+            model?: unknown;
+            thinkingLevel?: unknown;
+            cwd?: unknown;
+            user?: unknown;
+            shape?: unknown;
+            colorway?: unknown;
+          } | null;
+          const name = typeof b?.name === "string" ? b.name.trim() : "";
+          const persona = typeof b?.persona === "string" ? b.persona.trim() : "";
+          if (!name || !persona) return err(400, "name and persona are required");
+          const agentValue = typeof b?.agent === "string" ? b.agent.trim() : "";
+          const agent = agentValue || "aisdk";
+          if (!isCodingAgentKind(agent)) return err(400, `unknown coding agent "${agent}"`);
+          const model = typeof b?.model === "string" ? b.model.trim() || undefined : undefined;
+          if (model) {
+            const allowed = modelsForAgent(agent);
+            if (allowed.length && !allowed.includes(model))
+              return err(400, `unknown model "${model}" (expected one of ${allowed.join(", ")})`);
+          }
+          const thinkingLevel = typeof b?.thinkingLevel === "string" ? b.thinkingLevel.trim() || undefined : undefined;
+          if (thinkingLevel) {
+            const allowed = thinkingLevelsForAgent(agent);
+            if (!allowed) return err(400, `thinkingLevel is not supported for ${agent} bots`);
+            if (!allowed.includes(thinkingLevel))
+              return err(400, `unknown thinking level "${thinkingLevel}" for ${agent} (expected one of ${allowed.join(", ")})`);
+          }
+          const cwd = typeof b?.cwd === "string" ? b.cwd.trim() || undefined : undefined;
+          if (cwd && !(await listRepos()).some((repo) => repo.cwd === cwd)) return err(400, "unknown repo");
+          const shape = typeof b?.shape === "string" && (BOT_SHAPES as readonly string[]).includes(b.shape)
+            ? (b.shape as BotShape)
+            : undefined;
+          const colorway = typeof b?.colorway === "string" && (BOT_COLORWAYS as readonly string[]).includes(b.colorway)
+            ? (b.colorway as BotColorway)
+            : undefined;
+          const ownerTag = resolveSessionUserTag(typeof b?.user === "string" ? b.user : undefined);
+          if (!ownerTag.ok) return err(400, `unknown user "${ownerTag.unknown}" (expected one of the roster emails)`);
+          const bot = await createBot({
+            name,
+            persona,
+            agent,
+            model,
+            thinkingLevel,
+            cwd,
+            shape,
+            colorway,
+            owner: ownerTag.user,
+          });
+          return json({ bot });
+        }
+      }
+      {
+        const match = path.match(/^\/api\/bots\/([^/]+)$/);
+        if (match && req.method === "PATCH") {
+          const id = decodeURIComponent(match[1]);
+          const current = await getBot(id);
+          if (!current) return err(404, "bot not found");
+          const b = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+          if (!b) return err(400, "invalid bot patch");
+          const name = b.name === undefined ? current.name : typeof b.name === "string" ? b.name.trim() : "";
+          const persona =
+            b.persona === undefined ? current.persona : typeof b.persona === "string" ? b.persona.trim() : "";
+          if (!name || !persona) return err(400, "name and persona are required");
+          const agent =
+            b.agent === undefined ? current.agent : typeof b.agent === "string" ? b.agent.trim() || current.agent : current.agent;
+          if (!isCodingAgentKind(agent)) return err(400, `unknown coding agent "${agent}"`);
+          const model =
+            b.model === undefined ? current.model : typeof b.model === "string" ? b.model.trim() || undefined : undefined;
+          if (model) {
+            const allowed = modelsForAgent(agent);
+            if (allowed.length && !allowed.includes(model))
+              return err(400, `unknown model "${model}" (expected one of ${allowed.join(", ")})`);
+          }
+          const thinkingLevel =
+            b.thinkingLevel === undefined
+              ? current.thinkingLevel
+              : typeof b.thinkingLevel === "string"
+                ? b.thinkingLevel.trim() || undefined
+                : undefined;
+          const cwd = b.cwd === undefined ? current.cwd : typeof b.cwd === "string" ? b.cwd.trim() || undefined : undefined;
+          if (cwd && !(await listRepos()).some((repo) => repo.cwd === cwd)) return err(400, "unknown repo");
+          const shape =
+            b.shape === undefined
+              ? current.shape
+              : typeof b.shape === "string" && (BOT_SHAPES as readonly string[]).includes(b.shape)
+                ? (b.shape as BotShape)
+                : current.shape;
+          const colorway =
+            b.colorway === undefined
+              ? current.colorway
+              : typeof b.colorway === "string" && (BOT_COLORWAYS as readonly string[]).includes(b.colorway)
+                ? (b.colorway as BotColorway)
+                : current.colorway;
+          if (b.enabled !== undefined && typeof b.enabled !== "boolean") return err(400, "enabled must be a boolean");
+          const bot = await updateBot(id, {
+            name,
+            persona,
+            agent,
+            model,
+            thinkingLevel,
+            cwd,
+            shape,
+            colorway,
+            enabled: typeof b.enabled === "boolean" ? b.enabled : undefined,
+          });
+          if (!bot) return err(404, "bot not found");
+          return json({ bot });
+        }
+      }
+      // ---- bot chat: the minimum wiring to hold a conversation ----
+      //
+      // NOT the real implementation. `main` has a full bot messaging stack
+      // (src/bots/messaging.ts, src/bots/session.ts, deliverBotMessage's
+      // launch-envelope + continuity-summary + peer-message machinery) that
+      // this branch diverged from before it existed, and a reconciliation
+      // between the two is already pending (see AGENTS.md / this repo's own
+      // note on /api/bots). Re-deriving that whole stack here — accounts,
+      // delegated-session repair, self-management tools, peer messaging —
+      // would be exactly the "restructure" the task asked this endpoint NOT
+      // to be.
+      //
+      // So this is the smallest thing that lets the mobile app hold a real
+      // conversation with a bot, built by COMPOSING the session primitives
+      // that already exist and are already tested — the same self-loopback
+      // idiom this file already uses elsewhere (see /api/sessions/continue,
+      // or the ask-answer delivery above) rather than reaching into their
+      // internals:
+      //   - no backing session yet  -> POST /api/sessions/new (mints one,
+      //     folds a small identity envelope + the human's text into the one
+      //     launch prompt, same reasoning as main's `ensureBotSession`: a
+      //     message sent separately from the launch prompt races the boot).
+      //   - a live backing session  -> POST /api/sessions/:id/send (mode
+      //     "queue", so a message arriving mid-turn waits rather than steers).
+      //   - a dead backing session  -> POST /api/sessions/resume, which
+      //     already knows how to cold-start a session back onto its OWN id —
+      //     the same id keeps the transcript one continuous conversation.
+      // The bot record's `sessionId` is the only piece of continuity state
+      // this endpoint owns, and it is the same field the roster and the
+      // (currently CRUD-only) edit screen already read.
+      //
+      // FLAG FOR THE RECONCILIATION: this endpoint should be replaced by (or
+      // reconciled with) whatever `POST /api/bots/:id/messages` main's
+      // src/bots stack ends up owning — same path, same request shape
+      // (`{ text }`), so the mobile client this PR ships needs no change
+      // when that lands.
+      {
+        const match = path.match(/^\/api\/bots\/([^/]+)\/messages$/);
+        if (match && req.method === "POST") {
+          const id = decodeURIComponent(match[1]);
+          const bot = await getBot(id);
+          if (!bot) return err(404, "bot not found");
+          if (!bot.enabled) return err(409, "bot is disabled");
+          const b = (await req.json().catch(() => null)) as { text?: unknown; mode?: unknown } | null;
+          const text = typeof b?.text === "string" ? b.text.trim() : "";
+          if (!text) return err(400, "text is required");
+          // "steer" interrupts the bot's turn in flight, "queue" waits behind
+          // it. Default to queue — the same default `/api/sessions/resume`
+          // uses for a follow-up into an already-live session, and the
+          // gentler choice for a chat surface where cutting the bot off
+          // mid-reply is rarely what sending your next line meant.
+          const mode = b?.mode === "steer" ? "steer" : "queue";
+
+          const forward = async (
+            url: string,
+            body: Record<string, unknown>,
+          ): Promise<{ ok: boolean; status: number; data: Record<string, unknown> | null }> => {
+            const r = await fetch(`http://127.0.0.1:${PORT}${url}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            });
+            const data = (await r.json().catch(() => null)) as Record<string, unknown> | null;
+            return { ok: r.ok, status: r.status, data };
+          };
+
+          if (!bot.sessionId) {
+            // Never talked to before: mint the bot's one conversation. The
+            // envelope rides IN the launch prompt with the human's own first
+            // line, not a separate send after — see the header note above.
+            const repos = await listRepos();
+            const repo = bot.cwd
+              ? repos.find((item) => item.cwd === bot.cwd)
+              : (repos.find((item) => item.cwd === SELF_REPO) ?? repos[0]);
+            if (!repo) return err(400, bot.cwd ? "unknown repo" : "no repo is available");
+            const prompt = [
+              "=== omg.dev BOT CHAT LAUNCH ===",
+              `You are "${bot.name}", a persistent bot a human is chatting with directly — this is`,
+              "an ongoing conversation, not a one-off task. Reply the way you would text a person",
+              "back: plain sentences, no tool-call narration needed unless the human's message asks",
+              "you to do something that requires one.",
+              `Persona: ${bot.persona}`,
+              "=== END omg.dev BOT CHAT LAUNCH ===",
+              "",
+              text,
+            ].join("\n");
+            const created = await forward("/api/sessions/new", {
+              cwd: repo.cwd,
+              prompt,
+              title: bot.name,
+              agent: bot.agent,
+              model: bot.model,
+              thinkingLevel: bot.thinkingLevel,
+              user: bot.owner,
+            });
+            if (!created.ok) {
+              return err(created.status, (created.data?.error as string | undefined) ?? "failed to start bot session");
+            }
+            const sessionId = created.data?.sessionId as string | undefined;
+            if (!sessionId) return err(502, "bot session did not come back with an id");
+            await updateBot(bot.id, { sessionId, lastMessageAt: Date.now() });
+            return json({ sessionId });
+          }
+
+          const live = (await listSessions()).find(
+            (s) => s.sessionId === bot.sessionId || s.nativeSessionId === bot.sessionId,
+          );
+          if (live) {
+            const sent = await forward(`/api/sessions/${encodeURIComponent(bot.sessionId)}/send`, {
+              text,
+              mode,
+            });
+            if (!sent.ok) {
+              return err(sent.status, (sent.data?.error as string | undefined) ?? "failed to send bot message");
+            }
+            await updateBot(bot.id, { lastMessageAt: Date.now() });
+            return json({ sessionId: bot.sessionId });
+          }
+
+          // The backing session ended (box restarted, harness died between
+          // turns). Resuming BY THE SAME ID is what keeps this one continuous
+          // conversation rather than starting a new one every time the process
+          // does not survive between messages.
+          const resumed = await forward("/api/sessions/resume", {
+            sessionId: bot.sessionId,
+            prompt: text,
+            user: bot.owner,
+          });
+          if (!resumed.ok) {
+            return err(resumed.status, (resumed.data?.error as string | undefined) ?? "failed to resume bot session");
+          }
+          const resumedSessionId = (resumed.data?.sessionId as string | undefined) ?? bot.sessionId;
+          await updateBot(bot.id, { sessionId: resumedSessionId, lastMessageAt: Date.now() });
+          return json({ sessionId: resumedSessionId });
+        }
+      }
       // Resolve a client-supplied cwd to a KNOWN repo before we ever chdir into
       // it for a compose/enhance pass. Unknown/blank → undefined (repo-blind,
       // tool-less generation) rather than a hard error or an arbitrary chdir.
@@ -6287,6 +6554,26 @@ a{color:#60a5fa}
         return json({ user: me, notification, questions, findings });
       }
 
+      // ── Native push (APNs via Expo's push relay, iOS/Android app) ─────────
+      // Register / refresh a device's Expo push token. Same shape and same
+      // best-effort contract as /api/push/subscribe above — see push-native.ts
+      // for why this is a separate store instead of shoehorned into
+      // PushSubscription.
+      if (path === "/api/push/native/register" && req.method === "POST") {
+        const b = (await req.json().catch(() => null)) as
+          | { token: string; user?: string | null; platform?: string | null }
+          | null;
+        if (!b?.token) return err(400, "missing token");
+        await saveNativeToken(b);
+        return json({ ok: true });
+      }
+      // Drop a token (notifications turned off / signed out on that device).
+      if (path === "/api/push/native/unregister" && req.method === "POST") {
+        const b = (await req.json().catch(() => null)) as { token?: string } | null;
+        if (b?.token) await removeNativeToken(b.token);
+        return json({ ok: true });
+      }
+
       // ── Ask-user (human-in-the-loop for headless agents) ──────────────────
       // List open/all questions — the UI poller and the voice agent both read
       // this so they can surface and answer what's pending.
@@ -6337,20 +6624,33 @@ a{color:#60a5fa}
         // so the voice agent can read them out and answer on the user's behalf.
         // Carry the question in the push itself. A wake-only push would make
         // the worker fetch /api/push/pending, which it can only reach when the
-        // app is served from this box.
-        void notifyAll({
-          user: q.user,
-          notification: {
-            title: "omg needs your input",
-            body:
-              q.options?.length
-                ? `${q.question} — ${q.options.join(" / ")}`
-                : q.question,
-            url: "/",
-            tag: `ask-${q.id}`,
-            requireInteraction: true,
-          },
-        }).catch(() => {});
+        // app is served from this box. (Web only — see push-native.ts for why
+        // native never gets `body` verbatim.)
+        void (async () => {
+          const askSession = q.sessionId
+            ? (await listSessions()).find(
+                (s) => s.sessionId === q.sessionId || s.nativeSessionId === q.sessionId,
+              )
+            : undefined;
+          await notifyAll({
+            user: q.user,
+            notification: {
+              title: "omg needs your input",
+              body:
+                q.options?.length
+                  ? `${q.question} — ${q.options.join(" / ")}`
+                  : q.question,
+              // Straight to the session asking, not just the app root, so a
+              // tap — on any platform — lands on the actual question. Asks
+              // are always tied to a running session in practice; "/" is only
+              // ever a fallback for a hand-authored question with none.
+              url: q.sessionId ? `/?session=${encodeURIComponent(q.sessionId)}` : "/",
+              tag: `ask-${q.id}`,
+              requireInteraction: true,
+              project: askSession?.project,
+            },
+          });
+        })().catch(() => {});
         // Pushback asks never block — the answer arrives via session injection.
         if (q.pushback || b.wait === false) return json({ id: q.id, status: q.status });
         // Cap the block so a stuck request can't pin a connection forever.
@@ -6934,6 +7234,14 @@ a{color:#60a5fa}
       // their rings, then pull each source independently below.
       if (path === "/api/usage/providers") {
         return json({ providers: listUsageProviders() });
+      }
+
+      // One request for fleet surfaces: accounts of the same provider family
+      // are folded after the existing cached, concurrent collectors resolve.
+      if (path === "/api/usage/summary") {
+        return json({
+          providers: await getUsageSummary({ force: url.searchParams.get("force") === "1" }),
+        });
       }
 
       // One source, fetched on its own. This is what makes a single ring (the
@@ -8515,6 +8823,7 @@ a{color:#60a5fa}
                   ? `/?session=${encodeURIComponent(post.sessionId)}`
                   : "/notifications",
                 tag: `shipped-${post.id}-${post.rev}`,
+                project: post.project,
               },
             }).catch(() => {});
             // Publishing is not a lifecycle event: the source session stays

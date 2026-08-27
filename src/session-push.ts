@@ -82,6 +82,12 @@ export function startSessionPushBridge(): void {
             // Per session, so a second completion replaces that session's
             // notice rather than stacking another one behind it.
             tag: `session-${ev.sessionId}`,
+            // Web push carries `body` (the agent's actual last line) inside an
+            // encrypted payload — fine, it's end-to-end to a subscription only
+            // this box can address. Native push-native.ts deliberately never
+            // sends that text to Expo/Apple's relays; `project` is the most it
+            // shows, so this is here for native, not for the line above.
+            project: ev.project,
           },
         });
       })().catch(() => {});

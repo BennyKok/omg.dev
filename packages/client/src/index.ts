@@ -678,6 +678,11 @@ export class OmgClient {
     return this.sessions;
   }
 
+  // A general fallback for callers that don't pass a limit — not a mirror of
+  // any particular screen's tuning. mobile/app/session/[id].tsx, for one,
+  // always passes its own `limit` (currently 40, sized for that screen's
+  // initial-render cost) rather than relying on this default; the two are
+  // intentionally allowed to differ.
   async getMessages(sessionId: string, limit = 80): Promise<OmgMessagesResponse> {
     return this.transport.request<OmgMessagesResponse>(
       `/api/sessions/${encodeURIComponent(sessionId)}/messages?limit=${limit}`,

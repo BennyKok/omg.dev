@@ -204,9 +204,12 @@ export async function reportClientError(
       reasoning,
       suggest: "Auto-fix agent dispatched to locate and fix this in web/src.",
     });
-    // Carry the text in the push. A contentless wake would make the worker
+    // Carry the text in the push (web only — see push-native.ts, which never
+    // forwards `body` to native). A contentless wake would make the worker
     // fetch the finding back from this box, which a device running the app on
-    // a hosted origin cannot do.
+    // a hosted origin cannot do. No `project`: a client error is always about
+    // this app's own web/src, so naming it would add nothing a generic "omg
+    // found something" doesn't already say.
     void notifyAll({
       notification: {
         title,
