@@ -2,8 +2,22 @@
 
 Recent product updates and deployment notes.
 
-## Unreleased
+## August 27, 2026 - Session sharing, pinned chats sync, and env-token Claude accounts (v0.6.15)
 
+- **A Claude login held in `CLAUDE_CODE_OAUTH_TOKEN` now counts as a connected
+  account.** A box authenticated only through that variable showed the default
+  Claude account as disconnected, and the Coding Agents page asked for a login
+  that was not needed. Sessions launched from such a box worked the whole time,
+  so the page disagreed with the runtime. The account row now reads "From
+  CLAUDE_CODE_OAUTH_TOKEN", and the re-login button is hidden there, because the
+  variable outranks anything a browser sign-in stores. An isolated account no
+  longer inherits the variable, so accounts cannot all run on one login.
+- **Hosted sessions show who they are shared with.** The session list carries an
+  assignee avatar, and a user filter menu narrows the list to one person.
+- **Pinned chats now follow your account instead of one browser.** Pins are held
+  by the server, so a session pinned on one device appears pinned on the others.
+- **The thread rail shows project favicons.** Each project in the rail carries
+  its own icon, and the activity marks beside it are simpler to read.
 - **Voice failures now explain what to fix.** Batch dictation no longer goes
   silent when a provider rejects a key, runs out of API credit, rate limits a
   request, or cannot be reached. The server returns a stable safe error code,
@@ -17,6 +31,25 @@ Recent product updates and deployment notes.
   Settings > More > This device disables only the horizontal chat-switching
   gesture. Vertical scrolling, native text selection, and other gestures keep
   working normally.
+- **Opening the keyboard no longer scrolls the newest message away.** A
+  transcript pinned to the latest turn stays pinned when the soft keyboard
+  opens or closes.
+- **Headings in an answer are no longer smaller than the text they introduce.**
+  A rule written for the user bubble was applying to every assistant reply, so
+  H1, H2 and H3 all rendered at 14px against 17px body text. The rule is now
+  scoped to the user bubble.
+- **Computer Use refuses a debugging port that another process already holds.**
+  Before, a box that already had a browser on port 9222 reported a successful
+  start while Chrome had in fact exited. The desktop stayed empty and every
+  Computer Use call went to the other browser. The start now fails and says so.
+- The onboarding survey is cut to two questions, and its analytics are posted to
+  the embedding host rather than sent from the sandboxed frame, where every
+  event was being dropped.
+- **Deployment note:** pi resolves its proxy base from `OMG_AI_URL` when
+  `ANTHROPIC_BASE_URL` is unset. There is no behavior change while infra still
+  injects `ANTHROPIC_BASE_URL`, which keeps priority. This release must be
+  rebaked into the agent template before the infra side stops injecting the
+  vendor-named variable.
 
 ## August 25, 2026 - OpenCode Go models appear without a Claude account (v0.6.14)
 
