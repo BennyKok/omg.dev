@@ -110,7 +110,7 @@ function SessionFamily({
       />
 
       {node.children.length ? (
-        <View style={{ marginLeft: space.xl, marginTop: space.sm, gap: space.sm }}>
+        <View style={{ marginLeft: CHILD_INDENT, marginTop: space.sm, gap: space.sm }}>
           {node.children.map((child, index) => (
             <SessionBranch
               key={sessionStableId(child.session)}
@@ -235,11 +235,27 @@ function SessionBranch({
 /** Hairlines vanish against black at this length; a point and a half reads. */
 const LINE = 1.5;
 /**
- * How far the spine sits inside the indent. At 0 it ran up the very edge of
- * the child's box, which put it left of the parent card it descends from and
- * made the family look detached from its own parent.
+ * The indent a family's children sit at, and the only place it is written.
+ * SessionBranch subtracts it to work out where the spine goes, so the two
+ * cannot disagree.
  */
-const SPINE_INSET = 7;
+const CHILD_INDENT = 24;
+
+/**
+ * How far the spine sits inside the indent — DERIVED, not chosen.
+ *
+ * The spine descends from the parent it belongs to, so it belongs directly
+ * under that parent's mark. This was a standalone 7, tuned when the row
+ * carried a 16pt margin: back then the mark's centre sat at 43 and the spine
+ * at 31, twelve points to its left. Turning the card into a row moved the
+ * mark's centre to 27 and left the spine at 31, so it swapped sides and hung
+ * four points to the RIGHT of the thing it hangs from.
+ *
+ * Subtracting the indent from the mark's own position means the line starts
+ * under the mark at any row geometry, and nothing has to be re-tuned when one
+ * of those numbers moves again.
+ */
+const SPINE_INSET = SESSION_ROW_MARK_X - CHILD_INDENT;
 /** Enough curve to read as a corner at 1.5pt, not enough to become an arc. */
 const ELBOW_RADIUS = 9;
 
