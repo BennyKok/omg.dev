@@ -293,5 +293,7 @@ export function sessionTitleFromPrompt(prompt: string | null | undefined, max = 
 export function omgCapabilityAccess(agent: CodingAgentKind): "mcp" | "contract-only" {
   // pi is an RPC backend with no MCP registration surface (its harness drives
   // the bundled pi CLI directly), so it never gets the omg.dev MCP toolset.
-  return agent === "hermes" || agent === "copilot" || agent === "pi" ? "contract-only" : "mcp";
+  return agent === "hermes" || agent === "copilot" || agent === "pi" || agent === "deepseek"
+    ? "contract-only"
+    : "mcp";
 }

@@ -17,7 +17,7 @@ import { indexSessionMessagesDirect } from "../../transcript-index.ts";
 import { managedSdkStartupCmdOffset, readNewCmdLines, writeCursor } from "./cmd-tail.ts";
 import { makeDraftPublisher } from "./draft.ts";
 
-export type ManagedSdkAgent = "grok" | "cursor" | "fx" | "copilot" | "jcode";
+export type ManagedSdkAgent = "grok" | "cursor" | "fx" | "deepseek" | "copilot" | "jcode";
 
 export type ManagedSdkPromptOption = {
   label: string;

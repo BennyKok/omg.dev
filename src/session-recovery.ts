@@ -23,6 +23,7 @@ import {
   type ManagedHarnessSpawnResult,
 } from "./tmux.ts";
 import { userAssignments } from "./users.ts";
+import { CODING_AGENT_ADAPTERS } from "./coding-agent-adapters.ts";
 
 export type RecoveryResult = {
   bootId: string | null;
@@ -200,6 +201,10 @@ export async function reconcileCommandFileSessions(
   for (const entry of listEntries()) {
     const owner = matchingManaged(entry, managed);
     if (!owner) continue;
+    const adapter = owner.agent && owner.agent !== "hermes"
+      ? CODING_AGENT_ADAPTERS[owner.agent]
+      : null;
+    if (adapter?.recovery === "process-bound") continue;
     // A scheduled run already did its job. Relaunching it on every wake is
     // how five leftover crons filled a computer_5 box and blocked New session.
     // Self-hosted LFG has no Computer plan — leave those rows alone.

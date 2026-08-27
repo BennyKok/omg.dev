@@ -11,6 +11,7 @@ import {
   spawnManagedCopilotSdkSession,
   spawnManagedCursorAcpSession,
   spawnManagedFxAcpSession,
+  spawnManagedDeepseekAcpSession,
   spawnManagedGrokAcpSession,
   spawnManagedJcodeSdkSession,
   spawnManagedOpencodeAisdkSession,
@@ -156,6 +157,17 @@ export const ACTIVE_CODING_AGENT_PROVIDERS = {
       omgUser: request.omgUser,
       containInAgentSlice: request.containInAgentSlice,
       resume: request.resume,
+    })),
+  deepseek: provider("deepseek", (request) =>
+    spawnManagedDeepseekAcpSession({
+      name: request.name,
+      cwd: request.cwd,
+      prompt: request.prompt,
+      model: request.model ?? "deepseek-v4-flash",
+      key: request.sessionId,
+      omgSessionId: request.sessionId,
+      omgUser: request.omgUser,
+      containInAgentSlice: request.containInAgentSlice,
     })),
   pi: provider("pi", (request) =>
     spawnManagedPiSession({

@@ -91,6 +91,7 @@ const DIRECT_INDEX_MANAGED_AGENTS = new Set<ManagedSession["agent"]>([
   "grok",
   "cursor",
   "fx",
+  "deepseek",
   "copilot",
   "jcode",
 ]);
@@ -606,8 +607,10 @@ export function managedLaunchRow(
         ? `grok --model ${m.model ?? ""}`.trim()
         : agent === "cursor"
           ? `agent --model ${m.model ?? ""}`.trim()
-        : agent === "fx"
-          ? `fx acp --model ${m.model ?? ""}`.trim()
+          : agent === "fx"
+            ? `fx acp --model ${m.model ?? ""}`.trim()
+          : agent === "deepseek"
+            ? "dsh --profile omg --patch config/deepseek-acp.patch.yml"
           : agent === "jcode"
             ? `jcode --model ${m.model ?? ""} repl`.trim()
           : agent === "hermes"
@@ -659,7 +662,7 @@ export function managedLaunchRow(
     managed: true,
     assignedUser: assigns[m.tmuxName] ?? null,
     model:
-      agent === "codex" || agent === "codex-aisdk" || agent === "opencode" || agent === "jcode" || agent === "grok" || agent === "cursor" || agent === "hermes"
+      agent === "codex" || agent === "codex-aisdk" || agent === "opencode" || agent === "jcode" || agent === "grok" || agent === "cursor" || agent === "deepseek" || agent === "hermes"
         ? model
         : modelAlias(model),
     thinkingLevel: m.thinkingLevel ?? null,
@@ -3664,6 +3667,10 @@ async function refreshResumableCacheOnce(focusSessionId?: string): Promise<void>
   // closed process remains resumable after its live registry is removed.
   for (const m of managedSessions) {
     if (!m.sessionId || !m.agent || !DIRECT_INDEX_MANAGED_AGENTS.has(m.agent)) continue;
+    // DeepSeek Harness ACP supports live multi-turn sessions but intentionally
+    // exposes no load/resume method. Keep its closed transcript out of the
+    // Resume picker instead of offering a button that would start fresh.
+    if (m.agent === "deepseek") continue;
     if (!sessionHasIndexedMessages(m.sessionId)) continue;
     const recent = await indexedRecentMessages(sessionIndexKey(m.sessionId), m.sessionId, 80)
       .catch(() => [] as SessionMsg[]);

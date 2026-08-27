@@ -109,6 +109,7 @@ LFG_INSTALL_JCODE="${LFG_INSTALL_JCODE:-0}"
 LFG_INSTALL_GROK="${LFG_INSTALL_GROK:-0}"
 LFG_INSTALL_CURSOR="${LFG_INSTALL_CURSOR:-0}"
 LFG_INSTALL_FX="${LFG_INSTALL_FX:-0}"
+LFG_INSTALL_DEEPSEEK="${LFG_INSTALL_DEEPSEEK:-0}"
 LFG_INSTALL_COPILOT="${LFG_INSTALL_COPILOT:-0}"
 # pi is not bundled any more: its provider layer pulls eleven SDKs (Anthropic,
 # OpenAI, Google GenAI, Mistral, Bedrock) totalling ~115MB, for one optional
@@ -122,6 +123,7 @@ LFG_INSTALL_PI="${LFG_INSTALL_PI:-0}"
 # GHSA-g8r9-g2v8-jv6f (shell parameter-expansion bypass of the read-only
 # safety classification, exploitable through prompt injection).
 LFG_COPILOT_VERSION="${LFG_COPILOT_VERSION:-1.0.71}"
+LFG_DEEPSEEK_HARNESS_VERSION="${LFG_DEEPSEEK_HARNESS_VERSION:-0.1.1-rc.2}"
 LFG_INSTALL_MCP="${LFG_INSTALL_MCP:-1}"
 # Installing the Tailscale daemon is a separate decision from exposing the UI
 # over it. Both are off unless asked for.
@@ -510,6 +512,12 @@ has_cursor_cli() {
   [ -n "$agent_bin" ] && ! is_grok_agent "$agent_bin"
 }
 
+deepseek_harness_ready() {
+  command -v dsh >/dev/null 2>&1 || return 1
+  local dsh_home="${DSH_HOME:-$HOME/.dsh}"
+  grep -q '"@deepseek-ai/dsh-acp"' "$dsh_home/profiles/omg/package.json" 2>/dev/null
+}
+
 pi_pinned_version() {
   jq -r '(.devDependencies["@earendil-works/pi-coding-agent"] // .dependencies["@earendil-works/pi-coding-agent"] // "latest")' \
     "$LFG_DIR/package.json" 2>/dev/null | sed 's/^[\^~]//'
@@ -524,6 +532,10 @@ run_agent_installer() {
     grok)     curl -fsSL https://x.ai/cli/install.sh | bash ;;
     cursor)   curl -fsSL https://cursor.com/install | bash ;;
     fx)       curl -fsSL https://fx.sh/setup.sh | bash ;;
+    deepseek)
+      "$BUN_BIN" add -g "@deepseek-ai/dsh@${LFG_DEEPSEEK_HARNESS_VERSION}" pnpm >/dev/null 2>&1
+      dsh plugin --profile omg add "@deepseek-ai/dsh-acp@${LFG_DEEPSEEK_HARNESS_VERSION}" >/dev/null
+      ;;
     pi)
       # Installed into the install directory, which is where the harness and
       # detection both look for it.
@@ -578,6 +590,7 @@ ensure_agent jcode    "$LFG_INSTALL_JCODE"    command -v jcode
 ensure_agent grok     "$LFG_INSTALL_GROK"     command -v grok
 ensure_agent cursor   "$LFG_INSTALL_CURSOR"   has_cursor_cli
 ensure_agent fx       "$LFG_INSTALL_FX"       command -v fx
+ensure_agent deepseek "$LFG_INSTALL_DEEPSEEK" deepseek_harness_ready
 ensure_agent copilot  "$LFG_INSTALL_COPILOT"  command -v copilot
 ensure_agent pi       "$LFG_INSTALL_PI"       test -f "$LFG_DIR/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"
 
