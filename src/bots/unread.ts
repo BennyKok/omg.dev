@@ -1,6 +1,10 @@
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { PATHS } from "../config.ts";
+import {
+  createReadWatermarkStore,
+  readWatermarkUser,
+  type ReadWatermark,
+} from "../read-watermarks.ts";
 import type { Bot } from "./store.ts";
 
 export type BotConversationOwnerRow = {
@@ -9,50 +13,12 @@ export type BotConversationOwnerRow = {
   assignedUser?: string | null;
 };
 
-export type BotConversationRead = {
-  user: string;
-  sessionId: string;
-  readThroughRowid: number;
-  updatedAt: number;
-};
+export type BotConversationRead = ReadWatermark;
 
-type ReadFile = { version: 1; reads: BotConversationRead[] };
-
-const LOCAL_USER = "__local__";
-const path = () => join(PATHS.data, "bots", "conversation-reads.json");
+const store = createReadWatermarkStore(() => join(PATHS.data, "bots", "conversation-reads.json"));
 
 export function botReadUser(user: string | null | undefined): string {
-  return user?.trim().toLowerCase() || LOCAL_USER;
-}
-
-function readFile(): ReadFile {
-  try {
-    const parsed = JSON.parse(readFileSync(path(), "utf8")) as Partial<ReadFile>;
-    return parsed.version === 1 && Array.isArray(parsed.reads)
-      ? { version: 1, reads: parsed.reads }
-      : { version: 1, reads: [] };
-  } catch {
-    return { version: 1, reads: [] };
-  }
-}
-
-function writeFile(value: ReadFile): void {
-  const target = path();
-  const dir = dirname(target);
-  mkdirSync(dir, { recursive: true });
-  const temp = `${target}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  writeFileSync(temp, JSON.stringify(value, null, 2), { mode: 0o600 });
-  try {
-    const fd = openSync(temp, "r");
-    try { fsyncSync(fd); } finally { closeSync(fd); }
-    renameSync(temp, target);
-    try {
-      const dirFd = openSync(dir, "r");
-      try { fsyncSync(dirFd); } finally { closeSync(dirFd); }
-    } catch {}
-  } finally {
-    try { unlinkSync(temp); } catch {}
-  }
+  return readWatermarkUser(user);
 }
 
 export function conversationOwner(
@@ -72,10 +38,7 @@ export function conversationOwner(
 }
 
 export function conversationUnread(user: string, sessionId: string, latestAssistantRowid: number | null): boolean {
-  if (latestAssistantRowid == null) return false;
-  const key = botReadUser(user);
-  const read = readFile().reads.find((row) => row.user === key && row.sessionId === sessionId);
-  return !read || latestAssistantRowid > read.readThroughRowid;
+  return store.unread(user, sessionId, latestAssistantRowid);
 }
 
 export function markBotConversationRead(
@@ -84,18 +47,7 @@ export function markBotConversationRead(
   latestAssistantRowid: number | null,
   now = Date.now(),
 ): BotConversationRead {
-  const key = botReadUser(user);
-  const file = readFile();
-  const prior = file.reads.find((row) => row.user === key && row.sessionId === sessionId);
-  const next: BotConversationRead = {
-    user: key,
-    sessionId,
-    readThroughRowid: Math.max(prior?.readThroughRowid ?? 0, latestAssistantRowid ?? 0),
-    updatedAt: now,
-  };
-  file.reads = [...file.reads.filter((row) => !(row.user === key && row.sessionId === sessionId)), next];
-  writeFile(file);
-  return next;
+  return store.mark(user, sessionId, latestAssistantRowid, now);
 }
 
 /** Seed the rollout baseline once, so upgrading does not mark old bot history unread. */
@@ -105,9 +57,5 @@ export function ensureBotConversationReadBaseline(
   latestAssistantRowid: number | null,
   now = Date.now(),
 ): void {
-  const key = botReadUser(user);
-  const file = readFile();
-  if (file.reads.some((row) => row.user === key && row.sessionId === sessionId)) return;
-  file.reads.push({ user: key, sessionId, readThroughRowid: latestAssistantRowid ?? 0, updatedAt: now });
-  writeFile(file);
+  store.ensureBaseline(user, sessionId, latestAssistantRowid, now);
 }

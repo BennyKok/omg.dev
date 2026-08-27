@@ -111,8 +111,8 @@ export function botConversationRows<
   });
 }
 
-export const BOT_UNREAD_DOT_CLASS =
-  "inline-block size-2 shrink-0 rounded-full bg-primary";
+/** The shared unread mark. Its owner is `./unread.ts`; session rows use it too. */
+export { UNREAD_DOT_CLASS as BOT_UNREAD_DOT_CLASS } from "./unread.ts";
 
 export function botUnreadActionForTranscript(input: {
   role?: string;
