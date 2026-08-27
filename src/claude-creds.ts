@@ -43,6 +43,21 @@ export const CLAUDE_PLATFORM_ENV_KEYS = [
   "ANTHROPIC_BASE_URL",
 ] as const;
 
+/**
+ * The subscription OAuth token `claude setup-token` prints, read from the
+ * environment.
+ *
+ * This is a user login, so it counts as a connected account. That is why it is
+ * deliberately NOT in CLAUDE_PLATFORM_ENV_KEYS: those variables are stripped at
+ * the launch boundary precisely because an account is connected, and stripping
+ * this one would delete the credential that made the account connected.
+ *
+ * The value is never validated. The CLI does not validate it either — `claude
+ * auth status` reports a logged-in account for any non-empty string — so a bad
+ * token surfaces as a failing session, not as a disconnected account.
+ */
+export const CLAUDE_ENV_TOKEN_KEY = "CLAUDE_CODE_OAUTH_TOKEN";
+
 function defaultConfigDir(): string {
   return join(process.env.HOME ?? homedir(), ".claude");
 }
@@ -58,6 +73,22 @@ function readCredsFile(configDir = defaultConfigDir()): ClaudeCreds | null {
   } catch {
     return null;
   }
+}
+
+function envOauthToken(source: NodeJS.ProcessEnv = process.env): string | null {
+  return source[CLAUDE_ENV_TOKEN_KEY]?.trim() || null;
+}
+
+/**
+ * Whether the account at `configDir` is backed by the environment token rather
+ * than by a stored login.
+ *
+ * Only the default account can be: the variable is process-wide, and an
+ * isolated account is defined by its own config directory.
+ */
+export function claudeAccountUsesEnvToken(configDir?: string): boolean {
+  if (configDir && configDir !== defaultConfigDir()) return false;
+  return envOauthToken() !== null;
 }
 
 function readCredsKeychain(): ClaudeCreds | null {
@@ -103,8 +134,28 @@ export function claudeOauthToken(
  * tell "signed in" from "sign-in is dead" need the expiry and the refresh token
  * too, and reading the file twice through two slightly different code paths is
  * how those two answers drift apart.
+ *
+ * The environment token comes first for the default account, because that is
+ * the precedence the Claude CLI itself applies: a launched subprocess
+ * authenticates with CLAUDE_CODE_OAUTH_TOKEN whatever the credentials file
+ * holds. Reporting the stored login ahead of it would name an account that no
+ * session actually runs as.
  */
 export function claudeOauthRecord(
+  configDir?: string,
+  readKeychain: () => ClaudeCreds | null = readCredsKeychain,
+): ClaudeOauth | null {
+  if (claudeAccountUsesEnvToken(configDir)) {
+    // No refresh token and no expiry: this credential is renewed by whoever set
+    // the variable, not by us, so it can never be "dead" the way a stored one
+    // can.
+    return { accessToken: envOauthToken()! };
+  }
+  return storedOauthRecord(configDir, readKeychain);
+}
+
+/** File- or Keychain-backed record only. The environment token is not stored. */
+function storedOauthRecord(
   configDir?: string,
   readKeychain: () => ClaudeCreds | null = readCredsKeychain,
 ): ClaudeOauth | null {
@@ -383,6 +434,9 @@ async function refreshUnderLock(configDir: string): Promise<string | null> {
  */
 export async function claudeAccessToken(configDir?: string): Promise<string | null> {
   const dir = configDir ?? defaultConfigDir();
+  // Same precedence as claudeOauthRecord. An environment token also needs no
+  // refresh, so returning it here skips the whole lock-and-rotate path.
+  if (claudeAccountUsesEnvToken(configDir)) return envOauthToken();
   const creds = readCredsFile(dir);
   const oauth = creds?.claudeAiOauth;
   if (!oauth?.accessToken) return claudeOauthToken(configDir);
@@ -412,6 +466,12 @@ export function claudeAccountEnv(
 ): Record<string, string> | undefined {
   if (!accountConnected) return undefined;
   const blocked = new Set<string>(CLAUDE_PLATFORM_ENV_KEYS);
+  const isolated = !!configDir && configDir !== defaultConfigDir();
+  // An isolated account is defined by its config directory. CLAUDE_CODE_OAUTH_TOKEN
+  // is process-wide and takes precedence over that directory's credentials, so
+  // leaving it in place would run every account on one login. The default
+  // account keeps it: there it IS the credential.
+  if (isolated) blocked.add(CLAUDE_ENV_TOKEN_KEY);
   const env = Object.fromEntries(
     Object.entries(source).filter(
       (entry): entry is [string, string] =>

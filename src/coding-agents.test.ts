@@ -812,6 +812,7 @@ describe("coding agent visibility", () => {
     setEnv("HOME", tmpHome);
     setEnv("PATH", tmpHome);
     setEnv("ANTHROPIC_API_KEY", undefined);
+    setEnv("CLAUDE_CODE_OAUTH_TOKEN", undefined);
     setEnv("OPENAI_API_KEY", undefined);
     setEnv("XAI_API_KEY", undefined);
     setEnv("CURSOR_API_KEY", undefined);

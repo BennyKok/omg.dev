@@ -9,6 +9,7 @@ describe("usage providers", () => {
   const originalHome = process.env.HOME;
   const originalStore = process.env.LFG_CLAUDE_ACCOUNTS_PATH;
   const originalFetch = globalThis.fetch;
+  const originalEnvToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
   let root = "";
 
   function connect(configDir: string, token: string): void {
@@ -46,6 +47,9 @@ describe("usage providers", () => {
     root = mkdtempSync(join(tmpdir(), "lfg-usage-providers-"));
     process.env.HOME = join(root, "home");
     process.env.LFG_CLAUDE_ACCOUNTS_PATH = join(root, "data", "accounts.json");
+    // The default account is asserted to use "token-one". The environment token
+    // outranks the stored file, so it would answer for that account instead.
+    delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
     connect(join(process.env.HOME, ".claude"), "token-one");
     const second = createClaudeAccount();
     connect(claudeAccountConfigDir(second.id)!, "token-two");
@@ -58,6 +62,8 @@ describe("usage providers", () => {
     else process.env.HOME = originalHome;
     if (originalStore === undefined) delete process.env.LFG_CLAUDE_ACCOUNTS_PATH;
     else process.env.LFG_CLAUDE_ACCOUNTS_PATH = originalStore;
+    if (originalEnvToken === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    else process.env.CLAUDE_CODE_OAUTH_TOKEN = originalEnvToken;
     if (root) rmSync(root, { recursive: true, force: true });
     root = "";
   });
