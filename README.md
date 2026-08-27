@@ -11,6 +11,7 @@ Install omg.dev locally, or start with a hosted Computer.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![GitHub release](https://img.shields.io/github/v/release/BennyKok/omg.dev?label=release)](https://github.com/BennyKok/omg.dev/releases)
+[![Download macOS desktop preview](https://img.shields.io/badge/Download-macOS%20desktop%20preview-000000?logo=apple&logoColor=white)](https://github.com/BennyKok/omg.dev/releases/download/desktop-preview/macos-arm64-omg.dev.dmg)
 [![Discord](https://img.shields.io/badge/Discord-join%20the%20community-5865F2?logo=discord&logoColor=white)](https://omg.dev/discord)
 
 <p align="center">
@@ -36,6 +37,18 @@ macOS. On Linux, run it as a normal user with `sudo` access. Do not run it as
 Open **Settings → Coding agents** to install or connect an agent. omg.dev
 supports Claude Code, Codex, Grok, Cursor, fx, OpenCode, Jcode, GitHub Copilot,
 and Pi. You authenticate with the agent provider.
+
+### Try the macOS desktop preview
+
+The desktop app supports Apple Silicon. It uses the local control plane, so run
+the install command above before you open the app.
+
+[**Download omg.dev for macOS →**](https://github.com/BennyKok/omg.dev/releases/download/desktop-preview/macos-arm64-omg.dev.dmg)
+
+Open the DMG and move `omg.dev.app` to Applications. This preview is not signed
+or notarized yet. For the first launch, Control-click the app, select **Open**,
+then select **Open** again. If macOS still blocks it, use **System Settings →
+Privacy & Security → Open Anyway**.
 
 ## Use the hosted version
 
