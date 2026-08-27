@@ -41,3 +41,15 @@ bun run desktop:build
 
 `desktop:build` builds the current host target. A signed and notarized macOS
 release must run on a macOS runner with signing configured.
+
+## GitHub Actions packages
+
+Run the `desktop-package` workflow from the GitHub Actions page. It uses native
+runners to create these downloadable workflow artifacts:
+
+- `omg.dev-macos-arm64` contains the unsigned DMG and update archive.
+- `omg.dev-linux-x64` contains the x64 installer and update archive.
+- `omg.dev-linux-arm64` contains the ARM64 installer and update archive.
+
+Each artifact also contains `SHA256SUMS.txt`. GitHub keeps the workflow
+artifacts for 14 days. The workflow does not publish a GitHub Release.

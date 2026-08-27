@@ -1,0 +1,123 @@
+name: desktop-package
+
+# Electrobun builds the current host OS and architecture. Use native runners
+# for every supported desktop target. This workflow packages artifacts only.
+# It does not publish a GitHub Release or deploy an application update.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-package-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify desktop package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Prepare Electrobun types
+        run: bun run --cwd desktop desktop:prepare
+
+      - name: Test desktop runtime
+        run: bun run desktop:test
+
+      - name: Type check desktop package
+        run: bun run --cwd desktop typecheck
+
+  package:
+    name: Package ${{ matrix.target }}
+    needs: verify
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: macos-arm64
+            runner: macos-15
+          - target: linux-x64
+            runner: ubuntu-24.04
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build native package
+        run: bun run desktop:build
+
+      - name: Verify package artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          found=0
+          for file in desktop/artifacts/*; do
+            [ -f "$file" ] || continue
+            if [ ! -s "$file" ]; then
+              echo "::error file=$file::Package artifact is empty."
+              exit 1
+            fi
+            found=1
+          done
+
+          if [ "$found" -ne 1 ]; then
+            echo "::error::Electrobun did not create package artifacts."
+            exit 1
+          fi
+
+          case "${{ matrix.target }}" in
+            macos-arm64)
+              ls desktop/artifacts/*.dmg >/dev/null
+              ls desktop/artifacts/*.app.tar.zst >/dev/null
+              ;;
+            linux-*)
+              ls desktop/artifacts/*-Setup.tar.gz >/dev/null
+              ls desktop/artifacts/*.tar.zst >/dev/null
+              ;;
+          esac
+
+          (
+            cd desktop/artifacts
+            shasum -a 256 * | tee SHA256SUMS.txt
+          )
+
+          {
+            echo "### ${{ matrix.target }} packages"
+            echo '```text'
+            while IFS= read -r file; do
+              bytes="$(wc -c < "$file" | tr -d ' ')"
+              echo "$(basename "$file") ($bytes bytes)"
+            done < <(find desktop/artifacts -maxdepth 1 -type f | sort)
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: omg.dev-${{ matrix.target }}
+          path: desktop/artifacts/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
