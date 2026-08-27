@@ -11,6 +11,9 @@ data/
 *.log
 .DS_Store
 dist/
+desktop/.hutch/
+desktop/artifacts/
+desktop/build/
 
 # GPU STT host secrets
 deploy/gpu-stt/instance.env

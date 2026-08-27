@@ -86,6 +86,9 @@ cp .env.example .env
 bun run serve
 ```
 
+The macOS-first desktop shell uses Electrobun with a Bun main process. See
+[desktop development](./desktop/README.md).
+
 Read [CONTRIBUTING.md](./CONTRIBUTING.md) before you open a pull request. Ask
 for help in [Discord](https://omg.dev/discord).
 

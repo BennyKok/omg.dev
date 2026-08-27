@@ -4,7 +4,8 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "web"
+    "web",
+    "desktop"
   ],
   "bin": {
     "omg": "./src/cli.ts",
@@ -33,6 +34,9 @@
     "pack:packages": "bash scripts/pack-packages.sh",
     "typecheck": "bun x tsc -p tsconfig.json --noEmit",
     "chat:smoke": "bun run scripts/chat-ingest-smoke.ts",
+    "desktop:dev": "bun run --cwd desktop desktop:dev",
+    "desktop:build": "bun run --cwd desktop desktop:build",
+    "desktop:test": "bun run --cwd desktop test",
     "sitemap:submit": "bun run scripts/gsc-submit-sitemaps.ts"
   },
   "devDependencies": {
