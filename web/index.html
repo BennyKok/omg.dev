@@ -36,7 +36,7 @@
         document.documentElement.classList.add(startsDark ? "dark" : "light");
         document.documentElement.style.colorScheme = startsDark ? "dark" : "light";
         document.querySelector('meta[name="theme-color"]').content =
-          startsDark ? "#000000" : "#f2f2f7";
+          startsDark ? "#141414" : "#f2f2f7";
       } catch (e) {}
     </script>
     <style>
@@ -52,7 +52,7 @@
       }
       html.dark,
       html.dark body {
-        background: #000;
+        background: #141414;
       }
 
       /* App shell splash — static markup inside #root so it paints on the very
@@ -68,7 +68,7 @@
         background: #f2f2f7;
       }
       html.dark #app-splash {
-        background: #000;
+        background: #141414;
       }
       #app-splash .splash-inner {
         display: flex;
@@ -302,7 +302,7 @@
           if (document.querySelector("[data-startup-state]")) return;
 
           root.innerHTML =
-            '<main style="min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem;text-align:center;gap:0.85rem;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;background:#000;color:#f4f4f5">' +
+            '<main style="min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem;text-align:center;gap:0.85rem;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;background:#141414;color:#f4f4f5">' +
             "<h1 style=\"margin:0;font-size:1.15rem;font-weight:600\">omg did not finish loading</h1>" +
             '<p style="margin:0;max-width:22rem;line-height:1.45;color:#a1a1aa;font-size:.95rem">' +
             (reason ||

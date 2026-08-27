@@ -25,7 +25,7 @@ export function applyTheme(forcedDark?: boolean): boolean {
   document.documentElement.style.colorScheme = dark ? "dark" : "light";
 
   const themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-  themeColor?.setAttribute("content", dark ? "#000000" : "#f2f2f7");
+  themeColor?.setAttribute("content", dark ? "#141414" : "#f2f2f7");
   return dark;
 }
 
