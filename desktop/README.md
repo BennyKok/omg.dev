@@ -42,6 +42,13 @@ bun run desktop:build
 `desktop:build` builds the current host target. A signed and notarized macOS
 release must run on a macOS runner with signing configured.
 
+Before a local macOS package build, prepare the icon set from the shared app
+icon:
+
+```bash
+bun run --cwd desktop desktop:icon
+```
+
 ## GitHub Actions packages
 
 Run the `desktop-package` workflow from the GitHub Actions page. It uses native

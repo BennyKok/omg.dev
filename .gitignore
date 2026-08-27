@@ -14,6 +14,7 @@ dist/
 desktop/.hutch/
 desktop/artifacts/
 desktop/build/
+desktop/icon.iconset/
 
 # GPU STT host secrets
 deploy/gpu-stt/instance.env
