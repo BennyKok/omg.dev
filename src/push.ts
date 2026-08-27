@@ -25,6 +25,7 @@ import { join } from "node:path";
 import type { webcrypto } from "node:crypto";
 import { PATHS } from "./config.ts";
 import { encryptPushPayload } from "./push-encrypt.ts";
+import { notifyNativeAll } from "./push-native.ts";
 
 type JsonWebKey = webcrypto.JsonWebKey;
 
@@ -65,6 +66,17 @@ export type PushNotification = {
   tag?: string;
   /** Keep the notice on screen until acted on — used for questions. */
   requireInteraction?: boolean;
+  /**
+   * The project/repo this notice is about, e.g. "vibes" or "acme/payments" —
+   * a label, never a question or a body of text. Web push never needed this
+   * (title/body already carry the real content, delivered end-to-end
+   * encrypted to a subscription only this box's VAPID key can address); it
+   * exists so push-native.ts can build a native alert that names WHAT without
+   * quoting the private text of the question/finding/ship post it's about.
+   * See push-native.ts's file header for why that distinction matters there
+   * and not here.
+   */
+  project?: string;
 };
 
 type VapidFile = {
@@ -327,10 +339,21 @@ async function sendOne(
  * Fan a payload-less push out to every subscription (optionally only those
  * tagged to a given user). Prunes dead subscriptions. Never throws — push is
  * best-effort and must not block the caller (a finding write).
+ *
+ * Also fans the same `{ user, notification }` out to native (APNs, via
+ * push-native.ts) devices. This is the ONLY integration point deliberately —
+ * every caller (session-push.ts's fleet bridge, /api/ask, ship, findings,
+ * client-error reports) already funnels "is this worth notifying" through a
+ * call to notifyAll, so hooking in here means native gets every one of those
+ * decisions for free instead of a second, divergent copy of when-to-notify
+ * logic living somewhere else.
  */
 export async function notifyAll(
   opts: { user?: string | null; notification?: PushNotification } = {},
 ): Promise<void> {
+  await notifyNativeAll(opts).catch((e) => {
+    console.warn(`[push] native fan-out failed: ${e instanceof Error ? e.message : String(e)}`);
+  });
   let rows = await listSubscriptions();
   // Targeted notification → ONLY devices bound to that user. A device with no
   // bound user does NOT catch another user's pushes (that was the leak).

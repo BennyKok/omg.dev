@@ -1,21 +1,27 @@
 {
   "expo": {
-    "name": "LFG Glass",
-    "slug": "lfg-todo",
-    "version": "1.0.0",
+    "name": "omg",
+    "slug": "lfg-native",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "dev.lfg.todo"
+      "bundleIdentifier": "dev.omg.computer",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "omg.dev uses the camera only when you choose to attach a photo to a message. The photo is uploaded to your own omg.dev cloud computer, and the coding agent you are messaging can then open that file. For example, photograph an error on your screen and send it so the agent can debug it."
+      },
+      "runtimeVersion": {
+        "policy": "appVersion"
+      }
     },
     "android": {
-      "package": "dev.lfg.todo",
+      "package": "dev.omg.computer",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#1B1210",
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false
@@ -25,8 +31,45 @@
     },
     "plugins": [
       "expo-status-bar",
-      "expo-router"
+      "expo-router",
+      "expo-font",
+      "expo-asset",
+      [
+        "@siteed/audio-studio",
+        {
+          "iosConfig": {
+            "microphoneUsageDescription": "omg.dev records audio only while dictation is on. You tap the microphone button to start and tap it again to stop. The recording is sent to ElevenLabs, our speech-to-text provider, to convert it into text. For example, say \"fix the login bug on the settings page\" and those words appear as a typed message to your coding agent. omg.dev does not use the audio for any other purpose.",
+            "notificationUsageDescription": "omg.dev sends you a notification when a coding agent finishes a task, needs your input, or when a session you are watching changes state."
+          }
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png"
+        }
+      ],
+      "expo-iap",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "omg.dev opens your photo library only when you choose to attach a photo to a message. The photo is uploaded to your own omg.dev cloud computer, and the coding agent you are messaging can then open that file. For example, attach a screenshot of a failing test so the agent can read the error."
+        }
+      ]
     ],
-    "scheme": "lfgtodo"
+    "scheme": "omg",
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "da13049f-0ab5-411e-8c0b-e27fac475f9a"
+      }
+    },
+    "owner": "bennykok",
+    "updates": {
+      "url": "https://u.expo.dev/da13049f-0ab5-411e-8c0b-e27fac475f9a"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    }
   }
 }

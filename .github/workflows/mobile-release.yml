@@ -83,6 +83,14 @@ jobs:
       - name: Metro export smoke test
         run: bunx expo export --platform ios
 
+      # Build 34 shipped "Allow $(PRODUCT_NAME) to access your microphone" and
+      # was rejected under guideline 5.1.1(ii) TWICE, while app.json held the
+      # correct long string the whole time. A config plugin overwrote it. Only
+      # the prebuild output can tell you what Apple will actually see, so
+      # assert on that -- before anything bills.
+      - name: Check iOS purpose strings in the generated Info.plist
+        run: ./scripts/check-ios-purpose-strings.sh
+
       - name: Build on EAS
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}

@@ -69,17 +69,28 @@ export const LOCKFILE_BY_TOOL: Record<AuditTool, string> = {
  * new, it audits the root a second time under a different label. assertRootsAreDistinct()
  * below refuses to run in that state rather than reporting inflated coverage.
  *
- * A root also names the tool that can read it. `mobile` is an Expo app on an npm
- * lockfile and is not a member of the root `workspaces` list, so nothing bun runs
- * will ever see its graph; it needs `npm audit`. It spent its whole life recorded
- * as a known exclusion whose stated escape route ("convert it to bun.lock") was
- * never going to happen, and two high-severity advisories were living in it. An
- * exclusion with no exit condition is the same shape of mistake as the `--ignore`
- * flag this file replaced, so the tool moved instead of the lockfile.
+ * A root also names the tool that can read it. `mobile` is not a member of the
+ * root `workspaces` list, so nothing the root audit runs will ever see its
+ * graph; it is audited as its own root.
+ *
+ * It used to be an npm root, and this comment used to say so — including that
+ * the escape route once recorded against it, "convert it to bun.lock", "was
+ * never going to happen". It happened: this branch converted the Expo app to
+ * bun and deleted `mobile/package-lock.json`. Nobody moved the tool with it, so
+ * `npm audit` was pointed at a lockfile that no longer existed and the gate died
+ * with "This command requires an existing lockfile" on every PR in the mobile
+ * stack. The coverage test had been saying exactly this the whole time —
+ * `mobile/bun.lock` neither audited nor excluded — but a hard failure in the
+ * audit step exits before the tests run, so the accurate message was never the
+ * one anybody read.
+ *
+ * Two things worth keeping from that: a root's tool has to move when its
+ * lockfile does, and a gate that dies before its own diagnostics run will
+ * misreport why it is red.
  */
 export const AUDIT_ROOTS: { dir: string; why: string; tool: AuditTool }[] = [
   { dir: ".", why: "the workspace graph — the CLI, agent backends, packages/* and web/", tool: "bun" },
-  { dir: "mobile", why: "the Expo mobile app — its own npm graph, outside the root workspaces list", tool: "npm" },
+  { dir: "mobile", why: "the Expo mobile app — its own graph, outside the root workspaces list", tool: "bun" },
   {
     dir: "mobile/docs/appstore-frames",
     why: "the standalone App Store frame renderer — its own npm graph executes Playwright during asset production",

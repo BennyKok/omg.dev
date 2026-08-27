@@ -250,18 +250,27 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
 
 .dark {
   color-scheme: dark;
-  --background: #000000;
-  --foreground: #ffffff;
-  --card: #1c1c1e;
+  /* Softened off near-black / off pure-white — mirrors mobile's
+     src/omg/palette.ts darkColors. Measured from Claude's iOS app
+     (bg ~#141414, primary text ~#F8F8F6) at Benny's request; see the
+     comments on darkColors in that file for the full derivation and the
+     WCAG contrast check. Kept in sync by scripts/check-theme-drift.ts. */
+  --background: #141414;
+  --foreground: #f2f2ed;
+  /* Bumped from #1c1c1e — see darkColors.card in mobile/src/omg/palette.ts
+     for why. --popover moves with it. */
+  --card: #242428;
   --card-foreground: #ffffff;
-  --popover: #1c1c1e;
+  --popover: #242428;
   --popover-foreground: #ffffff;
   --primary: #0a84ff;
   --primary-foreground: #ffffff;
   --secondary: #2c2c2e;
   --secondary-foreground: #ffffff;
   --muted: #2c2c2e;
-  --muted-foreground: rgba(235, 235, 245, 0.6);
+  /* Warm base (235, 230, 220) instead of the old cool (235, 235, 245) —
+     see darkColors.mutedForeground in mobile/src/omg/palette.ts. */
+  --muted-foreground: rgba(235, 230, 220, 0.6);
   --accent: rgba(118, 118, 128, 0.24);
   --accent-foreground: #ffffff;
   --destructive: #ff453a;
@@ -275,7 +284,7 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
   --ring: #0a84ff;
   --code-bg: rgba(118, 118, 128, 0.16);
   --lfg-field-fill: #1c1c1e;
-  --text-2: rgba(235, 235, 245, 0.78);
+  --text-2: rgba(235, 230, 220, 0.78);
   --border-strong: rgba(84, 84, 88, 0.65);
 }
 
