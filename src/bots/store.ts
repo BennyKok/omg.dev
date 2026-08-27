@@ -233,7 +233,7 @@ export async function createBot(input: {
     capabilities: input.capabilities,
     agent,
     model: input.model,
-    thinkingLevel: sanitizeThinkingLevel(input.thinkingLevel, agent),
+    thinkingLevel: sanitizeThinkingLevel(input.thinkingLevel, agent, input.model),
     claudeAccountId: sanitizeBotClaudeAccountId(input.claudeAccountId, agent),
     cwd: input.cwd,
     owner: input.owner,
@@ -263,6 +263,7 @@ function applyPatch(current: Bot, patch: BotPatch): Bot {
     thinkingLevel: sanitizeThinkingLevel(
       Object.hasOwn(patch, "thinkingLevel") ? patch.thinkingLevel : current.thinkingLevel,
       agent,
+      patch.model ?? current.model,
     ),
     // Same rule as the thinking level: carry the pin forward on a plain edit,
     // but never past a backend switch that has no Claude accounts at all.

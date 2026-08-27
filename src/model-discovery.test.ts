@@ -3,6 +3,7 @@ import {
   providersDueForRetry,
   parseFxModels,
   parseJcodeModels,
+  parseOpenCodeModels,
   retryDelayMs,
   type ModelDiscoveryCache,
   type DiscoveredModelProvider,
@@ -156,5 +157,40 @@ describe("Jcode model discovery", () => {
         }),
       ),
     ).toEqual({ models: ["auto", "glm-5", "e2e-model"], labels: {} });
+  });
+});
+
+describe("OpenCode model discovery", () => {
+  test("reads provider variants from verbose model output", () => {
+    const parsed = parseOpenCodeModels(`zai-coding-plan/glm-5.3
+{
+  "id": "glm-5.3",
+  "providerID": "zai-coding-plan",
+  "name": "GLM-5.3",
+  "variants": {
+    "low": { "reasoningEffort": "low" },
+    "high": { "reasoningEffort": "high" },
+    "max": { "reasoningEffort": "max" }
+  }
+}
+opencode/deepseek-v4-flash-free
+{
+  "id": "deepseek-v4-flash-free",
+  "providerID": "opencode",
+  "name": "DeepSeek V4 Flash Free",
+  "variants": {}
+}`);
+
+    expect(parsed.models).toEqual([
+      "zai-coding-plan/glm-5.3",
+      "opencode/deepseek-v4-flash-free",
+    ]);
+    expect(parsed.labels).toEqual({
+      "zai-coding-plan/glm-5.3": "GLM-5.3",
+      "opencode/deepseek-v4-flash-free": "DeepSeek V4 Flash Free",
+    });
+    expect(parsed.variants).toEqual({
+      "zai-coding-plan/glm-5.3": ["low", "high", "max"],
+    });
   });
 });

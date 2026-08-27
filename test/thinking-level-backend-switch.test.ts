@@ -63,12 +63,15 @@ describe("auto agent store: thinking level survives only a compatible backend", 
 describe("web: every session launch gates thinkingLevel on the launching agent", () => {
   test("no /api/sessions/new body sends an ungated thinkingLevel", async () => {
     const source = await readFile("web/src/App.tsx", "utf8");
-    // Each POST body that carries a level must gate it on the agent it is
-    // actually launching, via agentSupportsThinking(...).
+    // Each POST body that inherits a level must gate it on the exact agent and
+    // model it is launching. OpenCode variants are model-specific, so an
+    // agent-only check is no longer sufficient.
     const bodies = [...source.matchAll(/thinkingLevel:\s*([^,\n]+)/g)].map((m) => m[1].trim());
     const ungated = bodies.filter(
       (expr) =>
-        expr.includes("sourceAgent?.thinkingLevel") && !expr.includes("agentSupportsThinking"),
+        expr.includes("sourceAgent?.thinkingLevel") &&
+        !expr.includes("thinkingLevelsForSelection") &&
+        !expr.includes("agentSupportsThinking"),
     );
     expect(ungated).toEqual([]);
   });
@@ -83,7 +86,7 @@ describe("web: every session launch gates thinkingLevel on the launching agent",
     // The level is judged against the resolved launch agent, not the source.
     expect(fn).toContain("const launchAgent = opts.agent ?? sourceAgent?.agent ?? \"aisdk\"");
     expect(fn).toContain(
-      "thinkingLevel: agentSupportsThinking(launchAgent) ? inheritedThinkingLevel : undefined",
+      "thinkingLevel: thinkingLevelsForSelection(modelCatalog, launchAgent, launchModel).length",
     );
     // ...and the agent sent is the same one that decision was made against.
     expect(fn).toContain("agent: launchAgent,");
