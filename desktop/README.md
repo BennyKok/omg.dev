@@ -51,5 +51,9 @@ runners to create these downloadable workflow artifacts:
 - `omg.dev-linux-x64` contains the x64 installer and update archive.
 - `omg.dev-linux-arm64` contains the ARM64 installer and update archive.
 
-Each artifact also contains `SHA256SUMS.txt`. GitHub keeps the workflow
-artifacts for 14 days. The workflow does not publish a GitHub Release.
+Each artifact also contains a target-specific SHA-256 checksum file. GitHub
+keeps the workflow artifacts for 14 days.
+
+After all native builds pass, the workflow updates the `desktop-preview`
+prerelease. Its asset names stay stable, so the root README can link directly
+to the current macOS DMG.
