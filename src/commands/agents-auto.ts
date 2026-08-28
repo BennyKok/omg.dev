@@ -186,7 +186,7 @@ export function parseBackendSelection(
 
   const thinkingLevel = option(args, "--thinking-level")?.trim();
   if (thinkingLevel) {
-    const allowed = thinkingLevelsForAgent(backend);
+    const allowed = thinkingLevelsForAgent(backend, model);
     if (!allowed) fail(`thinking levels are not supported for ${backend} auto agents`);
     if (!allowed.includes(thinkingLevel)) {
       fail(`unknown thinking level "${thinkingLevel}" for ${backend} (expected one of ${allowed.join(", ")})`);

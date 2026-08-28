@@ -5,12 +5,33 @@ import { homedir } from "node:os";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
+export type RuntimePathEnvironment = Record<string, string | undefined>;
+
+export function runtimeDataDir(
+  root: string = ROOT,
+  env: RuntimePathEnvironment = process.env,
+): string {
+  const configured = env.OMG_DATA_DIR?.trim() || env.LFG_DATA_DIR?.trim();
+  return resolve(configured || join(root, "data"));
+}
+
+export function runtimeEnvFile(
+  root: string = ROOT,
+  env: RuntimePathEnvironment = process.env,
+): string {
+  const configured = env.OMG_ENV_FILE?.trim() || env.LFG_ENV_FILE?.trim();
+  return resolve(configured || join(root, ".env"));
+}
+
+const DATA_DIR = runtimeDataDir();
+
 export const PATHS = {
   root: ROOT,
-  data: join(ROOT, "data"),
+  data: DATA_DIR,
+  env: runtimeEnvFile(),
   codexSessions: join(process.env.HOME ?? homedir(), ".codex", "sessions"),
-  sessionTitles: join(ROOT, "data", "session-titles.json"),
-  installInfo: join(ROOT, "data", "install.json"),
+  sessionTitles: join(DATA_DIR, "session-titles.json"),
+  installInfo: join(DATA_DIR, "install.json"),
 };
 
 /** Persistent root for omg.dev-managed session worktrees. */

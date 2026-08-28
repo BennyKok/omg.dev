@@ -573,7 +573,7 @@ export async function saveVoiceProviderKey(providerId: string, apiKey: string): 
   if (!key || key.length > 4096 || !/^[A-Za-z0-9._-]+$/.test(key)) {
     throw new Error("invalid API key format");
   }
-  await writeEnvValue(join(PATHS.root, ".env"), provider.envVar, key);
+  await writeEnvValue(PATHS.env, provider.envVar, key);
   process.env[provider.envVar] = key;
 }
 
@@ -652,7 +652,7 @@ export function listProviders() {
 
 export function voiceSetupInfo() {
   return {
-    envFile: join(PATHS.root, ".env"),
+    envFile: PATHS.env,
     // Resolved, not hardcoded: this string is meant to be pasted into a shell,
     // so naming a unit this box does not have is worse than useless.
     restartCommand: restartHint(),

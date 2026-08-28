@@ -203,7 +203,7 @@ async function cmdCreate(args: string[]) {
   const model = option(args, "--model")?.trim() || MODEL_OPTIONS[agent as keyof typeof MODEL_OPTIONS].defaultModel;
   const thinkingLevel = option(args, "--thinking-level")?.trim();
   if (thinkingLevel) {
-    const allowed = thinkingLevelsForAgent(agent);
+    const allowed = thinkingLevelsForAgent(agent, model);
     if (!allowed || !allowed.includes(thinkingLevel)) {
       console.error(`unknown thinking level "${thinkingLevel}" for ${agent}`);
       process.exit(1);
