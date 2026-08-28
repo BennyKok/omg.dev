@@ -107,4 +107,14 @@ describe("Tailscale server access", () => {
     expect(info.tailscale.command).toBe("tailscale serve --bg localhost:62280");
     expect(info.tailscale.serveUrl).toBeNull();
   });
+
+  test("keeps a persistent desktop background runtime private", async () => {
+    const run: TailscaleCommandRunner = async () => ({ ok: false, text: "" });
+    const info = await serverAccessInfo({
+      env: { OMG_DESKTOP_RUNTIME_ID: "desktop-123" },
+      localUrl: "http://127.0.0.1:8766",
+      run,
+    });
+    expect(info.runtime).toBe("desktop");
+  });
 });

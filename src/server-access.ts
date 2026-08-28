@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { localServeBaseUrl } from "./config.ts";
+import { isDesktopEmbeddedRuntime } from "./desktop-parent.ts";
 
 export type TailscaleCommandResult = {
   ok: boolean;
@@ -148,7 +149,7 @@ export async function serverAccessInfo(options: {
     serveResult.ok && tailscaleServeTargetsPort(serveResult.text, port);
 
   return {
-    runtime: env.OMG_DESKTOP_PARENT_PID?.trim() ? "desktop" : "self-hosted",
+    runtime: isDesktopEmbeddedRuntime(env) ? "desktop" : "self-hosted",
     localUrl,
     tailscale: {
       installed: statusResult.available ?? statusResult.ok,

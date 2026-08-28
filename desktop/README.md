@@ -5,9 +5,10 @@ It uses Electrobun with Bun as both the package manager and the real main
 process runtime. The package includes the complete omg.dev web UI, server, and
 target-native production dependencies.
 
-At startup, the app first checks for a healthy omg.dev server on loopback. It
-uses that server when one is already running. Otherwise, it starts its embedded
-runtime and stops only that owned child when the app exits.
+At startup, the app reconnects to its own embedded runtime or starts a new one.
+The runtime has isolated state and stays active after the window or app exits,
+so scheduled work continues. A later app launch reuses that runtime. A package
+update replaces it with the new embedded build.
 
 ## Requirements
 
