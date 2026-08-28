@@ -42,7 +42,7 @@ jobs:
     name: Package ${{ matrix.target }}
     needs: verify
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -68,7 +68,7 @@ jobs:
         if: matrix.target == 'macos-arm64'
         run: bun run --cwd desktop desktop:icon
 
-      - name: Build native package
+      - name: Build self-contained native package
         shell: bash
         run: |
           set -euo pipefail
@@ -180,6 +180,7 @@ jobs:
             echo '- macOS supports Apple Silicon.'
             echo '- The macOS app is not signed or notarized yet.'
             echo '- Linux packages are available for x64 and ARM64.'
+            echo '- Every package includes the omg.dev UI and local runtime.'
             echo
             echo "Built from commit \`$GITHUB_SHA\` by [GitHub Actions]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)."
           } > "$notes_file"

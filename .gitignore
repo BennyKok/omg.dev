@@ -14,6 +14,9 @@ dist/
 desktop/.hutch/
 desktop/artifacts/
 desktop/build/
+desktop/embedded-runtime/
+desktop/embedded-runtime.tar.gz
+desktop/embedded-runtime.tar.gz.sha256
 desktop/icon.iconset/
 
 # GPU STT host secrets
