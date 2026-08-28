@@ -67,6 +67,8 @@ async function main() {
   // late for anything already captured into a module-level const.
   const { applyEnvAliases } = await import("./env-compat.ts");
   applyEnvAliases();
+  const { installDesktopParentGuard } = await import("./desktop-parent.ts");
+  installDesktopParentGuard();
 
   const [cmd, ...rest] = unwrapComputerNamespace(process.argv.slice(2));
   switch (cmd) {

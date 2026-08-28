@@ -1,3 +1,14 @@
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+} from "node:fs";
+import { homedir } from "node:os";
+import { delimiter, dirname, join, resolve } from "node:path";
+
 const DEFAULT_RUNTIME_ORIGIN = "http://127.0.0.1:8766";
 const READY_PATH = "/api/install?ready=1";
 
@@ -12,6 +23,29 @@ export type RuntimeWaitOptions = {
   fetch?: RuntimeFetch;
   intervalMs?: number;
   signal?: AbortSignal;
+  timeoutMs?: number;
+};
+
+export type OwnedRuntimeProcess = {
+  exited: Promise<number>;
+  kill(signal?: number | NodeJS.Signals): void;
+  pid: number;
+};
+
+export type RuntimeConnection = {
+  origin: string;
+  owner: "existing" | "desktop";
+  process?: OwnedRuntimeProcess;
+};
+
+export type EnsureRuntimeOptions = {
+  choosePort?: (preferredPort: number) => Promise<number>;
+  existingWaitMs?: number;
+  launch?: (port: number) => OwnedRuntimeProcess | Promise<OwnedRuntimeProcess>;
+  onLaunch?: (process: OwnedRuntimeProcess) => void;
+  origin?: string;
+  readyWaitMs?: number;
+  wait?: (origin: string, options: RuntimeWaitOptions) => Promise<boolean>;
 };
 
 function isLoopbackHostname(hostname: string): boolean {
@@ -64,12 +98,245 @@ export async function waitForRuntime(
 ): Promise<boolean> {
   const fetcher = options.fetch ?? fetch;
   const intervalMs = options.intervalMs ?? 1_500;
+  const deadline =
+    options.timeoutMs == null ? Number.POSITIVE_INFINITY : Date.now() + options.timeoutMs;
 
   while (!options.signal?.aborted) {
     if (await runtimeIsReady(origin, fetcher)) return true;
-    await Bun.sleep(intervalMs);
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) return false;
+    await Bun.sleep(Math.min(intervalMs, remainingMs));
   }
   return false;
+}
+
+export function embeddedRuntimeCandidates(entryDir: string = import.meta.dir): string[] {
+  return [
+    resolve(entryDir, "..", "embedded-runtime"),
+    resolve(entryDir, "..", "..", "embedded-runtime"),
+    resolve(entryDir, "..", "..", ".."),
+  ];
+}
+
+export function findEmbeddedRuntimeRoot(
+  candidates: string[] = embeddedRuntimeCandidates(),
+): string {
+  const root = candidates.find(
+    (candidate) =>
+      existsSync(join(candidate, "src", "cli.ts")) &&
+      existsSync(join(candidate, "web", "dist", "index.html")) &&
+      existsSync(join(candidate, "node_modules")),
+  );
+  if (!root) {
+    throw new Error("The desktop package does not contain the embedded omg.dev runtime.");
+  }
+  return root;
+}
+
+export function embeddedRuntimeArchiveCandidates(
+  entryDir: string = import.meta.dir,
+): string[] {
+  return [
+    resolve(entryDir, "..", "embedded-runtime.tar.gz"),
+    resolve(entryDir, "..", "..", "embedded-runtime.tar.gz"),
+  ];
+}
+
+function runtimeTreeIsComplete(root: string): boolean {
+  return (
+    existsSync(join(root, "src", "cli.ts")) &&
+    existsSync(join(root, "web", "dist", "index.html")) &&
+    existsSync(join(root, "node_modules"))
+  );
+}
+
+function removeOldRuntimeTrees(appsRoot: string, currentRoot: string): void {
+  let entries;
+  try {
+    entries = readdirSync(appsRoot, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !/^[a-f0-9]{20}$/.test(entry.name)) continue;
+    const candidate = join(appsRoot, entry.name);
+    if (candidate === currentRoot) continue;
+    rmSync(candidate, { force: true, recursive: true });
+  }
+}
+
+export async function prepareEmbeddedRuntime(
+  stateRoot: string = desktopRuntimeStateRoot(),
+  archiveCandidates: string[] = embeddedRuntimeArchiveCandidates(),
+): Promise<string> {
+  const archive = archiveCandidates.find((candidate) => existsSync(candidate));
+  if (!archive) return findEmbeddedRuntimeRoot();
+
+  const fingerprintPath = `${archive}.sha256`;
+  const fingerprint = readFileSync(fingerprintPath, "utf8").trim();
+  if (!/^[a-f0-9]{64}$/.test(fingerprint)) {
+    throw new Error("The embedded runtime fingerprint is invalid.");
+  }
+
+  const appsRoot = join(stateRoot, "apps");
+  const runtimeRoot = join(appsRoot, fingerprint.slice(0, 20));
+  if (runtimeTreeIsComplete(runtimeRoot)) {
+    removeOldRuntimeTrees(appsRoot, runtimeRoot);
+    return runtimeRoot;
+  }
+
+  mkdirSync(appsRoot, { recursive: true });
+  const temporaryRoot = join(appsRoot, `.extract-${process.pid}-${Date.now()}`);
+  mkdirSync(temporaryRoot, { recursive: true });
+  try {
+    const extraction = Bun.spawn({
+      cmd: ["/usr/bin/tar", "-xzf", archive, "-C", temporaryRoot],
+      stderr: "inherit",
+      stdout: "inherit",
+    });
+    const code = await extraction.exited;
+    if (code !== 0 || !runtimeTreeIsComplete(temporaryRoot)) {
+      throw new Error(`The embedded runtime archive could not be extracted (exit code ${code}).`);
+    }
+    try {
+      renameSync(temporaryRoot, runtimeRoot);
+    } catch (error) {
+      if (!runtimeTreeIsComplete(runtimeRoot)) throw error;
+      rmSync(temporaryRoot, { force: true, recursive: true });
+    }
+    removeOldRuntimeTrees(appsRoot, runtimeRoot);
+    return runtimeRoot;
+  } catch (error) {
+    rmSync(temporaryRoot, { force: true, recursive: true });
+    throw error;
+  }
+}
+
+export function desktopRuntimeStateRoot(
+  platform: NodeJS.Platform = process.platform,
+  env: DesktopEnvironment = process.env,
+  home: string = homedir(),
+): string {
+  if (platform === "darwin") {
+    return join(home, "Library", "Application Support", "dev.omg.desktop", "runtime");
+  }
+  const dataHome = env.XDG_DATA_HOME?.trim();
+  const dataRoot =
+    dataHome && dataHome.startsWith("/") ? dataHome : join(home, ".local", "share");
+  return join(dataRoot, "dev.omg.desktop", "runtime");
+}
+
+export async function chooseAvailableRuntimePort(preferredPort: number): Promise<number> {
+  const reserve = (port: number) =>
+    Bun.serve({
+      hostname: "127.0.0.1",
+      port,
+      fetch: () => new Response("reserved"),
+    });
+
+  try {
+    const server = reserve(preferredPort);
+    const port = server.port;
+    server.stop(true);
+    if (port == null) throw new Error("Bun did not assign the preferred runtime port.");
+    return port;
+  } catch {
+    const server = reserve(0);
+    const port = server.port;
+    server.stop(true);
+    if (port == null) throw new Error("Bun did not assign a fallback runtime port.");
+    return port;
+  }
+}
+
+export async function launchEmbeddedRuntime(
+  port: number,
+  runtimeRoot?: string,
+  stateRoot: string = desktopRuntimeStateRoot(),
+): Promise<OwnedRuntimeProcess> {
+  const preparedRuntimeRoot = runtimeRoot ?? (await prepareEmbeddedRuntime(stateRoot));
+  mkdirSync(join(stateRoot, "data"), { recursive: true });
+  const executableDir = dirname(process.execPath);
+  const commonPaths = [
+    join(homedir(), ".local", "bin"),
+    join(homedir(), ".bun", "bin"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+    executableDir,
+  ];
+  const inheritedPaths = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
+  const path = [...new Set([...commonPaths, ...inheritedPaths])].join(delimiter);
+
+  return Bun.spawn({
+    cmd: [process.execPath, "run", join(preparedRuntimeRoot, "src", "cli.ts"), "serve"],
+    cwd: stateRoot,
+    env: {
+      ...process.env,
+      PATH: path,
+      OMG_DATA_DIR: join(stateRoot, "data"),
+      OMG_ENV_FILE: join(stateRoot, ".env"),
+      OMG_DESKTOP_PARENT_PID: String(process.pid),
+      OMG_HOST: "127.0.0.1",
+      OMG_PORT: String(port),
+    },
+    stderr: "inherit",
+    stdout: "inherit",
+  });
+}
+
+function portFromOrigin(origin: string): number {
+  const url = new URL(origin);
+  if (url.port) return Number(url.port);
+  return url.protocol === "http:" ? 80 : 443;
+}
+
+export async function ensureRuntime(
+  options: EnsureRuntimeOptions = {},
+): Promise<RuntimeConnection> {
+  const origin = options.origin ?? runtimeOrigin();
+  const wait = options.wait ?? waitForRuntime;
+  const existingReady = await wait(origin, {
+    intervalMs: 200,
+    timeoutMs: options.existingWaitMs ?? 1_000,
+  });
+  if (existingReady) return { origin, owner: "existing" };
+
+  const choosePort = options.choosePort ?? chooseAvailableRuntimePort;
+  const port = await choosePort(portFromOrigin(origin));
+  const embeddedOrigin = `http://127.0.0.1:${port}`;
+  const child = await (options.launch ?? launchEmbeddedRuntime)(port);
+  options.onLaunch?.(child);
+
+  const result = await Promise.race([
+    wait(embeddedOrigin, {
+      intervalMs: 250,
+      timeoutMs: options.readyWaitMs ?? 60_000,
+    }).then((ready) => ({ type: "ready" as const, ready })),
+    child.exited.then((code) => ({ type: "exit" as const, code })),
+  ]);
+
+  if (result.type === "ready" && result.ready) {
+    return { origin: embeddedOrigin, owner: "desktop", process: child };
+  }
+
+  try {
+    child.kill();
+  } catch {
+    // The child can exit between the readiness result and cleanup.
+  }
+  const reason = result.type === "exit" ? `exit code ${result.code}` : "startup timeout";
+  throw new Error(`The embedded omg.dev runtime failed to start (${reason}).`);
+}
+
+export function stopOwnedRuntime(connection: RuntimeConnection | undefined): void {
+  if (connection?.owner !== "desktop" || !connection.process) return;
+  try {
+    connection.process.kill("SIGTERM");
+  } catch {
+    // It is already stopped.
+  }
 }
 
 export const DEFAULT_DESKTOP_RUNTIME_ORIGIN = DEFAULT_RUNTIME_ORIGIN;

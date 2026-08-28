@@ -7,10 +7,11 @@
     "desktop:prepare": "bunx electrobun@2.0.1 prepare",
     "desktop:icon": "bash scripts/prepare-macos-icon.sh",
     "desktop:dev": "bunx electrobun@2.0.1 dev --watch",
-    "desktop:build": "bunx electrobun@2.0.1 build --env=stable",
+    "desktop:runtime": "bash scripts/prepare-runtime.sh",
+    "desktop:build": "bun run desktop:runtime && bunx electrobun@2.0.1 build --env=stable",
     "desktop:config": "bunx electrobun@2.0.1 config --env=dev",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test src/bun/runtime.test.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

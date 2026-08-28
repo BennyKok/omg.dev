@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import type { ElectrobunConfig } from "electrobun";
 
 function appVersion(): string {
@@ -27,6 +27,12 @@ export default {
     },
     copy: {
       "src/mainview": "views/mainview",
+      ...(existsSync(new URL("./embedded-runtime.tar.gz", import.meta.url))
+        ? {
+            "embedded-runtime.tar.gz": "embedded-runtime.tar.gz",
+            "embedded-runtime.tar.gz.sha256": "embedded-runtime.tar.gz.sha256",
+          }
+        : {}),
     },
     mac: {
       codesign: false,

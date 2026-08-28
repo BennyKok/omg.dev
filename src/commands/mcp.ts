@@ -481,7 +481,8 @@ async function createSubagent({
     throw new Error(`unknown agent "${agent}"`);
   }
   if (thinkingLevel) {
-    const allowed = thinkingLevelsForAgent(agent);
+    const model = rawModel?.trim() || MODEL_OPTIONS[agent as keyof typeof MODEL_OPTIONS].defaultModel;
+    const allowed = thinkingLevelsForAgent(agent, model);
     if (!allowed || !allowed.includes(thinkingLevel)) {
       throw new Error(`unknown thinking level "${thinkingLevel}" for ${agent}`);
     }

@@ -111,26 +111,6 @@ code {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
-.help {
-  display: flex;
-  margin-top: 72px;
-  flex-direction: column;
-  gap: 10px;
-  color: #716d67;
-  font-size: 12px;
-}
-
-.help code {
-  width: fit-content;
-  max-width: 100%;
-  overflow-x: auto;
-  border-radius: 8px;
-  padding: 9px 11px;
-  background: rgb(255 255 255 / 4%);
-  color: #aaa49b;
-  white-space: nowrap;
-}
-
 @keyframes pulse {
   0%,
   100% {

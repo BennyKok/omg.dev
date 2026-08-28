@@ -123,6 +123,7 @@ function launchRecovered(
       ...common,
       key: entry.sessionId,
       resume: entry.threadId,
+      thinkingLevel: entry.thinkingLevel ?? undefined,
     });
   }
   if (entry.agent === "pi") {

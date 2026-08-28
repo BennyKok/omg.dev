@@ -183,16 +183,17 @@ export async function getAutoAgent(id: string): Promise<AutoAgent | null> {
 
 /**
  * Keep a thinking level only if the backend that will run it actually accepts
- * that level. Returns undefined for a backend with no reasoning knob at all
- * (opencode), and for a level outside the backend's own vocabulary (a claude
+ * that level. Returns undefined for a backend with no reasoning knob, and for
+ * a level outside the backend's own or selected model's vocabulary (a claude
  * "max" surviving a switch to grok, whose CLI exits on it).
  */
 export function sanitizeThinkingLevel(
   level: string | undefined,
   backend: string | undefined,
+  model?: string,
 ): string | undefined {
   if (!level) return undefined;
-  const allowed = thinkingLevelsForAgent(backend ?? "aisdk");
+  const allowed = thinkingLevelsForAgent(backend ?? "aisdk", model);
   return allowed?.includes(level) ? level : undefined;
 }
 
@@ -275,7 +276,11 @@ export async function saveAutoAgent(input: {
     // the level the agent held as claude — writing a record that no longer
     // validates. Nothing re-checks a stored row, so the break only surfaced
     // later, at launch, as a 400 from POST /api/sessions/new.
-    thinkingLevel: sanitizeThinkingLevel(input.thinkingLevel ?? existing?.thinkingLevel, backend),
+    thinkingLevel: sanitizeThinkingLevel(
+      input.thinkingLevel ?? existing?.thinkingLevel,
+      backend,
+      input.model ?? existing?.model,
+    ),
     tools: input.tools ?? existing?.tools,
     lastRunAt: existing?.lastRunAt,
   };

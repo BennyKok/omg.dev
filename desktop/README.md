@@ -2,18 +2,17 @@
 
 This package is the macOS-first desktop shell for the local omg.dev runtime.
 It uses Electrobun with Bun as both the package manager and the real main
-process runtime. The native window loads the existing server at
-`http://127.0.0.1:8766`.
+process runtime. The package includes the complete omg.dev web UI, server, and
+target-native production dependencies.
 
-The desktop process does not own the omg.dev server. The existing launchd or
-systemd user service remains the lifecycle owner, so agent sessions continue
-after the window closes.
+At startup, the app first checks for a healthy omg.dev server on loopback. It
+uses that server when one is already running. Otherwise, it starts its embedded
+runtime and stops only that owned child when the app exits.
 
 ## Requirements
 
 - macOS on Apple Silicon for the first release target.
-- Bun.
-- A local install created with `omg computer setup`.
+- No separate Bun or omg.dev CLI install is required for the packaged app.
 
 Electrobun currently publishes no macOS Intel core artifact. Linux x64 and
 ARM64 are available, but Linux is the second release target.
@@ -27,8 +26,9 @@ bun install
 bun run desktop:dev
 ```
 
-Run the local runtime separately with `bun run serve`. The desktop window shows
-a waiting screen until the runtime answers, then loads the normal omg.dev UI.
+For `desktop:dev`, an existing local runtime is still the fastest development
+path. A production `desktop:build` first builds and stages the complete embedded
+runtime, then creates the native package.
 
 Useful checks:
 

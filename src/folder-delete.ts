@@ -17,6 +17,7 @@
 import { opendir, readdir, realpath, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { PATHS } from "./config.ts";
 
 export type FolderDeletePlan = {
   path: string;
@@ -109,7 +110,7 @@ export function defaultGuards(overrides: Partial<FolderDeleteGuards> = {}): Fold
     reposRoot: `${home}/repos`,
     worktreeRoot: `${home}/lfg-worktrees`,
     selfRepo: process.cwd(),
-    dataDir: join(process.cwd(), "data"),
+    dataDir: PATHS.data,
     ...overrides,
   };
 }
