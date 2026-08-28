@@ -20,11 +20,11 @@ Recent product updates and deployment notes.
   two kinds of row now match.
 - **There is a desktop app preview for macOS and Linux.** It is a Bun-native
   Electrobun shell that contains the omg.dev web UI and server, so the packaged
-  app needs no separate Bun or CLI install. At startup it uses a healthy
-  omg.dev server on loopback when one is already running. Otherwise it starts
-  its own runtime, and it stops only the child it started. The window is shown
-  after the app is ready. Builds come from the `desktop-package` workflow as
-  downloadable artifacts. They are not part of this release bundle.
+  app needs no separate Bun or CLI install. It always starts and owns an
+  isolated runtime, even when another omg.dev server is already running. The
+  window is shown after its runtime and app are ready. Builds come from the
+  `desktop-package` workflow as downloadable artifacts. They are not part of
+  this release bundle.
 - **DeepSeek Harness is available as a coding agent.** It is in the agent
   catalog, the setup script, and the coding agent adapters, like the other
   harnesses.

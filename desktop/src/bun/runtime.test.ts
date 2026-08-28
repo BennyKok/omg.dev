@@ -104,24 +104,32 @@ function fakeProcess(): OwnedRuntimeProcess & { kills: (number | NodeJS.Signals 
 }
 
 describe("desktop runtime ownership", () => {
-  test("uses a healthy existing runtime without starting a child", async () => {
-    let launches = 0;
+  test("starts its own runtime even when the preferred origin is healthy", async () => {
+    const child = fakeProcess();
+    const waits: string[] = [];
+    let preferredPort = 0;
     const connection = await ensureRuntime({
-      launch: () => {
-        launches += 1;
-        return fakeProcess();
+      choosePort: async (port) => {
+        preferredPort = port;
+        return 9123;
       },
-      wait: async () => true,
+      launch: () => child,
+      wait: async (origin) => {
+        waits.push(origin);
+        return true;
+      },
     });
 
+    expect(preferredPort).toBe(8766);
+    expect(waits).toEqual(["http://127.0.0.1:9123"]);
     expect(connection).toEqual({
-      origin: DEFAULT_DESKTOP_RUNTIME_ORIGIN,
-      owner: "existing",
+      origin: "http://127.0.0.1:9123",
+      owner: "desktop",
+      process: child,
     });
-    expect(launches).toBe(0);
   });
 
-  test("starts the embedded runtime when no existing server is ready", async () => {
+  test("waits for the embedded runtime before returning its connection", async () => {
     const child = fakeProcess();
     const waits: string[] = [];
     const connection = await ensureRuntime({
@@ -136,10 +144,7 @@ describe("desktop runtime ownership", () => {
       },
     });
 
-    expect(waits).toEqual([
-      DEFAULT_DESKTOP_RUNTIME_ORIGIN,
-      "http://127.0.0.1:9123",
-    ]);
+    expect(waits).toEqual(["http://127.0.0.1:9123"]);
     expect(connection.owner).toBe("desktop");
     expect(connection.process).toBe(child);
 
