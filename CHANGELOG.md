@@ -2,6 +2,46 @@
 
 Recent product updates and deployment notes.
 
+## August 28, 2026 - A desktop app preview, unread marks for chats, and the DeepSeek Harness (v0.6.17)
+
+- **A chat that landed a reply you have not read now carries a dot.** The
+  roster could draw a session working, and it could draw nothing. "Nothing"
+  meant finished a second ago, finished and already read, and finished last
+  March, all at once, so the one state a person waits for had no mark. The dot
+  is per person, so two identities on one box do not clear each other. It is
+  held back while the session is working, because it means "ready for you" and
+  a session in the middle of a turn is not. It clears when the transcript is
+  actually on screen, not when a stored preference says a column is open. The
+  row menu has "Mark as read", and the Chat tab carries the same dot that Bots
+  already had.
+- **An unread row is no longer tinted.** The dot, the tooltip and the screen
+  reader label say it. The row tint said it a third time, and a list with a few
+  unread sessions in it read as alarmed. Bot rows never had the tint, so the
+  two kinds of row now match.
+- **There is a desktop app preview for macOS and Linux.** It is a Bun-native
+  Electrobun shell that contains the omg.dev web UI and server, so the packaged
+  app needs no separate Bun or CLI install. At startup it uses a healthy
+  omg.dev server on loopback when one is already running. Otherwise it starts
+  its own runtime, and it stops only the child it started. The window is shown
+  after the app is ready. Builds come from the `desktop-package` workflow as
+  downloadable artifacts. They are not part of this release bundle.
+- **DeepSeek Harness is available as a coding agent.** It is in the agent
+  catalog, the setup script, and the coding agent adapters, like the other
+  harnesses.
+- **OpenCode reports the models and variants of your connected providers.**
+- **A `codex exec` session is titled by its real prompt.** A non-interactive
+  run records its prompt in a form the title scan dropped, so every exec
+  rollout fell back to the directory name. A batch of runs in one directory
+  produced identical rows in the Live roster and in resume history. The scan
+  now falls back to the first user turn in the transcript, and it skips the
+  wrapper blocks that Codex injects ahead of the real prompt.
+- **A session row hides the assignee badge when it repeats what the row
+  already says.**
+- **The native iOS client gained the web app's list, session view and
+  sign-in.** The subagent tree lines are aimed at the mark they descend from,
+  the list can be scoped by folder, and the usage rings open. The client ships
+  through TestFlight and EAS Update, not through this release bundle.
+
 ## August 27, 2026 - The native iOS client, native push, and a matched dark theme (v0.6.16)
 
 - **The native omg.dev client for iOS now lives in this repository.** The
