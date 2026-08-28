@@ -19,6 +19,7 @@
 import { useEffect, useState } from "react";
 
 const visible = new Set<string>();
+const NO_VISIBLE_TRANSCRIPTS: string[] = [];
 
 export const VISIBLE_TRANSCRIPTS_EVENT = "lfg-visible-transcripts";
 
@@ -79,13 +80,28 @@ export function resetVisibleTranscriptsForTest(): void {
  * test. `nextVisibleTranscripts` is what lets this feed an effect's dependency
  * list without re-running it on every unrelated render.
  */
-export function useVisibleTranscriptSids(): string[] {
+export function useVisibleTranscriptSids(active = true): string[] {
   const [sids, setSids] = useState<string[]>(visibleTranscriptSids);
+  const [pageVisible, setPageVisible] = useState(
+    () => typeof document === "undefined" || document.visibilityState !== "hidden",
+  );
   useEffect(() => {
     const sync = () => setSids((prev) => nextVisibleTranscripts(prev, visibleTranscriptSids()));
+    const syncPageVisibility = () => {
+      const next = document.visibilityState !== "hidden";
+      setPageVisible(next);
+      if (next) sync();
+    };
     sync();
     window.addEventListener(VISIBLE_TRANSCRIPTS_EVENT, sync);
-    return () => window.removeEventListener(VISIBLE_TRANSCRIPTS_EVENT, sync);
+    document.addEventListener("visibilitychange", syncPageVisibility);
+    return () => {
+      window.removeEventListener(VISIBLE_TRANSCRIPTS_EVENT, sync);
+      document.removeEventListener("visibilitychange", syncPageVisibility);
+    };
   }, []);
-  return sids;
+  // Live stays mounted after its first visit so transcript and gallery state do
+  // not reboot on every page switch. A mounted stage hidden behind Settings is
+  // not on screen, and neither is a transcript in a background browser tab.
+  return active && pageVisible ? sids : NO_VISIBLE_TRANSCRIPTS;
 }

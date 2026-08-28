@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   clearSessionUnread,
   sameUnreadSessions,
+  sessionListUrlForViewer,
   sessionRosterRowAriaLabel,
   sessionRosterTooltip,
   unreadSessionIds,
@@ -65,10 +66,10 @@ describe("read state is one person's question", () => {
     // then took turns every five seconds and a dot came back after it was
     // cleared. The poll URL must carry the same identity the mark writes to.
     const identity = "sam@example.com";
-    const pollUrl = `/api/sessions?user=${encodeURIComponent(identity)}`;
-    const markUrl = `/api/sessions/${encodeURIComponent("sid-1")}/read`;
+    const pollUrl = sessionListUrlForViewer(identity);
     expect(new URLSearchParams(pollUrl.split("?")[1]).get("user")).toBe(identity);
-    // The mark carries its identity in the body, so the URL stays clean.
-    expect(markUrl).not.toContain("user=");
+    expect(sessionListUrlForViewer("Name + Device")).toBe(
+      "/api/sessions?user=Name%20%2B%20Device",
+    );
   });
 });

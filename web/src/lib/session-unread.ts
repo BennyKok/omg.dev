@@ -23,6 +23,11 @@
 
 export type UnreadSessionRow = { sessionId?: string | null; unread?: boolean };
 
+/** The session-list endpoint for the same viewer whose watermark we write. */
+export function sessionListUrlForViewer(identity: string): string {
+  return `/api/sessions?user=${encodeURIComponent(identity)}`;
+}
+
 /** The unread ids in a `/api/sessions` payload. */
 export function unreadSessionIds(sessions: UnreadSessionRow[]): Set<string> {
   const out = new Set<string>();
