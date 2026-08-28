@@ -1074,6 +1074,53 @@ export function latestIndexedAssistantCursor(sessionId: string): {
   return row ? { rowid: row.rowid, messageId: row.message_id ?? row.id, ts: row.ts } : null;
 }
 
+/**
+ * The same cursor as `latestIndexedAssistantCursor`, for a whole roster at once.
+ *
+ * The session roster asks this question about every row it renders, which is one
+ * statement per row when each asks alone. Sessions with no assistant output are
+ * absent from the result rather than mapped to null: a caller comparing against
+ * a watermark treats "no cursor" and "no entry" the same way.
+ */
+export function latestIndexedAssistantRowids(sessionIds: string[]): Map<string, number> {
+  const out = new Map<string, number>();
+  const ids = [...new Set(sessionIds)];
+  if (!ids.length) return out;
+  init();
+  const d = database();
+  // SQLite's default parameter ceiling is 999, so ask in chunks rather than
+  // building one statement that a long roster would silently push over it.
+  for (let i = 0; i < ids.length; i += 500) {
+    const chunk = ids.slice(i, i + 500);
+    const rows = d
+      .query<{ session_id: string; rowid: number }, string[]>(
+        `SELECT session_id, MAX(rowid) AS rowid
+           FROM transcript_messages
+          WHERE session_id IN (${chunk.map(() => "?").join(",")})
+            AND (role = 'assistant' OR (role = 'user' AND text LIKE '[Peer message from %'))
+          GROUP BY session_id`,
+      )
+      .all(...chunk);
+    for (const row of rows) out.set(row.session_id, row.rowid);
+  }
+  return out;
+}
+
+/**
+ * The highest rowid in the message table, whatever wrote it.
+ *
+ * This is the rollout baseline for per-session read state. Rowids are assigned
+ * in insert order, so "everything indexed before now" is one comparison rather
+ * than a watermark written for each of thousands of historical sessions.
+ */
+export function maxIndexedMessageRowid(): number | null {
+  init();
+  const row = database()
+    .query<{ rowid: number | null }, []>(`SELECT MAX(rowid) AS rowid FROM transcript_messages`)
+    .get();
+  return row?.rowid ?? null;
+}
+
 // Seed the synthetic per-session read model (`lfg://session/<id>`) from history
 // that was indexed under a real FILE path. Two cases:
 //   - claude: legacy sessions indexed by their native ~/.claude JSONL before the

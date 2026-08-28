@@ -443,6 +443,11 @@ export type Session = {
   // transcript stream just to discover it. Always populated by listSessions()
   // (optional here only so the per-kind object literals don't each set it).
   busy?: boolean;
+  // Whether this session has landed output the person asking has not read yet.
+  // Kept OUT of listSessions() on purpose: read state is per viewer, and the
+  // fleet list is one cached answer shared by everyone. The API stamps it per
+  // request from src/session-reads.ts. Absent means read, or not asked.
+  unread?: boolean;
 };
 
 // Classify a session's health from the most recent assistant turn. Claude Code

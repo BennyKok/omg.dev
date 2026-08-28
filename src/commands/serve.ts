@@ -240,6 +240,7 @@ import {
   type Session,
   type SessionMsg,
 } from "../sessions.ts";
+import { markSessionRead, sessionUnreadMap } from "../session-reads.ts";
 import { countTranscriptRows } from "../transcript-rows.ts";
 import {
   invalidateListSessionsCache,
@@ -1086,6 +1087,40 @@ function withAutoAgentListMeta<T extends { id: string; cwd?: string; prompt?: st
 export function sessionListRow(session: Session): Omit<Session, "cmd"> {
   const { cmd: _dropped, ...row } = session;
   return row;
+}
+
+/**
+ * Stamp per-viewer read state onto a fleet payload.
+ *
+ * Deliberately not inside listSessions(): that answer is cached and shared by
+ * everyone on the box, while "have you read this" is one person's question. The
+ * flag is stated on every row, including the false ones, because a client
+ * cannot tell "read" from "this server does not answer that" when the key is
+ * simply absent.
+ *
+ * A working session never reports unread. The mark answers "this one is ready
+ * for you", and a session mid-turn is not: it sends a person into a transcript
+ * that is still being written. Nothing is lost by holding it back, because
+ * unread is derived from the watermark on every list call — the moment the
+ * session settles, the same comparison reports it again. That is what makes
+ * this different from a bot conversation, where read state belongs to a
+ * conversation you are having rather than to work becoming available.
+ *
+ * One owner, because the roster row and the Chat tab both read this. Deciding
+ * it per consumer is how a tab comes to claim an unread chat that no row shows.
+ */
+function withSessionUnread<T extends { sessionId: string | null; busy?: boolean }>(
+  identity: string,
+  rows: T[],
+): (T & { unread: boolean })[] {
+  const unread = sessionUnreadMap(
+    identity,
+    rows.map((row) => row.sessionId).filter((id): id is string => !!id),
+  );
+  return rows.map((row) => ({
+    ...row,
+    unread: !row.busy && !!unread.get(row.sessionId ?? ""),
+  }));
 }
 
 function repoRootForManagedCwd(cwd: string): string | undefined {
@@ -4732,7 +4767,9 @@ a{color:#60a5fa}
             codingAgents: boot.codingAgents ?? null,
             models: boot.models ?? null,
             settings: boot.settings ?? null,
-            sessions: boot.sessions ? boot.sessions.map(sessionListRow) : null,
+            sessions: boot.sessions
+              ? withSessionUnread(viewer.identity, boot.sessions.map(sessionListRow))
+              : null,
             sessionPins: boot.sessionPins ?? null,
             conversations: boot.conversations ?? null,
             // Not an authorization signal — never gates what the UI is allowed
@@ -7178,10 +7215,31 @@ a{color:#60a5fa}
         // ADDITIVE ON PURPOSE. An older host ignores the extra field, and a
         // newer host reading an older box sees `undefined` and falls back to
         // exactly today's behaviour. Neither side needs to ship first.
+        // `botViewerFromRequest` is the existing resolver for whose read state
+        // this is — its `identity` is documented as "which unread watermark to
+        // read and write" — and nothing about it is bot-specific.
+        const identity = botViewerFromRequest(req, url.searchParams.get("user")).identity;
         return json({
-          sessions: full ? sessions : sessions.map(sessionListRow),
+          sessions: withSessionUnread(
+            identity,
+            full ? sessions : sessions.map(sessionListRow),
+          ),
           pendingLogins: pendingCodingAgentLogins(),
         });
+      }
+
+      // Mark one session read through its newest assistant turn. The roster
+      // calls this when the session is opened; the row's own menu calls it for
+      // a row you have decided you do not need to open.
+      {
+        const match = path.match(/^\/api\/sessions\/([^/]+)\/read$/);
+        if (match && req.method === "POST") {
+          const sessionId = decodeURIComponent(match[1]);
+          const body = (await req.json().catch(() => null)) as { user?: unknown } | null;
+          const requested = typeof body?.user === "string" ? body.user : url.searchParams.get("user");
+          const viewer = botViewerFromRequest(req, requested);
+          return json({ ok: true, ...markSessionRead(viewer.identity, sessionId) });
+        }
       }
 
       if (path === "/api/install") {
