@@ -20,6 +20,8 @@ case "$(uname -m)" in
 esac
 
 cd "$ROOT"
+bun run --cwd packages/protocol build
+bun run --cwd packages/client build
 bun run --cwd web build
 
 rm -rf "$RUNTIME_DIR"
