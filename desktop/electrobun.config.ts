@@ -26,7 +26,6 @@ export default {
       sourcemap: false,
     },
     copy: {
-      "src/mainview": "views/mainview",
       ...(existsSync(new URL("./embedded-runtime.tar.gz", import.meta.url))
         ? {
             "embedded-runtime.tar.gz": "embedded-runtime.tar.gz",
