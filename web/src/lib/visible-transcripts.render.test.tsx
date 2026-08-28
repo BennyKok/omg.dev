@@ -13,8 +13,8 @@ const {
 } = await import("./visible-transcripts");
 
 /** Prints whatever the registry currently reports. */
-function Probe() {
-  const sids = useVisibleTranscriptSids();
+function Probe({ active = true }: { active?: boolean }) {
+  const sids = useVisibleTranscriptSids(active);
   return <div>{sids.length ? sids.join(",") : "none"}</div>;
 }
 
@@ -89,5 +89,52 @@ describe("the on-screen registry, rendered", () => {
       </>,
     );
     expect(ui.text()).not.toContain("s5");
+  });
+
+  test("a mounted column is not visible while the Live workspace is hidden", () => {
+    ui.render(
+      <>
+        <Probe active={false} />
+        <Column sid="s1" />
+      </>,
+    );
+    expect(ui.text()).toContain("column s1");
+    expect(ui.text()).toContain("none");
+
+    // Live becomes active again without remounting its preserved stage.
+    ui.render(
+      <>
+        <Probe active />
+        <Column sid="s1" />
+      </>,
+    );
+    expect(ui.text()).toContain("s1");
+  });
+
+  test("a mounted column becomes visible when the browser returns to the foreground", () => {
+    const original = Object.getOwnPropertyDescriptor(document, "visibilityState");
+    try {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        value: "hidden",
+      });
+      ui.render(
+        <>
+          <Probe />
+          <Column sid="s1" />
+        </>,
+      );
+      expect(ui.text()).toContain("none");
+
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        value: "visible",
+      });
+      ui.flush(() => document.dispatchEvent(new Event("visibilitychange")));
+      expect(ui.text()).toContain("s1");
+    } finally {
+      if (original) Object.defineProperty(document, "visibilityState", original);
+      else delete (document as unknown as { visibilityState?: string }).visibilityState;
+    }
   });
 });

@@ -92,6 +92,7 @@ import {
 import {
   clearSessionUnread,
   sameUnreadSessions,
+  sessionListUrlForViewer,
   sessionRosterRowAriaLabel,
   sessionRosterTooltip,
   unreadSessionIds,
@@ -6342,7 +6343,7 @@ export function App() {
     }
     const fetchRevision = ++sessionsFetchRevisionRef.current;
     const payload = await api<{ sessions: Session[] }>(
-      `/api/sessions?user=${encodeURIComponent(botUnreadIdentityRef.current)}`,
+      sessionListUrlForViewer(botUnreadIdentityRef.current),
     );
     // Guard to [] — `sessions` is consumed by `.filter()`/`.map()` on render
     // (allLiveSessions) and just below, so a missing field must not crash.
@@ -7012,7 +7013,7 @@ export function App() {
   // Wide-screen stage columns mark their session as expanded when previewed or
   // pinned; rail-only rows keep using lightweight list/status data.
   const expandedIds = useExpandedIds(liveSessions, false);
-  const visibleTranscripts = useVisibleTranscriptSids();
+  const visibleTranscripts = useVisibleTranscriptSids(tab === "live");
   const sseLiveStream = useLiveSessionStream(liveSessions, useWsLive ? [] : expandedIds);
   const wsLiveStream = useLiveSocket(liveSessions, expandedIds, {
     enabled: useWsLive,
@@ -7104,7 +7105,7 @@ export function App() {
   // server advances the watermark to the turn that was read, so the next poll
   // reports it read.
   useEffect(() => {
-    if (!unreadSessions.size || document.visibilityState !== "visible") return;
+    if (!unreadSessions.size) return;
     for (const sid of visibleTranscripts) {
       if (unreadSessions.has(sid)) markSessionVisible(sid);
     }
