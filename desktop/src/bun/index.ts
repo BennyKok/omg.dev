@@ -1,15 +1,7 @@
-import Electrobun, { BrowserWindow } from "electrobun/main";
-import {
-  ensureRuntime,
-  launchEmbeddedRuntime,
-  stopOwnedRuntime,
-  type OwnedRuntimeProcess,
-  type RuntimeConnection,
-} from "./runtime";
+import { BrowserWindow } from "electrobun/main";
+import { ensureRuntime } from "./runtime";
 
 let mainWindow: BrowserWindow | undefined;
-let connection: RuntimeConnection | undefined;
-let startingProcess: OwnedRuntimeProcess | undefined;
 
 function escapeHtml(value: string): string {
   return value
@@ -71,31 +63,9 @@ function showStartupError(error: unknown): void {
   mainWindow = window;
 }
 
-function stopRuntime(): void {
-  stopOwnedRuntime(connection);
-  if (startingProcess) {
-    try {
-      startingProcess.kill("SIGTERM");
-    } catch {
-      // It is already stopped.
-    }
-  }
-  connection = undefined;
-  startingProcess = undefined;
-}
-
-Electrobun.events.on("before-quit", stopRuntime);
-process.on("exit", stopRuntime);
-
 async function connectToRuntime(): Promise<void> {
   try {
-    connection = await ensureRuntime({
-      launch: async (port) => await launchEmbeddedRuntime(port),
-      onLaunch: (child) => {
-        startingProcess = child;
-      },
-    });
-    startingProcess = undefined;
+    const connection = await ensureRuntime();
     const window = createHiddenWindow();
     window.webview.loadURL(connection.origin);
     mainWindow = window;

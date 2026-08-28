@@ -11,20 +11,33 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   DEFAULT_DESKTOP_RUNTIME_ORIGIN,
   desktopRuntimeStateRoot,
+  embeddedRuntimeFingerprint,
   embeddedRuntimeArchiveCandidates,
   embeddedRuntimeCandidates,
   ensureRuntime,
   prepareEmbeddedRuntime,
+  readDesktopRuntimeRecord,
+  runtimeReadyInfo,
   runtimeIsReady,
   runtimeOrigin,
-  stopOwnedRuntime,
   waitForRuntime,
+  writeDesktopRuntimeRecord,
   type OwnedRuntimeProcess,
 } from "./runtime";
+
+let ownershipState = "";
+
+beforeEach(() => {
+  ownershipState = mkdtempSync(join(tmpdir(), "omg-desktop-ownership-"));
+});
+
+afterEach(() => {
+  rmSync(ownershipState, { force: true, recursive: true });
+});
 
 describe("runtimeOrigin", () => {
   test("uses the fixed local omg.dev origin by default", () => {
@@ -58,6 +71,11 @@ describe("runtime readiness", () => {
 
     expect(await runtimeIsReady(DEFAULT_DESKTOP_RUNTIME_ORIGIN, readyFetch)).toBe(true);
     expect(await runtimeIsReady(DEFAULT_DESKTOP_RUNTIME_ORIGIN, unrelatedFetch)).toBe(false);
+    expect(await runtimeReadyInfo(DEFAULT_DESKTOP_RUNTIME_ORIGIN, readyFetch)).toEqual({
+      bootId: "boot-123",
+      desktopRuntimeFingerprint: null,
+      desktopRuntimeId: null,
+    });
   });
 
   test("keeps trying until the background service is ready", async () => {
@@ -114,6 +132,9 @@ describe("desktop runtime ownership", () => {
         return 9123;
       },
       launch: () => child,
+      fingerprint: "current",
+      runtimeId: "desktop-runtime-test",
+      stateRoot: ownershipState,
       wait: async (origin) => {
         waits.push(origin);
         return true;
@@ -134,10 +155,13 @@ describe("desktop runtime ownership", () => {
     const waits: string[] = [];
     const connection = await ensureRuntime({
       choosePort: async () => 9123,
+      fingerprint: "current",
       launch: (port) => {
         expect(port).toBe(9123);
         return child;
       },
+      runtimeId: "desktop-runtime-test",
+      stateRoot: ownershipState,
       wait: async (origin) => {
         waits.push(origin);
         return origin === "http://127.0.0.1:9123";
@@ -147,9 +171,6 @@ describe("desktop runtime ownership", () => {
     expect(waits).toEqual(["http://127.0.0.1:9123"]);
     expect(connection.owner).toBe("desktop");
     expect(connection.process).toBe(child);
-
-    stopOwnedRuntime(connection);
-    expect(child.kills).toEqual(["SIGTERM"]);
   });
 
   test("stops a child that never becomes ready", async () => {
@@ -157,11 +178,94 @@ describe("desktop runtime ownership", () => {
     await expect(
       ensureRuntime({
         choosePort: async () => 9123,
+        fingerprint: "current",
         launch: () => child,
+        runtimeId: "desktop-runtime-test",
+        stateRoot: ownershipState,
         wait: async () => false,
       }),
     ).rejects.toThrow("startup timeout");
     expect(child.kills).toEqual([undefined]);
+    expect(readDesktopRuntimeRecord(ownershipState)).toBeNull();
+  });
+
+  test("reconnects to the same current background runtime", async () => {
+    writeDesktopRuntimeRecord(
+      {
+        fingerprint: "current",
+        origin: "http://127.0.0.1:9123",
+        pid: 4321,
+        runtimeId: "desktop-runtime-test",
+      },
+      ownershipState,
+    );
+
+    const connection = await ensureRuntime({
+      choosePort: async () => {
+        throw new Error("must not choose a new port");
+      },
+      fingerprint: "current",
+      inspect: async () => ({
+        bootId: "boot-existing",
+        desktopRuntimeFingerprint: "current",
+        desktopRuntimeId: "desktop-runtime-test",
+      }),
+      launch: () => {
+        throw new Error("must not launch a second runtime");
+      },
+      runtimeId: "desktop-runtime-test",
+      stateRoot: ownershipState,
+    });
+
+    expect(connection).toEqual({
+      origin: "http://127.0.0.1:9123",
+      owner: "desktop",
+    });
+  });
+
+  test("replaces an older background runtime when the embedded app changes", async () => {
+    writeDesktopRuntimeRecord(
+      {
+        fingerprint: "old",
+        origin: "http://127.0.0.1:9123",
+        pid: 4321,
+        runtimeId: "desktop-runtime-test",
+      },
+      ownershipState,
+    );
+    let running = true;
+    const stopped: number[] = [];
+    const child = fakeProcess();
+
+    const connection = await ensureRuntime({
+      choosePort: async () => 9123,
+      fingerprint: "current",
+      inspect: async () =>
+        running
+          ? {
+              bootId: "boot-old",
+              desktopRuntimeFingerprint: "old",
+              desktopRuntimeId: "desktop-runtime-test",
+            }
+          : null,
+      launch: () => child,
+      runtimeId: "desktop-runtime-test",
+      stateRoot: ownershipState,
+      stop: async (pid) => {
+        stopped.push(pid);
+        running = false;
+      },
+      wait: async () => true,
+    });
+
+    expect(stopped).toEqual([4321]);
+    expect(connection.process).toBe(child);
+    expect(readDesktopRuntimeRecord(ownershipState)).toEqual({
+      fingerprint: "current",
+      origin: "http://127.0.0.1:9123",
+      pid: 1234,
+      runtimeId: "desktop-runtime-test",
+    });
   });
 });
 
@@ -176,6 +280,7 @@ describe("embedded runtime paths", () => {
       "/app/Resources/app/embedded-runtime.tar.gz",
       "/app/Resources/embedded-runtime.tar.gz",
     ]);
+    expect(embeddedRuntimeFingerprint(["/missing/archive.tar.gz"])).toBe("source");
   });
 
   test("extracts the packaged archive once and preserves dependency links", async () => {

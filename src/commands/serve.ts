@@ -11,6 +11,7 @@ import {
   computerAgentAdmissionContext,
 } from "../agent-admission.ts";
 import { PATHS, appVersion, installInfo } from "../config.ts";
+import { desktopRuntimeReadyPayload } from "../desktop-parent.ts";
 import { handleServerAccessRequest } from "../server-access.ts";
 import {
   importSessionPins,
@@ -7249,7 +7250,9 @@ a{color:#60a5fa}
       if (path === "/api/install") {
         const install = installInfo();
         if (req.method === "GET") {
-          if (url.searchParams.get("ready") === "1") return json({ bootId: SERVER_INSTANCE_ID });
+          if (url.searchParams.get("ready") === "1") {
+            return json(desktopRuntimeReadyPayload(SERVER_INSTANCE_ID));
+          }
           // A manual "Check" click forces a fresh lookup that bypasses the
           // 5-minute release-tag cache; the passive on-load check stays cached.
           // Source installs always `git fetch`, so they're never stale.

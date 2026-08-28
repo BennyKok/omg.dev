@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { desktopParentPid, installDesktopParentGuard } from "./desktop-parent.ts";
+import {
+  desktopParentPid,
+  desktopRuntimeIdentity,
+  desktopRuntimeReadyPayload,
+  installDesktopParentGuard,
+  isDesktopEmbeddedRuntime,
+} from "./desktop-parent.ts";
 
 describe("desktop parent lifetime", () => {
   test("accepts only another valid process id", () => {
@@ -17,6 +23,33 @@ describe("desktop parent lifetime", () => {
         100,
       ),
     ).toBe(4242);
+  });
+
+  test("recognizes both persistent and legacy embedded runtimes", () => {
+    expect(
+      desktopRuntimeIdentity({
+        OMG_DESKTOP_RUNTIME_ID: "desktop-123",
+        OMG_DESKTOP_RUNTIME_FINGERPRINT: "build-456",
+      }),
+    ).toEqual({ fingerprint: "build-456", runtimeId: "desktop-123" });
+    expect(isDesktopEmbeddedRuntime({ OMG_DESKTOP_RUNTIME_ID: "desktop-123" })).toBe(
+      true,
+    );
+    expect(isDesktopEmbeddedRuntime({ OMG_DESKTOP_PARENT_PID: "4242" })).toBe(true);
+    expect(isDesktopEmbeddedRuntime({})).toBe(false);
+    expect(
+      desktopRuntimeReadyPayload("boot-123", {
+        OMG_DESKTOP_RUNTIME_ID: "desktop-123",
+        OMG_DESKTOP_RUNTIME_FINGERPRINT: "build-456",
+      }),
+    ).toEqual({
+      bootId: "boot-123",
+      desktopRuntimeFingerprint: "build-456",
+      desktopRuntimeId: "desktop-123",
+    });
+    expect(desktopRuntimeReadyPayload("boot-123", {})).toEqual({
+      bootId: "boot-123",
+    });
   });
 
   test("does not pass desktop ownership to server children", () => {

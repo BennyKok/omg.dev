@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -5,6 +6,7 @@ import {
   readdirSync,
   renameSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
@@ -35,15 +37,32 @@ export type OwnedRuntimeProcess = {
 export type RuntimeConnection = {
   origin: string;
   owner: "desktop";
-  process: OwnedRuntimeProcess;
+  process?: OwnedRuntimeProcess;
+};
+
+export type RuntimeReadyInfo = {
+  bootId: string;
+  desktopRuntimeFingerprint: string | null;
+  desktopRuntimeId: string | null;
+};
+
+export type DesktopRuntimeRecord = {
+  fingerprint: string;
+  origin: string;
+  pid: number;
+  runtimeId: string;
 };
 
 export type EnsureRuntimeOptions = {
   choosePort?: (preferredPort: number) => Promise<number>;
+  fingerprint?: string;
+  inspect?: (origin: string) => Promise<RuntimeReadyInfo | null>;
   launch?: (port: number) => OwnedRuntimeProcess | Promise<OwnedRuntimeProcess>;
-  onLaunch?: (process: OwnedRuntimeProcess) => void;
   origin?: string;
   readyWaitMs?: number;
+  runtimeId?: string;
+  stateRoot?: string;
+  stop?: (pid: number) => Promise<void>;
   wait?: (origin: string, options: RuntimeWaitOptions) => Promise<boolean>;
 };
 
@@ -54,7 +73,7 @@ function isLoopbackHostname(hostname: string): boolean {
 /**
  * Resolve the preferred loopback origin for the desktop-owned runtime.
  *
- * Only its port is reused. The desktop shell always launches its own process.
+ * Only its port is reused. The desktop shell always owns its runtime process.
  * The local control plane has no application-layer authentication, so loopback
  * remains a security boundary and not only a default.
  */
@@ -74,22 +93,45 @@ export function runtimeOrigin(env: DesktopEnvironment = process.env): string {
   return url.href.replace(/\/$/, "");
 }
 
-export async function runtimeIsReady(
+export async function runtimeReadyInfo(
   origin: string,
   fetcher: RuntimeFetch = fetch,
-): Promise<boolean> {
+): Promise<RuntimeReadyInfo | null> {
   try {
     const response = await fetcher(new URL(READY_PATH, `${origin}/`), {
       cache: "no-store",
       redirect: "error",
       signal: AbortSignal.timeout(1_500),
     });
-    if (!response.ok) return false;
-    const body = (await response.json()) as { bootId?: unknown };
-    return typeof body.bootId === "string" && body.bootId.length > 0;
+    if (!response.ok) return null;
+    const body = (await response.json()) as {
+      bootId?: unknown;
+      desktopRuntimeFingerprint?: unknown;
+      desktopRuntimeId?: unknown;
+    };
+    if (typeof body.bootId !== "string" || !body.bootId) return null;
+    return {
+      bootId: body.bootId,
+      desktopRuntimeFingerprint:
+        typeof body.desktopRuntimeFingerprint === "string" &&
+        body.desktopRuntimeFingerprint
+          ? body.desktopRuntimeFingerprint
+          : null,
+      desktopRuntimeId:
+        typeof body.desktopRuntimeId === "string" && body.desktopRuntimeId
+          ? body.desktopRuntimeId
+          : null,
+    };
   } catch {
-    return false;
+    return null;
   }
+}
+
+export async function runtimeIsReady(
+  origin: string,
+  fetcher: RuntimeFetch = fetch,
+): Promise<boolean> {
+  return (await runtimeReadyInfo(origin, fetcher)) != null;
 }
 
 export async function waitForRuntime(
@@ -140,6 +182,76 @@ export function embeddedRuntimeArchiveCandidates(
     resolve(entryDir, "..", "embedded-runtime.tar.gz"),
     resolve(entryDir, "..", "..", "embedded-runtime.tar.gz"),
   ];
+}
+
+export function embeddedRuntimeFingerprint(
+  archiveCandidates: string[] = embeddedRuntimeArchiveCandidates(),
+): string {
+  const archive = archiveCandidates.find((candidate) => existsSync(candidate));
+  if (!archive) return "source";
+  const fingerprint = readFileSync(`${archive}.sha256`, "utf8").trim();
+  if (!/^[a-f0-9]{64}$/.test(fingerprint)) {
+    throw new Error("The embedded runtime fingerprint is invalid.");
+  }
+  return fingerprint;
+}
+
+export function desktopRuntimeId(stateRoot: string = desktopRuntimeStateRoot()): string {
+  const path = join(stateRoot, "runtime-id");
+  try {
+    const existing = readFileSync(path, "utf8").trim();
+    if (/^[a-f0-9-]{20,80}$/.test(existing)) return existing;
+  } catch {
+    // A first launch has no identity file yet.
+  }
+  mkdirSync(stateRoot, { recursive: true });
+  const created = randomUUID();
+  writeFileSync(path, `${created}\n`, { mode: 0o600 });
+  return created;
+}
+
+function runtimeRecordPath(stateRoot: string): string {
+  return join(stateRoot, "runtime.json");
+}
+
+export function readDesktopRuntimeRecord(
+  stateRoot: string = desktopRuntimeStateRoot(),
+): DesktopRuntimeRecord | null {
+  try {
+    const value = JSON.parse(
+      readFileSync(runtimeRecordPath(stateRoot), "utf8"),
+    ) as Partial<DesktopRuntimeRecord>;
+    if (
+      typeof value.fingerprint !== "string" ||
+      typeof value.origin !== "string" ||
+      typeof value.pid !== "number" ||
+      !Number.isSafeInteger(value.pid) ||
+      value.pid <= 1 ||
+      typeof value.runtimeId !== "string"
+    ) {
+      return null;
+    }
+    const origin = runtimeOrigin({ OMG_DESKTOP_URL: value.origin });
+    return { ...value, origin } as DesktopRuntimeRecord;
+  } catch {
+    return null;
+  }
+}
+
+export function writeDesktopRuntimeRecord(
+  record: DesktopRuntimeRecord,
+  stateRoot: string = desktopRuntimeStateRoot(),
+): void {
+  mkdirSync(stateRoot, { recursive: true });
+  const path = runtimeRecordPath(stateRoot);
+  const temporaryPath = `${path}.${process.pid}.tmp`;
+  writeFileSync(temporaryPath, `${JSON.stringify(record)}\n`, { mode: 0o600 });
+  renameSync(temporaryPath, path);
+}
+
+function removeDesktopRuntimeRecord(stateRoot: string, pid: number): void {
+  const record = readDesktopRuntimeRecord(stateRoot);
+  if (record?.pid === pid) rmSync(runtimeRecordPath(stateRoot), { force: true });
 }
 
 function runtimeTreeIsComplete(root: string): boolean {
@@ -253,6 +365,10 @@ export async function launchEmbeddedRuntime(
   port: number,
   runtimeRoot?: string,
   stateRoot: string = desktopRuntimeStateRoot(),
+  identity: {
+    fingerprint?: string;
+    runtimeId?: string;
+  } = {},
 ): Promise<OwnedRuntimeProcess> {
   const preparedRuntimeRoot = runtimeRoot ?? (await prepareEmbeddedRuntime(stateRoot));
   mkdirSync(join(stateRoot, "data"), { recursive: true });
@@ -268,22 +384,31 @@ export async function launchEmbeddedRuntime(
   ];
   const inheritedPaths = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
   const path = [...new Set([...commonPaths, ...inheritedPaths])].join(delimiter);
+  const env: DesktopEnvironment = {
+    ...process.env,
+    PATH: path,
+    OMG_DATA_DIR: join(stateRoot, "data"),
+    OMG_ENV_FILE: join(stateRoot, ".env"),
+    OMG_DESKTOP_RUNTIME_ID: identity.runtimeId ?? desktopRuntimeId(stateRoot),
+    OMG_DESKTOP_RUNTIME_FINGERPRINT:
+      identity.fingerprint ?? embeddedRuntimeFingerprint(),
+    OMG_HOST: "127.0.0.1",
+    OMG_PORT: String(port),
+  };
+  delete env.OMG_DESKTOP_PARENT_PID;
+  delete env.LFG_DESKTOP_PARENT_PID;
 
-  return Bun.spawn({
+  const child = Bun.spawn({
     cmd: [process.execPath, "run", join(preparedRuntimeRoot, "src", "cli.ts"), "serve"],
     cwd: stateRoot,
-    env: {
-      ...process.env,
-      PATH: path,
-      OMG_DATA_DIR: join(stateRoot, "data"),
-      OMG_ENV_FILE: join(stateRoot, ".env"),
-      OMG_DESKTOP_PARENT_PID: String(process.pid),
-      OMG_HOST: "127.0.0.1",
-      OMG_PORT: String(port),
-    },
-    stderr: "inherit",
-    stdout: "inherit",
+    detached: true,
+    env,
+    stderr: "ignore",
+    stdin: "ignore",
+    stdout: "ignore",
   });
+  child.unref();
+  return child;
 }
 
 function portFromOrigin(origin: string): number {
@@ -295,13 +420,54 @@ function portFromOrigin(origin: string): number {
 export async function ensureRuntime(
   options: EnsureRuntimeOptions = {},
 ): Promise<RuntimeConnection> {
+  const stateRoot = options.stateRoot ?? desktopRuntimeStateRoot();
+  const runtimeId = options.runtimeId ?? desktopRuntimeId(stateRoot);
+  const fingerprint = options.fingerprint ?? embeddedRuntimeFingerprint();
+  const inspect = options.inspect ?? runtimeReadyInfo;
+  const record = readDesktopRuntimeRecord(stateRoot);
+
+  if (record?.runtimeId === runtimeId) {
+    const existing = await inspect(record.origin);
+    if (existing?.desktopRuntimeId === runtimeId) {
+      if (
+        record.fingerprint === fingerprint &&
+        existing.desktopRuntimeFingerprint === fingerprint
+      ) {
+        return { origin: record.origin, owner: "desktop" };
+      }
+      await (options.stop ?? stopPersistentRuntime)(record.pid);
+      const deadline = Date.now() + 5_000;
+      while ((await inspect(record.origin))?.desktopRuntimeId === runtimeId) {
+        if (Date.now() >= deadline) {
+          throw new Error("The previous embedded omg.dev runtime did not stop for an update.");
+        }
+        await Bun.sleep(100);
+      }
+    }
+  }
+
   const preferredOrigin = options.origin ?? runtimeOrigin();
   const wait = options.wait ?? waitForRuntime;
   const choosePort = options.choosePort ?? chooseAvailableRuntimePort;
   const port = await choosePort(portFromOrigin(preferredOrigin));
   const embeddedOrigin = `http://127.0.0.1:${port}`;
-  const child = await (options.launch ?? launchEmbeddedRuntime)(port);
-  options.onLaunch?.(child);
+  const launch =
+    options.launch ??
+    ((selectedPort: number) =>
+      launchEmbeddedRuntime(selectedPort, undefined, stateRoot, {
+        fingerprint,
+        runtimeId,
+      }));
+  const child = await launch(port);
+  writeDesktopRuntimeRecord(
+    {
+      fingerprint,
+      origin: embeddedOrigin,
+      pid: child.pid,
+      runtimeId,
+    },
+    stateRoot,
+  );
 
   const result = await Promise.race([
     wait(embeddedOrigin, {
@@ -320,16 +486,16 @@ export async function ensureRuntime(
   } catch {
     // The child can exit between the readiness result and cleanup.
   }
+  removeDesktopRuntimeRecord(stateRoot, child.pid);
   const reason = result.type === "exit" ? `exit code ${result.code}` : "startup timeout";
   throw new Error(`The embedded omg.dev runtime failed to start (${reason}).`);
 }
 
-export function stopOwnedRuntime(connection: RuntimeConnection | undefined): void {
-  if (!connection) return;
+async function stopPersistentRuntime(pid: number): Promise<void> {
   try {
-    connection.process.kill("SIGTERM");
-  } catch {
-    // It is already stopped.
+    process.kill(pid, "SIGTERM");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
   }
 }
 
