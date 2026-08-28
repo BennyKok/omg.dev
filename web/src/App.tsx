@@ -527,6 +527,7 @@ import {
   useSessionQuestions,
 } from "./components/ask-center";
 import { PwaInstallCallout, PwaInstallSettingsSection } from "./components/pwa-install";
+import { RemoteAccessSettingsSection } from "./components/remote-access-settings";
 import {
   UpdateNavButton,
   UpdateProvider,
@@ -26527,6 +26528,8 @@ function SettingsView({
           />
         </div>
       </section>
+
+      <RemoteAccessSettingsSection />
 
       <AgentConcurrencySettingsSection
         settings={settings}

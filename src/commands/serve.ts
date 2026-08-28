@@ -11,6 +11,7 @@ import {
   computerAgentAdmissionContext,
 } from "../agent-admission.ts";
 import { PATHS, appVersion, installInfo } from "../config.ts";
+import { handleServerAccessRequest } from "../server-access.ts";
 import {
   importSessionPins,
   visibleSessionPins,
@@ -4558,6 +4559,9 @@ a{color:#60a5fa}
       }
       if (path === "/api/server/stats" && req.method === "GET") {
         return json({ stats: await serverStats() });
+      }
+      if (path === "/api/server/access" && req.method === "GET") {
+        return handleServerAccessRequest();
       }
       if (path === "/api/server/wake-tick" && req.method === "POST") {
         return handleWakeTick((l) => console.log(l));
