@@ -34,13 +34,12 @@ export type OwnedRuntimeProcess = {
 
 export type RuntimeConnection = {
   origin: string;
-  owner: "existing" | "desktop";
-  process?: OwnedRuntimeProcess;
+  owner: "desktop";
+  process: OwnedRuntimeProcess;
 };
 
 export type EnsureRuntimeOptions = {
   choosePort?: (preferredPort: number) => Promise<number>;
-  existingWaitMs?: number;
   launch?: (port: number) => OwnedRuntimeProcess | Promise<OwnedRuntimeProcess>;
   onLaunch?: (process: OwnedRuntimeProcess) => void;
   origin?: string;
@@ -53,10 +52,11 @@ function isLoopbackHostname(hostname: string): boolean {
 }
 
 /**
- * Resolve the one service origin the desktop shell may load.
+ * Resolve the preferred loopback origin for the desktop-owned runtime.
  *
- * The local control plane has no application-layer authentication. Keeping the
- * shell on loopback is therefore a security boundary, not only a default.
+ * Only its port is reused. The desktop shell always launches its own process.
+ * The local control plane has no application-layer authentication, so loopback
+ * remains a security boundary and not only a default.
  */
 export function runtimeOrigin(env: DesktopEnvironment = process.env): string {
   const configured = env.OMG_DESKTOP_URL?.trim();
@@ -295,16 +295,10 @@ function portFromOrigin(origin: string): number {
 export async function ensureRuntime(
   options: EnsureRuntimeOptions = {},
 ): Promise<RuntimeConnection> {
-  const origin = options.origin ?? runtimeOrigin();
+  const preferredOrigin = options.origin ?? runtimeOrigin();
   const wait = options.wait ?? waitForRuntime;
-  const existingReady = await wait(origin, {
-    intervalMs: 200,
-    timeoutMs: options.existingWaitMs ?? 1_000,
-  });
-  if (existingReady) return { origin, owner: "existing" };
-
   const choosePort = options.choosePort ?? chooseAvailableRuntimePort;
-  const port = await choosePort(portFromOrigin(origin));
+  const port = await choosePort(portFromOrigin(preferredOrigin));
   const embeddedOrigin = `http://127.0.0.1:${port}`;
   const child = await (options.launch ?? launchEmbeddedRuntime)(port);
   options.onLaunch?.(child);
@@ -331,7 +325,7 @@ export async function ensureRuntime(
 }
 
 export function stopOwnedRuntime(connection: RuntimeConnection | undefined): void {
-  if (connection?.owner !== "desktop" || !connection.process) return;
+  if (!connection) return;
   try {
     connection.process.kill("SIGTERM");
   } catch {
