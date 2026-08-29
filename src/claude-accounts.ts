@@ -14,6 +14,7 @@ import {
   claudeOauthToken,
   claudeSignInIsDead,
 } from "./claude-creds.ts";
+import { claudeAccountProfile, type AgentAccountProfile } from "./agent-profiles.ts";
 
 export const DEFAULT_CLAUDE_ACCOUNT_ID = "default";
 
@@ -21,6 +22,11 @@ export type ClaudeAccount = {
   id: string;
   number: number;
   label: string;
+  /**
+   * The account this row actually signs in as. `label` is synthetic ordering
+   * ("Claude 1"), so it cannot tell two accounts apart; this can.
+   */
+  profile?: AgentAccountProfile;
   connected: boolean;
   /**
    * The account holds a credential that can no longer be renewed, so only a
@@ -115,10 +121,12 @@ function defaultAccount(): StoredClaudeAccount {
 function publicAccount(account: StoredClaudeAccount): ClaudeAccount {
   const dead = claudeSignInIsDead(account.configDir);
   const fromEnv = claudeAccountUsesEnvToken(account.configDir);
+  const profile = claudeAccountProfile(account.configDir);
   return {
     id: account.id,
     number: account.number,
     label: account.label,
+    ...(profile ? { profile } : {}),
     connected: !dead && claudeOauthToken(account.configDir) !== null,
     needsReconnect: dead,
     ...(fromEnv ? { fromEnv: true } : {}),

@@ -326,7 +326,11 @@ export default function CodingAgentsPage({
                 <img src={agentIconSrc(agent.key)} alt={agentIconAlt(agent.key)} className="size-5" />
               }
               title={agent.label}
-              note={agentStatusNote(status.checks)}
+              note={agentStatusNote(
+                status.checks,
+                status.profile,
+                accounts.filter((account) => account.connected).length,
+              )}
               ok={status.configured}
               showDot={false}
               open={expanded === `agent:${agent.key}`}
@@ -360,6 +364,17 @@ export default function CodingAgentsPage({
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-xs font-medium">{account.label}</span>
+                        {/* "Claude 1" is synthetic ordering, so it cannot tell
+                            two accounts apart. The signed-in address can, and
+                            picking the right account is the whole point of the
+                            list. */}
+                        {account.profile ? (
+                          <span className="block truncate text-[11px] text-muted-foreground">
+                            {account.profile.detail
+                              ? `${account.profile.label} \u00b7 ${account.profile.detail}`
+                              : account.profile.label}
+                          </span>
+                        ) : null}
                         {/* A dead sign-in looks exactly like an account that was
                             never set up unless the row says otherwise. */}
                         {account.needsReconnect ? (
