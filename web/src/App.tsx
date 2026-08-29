@@ -591,9 +591,21 @@ export type CodingAgentInfo = {
     instructions: string[];
     installCommand?: string;
     loginCommand?: string;
+    profile?: AgentAccountProfileInfo;
     accounts?: ClaudeAccountInfo[];
     providers?: PiProviderInfo[];
   };
+};
+
+/**
+ * The account an agent is signed in to on this device. Mirrors
+ * `AgentAccountProfile` in src/agent-profiles.ts. It never carries credential
+ * material, so every field is safe to render.
+ */
+export type AgentAccountProfileInfo = {
+  label: string;
+  detail?: string;
+  source: "local-cli";
 };
 
 /**
@@ -618,6 +630,8 @@ export type ClaudeAccountInfo = {
   id: string;
   number: number;
   label: string;
+  /** The login this row uses. `label` is synthetic, so it cannot identify one. */
+  profile?: AgentAccountProfileInfo;
   connected: boolean;
   /** Stored sign-in is dead and only a browser login can revive it. */
   needsReconnect?: boolean;
@@ -10255,7 +10269,13 @@ function OnboardingFlow({
                       {a.status.setupRunning
                         ? "Installing…"
                         : a.status.configured
-                        ? "Connected"
+                        ? // Naming the detected account is the point of this
+                          // screen: it shows the user their own machine is
+                          // already set up, rather than asserting "Connected"
+                          // and leaving them to guess as whom.
+                          a.status.profile
+                          ? `Connected as ${a.status.profile.label}`
+                          : "Connected"
                         : a.status.checks.find((c) => !c.ok)?.label || "Not set up"}
                     </span>
                   </span>

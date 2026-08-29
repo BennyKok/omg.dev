@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { PATHS, localServeBaseUrl } from "./config.ts";
 import { omgCapabilityAccess } from "./omg-capabilities.ts";
 import { githubCliPath } from "./tool-connections.ts";
+import { agentAccountProfile, type AgentAccountProfile } from "./agent-profiles.ts";
 import {
   DEFAULT_CLAUDE_ACCOUNT_ID,
   claudeAccountConfigDir,
@@ -82,6 +83,13 @@ export type CodingAgentStatus = {
   };
   installCommand?: string;
   loginCommand?: string;
+  /**
+   * The account signed in to this agent on this device. Absent when the agent
+   * records no identity locally, or when only a platform API key is present.
+   * Claude reports one profile per row in `accounts` as well, because each of
+   * its accounts can be a different login.
+   */
+  profile?: AgentAccountProfile;
   /** Claude-only: isolated subscription accounts available to session launchers. */
   accounts?: ClaudeAccount[];
   /** pi, opencode, and jcode: model providers signed into per provider, not per agent. */
@@ -1363,6 +1371,7 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
   let canAutoSetup = true;
   let canLoginInTerminal = true;
   let accountConnected = false;
+  let profile: AgentAccountProfile | null = null;
   let jcodeProviders: AgentProviderInfo[] | undefined;
 
   const addBinary = (label: string, path: string | null) => {
@@ -1373,7 +1382,11 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
   };
 
   if (kind === "claude" || kind === "aisdk") {
-    accountConnected = connectedClaudeAccounts().length > 0;
+    const connectedAccounts = connectedClaudeAccounts();
+    accountConnected = connectedAccounts.length > 0;
+    // The kind-level profile names the first connected account. The per-account
+    // rows below carry their own, so a fleet is never flattened to one login.
+    profile = connectedAccounts[0]?.profile ?? null;
     addBinary("Claude CLI", claudePath());
     addAuth(
       "Claude auth",
@@ -1385,6 +1398,7 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
     );
   } else if (kind === "codex" || kind === "codex-aisdk") {
     accountConnected = await hasCodexAccountAuth();
+    profile = agentAccountProfile(kind);
     addBinary("Codex CLI", codexPath());
     addAuth(
       "Codex auth",
@@ -1419,6 +1433,7 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
     canLoginInTerminal = false;
   } else if (kind === "cursor") {
     accountConnected = hasCursorAccountAuth();
+    profile = agentAccountProfile(kind);
     addBinary("Cursor CLI", cursorPath());
     addAuth("Cursor auth", hasCursorAuth(), "run `cursor-agent login` once or set CURSOR_API_KEY");
     instructions.push("Install Cursor CLI, then run `cursor-agent login` and sign in, or set CURSOR_API_KEY.");
@@ -1450,6 +1465,7 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
     instructions.push("Install Copilot CLI (npm install -g @github/copilot; requires Node 22+), then run 'copilot' once and /login, or set COPILOT_GITHUB_TOKEN (or GH_TOKEN) with the Copilot Requests scope.");
   } else {
     accountConnected = hasGrokAccountAuth();
+    profile = agentAccountProfile(kind);
     addBinary("Grok CLI", grokPath());
     addAuth(
       "Grok auth",
@@ -1471,6 +1487,9 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
     setupProgress: setupProgress.get(kind),
     installCommand: installCommandFor(kind) ?? undefined,
     loginCommand: loginCommandFor(kind) ?? undefined,
+    // Only name an account the user actually connected. An agent that is
+    // runnable through a platform API key has no login to show.
+    ...(accountConnected && profile ? { profile } : {}),
     ...(kind === "claude" || kind === "aisdk"
       ? { accounts: listClaudeAccounts() }
       : {}),
