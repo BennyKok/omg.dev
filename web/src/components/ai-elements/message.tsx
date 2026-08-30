@@ -1,10 +1,14 @@
 "use client";
 
-import { lazy, memo, Suspense, type ComponentProps, type HTMLAttributes } from "react";
+import { memo, Suspense, type ComponentProps, type HTMLAttributes } from "react";
 
+import { lazyWithReload } from "@/lib/lazy-with-reload";
 import { cn } from "@/lib/utils";
 
-const StreamdownResponse = lazy(() =>
+// lazyWithReload, not bare lazy: this chunk renders for every assistant message,
+// so a failed import surfaced as the browser's own anonymous chunk-load wording
+// at the router boundary instead of recovering. See lazy-with-reload.ts.
+const StreamdownResponse = lazyWithReload("StreamdownResponse", () =>
   import("./streamdown-response").then((m) => ({ default: m.StreamdownResponse })),
 );
 
