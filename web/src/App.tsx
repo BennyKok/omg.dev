@@ -277,6 +277,12 @@ import {
   togglePinnedSession,
 } from "./lib/session-pins";
 import { pendingLiveFocusRequest } from "./lib/live-focus";
+import {
+  canUseTiboMode,
+  readTiboMode,
+  resolveTiboLaunch,
+  writeTiboMode,
+} from "./lib/tibo-mode";
 import { ConnectionStatusToasts } from "./ConnectionStatus";
 import type {
   ClipboardEvent,
@@ -355,6 +361,7 @@ import {
   Trash2,
   TriangleAlert,
   UserRound,
+  Zap,
   Camera,
   X,
   Ellipsis,
@@ -750,6 +757,7 @@ export type Session = {
   assignedUser?: string | null;
   model?: string | null;
   thinkingLevel?: string | null;
+  serviceTier?: "fast" | null;
   parentSessionId?: string | null;
   parentNativeSessionId?: string | null;
   parentAgent?: string | null;
@@ -17387,6 +17395,15 @@ const onTouchStart = (e: ReactTouchEvent) => {
             {session.model}
           </span>
         ) : null)}
+        {session.serviceTier === "fast" ? (
+          <span
+            title="Tibo mode: Fast service tier"
+            className="flex shrink-0 items-center gap-1 rounded-full bg-gradient-to-r from-orange-500/16 to-fuchsia-500/14 px-2 py-0.5 text-[10px] font-semibold text-orange-700 ring-1 ring-inset ring-orange-400/25 dark:text-orange-300"
+          >
+            <Zap className="size-3 fill-orange-400 text-orange-500" />
+            Tibo
+          </span>
+        ) : null}
         {/* Redundant on wide screens: the rail row for this session already
             carries the same state on its avatar, so only the narrow (no-rail)
             grid layout needs it here. */}
@@ -20809,6 +20826,7 @@ function NewSessionDialog({
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(
     () => savedThinkingLevel(),
   );
+  const [tiboMode, setTiboModeState] = useState(() => readTiboMode(localStorage));
   // Default the owner to the active profile, falling back to the first known user
   // — never empty when a roster exists. An unowned session lands unassigned, and
   // the live view's auto-default filter (which flips to a specific user) then
@@ -21272,6 +21290,8 @@ function NewSessionDialog({
 
   const models = catalog.models[agent] ?? AGENT_MODELS[agent];
   const thinkingLevels = useAgentThinkingLevels(agent, model);
+  const tiboModeAvailable = canUseTiboMode({ agent, model, thinkingLevels });
+  const tiboModeActive = tiboMode && tiboModeAvailable;
   // When the live view is filtered to a specific project, lock new sessions to
   // that project's repo (and hide the picker below). Falls back to the normal
   // localStorage/first-repo default when viewing "All projects" or when the
@@ -21348,6 +21368,20 @@ function NewSessionDialog({
       setThinkingLevel(thinkingLevels.includes("high") ? "high" : thinkingLevels[0]);
     }
   }, [thinkingLevel, thinkingLevels]);
+  useEffect(() => {
+    if (tiboModeActive && thinkingLevel !== "high") setThinkingLevel("high");
+  }, [tiboModeActive, thinkingLevel]);
+
+  function setTiboMode(enabled: boolean) {
+    setTiboModeState(enabled);
+    writeTiboMode(localStorage, enabled);
+    if (enabled && tiboModeAvailable) setThinkingLevel("high");
+  }
+
+  function changeComposerThinkingLevel(next: ThinkingLevel) {
+    if (tiboModeActive && next !== "high") setTiboMode(false);
+    setThinkingLevel(next);
+  }
 
   const visibleAgentOptions = useMemo(() => {
     return configuredLaunchOptions(codingAgents, accessMode);
@@ -21420,8 +21454,14 @@ function NewSessionDialog({
     }
     const launchUser = resolveRosterUser(user, users) || null;
     const launchAgent = agent;
-    const launchModel = model;
-    const launchThinkingLevel = overrideThinking ?? thinkingLevel;
+    const tiboLaunch = resolveTiboLaunch({
+      enabled: tiboMode,
+      available: tiboModeAvailable,
+      model,
+      thinkingLevel: overrideThinking ?? thinkingLevel,
+    });
+    const launchModel = tiboLaunch.model;
+    const launchThinkingLevel = tiboLaunch.thinkingLevel as ThinkingLevel;
     const launchClaudeAccountId = launchAgent === "aisdk" ? claudeAccountId || undefined : undefined;
     const stashed = stagePromptSend({
       contextKey: "new-session",
@@ -21483,6 +21523,7 @@ function NewSessionDialog({
             agent: launchAgent,
             model: launchModel,
             thinkingLevel: thinkingLevels.length ? launchThinkingLevel : undefined,
+            serviceTier: tiboLaunch.serviceTier,
             claudeAccountId: launchClaudeAccountId,
             overLimit: overLimit || undefined,
           }),
@@ -21658,10 +21699,19 @@ function NewSessionDialog({
         agent={agent}
         value={thinkingLevel}
         levels={thinkingLevels}
-        onChange={setThinkingLevel}
+        onChange={changeComposerThinkingLevel}
         flat={variant === "inline"}
         immersive
       />
+
+      {agent === "codex" || agent === "codex-aisdk" ? (
+        <TiboModePill
+          enabled={tiboModeActive}
+          available={tiboModeAvailable}
+          onToggle={() => setTiboMode(!tiboMode)}
+          flat={variant === "inline"}
+        />
+      ) : null}
 
 
       {!projectScoped && (
@@ -21939,9 +21989,15 @@ function NewSessionDialog({
           <ComposerStartButton
             disabled={!canSubmit}
             thinkingLevel={thinkingLevel}
-            thinkingLevels={agentSupportsThinking(agent) ? thinkingLevels : []}
+            thinkingLevels={
+              tiboModeActive
+                ? ["high"]
+                : agentSupportsThinking(agent)
+                  ? thinkingLevels
+                  : []
+            }
             onLaunch={(next) => {
-              setThinkingLevel(next);
+              changeComposerThinkingLevel(next);
               submit(undefined, undefined, next);
             }}
           />
@@ -23014,6 +23070,55 @@ function ComposerStartButton({
 
       {scrub.panel}
     </>
+  );
+}
+
+function TiboModePill({
+  enabled,
+  available,
+  onToggle,
+  flat = false,
+}: {
+  enabled: boolean;
+  available: boolean;
+  onToggle: () => void;
+  flat?: boolean;
+}) {
+  const description = available
+    ? enabled
+      ? "Tibo mode is on: Fast service tier and High thinking"
+      : "Turn on Tibo mode: Fast service tier and High thinking"
+    : "Tibo mode requires a GPT-5.4, GPT-5.5, or GPT-5.6 Codex model";
+
+  return (
+    <button
+      type="button"
+      aria-label={description}
+      aria-pressed={enabled}
+      title={description}
+      disabled={!available}
+      onClick={onToggle}
+      className={cn(
+        "relative inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-semibold outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-35",
+        flat && !enabled ? "px-1.5 text-muted-foreground" : "bg-muted text-muted-foreground",
+        enabled &&
+          "bg-gradient-to-r from-orange-500/22 via-fuchsia-500/20 to-violet-500/22 text-foreground ring-1 ring-inset ring-orange-400/45 shadow-[0_0_18px_rgba(249,115,22,0.22)]",
+      )}
+    >
+      <Zap
+        className={cn(
+          "size-3.5",
+          enabled && "fill-orange-400 text-orange-500 animate-pulse motion-reduce:animate-none",
+        )}
+      />
+      <span>Tibo</span>
+      {enabled ? (
+        <>
+          <span aria-hidden="true" className="text-[11px] text-orange-500/70">·</span>
+          <span className="text-[11px] text-orange-600 dark:text-orange-300">Fast + High</span>
+        </>
+      ) : null}
+    </button>
   );
 }
 

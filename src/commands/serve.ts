@@ -458,6 +458,7 @@ import {
   resolveModelForAgent,
   thinkingLevelsForAgent,
 } from "../agent-catalog.ts";
+import { resolveSessionServiceTier } from "../service-tier.ts";
 import {
   readModelDiscoveryCacheSync,
   refreshModelCatalog,
@@ -7969,6 +7970,7 @@ a{color:#60a5fa}
           worktree?: boolean;
           model?: string;
           thinkingLevel?: string;
+          serviceTier?: unknown;
           claudeAccountId?: string;
           parentSessionId?: string;
           spawnedBy?: string;
@@ -8052,6 +8054,13 @@ a{color:#60a5fa}
             return err(400, `unknown thinking level "${thinkingLevel}" for ${agent} (expected one of ${allowed.join(", ")})`);
         }
         const resolvedModel = resolveModelForAgent(agent, model, thinkingLevel);
+        const serviceTierResult = resolveSessionServiceTier({
+          requested: body?.serviceTier,
+          agent,
+          model: agent === "codex-aisdk" ? resolvedModel ?? "gpt-5.5" : resolvedModel,
+        });
+        if (!serviceTierResult.ok) return err(400, serviceTierResult.error);
+        const serviceTier = serviceTierResult.serviceTier;
         const requestedCwd = body?.cwd?.trim() || undefined;
         const parentId = body?.parentSessionId?.trim() || undefined;
         const spawnedBy = body?.spawnedBy?.trim() || (parentId ? "subagent" : undefined);
@@ -8189,6 +8198,7 @@ a{color:#60a5fa}
           launchState: "launching",
           model: launchModel,
           thinkingLevel,
+          serviceTier,
           claudeAccountId,
           title: requestedTitle || body?.prompt?.slice(0, 72),
           project: repo.project,
@@ -8212,6 +8222,7 @@ a{color:#60a5fa}
           prompt,
           model: launchModel,
           thinkingLevel,
+          serviceTier,
           sessionId: launchId,
           omgUser: assignedUser,
           containInAgentSlice: isSubagent,
