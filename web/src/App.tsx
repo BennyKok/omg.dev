@@ -164,7 +164,7 @@ import {
   isComputerHostResumeMessage,
   restartContinuousAnimations,
 } from "./embedded-animation-recovery";
-import { lazy } from "react";
+import { lazyWithReload } from "./lib/lazy-with-reload";
 import { useOmgChat } from "./lib/chat-context";
 import {
   AGENT_ICON_VERSION,
@@ -189,11 +189,18 @@ import {
 
 // Dynamic: this is what keeps the AI SDK out of the entry chunk. See
 // SessionChat and web/src/lib/chat-engine.tsx.
-const OmgChatEngine = lazy(() => import("./lib/chat-engine"));
+// lazyWithReload, not bare lazy: this chunk renders on every /sessions/:id, so
+// a plain lazy() let a failed import reach the router boundary as the browser's
+// own anonymous wording ("Importing a module script failed.") — no chunk name,
+// no stack, no recovery. See lazy-with-reload.ts.
+const OmgChatEngine = lazyWithReload("OmgChatEngine", () => import("./lib/chat-engine"));
 
 /** Warm the chat chunk once the app is idle, so opening a session never waits on it. */
 export function prefetchChatEngine(): void {
-  const run = () => void import("./lib/chat-engine");
+  // Swallow the rejection: a warm-up is best-effort, and OmgChatEngine re-imports
+  // (and recovers) on render. Left floating, a failed prefetch became an
+  // unhandled rejection and a phantom finding.
+  const run = () => void import("./lib/chat-engine").catch(() => {});
   const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number })
     .requestIdleCallback;
   if (typeof ric === "function") ric(run, { timeout: 3000 });
@@ -361,7 +368,6 @@ import { subscribeSelectionChange } from "./lib/selection-change";
 import { useProjectListPrefs, setProjectListPrefs } from "@/lib/project-list-prefs";
 import { useSendMorph } from "@/lib/use-send-morph";
 import { reportError } from "./lib/report-error";
-import { lazyWithReload } from "./lib/lazy-with-reload";
 import {
   buildChatRenderItems,
   splitQueuedRenderItems,

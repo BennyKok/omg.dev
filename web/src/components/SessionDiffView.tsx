@@ -4,16 +4,19 @@
 // aka diffs.com) — Shiki-highlighted, split/unified, rendered fully client-side
 // (nothing leaves the box). Data comes from GET /api/sessions/:id/diff* .
 
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, Columns2, FileDiff, GitBranch, Loader2, Minus, Plus, Rows3, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { lazyWithReload } from "@/lib/lazy-with-reload";
 import { omgFetch } from "@/lib/omg-client";
 
 // Pierre's diff renderer (@pierre/diffs, ~380 KB) is only needed once a user
 // expands a file in the diff viewer — which most sessions never do. Load it
-// lazily so it stays out of the first-paint bundle.
-const PatchDiff = lazy(() =>
+// lazily so it stays out of the first-paint bundle. lazyWithReload, not bare
+// lazy, so a chunk that fails to load recovers instead of crashing the session
+// page with the browser's anonymous wording. See lazy-with-reload.ts.
+const PatchDiff = lazyWithReload("PatchDiff", () =>
   import("@pierre/diffs/react").then((m) => ({ default: m.PatchDiff })),
 );
 
