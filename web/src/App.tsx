@@ -12512,9 +12512,9 @@ function RailStage({
   );
 
   return (
-    <div ref={workspaceRef} className="flex h-full min-h-0 gap-3">
+    <div ref={workspaceRef} className="flex h-full min-h-0">
       <aside
-        className="lfg-gborder flex h-full min-h-0 shrink-0 flex-col overflow-hidden rounded-xl border border-transparent bg-card shadow-[0_12px_40px_-28px_rgba(0,0,0,0.5)] transition-[width] duration-200 ease-ios"
+        className="flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r border-border transition-[width] duration-200 ease-ios"
         // 320, not 280. The rows carry the roster's 16px title now, and at 280
         // that truncated to about two words — "operation fix om…" — which is
         // not a title, it is a prefix. The type size is the shared thing; the
@@ -17206,9 +17206,15 @@ const onTouchStart = (e: ReactTouchEvent) => {
         onTouchEnd={onTouchEnd}
         style={isMobile ? { height: headH } : undefined}
         className={cn(
-          "live-pane relative z-[1] flex h-[22rem] touch-pan-y flex-col overflow-hidden rounded-xl border bg-card text-card-foreground transition-[height,transform,border-color,box-shadow] duration-300 ease-ios md:static md:transition-[border-color,box-shadow]",
+          "live-pane relative z-[1] flex h-[22rem] touch-pan-y flex-col overflow-hidden border text-card-foreground transition-[height,transform,border-color,box-shadow] duration-300 ease-ios md:static md:transition-[border-color,box-shadow]",
           entering && "lfg-card-in",
-          variant === "stage" ? "md:h-full" : "md:h-[clamp(30rem,72vh,46rem)]",
+          // The stage pane is the desktop workspace surface, not a card sitting
+          // on it: no radius, no card fill, no shadow. It keeps the 1px border
+          // box so the dictating/needsYou edges below still have something to
+          // colour. `variant === "grid"` is narrow-only and keeps the card.
+          variant === "stage"
+            ? "md:h-full"
+            : "rounded-xl bg-card md:h-[clamp(30rem,72vh,46rem)]",
           // Listening: soften the border to primary and throw a faint glow ring.
           // Waiting on an answer gets the same primary edge, one step quieter,
           // so a blocked session stands out in a grid of running ones.
@@ -17217,12 +17223,21 @@ const onTouchStart = (e: ReactTouchEvent) => {
             ? "border-primary/60 shadow-[0_0_0_1px_var(--primary),0_0_16px_2px_color-mix(in_srgb,var(--primary)_35%,transparent)]"
             : needsYou
               ? "border-primary/50 shadow-[0_0_0_1px_color-mix(in_srgb,var(--primary)_45%,transparent)]"
-              : "border-transparent lfg-gborder",
+              : variant === "stage"
+                ? "border-transparent"
+                : "border-transparent lfg-gborder",
         )}
       >
         <div
           ref={headRef}
-          className="flex min-h-[3.75rem] min-w-0 items-center gap-2 border-b border-border px-3 py-2"
+          className={cn(
+            "flex min-w-0 items-center gap-2 border-b border-border px-3",
+            // The stage header holds one line of title, so 60px was mostly air.
+            // The grid card keeps 60px: a participant row can sit under the
+            // title there, and the mobile feed measures this element for the
+            // collapsed card height.
+            variant === "stage" ? "min-h-11 py-1.5" : "min-h-[3.75rem] py-2",
+          )}
         >
           {/* Agent identity + busy indicator. This used to double as a hidden
               "speak the session summary" button, which read as an avatar and
