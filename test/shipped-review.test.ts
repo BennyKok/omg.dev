@@ -38,9 +38,12 @@ describe("shipped session review flow", () => {
     expect(app).not.toContain("onOpenRecentShipped");
   });
 
+  // The desktop stage header was thinned to 44px. Mobile is unchanged: the
+  // grid variant is the narrow-only one, and the mobile feed measures this
+  // element to size a collapsed card, so its 60px row must stay.
   test("mobile session headers keep their compact row height", () => {
     expect(app).toContain(
-      'className="flex min-h-[3.75rem] min-w-0 items-center gap-2 border-b border-border px-3 py-2"',
+      'variant === "stage" ? "min-h-11 py-1.5" : "min-h-[3.75rem] py-2"',
     );
   });
 
