@@ -91,13 +91,13 @@ export function ComputerInspectionControl({
           <ChevronDown className="size-3.5" aria-hidden="true" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" side="top" className="w-72 max-w-[calc(100vw-1.5rem)]">
-          <DropdownMenuLabel>Add the selected element to</DropdownMenuLabel>
           <DropdownMenuRadioGroup
             value={selectedSessionId}
             onValueChange={(value) => {
               if (typeof value === "string") onSelectedSessionChange(value);
             }}
           >
+            <DropdownMenuLabel>Add the selected element to</DropdownMenuLabel>
             {sessions.map((session) => (
               <DropdownMenuRadioItem key={session.sessionId} value={session.sessionId}>
                 <span className="min-w-0">

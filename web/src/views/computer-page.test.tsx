@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mount, type Mounted } from "../test-support/render";
 
+globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+  callback(performance.now());
+  return 1;
+}) as typeof requestAnimationFrame;
+globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;
+
 const { ComputerInspectionControl } = await import("./computer-inspection-control");
 
 let ui: Mounted;
@@ -34,6 +40,24 @@ describe("Computer inspection control", () => {
     const start = ui.query('[aria-label="Choose an agent before pointing an element"]') as HTMLButtonElement;
     expect(start.disabled).toBe(true);
     expect(ui.query('[aria-label="Choose the agent for the selected element"]')).not.toBeNull();
+  });
+
+  test("opens the target-session menu without losing the radio-group context", async () => {
+    ui.render(
+      <ComputerInspectionControl
+        active={false}
+        sessions={sessions}
+        onCancel={() => {}}
+      />,
+    );
+    const trigger = ui.query(
+      '[aria-label="Choose the agent for the selected element"]',
+    ) as HTMLButtonElement;
+    await ui.flushAsync(() => trigger.click());
+    await ui.flushAsync();
+    expect(document.body.textContent).toContain("Add the selected element to");
+    expect(document.body.textContent).toContain("Checkout repair");
+    expect(document.body.textContent).toContain("Homepage polish");
   });
 
   test("starts for the named target without sending a message", () => {
