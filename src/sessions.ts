@@ -426,6 +426,8 @@ export type Session = {
   // without a live effort control or older sessions launched before it was
   // tracked.
   thinkingLevel?: string | null;
+  /** Fast when Codex launched on its higher-throughput account service tier. */
+  serviceTier?: "fast" | null;
   // Health of the session as far as the build is concerned. "ok" = running
   // normally; "blocked" = the session can't make forward progress until a
   // human acts (e.g. its model was retired/disabled, or the agent ran out of
@@ -671,6 +673,7 @@ export function managedLaunchRow(
         ? model
         : modelAlias(model),
     thinkingLevel: m.thinkingLevel ?? null,
+    serviceTier: m.serviceTier ?? directEntry?.serviceTier ?? null,
     // The harness is gone, so there is nobody left to retry: a dead session
     // with a recorded reason is blocked, and says so. computeStatus cannot
     // reach this conclusion on its own — it keys off `apiError`, which lives on
@@ -2696,6 +2699,7 @@ export async function listSessions(): Promise<Session[]> {
         managedRec?.thinkingLevel ??
         p.cmd.match(/reasoning_effort=(?:"([^"]+)"|'([^']+)'|(\S+))/)?.slice(1).find(Boolean) ??
         null,
+      serviceTier: managedRec?.serviceTier ?? null,
       ...computeStatus(last, null),
     });
   }
@@ -3086,6 +3090,7 @@ export async function listSessions(): Promise<Session[]> {
       // be explicit about intent.
       model: publicAgent === "aisdk" || isPi ? modelAlias(e.model) : e.model,
       thinkingLevel: e.thinkingLevel ?? managedRec?.thinkingLevel ?? null,
+      serviceTier: e.serviceTier ?? managedRec?.serviceTier ?? null,
       ...(e.recoveredAt
         ? {
             status: "blocked" as const,

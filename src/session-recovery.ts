@@ -115,6 +115,7 @@ function launchRecovered(
       key: entry.sessionId,
       resume: entry.threadId,
       thinkingLevel: entry.thinkingLevel ?? undefined,
+      serviceTier: managed.serviceTier ?? entry.serviceTier,
     });
   }
   if (entry.agent === "opencode") {

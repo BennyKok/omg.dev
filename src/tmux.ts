@@ -16,6 +16,10 @@ import {
   resolveClaudeAccount,
 } from "./claude-accounts.ts";
 import { agentTmpEnv } from "./tmp-reclaim.ts";
+import {
+  codexServiceTierArgs,
+  type CodexServiceTier,
+} from "./service-tier.ts";
 
 // Known-good Claude model alias to launch with when a caller doesn't specify
 // one. Never launch a managed `claude` bare — see spawnManagedSession. Opus is
@@ -693,17 +697,19 @@ export function relaunchSessionWithModel(opts: {
   return { ok: true };
 }
 
-export function spawnManagedCodexSession(opts: {
+export type ManagedCodexSessionOptions = {
   name: string;
   cwd: string;
   prompt?: string;
   model?: string;
   thinkingLevel?: string;
+  serviceTier?: CodexServiceTier;
   omgSessionId?: string;
   omgUser?: string | null;
   containInAgentSlice?: boolean;
-}): { ok: boolean; error?: string } {
-  const dec = new TextDecoder();
+};
+
+export function managedCodexSessionArgv(opts: ManagedCodexSessionOptions): string[] {
   const argv = [
     "tmux",
     "new-session",
@@ -724,10 +730,17 @@ export function spawnManagedCodexSession(opts: {
   ];
   if (opts.model) argv.push("--model", opts.model);
   if (opts.thinkingLevel) argv.push("-c", `reasoning_effort=${JSON.stringify(opts.thinkingLevel)}`);
+  argv.push(...codexServiceTierArgs(opts.serviceTier));
   const prompt = withOmgRuntimeContract(opts.prompt);
   if (prompt?.trim()) argv.push("--", prompt);
   addSessionEnv(argv, opts.omgSessionId, opts.omgUser, opts.name);
   containTmuxCommand(argv, codexBin(), opts.containInAgentSlice, opts);
+  return argv;
+}
+
+export function spawnManagedCodexSession(opts: ManagedCodexSessionOptions): { ok: boolean; error?: string } {
+  const dec = new TextDecoder();
+  const argv = managedCodexSessionArgv(opts);
   const create = Bun.spawnSync(argv);
   if (create.exitCode !== 0)
     return { ok: false, error: dec.decode(create.stderr) || "new-session failed" };
@@ -1130,13 +1143,14 @@ export function spawnManagedAisdkSession(opts: {
 // at the codex harness and passes the control-plane KEY (--key) rather
 // than a deterministic --session id — codex assigns its thread id only after the
 // first turn, so the key is all we know up front (see the harness header).
-export function spawnManagedCodexAisdkSession(opts: {
+export type ManagedCodexAisdkSessionOptions = {
   name: string;
   cwd: string;
   prompt?: string;
   model: string;
   key: string;
   thinkingLevel?: string;
+  serviceTier?: CodexServiceTier;
   omgSessionId?: string;
   omgUser?: string | null;
   containInAgentSlice?: boolean;
@@ -1144,14 +1158,9 @@ export function spawnManagedCodexAisdkSession(opts: {
   // fresh persistent thread — the harness seeds its threadId with it.
   resume?: string;
   recoveredAt?: number;
-}): ManagedHarnessSpawnResult {
-  // Harmless for codex: ensureFolderTrusted only patches ~/.claude.json and is a
-  // no-op when that file (or the project entry) is absent. Codex doesn't gate on
-  // it, but keeping it costs nothing and keeps this in lockstep with the Claude
-  // spawn helper.
-  ensureFolderTrusted(opts.cwd);
-  // Spawn the harness module directly (not via the lfg CLI) so it has no
-  // dependency on the rest of the command surface.
+};
+
+export function managedCodexAisdkSessionArgv(opts: ManagedCodexAisdkSessionOptions): string[] {
   const harnessPath = `${import.meta.dir}/agents/backends/codex-aisdk-session.ts`;
   const argv = [
     process.execPath, harnessPath,
@@ -1161,10 +1170,23 @@ export function spawnManagedCodexAisdkSession(opts: {
     "--managed-name", opts.name,
   ];
   if (opts.thinkingLevel) argv.push("--thinking-level", opts.thinkingLevel);
+  if (opts.serviceTier) argv.push("--service-tier", opts.serviceTier);
   if (opts.resume) argv.push("--resume", opts.resume);
   if (opts.recoveredAt) argv.push("--recovered-at", String(opts.recoveredAt));
   const prompt = withOmgRuntimeContract(opts.prompt);
   if (prompt?.trim()) argv.push("--", prompt);
+  return argv;
+}
+
+export function spawnManagedCodexAisdkSession(opts: ManagedCodexAisdkSessionOptions): ManagedHarnessSpawnResult {
+  // Harmless for codex: ensureFolderTrusted only patches ~/.claude.json and is a
+  // no-op when that file (or the project entry) is absent. Codex doesn't gate on
+  // it, but keeping it costs nothing and keeps this in lockstep with the Claude
+  // spawn helper.
+  ensureFolderTrusted(opts.cwd);
+  // Spawn the harness module directly (not via the lfg CLI) so it has no
+  // dependency on the rest of the command surface.
+  const argv = managedCodexAisdkSessionArgv(opts);
   return spawnManagedHarness(argv, {
     name: opts.name,
     cwd: opts.cwd,

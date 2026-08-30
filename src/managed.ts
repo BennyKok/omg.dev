@@ -18,6 +18,7 @@ import { dirname } from "node:path";
 import { PATHS } from "./config.ts";
 import { OMG_CAPABILITY_VERSION } from "./omg-capabilities.ts";
 import { tmuxHasSession } from "./tmux.ts";
+import type { CodexServiceTier } from "./service-tier.ts";
 
 function registryPath(): string {
   return `${PATHS.data}/managed-sessions.json`;
@@ -44,6 +45,8 @@ export type ManagedSession = {
   model?: string;
   /** Reasoning effort selected for subsequent turns, when the agent supports it. */
   thinkingLevel?: string;
+  /** Codex account service tier selected when this session launched. */
+  serviceTier?: CodexServiceTier;
   /** Isolated Claude subscription account pinned when this session launched. */
   claudeAccountId?: string;
   title?: string;

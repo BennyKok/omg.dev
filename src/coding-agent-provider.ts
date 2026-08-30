@@ -17,6 +17,7 @@ import {
   spawnManagedOpencodeAisdkSession,
   spawnManagedPiSession,
 } from "./tmux.ts";
+import type { CodexServiceTier } from "./service-tier.ts";
 
 export type CodingAgentLaunchRequest = {
   agent: ActiveSessionAgentKind;
@@ -25,6 +26,7 @@ export type CodingAgentLaunchRequest = {
   prompt?: string;
   model?: string;
   thinkingLevel?: string;
+  serviceTier?: CodexServiceTier;
   sessionId: string;
   omgUser?: string | null;
   containInAgentSlice?: boolean;
@@ -89,6 +91,7 @@ export const ACTIVE_CODING_AGENT_PROVIDERS = {
       model: request.model ?? "gpt-5.5",
       key: request.sessionId,
       thinkingLevel: request.thinkingLevel,
+      serviceTier: request.serviceTier,
       omgSessionId: request.sessionId,
       omgUser: request.omgUser,
       containInAgentSlice: request.containInAgentSlice,
