@@ -458,7 +458,7 @@ import {
   resolveModelForAgent,
   thinkingLevelsForAgent,
 } from "../agent-catalog.ts";
-import { resolveSessionServiceTier } from "../service-tier.ts";
+import { resolveSessionFastMode } from "../fast-mode.ts";
 import {
   readModelDiscoveryCacheSync,
   refreshModelCatalog,
@@ -1241,6 +1241,9 @@ function persistManagedResume(session: Session): void {
     mtimeMs,
     backend: backend ?? undefined,
     model: session.model,
+    thinkingLevel: session.thinkingLevel,
+    serviceTier: session.serviceTier,
+    fastMode: session.fastMode === true || session.serviceTier === "fast",
     assignedUser: session.assignedUser,
     resumable: true,
   };
@@ -7544,6 +7547,9 @@ a{color:#60a5fa}
             nativeSessionId: resumeHandle,
             launchState: "launching",
             model: resumeModel,
+            thinkingLevel: cachedResume.thinkingLevel ?? undefined,
+            serviceTier: cachedResume.serviceTier ?? undefined,
+            fastMode: cachedResume.fastMode ?? cachedResume.serviceTier === "fast",
             ...(cachedResume.backend === "aisdk"
               ? { claudeAccountId: pinnedClaudeAccountId }
               : {}),
@@ -7574,6 +7580,9 @@ a{color:#60a5fa}
             cwd,
             prompt,
             model: resumeModel,
+            thinkingLevel: cachedResume.thinkingLevel ?? undefined,
+            serviceTier: cachedResume.serviceTier ?? undefined,
+            fastMode: cachedResume.fastMode ?? cachedResume.serviceTier === "fast",
             sessionId,
             resume: resumeHandle,
             omgUser: assignedUser,
@@ -7970,6 +7979,7 @@ a{color:#60a5fa}
           worktree?: boolean;
           model?: string;
           thinkingLevel?: string;
+          fastMode?: unknown;
           serviceTier?: unknown;
           claudeAccountId?: string;
           parentSessionId?: string;
@@ -8054,13 +8064,15 @@ a{color:#60a5fa}
             return err(400, `unknown thinking level "${thinkingLevel}" for ${agent} (expected one of ${allowed.join(", ")})`);
         }
         const resolvedModel = resolveModelForAgent(agent, model, thinkingLevel);
-        const serviceTierResult = resolveSessionServiceTier({
-          requested: body?.serviceTier,
+        const fastModeResult = resolveSessionFastMode({
+          requested: body?.fastMode,
+          legacyServiceTier: body?.serviceTier,
           agent,
           model: agent === "codex-aisdk" ? resolvedModel ?? "gpt-5.5" : resolvedModel,
         });
-        if (!serviceTierResult.ok) return err(400, serviceTierResult.error);
-        const serviceTier = serviceTierResult.serviceTier;
+        if (!fastModeResult.ok) return err(400, fastModeResult.error);
+        const fastMode = fastModeResult.enabled;
+        const serviceTier = fastModeResult.serviceTier;
         const requestedCwd = body?.cwd?.trim() || undefined;
         const parentId = body?.parentSessionId?.trim() || undefined;
         const spawnedBy = body?.spawnedBy?.trim() || (parentId ? "subagent" : undefined);
@@ -8199,6 +8211,7 @@ a{color:#60a5fa}
           model: launchModel,
           thinkingLevel,
           serviceTier,
+          fastMode,
           claudeAccountId,
           title: requestedTitle || body?.prompt?.slice(0, 72),
           project: repo.project,
@@ -8223,6 +8236,7 @@ a{color:#60a5fa}
           model: launchModel,
           thinkingLevel,
           serviceTier,
+          fastMode,
           sessionId: launchId,
           omgUser: assignedUser,
           containInAgentSlice: isSubagent,
@@ -9241,6 +9255,59 @@ a{color:#60a5fa}
           if (sess.tmuxName) patchManaged(sess.tmuxName, { thinkingLevel });
           invalidateListSessionsCache();
           return json({ ok: true, thinkingLevel });
+        }
+      }
+
+      // Fast is a latency/cost mode, not a reasoning level. SDK-backed
+      // sessions update their provider flag through the command file; native
+      // TUIs receive their own `/fast on|off` control command. Neither path
+      // creates a user turn or changes thinking/effort.
+      {
+        const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/fast-mode$/);
+        if (m && req.method === "POST") {
+          const body = (await req.json().catch(() => null)) as {
+            enabled?: unknown;
+          } | null;
+          const sess = (await listSessions()).find(
+            (s) => s.sessionId === m[1] || s.nativeSessionId === m[1],
+          );
+          if (!sess) return err(404, "session not found");
+          const current = sess.fastMode === true || sess.serviceTier === "fast";
+          const requested = body?.enabled == null ? !current : body.enabled;
+          const resolved = resolveSessionFastMode({
+            requested,
+            agent: sess.agent ?? "",
+            model: sess.model,
+          });
+          if (!resolved.ok) return err(400, resolved.error);
+          const enabled = resolved.enabled;
+
+          if (sess.agent === "aisdk" || sess.agent === "codex-aisdk") {
+            const entry = findAisdkEntryByAnyId(m[1]);
+            if (!entry) return err(409, "session control process is unavailable");
+            appendAisdkCmd(entry.sessionId, { type: "set_fast_mode", enabled });
+            patchAisdkEntry(entry.sessionId, {
+              fastMode: enabled,
+              serviceTier: sess.agent === "codex-aisdk" && enabled ? "fast" : null,
+            });
+          } else if (sess.agent === "claude" || sess.agent === "codex") {
+            if (!sess.tmuxTarget)
+              return err(409, "session is not in a tmux pane — cannot change Fast mode");
+            enqueueMessage(m[1], `/fast ${enabled ? "on" : "off"}`);
+          } else {
+            return err(409, `Fast mode is not supported for ${sess.agent} sessions`);
+          }
+
+          if (sess.tmuxName) {
+            patchManaged(sess.tmuxName, {
+              fastMode: enabled,
+              serviceTier: sess.agent === "codex-aisdk" || sess.agent === "codex"
+                ? (enabled ? "fast" : null)
+                : null,
+            });
+          }
+          invalidateListSessionsCache();
+          return json({ ok: true, fastMode: enabled });
         }
       }
 

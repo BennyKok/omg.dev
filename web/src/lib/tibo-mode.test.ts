@@ -35,7 +35,7 @@ describe("Tibo mode", () => {
     })).toEqual({
       model: "gpt-5.6-luna",
       thinkingLevel: "high",
-      serviceTier: "fast",
+      fastMode: true,
     });
   });
 

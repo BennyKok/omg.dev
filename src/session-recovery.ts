@@ -115,7 +115,7 @@ function launchRecovered(
       key: entry.sessionId,
       resume: entry.threadId,
       thinkingLevel: entry.thinkingLevel ?? undefined,
-      serviceTier: managed.serviceTier ?? entry.serviceTier,
+      serviceTier: managed.serviceTier ?? entry.serviceTier ?? undefined,
     });
   }
   if (entry.agent === "opencode") {
@@ -175,6 +175,7 @@ function launchRecovered(
     ...common,
     sessionId: entry.sessionId,
     thinkingLevel: entry.thinkingLevel ?? undefined,
+    fastMode: managed.fastMode ?? entry.fastMode ?? false,
     claudeAccountId: managed.claudeAccountId,
   });
 }

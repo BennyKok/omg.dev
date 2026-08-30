@@ -283,6 +283,12 @@ import {
   resolveTiboLaunch,
   writeTiboMode,
 } from "./lib/tibo-mode";
+import {
+  composerSupportsFastMode,
+  parseFastChatCommand,
+  readFastMode,
+  writeFastMode,
+} from "./lib/fast-mode";
 import { ConnectionStatusToasts } from "./ConnectionStatus";
 import type {
   ClipboardEvent,
@@ -758,6 +764,7 @@ export type Session = {
   model?: string | null;
   thinkingLevel?: string | null;
   serviceTier?: "fast" | null;
+  fastMode?: boolean;
   parentSessionId?: string | null;
   parentNativeSessionId?: string | null;
   parentAgent?: string | null;
@@ -14894,6 +14901,38 @@ function SessionChatBody({
     const text = (overrideText ?? messageText).trim();
     const files = attachments;
     if (!sid || (!text && !files.length)) return;
+    const fastCommand = parseFastChatCommand(text);
+    if (fastCommand.matched) {
+      if (files.length) {
+        onError("Fast is a session control command; send attachments separately.");
+        return;
+      }
+      if (fastCommand.error) {
+        onError(fastCommand.error);
+        return;
+      }
+      const currentFast = session.fastMode === true || session.serviceTier === "fast";
+      const enabled = fastCommand.enabled ?? !currentFast;
+      setSending(true);
+      onError(null);
+      try {
+        const result = await api<{ fastMode: boolean }>(`/api/sessions/${sid}/fast-mode`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled }),
+        });
+        setMessageTextState("");
+        toast.success(`Fast mode ${result.fastMode ? "on" : "off"}`, {
+          description: "Thinking effort was not changed.",
+        });
+        await onRefresh();
+      } catch (err) {
+        onError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
     // A queued send is a genuinely different state from a steered one: the agent
     // is still on the previous turn and has not read this text yet. The bubble
     // carries that state itself (waiting style, pinned under the
@@ -17395,13 +17434,13 @@ const onTouchStart = (e: ReactTouchEvent) => {
             {session.model}
           </span>
         ) : null)}
-        {session.serviceTier === "fast" ? (
+        {session.fastMode === true || session.serviceTier === "fast" ? (
           <span
-            title="Tibo mode: Fast service tier"
-            className="flex shrink-0 items-center gap-1 rounded-full bg-gradient-to-r from-orange-500/16 to-fuchsia-500/14 px-2 py-0.5 text-[10px] font-semibold text-orange-700 ring-1 ring-inset ring-orange-400/25 dark:text-orange-300"
+            title="Fast mode is on"
+            className="flex shrink-0 items-center gap-1 rounded-full bg-sky-500/12 px-2 py-0.5 text-[10px] font-semibold text-sky-700 ring-1 ring-inset ring-sky-400/25 dark:text-sky-300"
           >
-            <Zap className="size-3 fill-orange-400 text-orange-500" />
-            Tibo
+            <Gauge className="size-3 text-sky-500" aria-hidden="true" />
+            Fast
           </span>
         ) : null}
         {/* Redundant on wide screens: the rail row for this session already
@@ -20826,6 +20865,7 @@ function NewSessionDialog({
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>(
     () => savedThinkingLevel(),
   );
+  const [fastMode, setFastModeState] = useState(() => readFastMode(localStorage, agent));
   const [tiboMode, setTiboModeState] = useState(() => readTiboMode(localStorage));
   // Default the owner to the active profile, falling back to the first known user
   // — never empty when a roster exists. An unowned session lands unassigned, and
@@ -21290,8 +21330,11 @@ function NewSessionDialog({
 
   const models = catalog.models[agent] ?? AGENT_MODELS[agent];
   const thinkingLevels = useAgentThinkingLevels(agent, model);
+  const fastModeAvailable = composerSupportsFastMode({ agent, model });
+  const fastModeEnabled = fastMode && fastModeAvailable;
   const tiboModeAvailable = canUseTiboMode({ agent, model, thinkingLevels });
-  const tiboModeActive = tiboMode && tiboModeAvailable;
+  const tiboModeActive =
+    tiboMode && tiboModeAvailable && fastModeEnabled && thinkingLevel === "high";
   // When the live view is filtered to a specific project, lock new sessions to
   // that project's repo (and hide the picker below). Falls back to the normal
   // localStorage/first-repo default when viewing "All projects" or when the
@@ -21369,17 +21412,41 @@ function NewSessionDialog({
     }
   }, [thinkingLevel, thinkingLevels]);
   useEffect(() => {
+    setFastModeState(readFastMode(localStorage, agent));
+  }, [agent]);
+  useEffect(() => {
     if (tiboModeActive && thinkingLevel !== "high") setThinkingLevel("high");
   }, [tiboModeActive, thinkingLevel]);
 
   function setTiboMode(enabled: boolean) {
     setTiboModeState(enabled);
     writeTiboMode(localStorage, enabled);
-    if (enabled && tiboModeAvailable) setThinkingLevel("high");
+    if (enabled && tiboModeAvailable) {
+      setFastModeState(true);
+      writeFastMode(localStorage, agent, true);
+      setThinkingLevel("high");
+    } else if (!enabled && tiboModeActive) {
+      setFastModeState(false);
+      writeFastMode(localStorage, agent, false);
+    }
+  }
+
+  function setFastMode(enabled: boolean) {
+    setFastModeState(enabled);
+    writeFastMode(localStorage, agent, enabled);
+    if (!enabled && tiboMode) {
+      setTiboModeState(false);
+      writeTiboMode(localStorage, false);
+    }
   }
 
   function changeComposerThinkingLevel(next: ThinkingLevel) {
-    if (tiboModeActive && next !== "high") setTiboMode(false);
+    if (tiboModeActive && next !== "high") {
+      // Leaving High exits the Tibo preset, but normal Fast deliberately stays
+      // on. Fast and reasoning effort are independent provider controls.
+      setTiboModeState(false);
+      writeTiboMode(localStorage, false);
+    }
     setThinkingLevel(next);
   }
 
@@ -21462,6 +21529,7 @@ function NewSessionDialog({
     });
     const launchModel = tiboLaunch.model;
     const launchThinkingLevel = tiboLaunch.thinkingLevel as ThinkingLevel;
+    const launchFastMode = fastModeEnabled || tiboLaunch.fastMode === true;
     const launchClaudeAccountId = launchAgent === "aisdk" ? claudeAccountId || undefined : undefined;
     const stashed = stagePromptSend({
       contextKey: "new-session",
@@ -21523,7 +21591,7 @@ function NewSessionDialog({
             agent: launchAgent,
             model: launchModel,
             thinkingLevel: thinkingLevels.length ? launchThinkingLevel : undefined,
-            serviceTier: tiboLaunch.serviceTier,
+            fastMode: launchFastMode,
             claudeAccountId: launchClaudeAccountId,
             overLimit: overLimit || undefined,
           }),
@@ -21703,6 +21771,14 @@ function NewSessionDialog({
         flat={variant === "inline"}
         immersive
       />
+
+      {fastModeAvailable ? (
+        <FastModePill
+          enabled={fastModeEnabled}
+          onToggle={() => setFastMode(!fastModeEnabled)}
+          flat={variant === "inline"}
+        />
+      ) : null}
 
       {agent === "codex" || agent === "codex-aisdk" ? (
         <TiboModePill
@@ -23070,6 +23146,39 @@ function ComposerStartButton({
 
       {scrub.panel}
     </>
+  );
+}
+
+function FastModePill({
+  enabled,
+  onToggle,
+  flat = false,
+}: {
+  enabled: boolean;
+  onToggle: () => void;
+  flat?: boolean;
+}) {
+  const description = enabled
+    ? "Fast mode is on. Thinking effort stays unchanged. Use /fast off in chat to disable."
+    : "Turn on Fast mode without changing thinking effort. You can also use /fast in chat.";
+
+  return (
+    <button
+      type="button"
+      aria-label={description}
+      aria-pressed={enabled}
+      title={description}
+      onClick={onToggle}
+      className={cn(
+        "relative inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-semibold outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-ring",
+        flat && !enabled ? "px-1.5 text-muted-foreground" : "bg-muted text-muted-foreground",
+        enabled &&
+          "bg-sky-500/14 text-sky-800 ring-1 ring-inset ring-sky-400/35 shadow-[0_0_14px_rgba(14,165,233,0.16)] dark:text-sky-200",
+      )}
+    >
+      <Gauge className={cn("size-3.5", enabled && "text-sky-500")} aria-hidden="true" />
+      <span>Fast</span>
+    </button>
   );
 }
 

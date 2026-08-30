@@ -282,7 +282,7 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
     console.error(`codex-aisdk-session: unsupported service tier "${requestedServiceTier}"`);
     process.exit(1);
   }
-  const serviceTier = requestedServiceTier as CodexServiceTier | undefined;
+  let serviceTier = requestedServiceTier as CodexServiceTier | undefined;
   const cwd = arg(argv, "--cwd") ?? process.cwd();
   const tmuxName = arg(argv, "--managed-name") ?? arg(argv, "--tmux") ?? "";
   const recoveredAt = Number(arg(argv, "--recovered-at")) || null;
@@ -314,10 +314,11 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
   const { Codex } = await import("@openai/codex-sdk");
   const codexPathOverride = resolveCodexPathOverride();
   // Omitting `env` inherits process.env (HOME → ~/.codex auth, LFG_* for MCP).
-  const codex = new Codex({
+  const createCodex = () => new Codex({
     ...(codexPathOverride ? { codexPathOverride } : {}),
     ...omgMcpConfig(serviceTier),
   });
+  let codex = createCodex();
   let threadThinkingLevel = thinkingLevel;
   // Set when a stream stalls: the SDK handle is unusable afterwards, so the
   // next turn must rebuild it from threadId instead of inheriting the wedge.
@@ -343,6 +344,7 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
     recoveredAt,
     thinkingLevel: thinkingLevel ?? null,
     serviceTier,
+    fastMode: serviceTier === "fast",
     cwd,
     model,
     busy: false,
@@ -502,6 +504,17 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
     } else if (cmd.type === "set_thinking_level") {
       thinkingLevel = cmd.thinkingLevel;
       patchEntry(key, { thinkingLevel });
+    } else if (cmd.type === "set_fast_mode") {
+      serviceTier = cmd.enabled ? "fast" : undefined;
+      // Fast lives on the Codex client config, not the reasoning options. A
+      // fresh SDK client + resumed thread applies it to the next turn while
+      // preserving both conversation and thinking level.
+      codex = createCodex();
+      threadNeedsRebuild = true;
+      patchEntry(key, {
+        fastMode: cmd.enabled,
+        serviceTier: cmd.enabled ? "fast" : null,
+      });
     } else if (cmd.type === "close") {
       shutdown();
     }
