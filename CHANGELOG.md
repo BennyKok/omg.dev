@@ -2,6 +2,34 @@
 
 Recent product updates and deployment notes.
 
+## August 30, 2026 - A flat desktop workspace, agent account names, and remote access in Settings (v0.6.18)
+
+- **The desktop workspace no longer draws cards around itself.** The session
+  rail and the session stage each rendered as a rounded card with a border, a
+  fill and a drop shadow, floating on the app background with a gap between
+  them. On a full width window that is chrome around chrome. Both are flat now.
+  A single divider line separates the rail from the stage, and the stage runs
+  to the window edge. The session header on the stage is 44px instead of 60px,
+  because it carries one line of title there. Phones and iPad portrait are not
+  affected. They use a different layout that keeps its cards, and the card is
+  what makes a stacked list of sessions readable.
+- **Coding agents say which account they are signed in as.** Detection could
+  only answer whether an account was connected. A machine with several agents
+  under different logins looked the same as one machine with a single login,
+  and multi-account Claude showed "Claude 1" and "Claude 2", which name
+  nothing. Each agent now reads the credential file its own CLI already
+  writes and shows the account. No credential material is copied. A profile
+  appears only when you connected an account, so a platform API key never
+  reports a login you did not make.
+- **Settings shows how to reach this server from another device.** A new
+  Remote access section gives the local URL, and the Tailscale state of the
+  machine with the exact command to serve it over your tailnet.
+- **The desktop app keeps scheduled work running after you quit.** The app
+  used to attach to any healthy server on loopback and stop its own child on
+  exit, which ended schedules with the window. It now owns an isolated
+  embedded runtime that stays active after the window closes. A later launch
+  reconnects to it. A package update replaces it with the new build.
+
 ## August 28, 2026 - A desktop app preview, unread marks for chats, and the DeepSeek Harness (v0.6.17)
 
 - **A chat that landed a reply you have not read now carries a dot.** The
