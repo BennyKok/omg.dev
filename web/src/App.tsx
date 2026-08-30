@@ -269,6 +269,7 @@ import {
 import { findingReference } from "./lib/finding-reference";
 import { buildAutoTriagePrompt, resolveAutoTriageCwd } from "./lib/auto-triage";
 import { resolveComposerRepo } from "./lib/composer-repo";
+import type { ComputerInspectionSession } from "./views/computer-inspection-control";
 import {
   browseFolderWithRecovery,
   folderRecoveryNotice,
@@ -5786,6 +5787,13 @@ export function App() {
   // ours — leaves the session instead of the app, and so the transcript can be
   // linked to. `pathnameToTab` keeps Live selected underneath it.
   const openSessionId = pathnameToSessionId(pathname);
+  // The Computer is a global page, but a Design Mode selection needs one
+  // explicit conversation to return to. Remember the session page that opened
+  // it; the picker itself can still choose a different live session.
+  const openSessionIdRef = useRef(openSessionId);
+  openSessionIdRef.current = openSessionId;
+  const computerTargetSidRef = useRef<string | null>(openSessionId);
+  if (openSessionId) computerTargetSidRef.current = openSessionId;
   // Carry the host-mode contract across the navigation, the same as setTab
   // does: the router clears search when none is supplied, and dropping `embed`
   // brings LFG back up as a standalone app inside omg.
@@ -5821,6 +5829,9 @@ export function App() {
     (next: string | ((current: string) => string)) => {
       const resolved = typeof next === "function" ? next(tabRef.current) : next;
       if (!shouldNavigateToTab(tabRef.current, resolved)) return;
+      if (resolved === "computer" && openSessionIdRef.current) {
+        computerTargetSidRef.current = openSessionIdRef.current;
+      }
       // Carry the host-mode contract across the navigation. The router clears
       // search when none is supplied (see shouldNavigateToTab's note), so
       // without this, moving to Shipped or Artifacts dropped `embed` — and LFG
@@ -6831,6 +6842,21 @@ export function App() {
 
   const liveStatusIds = useMemo(
     () => allLiveSessions.map((s) => s.sessionId).filter((id): id is string => !!id),
+    [allLiveSessions],
+  );
+  const computerInspectionSessions = useMemo<ComputerInspectionSession[]>(
+    () =>
+      allLiveSessions.flatMap((session) =>
+        session.sessionId
+          ? [
+              {
+                sessionId: session.sessionId,
+                title: session.title || session.project || session.agent || "Agent session",
+                project: session.project || "Unknown project",
+              },
+            ]
+          : [],
+      ),
     [allLiveSessions],
   );
   const openHistoricalSession = useCallback(
@@ -8962,7 +8988,20 @@ export function App() {
           <Suspense
             fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}
           >
-            <ComputerPage active onClose={() => setTab("live")} />
+            <ComputerPage
+              active
+              inspectionSessions={computerInspectionSessions}
+              preferredSessionId={computerTargetSidRef.current}
+              onInspectionReady={(sessionId) => {
+                computerTargetSidRef.current = sessionId;
+                openSessionPage(sessionId);
+              }}
+              onClose={() => {
+                const sessionId = computerTargetSidRef.current;
+                if (sessionId) openSessionPage(sessionId);
+                else setTab("live");
+              }}
+            />
           </Suspense>
         ) : null}
         {tab === "more" ? (
@@ -14894,6 +14933,17 @@ function SessionChatBody({
     if (!sid || !onTyping) return;
     return () => onTyping(sid, false);
   }, [onTyping, sid]);
+
+  // Design Mode can populate this session while the Computer page is visible.
+  // Prompt stash is the durable cross-page handoff; this event also updates an
+  // already-mounted composer immediately without sending anything to the agent.
+  useEffect(() => {
+    const refreshDraft = () => {
+      setMessageTextState(readPromptDraft(stashContext)?.text ?? "");
+    };
+    window.addEventListener(PROMPT_STASH_EVENT, refreshDraft);
+    return () => window.removeEventListener(PROMPT_STASH_EVENT, refreshDraft);
+  }, [stashContext]);
 
   useEffect(() => {
     if (!sid) {

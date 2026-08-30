@@ -9,13 +9,24 @@
 // The pixels arrive as RFB over a websocket (see src/computer/rfb-bridge.ts),
 // rendered by noVNC. This page is lazily loaded -- noVNC is not on the path to
 // first paint, and most sessions never open the Computer at all.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import RFB from "@novnc/novnc";
 import { Keyboard, Loader2, MousePointer2, Power, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  computerInspectionDraft,
+  inspectionPngBlob,
+  mergeComputerInspectionDraft,
+  type ComputerInspectionResult,
+} from "@/lib/computer-inspection-draft";
 import { omgFetch, openOmgSocket } from "@/lib/omg-client";
+import { readPromptDraft, stashPromptDraft } from "@/lib/prompt-stash";
 import { RfbChannel } from "@/lib/rfb-channel";
+import {
+  ComputerInspectionControl,
+  type ComputerInspectionSession,
+} from "./computer-inspection-control";
 
 interface DepReport {
   ok: boolean;
@@ -32,14 +43,32 @@ interface ComputerStatus {
   height: number;
   startedAt: number | null;
   deps: DepReport;
+  inspection?: {
+    active: boolean;
+    startedAt: number | null;
+  };
 }
 
 type Phase = "idle" | "starting" | "connecting" | "live" | "stopping";
 
-export function ComputerPage({ active, onClose }: { active: boolean; onClose?: () => void }) {
+export function ComputerPage({
+  active,
+  onClose,
+  inspectionSessions = [],
+  preferredSessionId = null,
+  onInspectionReady,
+}: {
+  active: boolean;
+  onClose?: () => void;
+  inspectionSessions?: ComputerInspectionSession[];
+  preferredSessionId?: string | null;
+  onInspectionReady?: (sessionId: string) => void;
+}) {
   const [status, setStatus] = useState<ComputerStatus | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [inspectionStarting, setInspectionStarting] = useState(false);
+  const [selectedSessionId, setSelectedSessionId] = useState(preferredSessionId ?? "");
   // Read-only is the safe default for a shared screen: opening the tab should
   // not let a stray click land on whatever the agent is doing mid-task.
   const [viewOnly, setViewOnly] = useState(true);
@@ -67,6 +96,23 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
   const cursorRef = useRef<{ x: number; y: number } | null>(null);
   const touchRef = useRef<{ x: number; y: number; moved: boolean; at: number } | null>(null);
 
+  const inspectionSessionKey = inspectionSessions.map((session) => session.sessionId).join("|");
+  const inspectionSessionIds = useMemo(
+    () => new Set(inspectionSessions.map((session) => session.sessionId)),
+    // The ordered id key is stable across normal roster polling even though
+    // the API gives App a fresh array each time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [inspectionSessionKey],
+  );
+  useEffect(() => {
+    setSelectedSessionId((current) => {
+      if (preferredSessionId && inspectionSessionIds.has(preferredSessionId)) {
+        return preferredSessionId;
+      }
+      return inspectionSessionIds.has(current) ? current : "";
+    });
+  }, [inspectionSessionIds, preferredSessionId]);
+
   const refresh = useCallback(async () => {
     try {
       const res = await omgFetch("/api/computer/status");
@@ -80,7 +126,7 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
   useEffect(() => {
     if (!active) return;
     void refresh();
-    const t = setInterval(() => void refresh(), 5000);
+    const t = setInterval(() => void refresh(), 2000);
     return () => clearInterval(t);
   }, [active, refresh]);
 
@@ -285,6 +331,87 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
     }
   };
 
+  const cancelInspection = async () => {
+    try {
+      const res = await omgFetch("/api/computer/browser/inspect/cancel", { method: "POST" });
+      if (!res.ok) throw new Error((await res.text()) || "failed to cancel inspection");
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to cancel inspection");
+    }
+  };
+
+  const startInspection = async () => {
+    const target = inspectionSessions.find((session) => session.sessionId === selectedSessionId);
+    if (!target) {
+      setError("Choose the agent that should receive the selected element.");
+      return;
+    }
+
+    setInspectionStarting(true);
+    setError(null);
+    // Pointing at the remote page is the purpose of this action. Make the RFB
+    // bridge writable immediately as well as updating React state, so the first
+    // click cannot be swallowed by the previous view-only mode.
+    if (rfbRef.current) rfbRef.current.viewOnly = false;
+    setViewOnly(false);
+
+    try {
+      const response = await omgFetch("/api/computer/browser/inspect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timeoutMs: 120_000 }),
+      });
+      if (!response.ok) {
+        throw new Error((await response.text()) || "element inspection failed");
+      }
+      const inspection = (await response.json()) as ComputerInspectionResult;
+      if (inspection.status === "cancelled") return;
+      if (inspection.status !== "selected" || !inspection.selector) {
+        throw new Error("the page returned no selected element");
+      }
+
+      let screenshotPath: string | undefined;
+      if (inspection.screenshotBase64) {
+        const filename = `computer-design-mode-${Date.now()}.png`;
+        const uploaded = await omgFetch(
+          `/api/sessions/${encodeURIComponent(target.sessionId)}/upload?filename=${encodeURIComponent(filename)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "image/png" },
+            body: inspectionPngBlob(inspection.screenshotBase64),
+          },
+        );
+        if (!uploaded.ok) {
+          throw new Error((await uploaded.text()) || "could not persist the element crop");
+        }
+        const saved = (await uploaded.json()) as { path?: string };
+        if (!saved.path) throw new Error("the crop upload returned no file path");
+        screenshotPath = saved.path;
+      }
+
+      const contextKey = `session:${target.sessionId}`;
+      const inspectionDraft = computerInspectionDraft(inspection, screenshotPath);
+      stashPromptDraft({
+        contextKey,
+        source: "session",
+        text: mergeComputerInspectionDraft(
+          inspectionDraft,
+          readPromptDraft(contextKey)?.text,
+        ),
+        sessionId: target.sessionId,
+        sessionTitle: target.title,
+        project: target.project,
+      });
+      onInspectionReady?.(target.sessionId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "element inspection failed");
+    } finally {
+      setInspectionStarting(false);
+      void refresh();
+    }
+  };
+
 
   const deps = status?.deps;
   const running = !!status?.running;
@@ -377,6 +504,20 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
           rfb.sendKey(keysym, e.code || null, false);
         }}
       />
+
+      {running ? (
+        <div className="absolute bottom-[calc(0.75rem+env(safe-area-inset-bottom))] left-3 z-10">
+          <ComputerInspectionControl
+            active={status?.inspection?.active ?? false}
+            starting={inspectionStarting}
+            sessions={inspectionSessions}
+            selectedSessionId={selectedSessionId}
+            onSelectedSessionChange={setSelectedSessionId}
+            onStart={() => void startInspection()}
+            onCancel={() => void cancelInspection()}
+          />
+        </div>
+      ) : null}
 
       {/* Controls float over the screen, top right, rather than occupying a
           header band. Stop is gone on purpose: leaving the page is how you
