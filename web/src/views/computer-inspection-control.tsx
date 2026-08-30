@@ -97,6 +97,7 @@ export function ComputerInspectionControl({
               if (typeof value === "string") onSelectedSessionChange(value);
             }}
           >
+            {/* Base UI's GroupLabel reads this group context and throws error 31 outside it. */}
             <DropdownMenuLabel>Add the selected element to</DropdownMenuLabel>
             {sessions.map((session) => (
               <DropdownMenuRadioItem key={session.sessionId} value={session.sessionId}>
