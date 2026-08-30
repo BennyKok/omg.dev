@@ -342,6 +342,7 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
   const sessionIdArg = arg(argv, "--session");
   const model = arg(argv, "--model") ?? "opus";
   const effort = effortFor(arg(argv, "--thinking-level"));
+  let fastMode = argv.includes("--fast-mode");
   const cwd = arg(argv, "--cwd") ?? process.cwd();
   const tmuxName = arg(argv, "--managed-name") ?? arg(argv, "--tmux") ?? "";
   const recoveredAt = Number(arg(argv, "--recovered-at")) || null;
@@ -384,6 +385,7 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
     recoveryClaimBootId: recoveredAt ? bootId : null,
     recoveredAt,
     thinkingLevel: arg(argv, "--thinking-level") ?? null,
+    fastMode,
     cwd,
     model,
     busy: false,
@@ -517,6 +519,10 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
       // stream_event partial messages drive the live draft in the web UI.
       includePartialMessages: true,
       ...(effort ? { effort } : {}),
+      // Fast is provider-native and independent from effort. Put it in the
+      // flag layer so this session has deterministic on/off state without
+      // rewriting the user's Claude settings file.
+      settings: { fastMode },
       // env is a FULL replacement for the subprocess environment when set —
       // without a connected account, inherit process.env so the platform proxy
       // remains available. With a connected account, keep the full environment
@@ -670,6 +676,13 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
         patchEntry(sessionId, { thinkingLevel: cmd.thinkingLevel });
       }).catch((error) => {
         console.error(`aisdk-session thinking-level change failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    } else if (cmd.type === "set_fast_mode") {
+      void q.applyFlagSettings({ fastMode: cmd.enabled }).then(() => {
+        fastMode = cmd.enabled;
+        patchEntry(sessionId, { fastMode });
+      }).catch((error) => {
+        console.error(`aisdk-session Fast-mode change failed: ${error instanceof Error ? error.message : String(error)}`);
       });
     } else if (cmd.type === "close") {
       shutdown();

@@ -55,7 +55,8 @@ export type AisdkEntry = {
   // omit this and continue to rely on the bounded polling fallback.
   commandWakeSignal?: "SIGUSR1";
   thinkingLevel?: string | null;
-  serviceTier?: CodexServiceTier;
+  serviceTier?: CodexServiceTier | null;
+  fastMode?: boolean;
   cwd: string;
   model: string;
   busy: boolean; // true while a turn is generating — feeds the live-view busy dot
@@ -100,6 +101,7 @@ export type AisdkCommand =
   | { type: "send"; text: string }
   | { type: "set_model"; model: string }
   | { type: "set_thinking_level"; thinkingLevel: string }
+  | { type: "set_fast_mode"; enabled: boolean }
   | { type: "interrupt" }
   | { type: "close" }
   // OpenCode (and future headless) interactive questions — option index is the

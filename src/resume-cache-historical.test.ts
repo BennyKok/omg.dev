@@ -108,4 +108,29 @@ describe("historical session cache", () => {
       "claude",
     ]);
   });
+
+  test("round-trips Fast and thinking state for cold resume", () => {
+    upsertResumableRows([{
+      sessionId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      cwd: "/home/dev/repos/lfg",
+      project: "lfg",
+      title: "Fast Claude session",
+      lastActivityAt: 5_000,
+      lastUserText: "keep going",
+      agent: "claude",
+      backend: "aisdk",
+      path: "lfg://cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      mtimeMs: 5_000,
+      model: "opus",
+      thinkingLevel: "low",
+      fastMode: true,
+      managed: true,
+    }]);
+
+    expect(queryResumableCache().sessions[0]).toMatchObject({
+      thinkingLevel: "low",
+      fastMode: true,
+      model: "opus",
+    });
+  });
 });

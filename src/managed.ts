@@ -46,7 +46,9 @@ export type ManagedSession = {
   /** Reasoning effort selected for subsequent turns, when the agent supports it. */
   thinkingLevel?: string;
   /** Codex account service tier selected when this session launched. */
-  serviceTier?: CodexServiceTier;
+  serviceTier?: CodexServiceTier | null;
+  /** Provider-native low-latency mode, independent from reasoning effort. */
+  fastMode?: boolean;
   /** Isolated Claude subscription account pinned when this session launched. */
   claudeAccountId?: string;
   title?: string;

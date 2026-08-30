@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  managedAisdkSessionArgv,
   managedCodexAisdkSessionArgv,
   managedCodexSessionArgv,
 } from "./tmux.ts";
@@ -62,5 +63,34 @@ describe("Codex Fast launch transport", () => {
 
     expect(configOverrides(direct)).not.toContain('service_tier="fast"');
     expect(sdk).not.toContain("--service-tier");
+  });
+});
+
+describe("Claude Fast launch transport", () => {
+  test("passes Fast separately from a lower effort", () => {
+    const argv = managedAisdkSessionArgv({
+      name: "lfg-claude-fast-test",
+      cwd: "/tmp/lfg-claude-fast-test",
+      model: "opus",
+      sessionId: "session-key",
+      thinkingLevel: "low",
+      fastMode: true,
+    });
+
+    expect(argv).toContain("--fast-mode");
+    expect(argv.slice(argv.indexOf("--thinking-level"), argv.indexOf("--thinking-level") + 2)).toEqual([
+      "--thinking-level",
+      "low",
+    ]);
+  });
+
+  test("ordinary Claude launches omit Fast", () => {
+    expect(managedAisdkSessionArgv({
+      name: "lfg-claude-default-test",
+      cwd: "/tmp/lfg-claude-default-test",
+      model: "opus",
+      sessionId: "session-key",
+      thinkingLevel: "medium",
+    })).not.toContain("--fast-mode");
   });
 });

@@ -90,6 +90,11 @@ describe("resume cache migration", () => {
       "utf8",
     );
     db.exec(contractTitleSql);
+    const fastModeSql = readFileSync(
+      new URL("./migrations/resume-cache/007_fast_mode.sql", import.meta.url),
+      "utf8",
+    );
+    db.exec(fastModeSql);
 
     const columns = db.query<{ name: string }, []>("PRAGMA table_info(resumable_sessions)").all();
     expect(columns.map((column) => column.name)).toEqual(expect.arrayContaining([
@@ -99,6 +104,9 @@ describe("resume cache migration", () => {
       "assigned_user",
       "managed",
       "resumable",
+      "thinking_level",
+      "service_tier",
+      "fast_mode",
     ]));
     expect(db.query<{ session_id: string }, []>(
       "SELECT session_id FROM resumable_sessions WHERE resumable = 1 ORDER BY session_id",
@@ -121,7 +129,7 @@ describe("resume cache migration", () => {
     expect(db.query<{ mtime_ms: number }, []>(
       "SELECT mtime_ms FROM resumable_sessions WHERE session_id = 'managed-session'",
     ).get()?.mtime_ms).toBe(42);
-    expect(db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(6);
+    expect(db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version).toBe(7);
     db.close();
   });
 });

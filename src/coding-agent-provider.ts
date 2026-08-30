@@ -27,6 +27,7 @@ export type CodingAgentLaunchRequest = {
   model?: string;
   thinkingLevel?: string;
   serviceTier?: CodexServiceTier;
+  fastMode?: boolean;
   sessionId: string;
   omgUser?: string | null;
   containInAgentSlice?: boolean;
@@ -78,6 +79,7 @@ export const ACTIVE_CODING_AGENT_PROVIDERS = {
       model: request.model ?? "opus",
       sessionId: request.sessionId,
       thinkingLevel: request.thinkingLevel,
+      fastMode: request.fastMode,
       omgSessionId: request.sessionId,
       omgUser: request.omgUser,
       containInAgentSlice: request.containInAgentSlice,

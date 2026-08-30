@@ -36,7 +36,7 @@ export function resolveTiboLaunch<T extends string>(input: {
 }): {
   model: string;
   thinkingLevel: T | "high";
-  serviceTier?: "fast";
+  fastMode?: true;
 } {
   if (!input.enabled || !input.available) {
     return { model: input.model, thinkingLevel: input.thinkingLevel };
@@ -44,6 +44,6 @@ export function resolveTiboLaunch<T extends string>(input: {
   return {
     model: input.model,
     thinkingLevel: "high",
-    serviceTier: "fast",
+    fastMode: true,
   };
 }
