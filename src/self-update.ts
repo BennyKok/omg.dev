@@ -11,6 +11,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { installedLaunchAgent, installedSystemdUnit } from "./service-unit.ts";
+import { appVersion } from "./config.ts";
 
 export type SourceUpdateStatus = {
   channel: "source";
@@ -26,8 +27,17 @@ export type SourceUpdateStatus = {
 
 export type ReleaseUpdateStatus = {
   channel: "release";
-  state: "up-to-date" | "available" | "blocked";
+  /**
+   * `staged` means an update is already written to disk and will take effect
+   * on the next restart. It is reported instead of `up-to-date` because the
+   * running code is NOT the latest, which is the question this field is
+   * actually asked to answer.
+   */
+  state: "up-to-date" | "available" | "staged" | "blocked";
+  /** The version this process is RUNNING. Never the on-disk one. */
   currentVersion?: string;
+  /** On-disk version, present only when it differs from the running one. */
+  stagedVersion?: string;
   latestVersion?: string;
   latestTag?: string;
   message: string;
@@ -184,6 +194,15 @@ function cleanVersion(value: string): string {
   return value.trim().replace(/^v/i, "");
 }
 
+/**
+ * The version on disk under `root`.
+ *
+ * Kept for the one caller that legitimately asks about ANOTHER checkout's
+ * files. For this process, use appVersion() (running) and stagedVersion()
+ * (on disk) from config.ts — the single owner of that distinction. This
+ * function reading package.json fresh is what made an un-restarted server
+ * report "up to date" while executing older code.
+ */
 function installedVersion(root: string): string | null {
   try {
     const parsed = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { version?: unknown };
@@ -312,9 +331,16 @@ export async function changelogDelta(
   root: string,
   install: ReleaseInstall,
   force = false,
+  /**
+   * Measured from what is RUNNING, for the same reason releaseUpdateStatus is:
+   * reading the on-disk version emptied this list the moment an update was
+   * written, so the person who had not restarted yet — the only person who
+   * still needs to read it — was shown nothing new.
+   */
+  runningVersion: string = appVersion(),
 ): Promise<ChangelogEntry[]> {
-  const currentVersion = installedVersion(root);
-  if (!currentVersion || !install.repoSlug) return [];
+  const currentVersion = runningVersion;
+  if (!currentVersion || currentVersion === "unknown" || !install.repoSlug) return [];
   try {
     const tag = await latestReleaseTag(install.repoSlug, force);
     const entries = await changelogEntries(install.repoSlug, tag, force);
@@ -351,10 +377,26 @@ export async function releaseUpdateStatus(
   root: string,
   install: ReleaseInstall,
   force = false,
+  /**
+   * The version this process is EXECUTING. Defaults to appVersion(), which is
+   * bound at process start and is the only honest answer to "what am I
+   * running".
+   *
+   * Explicit rather than implicit because `root` names a checkout on disk and
+   * says nothing about what is loaded in memory. The two are the same install
+   * for the real caller, and different for a test, so the distinction has to
+   * be a parameter instead of an assumption.
+   */
+  runningVersion: string = appVersion(),
 ): Promise<ReleaseUpdateStatus> {
-  const currentVersion = installedVersion(root);
+  const currentVersion = runningVersion;
+  // On disk under `root`. Differs from the running version for the whole
+  // window between an update landing and the restart that applies it, and
+  // reporting THIS as the current version is what let a stale server call
+  // itself up to date.
+  const staged = installedVersion(root);
   const repoSlug = install.repoSlug;
-  if (!currentVersion) {
+  if (!currentVersion || currentVersion === "unknown") {
     return {
       channel: "release",
       state: "blocked",
@@ -374,20 +416,32 @@ export async function releaseUpdateStatus(
   try {
     const latestTag = await latestReleaseTag(repoSlug, force);
     const latestVersion = cleanVersion(latestTag);
+    const stagedDiffers = !!staged && cleanVersion(staged) !== cleanVersion(currentVersion);
     const base = {
       channel: "release" as const,
       currentVersion,
+      ...(stagedDiffers ? { stagedVersion: staged } : {}),
       latestVersion,
       latestTag,
       ...restartFields(),
     };
+    // Order matters. A box holding a downloaded update it has not applied is
+    // NOT up to date, even when the file on disk matches the newest release —
+    // that is precisely the case that used to read as up to date.
+    if (stagedDiffers) {
+      return {
+        ...base,
+        state: "staged",
+        message: `omg.dev ${staged} is installed and starts after a restart (running ${currentVersion}).`,
+      };
+    }
     if (cleanVersion(currentVersion) === latestVersion) {
       return { ...base, state: "up-to-date", message: `omg.dev ${currentVersion} is up to date.` };
     }
     return {
       ...base,
       state: "available",
-      message: `omg.dev ${latestVersion} is available (installed ${currentVersion}).`,
+      message: `omg.dev ${latestVersion} is available (running ${currentVersion}).`,
     };
   } catch (e) {
     return {
@@ -651,17 +705,21 @@ export async function applyReleaseUpdate(
 
     await installReleaseBundle(archive, root);
 
-    const currentVersion = installedVersion(root) || status.latestVersion;
+    // The bundle is on disk now, but THIS process is still the old one until
+    // the restart the caller schedules. Reporting up-to-date here is the same
+    // stale read the status path used to make, one moment earlier.
+    const stagedNow = installedVersion(root) || status.latestVersion;
     return {
       updated: true,
       status: {
         channel: "release",
-        state: "up-to-date",
-        currentVersion,
+        state: "staged",
+        currentVersion: appVersion(),
+        stagedVersion: stagedNow,
         latestVersion: status.latestVersion,
         latestTag: status.latestTag,
         restartSupported: true,
-        message: `omg.dev ${currentVersion} is installed.`,
+        message: `omg.dev ${stagedNow} is installed and starts after a restart.`,
       },
     };
   } finally {

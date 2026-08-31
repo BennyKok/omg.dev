@@ -63,6 +63,34 @@ describe("updateIdentifier", () => {
   });
 });
 
+describe("a staged update is still something to act on", () => {
+  // The bug: a box that had downloaded an update but not restarted reported
+  // itself up to date, and the nudge went silent at exactly the moment there
+  // was something to do.
+  const staged = (overrides = {}) =>
+    available({ state: "staged", currentVersion: "0.6.21", stagedVersion: "0.6.23", latestVersion: "0.6.23", ...overrides });
+
+  test("still produces an identifier, so the nudge shows", () => {
+    expect(updateIdentifier(staged())).toBe("staged:0.6.23");
+    expect(shouldShowUpdateNudge(staged(), "")).toBe(true);
+  });
+
+  test("skipping the download does not silence the restart", () => {
+    // The reader skipped 0.6.23 while it was merely available. Then it was
+    // installed anyway (by another client, or a scheduled update). The restart
+    // is a different thing to be told about, so the id must differ.
+    expect(shouldShowUpdateNudge(staged(), "0.6.23")).toBe(true);
+  });
+
+  test("skipping the staged restart itself does silence it", () => {
+    expect(shouldShowUpdateNudge(staged(), "staged:0.6.23")).toBe(false);
+  });
+
+  test("falls back to the latest version when no staged version is reported", () => {
+    expect(updateIdentifier(staged({ stagedVersion: undefined }))).toBe("staged:0.6.23");
+  });
+});
+
 describe("skip persistence semantics", () => {
   test("hides the nudge once the available update's id is skipped", () => {
     const status = available({ latestVersion: "0.2.0" });
