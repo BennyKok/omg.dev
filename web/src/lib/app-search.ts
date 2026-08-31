@@ -6,8 +6,11 @@
 // Routing is PATH-based: the visible page is the first path segment
 // (`/settings`, `/usage`, `/my-extension-tab`), with `/` meaning the default
 // ("live"). Search params: `session` (deep-link contract) and `embed` (framed
-// host mode). A legacy `?tab=` param is still accepted on `/` and redirected to
-// the matching path so old links/bookmarks keep working.
+// host mode). `inspectSession` binds Computer Design Mode to the session that
+// launched it; it is deliberately URL state so browser back/mobile back can
+// leave the temporary picker without losing which conversation owns it. A
+// legacy `?tab=` param is still accepted on `/` and redirected to the matching
+// path so old links/bookmarks keep working.
 
 /** The built-in top-level pages. NOT exhaustive: runtime extensions register
  *  their own nav tabs with arbitrary ids (see useExtensionNavTabs), so a tab is
@@ -104,6 +107,9 @@ export interface AppSearch {
   session?: string;
   /** Conversation selected inside a persistent bot. */
   conversation?: string;
+  /** Session that launched a Computer element picker. This is an immutable
+   *  return target, not a filter or a Computer-side choice. */
+  inspectSession?: string;
   /** Framed-host mode (omg Computer iframe). EXTERNAL CONTRACT with omg's
    *  use-computer-session-frame mint — must stay as `embed=1`. */
   embed?: boolean;
@@ -119,6 +125,9 @@ export function validateAppSearch(search: Record<string, unknown>): AppSearch {
   const out: AppSearch = {};
   if (typeof search.session === "string" && search.session) out.session = search.session;
   if (typeof search.conversation === "string" && search.conversation) out.conversation = search.conversation;
+  if (typeof search.inspectSession === "string" && search.inspectSession) {
+    out.inspectSession = search.inspectSession;
+  }
   if (
     search.embed === true ||
     search.embed === 1 ||

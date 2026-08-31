@@ -9,7 +9,7 @@
 // The pixels arrive as RFB over a websocket (see src/computer/rfb-bridge.ts),
 // rendered by noVNC. This page is lazily loaded -- noVNC is not on the path to
 // first paint, and most sessions never open the Computer at all.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
 import RFB from "@novnc/novnc";
 import { Keyboard, Loader2, MousePointer2, Power, RotateCcw, X } from "lucide-react";
@@ -54,21 +54,22 @@ type Phase = "idle" | "starting" | "connecting" | "live" | "stopping";
 export function ComputerPage({
   active,
   onClose,
-  inspectionSessions = [],
-  preferredSessionId = null,
+  inspectionSession = null,
+  autoStartInspection = false,
   onInspectionReady,
+  onInspectionCancelled,
 }: {
   active: boolean;
   onClose?: () => void;
-  inspectionSessions?: ComputerInspectionSession[];
-  preferredSessionId?: string | null;
+  inspectionSession?: ComputerInspectionSession | null;
+  autoStartInspection?: boolean;
   onInspectionReady?: (sessionId: string) => void;
+  onInspectionCancelled?: (sessionId: string) => void;
 }) {
   const [status, setStatus] = useState<ComputerStatus | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [inspectionStarting, setInspectionStarting] = useState(false);
-  const [selectedSessionId, setSelectedSessionId] = useState(preferredSessionId ?? "");
   // Read-only is the safe default for a shared screen: opening the tab should
   // not let a stray click land on whatever the agent is doing mid-task.
   const [viewOnly, setViewOnly] = useState(true);
@@ -95,23 +96,7 @@ export function ComputerPage({
   // real mouse events, so we keep a position here and synthesize events at it.
   const cursorRef = useRef<{ x: number; y: number } | null>(null);
   const touchRef = useRef<{ x: number; y: number; moved: boolean; at: number } | null>(null);
-
-  const inspectionSessionKey = inspectionSessions.map((session) => session.sessionId).join("|");
-  const inspectionSessionIds = useMemo(
-    () => new Set(inspectionSessions.map((session) => session.sessionId)),
-    // The ordered id key is stable across normal roster polling even though
-    // the API gives App a fresh array each time.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [inspectionSessionKey],
-  );
-  useEffect(() => {
-    setSelectedSessionId((current) => {
-      if (preferredSessionId && inspectionSessionIds.has(preferredSessionId)) {
-        return preferredSessionId;
-      }
-      return inspectionSessionIds.has(current) ? current : "";
-    });
-  }, [inspectionSessionIds, preferredSessionId]);
+  const autoStartedForRef = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -336,15 +321,16 @@ export function ComputerPage({
       const res = await omgFetch("/api/computer/browser/inspect/cancel", { method: "POST" });
       if (!res.ok) throw new Error((await res.text()) || "failed to cancel inspection");
       await refresh();
+      if (inspectionSession) onInspectionCancelled?.(inspectionSession.sessionId);
     } catch (e) {
       setError(e instanceof Error ? e.message : "failed to cancel inspection");
     }
   };
 
   const startInspection = async () => {
-    const target = inspectionSessions.find((session) => session.sessionId === selectedSessionId);
+    const target = inspectionSession;
     if (!target) {
-      setError("Choose the agent that should receive the selected element.");
+      setError("Open Design Mode from the session that should receive the element.");
       return;
     }
 
@@ -366,7 +352,10 @@ export function ComputerPage({
         throw new Error((await response.text()) || "element inspection failed");
       }
       const inspection = (await response.json()) as ComputerInspectionResult;
-      if (inspection.status === "cancelled") return;
+      if (inspection.status === "cancelled") {
+        onInspectionCancelled?.(target.sessionId);
+        return;
+      }
       if (inspection.status !== "selected" || !inspection.selector) {
         throw new Error("the page returned no selected element");
       }
@@ -416,6 +405,49 @@ export function ComputerPage({
   const deps = status?.deps;
   const running = !!status?.running;
 
+  // Session-first is intentionally one action: the session composer names the
+  // immutable target, navigation opens Computer, and selection arms as soon as
+  // the RFB screen is live. The ref prevents 2s status polls from launching a
+  // second blocking inspection request for the same route.
+  useEffect(() => {
+    const sessionId = inspectionSession?.sessionId;
+    if (
+      !active ||
+      !autoStartInspection ||
+      !sessionId ||
+      !running ||
+      phase !== "live" ||
+      status?.inspection?.active ||
+      inspectionStarting ||
+      autoStartedForRef.current === sessionId
+    ) {
+      return;
+    }
+    autoStartedForRef.current = sessionId;
+    void startInspection();
+    // startInspection intentionally belongs to this route attempt. Depending
+    // on its render identity would re-arm the blocking request every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    active,
+    autoStartInspection,
+    inspectionSession?.sessionId,
+    inspectionStarting,
+    phase,
+    running,
+    status?.inspection?.active,
+  ]);
+
+  // Browser back and the mobile back gesture unmount this page. Cancel the
+  // outstanding server-side inspection as cleanup so the shared Computer is
+  // never left behind in a two-minute selection mode.
+  useEffect(() => {
+    if (!autoStartInspection || !inspectionSession?.sessionId) return;
+    return () => {
+      void omgFetch("/api/computer/browser/inspect/cancel", { method: "POST" });
+    };
+  }, [autoStartInspection, inspectionSession?.sessionId]);
+
   return (
     // Full bleed: the screen is the page. No title, no chrome, no padding --
     // every pixel spent on framing is a pixel not spent on the desktop.
@@ -447,7 +479,7 @@ export function ComputerPage({
           here: React's touch props are passive, and preventDefault is the whole
           point. No onDoubleClick either -- the browser synthesizes dblclick
           from taps, and reacting to it is what made a tap-then-drag stall. */}
-      {running && !viewOnly && trackpad ? (
+      {running && !viewOnly && trackpad && !status?.inspection?.active ? (
         <div
           ref={overlayRef}
           className="absolute inset-0 z-[6] touch-none select-none"
@@ -505,14 +537,12 @@ export function ComputerPage({
         }}
       />
 
-      {running ? (
+      {running && inspectionSession ? (
         <div className="absolute bottom-[calc(0.75rem+env(safe-area-inset-bottom))] left-3 z-10">
           <ComputerInspectionControl
             active={status?.inspection?.active ?? false}
             starting={inspectionStarting}
-            sessions={inspectionSessions}
-            selectedSessionId={selectedSessionId}
-            onSelectedSessionChange={setSelectedSessionId}
+            session={inspectionSession}
             onStart={() => void startInspection()}
             onCancel={() => void cancelInspection()}
           />

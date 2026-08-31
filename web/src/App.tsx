@@ -270,6 +270,7 @@ import { findingReference } from "./lib/finding-reference";
 import { buildAutoTriagePrompt, resolveAutoTriageCwd } from "./lib/auto-triage";
 import { resolveComposerRepo } from "./lib/composer-repo";
 import type { ComputerInspectionSession } from "./views/computer-inspection-control";
+import { SessionComputerInspectionAction } from "./views/session-computer-inspection-action";
 import {
   browseFolderWithRecovery,
   folderRecoveryNotice,
@@ -5787,13 +5788,12 @@ export function App() {
   // ours — leaves the session instead of the app, and so the transcript can be
   // linked to. `pathnameToTab` keeps Live selected underneath it.
   const openSessionId = pathnameToSessionId(pathname);
-  // The Computer is a global page, but a Design Mode selection needs one
-  // explicit conversation to return to. Remember the session page that opened
-  // it; the picker itself can still choose a different live session.
-  const openSessionIdRef = useRef(openSessionId);
-  openSessionIdRef.current = openSessionId;
-  const computerTargetSidRef = useRef<string | null>(openSessionId);
-  if (openSessionId) computerTargetSidRef.current = openSessionId;
+  // Design Mode is launched by one session composer. The URL keeps that
+  // session as the immutable target across the Computer page and gives mobile
+  // browser back a real route to leave. A generic /computer visit has no
+  // inspection target and therefore no ambiguous fleet-wide picker.
+  const computerInspectSessionId =
+    tab === "computer" ? routeSearch.inspectSession ?? null : null;
   // Carry the host-mode contract across the navigation, the same as setTab
   // does: the router clears search when none is supplied, and dropping `embed`
   // brings LFG back up as a standalone app inside omg.
@@ -5829,9 +5829,6 @@ export function App() {
     (next: string | ((current: string) => string)) => {
       const resolved = typeof next === "function" ? next(tabRef.current) : next;
       if (!shouldNavigateToTab(tabRef.current, resolved)) return;
-      if (resolved === "computer" && openSessionIdRef.current) {
-        computerTargetSidRef.current = openSessionIdRef.current;
-      }
       // Carry the host-mode contract across the navigation. The router clears
       // search when none is supplied (see shouldNavigateToTab's note), so
       // without this, moving to Shipped or Artifacts dropped `embed` — and LFG
@@ -6858,6 +6855,15 @@ export function App() {
           : [],
       ),
     [allLiveSessions],
+  );
+  const computerInspectionTarget = useMemo(
+    () =>
+      computerInspectSessionId
+        ? computerInspectionSessions.find(
+            (session) => session.sessionId === computerInspectSessionId,
+          ) ?? null
+        : null,
+    [computerInspectSessionId, computerInspectionSessions],
   );
   const openHistoricalSession = useCallback(
     (source: {
@@ -8990,15 +8996,14 @@ export function App() {
           >
             <ComputerPage
               active
-              inspectionSessions={computerInspectionSessions}
-              preferredSessionId={computerTargetSidRef.current}
-              onInspectionReady={(sessionId) => {
-                computerTargetSidRef.current = sessionId;
-                openSessionPage(sessionId);
-              }}
+              inspectionSession={computerInspectionTarget}
+              autoStartInspection={!!computerInspectionTarget}
+              onInspectionReady={openSessionPage}
+              onInspectionCancelled={openSessionPage}
               onClose={() => {
-                const sessionId = computerTargetSidRef.current;
-                if (sessionId) openSessionPage(sessionId);
+                if (computerInspectionTarget) {
+                  openSessionPage(computerInspectionTarget.sessionId);
+                }
                 else setTab("live");
               }}
             />
@@ -14816,6 +14821,7 @@ function SessionChatBody({
   beforeComposer,
 }: SessionChatProps) {
   const sid = session.sessionId;
+  const chatNavigate = useNavigate();
   const reviewingShipped = !!session.shippedReview;
   // Open ask-user questions raised BY this session. The conversation shows them
   // above the composer (SessionQuestionPanel) and the composer is their reply
@@ -14911,6 +14917,22 @@ function SessionChatBody({
     );
   }, [typingIds, session]);
 
+  const openComputerInspection = useCallback(
+    (sessionId: string) => {
+      if (!sessionId || sessionId !== sid) return;
+      haptic("selection");
+      void chatNavigate({
+        to: "/$tab",
+        params: { tab: "computer" },
+        search: (previous) => ({
+          ...(previous.embed ? { embed: true } : {}),
+          ...(previous.embedOrigin ? { embedOrigin: previous.embedOrigin } : {}),
+          inspectSession: sessionId,
+        }),
+      });
+    },
+    [chatNavigate, sid],
+  );
   const setDictatedMessageText = useCallback(
     (text: string, base: string) => {
       setMessageText(base.trim() ? `${base.trimEnd()} ${text}` : text);
@@ -15329,6 +15351,14 @@ function SessionChatBody({
             >
               <Plus className="size-4" />
             </Button>
+            {sid ? (
+              <SessionComputerInspectionAction
+                sessionId={sid}
+                sessionTitle={session.title || session.project || "Current session"}
+                disabled={sending}
+                onOpen={openComputerInspection}
+              />
+            ) : null}
             <ComposerTextarea
               textareaRef={messageInputRef}
               data-composer-sid={sid}

@@ -15,105 +15,72 @@ beforeEach(() => {
 });
 afterEach(() => ui.cleanup());
 
-const sessions = [
-  {
-    sessionId: "11111111-1111-4111-8111-111111111111",
-    title: "Checkout repair",
-    project: "shop",
-  },
-  {
-    sessionId: "22222222-2222-4222-8222-222222222222",
-    title: "Homepage polish",
-    project: "portfolio",
-  },
-];
+const session = {
+  sessionId: "11111111-1111-4111-8111-111111111111",
+  title: "Checkout repair",
+  project: "shop",
+};
 
-describe("Computer inspection control", () => {
-  test("requires an explicit target session before starting", () => {
-    ui.render(
-      <ComputerInspectionControl
-        active={false}
-        sessions={sessions}
-        onCancel={() => {}}
-      />,
-    );
-    const start = ui.query('[aria-label="Choose an agent before pointing an element"]') as HTMLButtonElement;
-    expect(start.disabled).toBe(true);
-    expect(ui.query('[aria-label="Choose the agent for the selected element"]')).not.toBeNull();
-  });
-
-  test("opens the target-session menu without losing the radio-group context", async () => {
-    ui.render(
-      <ComputerInspectionControl
-        active={false}
-        sessions={sessions}
-        onCancel={() => {}}
-      />,
-    );
-    const trigger = ui.query(
-      '[aria-label="Choose the agent for the selected element"]',
-    ) as HTMLButtonElement;
-    await ui.flushAsync(() => trigger.click());
-    await ui.flushAsync();
-    expect(document.body.textContent).toContain("Add the selected element to");
-    expect(document.body.textContent).toContain("Checkout repair");
-    expect(document.body.textContent).toContain("Homepage polish");
-  });
-
-  test("starts for the named target without sending a message", () => {
+describe("session-bound Computer inspection control", () => {
+  test("keeps the launching session visible without a target picker", () => {
     let started = 0;
     ui.render(
       <ComputerInspectionControl
         active={false}
-        sessions={sessions}
-        selectedSessionId={sessions[0]!.sessionId}
+        session={session}
         onStart={() => {
           started += 1;
         }}
         onCancel={() => {}}
       />,
     );
+
     const start = ui.query(
-      '[aria-label="Point an element for Checkout repair"]',
+      '[aria-label="Select an element for Checkout repair"]',
     ) as HTMLButtonElement;
     expect(start.disabled).toBe(false);
-    expect(start.textContent).toContain("Point element");
+    expect(start.textContent).toContain("Select element for");
     expect(start.textContent).toContain("Checkout repair");
+    expect(ui.query('[aria-label*="Choose the agent"]')).toBeNull();
     ui.flush(() => start.click());
     expect(started).toBe(1);
   });
 
-  test("shows a non-interactive starting state", () => {
+  test("shows the immutable target while preparing", () => {
     ui.render(
       <ComputerInspectionControl
         active={false}
         starting
-        sessions={sessions}
-        selectedSessionId={sessions[0]!.sessionId}
+        session={session}
+        onStart={() => {}}
         onCancel={() => {}}
       />,
     );
-    const button = ui.query('[aria-label="Point an element for Checkout repair"]') as HTMLButtonElement;
+    const button = ui.query(
+      '[aria-label="Preparing element selection for Checkout repair"]',
+    ) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
-    expect(button.textContent).toContain("Starting");
+    expect(button.textContent).toContain("Preparing selection");
+    expect(button.textContent).toContain("Checkout repair");
   });
 
-  test("shows one named cancel control while the person is selecting", () => {
+  test("cancels the named session-bound selection", () => {
     let cancelled = 0;
     ui.render(
       <ComputerInspectionControl
         active
-        sessions={sessions}
-        selectedSessionId={sessions[0]!.sessionId}
+        session={session}
+        onStart={() => {}}
         onCancel={() => {
           cancelled += 1;
         }}
       />,
     );
-    const button = ui.query('[aria-label="Cancel element inspection"]') as HTMLButtonElement;
-    expect(button.textContent).toContain("Inspecting");
-    expect(button.getAttribute("title")).toBe("Cancel element inspection");
-    expect(ui.query('[aria-label="Choose the agent for the selected element"]')).toBeNull();
+    const button = ui.query(
+      '[aria-label="Cancel element selection for Checkout repair"]',
+    ) as HTMLButtonElement;
+    expect(button.textContent).toContain("Selecting for this session");
+    expect(button.textContent).toContain("Checkout repair");
     ui.flush(() => button.click());
     expect(cancelled).toBe(1);
   });
