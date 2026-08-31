@@ -2,6 +2,26 @@
 
 Recent product updates and deployment notes.
 
+## August 31, 2026 - Fast mode for Codex and Claude (v0.6.23)
+
+- **Fast mode is now its own switch, for Claude as well as Codex.** Speed used
+  to be tied to the Tibo service tier and was available to Codex alone. It is
+  now an independent setting in the composer that Claude sessions can use too,
+  and it no longer changes your reasoning effort as a side effect: the two are
+  set separately.
+- **Turn it on from the composer or from the chat.** Use the composer control,
+  or type `/fast`, `/fast on` or `/fast off`. Only those exact commands are
+  read as commands, so a message that merely begins with the word is still sent
+  as a message.
+- **Your choice is remembered per provider.** Codex and Claude keep their own
+  preference, so turning it on for one does not change the other.
+- **Codex offers it only where the model supports it.** The control appears for
+  Codex sessions on the GPT-5.4, 5.5 and 5.6 models, and stays hidden elsewhere
+  rather than offering a setting that would not apply.
+- **Resumed sessions come back with the same setting.** Fast mode, thinking
+  level and service tier are now stored with the session, so reopening one
+  restores the mode it was running in.
+
 ## August 31, 2026 - See who else is in a session (v0.6.22)
 
 - **A shared session now shows who is in it.** An ordinary coding session used
