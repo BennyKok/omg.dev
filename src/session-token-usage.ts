@@ -142,7 +142,32 @@ export function writeStoredSessionTokenUsage(
   renameSync(temp, target);
 }
 
-function fromStored(stored: StoredSessionTokenUsage): SessionTokenUsage {
+/**
+ * Category rows that describe the shape of the window rather than tokens the
+ * session has consumed.
+ *
+ * `getContextUsage()` returns a LAYOUT of the whole context window, not a
+ * breakdown of what is in it: every non-deferred row tiles `maxTokens` exactly
+ * (verified across 585 recorded snapshots), so the array carries a "Free space"
+ * remainder and, when auto-compact is on, a reserved "Autocompact buffer".
+ * Deferred rows are tool schemas that are advertised but NOT loaded, so they
+ * cost nothing until something fetches them.
+ *
+ * Passing those through made the inspector's stacked bar sum to the window size
+ * instead of the used size: a session reading 317k / 1.0M rendered categories
+ * totalling 1.27M, with "Free space" as its largest single slice.
+ */
+const LAYOUT_ONLY_CATEGORIES = new Set(["Free space", "Autocompact buffer"]);
+
+function consumedCategories(
+  categories: ClaudeContextUsageSnapshot["categories"],
+): ClaudeContextUsageSnapshot["categories"] {
+  return categories.filter(
+    (category) => !category.isDeferred && !LAYOUT_ONLY_CATEGORIES.has(category.name),
+  );
+}
+
+export function fromStored(stored: StoredSessionTokenUsage): SessionTokenUsage {
   const rich = stored.context;
   const used = rich?.totalTokens ?? null;
   const max = rich?.maxTokens ?? null;
@@ -159,7 +184,7 @@ function fromStored(stored: StoredSessionTokenUsage): SessionTokenUsage {
       percent: rich?.percentage ?? (used != null && max ? (used / max) * 100 : null),
     },
     totals: stored.totals,
-    categories: (rich?.categories ?? []).map((category) => ({
+    categories: consumedCategories(rich?.categories ?? []).map((category) => ({
       name: category.name,
       tokens: category.tokens,
       color: category.color,

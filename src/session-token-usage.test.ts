@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { sessionTokenUsage } from "./session-token-usage.ts";
+import { fromStored, sessionTokenUsage } from "./session-token-usage.ts";
 
 const roots: string[] = [];
 
@@ -139,5 +139,95 @@ describe("sessionTokenUsage", () => {
       cacheWrite: 40,
       total: 100,
     });
+  });
+});
+
+describe("fromStored", () => {
+  // Shape taken from a real recorded snapshot. `getContextUsage()` returns a
+  // layout of the whole window: the non-deferred rows tile `maxTokens`, so the
+  // array carries a "Free space" remainder plus deferred (advertised but not
+  // loaded) tool schemas.
+  const snapshot = {
+    updatedAt: 1_700_000_000_000,
+    model: "opus",
+    context: {
+      model: "opus",
+      totalTokens: 317_342,
+      maxTokens: 1_000_000,
+      rawMaxTokens: 1_000_000,
+      percentage: 32,
+      categories: [
+        { name: "System prompt", tokens: 214, color: "#a78bfa" },
+        { name: "System tools", tokens: 13_590, color: "#60a5fa" },
+        { name: "MCP tools", tokens: 878, color: "#34d399" },
+        { name: "MCP tools (deferred)", tokens: 254_465, color: "#fbbf24", isDeferred: true },
+        { name: "System tools (deferred)", tokens: 13_101, color: "#fb7185", isDeferred: true },
+        { name: "Memory files", tokens: 1_680, color: "#22d3ee" },
+        { name: "Skills", tokens: 1_875, color: "#c084fc" },
+        { name: "Messages", tokens: 299_105, color: "#94a3b8" },
+        { name: "Free space", tokens: 682_658, color: "#94a3b8" },
+      ],
+    },
+    totals: {
+      input: 2_051,
+      output: 176_903,
+      cacheRead: 45_176_018,
+      cacheWrite: 697_512,
+      reasoning: 0,
+      total: 46_052_484,
+      costUsd: 33.9897,
+    },
+  };
+
+  test("reports only categories that consume context", () => {
+    const usage = fromStored(snapshot);
+    expect(usage.categories.map((category) => category.name)).toEqual([
+      "System prompt",
+      "System tools",
+      "MCP tools",
+      "Memory files",
+      "Skills",
+      "Messages",
+    ]);
+  });
+
+  test("categories sum to the reported context use, not the window size", () => {
+    const usage = fromStored(snapshot);
+    const sum = usage.categories.reduce((total, category) => total + category.tokens, 0);
+    expect(sum).toBe(317_342);
+    expect(usage.context.used).toBe(317_342);
+    // The regression: unfiltered rows summed to 1,267,566 — past `maxTokens`.
+    expect(sum).toBeLessThanOrEqual(usage.context.max ?? 0);
+  });
+
+  test("keeps deferred tool schemas out of the breakdown", () => {
+    const usage = fromStored(snapshot);
+    expect(usage.categories.some((category) => category.name.includes("deferred"))).toBe(false);
+    expect(usage.categories.some((category) => category.name === "Free space")).toBe(false);
+  });
+
+  test("drops the reserved autocompact buffer", () => {
+    const usage = fromStored({
+      ...snapshot,
+      context: {
+        ...snapshot.context,
+        totalTokens: 50_995,
+        maxTokens: 967_000,
+        categories: [
+          { name: "Messages", tokens: 34_600, color: "#94a3b8" },
+          { name: "Autocompact buffer", tokens: 33_000, color: "#fbbf24" },
+          { name: "Free space", tokens: 875_502, color: "#94a3b8" },
+        ],
+      },
+    });
+    expect(usage.categories.map((category) => category.name)).toEqual(["Messages"]);
+  });
+
+  test("still reports totals when no context snapshot exists", () => {
+    const usage = fromStored({ ...snapshot, context: null });
+    expect(usage.categories).toEqual([]);
+    expect(usage.totals?.total).toBe(46_052_484);
+    expect(usage.context.used).toBeNull();
+    expect(usage.accuracy).toBe("mixed");
   });
 });
