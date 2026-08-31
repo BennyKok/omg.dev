@@ -2,6 +2,19 @@
 
 Recent product updates and deployment notes.
 
+## August 31, 2026 - Command details open again in the hosted app (v0.6.21)
+
+- **Command details load instead of showing a browser error.** Opening a tool
+  pill in the hosted app returned "The string did not match the expected
+  pattern." for every command. The transcript no longer carries tool arguments,
+  so the panel fetches them per command, and that one fetch used the browser's
+  global fetch instead of the transport the host installs. It therefore asked
+  the host page's own origin rather than the selected computer, received the
+  web app's HTML in place of the answer, and printed Safari's parser message at
+  the reader. The panel now uses the host transport like every other request.
+  An answer that is not the expected data also reports as a response problem
+  now, instead of quoting the browser.
+
 ## August 31, 2026 - Pictures hold their place in the transcript while they load (v0.6.20)
 
 - **A picture no longer drops the message below it on top of the one above.**
