@@ -17,6 +17,20 @@ import { readFileSync } from "node:fs";
 import { SETUP_SH, extractFunctionSource } from "./setup-script-helpers.ts";
 
 /**
+ * Every `LFG_INSTALL_*` flag setup.sh defines, pinned off.
+ *
+ * The agent block runs under `set -u`, so any flag it reads that the harness
+ * has not defined kills the script. Reading the names out of setup.sh keeps
+ * this harness correct as agents come and go.
+ */
+function installFlagStubs(source: string): string[] {
+  const names = new Set(
+    [...source.matchAll(/^(LFG_INSTALL_[A-Z0-9_]+)=/gm)].map((match) => match[1]),
+  );
+  return [...names].map((name) => `${name}=0`);
+}
+
+/**
  * Run the agent-detection block with a chosen set of CLIs "installed".
  * Returns the reported ready/missing lists, or null if the script aborted.
  */
@@ -34,11 +48,12 @@ function probeAgents(present: string[]): { ready: string[]; missing: string[] } 
     'warn() { :; }',
     'ensure_path_line() { :; }',
     'BUN_BIN=/bin/true',
-    'LFG_INSTALL_CLAUDE=0 LFG_INSTALL_CODEX=0 LFG_INSTALL_OPENCODE=0',
-    'LFG_INSTALL_JCODE=0',
-    'LFG_INSTALL_GROK=0 LFG_INSTALL_CURSOR=0 LFG_INSTALL_COPILOT=0',
-    'LFG_INSTALL_FX=0',
-    'LFG_INSTALL_PI=0',
+    // Derived from setup.sh, not hardcoded. This list used to be spelled out
+    // here, so adding an agent left the stub set one short: `deepseek` landed,
+    // `LFG_INSTALL_DEEPSEEK` went unset, and `set -u` aborted the block before
+    // a single assertion ran. All four tests in this file went red for a reason
+    // unrelated to what they check, which is how a real regression would hide.
+    ...installFlagStubs(source),
     'LFG_COPILOT_VERSION=latest',
     // pi is probed by file path rather than by PATH lookup, so the block needs
     // an install directory. Point it somewhere that cannot exist.
@@ -81,10 +96,11 @@ describe("agent detection", () => {
     expect(result).not.toBeNull();
     expect(result!.ready).toContain("claude");
     expect(result!.ready).toContain("codex");
-    // pi is probed by file, not PATH, and is absent here on purpose: it is no
-    // longer bundled, so a machine with every CLI installed still lacks it
-    // until someone opts in.
-    expect(result!.missing).toEqual(["pi"]);
+    // Neither of these is a PATH lookup, so "every CLI installed" cannot make
+    // them ready. pi is probed by file and is not bundled any more. deepseek is
+    // probed by `deepseek_harness_ready`, a function defined above the block
+    // under test. Both are opt-in, so both read missing here by design.
+    expect(result!.missing).toEqual(["deepseek", "pi"]);
   });
 
   // The realistic middle: some installed, some not. This is the shape that was
