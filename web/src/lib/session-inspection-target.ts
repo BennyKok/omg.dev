@@ -1,5 +1,5 @@
 import { omgFetch } from "./omg-client";
-import { transcriptPagePath } from "./transcript-paging";
+import { transcriptOlderPagePath, transcriptPagePath } from "./transcript-paging";
 
 const STORAGE_KEY = "lfg_computer_inspection_targets_v1";
 const MAX_TARGETS = 80;
@@ -50,12 +50,7 @@ function isBackgroundCoordination(text: string | null | undefined): boolean {
   return /^\s*\[Background task\b/i.test(text ?? "");
 }
 
-/**
- * The person's latest explicit URL owns the page choice. Assistant answers
- * commonly contain source links and PR URLs, so allowing a later assistant
- * link to win is exactly how Design Mode opens the wrong page.
- */
-export function resolveSessionInspectionUrl(messages: MessageLike[]): string | null {
+function resolveUserInspectionUrl(messages: MessageLike[]): string | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message?.role !== "user") continue;
@@ -63,6 +58,17 @@ export function resolveSessionInspectionUrl(messages: MessageLike[]): string | n
     const urls = urlsInText(message.text);
     if (urls.length) return urls.at(-1) ?? null;
   }
+  return null;
+}
+
+/**
+ * The person's latest explicit URL owns the page choice. Assistant answers
+ * commonly contain source links and PR URLs, so allowing a later assistant
+ * link to win is exactly how Design Mode opens the wrong page.
+ */
+export function resolveSessionInspectionUrl(messages: MessageLike[]): string | null {
+  const userUrl = resolveUserInspectionUrl(messages);
+  if (userUrl) return userUrl;
 
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const urls = urlsInText(messages[index]?.text);
@@ -84,15 +90,29 @@ export async function fetchSessionInspectionUrl(
   fetcher: FetchLike = omgFetch,
 ): Promise<string | null> {
   if (!sessionId) return resolveSessionInspectionUrl(loadedMessages);
-  const response = await fetcher(transcriptPagePath(sessionId));
-  if (!response.ok) {
-    throw new Error((await response.text()) || "could not read the session page target");
+  let path = transcriptPagePath(sessionId);
+  let fallbackUrl = resolveSessionInspectionUrl(loadedMessages);
+  const seenCursors = new Set<number>();
+
+  while (true) {
+    const response = await fetcher(path);
+    if (!response.ok) {
+      throw new Error((await response.text()) || "could not read the session page target");
+    }
+    const payload = (await response.json()) as {
+      messages?: MessageLike[];
+      nextBefore?: number | null;
+    };
+    const messages = payload.messages ?? [];
+    const userUrl = resolveUserInspectionUrl(messages);
+    if (userUrl) return userUrl;
+    fallbackUrl ??= resolveSessionInspectionUrl(messages);
+
+    const cursor = payload.nextBefore;
+    if (typeof cursor !== "number" || seenCursors.has(cursor)) return fallbackUrl;
+    seenCursors.add(cursor);
+    path = transcriptOlderPagePath(sessionId, cursor);
   }
-  const payload = (await response.json()) as { messages?: MessageLike[] };
-  return (
-    resolveSessionInspectionUrl(payload.messages ?? []) ??
-    resolveSessionInspectionUrl(loadedMessages)
-  );
 }
 
 function readTargets(storage: StorageLike | null): StoredTarget[] {

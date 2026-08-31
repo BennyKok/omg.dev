@@ -48,6 +48,19 @@ describe("session inspection target", () => {
       [{ role: "user", text: "latest follow-up without a URL" }],
       async (input) => {
         requested.push(input);
+        if (requested.length === 1) {
+          return {
+            ok: true,
+            text: async () => "",
+            json: async () => ({
+              nextBefore: 42,
+              messages: [
+                { role: "assistant", text: "Later PR: https://github.com/BennyKok/omg.dev/pull/252" },
+                { role: "user", text: "[Background task https://fal.ai/tools/render] Browser released" },
+              ],
+            }),
+          } as Pick<Response, "ok" | "json" | "text">;
+        }
         return {
           ok: true,
           text: async () => "",
@@ -57,7 +70,6 @@ describe("session inspection target", () => {
                 role: "user",
                 text: "Original task: inspect https://github.com/stablyai/orca",
               },
-              { role: "assistant", text: "Later PR: https://github.com/BennyKok/omg.dev/pull/252" },
             ],
           }),
         } as Pick<Response, "ok" | "json" | "text">;
@@ -65,6 +77,7 @@ describe("session inspection target", () => {
     );
 
     expect(requested[0]).toContain("/api/sessions/session%2Flong/messages?");
+    expect(requested[1]).toContain("page=backward&before=42");
     expect(resolved).toBe("https://github.com/stablyai/orca");
   });
 
