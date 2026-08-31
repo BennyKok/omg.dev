@@ -30,6 +30,7 @@ const {
   useDeferredToolArgs,
 } = await import("./deferred-tool-args");
 const { toolArgsPath } = await import("./transcript-paging");
+const { configureOmgTransport } = await import("./omg-client");
 
 const SID = "25ba4d3b-59d2-4c45-87e1-4e406d0bf0c5";
 const ARGS = '{"command":"grep -n listen_port /etc/app.conf"}';
@@ -139,6 +140,47 @@ describe("the fetch itself", () => {
   test("any other failure still names the status", async () => {
     const failing = (async () => jsonResponse({}, 500)) as unknown as typeof fetch;
     await expect(fetchToolArgs(SID, "u1", failing)).rejects.toThrow("(500)");
+  });
+
+  // Safari answers `res.json()` on an HTML app shell with "The string did not
+  // match the expected pattern.", and the pill rendered that at the reader.
+  test("a non-JSON body reads as a response problem, not a parser error", async () => {
+    const html = (async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new SyntaxError("The string did not match the expected pattern.");
+        },
+      }) as unknown as Response) as unknown as typeof fetch;
+    await expect(fetchToolArgs(SID, "u1", html)).rejects.toThrow("unexpected response");
+  });
+
+  // The embedded host owns auth and routing. A bare global fetch of a relative
+  // API path leaves that boundary and hits the host page's origin instead of
+  // the selected LFG instance, so the pill shows the host's failure text and
+  // never reaches the machine that ran the command.
+  test("goes through the configured transport, not window.fetch", async () => {
+    let asked = "";
+    const globalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      throw new Error("window.fetch must not be used");
+    }) as unknown as typeof fetch;
+    configureOmgTransport({
+      request: async () => {
+        throw new Error("unused");
+      },
+      fetch: async (path: string) => {
+        asked = path;
+        return jsonResponse({ args: ARGS });
+      },
+    } as never);
+    try {
+      expect(await fetchToolArgs(SID, "u1")).toBe(ARGS);
+      expect(asked).toBe(toolArgsPath(SID, "u1"));
+    } finally {
+      globalThis.fetch = globalFetch;
+    }
   });
 });
 
