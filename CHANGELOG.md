@@ -2,6 +2,23 @@
 
 Recent product updates and deployment notes.
 
+## August 31, 2026 - The version shown is the version running (v0.6.24)
+
+- **A box that has downloaded an update no longer claims to be up to date.**
+  The update status compared the files on disk against the newest release and
+  never looked at the code actually running. So the moment an update was
+  written, the box reported itself current while still serving the older
+  version, and the person reading it had no way to tell. It now reports the
+  version this process is running, and says "installed, starts after a restart"
+  for the window in between.
+- **The restart you need is offered.** When an update is on disk but not yet
+  running, the update prompt appears with a restart rather than going quiet.
+  Skipping a download no longer also silences the restart it turned out to
+  need, because those are two different things to be told about.
+- **The list of what is new stays visible until you restart.** It used to empty
+  itself the moment an update landed on disk, hiding the release notes from the
+  only person who still needed them.
+
 ## August 31, 2026 - Fast mode for Codex and Claude (v0.6.23)
 
 - **Fast mode is now its own switch, for Claude as well as Codex.** Speed used
