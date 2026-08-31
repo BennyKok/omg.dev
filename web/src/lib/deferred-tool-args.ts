@@ -11,7 +11,21 @@
 // The server marks each deferred call with `toolArgsLen`, which is how this
 // module tells "the arguments are elsewhere" apart from "this call had none".
 import { useCallback, useEffect, useRef, useState } from "react";
+import { omgFetch } from "./omg-client";
 import { toolArgsPath } from "./transcript-paging";
+
+/**
+ * How a path becomes a response.
+ *
+ * The default is the host-owned transport, never `window.fetch`. In the
+ * embedded app the host owns auth and routing, so a bare global fetch of a
+ * relative API path goes to the host page's origin (app.omg.dev) instead of
+ * the selected LFG instance, and the reader sees the host's failure text
+ * inside the opened pill. Standalone LFG's configured default is already the
+ * same-origin transport, so this is the correct default in both modes. The
+ * composer had the same defect; see omg-chat-transport.ts.
+ */
+export type ToolArgsFetch = (path: string, init?: RequestInit) => Promise<Response>;
 
 export type ToolArgsState =
   | { status: "loading" }
@@ -57,7 +71,7 @@ export function deferredToolIds(messages: DeferredToolMessage[]): string[] {
 export async function fetchToolArgs(
   sid: string,
   messageId: string,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: ToolArgsFetch = omgFetch,
 ): Promise<string> {
   const res = await fetchImpl(toolArgsPath(sid, messageId));
   if (!res.ok) {
@@ -67,7 +81,16 @@ export async function fetchToolArgs(
         : `Could not load command details (${res.status})`,
     );
   }
-  const body = (await res.json()) as { args?: unknown };
+  // A body that is not JSON means the request was answered by something other
+  // than this server, so report that instead of the parser's own words. Safari
+  // rejects `res.json()` on an HTML app shell with "The string did not match
+  // the expected pattern.", which the pill used to render verbatim.
+  let body: { args?: unknown };
+  try {
+    body = (await res.json()) as { args?: unknown };
+  } catch {
+    throw new Error("Could not load command details (unexpected response)");
+  }
   return typeof body.args === "string" ? body.args : "";
 }
 
@@ -83,7 +106,7 @@ export function useDeferredToolArgs(
   sid: string | null | undefined,
   messages: DeferredToolMessage[],
   open: boolean,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: ToolArgsFetch = omgFetch,
 ): Record<string, ToolArgsState> {
   const [states, setStates] = useState<Record<string, ToolArgsState>>({});
   const mounted = useRef(true);
