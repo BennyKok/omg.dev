@@ -1,3 +1,6 @@
+import { omgFetch } from "./omg-client";
+import { transcriptPagePath } from "./transcript-paging";
+
 const STORAGE_KEY = "lfg_computer_inspection_targets_v1";
 const MAX_TARGETS = 80;
 
@@ -7,6 +10,11 @@ type MessageLike = {
 };
 
 type StorageLike = Pick<Storage, "getItem" | "setItem">;
+
+type FetchLike = (
+  input: string,
+  init?: RequestInit,
+) => Promise<Pick<Response, "ok" | "json" | "text">>;
 
 type StoredTarget = {
   sessionId: string;
@@ -62,6 +70,30 @@ export function resolveSessionInspectionUrl(
     if (urls.length) return urls.at(-1) ?? null;
   }
   return null;
+}
+
+/**
+ * Re-read the server transcript at the moment Design Mode starts. A long chat
+ * can have an intentionally shallow browser cache, while its title is clipped
+ * in the session list (for example `https://github.com/st`). Treating that
+ * display label as navigation state opens the wrong page. The transcript is
+ * the source of truth and the caller's loaded messages are only the fallback.
+ */
+export async function fetchSessionInspectionUrl(
+  sessionId: string,
+  loadedMessages: MessageLike[],
+  fetcher: FetchLike = omgFetch,
+): Promise<string | null> {
+  if (!sessionId) return resolveSessionInspectionUrl(loadedMessages, null);
+  const response = await fetcher(transcriptPagePath(sessionId));
+  if (!response.ok) {
+    throw new Error((await response.text()) || "could not read the session page target");
+  }
+  const payload = (await response.json()) as { messages?: MessageLike[] };
+  return (
+    resolveSessionInspectionUrl(payload.messages ?? [], null) ??
+    resolveSessionInspectionUrl(loadedMessages, null)
+  );
 }
 
 function readTargets(storage: StorageLike | null): StoredTarget[] {

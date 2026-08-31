@@ -272,6 +272,7 @@ import { resolveComposerRepo } from "./lib/composer-repo";
 import type { ComputerInspectionSession } from "./views/computer-inspection-control";
 import { SessionComputerInspectionAction } from "./views/session-computer-inspection-action";
 import {
+  fetchSessionInspectionUrl,
   readSessionInspectionTarget,
   resolveSessionInspectionUrl,
   stashSessionInspectionTarget,
@@ -14899,6 +14900,7 @@ function SessionChatBody({
   // `busy` prop, so the working indicator tracks the session even for turns
   // driven from another device (where chatStatus never leaves "ready").
   const [liveBusy, setLiveBusy] = useState(false);
+  const [inspectionOpening, setInspectionOpening] = useState(false);
   const chatBusy = busy || liveBusy || chatStatus === "submitted" || chatStatus === "streaming";
   const setMessageText = useCallback(
     (text: string) => {
@@ -14933,23 +14935,36 @@ function SessionChatBody({
   }, [typingIds, session]);
 
   const openComputerInspection = useCallback(
-    (sessionId: string, pageUrl: string | null) => {
+    async (sessionId: string, pageUrl: string | null) => {
       if (!sessionId || sessionId !== sid) return;
-      // Keep the page target out of browser history: query strings can carry
-      // private state. The route only exposes the immutable return session.
-      stashSessionInspectionTarget(sessionId, pageUrl);
-      haptic("selection");
-      void chatNavigate({
-        to: "/$tab",
-        params: { tab: "computer" },
-        search: (previous) => ({
-          ...(previous.embed ? { embed: true } : {}),
-          ...(previous.embedOrigin ? { embedOrigin: previous.embedOrigin } : {}),
-          inspectSession: sessionId,
-        }),
-      });
+      setInspectionOpening(true);
+      try {
+        // The browser cache can contain only the recent end of a long chat and
+        // session titles are display-clipped. Resolve against the server
+        // transcript at click time so `github.com/st` can never replace the
+        // complete user URL merely because it fits in the title.
+        const resolvedPageUrl = await fetchSessionInspectionUrl(
+          sessionId,
+          chatMessages,
+        ).catch(() => pageUrl);
+        // Keep the page target out of browser history: query strings can carry
+        // private state. The route only exposes the immutable return session.
+        stashSessionInspectionTarget(sessionId, resolvedPageUrl);
+        haptic("selection");
+        await chatNavigate({
+          to: "/$tab",
+          params: { tab: "computer" },
+          search: (previous) => ({
+            ...(previous.embed ? { embed: true } : {}),
+            ...(previous.embedOrigin ? { embedOrigin: previous.embedOrigin } : {}),
+            inspectSession: sessionId,
+          }),
+        });
+      } finally {
+        setInspectionOpening(false);
+      }
     },
-    [chatNavigate, sid],
+    [chatMessages, chatNavigate, sid],
   );
   const setDictatedMessageText = useCallback(
     (text: string, base: string) => {
@@ -15382,7 +15397,7 @@ function SessionChatBody({
                 sessionId={sid}
                 sessionTitle={session.title || session.project || "Current session"}
                 pageUrl={inspectionPageUrl}
-                disabled={sending || historyLoading}
+                disabled={sending || historyLoading || inspectionOpening}
                 onOpen={openComputerInspection}
               />
             ) : null}

@@ -12,7 +12,7 @@ export function SessionComputerInspectionAction({
   sessionTitle: string;
   pageUrl?: string | null;
   disabled?: boolean;
-  onOpen: (sessionId: string, pageUrl: string | null) => void;
+  onOpen: (sessionId: string, pageUrl: string | null) => void | Promise<void>;
 }) {
   return (
     <Button

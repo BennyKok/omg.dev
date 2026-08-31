@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  fetchSessionInspectionUrl,
   readSessionInspectionTarget,
   resolveSessionInspectionUrl,
   stashSessionInspectionTarget,
@@ -37,6 +38,33 @@ describe("session inspection target", () => {
     );
     expect(resolveSessionInspectionUrl([{ role: "user", text: "file:///etc/passwd" }], "No URL"))
       .toBeNull();
+  });
+
+  test("re-reads a long transcript instead of navigating to a clipped title URL", async () => {
+    const requested: string[] = [];
+    const resolved = await fetchSessionInspectionUrl(
+      "session/long",
+      [{ role: "user", text: "latest follow-up without a URL" }],
+      async (input) => {
+        requested.push(input);
+        return {
+          ok: true,
+          text: async () => "",
+          json: async () => ({
+            messages: [
+              {
+                role: "user",
+                text: "Original task: inspect https://github.com/stablyai/orca",
+              },
+              { role: "assistant", text: "Later PR: https://github.com/BennyKok/omg.dev/pull/252" },
+            ],
+          }),
+        } as Pick<Response, "ok" | "json" | "text">;
+      },
+    );
+
+    expect(requested[0]).toContain("/api/sessions/session%2Flong/messages?");
+    expect(resolved).toBe("https://github.com/stablyai/orca");
   });
 
   test("stores the page target outside browser history and consumes it for one session", () => {
