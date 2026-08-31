@@ -46,7 +46,7 @@ describe("Computer inspection composer draft", () => {
       selector: "main",
       dom: { html: "x".repeat(40_000) },
     });
-    expect(draft.length).toBeLessThan(19_000);
+    expect(draft.length).toBeLessThan(9_000);
     expect(draft).toContain("[inspection context truncated]");
   });
 

@@ -18,7 +18,11 @@ export type ComputerInspectionResult = {
   reason?: string;
 };
 
-const MAX_CONTEXT_CHARS = 18_000;
+// This is composer state, not a diagnostic dump. Selector, DOM, key styles,
+// accessibility and the crop path all fit comfortably below this ceiling in
+// ordinary pages; hostile/huge nodes are clipped so the person's instruction
+// remains the visible, usable end of the field on a phone.
+const MAX_CONTEXT_CHARS = 8_000;
 const INSTRUCTION_MARKER = "What I want changed:";
 
 function safePageUrl(raw: string | undefined): string | undefined {

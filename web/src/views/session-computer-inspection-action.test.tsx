@@ -10,12 +10,13 @@ afterEach(() => ui.cleanup());
 
 describe("session Computer inspection action", () => {
   test("opens Design Mode for exactly the session that owns the composer", () => {
-    const opened: string[] = [];
+    const opened: Array<[string, string | null]> = [];
     ui.render(
       <SessionComputerInspectionAction
         sessionId="target-session"
         sessionTitle="Checkout repair"
-        onOpen={(sessionId) => opened.push(sessionId)}
+        pageUrl="https://example.test/checkout"
+        onOpen={(sessionId, pageUrl) => opened.push([sessionId, pageUrl])}
       />,
     );
 
@@ -25,6 +26,6 @@ describe("session Computer inspection action", () => {
     expect(button.disabled).toBe(false);
     expect(button.className).toContain("size-10");
     ui.flush(() => button.click());
-    expect(opened).toEqual(["target-session"]);
+    expect(opened).toEqual([["target-session", "https://example.test/checkout"]]);
   });
 });

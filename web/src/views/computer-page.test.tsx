@@ -84,4 +84,20 @@ describe("session-bound Computer inspection control", () => {
     ui.flush(() => button.click());
     expect(cancelled).toBe(1);
   });
+
+  test("explains direct tap and drag navigation during mobile inspection", () => {
+    ui.render(
+      <ComputerInspectionControl
+        active
+        mobilePan
+        session={session}
+        onStart={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    const button = ui.query(
+      '[aria-label="Cancel element selection for Checkout repair"]',
+    ) as HTMLButtonElement;
+    expect(button.textContent).toContain("Drag to move · tap to select");
+  });
 });

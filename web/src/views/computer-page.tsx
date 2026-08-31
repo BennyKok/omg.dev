@@ -20,6 +20,7 @@ import {
   mergeComputerInspectionDraft,
   type ComputerInspectionResult,
 } from "@/lib/computer-inspection-draft";
+import { navigateComputerToInspectionTarget } from "@/lib/computer-inspection-navigation";
 import { omgFetch, openOmgSocket } from "@/lib/omg-client";
 import { readPromptDraft, stashPromptDraft } from "@/lib/prompt-stash";
 import { RfbChannel } from "@/lib/rfb-channel";
@@ -50,6 +51,14 @@ interface ComputerStatus {
 }
 
 type Phase = "idle" | "starting" | "connecting" | "live" | "stopping";
+
+// noVNC 1.7 exposes these documented runtime properties, but the package's
+// bundled declaration still omits two of them. Keep the compatibility cast at
+// this narrow boundary instead of weakening the component's RFB ref type.
+type RfbViewportControls = RFB & {
+  clipViewport: boolean;
+  dragViewport: boolean;
+};
 
 export function ComputerPage({
   active,
@@ -131,10 +140,19 @@ export function ComputerPage({
     setError(null);
     try {
       const socket = await openOmgSocket("/api/computer");
-      const rfb = new RFB(screenRef.current, new RfbChannel(socket) as unknown as object, {
-        shared: true,
-      });
-      rfb.scaleViewport = true;
+      const rfb = new RFB(
+        screenRef.current,
+        new RfbChannel(socket) as unknown as object,
+        { shared: true },
+      ) as RfbViewportControls;
+      const panInspection = !!inspectionSession && trackpad;
+      // A desktop shrunk to 374x234 was technically complete and practically
+      // untappable in the user's phone recording. In finger-driven inspection
+      // show the remote pixels at readable size: a drag pans the clipped
+      // desktop and a tap still selects through noVNC's own gesture handler.
+      rfb.scaleViewport = !panInspection;
+      rfb.clipViewport = panInspection;
+      rfb.dragViewport = panInspection;
       rfb.background = "#0b0b0d";
       // Without this the remote cursor can be invisible, which makes a relative
       // pointer impossible to aim.
@@ -150,7 +168,22 @@ export function ComputerPage({
       setPhase("idle");
       setError(e instanceof Error ? e.message : "could not open the screen");
     }
-  }, [viewOnly]);
+  }, [viewOnly, inspectionSession, trackpad]);
+
+  useEffect(() => {
+    const rfb = rfbRef.current as RfbViewportControls | null;
+    if (!rfb) return;
+    const panInspection = !!inspectionSession && trackpad;
+    if (panInspection) {
+      rfb.scaleViewport = false;
+      rfb.clipViewport = true;
+      rfb.dragViewport = true;
+    } else {
+      rfb.dragViewport = false;
+      rfb.clipViewport = false;
+      rfb.scaleViewport = true;
+    }
+  }, [inspectionSession, trackpad]);
 
   // Keep the live connection's input mode in sync with the toggle.
   useEffect(() => {
@@ -343,6 +376,10 @@ export function ComputerPage({
     setViewOnly(false);
 
     try {
+      // The shared Computer remembers its last global tab. Bind the source as
+      // well as the destination: a session-provided URL must replace stale
+      // browser state before the blocking element picker is armed.
+      await navigateComputerToInspectionTarget(target.pageUrl);
       const response = await omgFetch("/api/computer/browser/inspect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -542,6 +579,7 @@ export function ComputerPage({
           <ComputerInspectionControl
             active={status?.inspection?.active ?? false}
             starting={inspectionStarting}
+            mobilePan={trackpad}
             session={inspectionSession}
             onStart={() => void startInspection()}
             onCancel={() => void cancelInspection()}

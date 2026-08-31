@@ -272,6 +272,11 @@ import { resolveComposerRepo } from "./lib/composer-repo";
 import type { ComputerInspectionSession } from "./views/computer-inspection-control";
 import { SessionComputerInspectionAction } from "./views/session-computer-inspection-action";
 import {
+  readSessionInspectionTarget,
+  resolveSessionInspectionUrl,
+  stashSessionInspectionTarget,
+} from "./lib/session-inspection-target";
+import {
   browseFolderWithRecovery,
   folderRecoveryNotice,
 } from "./lib/folder-browser-recovery";
@@ -6857,12 +6862,18 @@ export function App() {
     [allLiveSessions],
   );
   const computerInspectionTarget = useMemo(
-    () =>
-      computerInspectSessionId
-        ? computerInspectionSessions.find(
-            (session) => session.sessionId === computerInspectSessionId,
-          ) ?? null
-        : null,
+    () => {
+      if (!computerInspectSessionId) return null;
+      const session = computerInspectionSessions.find(
+        (candidate) => candidate.sessionId === computerInspectSessionId,
+      );
+      return session
+        ? {
+            ...session,
+            pageUrl: readSessionInspectionTarget(session.sessionId),
+          }
+        : null;
+    },
     [computerInspectSessionId, computerInspectionSessions],
   );
   const openHistoricalSession = useCallback(
@@ -14879,6 +14890,10 @@ function SessionChatBody({
   const chat = useOmgChat();
   const { messages: uiMessages, setMessages, sendMessage: sendChatMessage, status: chatStatus } = chat;
   const chatMessages = useMemo(() => omgUIMessagesToMessages(uiMessages), [uiMessages]);
+  const inspectionPageUrl = useMemo(
+    () => resolveSessionInspectionUrl(chatMessages, session.title),
+    [chatMessages, session.title],
+  );
   // Busy straight from the transcript subscription: the harness flips it the
   // moment it starts a turn, ahead of the ~1s status-poll row that feeds the
   // `busy` prop, so the working indicator tracks the session even for turns
@@ -14918,8 +14933,11 @@ function SessionChatBody({
   }, [typingIds, session]);
 
   const openComputerInspection = useCallback(
-    (sessionId: string) => {
+    (sessionId: string, pageUrl: string | null) => {
       if (!sessionId || sessionId !== sid) return;
+      // Keep the page target out of browser history: query strings can carry
+      // private state. The route only exposes the immutable return session.
+      stashSessionInspectionTarget(sessionId, pageUrl);
       haptic("selection");
       void chatNavigate({
         to: "/$tab",
@@ -14944,7 +14962,11 @@ function SessionChatBody({
   // SessionChat can be reused as the focused card changes. Recover that
   // session's own draft instead of carrying text across cards.
   useEffect(() => {
-    setMessageTextState(readPromptDraft(stashContext)?.text ?? "");
+    const draft = readPromptDraft(stashContext)?.text ?? "";
+    setMessageTextState(draft);
+    if (draft.includes("<computer_inspection_context>")) {
+      setDictationScrollNonce((nonce) => nonce + 1);
+    }
   }, [stashContext]);
 
   // Closing the card, or switching it to another session, ends any claim this
@@ -14961,7 +14983,11 @@ function SessionChatBody({
   // already-mounted composer immediately without sending anything to the agent.
   useEffect(() => {
     const refreshDraft = () => {
-      setMessageTextState(readPromptDraft(stashContext)?.text ?? "");
+      const draft = readPromptDraft(stashContext)?.text ?? "";
+      setMessageTextState(draft);
+      if (draft.includes("<computer_inspection_context>")) {
+        setDictationScrollNonce((nonce) => nonce + 1);
+      }
     };
     window.addEventListener(PROMPT_STASH_EVENT, refreshDraft);
     return () => window.removeEventListener(PROMPT_STASH_EVENT, refreshDraft);
@@ -15355,7 +15381,8 @@ function SessionChatBody({
               <SessionComputerInspectionAction
                 sessionId={sid}
                 sessionTitle={session.title || session.project || "Current session"}
-                disabled={sending}
+                pageUrl={inspectionPageUrl}
+                disabled={sending || historyLoading}
                 onOpen={openComputerInspection}
               />
             ) : null}

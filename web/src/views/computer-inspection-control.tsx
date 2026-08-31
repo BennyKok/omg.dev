@@ -5,6 +5,7 @@ export type ComputerInspectionSession = {
   sessionId: string;
   title: string;
   project: string;
+  pageUrl?: string | null;
 };
 
 function targetLabel(session: ComputerInspectionSession): string {
@@ -14,12 +15,14 @@ function targetLabel(session: ComputerInspectionSession): string {
 export function ComputerInspectionControl({
   active,
   starting = false,
+  mobilePan = false,
   session,
   onStart,
   onCancel,
 }: {
   active: boolean;
   starting?: boolean;
+  mobilePan?: boolean;
   session: ComputerInspectionSession;
   onStart: () => void;
   onCancel: () => void;
@@ -39,7 +42,7 @@ export function ComputerInspectionControl({
         <ScanSearch className="size-4 shrink-0 text-cyan-500" aria-hidden="true" />
         <span className="min-w-0 text-left leading-tight">
           <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            Selecting for this session
+            {mobilePan ? "Drag to move · tap to select" : "Selecting for this session"}
           </span>
           <span className="block truncate text-xs font-semibold">{label}</span>
         </span>
