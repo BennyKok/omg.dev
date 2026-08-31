@@ -86,7 +86,9 @@ describe("release update status", () => {
     writeFileSync(join(root, "package.json"), JSON.stringify({ name: "lfg", version: "1.2.3" }));
     globalThis.fetch = (async () => Response.json({ tag_name: "v1.3.0" })) as unknown as typeof fetch;
 
-    const status = await releaseUpdateStatus(root, { repoSlug: "example/lfg-release-test" });
+    // Running version passed explicitly: `root` describes files on disk and
+    // cannot answer what this process loaded.
+    const status = await releaseUpdateStatus(root, { repoSlug: "example/lfg-release-test" }, false, "1.2.3");
     expect(status.state).toBe("available");
     expect(status.currentVersion).toBe("1.2.3");
     expect(status.latestVersion).toBe("1.3.0");
@@ -98,8 +100,50 @@ describe("release update status", () => {
     writeFileSync(join(root, "package.json"), JSON.stringify({ name: "lfg", version: "2.0.0" }));
     globalThis.fetch = (async () => Response.json({ tag_name: "v2.0.0" })) as unknown as typeof fetch;
 
-    const status = await releaseUpdateStatus(root, { repoSlug: "example/lfg-current-test" });
+    const status = await releaseUpdateStatus(root, { repoSlug: "example/lfg-current-test" }, false, "2.0.0");
     expect(status.state).toBe("up-to-date");
+  });
+
+  // The bug this describes: a box that had already written an update to disk
+  // reported itself up to date while still executing the older code. That is
+  // the exact signal people use to confirm a deploy landed, so it failed in
+  // the worst direction — observed live, reporting 0.6.23 from a process that
+  // had started hours before 0.6.23 existed.
+  test("an update on disk that has not been applied reads as staged, not up to date", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lfg-release-update-"));
+    cleanup.push(root);
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "lfg", version: "0.6.23" }));
+    globalThis.fetch = (async () => Response.json({ tag_name: "v0.6.23" })) as unknown as typeof fetch;
+
+    const status = await releaseUpdateStatus(root, { repoSlug: "example/lfg-staged" }, false, "0.6.21");
+    expect(status.state).toBe("staged");
+    // The running version is what `currentVersion` reports, always.
+    expect(status.currentVersion).toBe("0.6.21");
+    expect(status.stagedVersion).toBe("0.6.23");
+    expect(status.message).toContain("restart");
+  });
+
+  test("staged wins even though the disk version equals the newest release", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lfg-release-update-"));
+    cleanup.push(root);
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "lfg", version: "9.9.9" }));
+    globalThis.fetch = (async () => Response.json({ tag_name: "v9.9.9" })) as unknown as typeof fetch;
+
+    // Disk matches latest exactly. The old code compared those two and said
+    // "up to date"; the running process was never part of the comparison.
+    const status = await releaseUpdateStatus(root, { repoSlug: "example/lfg-staged-latest" }, false, "9.9.8");
+    expect(status.state).toBe("staged");
+  });
+
+  test("no drift means the running version is reported unchanged", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lfg-release-update-"));
+    cleanup.push(root);
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "lfg", version: "3.0.0" }));
+    globalThis.fetch = (async () => Response.json({ tag_name: "v3.0.0" })) as unknown as typeof fetch;
+
+    const status = await releaseUpdateStatus(root, { repoSlug: "example/lfg-nodrift" }, false, "3.0.0");
+    expect(status.state).toBe("up-to-date");
+    expect(status.stagedVersion).toBeUndefined();
   });
 });
 
@@ -435,7 +479,20 @@ describe("changelog delta", () => {
     writeFileSync(join(root, "package.json"), JSON.stringify({ name: "lfg", version: "0.1.1" }));
     mockFetch("v0.1.3", fakeChangelog(["0.1.3", "0.1.2", "0.1.1", "0.1.0"]));
 
-    const delta = await changelogDelta(root, { repoSlug: "example/lfg-changelog-test" });
+    const delta = await changelogDelta(root, { repoSlug: "example/lfg-changelog-test" }, false, "0.1.1");
+    expect(delta.map((e) => e.version)).toEqual(["0.1.3", "0.1.2"]);
+  });
+
+  test("stays measured from the running version after an update lands on disk", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lfg-changelog-delta-"));
+    cleanup.push(root);
+    // Disk already updated to 0.1.3; the process is still 0.1.1. Reading the
+    // disk version here returned an empty list to the one reader who still
+    // needed it — the person who had not restarted.
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "lfg", version: "0.1.3" }));
+    mockFetch("v0.1.3", fakeChangelog(["0.1.3", "0.1.2", "0.1.1", "0.1.0"]));
+
+    const delta = await changelogDelta(root, { repoSlug: "example/lfg-changelog-staged" }, false, "0.1.1");
     expect(delta.map((e) => e.version)).toEqual(["0.1.3", "0.1.2"]);
   });
 
@@ -446,7 +503,7 @@ describe("changelog delta", () => {
     const versions = Array.from({ length: 12 }, (_, i) => `0.${12 - i}.0`);
     mockFetch(`v${versions[0]}`, fakeChangelog(versions));
 
-    const delta = await changelogDelta(root, { repoSlug: "example/lfg-changelog-cap-test" });
+    const delta = await changelogDelta(root, { repoSlug: "example/lfg-changelog-cap-test" }, false, "0.0.0");
     expect(delta).toHaveLength(8);
     expect(delta[0].version).toBe(versions[0]);
   });
@@ -457,7 +514,7 @@ describe("changelog delta", () => {
     writeFileSync(join(root, "package.json"), JSON.stringify({ name: "lfg", version: "0.1.0" }));
     globalThis.fetch = (async () => new Response("boom", { status: 500 })) as unknown as typeof fetch;
 
-    const delta = await changelogDelta(root, { repoSlug: "example/lfg-changelog-fail-test" });
+    const delta = await changelogDelta(root, { repoSlug: "example/lfg-changelog-fail-test" }, false, "0.1.1");
     expect(delta).toEqual([]);
   });
 

@@ -10,11 +10,19 @@
 
 export type InstallUpdateStatus = {
   channel: "source" | "release";
-  state: "up-to-date" | "available" | "blocked";
+  /**
+   * `staged` = an update is on disk but the running process predates it, so a
+   * restart is the action, not a download. Distinct from `available`, where
+   * nothing has been fetched yet.
+   */
+  state: "up-to-date" | "available" | "staged" | "blocked";
   currentSha?: string;
   latestSha?: string;
   commitsBehind?: number;
+  /** The version actually running, never the one on disk. */
   currentVersion?: string;
+  /** On-disk version, present only while it differs from the running one. */
+  stagedVersion?: string;
   latestVersion?: string;
   latestTag?: string;
   message: string;
@@ -53,8 +61,22 @@ export function isInstallUpdateInfo(value: unknown): value is InstallUpdateInfo 
 
 /** The opaque "version" an available update is identified by, for skip persistence. */
 export function updateIdentifier(status: InstallUpdateStatus | null | undefined): string | null {
-  if (!status || status.state !== "available") return null;
-  return status.latestVersion ?? status.latestTag ?? status.latestSha ?? null;
+  if (!status) return null;
+  if (status.state === "available") {
+    return status.latestVersion ?? status.latestTag ?? status.latestSha ?? null;
+  }
+  // A staged update is still something to tell the reader about: the bits are
+  // on disk and the box is running older code until it restarts. Without this
+  // the nudge went quiet at exactly the moment there was something to do.
+  //
+  // Namespaced so it is a DIFFERENT id from the same version while it was
+  // merely available. Skipping the download must not also silence the restart
+  // that download turned out to need.
+  if (status.state === "staged") {
+    const version = status.stagedVersion ?? status.latestVersion ?? status.latestTag;
+    return version ? `staged:${version}` : null;
+  }
+  return null;
 }
 
 /**

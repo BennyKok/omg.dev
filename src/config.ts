@@ -132,6 +132,23 @@ export function appVersion(): string {
   return RUNNING_VERSION;
 }
 
+/**
+ * The version sitting on DISK right now, which is NOT necessarily the one this
+ * process is executing. This is the affordance the note above anticipated.
+ *
+ * The two differ for a real and common window: an update writes new files and
+ * the running server keeps serving the old ones until it restarts. Anything
+ * answering "what am I running" must use appVersion(); this exists only so a
+ * caller can detect that window and say "staged, restart to apply".
+ *
+ * Never use this to report a running version. That is the bug appVersion() was
+ * introduced to end, and reintroducing it here under a clearer name would be
+ * the same bug with better manners.
+ */
+export function stagedVersion(): string {
+  return readVersionFromDisk();
+}
+
 export type InstallChannel = "source" | "release" | "container" | "unknown";
 
 export type InstallInfo = {

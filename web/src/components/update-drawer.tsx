@@ -172,7 +172,9 @@ export function UpdateSettingsRow() {
   const { status, channel, updateCommand, checking, error, refresh, nudgeVisible, openDrawer } =
     useUpdateStatus();
 
-  const available = status?.state === "available";
+  // Both states are actionable: `available` needs a download, `staged` needs
+  // only the restart that applies bits already on disk.
+  const available = status?.state === "available" || status?.state === "staged";
   const supported = channel === "source" || channel === "release";
   const blockedReason = available && !status.restartSupported
     ? `${status.restartBlockedReason ?? "Automatic restart is unavailable on this install."}${
