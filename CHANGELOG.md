@@ -2,6 +2,38 @@
 
 Recent product updates and deployment notes.
 
+## August 31, 2026 - An honest token usage inspector and a self-healing session page (v0.6.19)
+
+- **Token usage no longer counts free space as used.** The inspector asked
+  Claude for a context breakdown and charted the answer as-is. That answer is a
+  layout of the whole context window, not a list of what fills it, so it also
+  carries a "Free space" remainder, a reserved autocompact buffer, and tool
+  schemas that are advertised but never loaded. All of it was drawn as
+  consumption. A session that reported 317k of 1.0M listed categories adding up
+  to 1.27M, with "Free space" as the largest single entry, and the bar divides
+  by that total, so every proportion was wrong as well. The real Messages row,
+  which was almost all of the context, showed as a quarter of the bar. The
+  breakdown now counts only what occupies the window. Every one of the 585
+  recorded snapshots on the development machine was affected.
+- **The mobile transcript appears settled, not mid-move.** A session opened on
+  the native app revealed its messages one frame after they arrived, but the
+  list keeps correcting its position for up to three seconds, because rows
+  mount in batches and an image has no height until it loads. On a real device
+  that showed as a transcript parked mid-conversation, with one bubble drawn
+  over the tail of the reply above it and the "New activity" pill still up. The
+  app now waits for the list to go quiet before it reveals it. A session opened
+  while a reply is streaming never goes quiet, so it reveals after 1.2 seconds
+  instead of waiting. The opening spinner already covered this moment, so the
+  cost is a slightly longer spinner.
+- **The session page recovers from a failed code-split chunk.** Safari could
+  show "Importing a module script failed." on a session, from the router error
+  boundary, and the page stayed broken. Three parts of the session page loaded
+  their code without the retry that the rest of the app uses: the chat engine,
+  the assistant message renderer and the diff viewer. A chunk that fails to
+  arrive now reloads once and recovers. The background warm-up of the chat
+  engine no longer reports its own failure as an error, because the page
+  re-requests that code when it renders.
+
 ## August 30, 2026 - A flat desktop workspace, agent account names, and remote access in Settings (v0.6.18)
 
 - **The desktop workspace no longer draws cards around itself.** The session
