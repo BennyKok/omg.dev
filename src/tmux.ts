@@ -16,10 +16,7 @@ import {
   resolveClaudeAccount,
 } from "./claude-accounts.ts";
 import { agentTmpEnv } from "./tmp-reclaim.ts";
-import {
-  codexServiceTierArgs,
-  type CodexServiceTier,
-} from "./service-tier.ts";
+import { type CodexServiceTier } from "./service-tier.ts";
 
 // Known-good Claude model alias to launch with when a caller doesn't specify
 // one. Never launch a managed `claude` bare — see spawnManagedSession. Opus is
@@ -608,7 +605,6 @@ export function spawnManagedSession(opts: {
   prompt?: string;
   model?: string;
   thinkingLevel?: string;
-  fastMode?: boolean;
   // When set, resume the on-disk transcript with this sessionId (`claude
   // --resume <id>`) instead of starting a fresh conversation — the way lfg
   // brings a closed/dead session back after the box (and its tmux server +
@@ -644,7 +640,6 @@ export function spawnManagedSession(opts: {
   // vocabulary onto it (see claudeEffortFor). Omitted → CLI default effort.
   const effort = claudeEffortFor(opts.thinkingLevel);
   if (effort) claudeArgv.push("--effort", effort);
-  if (opts.fastMode) claudeArgv.push("--settings", JSON.stringify({ fastMode: true }));
   // `--` terminates option parsing so the variadic --add-dir can't swallow the
   // positional prompt as a second directory (which strands the new session at
   // an empty composer — the first message never gets submitted).
@@ -705,7 +700,6 @@ export type ManagedCodexSessionOptions = {
   prompt?: string;
   model?: string;
   thinkingLevel?: string;
-  serviceTier?: CodexServiceTier;
   omgSessionId?: string;
   omgUser?: string | null;
   containInAgentSlice?: boolean;
@@ -732,7 +726,6 @@ export function managedCodexSessionArgv(opts: ManagedCodexSessionOptions): strin
   ];
   if (opts.model) argv.push("--model", opts.model);
   if (opts.thinkingLevel) argv.push("-c", `reasoning_effort=${JSON.stringify(opts.thinkingLevel)}`);
-  argv.push(...codexServiceTierArgs(opts.serviceTier));
   const prompt = withOmgRuntimeContract(opts.prompt);
   if (prompt?.trim()) argv.push("--", prompt);
   addSessionEnv(argv, opts.omgSessionId, opts.omgUser, opts.name);
