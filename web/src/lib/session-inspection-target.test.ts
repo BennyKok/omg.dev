@@ -27,16 +27,13 @@ describe("session inspection target", () => {
           { role: "user", text: "Can you inspect https://x.com/blendibyl/status/2094216957734355275?s=46" },
           { role: "assistant", text: "I opened https://github.com/BennyKok/omg.dev/pull/252" },
         ],
-        "https://x.com/blendibyl/status/2094216957734355275",
       ),
     ).toBe("https://x.com/blendibyl/status/2094216957734355275?s=46");
   });
 
-  test("falls back to a valid URL title and rejects non-web schemes", () => {
-    expect(resolveSessionInspectionUrl([], "https://example.test/checkout?step=2")).toBe(
-      "https://example.test/checkout?step=2",
-    );
-    expect(resolveSessionInspectionUrl([{ role: "user", text: "file:///etc/passwd" }], "No URL"))
+  test("never treats a clipped display title as navigational state", () => {
+    expect(resolveSessionInspectionUrl([])).toBeNull();
+    expect(resolveSessionInspectionUrl([{ role: "user", text: "file:///etc/passwd" }]))
       .toBeNull();
   });
 

@@ -14892,8 +14892,8 @@ function SessionChatBody({
   const { messages: uiMessages, setMessages, sendMessage: sendChatMessage, status: chatStatus } = chat;
   const chatMessages = useMemo(() => omgUIMessagesToMessages(uiMessages), [uiMessages]);
   const inspectionPageUrl = useMemo(
-    () => resolveSessionInspectionUrl(chatMessages, session.title),
-    [chatMessages, session.title],
+    () => resolveSessionInspectionUrl(chatMessages),
+    [chatMessages],
   );
   // Busy straight from the transcript subscription: the harness flips it the
   // moment it starts a turn, ahead of the ~1s status-poll row that feeds the

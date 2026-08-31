@@ -51,19 +51,13 @@ function urlsInText(text: string | null | undefined): string[] {
  * commonly contain source links and PR URLs, so allowing a later assistant
  * link to win is exactly how Design Mode opens the wrong page.
  */
-export function resolveSessionInspectionUrl(
-  messages: MessageLike[],
-  sessionTitle: string | null | undefined,
-): string | null {
+export function resolveSessionInspectionUrl(messages: MessageLike[]): string | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message?.role !== "user") continue;
     const urls = urlsInText(message.text);
     if (urls.length) return urls.at(-1) ?? null;
   }
-
-  const titleUrl = urlsInText(sessionTitle).at(-1);
-  if (titleUrl) return titleUrl;
 
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const urls = urlsInText(messages[index]?.text);
@@ -84,15 +78,15 @@ export async function fetchSessionInspectionUrl(
   loadedMessages: MessageLike[],
   fetcher: FetchLike = omgFetch,
 ): Promise<string | null> {
-  if (!sessionId) return resolveSessionInspectionUrl(loadedMessages, null);
+  if (!sessionId) return resolveSessionInspectionUrl(loadedMessages);
   const response = await fetcher(transcriptPagePath(sessionId));
   if (!response.ok) {
     throw new Error((await response.text()) || "could not read the session page target");
   }
   const payload = (await response.json()) as { messages?: MessageLike[] };
   return (
-    resolveSessionInspectionUrl(payload.messages ?? [], null) ??
-    resolveSessionInspectionUrl(loadedMessages, null)
+    resolveSessionInspectionUrl(payload.messages ?? []) ??
+    resolveSessionInspectionUrl(loadedMessages)
   );
 }
 
