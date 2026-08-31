@@ -107,6 +107,45 @@ function ArtifactLoadError({ className }: { className?: string }) {
   );
 }
 
+/**
+ * The `max-h-[24rem]` every transcript media caller passes in its className.
+ * Reserving the box means solving for the height that cap produces, so the
+ * number has to exist on this side too. Keep the two in step.
+ */
+const MEDIA_MAX_HEIGHT_CSS = "24rem";
+
+/**
+ * The exact box a `w-auto max-w-full max-h-[24rem] object-contain` image will
+ * occupy once it has decoded, from its intrinsic dimensions alone.
+ *
+ * WITHOUT THIS AN UNDECODED IMAGE IS ZERO PIXELS TALL, AND THAT IS A LAYOUT
+ * BUG, NOT A COSMETIC ONE. `width`/`height` on an `<img>` are only
+ * PRESENTATIONAL hints, and any author `width` rule beats them — including
+ * Tailwind's `w-auto`. So `w-auto` resolves against the intrinsic width, which
+ * for an image that has not decoded yet is 0, which makes `aspect-ratio`
+ * resolve a height of 0 as well. Measured directly in the browser on the
+ * transcript's own class list, with a src that never resolves:
+ *
+ *   w-auto max-w-full max-h-[24rem]            ->   0px   (computed width 0px)
+ *   the same, minus w-auto                     -> 384px   (width 340px)
+ *   the same, plus the style below             -> 384px   (width 307px)
+ *
+ * Dropping `w-auto` is not the fix: the width then comes from the attribute
+ * clamped by `max-w-full`, so the image letterboxes inside a `w-fit` card and
+ * gains empty bands beside it. A definite width solves to the same 307px the
+ * decoded image settles at, so nothing moves when the bytes land.
+ */
+export function reservedMediaBox(
+  width: number | undefined,
+  height: number | undefined,
+): { aspectRatio: string; width: string } | undefined {
+  if (!width || !height) return undefined;
+  return {
+    aspectRatio: `${width} / ${height}`,
+    width: `min(${width}px, calc(${MEDIA_MAX_HEIGHT_CSS} * ${width / height}))`,
+  };
+}
+
 function ArtifactLoading({
   className,
   width,
@@ -116,20 +155,17 @@ function ArtifactLoading({
   width?: number;
   height?: number;
 }) {
-  const hasDimensions = !!width && !!height;
+  const reserved = reservedMediaBox(width, height);
   return (
     <div
       aria-hidden
       // Match the final image's exact intrinsic box. The transcript can lay out
       // the card before authenticated preview bytes arrive, eliminating the
       // old 160x112 placeholder -> image jump.
-      style={hasDimensions ? {
-        aspectRatio: `${width} / ${height}`,
-        width: `min(${width}px, calc(24rem * ${width / height}))`,
-      } : undefined}
+      style={reserved}
       className={cn(
         "animate-pulse bg-muted/35",
-        !hasDimensions && "min-h-28 min-w-40",
+        !reserved && "min-h-28 min-w-40",
         className,
       )}
     />
@@ -143,8 +179,14 @@ function ArtifactLoading({
  * error box. On the direct path the `<img>` itself is the loader, so it has to
  * be in the tree before anyone knows whether the bytes arrive, and its
  * `onLoad`/`onError` supply the same two states. The placeholder is then a
- * background on that one element rather than a second element: the box is
- * already reserved by `width`/`height`, so there is no swap and no layout jump.
+ * background on that one element rather than a second element.
+ *
+ * That last part used to claim the box was "already reserved by
+ * `width`/`height`". It was not — see `reservedMediaBox`, which is what
+ * actually reserves it. Until it did, an undecoded transcript image was zero
+ * pixels tall and the row around it grew by the image's full height the moment
+ * the bytes landed, which in a virtualized transcript printed the NEXT row
+ * inside this one.
  */
 function ArtifactPicture({
   source,
@@ -192,6 +234,10 @@ function ArtifactPicture({
       alt={alt}
       width={width}
       height={height}
+      // Hold the decoded image's exact box from the first frame. The attributes
+      // above cannot do it on their own: they are presentational hints, and the
+      // caller's `w-auto` outranks them.
+      style={reservedMediaBox(width, height)}
       loading={lazy ? "lazy" : undefined}
       decoding={lazy ? "async" : undefined}
       onClick={onClick}
