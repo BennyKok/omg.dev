@@ -113,6 +113,16 @@ type OmgChatTransportOptions = {
   apiBase?: string;
   subscribeTranscript?: OmgTranscriptSubscribe;
   fetch?: typeof globalThis.fetch;
+  /**
+   * Who is sending, declared on every turn so the server can attribute it.
+   *
+   * Both send endpoints read the same `user` field. On a managed box it is
+   * ignored in favour of the verified header; on a self-hosted one it is
+   * validated against the roster, so it can name an existing member and
+   * nobody else. Omitted when unknown, which attributes nothing rather than
+   * attributing the wrong person.
+   */
+  viewerIdentity?: string | null;
 };
 
 function escapeHtml(value: string) {
@@ -831,14 +841,16 @@ export class OmgChatTransport implements ChatTransport<OmgChatMessage> {
   private readonly usesConfiguredTransport: boolean;
   private readonly sessionId: string;
   private readonly sendEndpoint: string;
+  private readonly viewerIdentity: string | undefined;
   // Live emitters held by this transport. See sendMessages: at most one, ever.
   // Scoped to the instance rather than to the session id on purpose — a stream
   // that is created and then never consumed would otherwise hold a global slot
   // forever, muting the session; here it dies with the transport.
   private liveStreams = 0;
 
-  constructor({ sessionId, sendEndpoint, apiBase = "", subscribeTranscript, fetch: fetchImpl }: OmgChatTransportOptions) {
+  constructor({ sessionId, sendEndpoint, apiBase = "", subscribeTranscript, fetch: fetchImpl, viewerIdentity }: OmgChatTransportOptions) {
     this.sessionId = sessionId;
+    this.viewerIdentity = viewerIdentity?.trim() || undefined;
     this.sendEndpoint = sendEndpoint ?? `/api/sessions/${encodeURIComponent(sessionId)}/send`;
     this.apiBase = apiBase;
     this.subscribeTranscript = subscribeTranscript;
@@ -881,7 +893,11 @@ export class OmgChatTransport implements ChatTransport<OmgChatMessage> {
       const response = await this.fetchImpl(this.requestTarget(this.sendEndpoint), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, mode: (body as { mode?: string } | undefined)?.mode }),
+        body: JSON.stringify({
+          text,
+          mode: (body as { mode?: string } | undefined)?.mode,
+          ...(this.viewerIdentity ? { user: this.viewerIdentity } : {}),
+        }),
         signal: abortSignal,
       });
       if (!response.ok) {

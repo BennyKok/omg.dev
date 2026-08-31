@@ -866,6 +866,16 @@ const BotDirectoryContext = createContext<Map<string, PersistentBot>>(new Map())
  * than guessed either way.
  */
 const ViewerIdentityContext = createContext<string | null>(null);
+/**
+ * The viewer's ADDRESS, for routes that accept a declared sender.
+ *
+ * Distinct from ViewerIdentityContext, which carries the opaque participant id
+ * the transcript renders with. The send routes need the address itself,
+ * because that is what they validate against the roster. Null means the
+ * browser cannot say who it is, and the server then attributes nothing rather
+ * than guessing.
+ */
+const SendIdentityContext = createContext<string | null>(null);
 const BotUnreadContext = createContext<{
   conversations: BotConversationUnread[];
   any: boolean;
@@ -7076,6 +7086,9 @@ export function App() {
   const wsLiveStream = useLiveSocket(liveSessions, expandedIds, {
     enabled: useWsLive,
     onStatusRows: applyLiveStatusRows,
+    // The same identity every other per-person call already declares. A
+    // managed box ignores it in favour of its verified header.
+    viewerIdentity: botUnreadIdentity,
   });
   const liveStream = useWsLive ? wsLiveStream : sseLiveStream;
 
@@ -8349,6 +8362,7 @@ export function App() {
     <OpenSettingsPageContext.Provider value={setTab}>
     <BotDirectoryContext.Provider value={botDirectory}>
     <ViewerIdentityContext.Provider value={viewerParticipantId}>
+    <SendIdentityContext.Provider value={botUnreadIdentity || null}>
     <SessionUnreadContext.Provider value={sessionUnreadValue}>
     <BotUnreadContext.Provider value={{ conversations: botConversations, any: hasUnreadBotConversation(botConversations), selectedConversationId: selectedBotConversationId, markRead: (sessionId) => void markBotConversationVisible(sessionId).catch(() => {}) }}>
     <OpenBotContext.Provider value={openBot}>
@@ -9171,6 +9185,7 @@ export function App() {
     </OpenBotContext.Provider>
     </BotUnreadContext.Provider>
     </SessionUnreadContext.Provider>
+    </SendIdentityContext.Provider>
     </ViewerIdentityContext.Provider>
     </BotDirectoryContext.Provider>
     </OpenSettingsPageContext.Provider>
@@ -14695,6 +14710,7 @@ function SessionChat(rawProps: SessionChatProps) {
   const sid = props.session.sessionId;
   const botId = props.bot?.id;
   const { onError, onSubscribeTranscript } = props;
+  const viewerIdentity = useContext(SendIdentityContext);
   const chatTransport = useMemo(
     () =>
       sid
@@ -14704,9 +14720,10 @@ function SessionChat(rawProps: SessionChatProps) {
               ? `/api/bots/${encodeURIComponent(botId)}/messages`
               : undefined,
             subscribeTranscript: onSubscribeTranscript,
+            viewerIdentity,
           })
         : undefined,
-    [sid, onSubscribeTranscript, botId],
+    [sid, onSubscribeTranscript, botId, viewerIdentity],
   );
   const reportError = useCallback((message: string) => onError(message), [onError]);
   return (

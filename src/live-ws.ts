@@ -37,6 +37,7 @@ import {
   type ImageArtifactMessage,
 } from "./artifacts.ts";
 import { listQueue, reconcileQueued } from "./sendq.ts";
+import { listConversations } from "./conversations.ts";
 import { traceLog } from "./trace-log.ts";
 
 /**
@@ -469,23 +470,68 @@ export function createLiveWsSupport(opts: {
   // blurring one tab retracts only that tab's claim and their still-active
   // other tab keeps them in the set. Keying by participant would let the blur
   // erase their own live keystrokes elsewhere.
-  const typingBySid = new Map<string, Map<LiveWs, { p: string; exp: number }>>();
+  // Keyed by CONVERSATION, not by runtime session.
+  //
+  // A bot conversation's primary runtime session id changes when the bot
+  // rotates (replaceConversationPrimaryRuntime), and a conversation can have
+  // several runtimes attached at once. Keying presence by sid therefore lost
+  // everyone on a restart, and hid two people from each other when they were
+  // looking at the same conversation through different runtimes. An ordinary
+  // session's conversation id IS its session id, so this is a superset: that
+  // case is byte-for-byte unchanged, and the bot case becomes correct without
+  // a second code path.
+  //
+  // The wire still speaks `sid`, because that is what a client subscribed to.
+  // The mapping stays here, where the conversation store already lives.
+  const typingByConversation = new Map<string, Map<LiveWs, { p: string; exp: number }>>();
   let typingSweep: ReturnType<typeof setInterval> | null = null;
 
-  const typingIdsFor = (sid: string): string[] => {
-    const row = typingBySid.get(sid);
+  /**
+   * sid -> durable conversation id, built once per call.
+   *
+   * Built in one pass rather than resolved per sid: a broadcast walks every
+   * socket's subscription set, and a per-sid lookup would re-read and re-parse
+   * the conversation store for each one.
+   */
+  const conversationKeys = (): Map<string, string> => {
+    const map = new Map<string, string>();
+    for (const conversation of listConversations()) {
+      for (const runtime of conversation.runtimeSessions) map.set(runtime.sessionId, conversation.id);
+    }
+    return map;
+  };
+
+  const conversationKeyFor = (sid: string, keys?: Map<string, string>): string =>
+    (keys ?? conversationKeys()).get(sid) ?? sid;
+
+  const typingIdsFor = (conversationKey: string): string[] => {
+    const row = typingByConversation.get(conversationKey);
     if (!row) return [];
     return [...new Set([...row.values()].map((entry) => entry.p))].sort();
   };
 
-  const broadcastTyping = (sid: string) => {
-    // Unstamped and unremembered, so it cannot be replayed on resume.
-    const frame = { t: "typing", sid, ids: typingIdsFor(sid) };
-    const id = channelId(transcriptChannel(sid));
+  /** The sid a socket is subscribed to, for each transcript channel it holds. */
+  const subscribedSids = (state: SocketState): string[] => {
+    const out: string[] = [];
+    for (const id of state.subscribed) {
+      if (id.startsWith("transcript:")) out.push(id.slice("transcript:".length));
+    }
+    return out;
+  };
+
+  const broadcastTyping = (conversationKey: string) => {
+    const ids = typingIdsFor(conversationKey);
+    const keys = conversationKeys();
     for (const ws of openSockets) {
       const state = sockets.get(ws);
-      if (!state || state.closed || !state.subscribed.has(id)) continue;
-      safeSend(ws, frame);
+      if (!state || state.closed) continue;
+      for (const sid of subscribedSids(state)) {
+        if (conversationKeyFor(sid, keys) !== conversationKey) continue;
+        // Addressed by the sid this socket subscribed to, so the client keys
+        // its own state the way it always has. Unstamped and unremembered, so
+        // it cannot be replayed on resume.
+        safeSend(ws, { t: "typing", sid, ids });
+      }
     }
   };
 
@@ -497,32 +543,32 @@ export function createLiveWsSupport(opts: {
    */
   const pruneTyping = (now: number): string[] => {
     const changed: string[] = [];
-    for (const [sid, row] of [...typingBySid]) {
-      const before = typingIdsFor(sid).join(",");
+    for (const [key, row] of [...typingByConversation]) {
+      const before = typingIdsFor(key).join(",");
       for (const [ws, entry] of row) {
         if (entry.exp > now) continue;
         row.delete(ws);
       }
-      if (row.size === 0) typingBySid.delete(sid);
-      if (typingIdsFor(sid).join(",") !== before) changed.push(sid);
+      if (row.size === 0) typingByConversation.delete(key);
+      if (typingIdsFor(key).join(",") !== before) changed.push(key);
     }
     return changed;
   };
 
   /** Retract every claim a closing socket still holds. */
   const forgetTypingSocket = (ws: LiveWs) => {
-    for (const [sid, row] of [...typingBySid]) {
+    for (const [key, row] of [...typingByConversation]) {
       if (!row.has(ws)) continue;
-      const before = typingIdsFor(sid).join(",");
+      const before = typingIdsFor(key).join(",");
       row.delete(ws);
-      if (row.size === 0) typingBySid.delete(sid);
-      if (typingIdsFor(sid).join(",") !== before) broadcastTyping(sid);
+      if (row.size === 0) typingByConversation.delete(key);
+      if (typingIdsFor(key).join(",") !== before) broadcastTyping(key);
     }
     stopTypingSweepIfIdle();
   };
 
   const stopTypingSweepIfIdle = () => {
-    if (typingBySid.size || !typingSweep) return;
+    if (typingByConversation.size || !typingSweep) return;
     clearInterval(typingSweep);
     typingSweep = null;
   };
@@ -538,21 +584,22 @@ export function createLiveWsSupport(opts: {
 
   /** Record (or retract) one socket's typing claim for one session. */
   const setTyping = (sid: string, ws: LiveWs, participantId: string, typing: boolean) => {
-    const before = typingIdsFor(sid).join(",");
-    const row = typingBySid.get(sid);
+    const key = conversationKeyFor(sid);
+    const before = typingIdsFor(key).join(",");
+    const row = typingByConversation.get(key);
     if (typing) {
       const next = row ?? new Map<LiveWs, { p: string; exp: number }>();
       next.set(ws, { p: participantId, exp: Date.now() + TYPING_TTL_MS });
-      typingBySid.set(sid, next);
+      typingByConversation.set(key, next);
       ensureTypingSweep();
     } else if (row) {
       row.delete(ws);
-      if (row.size === 0) typingBySid.delete(sid);
+      if (row.size === 0) typingByConversation.delete(key);
     }
     // Only tell anyone when the visible set changed. A keystroke heartbeat
     // merely extends an existing expiry, and that is the common case: it must
     // not put a frame on every subscribed socket several times a second.
-    if (typingIdsFor(sid).join(",") !== before) broadcastTyping(sid);
+    if (typingIdsFor(key).join(",") !== before) broadcastTyping(key);
   };
 
   // Artifact publishes fan out only after their SQLite row commits. This is
@@ -1068,7 +1115,11 @@ export function createLiveWsSupport(opts: {
       // keystroke anywhere in the session. Send the current set once. An empty
       // set is still worth sending: it clears whatever a reconnecting client
       // was still drawing from before the drop.
-      safeSend(state.ws, { t: "typing", sid: channel.key, ids: typingIdsFor(channel.key) });
+      safeSend(state.ws, {
+        t: "typing",
+        sid: channel.key,
+        ids: typingIdsFor(conversationKeyFor(channel.key)),
+      });
       return;
     }
     if (channel.kind === "agent_run") {

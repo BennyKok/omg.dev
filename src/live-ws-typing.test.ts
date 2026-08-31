@@ -5,9 +5,20 @@
 // presence frame must never be replayed from the resume ring (a stale "still
 // typing" has no later frame to correct it, because the truth is an absence
 // of frames).
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ServerWebSocket } from "bun";
+import { PATHS } from "./config.ts";
 import { createLiveWsSupport } from "./live-ws.ts";
+import {
+  attachRuntimeSession,
+  botParticipantId,
+  ensureBotConversation,
+  replaceConversationPrimaryRuntime,
+  resetConversationsForTests,
+} from "./conversations.ts";
 
 const SID = "11111111-1111-4111-8111-111111111111";
 const OTHER_SID = "22222222-2222-4222-8222-222222222222";
@@ -19,6 +30,17 @@ type Fake = ServerWebSocket<unknown> & { frames: Frame[] };
 
 let live: ReturnType<typeof createLiveWsSupport> | null = null;
 const opened: Fake[] = [];
+const originalData = PATHS.data;
+let root = "";
+
+// Isolate the conversation store: presence resolves a session's durable
+// conversation through it, and reading the developer's real store would let
+// unrelated rows decide these assertions.
+beforeEach(() => {
+  root = mkdtempSync(join(tmpdir(), "omg-typing-"));
+  (PATHS as { data: string }).data = root;
+  resetConversationsForTests();
+});
 
 function support() {
   live ??= createLiveWsSupport({ evlog: () => {} });
@@ -60,6 +82,8 @@ const lastTypingIds = (ws: Fake) => {
 afterEach(() => {
   for (const ws of opened.splice(0)) support().close(ws);
   live = null;
+  (PATHS as { data: string }).data = originalData;
+  rmSync(root, { recursive: true, force: true });
 });
 
 describe("only a verified socket identity can claim to be typing", () => {
@@ -255,5 +279,81 @@ describe("presence is never replayed from the resume ring", () => {
     // An empty set still has to arrive: it is what clears whatever the client
     // was drawing before it dropped.
     expect(lastTypingIds(latecomer)).toEqual([]);
+  });
+});
+
+describe("presence follows the conversation, not the runtime session", () => {
+  // A bot conversation's primary runtime id changes when the bot rotates, and
+  // a conversation can hold several runtimes at once. Keying by sid dropped
+  // everyone on a restart and hid two people looking at one conversation
+  // through different runtimes.
+  const SCOUT = { id: "bot_scout", name: "Scout", owner: null };
+  const OLD_RUNTIME = "33333333-3333-4333-8333-333333333333";
+  const NEW_RUNTIME = "44444444-4444-4444-8444-444444444444";
+
+  function botConversation() {
+    ensureBotConversation({ conversationId: "conv-1", bot: SCOUT, roster: [] });
+    attachRuntimeSession({
+      conversationId: "conv-1",
+      sessionId: OLD_RUNTIME,
+      participantId: botParticipantId(SCOUT.id),
+      kind: "primary",
+    });
+  }
+
+  test("two people on different runtimes of one conversation see each other", async () => {
+    botConversation();
+    attachRuntimeSession({
+      conversationId: "conv-1",
+      sessionId: NEW_RUNTIME,
+      participantId: botParticipantId(SCOUT.id),
+      kind: "primary",
+    });
+
+    const onOld = socket(ANA);
+    const onNew = socket(BEN);
+    await subscribe(onOld, OLD_RUNTIME);
+    await subscribe(onNew, NEW_RUNTIME);
+
+    send(onOld, { t: "typing", sid: OLD_RUNTIME, typing: true });
+
+    // Addressed with the sid the watcher actually subscribed to, so its own
+    // per-session state still keys correctly.
+    const frame = typingFrames(onNew)[0];
+    expect(frame?.sid).toBe(NEW_RUNTIME);
+    expect(frame?.ids).toEqual([ANA]);
+  });
+
+  test("a claim survives the runtime being replaced under it", async () => {
+    botConversation();
+    const ana = socket(ANA);
+    const watcher = socket(BEN);
+    await subscribe(ana, OLD_RUNTIME);
+    await subscribe(watcher, OLD_RUNTIME);
+    send(ana, { t: "typing", sid: OLD_RUNTIME, typing: true });
+    expect(lastTypingIds(watcher)).toEqual([ANA]);
+
+    // The bot rotates. The claim is held against the conversation, so it is
+    // still true, and a client arriving on the new runtime is told so.
+    replaceConversationPrimaryRuntime({
+      conversationId: "conv-1",
+      sessionId: NEW_RUNTIME,
+      participantId: botParticipantId(SCOUT.id),
+    });
+
+    const afterRotation = socket(BEN);
+    send(afterRotation, { t: "subscribe", ids: [NEW_RUNTIME] });
+    expect(lastTypingIds(afterRotation)).toEqual([ANA]);
+  });
+
+  test("a different conversation is still isolated", async () => {
+    botConversation();
+    const ana = socket(ANA);
+    const elsewhere = socket(BEN);
+    await subscribe(ana, OLD_RUNTIME);
+    await subscribe(elsewhere, SID);
+
+    send(ana, { t: "typing", sid: OLD_RUNTIME, typing: true });
+    expect(typingFrames(elsewhere)).toHaveLength(0);
   });
 });
