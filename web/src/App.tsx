@@ -149,6 +149,10 @@ import {
   type BotShape,
 } from "./components/BotAvatar";
 import { EmbeddedConnectGate } from "./components/embedded-connect-gate";
+import {
+  ConversationParticipantRow,
+  HumanTypingIndicator,
+} from "./components/conversation-presence";
 import { SessionAssigneeAvatar } from "./components/session-assignee-avatar";
 import { UserFilterMenu } from "./components/user-filter-menu";
 import {
@@ -5220,8 +5224,22 @@ function useLiveSessionStream(sessions: Session[], streamIds: string[]) {
     removeOptimisticMessage,
     trackSendStatus,
     loadOlderMessages,
+    // Typing presence is websocket-only. It is a bidirectional, ephemeral
+    // signal and SSE has no client-to-server direction to carry the claim, so
+    // this compatibility transport reports that nobody is typing and drops
+    // outgoing claims. Every other feature on this path is unchanged; the
+    // indicator is simply absent when LIVE_TRANSPORT=sse.
+    typingBySid: EMPTY_TYPING as Record<string, string[]>,
+    sendTyping: noopSendTyping,
   };
 }
+
+// Module-level constants so the SSE transport returns a stable identity and
+// cannot retrigger effects that depend on them.
+const EMPTY_TYPING: Record<string, string[]> = {};
+/** Stable empty list so a non-typing card never gets a new prop identity. */
+const EMPTY_TYPING_IDS: readonly string[] = [];
+function noopSendTyping(_sid: string, _typing: boolean): void {}
 
 // Header toggle for PWA push notifications. Hidden entirely where the browser
 // can't do Web Push (e.g. desktop Safari without the SW, or an http origin).
@@ -7061,6 +7079,27 @@ export function App() {
   });
   const liveStream = useWsLive ? wsLiveStream : sseLiveStream;
 
+  // "Somebody ELSE is typing."
+  //
+  // The server broadcasts the full typing set to every subscriber including
+  // the person typing, because one person with two tabs open is still one
+  // typist and the set has to stay authoritative for everyone. The viewer is
+  // therefore removed here, once, rather than in each place that renders it —
+  // otherwise you watch yourself type.
+  //
+  // A null viewerParticipantId means "who am I" never resolved (see
+  // BootstrapPayload["viewer"]). Showing an unfiltered set then would draw the
+  // viewer's own name back at them, so it degrades to showing nobody.
+  const othersTypingBySid = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    if (!viewerParticipantId) return out;
+    for (const [sid, ids] of Object.entries(liveStream.typingBySid)) {
+      const others = ids.filter((id) => id !== viewerParticipantId);
+      if (others.length) out[sid] = others;
+    }
+    return out;
+  }, [liveStream.typingBySid, viewerParticipantId]);
+
   // A box that restarts under an open tab keeps serving, so nothing else here
   // notices — but the version it runs has just changed, and Settings would go
   // on showing the pre-restart number indefinitely. That is the worst possible
@@ -8714,6 +8753,8 @@ export function App() {
               messagesBySid={liveStream.messagesBySid}
               busyBySid={liveStream.busyBySid}
               promptsBySid={liveStream.promptsBySid}
+              typingBySid={othersTypingBySid}
+              onTyping={liveStream.sendTyping}
               onSubscribeTranscript={useWsLive ? wsLiveStream.subscribeTranscript : undefined}
               onRefresh={refreshSessions}
               onRenameSession={renameSession}
@@ -10862,6 +10903,8 @@ function LiveView({
   messagesBySid,
   busyBySid,
   promptsBySid,
+  typingBySid,
+  onTyping,
   onSubscribeTranscript,
   onRefresh,
   onRenameSession,
@@ -10931,6 +10974,9 @@ function LiveView({
   messagesBySid: Record<string, Message[]>;
   busyBySid: Record<string, boolean>;
   promptsBySid: Record<string, SessionPrompt | null>;
+  // Other people typing, per session. The viewer is already excluded.
+  typingBySid: Record<string, string[]>;
+  onTyping: (sid: string, typing: boolean) => void;
   onSubscribeTranscript?: OmgTranscriptSubscribe;
   onRefresh: () => Promise<void>;
   onRenameSession: RenameSession;
@@ -11143,6 +11189,8 @@ function LiveView({
           messages={messagesBySid[session.sessionId ?? ""] ?? EMPTY_MESSAGES}
           busy={!!busyBySid[session.sessionId ?? ""]}
           prompt={promptsBySid[session.sessionId ?? ""] ?? null}
+          typingIds={typingBySid[session.sessionId ?? ""] ?? EMPTY_TYPING_IDS}
+          onTyping={onTyping}
           onSubscribeTranscript={onSubscribeTranscript}
           onRefresh={onRefresh}
           onRenameSession={onRenameSession}
@@ -11219,6 +11267,8 @@ function LiveView({
         users={users}
         projectFilter={projectFilter}
         messagesBySid={messagesBySid}
+        typingBySid={typingBySid}
+        onTyping={onTyping}
         busyBySid={busyBySid}
         promptsBySid={promptsBySid}
         onSubscribeTranscript={onSubscribeTranscript}
@@ -11376,6 +11426,8 @@ function LiveView({
         origin={sheetOrigin ?? new DOMRect(window.innerWidth / 2 - 120, 120, 240, 44)}
         busyBySid={busyBySid}
         promptsBySid={promptsBySid}
+        typingBySid={typingBySid}
+        onTyping={onTyping}
         // Swiping to the next session is a navigation like any other, so it
         // gets its own history entry and back walks the sessions you visited.
         onSwitch={(nextSid) => onOpenSessionPage?.(nextSid)}
@@ -11405,6 +11457,8 @@ function RailStage({
   messagesBySid,
   busyBySid,
   promptsBySid,
+  typingBySid,
+  onTyping,
   onSubscribeTranscript,
   onRefresh,
   onRenameSession,
@@ -11473,6 +11527,8 @@ function RailStage({
   messagesBySid: Record<string, Message[]>;
   busyBySid: Record<string, boolean>;
   promptsBySid: Record<string, SessionPrompt | null>;
+  typingBySid: Record<string, string[]>;
+  onTyping: (sid: string, typing: boolean) => void;
   onSubscribeTranscript?: OmgTranscriptSubscribe;
   onRefresh: () => Promise<void>;
   onRenameSession: RenameSession;
@@ -12364,6 +12420,8 @@ function RailStage({
             messages={messagesBySid[sid] ?? EMPTY_MESSAGES}
             busy={!!busyBySid[sid]}
             prompt={promptsBySid[sid] ?? null}
+            typingIds={typingBySid[sid] ?? EMPTY_TYPING_IDS}
+            onTyping={onTyping}
             onSubscribeTranscript={onSubscribeTranscript}
             onRefresh={onRefresh}
             onRenameSession={onRenameSession}
@@ -14598,6 +14656,10 @@ type SessionChatProps = {
   bot?: PersistentBot;
   busy: boolean;
   prompt: SessionPrompt | null;
+  /** Other people typing here. The viewer is already excluded upstream. */
+  typingIds?: readonly string[];
+  /** Report the viewer's own typing; the transport throttles it. */
+  onTyping?: (sid: string, typing: boolean) => void;
   error: string | null;
   onError: (error: string | null) => void;
   onSubscribeTranscript?: OmgTranscriptSubscribe;
@@ -14673,6 +14735,8 @@ function SessionChatBody({
   bot,
   busy,
   prompt,
+  typingIds,
+  onTyping,
   error,
   onError,
   onSubscribeTranscript,
@@ -14748,6 +14812,11 @@ function SessionChatBody({
     (text: string) => {
       setMessageTextState(text);
       if (!sid) return;
+      // Every composer edit funnels through here, so this is the one place
+      // that has to report typing. An emptied composer retracts immediately
+      // rather than waiting for the server TTL, because clearing the box is a
+      // deliberate "never mind" and should read as one.
+      onTyping?.(sid, text.trim().length > 0);
       stashPromptDraft({
         contextKey: stashContext,
         source: "session",
@@ -14757,8 +14826,20 @@ function SessionChatBody({
         project: session.project,
       });
     },
-    [session.project, session.title, sid, stashContext],
+    [onTyping, session.project, session.title, sid, stashContext],
   );
+  // Faces and names for whoever is typing. An id with no roster row still
+  // renders, as the existing "somebody else" placeholder: the id came from the
+  // server, so dropping it would hide a real person rather than admit we
+  // cannot name them.
+  const typingParticipants = useMemo(() => {
+    if (!typingIds?.length) return [];
+    const roster = activeConversationParticipants(session);
+    return typingIds.map(
+      (id) => roster.find((participant) => participant.id === id) ?? unknownConversationParticipant(id),
+    );
+  }, [typingIds, session]);
+
   const setDictatedMessageText = useCallback(
     (text: string, base: string) => {
       setMessageText(base.trim() ? `${base.trimEnd()} ${text}` : text);
@@ -14772,6 +14853,15 @@ function SessionChatBody({
   useEffect(() => {
     setMessageTextState(readPromptDraft(stashContext)?.text ?? "");
   }, [stashContext]);
+
+  // Closing the card, or switching it to another session, ends any claim this
+  // surface was making. The socket retracts on disconnect too, but a card that
+  // merely unmounts keeps the socket open, so without this the indicator would
+  // sit there until the server TTL expired it.
+  useEffect(() => {
+    if (!sid || !onTyping) return;
+    return () => onTyping(sid, false);
+  }, [onTyping, sid]);
 
   useEffect(() => {
     if (!sid) {
@@ -14913,6 +15003,10 @@ function SessionChatBody({
     feedback.send();
     onError(null);
     setMessageTextState("");
+    // Sending is the end of typing. Retract now rather than letting the TTL
+    // lapse, or the indicator outlives the message it was announcing and
+    // briefly reads as "still typing" beside their delivered turn.
+    if (sid) onTyping?.(sid, false);
     try {
       // Uploads started when the files were attached; this normally resolves
       // immediately and only actually waits for bytes still in flight.
@@ -15072,6 +15166,10 @@ function SessionChatBody({
             launching && "lfg-composer-launching",
           )}
         >
+          {/* A person composing, not the agent working. Sits above the input
+              rather than in ChatStream's TypingIndicator slot so the two can
+              never be mistaken for each other. */}
+          <HumanTypingIndicator participants={typingParticipants} />
           {files.fileInput}
           <ComposerAttachmentChips
             className="mb-2"
@@ -15973,6 +16071,8 @@ function SessionTitleSheet({
   order,
   busyBySid,
   promptsBySid,
+  typingBySid,
+  onTyping,
   origin,
   onSwitch,
   onSubscribeTranscript,
@@ -15993,6 +16093,8 @@ function SessionTitleSheet({
   order: string[];
   busyBySid: Record<string, boolean>;
   promptsBySid: Record<string, SessionPrompt | null>;
+  typingBySid: Record<string, string[]>;
+  onTyping: (sid: string, typing: boolean) => void;
   origin: DOMRect;
   onSwitch: (sid: string) => void;
   onSubscribeTranscript?: OmgTranscriptSubscribe;
@@ -16015,6 +16117,7 @@ function SessionTitleSheet({
   // Per-session live data, selected for whichever session is active right now.
   const busy = !!busyBySid[sid];
   const prompt = promptsBySid[sid] ?? null;
+  const typingIds = typingBySid[sid] ?? EMPTY_TYPING_IDS;
 
   // Prev/next neighbours in display order (null at the ends — no wrap-around).
   const idx = order.indexOf(sid);
@@ -16499,6 +16602,11 @@ function SessionTitleSheet({
               <SessionTitleLine title={title} />
             </button>
           )}
+          {/* The full-screen sheet is the whole session on a phone, so the
+              roster has to be here too — the card header this mirrors is not
+              on screen. Compact, and self-hiding below two participants, so a
+              solo session's header is byte-for-byte what it was. */}
+          <SessionParticipantRow session={session} compact typingIds={typingIds} />
           {session.shippedReview ? (
             <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
               Shipped
@@ -16524,6 +16632,8 @@ function SessionTitleSheet({
             session={session}
             busy={busy}
             prompt={prompt}
+            typingIds={typingIds}
+            onTyping={onTyping}
             error={error}
             onError={setError}
             onSubscribeTranscript={onSubscribeTranscript}
@@ -16808,65 +16918,31 @@ function ForkSessionDialog({
   );
 }
 
-function ConversationParticipantRow({ session, compact = false }: { session: Session; compact?: boolean }) {
+/**
+ * Session-shaped adapter over the pure ConversationParticipantRow in
+ * components/conversation-presence.tsx. The component itself takes plain
+ * data so it can be render-tested; this resolves the roster and the bot
+ * directory from context for the ~dozen call sites that pass a Session.
+ */
+function SessionParticipantRow({
+  session,
+  compact = false,
+  typingIds,
+}: {
+  session: Session;
+  compact?: boolean;
+  typingIds?: readonly string[];
+}) {
   const botDirectory = useContext(BotDirectoryContext);
   const participants = activeConversationParticipants(session);
-  if (participants.length < 2) return null;
+  const botLook = useCallback((botId: string) => botDirectory.get(botId), [botDirectory]);
   return (
-    <div
-      className="mt-0.5 flex min-w-0 max-w-full items-center gap-1 overflow-hidden"
-      aria-label={`Conversation participants: ${participants.map((participant) => participant.display.name || participant.display.fallback).join(", ")}`}
-    >
-      {participants.slice(0, 5).map((participant) => {
-        const name = participant.display.name?.trim() || participant.display.fallback;
-        if (participant.kind === "bot") {
-          const botId = participant.id.startsWith("bot:") ? participant.id.slice(4) : participant.id;
-          const bot = botDirectory.get(botId);
-          return (
-            <span
-              key={participant.id}
-              className={cn(
-                "flex min-w-0 shrink items-center rounded-full bg-muted text-[10px] leading-none text-muted-foreground",
-                compact ? "size-4 justify-center" : "gap-1 px-1.5 py-0.5",
-              )}
-              title={`${name} · bot`}
-              aria-label={`${name}, bot`}
-            >
-              <BotMascot
-                shape={bot?.shape}
-                colorway={bot?.colorway}
-                size={14}
-                state="idle"
-                seed={botId.length}
-              />
-              {!compact ? <span className="max-w-20 truncate">{name}</span> : null}
-            </span>
-          );
-        }
-        const fallback = name.slice(0, 1).toUpperCase() || "M";
-        return (
-          <span
-            key={participant.id}
-            className="relative grid size-4 shrink-0 place-items-center overflow-hidden rounded-full bg-primary/12 text-[9px] font-semibold text-primary"
-            title={`${name} · ${participant.role}`}
-            aria-label={`${name}, ${participant.role}`}
-          >
-            {fallback}
-            {participant.display.avatar ? (
-              <img
-                src={participant.display.avatar}
-                alt=""
-                className="absolute inset-0 size-full object-cover"
-                onError={(event) => event.currentTarget.remove()}
-              />
-            ) : null}
-          </span>
-        );
-      })}
-      {participants.length > 5 ? (
-        <span className="shrink-0 text-[10px] text-muted-foreground">+{participants.length - 5}</span>
-      ) : null}
-    </div>
+    <ConversationParticipantRow
+      participants={participants}
+      botLook={botLook}
+      compact={compact}
+      typingIds={typingIds}
+    />
   );
 }
 
@@ -16880,6 +16956,8 @@ const SessionCard = memo(function SessionCard({
   messages,
   busy,
   prompt,
+  typingIds,
+  onTyping,
   onSubscribeTranscript,
   onRefresh,
   onRenameSession,
@@ -16898,6 +16976,10 @@ const SessionCard = memo(function SessionCard({
   messages: Message[];
   busy: boolean;
   prompt: SessionPrompt | null;
+  // Participant ids typing in this session, the viewer already removed.
+  typingIds?: readonly string[];
+  // Report the viewer's own typing. Throttling lives in the transport.
+  onTyping?: (sid: string, typing: boolean) => void;
   onSubscribeTranscript?: OmgTranscriptSubscribe;
   onRefresh: () => Promise<void>;
   onRenameSession: RenameSession;
@@ -17296,11 +17378,13 @@ const onTouchStart = (e: ReactTouchEvent) => {
                 ) : null}
                 {/* A persistent bot conversation's header shows the bot's own
                     identity and settings only — never who created or owns it.
-                    ConversationParticipantRow's human chip belongs beside each
+                    SessionParticipantRow's human chip belongs beside each
                     message that sender actually wrote (see
                     OtherHumanMessageBubble), not on the card that represents
                     the bot itself. */}
-                {headerBot ? null : <ConversationParticipantRow session={session} compact={isMobile} />}
+                {headerBot ? null : (
+                  <SessionParticipantRow session={session} compact={isMobile} typingIds={typingIds} />
+                )}
               </div>
             </button>
           )}
@@ -17451,6 +17535,8 @@ const onTouchStart = (e: ReactTouchEvent) => {
           bot={headerBot ?? undefined}
           busy={busy}
           prompt={prompt}
+          typingIds={typingIds}
+          onTyping={onTyping}
           error={error}
           onError={setError}
           onSubscribeTranscript={onSubscribeTranscript}

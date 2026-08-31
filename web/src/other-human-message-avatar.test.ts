@@ -36,7 +36,7 @@ describe("no human creator/owner chip in a persistent-bot conversation header", 
       "<BotConversationMenu",
       APP.indexOf("This chat is a full-screen portal above the app shell"),
     );
-    expect(header).not.toContain("ConversationParticipantRow");
+    expect(header).not.toContain("ParticipantRow");
     expect(header).toContain("<BotAvatar");
   });
 
@@ -46,7 +46,7 @@ describe("no human creator/owner chip in a persistent-bot conversation header", 
       "<BotConversationMenu",
       APP.indexOf("mx-auto flex h-[calc(100dvh-6rem)]"),
     );
-    expect(header).not.toContain("ConversationParticipantRow");
+    expect(header).not.toContain("ParticipantRow");
     expect(header).toContain("<BotAvatar");
   });
 
@@ -55,7 +55,9 @@ describe("no human creator/owner chip in a persistent-bot conversation header", 
     // this only gates it off specifically when the card is the authoritative
     // bot conversation surface (headerBot truthy), which is the exact case
     // the screenshot bug was filed against.
-    expect(APP).toContain("{headerBot ? null : <ConversationParticipantRow session={session} compact={isMobile} />}");
+    expect(APP).toContain(
+      "{headerBot ? null : (\n                  <SessionParticipantRow session={session} compact={isMobile} typingIds={typingIds} />\n                )}",
+    );
   });
 
   test("the bot chat header keeps its identity + settings — an avatar and a menu, nothing human", () => {

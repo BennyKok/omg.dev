@@ -39,7 +39,14 @@ import {
 import { listQueue, reconcileQueued } from "./sendq.ts";
 import { traceLog } from "./trace-log.ts";
 
-export type LiveWsSocketData = { liveWs: true; rid: string };
+/**
+ * `participantId` is the conversation participant this socket may speak as,
+ * resolved once at upgrade from the same verified viewer identity the send
+ * path uses. It is null on an unmanaged box, where no trusted multi-user
+ * identity exists — such a socket can read presence but can never claim to be
+ * typing, because there is nobody to attribute the claim to.
+ */
+export type LiveWsSocketData = { liveWs: true; rid: string; participantId: string | null };
 
 type Evlog = (event: string, fields?: Record<string, unknown>) => void;
 type LiveWs = ServerWebSocket<unknown>;
@@ -87,6 +94,11 @@ const BACKLOG_MAX_MESSAGES = 400;
 const HEARTBEAT_MS = 25_000;
 const IDLE_CLOSE_MS = 60_000;
 const RING_CAP = 256;
+// A typing claim expires on its own, so a client that closes its laptop mid
+// word cannot leave an indicator up forever. The client re-asserts well inside
+// this window while keys are actually being pressed.
+const TYPING_TTL_MS = 6_000;
+const TYPING_SWEEP_MS = 2_000;
 const LIVE_DB_POLL_LIMIT = 500;
 
 const messageHtmlCache = new Map<string, string>();
@@ -320,6 +332,8 @@ type SocketState = {
   // not change while the socket is open. Absent means the full inline payload,
   // which is what every client built before the capability existed receives.
   deferToolArgs: boolean;
+  /** See LiveWsSocketData. Null means this socket cannot report typing. */
+  participantId: string | null;
 };
 
 type ChannelState = {
@@ -433,6 +447,112 @@ export function createLiveWsSupport(opts: {
 
   const publishSid = (sid: string, type: SendType, fields: Record<string, unknown>) => {
     publishChannelDelta(transcriptChannel(sid), { t: type, sid, ...fields });
+  };
+
+  // ---- who is typing right now -------------------------------------------
+  //
+  // Deliberately NOT a channel delta. Everything that goes through
+  // publishChannelDelta is stamped with a seq and kept in the resume ring, so
+  // a client that drops and resumes replays it. Replaying "Ana is typing" from
+  // thirty seconds ago would show an indicator for something that already
+  // finished, and no later frame would arrive to correct it, because the truth
+  // is an absence of frames. Presence is therefore ephemeral and unstamped: it
+  // is only ever true right now, and a resuming client learns the current set
+  // from the next broadcast or from the TTL expiring it.
+  //
+  // The wire shape is the FULL set for the session, not a join/leave event.
+  // A dropped event in an event stream leaves a stuck indicator forever; a
+  // dropped snapshot is corrected by the next one, which is at most
+  // TYPING_TTL_MS away.
+  // Keyed by SOCKET, not by participant, then reduced to distinct participant
+  // ids on the way out. One person with two tabs open holds two claims, so
+  // blurring one tab retracts only that tab's claim and their still-active
+  // other tab keeps them in the set. Keying by participant would let the blur
+  // erase their own live keystrokes elsewhere.
+  const typingBySid = new Map<string, Map<LiveWs, { p: string; exp: number }>>();
+  let typingSweep: ReturnType<typeof setInterval> | null = null;
+
+  const typingIdsFor = (sid: string): string[] => {
+    const row = typingBySid.get(sid);
+    if (!row) return [];
+    return [...new Set([...row.values()].map((entry) => entry.p))].sort();
+  };
+
+  const broadcastTyping = (sid: string) => {
+    // Unstamped and unremembered, so it cannot be replayed on resume.
+    const frame = { t: "typing", sid, ids: typingIdsFor(sid) };
+    const id = channelId(transcriptChannel(sid));
+    for (const ws of openSockets) {
+      const state = sockets.get(ws);
+      if (!state || state.closed || !state.subscribed.has(id)) continue;
+      safeSend(ws, frame);
+    }
+  };
+
+  /**
+   * Drop expired claims. Returns the sids whose VISIBLE set changed, which is
+   * not the same as the sids that lost a claim: one tab of a two-tab typist
+   * expiring leaves the same person still typing, and must not put a frame on
+   * the wire.
+   */
+  const pruneTyping = (now: number): string[] => {
+    const changed: string[] = [];
+    for (const [sid, row] of [...typingBySid]) {
+      const before = typingIdsFor(sid).join(",");
+      for (const [ws, entry] of row) {
+        if (entry.exp > now) continue;
+        row.delete(ws);
+      }
+      if (row.size === 0) typingBySid.delete(sid);
+      if (typingIdsFor(sid).join(",") !== before) changed.push(sid);
+    }
+    return changed;
+  };
+
+  /** Retract every claim a closing socket still holds. */
+  const forgetTypingSocket = (ws: LiveWs) => {
+    for (const [sid, row] of [...typingBySid]) {
+      if (!row.has(ws)) continue;
+      const before = typingIdsFor(sid).join(",");
+      row.delete(ws);
+      if (row.size === 0) typingBySid.delete(sid);
+      if (typingIdsFor(sid).join(",") !== before) broadcastTyping(sid);
+    }
+    stopTypingSweepIfIdle();
+  };
+
+  const stopTypingSweepIfIdle = () => {
+    if (typingBySid.size || !typingSweep) return;
+    clearInterval(typingSweep);
+    typingSweep = null;
+  };
+
+  const ensureTypingSweep = () => {
+    if (typingSweep) return;
+    typingSweep = setInterval(() => {
+      for (const sid of pruneTyping(Date.now())) broadcastTyping(sid);
+      stopTypingSweepIfIdle();
+    }, TYPING_SWEEP_MS);
+    typingSweep.unref?.();
+  };
+
+  /** Record (or retract) one socket's typing claim for one session. */
+  const setTyping = (sid: string, ws: LiveWs, participantId: string, typing: boolean) => {
+    const before = typingIdsFor(sid).join(",");
+    const row = typingBySid.get(sid);
+    if (typing) {
+      const next = row ?? new Map<LiveWs, { p: string; exp: number }>();
+      next.set(ws, { p: participantId, exp: Date.now() + TYPING_TTL_MS });
+      typingBySid.set(sid, next);
+      ensureTypingSweep();
+    } else if (row) {
+      row.delete(ws);
+      if (row.size === 0) typingBySid.delete(sid);
+    }
+    // Only tell anyone when the visible set changed. A keystroke heartbeat
+    // merely extends an existing expiry, and that is the common case: it must
+    // not put a frame on every subscribed socket several times a second.
+    if (typingIdsFor(sid).join(",") !== before) broadcastTyping(sid);
   };
 
   // Artifact publishes fan out only after their SQLite row commits. This is
@@ -906,6 +1026,7 @@ export function createLiveWsSupport(opts: {
     if (!state || state.closed) return;
     state.closed = true;
     if (state.heartbeat) clearInterval(state.heartbeat);
+    forgetTypingSocket(ws);
     for (const id of [...state.subscribed]) unsubscribeChannel(state, id);
     openSockets.delete(ws);
     stopStatusLoopIfIdle();
@@ -942,6 +1063,12 @@ export function createLiveWsSupport(opts: {
   const subscribeChannel = (state: SocketState, channel: Channel, resync: boolean) => {
     if (channel.kind === "transcript") {
       void subscribeTranscript(state, channel, resync);
+      // Presence is never replayed from the ring, so a socket that just
+      // subscribed (or reconnected) would otherwise see nobody until the next
+      // keystroke anywhere in the session. Send the current set once. An empty
+      // set is still worth sending: it clears whatever a reconnecting client
+      // was still drawing from before the drop.
+      safeSend(state.ws, { t: "typing", sid: channel.key, ids: typingIdsFor(channel.key) });
       return;
     }
     if (channel.kind === "agent_run") {
@@ -952,17 +1079,19 @@ export function createLiveWsSupport(opts: {
   };
 
   return {
-    dataForRequest(): LiveWsSocketData {
+    dataForRequest(participantId: string | null = null): LiveWsSocketData {
       return {
         liveWs: true,
         rid: crypto.randomUUID?.() ?? `ws-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
+        participantId,
       };
     },
     isLiveSocket(ws: ServerWebSocket<unknown>): boolean {
       return (ws.data as LiveWsSocketData | undefined)?.liveWs === true;
     },
     open(ws: LiveWs) {
-      const rid = (ws.data as LiveWsSocketData | undefined)?.rid || "ws";
+      const data = ws.data as LiveWsSocketData | undefined;
+      const rid = data?.rid || "ws";
       const state: SocketState = {
         ws,
         rid,
@@ -971,6 +1100,7 @@ export function createLiveWsSupport(opts: {
         lastTraffic: Date.now(),
         heartbeat: null,
         deferToolArgs: false,
+        participantId: data?.participantId ?? null,
       };
       sockets.set(ws, state);
       openSockets.add(ws);
@@ -1012,6 +1142,7 @@ export function createLiveWsSupport(opts: {
         limit?: unknown;
         resync?: unknown;
         deferToolArgs?: unknown;
+        typing?: unknown;
       };
       if (input.t === "pong") return;
       // Browser-initiated ping probes measure the real WebSocket round trip.
@@ -1067,6 +1198,20 @@ export function createLiveWsSupport(opts: {
           : [];
         for (const sid of ids) channels.push(transcriptChannel(sid));
         for (const channel of channels) unsubscribeChannel(state, channelId(channel));
+        return;
+      }
+      if (input.t === "typing") {
+        // A socket may only ever speak for the identity resolved at upgrade.
+        // The frame carries no author field, so a browser cannot nominate one:
+        // an unmanaged socket (participantId null) is silently inert rather
+        // than able to put somebody else's face on the indicator.
+        const sid = typeof input.sid === "string" && SID_RE.test(input.sid) ? input.sid : null;
+        if (!sid || !state.participantId) return;
+        // Presence is only meaningful to someone watching this session, and
+        // requiring the subscription stops an unsubscribed socket from
+        // spraying claims at sessions it is not even reading.
+        if (!state.subscribed.has(channelId(transcriptChannel(sid)))) return;
+        setTyping(sid, ws, state.participantId, input.typing === true);
         return;
       }
       safeSend(ws, { t: "error", message: "unknown live websocket message" });

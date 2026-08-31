@@ -99,6 +99,9 @@ type AgentRunEvent =
   | { type: "done" | "failed"; status: "done" | "failed"; result?: unknown; error?: string };
 
 type LiveWsMessage =
+  // Who is typing in `sid` right now, as the complete set. Carries no channel
+  // envelope and no seq on purpose: presence is never replayed on resume.
+  | { t: "typing"; sid: string; ids?: string[] }
   | { t: "batch"; sid: string; messages?: Message[]; nextBefore?: number | null }
   | { t: "msg"; sid: string; message?: Message; m?: Message }
   | { t: "ai_part"; sid: string; part?: AiStreamPart }
@@ -131,6 +134,9 @@ export type TranscriptSubscribe = (
 ) => () => void;
 
 const DRAFT_CATCHUP_MIN_CHARS = 160;
+// Comfortably inside the server's 6s typing TTL, so a claim never lapses while
+// somebody is still typing, and far above a keystroke rate.
+const TYPING_PING_MS = 2_500;
 
 declare global {
   interface Window {
@@ -395,6 +401,8 @@ export function useLiveSocket(
   const [promptsBySid, setPromptsBySid] = useState<Record<string, SessionPrompt | null>>({});
   const [loadingBySid, setLoadingBySid] = useState<Record<string, boolean>>({});
   const [nextBeforeBySid, setNextBeforeBySid] = useState<Record<string, number | null>>({});
+  // Participant ids typing per session, replaced wholesale by each frame.
+  const [typingBySid, setTypingBySid] = useState<Record<string, string[]>>({});
 
   const wsRef = useRef<WebSocket | null>(null);
   const openingRef = useRef(false);
@@ -450,6 +458,23 @@ export function useLiveSocket(
     return true;
   }, []);
 
+  // Outbound typing heartbeat.
+  //
+  // The composer calls this on every keystroke, so the throttle lives here
+  // rather than in the UI: one "still typing" frame per TYPING_PING_MS, and an
+  // immediate frame for the edges (started, stopped). The server expires a
+  // claim after its own TTL, so the heartbeat only has to be comfortably
+  // faster than that, not precise.
+  const typingSentRef = useRef<Record<string, number>>({});
+  const sendTyping = useCallback((sid: string, typing: boolean) => {
+    if (!sid) return;
+    const last = typingSentRef.current[sid] ?? 0;
+    const now = Date.now();
+    if (typing && now - last < TYPING_PING_MS) return;
+    typingSentRef.current[sid] = typing ? now : 0;
+    send({ t: "typing", sid, typing });
+  }, [send]);
+
   const channelWithResume = useCallback((channel: LiveChannel): LiveChannel => {
     const seq = lastSeqRef.current[channelId(channel)];
     return seq ? { ...channel, resumeFromSeq: seq } : channel;
@@ -500,6 +525,17 @@ export function useLiveSocket(
       latencyProbeRef.current = null;
       const latencyMs = Math.max(1, Math.round(performance.now() - probe.startedAt));
       setConnection((prev) => ({ ...prev, latencyMs }));
+      return;
+    }
+    if (payload.t === "typing") {
+      // Replace, never merge: the frame IS the current set, so a person who
+      // stopped typing is expressed by their absence from it.
+      const ids = Array.isArray(payload.ids) ? payload.ids : [];
+      setTypingBySid((prev) => {
+        const current = prev[payload.sid];
+        if (current && current.length === ids.length && current.every((id, i) => id === ids[i])) return prev;
+        return { ...prev, [payload.sid]: ids };
+      });
       return;
     }
     if ("kind" in payload && payload.kind && "key" in payload && typeof payload.key === "string") {
@@ -963,6 +999,11 @@ export function useLiveSocket(
     });
     setBusyBySid((prev) => Object.fromEntries(Object.entries(prev).filter(([sid]) => active.has(sid))));
     setPromptsBySid((prev) => Object.fromEntries(Object.entries(prev).filter(([sid]) => active.has(sid))));
+    // Presence has no resume cursor: leaving a session ends the subscription
+    // that feeds it, so a retained set would freeze on whoever happened to be
+    // typing at that moment and never be corrected. Re-entering resubscribes
+    // and the server sends the current set again.
+    setTypingBySid((prev) => Object.fromEntries(Object.entries(prev).filter(([sid]) => active.has(sid))));
     setNextBeforeBySid((prev) => Object.fromEntries(Object.entries(prev).filter(([sid]) => live.has(sid) || active.has(sid))));
     setLoadingBySid((prev) => {
       const next = Object.fromEntries(Object.entries(prev).filter(([sid]) => live.has(sid)));
@@ -1196,6 +1237,8 @@ export function useLiveSocket(
 
   return {
     messagesBySid,
+    typingBySid,
+    sendTyping,
     busyBySid: mergedBusy,
     promptsBySid,
     loadingBySid,

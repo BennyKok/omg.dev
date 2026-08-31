@@ -141,6 +141,13 @@ export interface OmgStatusRow {
 }
 
 export type OmgLiveMessage =
+  /**
+   * Who is typing in `sid` right now, as the COMPLETE set rather than a
+   * join/leave event, and never replayed on resume. A client replaces its set
+   * for the session on each frame. `ids` are conversation participant ids;
+   * join them against the roster the client already has.
+   */
+  | { t: "typing"; sid: string; ids: string[] }
   | { t: "batch"; sid: string; messages?: OmgMessage[]; nextBefore?: number | null }
   | { t: "msg"; sid: string; message?: OmgMessage; m?: OmgMessage }
   | { t: "ai_part"; sid: string; part?: OmgAiStreamPart }

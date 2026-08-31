@@ -11,6 +11,7 @@ import {
 import { dirname, join } from "node:path";
 import { PATHS } from "./config.ts";
 import { botAuthorId, botAuthorIdFromText } from "./bots/authorship.ts";
+import { authoredSendParticipantId } from "./conversation-authorship.ts";
 import type {
   Conversation,
   ConversationHistoryAccess,
@@ -542,10 +543,19 @@ export function messageAuthorForSession(
   if (!conversation) return UNKNOWN_LEGACY_AUTHOR;
   if (message.role === "user") {
     const digest = botAuthorIdFromText(message.text);
-    const participantId = digest ? `human:${digest}` : "";
     // The server-authored marker is the verification boundary. The roster can
     // be updated a few milliseconds later on a first-message cold launch, but
     // that does not make the durable author reference less true.
+    //
+    // An ordinary coding session carries no marker, because writing one would
+    // put it in the prompt the agent reads. Those turns are attributed from
+    // the side store instead, which is written only for identities the server
+    // verified itself — the same bar the in-text marker clears. The in-text
+    // marker still wins when both exist: it is the one the bot path already
+    // treats as authoritative.
+    const participantId = digest
+      ? `human:${digest}`
+      : authoredSendParticipantId(sessionId, message.text) ?? "";
     return participantId
       ? { kind: "human", participantId, verified: true }
       : UNKNOWN_LEGACY_AUTHOR;
