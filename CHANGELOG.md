@@ -2,6 +2,20 @@
 
 Recent product updates and deployment notes.
 
+## August 31, 2026 - Pictures hold their place in the transcript while they load (v0.6.20)
+
+- **A picture no longer drops the message below it on top of the one above.**
+  An image in the transcript occupied no height at all until it finished
+  loading. The transcript only draws the rows you can see, and it places each
+  one directly under the measured height of the row before it, so every row
+  below a picture was placed against a card that was momentarily a single line
+  tall. The moment the picture arrived, that card grew by its full height with
+  the next row still inside it, and what that painted was your own message
+  drawn over the tail of the reply above it. A picture now reserves the exact
+  space it will occupy from the first frame, so nothing below it moves when it
+  loads. Measured on a real session at phone width with the image cache off:
+  the same row was 42 pixels tall before the picture arrived, and is 426 now.
+
 ## August 31, 2026 - An honest token usage inspector and a self-healing session page (v0.6.19)
 
 - **Token usage no longer counts free space as used.** The inspector asked
