@@ -26,9 +26,8 @@ const { createRoot } = await import("react-dom/client");
 const { act } = await import("react");
 const { createSameOriginTransport } = await import("@omg-dev/client");
 const { configureOmgTransport } = await import("../lib/omg-client");
-const { AuthenticatedArtifactImage, AuthenticatedArtifactVideo } = await import(
-  "./authenticated-artifact"
-);
+const { AuthenticatedArtifactImage, AuthenticatedArtifactVideo, reservedMediaBox } =
+  await import("./authenticated-artifact");
 
 let host: HTMLElement;
 let root: ReturnType<typeof createRoot>;
@@ -107,6 +106,63 @@ describe("AuthenticatedArtifactImage", () => {
 
     expect(fetched).toEqual(["/api/artifacts/blob.png?preview=1"]);
     expect(img()?.getAttribute("src")).toStartWith("blob:");
+  });
+
+  // An undecoded image must already occupy the box it will occupy once it has
+  // decoded. The `width`/`height` attributes below look like they do that, but
+  // they are only presentational hints and the caller's `w-auto` outranks them,
+  // so `width` resolved against a 0px intrinsic width and the element was ZERO
+  // PIXELS TALL until the bytes arrived. In the virtualized transcript the row
+  // was then measured collapsed, everything below it was packed against that
+  // measurement, and when the picture landed the row grew by its full height
+  // with the next row still sitting inside it — a user bubble printed over the
+  // tail of the reply above it. Measured in a real browser on the transcript's
+  // own class list, with a src that never resolves: 0px with `w-auto`, 384px
+  // once an explicit width is present.
+  test("an image reserves its decoded box before the bytes arrive", async () => {
+    installTransport({ direct: true });
+    render(
+      <AuthenticatedArtifactImage
+        path="/api/artifacts/reserved.png"
+        alt="reserved"
+        width={600}
+        height={750}
+        zoomable
+        className="w-auto max-h-[24rem]"
+      />,
+    );
+    await act(async () => {});
+
+    // happy-dom's CSS parser drops `min()`/`calc()` values, so the width half
+    // of the reservation cannot be read back off the element here — it is
+    // asserted directly on `reservedMediaBox` below. What this proves is the
+    // WIRING: the style reaches the element at all, before any bytes arrive.
+    expect(img()?.getAttribute("style") ?? "").toContain("aspect-ratio: 600 / 750");
+  });
+
+  test("the reserved box solves to the size the decoded image settles at", () => {
+    // 600x750 inside `max-h-[24rem]`: the height cap binds first, so the width
+    // is 384 * (600/750) = 307.2px — which is what the decoded image measures
+    // in the transcript. A DEFINITE width is the part `w-auto` was destroying;
+    // without it the ratio has nothing to resolve against and the height is 0.
+    expect(reservedMediaBox(600, 750)).toEqual({
+      aspectRatio: "600 / 750",
+      width: "min(600px, calc(24rem * 0.8))",
+    });
+    // Unknown dimensions reserve nothing rather than guessing a wrong box.
+    expect(reservedMediaBox(undefined, 750)).toBeUndefined();
+    expect(reservedMediaBox(600, 0)).toBeUndefined();
+  });
+
+  test("an image with unknown dimensions reserves nothing and still renders", async () => {
+    installTransport({ direct: true });
+    render(
+      <AuthenticatedArtifactImage path="/api/artifacts/nodims.png" alt="nodims" zoomable />,
+    );
+    await act(async () => {});
+
+    expect(img()).not.toBeNull();
+    expect(img()?.getAttribute("style") ?? "").not.toContain("aspect-ratio");
   });
 
   test("thumbnails and plain images take the same route", async () => {
