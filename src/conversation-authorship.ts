@@ -179,9 +179,12 @@ function writeStore(rows: AuthoredSend[]): void {
 /**
  * Record that `participantId` sent `text` to `sessionId`.
  *
- * Call this ONLY for an identity the server verified itself. An untrusted
- * fallback author (see resolveBotMessageAuthor) must not be written here,
- * because everything downstream reports these as `verified: true`.
+ * Call this ONLY for an identity the server resolved itself — a managed
+ * caller's grant email, or an address validated against the roster. Never a
+ * fallback placeholder: everything downstream reports these as
+ * `verified: true`, which means "the box named the sender" and must never be
+ * satisfied by a literal like "user". recordHumanTurn enforces that by
+ * refusing anything that is not an address.
  *
  * Re-recording the same (session, digest, participant) is a no-op, so a retry
  * or a duplicate delivery does not turn a single author into an ambiguous

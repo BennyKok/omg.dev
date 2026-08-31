@@ -175,16 +175,29 @@ describe("ambiguity reports nothing rather than the wrong face", () => {
 });
 
 describe("the existing bot path is unchanged", () => {
-  test("an in-text marker still wins over a side-store entry for the same text", () => {
+  test("a marked turn with no store row still resolves, so old transcripts keep their faces", () => {
     regularSession("sess-1");
     const text = `${formatBotAttribution(OWNER, "Scout")}\n\nlook into this`;
-    // A side-store entry naming somebody else must not override the marker
-    // the bot path treats as authoritative.
-    recordAuthoredSend({ sessionId: "sess-1", participantId: guestId(), text });
-
+    // Written before the store existed: the marker is the only record.
     expect(messageAuthorForSession("sess-1", { role: "user", text })).toEqual({
       kind: "human",
       participantId: ownerId(),
+      verified: true,
+    });
+  });
+
+  test("the store is the owner, so it outranks the marker when both exist", () => {
+    regularSession("sess-1");
+    const text = `${formatBotAttribution(OWNER, "Scout")}\n\nlook into this`;
+    recordAuthoredSend({ sessionId: "sess-1", participantId: guestId(), text });
+
+    // Both are server-authored and normally agree, because recordHumanTurn
+    // writes the store from the same resolved author the marker was built
+    // from. If they ever disagree, the single owner wins rather than the
+    // legacy path.
+    expect(messageAuthorForSession("sess-1", { role: "user", text })).toEqual({
+      kind: "human",
+      participantId: guestId(),
       verified: true,
     });
   });

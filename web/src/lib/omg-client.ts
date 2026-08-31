@@ -127,8 +127,8 @@ export function omgUpload(
     omgTransport.fetch(path, init);
 }
 
-export function openOmgLiveSocket(): Promise<OmgSocket> {
-  return omgTransport.openLiveSocket();
+export function openOmgLiveSocket(query?: string): Promise<OmgSocket> {
+  return omgTransport.openLiveSocket(query);
 }
 
 export function openOmgSocket(path: string): Promise<OmgSocket> {

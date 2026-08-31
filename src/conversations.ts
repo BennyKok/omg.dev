@@ -542,20 +542,20 @@ export function messageAuthorForSession(
   const conversation = conversationForSession(sessionId);
   if (!conversation) return UNKNOWN_LEGACY_AUTHOR;
   if (message.role === "user") {
-    const digest = botAuthorIdFromText(message.text);
-    // The server-authored marker is the verification boundary. The roster can
-    // be updated a few milliseconds later on a first-message cold launch, but
-    // that does not make the durable author reference less true.
+    // ONE owner, in one order, for every surface.
     //
-    // An ordinary coding session carries no marker, because writing one would
-    // put it in the prompt the agent reads. Those turns are attributed from
-    // the side store instead, which is written only for identities the server
-    // verified itself — the same bar the in-text marker clears. The in-text
-    // marker still wins when both exist: it is the one the bot path already
-    // treats as authoritative.
-    const participantId = digest
-      ? `human:${digest}`
-      : authoredSendParticipantId(sessionId, message.text) ?? "";
+    // The authorship store is the owner. Every route that accepts a human turn
+    // writes it through recordHumanTurn (conversation-turns.ts), so it covers
+    // bot conversations and ordinary sessions alike.
+    //
+    // The `[Message from X to bot Y]` marker is a LEGACY read path, not a
+    // second source of truth. It still has a live job — it is how the model
+    // tells several humans apart in a shared thread — but it stopped being
+    // where authorship is kept. It is consulted only when the store has
+    // nothing, which is exactly the turns written before the store existed.
+    const stored = authoredSendParticipantId(sessionId, message.text);
+    const legacyDigest = stored ? "" : botAuthorIdFromText(message.text);
+    const participantId = stored || (legacyDigest ? `human:${legacyDigest}` : "");
     return participantId
       ? { kind: "human", participantId, verified: true }
       : UNKNOWN_LEGACY_AUTHOR;

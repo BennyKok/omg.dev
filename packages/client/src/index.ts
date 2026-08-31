@@ -76,7 +76,12 @@ export interface OmgTransport {
    * embedded surface must never infer a socket origin from `location`.
    */
   openSocket(path: string): Promise<OmgSocket>;
-  openLiveSocket(): Promise<OmgSocket>;
+  /**
+   * `query` is an already-encoded query string appended to the live endpoint.
+   * Optional and additive: a host implementation that ignores it opens the
+   * socket exactly as before, and simply reports no typing identity.
+   */
+  openLiveSocket(query?: string): Promise<OmgSocket>;
 }
 
 export interface OmgGrant {
@@ -295,7 +300,8 @@ export function createSameOriginTransport(
       return data as T;
     },
     openSocket,
-    openLiveSocket: () => openSocket("/api/live/ws"),
+    openLiveSocket: (query?: string) =>
+      openSocket(query ? `/api/live/ws?${query}` : "/api/live/ws"),
   };
 }
 
@@ -382,7 +388,8 @@ export function createGrantTransport(options: CreateGrantTransportOptions): OmgT
       return data as T;
     },
     openSocket,
-    openLiveSocket: () => openSocket("/api/live/ws"),
+    openLiveSocket: (query?: string) =>
+      openSocket(query ? `/api/live/ws?${query}` : "/api/live/ws"),
   };
 }
 

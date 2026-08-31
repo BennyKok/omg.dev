@@ -372,9 +372,20 @@ const INITIAL_CONNECTION_STATE: ConnectionState = {
 export function useLiveSocket(
   sessions: Session[],
   streamIds: string[],
-  opts: { enabled?: boolean; onStatusRows?: (rows: StatusRow[]) => void } = {},
+  opts: {
+    enabled?: boolean;
+    onStatusRows?: (rows: StatusRow[]) => void;
+    /**
+     * Who this browser is, for typing presence. Declared at connect time and
+     * never on a frame, so the socket cannot rename itself mid-session. A
+     * managed box ignores it and uses its verified header instead; an
+     * unmanaged one validates it against the roster.
+     */
+    viewerIdentity?: string | null;
+  } = {},
 ) {
   const enabled = opts.enabled ?? liveTransportMode() === "ws";
+  const viewerIdentity = opts.viewerIdentity?.trim() || "";
   const onStatusRowsRef = useRef(opts.onStatusRows);
   useEffect(() => {
     onStatusRowsRef.current = opts.onStatusRows;
@@ -756,7 +767,9 @@ export function useLiveSocket(
         status: prev.status === "offline" ? "offline" : prev.attempt > 0 ? "reconnecting" : "connecting",
       }));
       openingRef.current = true;
-      void openOmgLiveSocket().then((openedSocket) => {
+      void openOmgLiveSocket(
+        viewerIdentity ? `user=${encodeURIComponent(viewerIdentity)}` : undefined,
+      ).then((openedSocket) => {
         openingRef.current = false;
         const ws = openedSocket as WebSocket;
         if (closedByHookRef.current) {
@@ -961,7 +974,10 @@ export function useLiveSocket(
         delete thinkTimerRef.current[id];
       }
     };
-  }, [enabled, handleMessage]);
+    // viewerIdentity is a dependency because it is decided at connect time and
+    // can never be changed on an open socket. Switching profile therefore has
+    // to reconnect, which is cheap and rare.
+  }, [enabled, handleMessage, viewerIdentity]);
 
   const reconnectNow = useCallback(() => {
     pendingReconnectRef.current = false;
