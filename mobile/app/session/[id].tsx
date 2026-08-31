@@ -92,6 +92,7 @@ import { agentIcon, agentLabel as agentDisplayName } from "../../src/omg/agent-i
 import { useOmg } from "../../src/omg/provider";
 import { useTheme } from "../../src/omg/theme";
 import { useToast } from "../../src/omg/toast";
+import { useOverlapWatch } from "../../src/omg/list-overlap-watch";
 import {
   buildTranscriptItems,
   TranscriptRow,
@@ -129,6 +130,13 @@ const isOptimisticId = (id: unknown): boolean =>
  * decision with a library-wide default.
  */
 const PAGE = 40;
+
+/**
+ * How long the opening reveal waits for the list to stop changing size, and
+ * the longest it will ever wait — see `armReveal`.
+ */
+const SETTLE_QUIET_MS = 140;
+const SETTLE_CAP_MS = 1200;
 
 /**
  * ONE SIZE FOR EVERY ITEM IN THE BAR — the back chevron, the title capsule and
@@ -189,7 +197,7 @@ export function SessionScreenBody({
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors, type, space, radius } = useTheme();
-  const { client, agents } = useOmg();
+  const { client, agents, user } = useOmg();
 
   const attachments = useAttachments(id ?? null);
   const dictation = useDictation(
@@ -236,6 +244,17 @@ export function SessionScreenBody({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const toast = useToast();
+  /**
+   * The same geometric trip-wire the home list has carried since #149, now on
+   * the transcript — Benny's overlap report moved here (a user bubble drawn
+   * over the tail of the reply above it), and this list had no invariant
+   * check at all. Gated exactly like `app/index.tsx`: everyone gets the
+   * `console.error`, only the reporter gets a toast.
+   */
+  const { Row: OverlapRow } = useOverlapWatch(
+    toast,
+    __DEV__ || user?.email === "itechbenny@gmail.com",
+  );
   useEffect(() => {
     if (error) toast.show(error, { intent: "error" });
   }, [error, toast]);
@@ -614,6 +633,69 @@ export function SessionScreenBody({
   }, []);
 
   /**
+   * REVEAL WHEN THE LIST HAS STOPPED MOVING, NOT ONE FRAME IN.
+   *
+   * This used to be a single `requestAnimationFrame` on the assumption that
+   * `pinToEnd`'s synchronous first correction plus one frame was enough for
+   * the list to be laid out at its true bottom. It is not, and `pinToEnd`
+   * says so itself: it retries out to 2800ms BECAUSE a FlatList with no
+   * `getItemLayout` only measures what it has rendered, images whose wire
+   * record carries no dimensions have no height until they load, and rows
+   * mount in batches. On this simulator the gap between "one frame" and
+   * "settled" is invisible. On Benny's phone it is not: he has photographed
+   * the transcript parked mid-conversation with a user bubble drawn over the
+   * tail of the reply above it, which is what this window looks like when it
+   * lasts long enough to see. Reproduced here by rendering the first page in
+   * batches of three instead of forty, which stretches the same settle into
+   * something a screen recording can catch.
+   *
+   * So wait for quiet instead of counting frames. Every content-size change
+   * restarts a short timer; the list is revealed once one elapses without
+   * another change. `SETTLE_CAP_MS` is the safety valve, in the same spirit
+   * as `SESSIONS_SETTLE_TIMEOUT_MS` on the home list: a session opened while
+   * a reply is actively streaming never goes quiet, and it must still be
+   * shown. Nothing new appears during the wait — the opening spinner already
+   * covers exactly this beat — so the cost is a slightly longer spinner
+   * instead of a visibly wrong transcript.
+   */
+  const revealRef = useRef<(() => void) | null>(null);
+  const quietTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * Called from `handleContentSizeChange`, which is a `useCallback` with an
+   * empty dependency list and has to stay that way — the FlatList prop
+   * identity is part of what keeps it from re-rendering. A ref is how the
+   * settle wait gets re-armed without putting it in those deps.
+   */
+  const noteContentActivityRef = useRef(() => {});
+  const armReveal = useCallback(() => {
+    const reveal = () => {
+      if (!revealRef.current) return;
+      revealRef.current = null;
+      if (quietTimerRef.current) clearTimeout(quietTimerRef.current);
+      quietTimerRef.current = null;
+      setContentReady(true);
+    };
+    revealRef.current = reveal;
+    const restartQuiet = () => {
+      if (!revealRef.current) return;
+      if (quietTimerRef.current) clearTimeout(quietTimerRef.current);
+      quietTimerRef.current = setTimeout(reveal, SETTLE_QUIET_MS);
+    };
+    noteContentActivityRef.current = restartQuiet;
+    // Arm it once up front: a page short enough to emit no further
+    // content-size change at all still has to be revealed.
+    restartQuiet();
+    const cap = setTimeout(reveal, SETTLE_CAP_MS);
+    return () => {
+      revealRef.current = null;
+      noteContentActivityRef.current = () => {};
+      if (quietTimerRef.current) clearTimeout(quietTimerRef.current);
+      quietTimerRef.current = null;
+      clearTimeout(cap);
+    };
+  }, []);
+
+  /**
    * A NEW MESSAGE GLIDES; A STREAMING TOKEN DOES NOT.
    *
    * Following the bottom is one behaviour with two very different rhythms. A
@@ -635,6 +717,12 @@ export function SessionScreenBody({
   const handleContentSizeChange = useCallback((_width: number, height: number) => {
     const delta = height - lastContentHeight.current;
     lastContentHeight.current = height;
+    // A content-size change IS the list still moving. While the opening
+    // reveal is waiting for quiet (see `armReveal`), every one of these
+    // restarts that wait — this runs BEFORE the at-bottom early return
+    // below, because a list that is growing while the reader is somewhere
+    // else is still a list that has not settled.
+    noteContentActivityRef.current();
     // Follow the stream only while the reader is already at the bottom, and
     // never while their finger is on the glass — see touchingRef.
     if (!atBottomRef.current || touchingRef.current) return;
@@ -653,6 +741,18 @@ export function SessionScreenBody({
    * still scrolling. Growth is followed by onContentSizeChange, which is one
    * scroll and defers to the finger.
    */
+  /**
+   * KEYED ON "IS THERE A PAGE YET", NOT ON HOW MANY ROWS.
+   *
+   * `data.length` in the dependency list would re-run this effect on every
+   * arriving message, and React runs the PREVIOUS run's cleanup first —
+   * tearing down the reveal wait it armed before the body's `pinnedForRef`
+   * guard returns without arming a new one. With the old one-frame reveal
+   * that window was ~16ms and effectively unreachable. `SETTLE_CAP_MS` makes
+   * it up to 1200ms, which a session opened while a reply is streaming lands
+   * in routinely, and the result would be a spinner that never resolves.
+   */
+  const hasData = data.length > 0;
   const pinnedForRef = useRef<string | null>(null);
   useEffect(() => {
     // A bot's first-ever chat opens with no id and nothing to pin to (see the
@@ -663,7 +763,7 @@ export function SessionScreenBody({
       setContentReady(true);
       return;
     }
-    if (!data.length) return;
+    if (!hasData) return;
     if (pinnedForRef.current === id) return;
     pinnedForRef.current = id;
     setContentReady(false);
@@ -673,25 +773,12 @@ export function SessionScreenBody({
     // as freshly-arrived.
     liveKeysRef.current.clear();
     const stopRetries = pinToEnd();
-    /**
-     * ONE FRAME, NOT ZERO.
-     *
-     * `pinToEnd`'s first correction runs synchronously off this same effect,
-     * so by the NEXT frame the list should already be laid out and scrolled
-     * to the true bottom — the reader's first paint is the settled
-     * transcript, not the settling of it. The later retries in `pinToEnd`
-     * keep running after this in the background, as a safety net for
-     * pathological tall content; with the whole first page now rendered in
-     * one batch (see `initialNumToRender` on the FlatList) they are expected
-     * to be no-ops almost always, which is what makes revealing this early
-     * safe rather than a race.
-     */
-    const raf = requestAnimationFrame(() => setContentReady(true));
+    const stopReveal = armReveal();
     return () => {
       stopRetries?.();
-      cancelAnimationFrame(raf);
+      stopReveal();
     };
-  }, [data.length, id, pinToEnd]);
+  }, [hasData, id, pinToEnd, armReveal]);
 
   /**
    * One path for everything that puts words into the session, so the optimistic
@@ -1551,11 +1638,13 @@ export function SessionScreenBody({
             !!previous && transcriptSpeaker(previous) !== transcriptSpeaker(item);
           return (
             <View style={{ paddingBottom: space.sm, paddingTop: speakerChanged ? 10 : 0 }}>
-              <TranscriptRow
-                item={item}
-                fresh={contentReady && liveKeysRef.current.has(item.key)}
-                bot={bot}
-              />
+              <OverlapRow id={`row:${item.key}`}>
+                <TranscriptRow
+                  item={item}
+                  fresh={contentReady && liveKeysRef.current.has(item.key)}
+                  bot={bot}
+                />
+              </OverlapRow>
             </View>
           );
         }}

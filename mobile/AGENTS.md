@@ -77,6 +77,48 @@ ssh bennykok@bennys-macbook-pro-2 "xcrun simctl io $PRO screenshot /tmp/s.png"
 scp bennykok@bennys-macbook-pro-2:/tmp/s.png /tmp/s.png
 ```
 
+## When `--tunnel` will not come up, reverse-forward to the Mac's localhost
+
+On 2026-08-31 `npx expo start --tunnel` failed outright, repeatedly:
+`CommandError: TypeError: Cannot read properties of undefined (reading 'body')`
+pointing at the ngrok status page. There is a way through that does not
+involve ngrok at all.
+
+**Do not simply serve over the tailnet IP.** Both boxes are Tailscale peers
+and the Mac can reach this one (`curl http://100.x.x.x:8095/status` returns
+200), but the dev client cannot load from it: iOS App Transport Security
+rejects cleartext HTTP to a plain IP, and the failure is only visible in the
+device log, not on the error screen the app shows you.
+
+```
+Error Domain=NSURLErrorDomain Code=-1022 "The resource could not be loaded
+because the App Transport Security policy requires the use of a secure
+connection." NSErrorFailingURLStringKey=http://100.91.73.65:8095/
+```
+
+`localhost` IS exempt from that policy, so give the Mac a localhost. Run
+Metro normally and reverse-forward the port over SSH:
+
+```bash
+# Advertise localhost in the manifest, or the bundle loads and then the
+# RUNTIME reconnects to the tailnet IP and dies on the same ATS rule.
+REACT_NATIVE_PACKAGER_HOSTNAME=localhost npx expo start --port 8095 &
+ssh -N -R 8095:localhost:8095 bennykok@bennys-macbook-pro-2 &
+xcrun simctl openurl "$PRO" 'omg://expo-development-client/?url=http%3A%2F%2Flocalhost%3A8095'
+```
+
+The first bundle over this link took 158s for 10MB at ~240ms RTT; every
+reload after that was under 3s. Fetching the bundle URL once from the Mac
+with `curl` before opening the app warms Metro and avoids the dev client
+timing out on its first try.
+
+To read a load failure the error screen truncates:
+
+```bash
+xcrun simctl spawn "$PRO" log show --last 3m --style compact \
+  --predicate 'processImagePath CONTAINS "omg"' | grep -iE 'fail|error'
+```
+
 ## Tapping: there is no `simctl tap`. Calibrate off the accessibility tree.
 
 `simctl` cannot synthesise touches and `idb` is not installed on this Mac.

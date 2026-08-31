@@ -1,5 +1,7 @@
 /**
- * A geometric trip-wire for the home list, not a fix.
+ * A geometric trip-wire for a list, not a fix. The home list has carried one
+ * since #149; the session transcript now does too, after Benny hit the same
+ * shape there — a user bubble drawn over the tail of the reply above it.
  *
  * Benny has hit session/finding cards drawn on top of each other, with large
  * blank gaps elsewhere, on his real device — see the screenshot referenced in
@@ -78,7 +80,7 @@
  * behaviour — it can only ever observe the frame Yoga already computed.
  */
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { View, type LayoutChangeEvent } from "react-native";
 
 import type { useToast } from "./toast";
@@ -282,6 +284,21 @@ export function useOverlapWatch(toast: ReturnType<typeof useToast>, notifyUser: 
     return function OverlapWatchRow({ id, children }: { id: string; children: React.ReactNode }) {
       const ref = useRef<View>(null);
       rowRefs.current.set(id, ref);
+      /**
+       * DROP THE FRAME WHEN THE ROW GOES AWAY. On the home list this barely
+       * mattered — a row unmounts only when its session leaves the data. The
+       * transcript is a VIRTUALIZED FlatList, where rows unmount whenever
+       * they scroll far enough out of the window, and a measurement left
+       * behind by an unmounted row is a frame nothing on screen occupies any
+       * more. Keeping it would make `runCheck` compare live rows against the
+       * ghosts of rows that scrolled away, which is a guaranteed false
+       * positive rather than a bug in the list.
+       */
+      useEffect(() => {
+        return () => {
+          unregister(id);
+        };
+      }, [id]);
       const onLayout = useCallback(
         (_e: LayoutChangeEvent) => {
           // The layout event's own `nativeEvent.layout` is PARENT-relative,
@@ -301,7 +318,7 @@ export function useOverlapWatch(toast: ReturnType<typeof useToast>, notifyUser: 
         </View>
       );
     };
-  }, [report]);
+  }, [report, unregister]);
 
   return { Row, unregister };
 }
