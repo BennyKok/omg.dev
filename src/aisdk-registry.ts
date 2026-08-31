@@ -18,6 +18,7 @@ import {
 import { join } from "node:path";
 import { PATHS } from "./config.ts";
 import { removeCursor } from "./agents/backends/cmd-tail.ts";
+import type { CodexServiceTier } from "./service-tier.ts";
 
 // Resolved per call, not captured at import. Tests point PATHS.data at a temp
 // dir after this module loads; a captured constant made them read and write the
@@ -54,6 +55,8 @@ export type AisdkEntry = {
   // omit this and continue to rely on the bounded polling fallback.
   commandWakeSignal?: "SIGUSR1";
   thinkingLevel?: string | null;
+  serviceTier?: CodexServiceTier | null;
+  fastMode?: boolean;
   cwd: string;
   model: string;
   busy: boolean; // true while a turn is generating — feeds the live-view busy dot
@@ -98,6 +101,7 @@ export type AisdkCommand =
   | { type: "send"; text: string }
   | { type: "set_model"; model: string }
   | { type: "set_thinking_level"; thinkingLevel: string }
+  | { type: "set_fast_mode"; enabled: boolean }
   | { type: "interrupt" }
   | { type: "close" }
   // OpenCode (and future headless) interactive questions — option index is the

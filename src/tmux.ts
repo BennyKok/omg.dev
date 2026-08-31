@@ -16,6 +16,10 @@ import {
   resolveClaudeAccount,
 } from "./claude-accounts.ts";
 import { agentTmpEnv } from "./tmp-reclaim.ts";
+import {
+  codexServiceTierArgs,
+  type CodexServiceTier,
+} from "./service-tier.ts";
 
 // Known-good Claude model alias to launch with when a caller doesn't specify
 // one. Never launch a managed `claude` bare — see spawnManagedSession. Opus is
@@ -604,6 +608,7 @@ export function spawnManagedSession(opts: {
   prompt?: string;
   model?: string;
   thinkingLevel?: string;
+  fastMode?: boolean;
   // When set, resume the on-disk transcript with this sessionId (`claude
   // --resume <id>`) instead of starting a fresh conversation — the way lfg
   // brings a closed/dead session back after the box (and its tmux server +
@@ -639,6 +644,7 @@ export function spawnManagedSession(opts: {
   // vocabulary onto it (see claudeEffortFor). Omitted → CLI default effort.
   const effort = claudeEffortFor(opts.thinkingLevel);
   if (effort) claudeArgv.push("--effort", effort);
+  if (opts.fastMode) claudeArgv.push("--settings", JSON.stringify({ fastMode: true }));
   // `--` terminates option parsing so the variadic --add-dir can't swallow the
   // positional prompt as a second directory (which strands the new session at
   // an empty composer — the first message never gets submitted).
@@ -693,17 +699,19 @@ export function relaunchSessionWithModel(opts: {
   return { ok: true };
 }
 
-export function spawnManagedCodexSession(opts: {
+export type ManagedCodexSessionOptions = {
   name: string;
   cwd: string;
   prompt?: string;
   model?: string;
   thinkingLevel?: string;
+  serviceTier?: CodexServiceTier;
   omgSessionId?: string;
   omgUser?: string | null;
   containInAgentSlice?: boolean;
-}): { ok: boolean; error?: string } {
-  const dec = new TextDecoder();
+};
+
+export function managedCodexSessionArgv(opts: ManagedCodexSessionOptions): string[] {
   const argv = [
     "tmux",
     "new-session",
@@ -724,10 +732,17 @@ export function spawnManagedCodexSession(opts: {
   ];
   if (opts.model) argv.push("--model", opts.model);
   if (opts.thinkingLevel) argv.push("-c", `reasoning_effort=${JSON.stringify(opts.thinkingLevel)}`);
+  argv.push(...codexServiceTierArgs(opts.serviceTier));
   const prompt = withOmgRuntimeContract(opts.prompt);
   if (prompt?.trim()) argv.push("--", prompt);
   addSessionEnv(argv, opts.omgSessionId, opts.omgUser, opts.name);
   containTmuxCommand(argv, codexBin(), opts.containInAgentSlice, opts);
+  return argv;
+}
+
+export function spawnManagedCodexSession(opts: ManagedCodexSessionOptions): { ok: boolean; error?: string } {
+  const dec = new TextDecoder();
+  const argv = managedCodexSessionArgv(opts);
   const create = Bun.spawnSync(argv);
   if (create.exitCode !== 0)
     return { ok: false, error: dec.decode(create.stderr) || "new-session failed" };
@@ -1082,24 +1097,22 @@ export function cursorRelaunchArgv(opts: {
 
 // Spawn a headless "aisdk" session directly. I/O and lifecycle are registry /
 // command-file driven; no tmux pane is involved.
-export function spawnManagedAisdkSession(opts: {
+export type ManagedAisdkSessionOptions = {
   name: string;
   cwd: string;
   prompt?: string;
   model: string;
   sessionId: string;
   thinkingLevel?: string;
+  fastMode?: boolean;
   omgSessionId?: string;
   omgUser?: string | null;
   containInAgentSlice?: boolean;
   claudeAccountId?: string;
   recoveredAt?: number;
-}): ManagedHarnessSpawnResult {
-  // The provider drives the bundled claude binary, which still honors the trust
-  // dialog — pre-accept it so the first turn doesn't hang.
-  ensureFolderTrusted(opts.cwd);
-  // Spawn the harness module directly (not via the lfg CLI) so it has no
-  // dependency on the rest of the command surface.
+};
+
+export function managedAisdkSessionArgv(opts: ManagedAisdkSessionOptions): string[] {
   const harnessPath = `${import.meta.dir}/agents/backends/aisdk-session.ts`;
   const argv = [
     process.execPath, harnessPath,
@@ -1108,14 +1121,23 @@ export function spawnManagedAisdkSession(opts: {
     "--cwd", opts.cwd,
     "--managed-name", opts.name,
   ];
-  // Forward the requested thinking level; the harness maps it onto the
-  // claude-code provider's `effort` option (see aisdk-session.ts).
   if (opts.thinkingLevel) argv.push("--thinking-level", opts.thinkingLevel);
-  const claudeAccountId = opts.claudeAccountId ?? resolveClaudeAccount()?.id;
-  if (claudeAccountId) argv.push("--claude-account", claudeAccountId);
+  if (opts.fastMode) argv.push("--fast-mode");
+  if (opts.claudeAccountId) argv.push("--claude-account", opts.claudeAccountId);
   if (opts.recoveredAt) argv.push("--recovered-at", String(opts.recoveredAt));
   const prompt = withOmgRuntimeContract(opts.prompt);
   if (prompt?.trim()) argv.push("--", prompt);
+  return argv;
+}
+
+export function spawnManagedAisdkSession(opts: ManagedAisdkSessionOptions): ManagedHarnessSpawnResult {
+  // The provider drives the bundled claude binary, which still honors the trust
+  // dialog — pre-accept it so the first turn doesn't hang.
+  ensureFolderTrusted(opts.cwd);
+  // Spawn the harness module directly (not via the lfg CLI) so it has no
+  // dependency on the rest of the command surface.
+  const claudeAccountId = opts.claudeAccountId ?? resolveClaudeAccount()?.id;
+  const argv = managedAisdkSessionArgv({ ...opts, claudeAccountId });
   return spawnManagedHarness(argv, {
     name: opts.name,
     cwd: opts.cwd,
@@ -1130,13 +1152,14 @@ export function spawnManagedAisdkSession(opts: {
 // at the codex harness and passes the control-plane KEY (--key) rather
 // than a deterministic --session id — codex assigns its thread id only after the
 // first turn, so the key is all we know up front (see the harness header).
-export function spawnManagedCodexAisdkSession(opts: {
+export type ManagedCodexAisdkSessionOptions = {
   name: string;
   cwd: string;
   prompt?: string;
   model: string;
   key: string;
   thinkingLevel?: string;
+  serviceTier?: CodexServiceTier;
   omgSessionId?: string;
   omgUser?: string | null;
   containInAgentSlice?: boolean;
@@ -1144,14 +1167,9 @@ export function spawnManagedCodexAisdkSession(opts: {
   // fresh persistent thread — the harness seeds its threadId with it.
   resume?: string;
   recoveredAt?: number;
-}): ManagedHarnessSpawnResult {
-  // Harmless for codex: ensureFolderTrusted only patches ~/.claude.json and is a
-  // no-op when that file (or the project entry) is absent. Codex doesn't gate on
-  // it, but keeping it costs nothing and keeps this in lockstep with the Claude
-  // spawn helper.
-  ensureFolderTrusted(opts.cwd);
-  // Spawn the harness module directly (not via the lfg CLI) so it has no
-  // dependency on the rest of the command surface.
+};
+
+export function managedCodexAisdkSessionArgv(opts: ManagedCodexAisdkSessionOptions): string[] {
   const harnessPath = `${import.meta.dir}/agents/backends/codex-aisdk-session.ts`;
   const argv = [
     process.execPath, harnessPath,
@@ -1161,10 +1179,23 @@ export function spawnManagedCodexAisdkSession(opts: {
     "--managed-name", opts.name,
   ];
   if (opts.thinkingLevel) argv.push("--thinking-level", opts.thinkingLevel);
+  if (opts.serviceTier) argv.push("--service-tier", opts.serviceTier);
   if (opts.resume) argv.push("--resume", opts.resume);
   if (opts.recoveredAt) argv.push("--recovered-at", String(opts.recoveredAt));
   const prompt = withOmgRuntimeContract(opts.prompt);
   if (prompt?.trim()) argv.push("--", prompt);
+  return argv;
+}
+
+export function spawnManagedCodexAisdkSession(opts: ManagedCodexAisdkSessionOptions): ManagedHarnessSpawnResult {
+  // Harmless for codex: ensureFolderTrusted only patches ~/.claude.json and is a
+  // no-op when that file (or the project entry) is absent. Codex doesn't gate on
+  // it, but keeping it costs nothing and keeps this in lockstep with the Claude
+  // spawn helper.
+  ensureFolderTrusted(opts.cwd);
+  // Spawn the harness module directly (not via the lfg CLI) so it has no
+  // dependency on the rest of the command surface.
+  const argv = managedCodexAisdkSessionArgv(opts);
   return spawnManagedHarness(argv, {
     name: opts.name,
     cwd: opts.cwd,
