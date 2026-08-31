@@ -175,6 +175,7 @@ import {
   upsertConversationParticipant,
   viewerConversationParticipantId,
 } from "../conversations.ts";
+import { recordAuthoredSend } from "../conversation-authorship.ts";
 import { startAutoScheduler, setBotRoutineDelivery } from "../auto/scheduler.ts";
 import { handleWakeTick } from "../auto/wake-tick.ts";
 import { pushWakeHooksNow, setWakeHooksBootId } from "../auto/wake-hooks-push.ts";
@@ -3965,8 +3966,17 @@ export async function cmdServe() {
 
       if (path === "/api/live/ws") {
         if (!isLiveWsEnabled()) return err(404, "live websocket disabled");
+        // Resolve who this socket speaks for ONCE, here, from the same
+        // HMAC-verified proxy headers the send path trusts. A browser cannot
+        // put an identity on a websocket frame afterwards, so typing presence
+        // cannot be spoofed by a client that simply names somebody else.
+        // Unmanaged boxes resolve to null and report no presence, matching the
+        // rule that only a verified identity gets a face.
+        const wsViewer = botViewerFromRequest(req, undefined);
         const ok = server.upgrade(req, {
-          data: liveWs.dataForRequest(),
+          data: liveWs.dataForRequest(
+            wsViewer.managed ? viewerConversationParticipantId(wsViewer.identity) : null,
+          ),
         });
         if (ok) return undefined; // upgraded — Bun takes over the socket
         return err(400, "expected a websocket upgrade");
@@ -9020,6 +9030,47 @@ a{color:#60a5fa}
             }
           }
           if (!sess) return err(404, "session not found");
+          // Multiplayer attribution for an ordinary session. A human composer
+          // send (no fromSessionId) by a server-verified identity joins the
+          // conversation roster and stamps this turn, so the transcript can
+          // draw their face and the header can show who is here. An
+          // agent-to-agent update is not a person and never joins.
+          //
+          // `trusted` is the gate, not merely a hint: an unmanaged box falls
+          // back to the session's own tag, which would attribute everyone's
+          // turns to the assigned user and put a wrong, "verified" face on
+          // them. Untrusted sends stay unattributed and render exactly as
+          // they do today.
+          if (!body?.fromSessionId) {
+            const { author, trusted } = resolveBotMessageAuthor({
+              viewer: botViewerFromRequest(req, undefined),
+              rosterTagUser: sess.assignedUser ?? undefined,
+              botOwner: undefined,
+              envUser: process.env.OMG_USER,
+            });
+            const conversationId = sess.conversationId?.trim();
+            if (trusted && conversationId) {
+              const profile = userRoster().find(
+                (user) => user.email.trim().toLowerCase() === author.trim().toLowerCase(),
+              );
+              // No explicit role: ensureConversationHuman seats the first
+              // human in an empty roster as the owner and everyone after as a
+              // member. An untagged session therefore gets a real owner from
+              // whoever first writes to it, instead of a roster of members
+              // with nobody able to manage it.
+              ensureConversationHuman({
+                conversationId,
+                identity: author,
+                name: profile?.name,
+                avatar: profile?.avatar,
+              });
+              recordAuthoredSend({
+                sessionId: sess.sessionId ?? m[1],
+                participantId: conversationHumanParticipantId(author),
+                text,
+              });
+            }
+          }
           let sentMsg: unknown;
           if (!deliveredOnLaunch) {
             const mode = agentUpdateSendMode(body?.mode, {
