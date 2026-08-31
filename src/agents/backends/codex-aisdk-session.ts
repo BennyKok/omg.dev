@@ -34,6 +34,10 @@ import { sessionTitleFromPrompt } from "../../omg-capabilities.ts";
 import { indexSessionMessagesDirect, reindexFileHistoryUnderSessionKey } from "../../transcript-index.ts";
 import { makeDraftPublisher } from "./draft.ts";
 import { codexOmgMcpConfig, type CodexConfigValue } from "../../codex-mcp-config.ts";
+import {
+  withCodexServiceTierConfig,
+  type CodexServiceTier,
+} from "../../service-tier.ts";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { initialCmdOffset, readNewCmdLines, writeCursor } from "./cmd-tail.ts";
 import {
@@ -130,8 +134,10 @@ export function createStallGate() {
  * makes codex reject the whole config ("invalid transport"), which fails the
  * launch before the model runs. See ../../codex-mcp-config.ts.
  */
-function omgMcpConfig(): { config?: { [key: string]: CodexConfigValue } } {
-  return codexOmgMcpConfig();
+function omgMcpConfig(serviceTier?: CodexServiceTier): { config?: { [key: string]: CodexConfigValue } } {
+  const base = codexOmgMcpConfig();
+  const config = withCodexServiceTierConfig(base.config, serviceTier);
+  return config ? { config } : {};
 }
 
 // Shared thread options for both the interactive harness and the one-shot
@@ -221,7 +227,7 @@ function codexCompletedItemMessage(item: Record<string, unknown>, turnNonce: str
 export async function pipeToCodexAiSdk(
   prompt: string,
   log: (s: string) => void,
-  opts: { model?: string; thinkingLevel?: string; cwd?: string } = {},
+  opts: { model?: string; thinkingLevel?: string; serviceTier?: CodexServiceTier; cwd?: string } = {},
 ): Promise<string> {
   const model = opts.model ?? "gpt-5.5";
   const cwd = opts.cwd ?? process.cwd();
@@ -229,7 +235,7 @@ export async function pipeToCodexAiSdk(
   const codexPathOverride = resolveCodexPathOverride();
   const codex = new Codex({
     ...(codexPathOverride ? { codexPathOverride } : {}),
-    ...omgMcpConfig(),
+    ...omgMcpConfig(opts.serviceTier),
   });
 
   log(`[runner] piping ${prompt.length} chars to codex via codex-sdk (${model})`);
@@ -271,6 +277,12 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
   const keyArg = arg(argv, "--key");
   const model = arg(argv, "--model") ?? "gpt-5.5";
   let thinkingLevel = arg(argv, "--thinking-level");
+  const requestedServiceTier = arg(argv, "--service-tier");
+  if (requestedServiceTier && requestedServiceTier !== "fast") {
+    console.error(`codex-aisdk-session: unsupported service tier "${requestedServiceTier}"`);
+    process.exit(1);
+  }
+  let serviceTier = requestedServiceTier as CodexServiceTier | undefined;
   const cwd = arg(argv, "--cwd") ?? process.cwd();
   const tmuxName = arg(argv, "--managed-name") ?? arg(argv, "--tmux") ?? "";
   const recoveredAt = Number(arg(argv, "--recovered-at")) || null;
@@ -302,10 +314,11 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
   const { Codex } = await import("@openai/codex-sdk");
   const codexPathOverride = resolveCodexPathOverride();
   // Omitting `env` inherits process.env (HOME → ~/.codex auth, LFG_* for MCP).
-  const codex = new Codex({
+  const createCodex = () => new Codex({
     ...(codexPathOverride ? { codexPathOverride } : {}),
-    ...omgMcpConfig(),
+    ...omgMcpConfig(serviceTier),
   });
+  let codex = createCodex();
   let threadThinkingLevel = thinkingLevel;
   // Set when a stream stalls: the SDK handle is unusable afterwards, so the
   // next turn must rebuild it from threadId instead of inheriting the wedge.
@@ -330,6 +343,8 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
     recoveryClaimBootId: recoveredAt ? bootId : null,
     recoveredAt,
     thinkingLevel: thinkingLevel ?? null,
+    serviceTier,
+    fastMode: serviceTier === "fast",
     cwd,
     model,
     busy: false,
@@ -489,6 +504,17 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
     } else if (cmd.type === "set_thinking_level") {
       thinkingLevel = cmd.thinkingLevel;
       patchEntry(key, { thinkingLevel });
+    } else if (cmd.type === "set_fast_mode") {
+      serviceTier = cmd.enabled ? "fast" : undefined;
+      // Fast lives on the Codex client config, not the reasoning options. A
+      // fresh SDK client + resumed thread applies it to the next turn while
+      // preserving both conversation and thinking level.
+      codex = createCodex();
+      threadNeedsRebuild = true;
+      patchEntry(key, {
+        fastMode: cmd.enabled,
+        serviceTier: cmd.enabled ? "fast" : null,
+      });
     } else if (cmd.type === "close") {
       shutdown();
     }
