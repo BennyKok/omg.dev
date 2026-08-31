@@ -2,6 +2,32 @@
 
 Recent product updates and deployment notes.
 
+## August 31, 2026 - See who else is in a session (v0.6.22)
+
+- **A shared session now shows who is in it.** An ordinary coding session used
+  to look identical whether you were working alone or with three other people.
+  It now shows their faces in the header, draws each person's avatar and name
+  beside the messages they wrote, and shows a live indicator while somebody
+  else is typing. Your own messages are unchanged, and a session you are
+  working on alone is unchanged too: with only one person there, no faces and
+  no indicator appear at all.
+- **A person typing is shown as a person, not as the agent working.** The
+  typing indicator for a teammate is separate from the dots that mean the agent
+  is producing an answer, so a half-written question from someone else can
+  never be mistaken for the agent thinking.
+- **Someone typing stays visible across a bot restart.** Presence now follows
+  the conversation rather than the individual run behind it. Restarting a bot
+  no longer clears everyone from the indicator, and two people looking at the
+  same conversation through different runs can now see each other.
+- **Faces appear on a self-hosted box, not only a hosted one.** Message avatars
+  and the header roster now work the same way in both places. A box with a
+  configured roster of users shows them; a box with no roster configured shows
+  nothing, exactly as before.
+- **Nobody gets the wrong face.** A message is only labelled when the box can
+  say who sent it. If two people send the exact same words in one session, that
+  turn is left unlabelled rather than guessed at, and a message the box cannot
+  attribute renders as it always has.
+
 ## August 31, 2026 - Command details open again in the hosted app (v0.6.21)
 
 - **Command details load instead of showing a browser error.** Opening a tool
