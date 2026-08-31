@@ -46,6 +46,10 @@ function urlsInText(text: string | null | undefined): string[] {
   });
 }
 
+function isBackgroundCoordination(text: string | null | undefined): boolean {
+  return /^\s*\[Background task\b/i.test(text ?? "");
+}
+
 /**
  * The person's latest explicit URL owns the page choice. Assistant answers
  * commonly contain source links and PR URLs, so allowing a later assistant
@@ -55,6 +59,7 @@ export function resolveSessionInspectionUrl(messages: MessageLike[]): string | n
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message?.role !== "user") continue;
+    if (isBackgroundCoordination(message.text)) continue;
     const urls = urlsInText(message.text);
     if (urls.length) return urls.at(-1) ?? null;
   }

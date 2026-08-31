@@ -26,6 +26,10 @@ describe("session inspection target", () => {
         [
           { role: "user", text: "Can you inspect https://x.com/blendibyl/status/2094216957734355275?s=46" },
           { role: "assistant", text: "I opened https://github.com/BennyKok/omg.dev/pull/252" },
+          {
+            role: "user",
+            text: "[Background task https://fal.ai/tools/render] Browser conflict resolved",
+          },
         ],
       ),
     ).toBe("https://x.com/blendibyl/status/2094216957734355275?s=46");
