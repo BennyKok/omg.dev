@@ -14,12 +14,16 @@
  * anywhere, so it must come first; explaining the product to someone who then
  * declines consent and gets signed out would be wasted words.
  *
- * ── Why one screen and not a carousel ─────────────────────────────────────
+ * ── Paged, but never by swipe ─────────────────────────────────────────────
  *
- * Three points fit. A swipe carousel would hide two thirds of them behind a
- * gesture nobody is told about, which is the same mistake plan.tsx's header
- * comment already records about hiding tiers behind a swipe. One screen, all
- * three visible, one button.
+ * Three panels, advanced by a button that is always on screen, with dots
+ * showing how many are left. plan.tsx's header records the real mistake to
+ * avoid: content hidden behind a gesture nobody is told about. A visible
+ * Continue is not that. Swipe is deliberately NOT wired up, so there is
+ * exactly one way forward and it is the one being pointed at.
+ *
+ * One idea per panel, because this is the first thing a new account sees and
+ * a list of three bullets reads like a settings pane rather than a welcome.
  *
  * ── The copy is not invented ──────────────────────────────────────────────
  *
@@ -38,15 +42,15 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { ScrollView, View } from "react-native";
+import { Pressable, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { AndroidSymbol, SFSymbol } from "expo-symbols";
 
-import { Icon, PrimaryButton, Separator } from "../components";
+import { Icon } from "../components";
 import { Text } from "./text";
-import { useTheme } from "./theme";
+import { brand, useTheme } from "./theme";
 
 /**
  * Bump only when the POINTS below change materially, which re-shows the screen
@@ -56,28 +60,31 @@ export const ONBOARDING_VERSION = 1;
 
 const storageKeyFor = (userId: string) => `omg:mobile:onboarding:${userId}`;
 
-type Point = {
+type Panel = {
   icon: { ios: SFSymbol; android: AndroidSymbol };
   title: string;
-  detail: string;
+  body: string;
 };
 
-export const POINTS: Point[] = [
+/**
+ * Every claim is the App Store description's, restated shorter. Do not add a
+ * panel the description does not support.
+ */
+export const PANELS: Panel[] = [
   {
     icon: { ios: "chevron.left.forwardslash.chevron.right", android: "code" },
-    title: "Claude Code, Codex, OpenCode and Pi",
-    detail: "Each one runs on a dedicated cloud computer, not on this phone.",
+    title: "Your agents get a real computer",
+    body: "Claude Code, Codex, OpenCode and Pi run on a cloud machine of your own, not on this phone.",
   },
   {
     icon: { ios: "clock.arrow.circlepath", android: "history" },
-    title: "It keeps running when you close the app",
-    detail:
-      "Files and sessions stay intact, so you can pick up later from the browser, over SSH, or back in here.",
+    title: "Close the app. It keeps going.",
+    body: "Files and sessions stay intact, so you can pick up later from the browser, over SSH, or back in here.",
   },
   {
     icon: { ios: "bell.fill", android: "notifications" },
-    title: "You get told when something needs you",
-    detail: "A push notification when an agent finishes a task or needs input.",
+    title: "You will know when it needs you",
+    body: "A push notification lands when an agent finishes a task or gets stuck.",
   },
 ];
 
@@ -144,61 +151,140 @@ export async function resetOnboarding(userId: string): Promise<void> {
   await AsyncStorage.removeItem(storageKeyFor(userId));
 }
 
+/**
+ * A big, brand-coloured, full-width button.
+ *
+ * Not `PrimaryButton`. That one is the system blue used on the settings-shaped
+ * screens, and this is the first screen a new account sees, sitting directly
+ * under an orange mark — blue there reads as a stock control on someone else's
+ * template. Repainting PrimaryButton globally is a bigger call than this
+ * screen should make on its own, so the divergence is local and deliberate.
+ */
+function BigButton({ label, onPress }: { label: string; onPress: () => void }) {
+  const { radius, type } = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => ({
+        backgroundColor: brand.orange,
+        borderRadius: radius.pill,
+        paddingVertical: 18,
+        alignItems: "center",
+        opacity: pressed ? 0.85 : 1,
+      })}
+    >
+      <Text style={{ ...type.headline, color: "#ffffff" }}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/** How far along, as dots. Three panels is few enough to show them all. */
+function Dots({ count, index }: { count: number; index: number }) {
+  const { colors, space } = useTheme();
+  return (
+    <View style={{ flexDirection: "row", gap: space.xs, justifyContent: "center" }}>
+      {Array.from({ length: count }, (_, i) => (
+        <View
+          key={i}
+          style={{
+            width: i === index ? 20 : 6,
+            height: 6,
+            borderRadius: 3,
+            backgroundColor: i === index ? brand.orange : colors.borderStrong,
+          }}
+        />
+      ))}
+    </View>
+  );
+}
+
 export function OnboardingScreen({ onDone }: { onDone: () => void }) {
-  const { colors, space, type, radius } = useTheme();
+  const { colors, space, type } = useTheme();
   const insets = useSafeAreaInsets();
+  const [index, setIndex] = useState(0);
+
+  const panel = PANELS[index];
+  const last = index === PANELS.length - 1;
+
+  /*
+   * Advance, or finish. Guarding on `last` rather than incrementing and
+   * letting a render off the end of the array decide: PANELS[3] is undefined,
+   * and a crash on the welcome screen is the worst possible first impression.
+   */
+  const next = useCallback(() => {
+    if (last) onDone();
+    else setIndex((current) => current + 1);
+  }, [last, onDone]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <ScrollView
-        contentContainerStyle={{
-          padding: space.lg,
-          paddingTop: insets.top + space.xl,
-          gap: space.lg,
+      <View
+        style={{
+          paddingTop: insets.top + space.md,
+          paddingHorizontal: space.lg,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
         }}
       >
-        <Text style={{ ...type.largeTitle, color: colors.text }}>Your cloud Computer</Text>
-        <Text style={{ ...type.body, color: colors.textMuted }}>
-          omg.dev runs coding agents on a durable machine you can reach from your phone.
-        </Text>
+        {/* Skip is always available. Someone who already knows what this is
+            should not have to tap through three panels to reach their work. */}
+        <View style={{ width: 44 }} />
+        <Dots count={PANELS.length} index={index} />
+        <Pressable accessibilityRole="button" onPress={onDone} hitSlop={12}>
+          <Text style={{ ...type.subhead, color: colors.textMuted }}>Skip</Text>
+        </Pressable>
+      </View>
 
+      <View
+        style={{
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingHorizontal: space.xl,
+          gap: space.xl,
+        }}
+      >
         <View
           style={{
-            backgroundColor: colors.card,
-            borderRadius: radius.lg,
-            paddingVertical: space.xs,
+            width: 148,
+            height: 148,
+            borderRadius: 74,
+            // The brand at low alpha rather than `colors.card`: a grey disc
+            // under an orange mark reads as a placeholder for missing art.
+            backgroundColor: "rgba(255, 85, 48, 0.14)",
+            alignItems: "center",
+            justifyContent: "center",
           }}
         >
-          {POINTS.map((point, index) => (
-            <View key={point.title}>
-              {index > 0 ? <Separator inset="text" /> : null}
-              <View style={{ flexDirection: "row", gap: space.md, padding: space.md }}>
-                <Icon
-                  ios={point.icon.ios}
-                  android={point.icon.android}
-                  size={20}
-                  color={colors.textMuted}
-                />
-                <View style={{ flex: 1, gap: space.xs }}>
-                  <Text style={{ ...type.headline, color: colors.text }}>{point.title}</Text>
-                  <Text style={{ ...type.footnote, color: colors.textMuted }}>{point.detail}</Text>
-                </View>
-              </View>
-            </View>
-          ))}
+          <Icon ios={panel.icon.ios} android={panel.icon.android} size={60} color={brand.orange} />
         </View>
-      </ScrollView>
+
+        <View style={{ gap: space.md }}>
+          <Text style={{ ...type.largeTitle, color: colors.text, textAlign: "center" }}>
+            {panel.title}
+          </Text>
+          <Text
+            style={{
+              ...type.body,
+              color: colors.textMuted,
+              textAlign: "center",
+              lineHeight: 24,
+            }}
+          >
+            {panel.body}
+          </Text>
+        </View>
+      </View>
 
       <View
         style={{
           padding: space.lg,
           paddingBottom: insets.bottom + space.lg,
-          gap: space.sm,
-          borderTopWidth: 1,
-          borderTopColor: colors.border,
         }}
       >
-        <PrimaryButton label="Start" onPress={onDone} />
+        <BigButton label={last ? "Start" : "Continue"} onPress={next} />
       </View>
     </View>
   );
