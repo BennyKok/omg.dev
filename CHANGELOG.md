@@ -2,6 +2,17 @@
 
 Recent product updates and deployment notes.
 
+## September 1, 2026 - One keystroke, one action (v0.6.26)
+
+- **Shift+E no longer opens two archive dialogs.** When two workspace surfaces
+  were alive in the same window, each one handled the same key press. One
+  Shift+E asked to archive the session two times, and one "c" started two new
+  sessions. The surfaces now agree on one owner for each key press. The owner is
+  the surface that you work in.
+- **The keyboard picks the surface you touched.** The key press goes to the
+  surface that holds the key target, or the focus, or your last touch. Every
+  other surface ignores it. The single window app keeps its behavior.
+
 ## September 1, 2026 - Clear the findings feed in one action (v0.6.25)
 
 - **Auto agent findings can now be cleared all at once.** The feed had no way
