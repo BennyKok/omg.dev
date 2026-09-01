@@ -14561,10 +14561,42 @@ function SkillTextarea({
   // CSS `field-sizing: content` is still flaky across browsers (and loses to
   // rows/min-height combos), so grow from scrollHeight. max-height in className
   // clamps the box; overflow-y-auto scrolls past the cap.
+  //
+  // THE COLLAPSE MUST NOT ESCAPE THE COMPOSER.
+  //
+  // `height = 0px` followed by a `scrollHeight` read is a forced layout of the
+  // whole document with this field at zero height, and this field is the
+  // bottom of the same flex column the transcript scroller sits in. For that
+  // one layout the scroller is taller by the composer's full height, which is
+  // a large fraction of the visible pane on a phone with the keyboard up.
+  // Measured in Chrome on a 400pt column: the pane went 276 -> 366 -> 276 per
+  // keystroke, and a reader parked inside one composer-height of the bottom
+  // had `scrollTop` clamped to the shorter maximum in the middle of it.
+  //
+  // ChatStream owns transcript scroll position, and it decides what to do from
+  // the pane's height (see its ResizeObserver and follow effect). Handing it a
+  // height that only ever existed inside a measurement is not its bug to
+  // solve, so the measurement is contained here instead: the field's own
+  // wrapper is pinned to the height it already has, the collapse happens
+  // inside that fixed box, and nothing above the composer moves.
   const resizeField = useCallback((el: HTMLTextAreaElement | null = fieldRef.current) => {
     if (!el) return;
+    const box = el.parentElement;
+    const lockedHeight = box ? box.getBoundingClientRect().height : 0;
+    const previousHeight = box?.style.height ?? "";
+    const previousBoxSizing = box?.style.boxSizing ?? "";
+    if (box && lockedHeight > 0) {
+      // Border-box explicitly: the locked figure is a border-box measurement,
+      // and this must not depend on the cascade agreeing.
+      box.style.boxSizing = "border-box";
+      box.style.height = `${lockedHeight}px`;
+    }
     el.style.height = "0px";
     el.style.height = `${el.scrollHeight}px`;
+    if (box && lockedHeight > 0) {
+      box.style.height = previousHeight;
+      box.style.boxSizing = previousBoxSizing;
+    }
     if (onMultilineChange) {
       const style = window.getComputedStyle(el);
       const lineHeight = Number.parseFloat(style.lineHeight);
