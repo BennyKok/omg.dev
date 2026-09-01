@@ -1367,8 +1367,9 @@ export function UserMessage({ message }: { message: Entry }) {
     if (!rawText) return;
     void Haptics.selectionAsync();
     // expo-clipboard, not RN's core Clipboard — the core one is deprecated and
-    // slated for removal, and expo-clipboard is already a dependency (the
-    // iMessage sign-in flow uses it to copy the code).
+    // slated for removal. expo-clipboard is a direct dependency with several
+    // callers here, in markdown.tsx and in session/[id].tsx, so this is not
+    // pulling in a package for one copy button.
     void Clipboard.setStringAsync(rawText);
     setCopied(true);
     if (copyTimer.current) clearTimeout(copyTimer.current);
