@@ -33,10 +33,13 @@ export function HumanFace({
   participant,
   className,
   typing = false,
+  owner = false,
 }: {
   participant: ConversationParticipant;
   className?: string;
   typing?: boolean;
+  /** Draw the "this session is theirs" tint. See ConversationParticipantRow. */
+  owner?: boolean;
 }) {
   const name = displayName(participant);
   // The face itself must stay `overflow-hidden` so a photo is clipped to the
@@ -46,6 +49,10 @@ export function HumanFace({
     <span
       className={cn(
         "relative grid size-4 shrink-0 place-items-center overflow-hidden rounded-full bg-primary/12 text-[9px] font-semibold text-primary",
+        // Faces overlap, so each needs a halo to stay separable. The owner's
+        // is tinted: same geometry, no layout shift, and it replaces the second
+        // avatar this header used to carry.
+        owner ? "ring-2 ring-primary" : "ring-2 ring-card",
         !typing && className,
       )}
     >
@@ -88,12 +95,18 @@ export function HumanFace({
 }
 
 /**
- * The header roster.
+ * The header roster, as one overlapping pile.
  *
- * Hidden below two participants, which is what keeps a session somebody is
- * working on alone completely unchanged: no icons, no row, no layout shift.
- * The threshold counts everyone present, so a solo human working with a bot
- * still sees the pair.
+ * This is the only avatar display on the session header. It used to share that
+ * header with a standalone SessionAssigneeAvatar, which drew the assignee a
+ * second time. The assignee is a participant like any other, so the owner is
+ * marked with a tinted ring here instead of getting its own avatar.
+ *
+ * Owner comes from `participant.role`, which the server already seeds from the
+ * assigned user. Matching on the assignee email would need a hash that lives in
+ * a server module the browser bundle must not import.
+ *
+ * Hidden below two participants, so a session you work on alone is unchanged.
  */
 export function ConversationParticipantRow({
   participants,
@@ -111,7 +124,7 @@ export function ConversationParticipantRow({
   const typing = new Set(typingIds ?? []);
   return (
     <div
-      className="mt-0.5 flex min-w-0 max-w-full items-center gap-1 overflow-hidden"
+      className="mt-0.5 flex min-w-0 max-w-full items-center overflow-hidden"
       aria-label={`Conversation participants: ${participants.map(displayName).join(", ")}`}
     >
       {participants.slice(0, MAX_FACES).map((participant) => {
@@ -124,6 +137,9 @@ export function ConversationParticipantRow({
               key={participant.id}
               className={cn(
                 "flex min-w-0 shrink items-center rounded-full bg-muted text-[10px] leading-none text-muted-foreground",
+                // A bot pill can carry a name, so it sits beside the pile
+                // rather than overlapping into it.
+                "ml-1 first:ml-0",
                 compact ? "size-4 justify-center" : "gap-1 px-1.5 py-0.5",
               )}
               title={`${name} · bot`}
@@ -141,11 +157,17 @@ export function ConversationParticipantRow({
           );
         }
         return (
-          <HumanFace key={participant.id} participant={participant} typing={typing.has(participant.id)} />
+          <HumanFace
+            key={participant.id}
+            participant={participant}
+            typing={typing.has(participant.id)}
+            owner={participant.role === "owner"}
+            className="-ml-1 first:ml-0"
+          />
         );
       })}
       {participants.length > MAX_FACES ? (
-        <span className="shrink-0 text-[10px] text-muted-foreground">
+        <span className="ml-1.5 shrink-0 text-[10px] text-muted-foreground">
           +{participants.length - MAX_FACES}
         </span>
       ) : null}
