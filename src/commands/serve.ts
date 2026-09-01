@@ -328,6 +328,7 @@ import {
 import {
   browserClick,
   browserNavigate,
+  browserPaste,
   browserPress,
   browserReadText,
   browserScreenshot,
@@ -4068,6 +4069,11 @@ export async function cmdServe() {
             case "type": {
               if (!body.text) return err(400, "text is required");
               await browserType(body.text);
+              return json({ ok: true });
+            }
+            case "paste": {
+              if (!body.text) return err(400, "text is required");
+              await browserPaste(body.text);
               return json({ ok: true });
             }
             case "press": {

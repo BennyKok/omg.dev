@@ -137,6 +137,17 @@ export function buildComputerMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "computer_paste",
+    {
+      title: "Paste Text",
+      description:
+        "Paste text into whatever currently has focus. Unlike computer_type this goes through the real clipboard with a trusted Ctrl+V, so paste handlers fire — use it for long text and for fields that react to paste, such as verification-code inputs that split the digits. Click the field first. Plain-http pages block clipboard writes; use computer_type there.",
+      inputSchema: { text: z.string().min(1).describe("Text to paste.") },
+    },
+    async ({ text }) => result(await post("/api/computer/browser/paste", { text })),
+  );
+
+  server.registerTool(
     "computer_press",
     {
       title: "Press A Key",
