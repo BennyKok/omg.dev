@@ -1328,10 +1328,26 @@ type ManagedStructuredSessionOptions = {
   recoveredAt?: number;
 };
 
-function spawnManagedStructuredSession(
-  moduleName: "grok-acp-session" | "cursor-acp-session" | "fx-acp-session" | "deepseek-acp-session" | "copilot-sdk-session" | "jcode-sdk-session",
+export type ManagedStructuredModule =
+  | "grok-acp-session"
+  | "cursor-acp-session"
+  | "fx-acp-session"
+  | "deepseek-acp-session"
+  | "copilot-sdk-session"
+  | "jcode-sdk-session";
+
+/**
+ * The argv for one structured (ACP/SDK) harness.
+ *
+ * Split out of the spawn so the launch envelope is assertable without starting
+ * a process. Every module here parses `--` the same way (see
+ * cmdDeepseekAcpSession and its siblings: `argv.slice(separator + 1)` into
+ * runManagedSdkSession), so none of them is a special case.
+ */
+export function managedStructuredSessionArgv(
+  moduleName: ManagedStructuredModule,
   opts: ManagedStructuredSessionOptions,
-): ManagedHarnessSpawnResult {
+): string[] {
   const harnessPath = `${import.meta.dir}/agents/backends/${moduleName}.ts`;
   const argv = [
     process.execPath,
@@ -1344,10 +1360,16 @@ function spawnManagedStructuredSession(
   if (opts.thinkingLevel) argv.push("--thinking-level", opts.thinkingLevel);
   if (opts.resume) argv.push("--resume", opts.resume);
   if (opts.recoveredAt) argv.push("--recovered-at", String(opts.recoveredAt));
-  const prompt = moduleName === "deepseek-acp-session"
-    ? opts.prompt
-    : launchEnvelope(opts.prompt);
+  const prompt = launchEnvelope(opts.prompt);
   if (prompt?.trim()) argv.push("--", prompt);
+  return argv;
+}
+
+function spawnManagedStructuredSession(
+  moduleName: ManagedStructuredModule,
+  opts: ManagedStructuredSessionOptions,
+): ManagedHarnessSpawnResult {
+  const argv = managedStructuredSessionArgv(moduleName, opts);
   return spawnManagedHarness(argv, {
     name: opts.name,
     cwd: opts.cwd,
