@@ -889,6 +889,37 @@ export function buildOmgMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "omg_display_file",
+    {
+      title: "Display File In omg.dev",
+      description:
+        "Give the user a local file in the omg.dev session transcript: a PDF, an audio clip, a CSV, a log, an archive, or any other document. The transcript shows a named card with its size and a download button; the file is downloaded, not rendered in place. Use omg_display_image for screenshots and omg_display_video for recordings, which do render inline.",
+      inputSchema: {
+        path: z.string().min(1).describe("Absolute path to the file on this machine. Any file type is accepted, up to 100 MB."),
+        caption: z.string().optional().describe("Short caption shown under the file. Say what the file is and why it matters."),
+        alt: z.string().optional().describe("Short accessible description of the file contents."),
+        sessionId: z.string().optional().describe("Target omg.dev session id. Defaults to OMG_SESSION_ID."),
+      },
+    },
+    async ({ path, caption, alt, sessionId }) => {
+      const sid = await activeSessionId(sessionId);
+      const data = await api<ImageArtifactResponse>(
+        `/api/sessions/${encodeURIComponent(sid)}/artifacts/files`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path, caption, alt }),
+        },
+      );
+      return result({
+        displayed: true,
+        sessionId: shortSid(sid),
+        artifact: data.artifact,
+      });
+    },
+  );
+
+  server.registerTool(
     "omg_publish_artifact",
     {
       title: "Publish HTML Artifact In omg.dev",

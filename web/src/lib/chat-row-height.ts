@@ -62,6 +62,11 @@ export const MEDIA_CARD_CHROME_PX = 34;
 /** `max-h-[24rem]` on the media element itself. */
 export const MEDIA_MAX_PX = 384;
 
+/** File card: the icon/name/size/download row (`py-2` + text line box) plus
+ *  the card's top and bottom border. A file artifact is never rendered inline,
+ *  so unlike media this row has no variable body to account for. */
+export const FILE_CARD_CHROME_PX = 42;
+
 /** `-webkit-line-clamp: 10` on `.user-bubble-clamp` (index.css). */
 export const USER_BUBBLE_CLAMP_LINES = 10;
 
@@ -132,6 +137,7 @@ export type RowMessage = ChatRenderMessage & {
   height?: number | null;
   html?: string | null;
   caption?: string | null;
+  name?: string | null;
   failed?: boolean;
   interrupted?: boolean;
 };
@@ -646,6 +652,14 @@ export function mediaHeight(
   return drawn + MEDIA_CARD_CHROME_PX;
 }
 
+/**
+ * A file row: a fixed name/size/download strip, plus a caption row when the
+ * caption says something the file name does not.
+ */
+export function fileHeight(hasCaption: boolean): number {
+  return FILE_CARD_CHROME_PX + (hasCaption ? MEDIA_CARD_CHROME_PX : 0);
+}
+
 // ---------------------------------------------------------------------------
 // Rows
 // ---------------------------------------------------------------------------
@@ -664,6 +678,10 @@ export function messageRowHeight(message: RowMessage, ctx: RowContext): number {
   if (message.kind === "image" || message.kind === "video") {
     const cardWidth = ctx.mediaWidth ?? ctx.assistant.contentWidth;
     return mediaHeight(message.width, message.height, cardWidth);
+  }
+  if (message.kind === "file") {
+    const caption = message.caption || message.text;
+    return fileHeight(Boolean(caption && caption !== message.name));
   }
 
   const rawText = message.text ?? "";
