@@ -4,24 +4,16 @@
  * Extracted from App.tsx rather than written there because App.tsx mounts the
  * whole app on import, so nothing inside it can be rendered in a test (see
  * AGENTS.md). These take plain data instead of a Session so they stay pure:
- * the caller resolves the roster and the bot directory.
+ * the caller resolves the roster.
  */
 import type { ConversationParticipant } from "../../../src/conversation-contract";
-import { BotAvatar, type BotColorway, type BotShape } from "./BotAvatar";
 import { conversationParticipantDisplayName } from "../lib/conversation-ui";
 import { cn } from "../lib/utils";
-
-/** Just enough of a bot to draw its mascot. */
-export type ParticipantBotLook = { shape?: BotShape; colorway?: BotColorway };
 
 const MAX_FACES = 5;
 
 function displayName(participant: ConversationParticipant): string {
   return conversationParticipantDisplayName(participant);
-}
-
-function botIdOf(participant: ConversationParticipant): string {
-  return participant.id.startsWith("bot:") ? participant.id.slice(4) : participant.id;
 }
 
 /**
@@ -95,80 +87,54 @@ export function HumanFace({
 }
 
 /**
- * The header roster, as one overlapping pile.
+ * The header roster: the humans in this conversation, as one overlapping pile.
  *
- * This is the only avatar display on the session header. It used to share that
- * header with a standalone SessionAssigneeAvatar, which drew the assignee a
- * second time. The assignee is a participant like any other, so the owner is
- * marked with a tinted ring here instead of getting its own avatar.
+ * PEOPLE ONLY. Every header that mounts this already names the bot somewhere
+ * else in the same bar — as the header identity and title when the session is
+ * the bot's own chat, and as the "driven by <bot>" badge otherwise. Listing the
+ * bot here too put its name in one header three times: title, pill, badge.
+ *
+ * This is also the only avatar display on that header. It used to share it with
+ * a standalone SessionAssigneeAvatar, which drew the assignee a second time.
+ * The assignee is a participant like any other, so the owner is marked with a
+ * tinted ring here instead of getting its own avatar.
  *
  * Owner comes from `participant.role`, which the server already seeds from the
  * assigned user. Matching on the assignee email would need a hash that lives in
  * a server module the browser bundle must not import.
  *
- * Hidden below two participants, so a session you work on alone is unchanged.
+ * Hidden below two people, so a session you work on alone is unchanged. A bot
+ * is not company: one human plus a bot draws nothing now, because the bot is
+ * named elsewhere and a lone face says nothing the header did not already say.
  */
 export function ConversationParticipantRow({
   participants,
-  botLook,
-  compact = false,
   typingIds,
 }: {
   participants: ConversationParticipant[];
-  botLook?: (botId: string) => ParticipantBotLook | undefined;
-  compact?: boolean;
   /** Participant ids currently typing. Others render exactly as before. */
   typingIds?: readonly string[];
 }) {
-  if (participants.length < 2) return null;
+  const people = participants.filter((participant) => participant.kind === "human");
+  if (people.length < 2) return null;
   const typing = new Set(typingIds ?? []);
   return (
     <div
       className="mt-0.5 flex min-w-0 max-w-full items-center overflow-hidden"
-      aria-label={`Conversation participants: ${participants.map(displayName).join(", ")}`}
+      aria-label={`Conversation participants: ${people.map(displayName).join(", ")}`}
     >
-      {participants.slice(0, MAX_FACES).map((participant) => {
-        const name = displayName(participant);
-        if (participant.kind === "bot") {
-          const botId = botIdOf(participant);
-          const bot = botLook?.(botId);
-          return (
-            <span
-              key={participant.id}
-              className={cn(
-                "flex min-w-0 shrink items-center rounded-full bg-muted text-[10px] leading-none text-muted-foreground",
-                // A bot pill can carry a name, so it sits beside the pile
-                // rather than overlapping into it.
-                "ml-1 first:ml-0",
-                compact ? "size-4 justify-center" : "gap-1 px-1.5 py-0.5",
-              )}
-              title={`${name} · bot`}
-              aria-label={`${name}, bot`}
-            >
-              <BotAvatar
-                shape={bot?.shape}
-                colorway={bot?.colorway}
-                size={14}
-                state="idle"
-                seed={botId.length}
-              />
-              {!compact ? <span className="max-w-20 truncate">{name}</span> : null}
-            </span>
-          );
-        }
-        return (
-          <HumanFace
-            key={participant.id}
-            participant={participant}
-            typing={typing.has(participant.id)}
-            owner={participant.role === "owner"}
-            className="-ml-1 first:ml-0"
-          />
-        );
-      })}
-      {participants.length > MAX_FACES ? (
+      {people.slice(0, MAX_FACES).map((participant) => (
+        <HumanFace
+          key={participant.id}
+          participant={participant}
+          typing={typing.has(participant.id)}
+          owner={participant.role === "owner"}
+          className="-ml-1 first:ml-0"
+        />
+      ))}
+      {people.length > MAX_FACES ? (
         <span className="ml-1.5 shrink-0 text-[10px] text-muted-foreground">
-          +{participants.length - MAX_FACES}
+          +{people.length - MAX_FACES}
         </span>
       ) : null}
     </div>

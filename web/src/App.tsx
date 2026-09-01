@@ -16763,7 +16763,7 @@ function SessionTitleSheet({
               roster has to be here too — the card header this mirrors is not
               on screen. Compact, and self-hiding below two participants, so a
               solo session's header is byte-for-byte what it was. */}
-          <SessionParticipantRow session={session} compact typingIds={typingIds} />
+          <SessionParticipantRow session={session} typingIds={typingIds} />
           {session.shippedReview ? (
             <span className="shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
               Shipped
@@ -17081,23 +17081,10 @@ function ForkSessionDialog({
  * data so it can be render-tested; this resolves the roster and the bot
  * directory from context for the ~dozen call sites that pass a Session.
  */
-function SessionParticipantRow({
-  session,
-  compact = false,
-  typingIds,
-}: {
-  session: Session;
-  compact?: boolean;
-  typingIds?: readonly string[];
-}) {
-  const botDirectory = useContext(BotDirectoryContext);
-  const participants = activeConversationParticipants(session);
-  const botLook = useCallback((botId: string) => botDirectory.get(botId), [botDirectory]);
+function SessionParticipantRow({ session, typingIds }: { session: Session; typingIds?: readonly string[] }) {
   return (
     <ConversationParticipantRow
-      participants={participants}
-      botLook={botLook}
-      compact={compact}
+      participants={activeConversationParticipants(session)}
       typingIds={typingIds}
     />
   );
@@ -17540,7 +17527,7 @@ const onTouchStart = (e: ReactTouchEvent) => {
                     OtherHumanMessageBubble), not on the card that represents
                     the bot itself. */}
                 {headerBot ? null : (
-                  <SessionParticipantRow session={session} compact={isMobile} typingIds={typingIds} />
+                  <SessionParticipantRow session={session} typingIds={typingIds} />
                 )}
               </div>
             </button>

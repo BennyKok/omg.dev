@@ -2,6 +2,18 @@
 
 Recent product updates and deployment notes.
 
+## September 1, 2026 - The bot is named once in a header, not three times (v0.6.29)
+
+- **A bot no longer appears three times in one session header.** The header
+  already carries the bot as the title and as the "driven by" badge. The
+  participant row listed it a third time, as a pill between the people. The row
+  now shows people only.
+- **The faces sit together again.** The bot pill was placed between the two
+  people, so the group of faces was split apart. The people are now next to
+  each other, and the person the session belongs to keeps the coloured ring.
+- **A session with one person and a bot shows no faces.** One person is not a
+  group, and the bot is named elsewhere in the same header.
+
 ## September 1, 2026 - Custom instructions for every session (v0.6.28)
 
 - **Settings now holds your standing instructions.** Settings has a new "Custom
