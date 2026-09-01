@@ -49,6 +49,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import Reanimated, {
   Easing,
+  type SharedValue,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -85,17 +86,17 @@ type Panel = {
 export const PANELS: Panel[] = [
   {
     art: "mark",
-    title: "Your agents get a real computer",
+    title: "Your own computer",
     body: "Claude Code, Codex, OpenCode and Pi run on a cloud machine of your own, not on this phone.",
   },
   {
     art: "keeps-going",
-    title: "Close the app. It keeps going.",
+    title: "Runs while closed",
     body: "Files and sessions stay intact, so you can pick up later from the browser, over SSH, or back in here.",
   },
   {
     art: "notify",
-    title: "You will know when it needs you",
+    title: "Notified when needed",
     body: "A push notification lands when an agent finishes a task or gets stuck.",
   },
 ];
@@ -218,38 +219,58 @@ const AGENTS: { agent: string; x: number; y: number }[] = [
 
 const CONVERGE_MS = 2600;
 
-function AgentChip({ index, x, y, agent, still }: { index: number; x: number; y: number; agent: string; still: boolean }) {
-  const { colors, radius } = useTheme();
-  const p = useSharedValue(still ? 0.7 : 0);
+/**
+ * How far a "breath" pulls the four marks in, and how much it dims and
+ * shrinks them at the deepest point of the inhale. All three floors are well
+ * above zero on purpose: PULL never reaches 1 (full pull to centre), DIM
+ * never reaches 1 (full transparency), SHRINK never reaches 1 (zero scale).
+ * That is the fix for the missing-Claude bug — see the file-level note below.
+ *
+ * PULL IS BOUNDED BY GEOMETRY, NOT TASTE. The scatter radius is
+ * hypot(62, 34) = 70.7. The mark is 60 across, so 30 of that is its radius,
+ * and a chip is 38 across, so 19 more is its half-width. A chip centre nearer
+ * than 49 therefore overlaps the mark, and it needs a few points of daylight
+ * on top of that to still read as four marks around a disc rather than a
+ * huddle on top of one:
+ *
+ *   max pull = 1 - 57 / 70.7 ≈ 0.19
+ *
+ * It was first set to 0.45, which is more than twice that. Nothing about that
+ * is visible in a resting screenshot — the chips are correctly spread at
+ * breath = 0 — and it satisfies "no chip is ever invisible", which was the
+ * bug being fixed. It only shows at the top of the inhale, where all four
+ * climb onto the mark. If you raise this, re-derive it from the numbers
+ * above and then LOOK at a frame near peak breath, not at rest.
+ */
+const BREATH_PULL = 0.15;
+const BREATH_DIM = 0.28;
+const BREATH_SHRINK = 0.12;
 
-  useEffect(() => {
-    if (still) return;
-    /*
-     * Spread the four evenly across ONE cycle, not by a small fixed stagger.
-     * At 150ms apart on a 2600ms loop the four were effectively in phase: they
-     * faded out together and left a dead beat with nothing but the mark on
-     * screen, which a screenshot caught. A quarter-cycle apart means one is
-     * always arriving while another is being absorbed.
-     */
-    p.value = withDelay(
-      (index * CONVERGE_MS) / AGENTS.length,
-      withRepeat(withTiming(1, { duration: CONVERGE_MS, easing: Easing.inOut(Easing.ease) }), -1, false),
-    );
-  }, [still, index, p]);
+function AgentChip({
+  x,
+  y,
+  agent,
+  breath,
+}: {
+  x: number;
+  y: number;
+  agent: string;
+  breath: SharedValue<number>;
+}) {
+  const { colors, radius } = useTheme();
 
   const style = useAnimatedStyle(() => {
     "worklet";
-    const t = p.value;
-    // Out past the edge, in to the scatter, hold, then rush to the centre.
-    const k = t < 0.7 ? 1 - t / 0.7 : 0;
-    const pull = t < 0.7 ? 1 : 1 - (t - 0.7) / 0.3;
-    const opacity = t < 0.12 ? t / 0.12 : t < 0.7 ? 1 : 1 - (t - 0.7) / 0.3;
+    // breath is 0 (fully spread, resting) .. 1 (deepest inhale). The three
+    // floors above keep every term short of its extreme, so at breath = 1
+    // the chip is still there — smaller, dimmer, pulled inward — never gone.
+    const pull = 1 - breath.value * BREATH_PULL;
     return {
-      opacity,
+      opacity: 1 - breath.value * BREATH_DIM,
       transform: [
-        { translateX: x * (pull + k * 0.45) },
-        { translateY: y * (pull + k * 0.45) },
-        { scale: t < 0.7 ? 1 : 1 - 0.5 * ((t - 0.7) / 0.3) },
+        { translateX: x * pull },
+        { translateY: y * pull },
+        { scale: 1 - breath.value * BREATH_SHRINK },
       ],
     };
   });
@@ -277,22 +298,41 @@ function AgentChip({ index, x, y, agent, still }: { index: number; x: number; y:
   );
 }
 
+/*
+ * All four marks breathe INWARD TOGETHER, in sync with a pulse on the omg
+ * mark, rather than each independently rushing in and fading to nothing.
+ *
+ * The earlier version ran four independent loops, a quarter-cycle apart, so
+ * that "one is always arriving while another is being absorbed" — but
+ * "absorbed" meant opacity all the way to 0, and each chip's own trip through
+ * 0 is exactly the frame where that brand is not on screen. Benny caught
+ * Claude missing; a multi-frame screenshot sampling later caught Codex and Pi
+ * doing the same thing on their own turns. Four independent zeros, staggered,
+ * is still four zeros.
+ *
+ * One SHARED value fixes it two ways at once: nothing ever hits an extreme
+ * (see BREATH_* floors above), and there is no stagger left to expose a solo
+ * dip — all four move as one chest breathing, so whatever is true of one
+ * frame is true of all four marks in it.
+ */
 function MarkArt({ still }: { still: boolean }) {
   const { colors } = useTheme();
-  const glow = useSharedValue(0);
+  const breath = useSharedValue(0);
 
   useEffect(() => {
     if (still) return;
-    // Breathes on the same period as the chips, so the pulse lands as they
-    // arrive rather than drifting against them.
-    glow.value = withRepeat(withTiming(1, { duration: CONVERGE_MS / 2, easing: Easing.inOut(Easing.ease) }), -1, true);
-  }, [still, glow]);
+    breath.value = withRepeat(
+      withTiming(1, { duration: CONVERGE_MS / 2, easing: Easing.inOut(Easing.ease) }),
+      -1,
+      true,
+    );
+  }, [still, breath]);
 
   const glowStyle = useAnimatedStyle(() => ({
-    opacity: 0.28 + 0.22 * glow.value,
-    transform: [{ scale: 0.92 + 0.16 * glow.value }],
+    opacity: 0.28 + 0.22 * breath.value,
+    transform: [{ scale: 0.92 + 0.16 * breath.value }],
   }));
-  const markStyle = useAnimatedStyle(() => ({ transform: [{ scale: 1 + 0.06 * glow.value }] }));
+  const markStyle = useAnimatedStyle(() => ({ transform: [{ scale: 1 + 0.06 * breath.value }] }));
 
   return (
     <View style={{ width: 190, height: 132, alignItems: "center", justifyContent: "center" }}>
@@ -309,8 +349,8 @@ function MarkArt({ still }: { still: boolean }) {
           glowStyle,
         ]}
       />
-      {AGENTS.map((a, i) => (
-        <AgentChip key={a.agent} index={i} x={a.x} y={a.y} agent={a.agent} still={still} />
+      {AGENTS.map((a) => (
+        <AgentChip key={a.agent} x={a.x} y={a.y} agent={a.agent} breath={breath} />
       ))}
       <Reanimated.View style={markStyle}>
         <BrandMark size={60} holeColor={colors.bg} />
@@ -516,38 +556,48 @@ export function OnboardingScreen({ onDone }: { onDone: () => void }) {
         </Pressable>
       </View>
 
-      <View
-        style={{
-          flex: 1,
-          alignItems: "center",
-          justifyContent: "center",
-          paddingHorizontal: space.xl,
-          gap: space.xl,
-        }}
-      >
+      <View style={{ flex: 1, alignItems: "center", paddingHorizontal: space.xl }}>
         {/*
-         * Keyed on the panel so switching remounts the art and its loop
-         * restarts from the top. Without the key, Reanimated keeps the
-         * previous shared values running and panel 3's bell would arrive
-         * mid-swing, which reads as a glitch rather than a ring.
+         * Centering this block in the FULL remaining flex (the old
+         * `justifyContent: "center"`) put it dead-centre between the header
+         * and the button. That reads fine on panel 1, whose art+copy is the
+         * tallest, but panels 2 and 3 are shorter, so the same centring
+         * left a gap under the copy that was often bigger than the gap
+         * above the art — the block visually floats, disconnected from the
+         * Continue button beneath it.
+         *
+         * Two unequal spacers instead of one centred block: more room above
+         * (near the dots, which already reads as a header) than below, so
+         * the content sits closer to the button it leads into, for every
+         * panel's content height, without a hard-coded pixel offset.
          */}
-        <PanelArt key={panel.art} art={panel.art} still={still} />
+        <View style={{ flex: 1 }} />
+        <View style={{ alignItems: "center", gap: space.xl }}>
+          {/*
+           * Keyed on the panel so switching remounts the art and its loop
+           * restarts from the top. Without the key, Reanimated keeps the
+           * previous shared values running and panel 3's bell would arrive
+           * mid-swing, which reads as a glitch rather than a ring.
+           */}
+          <PanelArt key={panel.art} art={panel.art} still={still} />
 
-        <View style={{ gap: space.md }}>
-          <Text style={{ ...type.largeTitle, color: colors.text, textAlign: "center" }}>
-            {panel.title}
-          </Text>
-          <Text
-            style={{
-              ...type.body,
-              color: colors.textMuted,
-              textAlign: "center",
-              lineHeight: 24,
-            }}
-          >
-            {panel.body}
-          </Text>
+          <View style={{ gap: space.md }}>
+            <Text style={{ ...type.largeTitle, color: colors.text, textAlign: "center" }}>
+              {panel.title}
+            </Text>
+            <Text
+              style={{
+                ...type.body,
+                color: colors.textMuted,
+                textAlign: "center",
+                lineHeight: 24,
+              }}
+            >
+              {panel.body}
+            </Text>
+          </View>
         </View>
+        <View style={{ flex: 0.6 }} />
       </View>
 
       <View
