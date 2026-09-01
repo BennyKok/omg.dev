@@ -447,6 +447,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import { ShimmerText } from "@/components/ui/shimmer-text";
 import { DoubleConfirmAction } from "@/components/ui/double-confirm-action";
+import { ClearFindingsButton } from "@/components/clear-findings-button";
 import {
   Dialog,
   DialogContent,
@@ -5964,6 +5965,7 @@ export function App() {
   const [schedTz, setSchedTz] = useState<string>(DEFAULT_SCHED_TZ);
   const [findings, setFindings] = useState<AutoFinding[]>([]);
   const [autoTriageBusy, setAutoTriageBusy] = useState(false);
+  const [clearFindingsBusy, setClearFindingsBusy] = useState(false);
   const [toastedFindingIds, setToastedFindingIds] = useState<Set<string>>(() => new Set());
   const [openFinding, setOpenFinding] = useState<AutoFinding | null>(null);
   const [editingAgent, setEditingAgent] = useState<AutoAgent | "new" | null>(null);
@@ -7273,6 +7275,40 @@ export function App() {
       });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  // Bulk dismiss, for emptying a backlog that has stopped being read.
+  //
+  // One request rather than a fan-out over dismissFinding: every write to
+  // findings.jsonl is a full-file rewrite, so N concurrent single dismissals
+  // drop each other's writes. The server batches the whole set into one write.
+  //
+  // Sends the ids it actually displayed. The rail is project-scoped, so an
+  // unscoped "clear everything open" would dismiss more than the button's
+  // count offered to.
+  //
+  // The 5s refreshAuto poll is the source of truth for this list, so both the
+  // success and the failure path end by reconciling against it instead of
+  // hand-rolling a rollback: a failed clear reappears, a partial one settles
+  // on what the server really has.
+  async function clearAllFindings(targets: AutoFinding[]) {
+    if (clearFindingsBusy || !targets.length) return;
+    setClearFindingsBusy(true);
+    const ids = new Set(targets.map((f) => f.id));
+    setFindings((prev) => prev.filter((x) => !ids.has(x.id)));
+    setOpenFinding(null);
+    try {
+      await api("/api/auto/findings/clear", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [...ids] }),
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setClearFindingsBusy(false);
+      await refreshAuto();
     }
   }
 
@@ -8829,6 +8865,8 @@ export function App() {
               onDismissFinding={(finding) => void dismissFinding(finding)}
               onTriageFindings={() => void launchAutoTriage(projectScopedFindings)}
               autoTriageBusy={autoTriageBusy}
+              onClearFindings={(targets) => void clearAllFindings(targets)}
+              clearFindingsBusy={clearFindingsBusy}
               focus={liveFocus}
             />
           </div>
@@ -10946,6 +10984,8 @@ function LiveView({
   onDismissFinding,
   onTriageFindings,
   autoTriageBusy = false,
+  onClearFindings,
+  clearFindingsBusy = false,
   projectOptions = [],
   onProjectChange,
   onUserChange,
@@ -11018,6 +11058,10 @@ function LiveView({
   onDismissFinding: (f: AutoFinding) => void;
   onTriageFindings: () => void;
   autoTriageBusy?: boolean;
+  /** Dismiss every finding passed in. Takes the list rather than reading it
+   *  back, so the confirmation count and the rows cleared cannot diverge. */
+  onClearFindings: (targets: AutoFinding[]) => void;
+  clearFindingsBusy?: boolean;
   /** Hosted getting-started panel, built by the shell. Null on every other
    *  surface, so this view stays unaware of first-run state. */
   coach?: ReactNode;
@@ -11310,6 +11354,8 @@ function LiveView({
         onOpenFinding={onOpenFinding}
         onTriageFindings={onTriageFindings}
         autoTriageBusy={autoTriageBusy}
+        onClearFindings={onClearFindings}
+        clearFindingsBusy={clearFindingsBusy}
         onNew={onNew}
         userFilter={userFilter}
         projectOptions={projectOptions}
@@ -11413,12 +11459,19 @@ function LiveView({
               count={findings.length}
               collapsed={false}
               action={
-                <AutoTriageButton
-                  count={findings.length}
-                  busy={autoTriageBusy}
-                  onClick={onTriageFindings}
-                  compact
-                />
+                <span className="flex items-center gap-1">
+                  <ClearFindingsButton
+                    count={findings.length}
+                    busy={clearFindingsBusy}
+                    onClear={() => onClearFindings(findings)}
+                  />
+                  <AutoTriageButton
+                    count={findings.length}
+                    busy={autoTriageBusy}
+                    onClick={onTriageFindings}
+                    compact
+                  />
+                </span>
               }
             >
               {findings.map((finding) => (
@@ -11498,6 +11551,8 @@ function RailStage({
   onOpenFinding,
   onTriageFindings,
   autoTriageBusy = false,
+  onClearFindings,
+  clearFindingsBusy = false,
   onNew,
   userFilter = "__all",
   projectOptions = [],
@@ -11568,6 +11623,8 @@ function RailStage({
   onOpenFinding: (f: AutoFinding) => void;
   onTriageFindings: () => void;
   autoTriageBusy?: boolean;
+  onClearFindings: (targets: AutoFinding[]) => void;
+  clearFindingsBusy?: boolean;
   onNew: () => void;
 }) {
   const appDialog = useAppDialog();
@@ -12476,12 +12533,19 @@ function RailStage({
         count={findings.length}
         collapsed={railCollapsed}
         action={
-          <AutoTriageButton
-            count={findings.length}
-            busy={autoTriageBusy}
-            onClick={onTriageFindings}
-            compact
-          />
+          <span className="flex items-center gap-1">
+            <ClearFindingsButton
+              count={findings.length}
+              busy={clearFindingsBusy}
+              onClear={() => onClearFindings(findings)}
+            />
+            <AutoTriageButton
+              count={findings.length}
+              busy={autoTriageBusy}
+              onClick={onTriageFindings}
+              compact
+            />
+          </span>
         }
       >
         {findings.map((f) => (

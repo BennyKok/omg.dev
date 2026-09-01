@@ -382,3 +382,62 @@ describe("saveAutoAgent — the inline enable toggle spread", () => {
     expect(toggled.owner).toEqual({ kind: "bot", botId: "landing-bot" });
   });
 });
+
+describe("dismissAllFindings — clearing the feed", () => {
+  const open = (title: string, agentId = "a1") =>
+    store.addFinding({ agentId, title, reasoning: ["r"], severity: "low" });
+
+  test("moves open findings to dismissed instead of deleting the rows", async () => {
+    const a = await open("one");
+    const b = await open("two");
+
+    expect(await store.dismissAllFindings()).toBe(2);
+
+    // The feed is empty...
+    expect(await store.listFindings("open")).toHaveLength(0);
+    // ...but nothing was destroyed. Both rows survive as "dismissed", which is
+    // what feeds runner.ts's anti-noise loop and keeps recordRecurrence able to
+    // escalate a repeat. A delete would silently reset both.
+    const all = await store.listFindings();
+    expect(all).toHaveLength(2);
+    expect(all.map((r) => r.id).sort()).toEqual([a.id, b.id].sort());
+    expect(all.every((r) => r.status === "dismissed")).toBe(true);
+  });
+
+  test("only clears the ids it is given, so a project-scoped clear cannot overreach", async () => {
+    const mine = await open("mine", "project-a");
+    const other = await open("other", "project-b");
+
+    expect(await store.dismissAllFindings([mine.id])).toBe(1);
+
+    const rows = await store.listFindings();
+    expect(rows.find((r) => r.id === mine.id)?.status).toBe("dismissed");
+    expect(rows.find((r) => r.id === other.id)?.status).toBe("open");
+  });
+
+  test("leaves findings that are not open alone and counts only what changed", async () => {
+    const openRow = await open("still open");
+    const working = await open("being fixed");
+    await store.updateFinding(working.id, { status: "session" });
+
+    // A finding a session is already working on is not part of the feed and
+    // must not be swept up by a clear.
+    expect(await store.dismissAllFindings()).toBe(1);
+    const rows = await store.listFindings();
+    expect(rows.find((r) => r.id === working.id)?.status).toBe("session");
+    expect(rows.find((r) => r.id === openRow.id)?.status).toBe("dismissed");
+
+    // Nothing left to clear — no write, no phantom count.
+    expect(await store.dismissAllFindings()).toBe(0);
+  });
+
+  test("unknown ids are skipped rather than counted", async () => {
+    await open("real");
+    expect(await store.dismissAllFindings(["deadbeefcafe"])).toBe(0);
+    expect(await store.listFindings("open")).toHaveLength(1);
+  });
+
+  test("returns 0 on an empty store without creating a file", async () => {
+    expect(await store.dismissAllFindings()).toBe(0);
+  });
+});
