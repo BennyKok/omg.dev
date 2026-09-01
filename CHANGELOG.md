@@ -2,6 +2,19 @@
 
 Recent product updates and deployment notes.
 
+## September 1, 2026 - Clear the findings feed in one action (v0.6.25)
+
+- **Auto agent findings can now be cleared all at once.** The feed had no way
+  to empty a backlog. Each finding had to be dismissed one at a time from its
+  own sheet. The "Auto" group header now has a "Clear all" button. It asks for
+  a second click before it runs, and it names the number it is about to clear.
+- **Clearing dismisses. It does not delete.** Your agents still remember what
+  you cleared, so they do not raise the same thing again on the next run, and a
+  problem that comes back still escalates. High severity findings are never
+  silenced this way, so a real outage still reaches you.
+- **Clearing obeys the project filter.** When the list is scoped to one
+  project, the button clears only the findings it shows you.
+
 ## August 31, 2026 - The version shown is the version running (v0.6.24)
 
 - **A box that has downloaded an update no longer claims to be up to date.**
