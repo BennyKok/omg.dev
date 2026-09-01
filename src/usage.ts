@@ -449,8 +449,14 @@ async function grokUsage(ref: UsageProviderRef): Promise<ProviderUsage> {
 // ---------------------------------------------------------------- Cursor ----
 
 // The dashboard answers JSON over connect-RPC-style POSTs with the CLI's
-// access token as a bearer. Money fields are integer cents against
-// `includedAmountCents` from GetPlanInfo (Ultra: 40000 = $400).
+// access token as a bearer. Since the mid-2026 pricing change, included
+// compute is two pools — Cursor Models (Auto + Composer) and Other Models
+// (named API) — and the dashboard headline is their weighted total,
+// `totalPercentUsed` ("You've used N% of your included total usage"). Do NOT
+// use `totalSpend / limit`: `includedSpend` caps at `limit`, so that ratio
+// pins at 100% for the rest of the cycle once the included dollars are spent,
+// while bonus usage keeps going. It reads as "about to be cut off" when the
+// account has most of its pool left.
 const CURSOR_API_BASE = "https://api2.cursor.sh";
 
 function msStringToMs(n: unknown): number | null {
@@ -506,7 +512,14 @@ async function cursorUsage(ref: UsageProviderRef): Promise<ProviderUsage> {
 
     const u = (await usageRes.json()) as {
       billingCycleEnd?: unknown;
-      planUsage?: { totalSpend?: unknown; limit?: unknown };
+      planUsage?: {
+        totalSpend?: unknown;
+        includedSpend?: unknown;
+        limit?: unknown;
+        autoPercentUsed?: unknown;
+        apiPercentUsed?: unknown;
+        totalPercentUsed?: unknown;
+      };
       spendLimitUsage?: {
         individualLimit?: unknown;
         individualRemaining?: unknown;
@@ -515,14 +528,29 @@ async function cursorUsage(ref: UsageProviderRef): Promise<ProviderUsage> {
     };
     const resetsAt = msStringToMs(u.billingCycleEnd);
     const windows: UsageWindow[] = [];
-    const totalSpend = nestedVal(u.planUsage?.totalSpend);
-    const limit = nestedVal(u.planUsage?.limit);
-    if (limit != null && limit > 0 && totalSpend != null) {
-      windows.push({
-        label: "Included",
-        pct: Math.min(100, (totalSpend / limit) * 100),
-        resetsAt,
-      });
+    const pctField = (v: unknown): number | null =>
+      typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : null;
+    const totalPct = pctField(u.planUsage?.totalPercentUsed);
+    const autoPct = pctField(u.planUsage?.autoPercentUsed);
+    const apiPct = pctField(u.planUsage?.apiPercentUsed);
+    if (totalPct != null || autoPct != null || apiPct != null) {
+      // Same layout as the Cursor dashboard: the headline total, then the two
+      // pools it aggregates.
+      if (totalPct != null) windows.push({ label: "Included", pct: totalPct, resetsAt });
+      if (autoPct != null) windows.push({ label: "Cursor Models", pct: autoPct, resetsAt });
+      if (apiPct != null) windows.push({ label: "Other Models", pct: apiPct, resetsAt });
+    } else {
+      // Responses from before the pool split carry only cent-denominated
+      // spend; fall back to included dollars against the limit.
+      const spent = nestedVal(u.planUsage?.includedSpend) ?? nestedVal(u.planUsage?.totalSpend);
+      const limit = nestedVal(u.planUsage?.limit);
+      if (limit != null && limit > 0 && spent != null) {
+        windows.push({
+          label: "Included",
+          pct: Math.min(100, (spent / limit) * 100),
+          resetsAt,
+        });
+      }
     }
     // The on-demand spending cap is a second, independent budget — surface it
     // as its own window so an included-usage ring can't hide a maxed-out cap.
