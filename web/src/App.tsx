@@ -457,6 +457,7 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { useAppDialog } from "@/components/ui/app-dialog";
+import { claimShortcutScope } from "@/lib/shortcut-scope";
 // Code-split: the terminal pulls in ghostty-web's ~400KB WASM, so only load it
 // when the Terminal tab is actually opened — keeps the initial bundle lean.
 // lazyWithReload recovers from the post-deploy stale-chunk case (React #306).
@@ -12244,7 +12245,15 @@ function RailStage({
     onOpenSettings,
   };
   useEffect(() => {
+    // A host can keep two app surfaces alive in one document. Without an owner,
+    // both handled the same keystroke: one shift+E raised an archive dialog in
+    // each surface, and one "c" started two new sessions. With one surface
+    // registered this always owns the event, so the standalone app is unchanged.
+    const scope = claimShortcutScope(
+      () => workspaceRef.current?.closest("[data-lfg-app-surface]") ?? workspaceRef.current,
+    );
     const onKey = (e: KeyboardEvent) => {
+      if (!scope.owns(e)) return;
       const s = kb.current;
       const order = s.orderedSids;
       const cur = s.cursor && order.includes(s.cursor) ? s.cursor : order[0] ?? null;
@@ -12409,7 +12418,10 @@ function RailStage({
       }
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      scope.release();
+    };
   }, []);
 
   const renderRailItem = (session: Session) => {
