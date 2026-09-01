@@ -160,12 +160,10 @@ describe("the pile is the only avatar display on the header", () => {
     ui.render(<ConversationParticipantRow participants={[OWNER, BEN]} />);
     const trigger = ui.query("[aria-label^='Conversation participants']")!;
     expect(trigger).not.toBeNull();
-    expect(trigger.getAttribute("role")).toBe("button");
-    expect(trigger.getAttribute("tabindex")).toBe("0");
-    // Never a nested <button>: the card header mounts this inside its own
-    // rename button, and that is invalid HTML.
-    expect(trigger.tagName).toBe("SPAN");
-    expect(trigger.closest("button")).toBeNull();
+    // A real <button>: it lives in the header's own slot now, not inside the
+    // card's rename button, so it needs no role/tabIndex shim.
+    expect(trigger.tagName).toBe("BUTTON");
+    expect(trigger.getAttribute("type")).toBe("button");
   });
 
   test("a member-only roster tints nobody", () => {

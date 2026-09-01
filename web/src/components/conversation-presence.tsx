@@ -110,10 +110,11 @@ export function HumanFace({
  * ring (card-coloured, by design) was invisible next to it. The menu says
  * "Owner" and can be read.
  *
- * A `<span role="button">`, not a `<button>`: the session card header nests
- * this inside its own rename button, and a nested <button> is invalid HTML and
- * fights the parent for the click (same reason OwnershipPill does this). The
- * click is stopped from reaching that parent.
+ * It sits in the header slot the standalone assignee avatar used to occupy,
+ * which is why it is a real <button>: it is no longer nested inside the card's
+ * rename button, so it needs neither the role/tabIndex shim nor Base UI's
+ * nativeButton escape hatch. The click still stops propagating, so dropping it
+ * back inside a clickable row cannot silently start a rename.
  *
  * Hidden below two people, so a session you work on alone is unchanged. A bot
  * is not company: one human plus a bot draws nothing, because the bot is named
@@ -134,22 +135,15 @@ export function ConversationParticipantRow({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        // The trigger is a <span role="button"> (see the note above), so Base UI
-        // must be told not to expect native button semantics.
-        nativeButton={false}
         render={
-          <span
-            role="button"
-            tabIndex={0}
+          <button
+            type="button"
             aria-label={`Conversation participants: ${names}`}
             title={names}
-            className="mt-0.5 flex w-fit max-w-full cursor-pointer items-center overflow-hidden rounded-full outline-none"
+            className="flex w-fit shrink-0 max-w-full cursor-pointer items-center overflow-hidden rounded-full outline-none"
             // stopPropagation ONLY. preventDefault here also cancels Base UI's
             // own trigger action, so the menu never opened.
             onClick={(event) => event.stopPropagation()}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") event.stopPropagation();
-            }}
           >
             {people.slice(0, MAX_FACES).map((participant) => (
               <HumanFace
@@ -164,7 +158,7 @@ export function ConversationParticipantRow({
                 +{people.length - MAX_FACES}
               </span>
             ) : null}
-          </span>
+          </button>
         }
       />
       <DropdownMenuContent align="start" className="min-w-52">
