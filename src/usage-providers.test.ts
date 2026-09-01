@@ -193,7 +193,7 @@ describe("usage providers", () => {
     ]);
   });
 
-  test("cursor reads included spend and the on-demand cap from the dashboard", async () => {
+  test("cursor reads the dashboard's pool percentages and the on-demand cap", async () => {
     root = mkdtempSync(join(tmpdir(), "lfg-usage-providers-"));
     process.env.HOME = join(root, "home");
     mkdirSync(join(process.env.HOME, ".config", "cursor"), { recursive: true });
@@ -210,10 +210,21 @@ describe("usage providers", () => {
       calls.push(url);
       if (auth !== "Bearer cursor-token") throw new Error("missing bearer token");
       if (url.endsWith("GetCurrentPeriodUsage")) {
+        // Shape confirmed against a live Ultra account, 2026-09. The headline
+        // is totalPercentUsed; totalSpend/limit (93.6% here) is the included
+        // DOLLARS ratio, which is not what the dashboard shows.
         return new Response(
           JSON.stringify({
             billingCycleEnd: "1789207832000",
-            planUsage: { totalSpend: 7594, limit: 40000 },
+            planUsage: {
+              totalSpend: 37457,
+              includedSpend: 37457,
+              remaining: 2543,
+              limit: 40000,
+              autoPercentUsed: 7.655,
+              apiPercentUsed: 28.982,
+              totalPercentUsed: 10.702,
+            },
             spendLimitUsage: { individualLimit: 20000, individualRemaining: 15000 },
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
@@ -231,12 +242,43 @@ describe("usage providers", () => {
     const usage = await getProviderUsage("cursor", { force: true });
     expect(calls).toHaveLength(2);
     expect(usage).toMatchObject({ id: "cursor", kind: "cursor", available: true, plan: "Ultra" });
-    expect(usage?.windows?.[0]).toMatchObject({
-      label: "Included",
-      resetsAt: 1789207832000,
-    });
-    expect(usage?.windows?.[0]?.pct).toBeCloseTo(18.985);
-    expect(usage?.windows?.[1]).toMatchObject({ label: "On-demand cap", pct: 25 });
+    expect(usage?.windows).toEqual([
+      { label: "Included", pct: 10.702, resetsAt: 1789207832000 },
+      { label: "Cursor Models", pct: 7.655, resetsAt: 1789207832000 },
+      { label: "Other Models", pct: 28.982, resetsAt: 1789207832000 },
+      { label: "On-demand cap", pct: 25, resetsAt: 1789207832000 },
+    ]);
+  });
+
+  test("cursor falls back to included spend when the pools are not reported", async () => {
+    root = mkdtempSync(join(tmpdir(), "lfg-usage-providers-"));
+    process.env.HOME = join(root, "home");
+    mkdirSync(join(process.env.HOME, ".config", "cursor"), { recursive: true });
+    writeFileSync(
+      join(process.env.HOME, ".config", "cursor", "auth.json"),
+      JSON.stringify({ accessToken: "cursor-token" }),
+    );
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input);
+      if (url.endsWith("GetCurrentPeriodUsage")) {
+        return new Response(
+          JSON.stringify({
+            billingCycleEnd: "1789207832000",
+            planUsage: { totalSpend: 9000, includedSpend: 7594, limit: 40000 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url.endsWith("GetPlanInfo")) return new Response("not found", { status: 404 });
+      throw new Error(`unexpected fetch ${url}`);
+    }) as typeof fetch;
+
+    const usage = await getProviderUsage("cursor", { force: true });
+    // includedSpend wins over totalSpend: the total can carry on-demand
+    // overage, which is not part of the included window.
+    expect(usage?.windows).toEqual([
+      { label: "Included", pct: (7594 / 40000) * 100, resetsAt: 1789207832000 },
+    ]);
   });
 
   test("an expired cursor token says to sign in again", async () => {
