@@ -67,6 +67,14 @@ import {
 } from "../src/omg/computer-shared-binding";
 
 /**
+ * A session once a named bot drives it. `botId` is populated on every session
+ * the server lists, but is not yet part of @omg-dev/protocol's OmgSession —
+ * same situation as the local type in app/bots/index.tsx — so it is read off
+ * the wire value with a narrow cast.
+ */
+type BotDrivenSession = OmgSession & { botId?: string };
+
+/**
  * A session and everything it spawned.
  *
  * Children are indented under their parent with a spine and an elbow, the way
@@ -722,13 +730,33 @@ export default function SessionsScreen() {
   }, [user?.name]);
 
   /**
+   * BOT-OWNED SESSIONS BELONG TO /bots, NOT TO THIS LIST.
+   *
+   * A session carries `botId` once a named bot drives it, and a delegated
+   * child inherits its parent's id (src/sessions.ts propagates it down the
+   * lineage), so testing the field alone removes the whole family. Filtered
+   * HERE, before buildSessionTree, rather than at each call site: this is the
+   * single answer to "which sessions does the home screen show", and the
+   * empty-state checks below read it too. Filtering roots after the tree was
+   * built would strand a bot child whose parent is not in the list.
+   *
+   * `botId` is on the wire (src/sessions.ts sets it on every listed session)
+   * but is not yet declared on @omg-dev/protocol's OmgSession, so it is read
+   * with the same narrow cast already used in app/bots/index.tsx.
+   */
+  const visibleSessions = useMemo(
+    () => sessions.filter((session) => !(session as BotDrivenSession).botId),
+    [sessions],
+  );
+
+  /**
    * Families, not rows. A session that spawned subagents owns them, and the
    * family travels together — see session-tree.ts for why the parent's own
    * flag is not enough to describe it.
    */
   const roots = useMemo(
-    () => buildSessionTree(sessions.filter((session) => projectPicker.matches(session))),
-    [sessions, projectPicker],
+    () => buildSessionTree(visibleSessions.filter((session) => projectPicker.matches(session))),
+    [visibleSessions, projectPicker],
   );
 
   /**
@@ -1276,13 +1304,13 @@ export default function SessionsScreen() {
           <SessionListSkeleton style={{ paddingTop: space.xl }} />
         ) : (
           <>
-            {sessions.length === 0 && loading ? (
+            {visibleSessions.length === 0 && loading ? (
               // First fetch on this machine, nothing on screen to disturb.
-              // Once `sessions` is non-empty, RefreshControl (pull-to-refresh)
+              // Once `visibleSessions` is non-empty, RefreshControl (pull-to-refresh)
               // is the loading affordance instead — real rows must never be
               // swapped out for skeletons under someone's thumb.
               <SessionListSkeleton style={{ paddingTop: space.xl }} />
-            ) : sessions.length === 0 && !loading ? (
+            ) : visibleSessions.length === 0 && !loading ? (
               <EmptyState
                 title="No sessions yet"
                 detail="Start one below and it shows up here."
