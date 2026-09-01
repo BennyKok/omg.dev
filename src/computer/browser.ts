@@ -140,15 +140,6 @@ export async function browserPress(key: string): Promise<void> {
 }
 
 /**
- * The page-side clipboard write, as ONE expression for Runtime.evaluate.
- * Resolves true when the text landed, false when this page has no clipboard
- * API or the write was rejected.
- */
-export function clipboardWriteScript(text: string): string {
-  return `(() => { const c = navigator.clipboard; if (!c || !c.writeText) return false; return c.writeText(${JSON.stringify(text)}).then(() => true, () => false); })()`;
-}
-
-/**
  * A trusted Ctrl+V as raw CDP key events, in the order a real keyboard sends
  * them. modifiers 2 is Ctrl.
  *
@@ -236,68 +227,54 @@ async function agentPageSession(): Promise<PageSession> {
 }
 
 /**
- * Paste as the OS means it: the text goes onto the real clipboard and a
- * trusted Ctrl+V delivers it, so paste handlers fire and beforeinput arrives
- * as insertFromPaste -- the whole difference from browserType. Chrome owns the
- * X selection once the write lands, which needs no helper package and leaves
- * the text pasteable for a person on the Computer tab too.
+ * Paste as the OS means it: the text goes onto the desktop's X clipboard and
+ * a trusted Ctrl+V delivers it to the agent tab, so paste handlers fire and
+ * beforeinput arrives as insertFromPaste -- the whole difference from
+ * browserType. The text stays on the clipboard, so a person on the Computer
+ * tab can paste it again too.
  *
- * Three stack-specific traps, all measured on the Computer's headful Chrome:
- *
- *  1. Without an explicit grant, navigator.clipboard.writeText NEVER SETTLES
- *     -- it neither resolves nor rejects. So we grant first, and race the
- *     write against a timeout: a hung write must become an error, not a tool
- *     call that never returns.
- *  2. The grant that covers writeText is clipboardReadWrite, which also lets
- *     pages READ the clipboard. On a shared desktop that may hold passwords,
- *     leaving that grant in place is a leak, so it is reset right after the
- *     write. The X selection is already Chrome's by then; the reset cannot
- *     take the text back.
- *
- *  3. writeText rejects with "Document is not focused" when the X window does
- *     not hold real focus, which under Xvfb is the usual case. Focus emulation
- *     makes the document treat itself as focused for the duration of the
- *     paste, and is switched back off afterwards so the page's own
- *     visibility/focus logic keeps working between pastes.
+ * The clipboard is set with xclip, not Chrome's clipboard API. Measured on
+ * this stack: navigator.clipboard.writeText hangs without a CDP permission
+ * grant, rejects when the X window is unfocused, and the grant that unblocks
+ * it also lets every page READ a shared desktop's clipboard until reset.
+ * xclip needs none of that and works on plain-http pages too.
  */
 export async function browserPaste(text: string): Promise<void> {
-  await agentView();
+  const v = await agentView();
   await focusAgentTab();
+  await setDesktopClipboard(text);
   const page = await agentPageSession();
   try {
-    await page.call("Emulation.setFocusEmulationEnabled", { enabled: true });
-    await page
-      .call("Browser.grantPermissions", {
-        permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"],
-      })
-      .catch(() => {
-        // Not fatal: the site may already hold the grant, and the timeout
-        // below catches the hang either way.
-      });
-    let written: { result?: { value?: unknown } } | "timeout";
-    try {
-      written = await Promise.race([
-        page.call<{ result?: { value?: unknown } }>("Runtime.evaluate", {
-          expression: clipboardWriteScript(text),
-          awaitPromise: true,
-          returnByValue: true,
-        }),
-        Bun.sleep(8000).then(() => "timeout" as const),
-      ]);
-    } finally {
-      await page.call("Browser.resetPermissions", {}).catch(() => {});
-    }
-    if (written === "timeout" || written.result?.value !== true) {
-      throw new Error(
-        "this page cannot write the clipboard (plain-http pages have no clipboard API); use type instead",
-      );
-    }
     for (const event of pasteKeyEvents()) await page.call("Input.dispatchKeyEvent", event);
   } finally {
-    await page
-      .call("Emulation.setFocusEmulationEnabled", { enabled: false })
-      .catch(() => {});
     page.close();
+  }
+}
+
+/** Put text on the desktop's CLIPBOARD selection. xclip daemonizes to serve
+ *  it until something else takes the selection, which is exactly clipboard
+ *  semantics. */
+async function setDesktopClipboard(text: string): Promise<void> {
+  const display = desktopStatus().display;
+  if (!display) throw new Error("the computer is not running; start it first");
+  if (!Bun.which("xclip")) {
+    throw new Error(
+      "xclip is not installed, so the desktop clipboard cannot be set. " +
+        "Install it with: sudo apt-get install -y xclip",
+    );
+  }
+  const proc = Bun.spawn(["xclip", "-selection", "clipboard"], {
+    stdin: "pipe",
+    stdout: "ignore",
+    stderr: "pipe",
+    env: { ...process.env, DISPLAY: display },
+  });
+  proc.stdin.write(text);
+  proc.stdin.end();
+  const exit = await proc.exited;
+  if (exit !== 0) {
+    const stderr = await new Response(proc.stderr).text();
+    throw new Error(`xclip failed (${exit}): ${stderr.trim() || "no output"}`);
   }
 }
 
