@@ -2,6 +2,19 @@
 
 Recent product updates and deployment notes.
 
+## September 1, 2026 - Custom instructions for every session (v0.6.28)
+
+- **Settings now holds your standing instructions.** Settings has a new "Custom
+  instructions" row. It opens a page where you write your rules one time. Every
+  new session then carries them, on every agent. Examples are "Ask before you
+  push" and "Always run the tests before you say you are done".
+- **Your rules do not clutter the session list.** The text travels with the
+  omg.dev runtime contract, in front of your task. Session cards and titles
+  still show the task that you asked for.
+- **Repository files still win.** An AGENTS.md or a CLAUDE.md in the code that
+  an agent edits overrules your standing rules, because those files are scoped
+  to that code.
+
 ## September 1, 2026 - One set of faces on the session header (v0.6.27)
 
 - **The assigned person is no longer drawn two times.** The session header
