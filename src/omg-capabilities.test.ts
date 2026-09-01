@@ -7,6 +7,9 @@ import {
   botRuntimeContract,
   omgCapabilityAccess,
   omgRuntimeContract,
+  omgUserInstructionsBlock,
+  sessionTitleFromPrompt,
+  stripOmgRuntimeContract,
   withOmgRuntimeContract,
 } from "./omg-capabilities.ts";
 
@@ -216,5 +219,75 @@ describe("omg.dev runtime capabilities", () => {
     expect(omgCapabilityAccess("cursor")).toBe("mcp");
     expect(omgCapabilityAccess("copilot")).toBe("contract-only");
     expect(omgCapabilityAccess("hermes")).toBe("contract-only");
+  });
+});
+
+// The owner's standing instructions (GlobalSettings.customInstructions) ride in
+// the envelope's preamble region, between the contract's END line and USER
+// TASK. Two things have to stay true: the agent reads them, and no display
+// surface does.
+describe("user standing instructions", () => {
+  const RULES = "Always run the tests before you say you are done.";
+
+  test("appends the owner's instructions after the contract and before the task", () => {
+    const prompt = withOmgRuntimeContract("Fix the mobile navigation", RULES)!;
+    expect(prompt).toContain(RULES);
+    expect(prompt).toContain("=== USER STANDING INSTRUCTIONS ===");
+    expect(prompt.indexOf("=== END omg.dev RUNTIME CONTRACT ===")).toBeLessThan(
+      prompt.indexOf("=== USER STANDING INSTRUCTIONS ==="),
+    );
+    expect(prompt.indexOf("=== USER STANDING INSTRUCTIONS ===")).toBeLessThan(
+      prompt.indexOf("=== USER TASK ==="),
+    );
+    // Ordered after the task marker it would read as part of the ask.
+    expect(prompt.indexOf(RULES)).toBeLessThan(prompt.indexOf("Fix the mobile navigation"));
+  });
+
+  test("says repository instructions win, so a standing rule cannot override AGENTS.md", () => {
+    const prompt = withOmgRuntimeContract("Fix it", RULES)!;
+    expect(prompt).toContain("AGENTS.md");
+  });
+
+  test("adds nothing at all when unset, so today's envelope is byte-identical", () => {
+    const before = withOmgRuntimeContract("Fix the mobile navigation")!;
+    expect(withOmgRuntimeContract("Fix the mobile navigation", "")).toBe(before);
+    expect(withOmgRuntimeContract("Fix the mobile navigation", "   \n ")).toBe(before);
+    expect(before).not.toContain("=== USER STANDING INSTRUCTIONS ===");
+  });
+
+  test("is stripped from titles — the card shows the ask, not the standing rules", () => {
+    const prompt = withOmgRuntimeContract("Fix the mobile navigation", RULES)!;
+    expect(stripOmgRuntimeContract(prompt)).toBe("Fix the mobile navigation");
+    expect(sessionTitleFromPrompt(prompt)).toBe("Fix the mobile navigation");
+  });
+
+  test("is stripped from a subagent prompt too, which carries two envelopes", () => {
+    const delegated = "=== omg.dev SUBAGENT OPERATING CONTRACT ===\nrules\n=== USER TASK ===\nShip the fix";
+    const prompt = withOmgRuntimeContract(delegated, RULES)!;
+    expect(prompt).toContain(RULES);
+    expect(stripOmgRuntimeContract(prompt)).toBe("Ship the fix");
+  });
+
+  test("an already-wrapped prompt is not re-wrapped, so a resume gains no second copy", () => {
+    const prompt = withOmgRuntimeContract("Fix the mobile navigation", RULES)!;
+    expect(withOmgRuntimeContract(prompt, RULES)).toBe(prompt);
+    expect(prompt.split("=== USER STANDING INSTRUCTIONS ===").length - 1).toBe(1);
+  });
+
+  test("an empty prompt stays empty — a launch with no ask injects nothing", () => {
+    expect(withOmgRuntimeContract(undefined, RULES)).toBeUndefined();
+    expect(withOmgRuntimeContract("", RULES)).toBe("");
+  });
+
+  test("the bot envelope is still left alone", () => {
+    const contract = botRuntimeContract("Scout", "Be concise.", { maxBotSchedules: 5 });
+    expect(withOmgRuntimeContract(contract, RULES)).toBe(contract);
+  });
+
+  test("omgUserInstructionsBlock is empty for empty input", () => {
+    expect(omgUserInstructionsBlock("")).toBe("");
+    expect(omgUserInstructionsBlock(undefined)).toBe("");
+    expect(omgUserInstructionsBlock("  ")).toBe("");
+    expect(omgUserInstructionsBlock(RULES)).toContain(RULES);
   });
 });

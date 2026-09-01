@@ -198,6 +198,13 @@ const CONTRACT_ENDS = [
   "=== END LFG RUNTIME CONTRACT ===",
 ] as const;
 const USER_TASK = "=== USER TASK ===";
+// The owner's standing instructions (GlobalSettings.customInstructions) ride
+// in the preamble region between the contract's END line and USER_TASK. That
+// placement is what makes them free: stripOmgRuntimeContract already treats
+// everything in that region as boilerplate, so titles, cards and previews keep
+// showing the human's actual ask instead of the standing rules.
+const USER_INSTRUCTIONS_HEADER = "=== USER STANDING INSTRUCTIONS ===";
+const USER_INSTRUCTIONS_END = "=== END USER STANDING INSTRUCTIONS ===";
 // The subagent envelope is a second, independent wrapper: serve.ts wraps a
 // delegated prompt in this before the harness wraps the result in the runtime
 // contract, so a subagent's prompt carries BOTH and stripping one still leaves
@@ -225,13 +232,38 @@ export function hasOmgRuntimeContract(text: string): boolean {
   return firstIndexOf(text, CONTRACT_HEADERS).at >= 0;
 }
 
-export function withOmgRuntimeContract(prompt: string | undefined): string | undefined {
+/**
+ * The owner's standing instructions as a labelled block, or "" when unset.
+ *
+ * Exported for the bot envelope, which composes its own preamble and therefore
+ * cannot go through withOmgRuntimeContract.
+ */
+export function omgUserInstructionsBlock(customInstructions: string | undefined): string {
+  const text = customInstructions?.trim();
+  if (!text) return "";
+  return [
+    USER_INSTRUCTIONS_HEADER,
+    "The owner of this box wrote the following standing instructions. They apply",
+    "to every session. Repository instructions (AGENTS.md, CLAUDE.md) still win on",
+    "any conflict, because they are scoped to the code you are editing.",
+    "",
+    text,
+    USER_INSTRUCTIONS_END,
+  ].join("\n");
+}
+
+export function withOmgRuntimeContract(
+  prompt: string | undefined,
+  customInstructions?: string,
+): string | undefined {
   const text = prompt?.trim();
   if (!text) return prompt;
   // Already wrapped — including by a pre-rename LFG or OMG envelope, which must
   // not be double-wrapped just because the branding changed.
   if (hasOmgRuntimeContract(text) || text.includes(BOT_CONTRACT_HEADER)) return text;
-  return `${omgRuntimeContract()}\n\n${USER_TASK}\n${text}`;
+  const standing = omgUserInstructionsBlock(customInstructions);
+  const preamble = standing ? `${omgRuntimeContract()}\n\n${standing}` : omgRuntimeContract();
+  return `${preamble}\n\n${USER_TASK}\n${text}`;
 }
 
 /**

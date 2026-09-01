@@ -44,9 +44,21 @@ export type GlobalSettings = {
   // Durable per-instance rather than localStorage so the dismissal survives
   // across browsers/devices for this box.
   skippedUpdateVersion: string;
+  // Free-text standing instructions the owner writes once and every new
+  // managed session then carries. Appended to the launch envelope by
+  // withOmgRuntimeContract, so it lands in the same preamble region as the
+  // runtime contract and is stripped back out of titles and card previews.
+  // "" means nothing extra is appended. This is a per-box preference, not a
+  // per-project one: repository rules stay in AGENTS.md.
+  customInstructions: string;
 };
 
 export type TranscriptView = "full" | "user-lfg-output";
+
+// Upper bound on customInstructions. Every managed session pays this many
+// characters of context on its first turn, so the cap is a budget, not a
+// storage limit. Longer standing rules belong in a repository AGENTS.md.
+export const CUSTOM_INSTRUCTIONS_MAX_LENGTH = 4000;
 
 // A soft admission ceiling backed by the systemd slice's hard memory bound.
 export const MAX_LIVE_AGENTS_LIMIT = 64;
@@ -115,6 +127,9 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
   const skippedUpdateVersion = typeof input?.skippedUpdateVersion === "string"
     ? input.skippedUpdateVersion
     : "";
+  const customInstructions = typeof input?.customInstructions === "string"
+    ? input.customInstructions.trim().slice(0, CUSTOM_INSTRUCTIONS_MAX_LENGTH)
+    : "";
   const botAutoCompactionEnabled = input?.botAutoCompactionEnabled !== false;
   // Note the polarity: unlike bot auto-compaction, this defaults OFF.
   const computerMcpEnabled = input?.computerMcpEnabled === true;
@@ -130,6 +145,7 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
     computerMcpEnabled,
     botCompactionThresholdPercent,
     skippedUpdateVersion,
+    customInstructions,
   };
 }
 
@@ -233,6 +249,7 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
     write.run("computerMcpEnabled", JSON.stringify(next.computerMcpEnabled), now);
     write.run("botCompactionThresholdPercent", JSON.stringify(next.botCompactionThresholdPercent), now);
     write.run("skippedUpdateVersion", JSON.stringify(next.skippedUpdateVersion), now);
+    write.run("customInstructions", JSON.stringify(next.customInstructions), now);
   })();
   return next;
 }

@@ -552,6 +552,10 @@ import {
   useSessionQuestions,
 } from "./components/ask-center";
 import { PwaInstallCallout, PwaInstallSettingsSection } from "./components/pwa-install";
+import {
+  CustomInstructionsPage,
+  CustomInstructionsRow,
+} from "./views/custom-instructions-page";
 import { RemoteAccessSettingsSection } from "./components/remote-access-settings";
 import {
   UpdateNavButton,
@@ -1099,6 +1103,9 @@ type GlobalSettings = {
   // The update the "What's new" drawer's Skip button last dismissed. See
   // UpdateProvider in components/update-drawer.tsx.
   skippedUpdateVersion: string;
+  // Standing instructions appended to the launch envelope of every new
+  // session. "" means nothing extra is sent.
+  customInstructions: string;
 };
 
 type TranscriptViewPreference = {
@@ -5962,6 +5969,7 @@ export function App() {
     botCompactionThresholdPercent: 78,
     transcriptView: "full",
     skippedUpdateVersion: "",
+    customInstructions: "",
   });
   const [schedTz, setSchedTz] = useState<string>(DEFAULT_SCHED_TZ);
   const [findings, setFindings] = useState<AutoFinding[]>([]);
@@ -6269,6 +6277,7 @@ export function App() {
       botCompactionThresholdPercent: 78,
       transcriptView: "full",
       skippedUpdateVersion: "",
+      customInstructions: "",
     });
     // Guard sessions to [] — it feeds `allLiveSessions`/`liveSessions` which
     // call `.filter()` unconditionally on render, so a malformed/empty payload
@@ -8997,6 +9006,12 @@ export function App() {
           </Suspense>
         ) : null}
         {tab === "storage" ? <StoragePage /> : null}
+        {tab === "instructions" ? (
+          <CustomInstructionsPage
+            value={settings.customInstructions}
+            onChange={(customInstructions) => updateSettings({ customInstructions })}
+          />
+        ) : null}
         {tab === "computer" ? (
           <Suspense
             fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}
@@ -9039,6 +9054,7 @@ export function App() {
         tab !== "bots" &&
         tab !== "storage" &&
         tab !== "computer" &&
+        tab !== "instructions" &&
         tab !== "more" &&
         !extNavTabs.some((t) => t.id === tab) ? (
           <SettingsView
@@ -9047,6 +9063,7 @@ export function App() {
             onOpenAuto={() => setTab("auto")}
             onOpenStorage={() => setTab("storage")}
             onOpenMore={() => setTab("more")}
+            onOpenCustomInstructions={() => setTab("instructions")}
             settings={settings}
             onSettingsChange={updateSettings}
             connection={useWsLive ? wsLiveStream.connection : null}
@@ -26864,6 +26881,7 @@ function SettingsView({
   onOpenAuto,
   onOpenStorage,
   onOpenMore,
+  onOpenCustomInstructions,
   connection,
   computerVersionReport,
 }: {
@@ -26874,6 +26892,7 @@ function SettingsView({
   onOpenAuto: () => void;
   onOpenStorage: () => void;
   onOpenMore: () => void;
+  onOpenCustomInstructions: () => void;
   connection: ConnectionState | null;
   computerVersionReport: { version: string | null; generation: number } | null;
 }) {
@@ -26970,6 +26989,11 @@ function SettingsView({
       <AgentConcurrencySettingsSection
         settings={settings}
         onChange={onSettingsChange}
+      />
+
+      <CustomInstructionsRow
+        value={settings.customInstructions}
+        onOpen={onOpenCustomInstructions}
       />
 
       {/* More — the long tail lives on its own page so this one stays scannable.

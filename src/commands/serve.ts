@@ -468,6 +468,7 @@ import {
 } from "../model-discovery.ts";
 import {
   BOT_SCHEDULE_LIMIT,
+  CUSTOM_INSTRUCTIONS_MAX_LENGTH,
   DEFAULT_TIME_ZONE,
   getGlobalSettings,
   getGlobalSettingsSync,
@@ -4711,6 +4712,18 @@ a{color:#60a5fa}
             if (typeof b.skippedUpdateVersion !== "string" || b.skippedUpdateVersion.length > 100)
               return err(400, "skippedUpdateVersion must be a string of 100 characters or fewer");
             patch.skippedUpdateVersion = b.skippedUpdateVersion;
+          }
+          if (b?.customInstructions !== undefined) {
+            if (
+              typeof b.customInstructions !== "string" ||
+              b.customInstructions.length > CUSTOM_INSTRUCTIONS_MAX_LENGTH
+            ) {
+              return err(
+                400,
+                `customInstructions must be a string of ${CUSTOM_INSTRUCTIONS_MAX_LENGTH} characters or fewer`,
+              );
+            }
+            patch.customInstructions = b.customInstructions;
           }
           const settings = await setGlobalSettings(patch);
           return json({ settings });
