@@ -11,6 +11,7 @@ import Reanimated, {
 } from "react-native-reanimated";
 
 import { AiConsentScreen, useAiDataConsent } from "../src/omg/ai-consent";
+import { OnboardingScreen, useOnboarding } from "../src/omg/onboarding";
 import { BrandMark } from "../src/omg/brand-mark";
 import { LaunchScreen } from "../src/omg/launch";
 import { useLucideFont } from "../src/omg/lucide";
@@ -139,6 +140,7 @@ function LaunchGate() {
 function RootNavigator() {
   const { authStatus, signOut, user } = useOmg();
   const consent = useAiDataConsent(user?.id ?? null);
+  const onboarding = useOnboarding(user?.id ?? null);
   /**
    * A tapped notification goes to the thing it is about.
    *
@@ -307,6 +309,31 @@ function RootNavigator() {
       <>
         <StatusBar style={isDark ? "light" : "dark"} />
         <AiConsentScreen onAccept={consent.accept} onDecline={handleDecline} />
+      </>
+    );
+  }
+
+  /*
+   * Onboarding, after consent and below the signed-out branch.
+   *
+   * Order matters twice. It is below signed-out for the reason spelled out
+   * above: any gate above that branch can make sign-in unreachable, which is
+   * exactly the splash deadlock #237 fixed. It is below consent because
+   * consent is the precondition for sending anything anywhere, and explaining
+   * the product to someone who then declines and gets signed out is wasted.
+   *
+   * Like consent, this parks in "loading" until there is a user id, so it
+   * cannot flash for the moment between signed-in and the account resolving.
+   */
+  if (onboarding.state === "loading") {
+    return <Splash />;
+  }
+
+  if (onboarding.state === "needed") {
+    return (
+      <>
+        <StatusBar style={isDark ? "light" : "dark"} />
+        <OnboardingScreen onDone={onboarding.complete} />
       </>
     );
   }
