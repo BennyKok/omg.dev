@@ -20,12 +20,13 @@ import {
   useState,
   type PropsWithChildren,
 } from "react";
-import { AppState } from "react-native";
+import { AppState, StyleSheet, View } from "react-native";
 
 import { CLOUD_BINDING_ID, CONTROLPLANE_ORIGIN, STORAGE_KEYS } from "./config";
 import { getAuthToken, getSession, signOut as authSignOut, type SignedInUser } from "./auth";
 import { forgetAllTransports, getHostedTransport } from "./transport";
 import { unregisterForPushNotifications } from "./push";
+import { useUserActive } from "./idle";
 import { startCloudPresence } from "./presence";
 import { waitForReady, type ComputerReadiness } from "./readiness";
 import {
@@ -432,6 +433,23 @@ export function OmgProvider({ children }: PropsWithChildren) {
   }, []);
 
   /**
+   * On screen is not the same as in use.
+   *
+   * Backgrounding releases the lease, and on a phone that covers most of the
+   * ways a person leaves. It does not cover all of them: auto-lock can be set
+   * to Never, and an app left open on a desk then renews forever and bills
+   * compute all night. See USER_IDLE_TIMEOUT_MS for the measurement that found
+   * this on the web client.
+   */
+  const { active: userActive, markActive } = useUserActive(foregrounded);
+  // Declines every gesture it sees (`false`), so observing costs the UI below
+  // nothing. Returning true here would swallow the whole app's touches.
+  const noteTouch = useCallback(() => {
+    markActive();
+    return false;
+  }, [markActive]);
+
+  /**
    * Presence is the keep-awake demand channel for a cloud Computer.
    *
    * The control plane pauses a Computer after a grace period with no
@@ -448,7 +466,7 @@ export function OmgProvider({ children }: PropsWithChildren) {
    * instead of one grace period later.
    */
   useEffect(() => {
-    if (authStatus !== "signed-in" || bindingId !== CLOUD_BINDING_ID || !foregrounded) {
+    if (authStatus !== "signed-in" || bindingId !== CLOUD_BINDING_ID || !userActive) {
       return;
     }
     const lease = startCloudPresence(controlPlane);
@@ -457,7 +475,7 @@ export function OmgProvider({ children }: PropsWithChildren) {
       presenceStopRef.current = null;
       lease.stop();
     };
-  }, [authStatus, bindingId, foregrounded]);
+  }, [authStatus, bindingId, userActive]);
 
   const signOut = useCallback(async () => {
     // Release the presence lease before the token goes away; a release sent
@@ -571,8 +589,30 @@ export function OmgProvider({ children }: PropsWithChildren) {
     ],
   );
 
-  return <Context.Provider value={value}>{children}</Context.Provider>;
+  return (
+    <Context.Provider value={value}>
+      {/*
+        React Native has no global input event, so the touch has to be observed
+        by a view. Both `...ResponderCapture` handlers record the gesture and
+        then return false, which declines it: this wrapper sees every touch and
+        intercepts none of them, so nothing below it loses a tap or a scroll.
+      */}
+      <View
+        style={styles.root}
+        onStartShouldSetResponderCapture={noteTouch}
+        onMoveShouldSetResponderCapture={noteTouch}
+      >
+        {children}
+      </View>
+    </Context.Provider>
+  );
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+});
 
 export function useOmg(): OmgContextValue {
   const value = useContext(Context);
