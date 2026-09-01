@@ -17552,9 +17552,11 @@ const onTouchStart = (e: ReactTouchEvent) => {
             <Pin className="size-3.5" fill="currentColor" />
           </span>
         ) : null}
-        {!headerBot ? (
-          <SessionAssigneeAvatar session={session} users={users} size="sm" />
-        ) : null}
+        {/* No assignee avatar here. The assignee is a participant, so this
+            header drew them twice: once in the pile under the title and once
+            again on this end of the bar. The pile marks the owner instead. The
+            session MARK keeps its own corner assignee badge, which is a
+            different surface with no roster beside it. */}
         {/* A bot-backed card is the authoritative desktop bot conversation.
             Keep its lifecycle menu on the same header instead of exposing the
             regular session menu or a settings-only shortcut. */}

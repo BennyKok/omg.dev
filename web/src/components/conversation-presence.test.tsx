@@ -144,3 +144,37 @@ describe("HumanTypingIndicator", () => {
     expect(ui.query(".typing-indicator")?.getAttribute("aria-hidden")).toBe("true");
   });
 });
+
+describe("the pile is the only avatar display on the header", () => {
+  const OWNER = human("human:ana", "Ana", { role: "owner" });
+
+  test("the owner's face is tinted so a second assignee avatar is not needed", () => {
+    ui.render(<ConversationParticipantRow participants={[OWNER, BEN]} />);
+    const owner = ui.query("[aria-label='Ana, owner']");
+    const member = ui.query("[aria-label='Ben, member']");
+    expect(owner).not.toBeNull();
+    expect(member).not.toBeNull();
+    expect(owner!.querySelector(".ring-primary")).not.toBeNull();
+    expect(member!.querySelector(".ring-primary")).toBeNull();
+  });
+
+  test("a member-only roster tints nobody", () => {
+    ui.render(<ConversationParticipantRow participants={[ANA, BEN]} />);
+    expect(ui.query(".ring-primary")).toBeNull();
+  });
+
+  test("faces overlap into a pile", () => {
+    ui.render(<ConversationParticipantRow participants={[OWNER, BEN]} />);
+    // -ml-1 is what makes it a pile rather than a spaced row. first:ml-0 keeps
+    // the leading face flush, so the pile does not drift off its own edge.
+    expect(ui.query(".-ml-1.first\\:ml-0")).not.toBeNull();
+  });
+
+  test("a bot sits beside the pile instead of overlapping it", () => {
+    ui.render(<ConversationParticipantRow participants={[ANA, BOT]} />);
+    const bot = ui.query("[aria-label='Scout, bot']");
+    expect(bot).not.toBeNull();
+    expect(bot!.className).toContain("ml-1");
+    expect(bot!.className).not.toContain("-ml-1");
+  });
+});
