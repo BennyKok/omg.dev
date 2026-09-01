@@ -173,14 +173,25 @@ export function parseCatalogTiers(value: unknown): CatalogTier[] | null {
  * same list, so an Always On subscriber on the web now reads "This account is
  * billed on the web" instead of "Your Always On plan is billed on the web".
  * Every call site already treats the label as optional for exactly this reason.
+ *
+ * ── Starter and Pro left too, 2026-09-01 ──────────────────────────────────
+ *
+ * `computer_s20` and `computer_10` were removed for the same reason and at the
+ * same time as they left STOREKIT_PLAN_ORDER on the control plane: Pro
+ * upgrades belong on the web, and Starter is a rung the web offer has never
+ * sold. This list is only reached when the control plane publishes no catalog,
+ * so leaving them here would have meant the degraded path quietly selling two
+ * rungs the healthy path does not.
+ *
+ * Neither removal risks the money-taken-and-rejected failure above. Both ids
+ * are still mapped in `OMG_APP_STORE_CONFIG.products`, so a transaction for
+ * either is still attributable — that map was deliberately NOT narrowed.
+ *
+ * They do pay the same label cost as Always On. An App Store subscriber on
+ * Pro reads "This account is billed on the App Store" without the plan name.
+ * That was free on 2026-09-01 because nothing had been sold through Apple yet.
  */
 export const FALLBACK_TIERS: readonly CatalogTier[] = [
-  {
-    productId: "dev.omg.computer.computer_s20.monthly.v1",
-    plan: "computer_s20",
-    label: "Starter",
-    specs: null,
-  },
   {
     productId: "dev.omg.computer.computer_s40.monthly.v1",
     plan: "computer_s40",
@@ -191,12 +202,6 @@ export const FALLBACK_TIERS: readonly CatalogTier[] = [
     productId: "dev.omg.computer.computer_5.monthly.v1",
     plan: "computer_5",
     label: "Personal",
-    specs: null,
-  },
-  {
-    productId: "dev.omg.computer.computer_10.monthly.v1",
-    plan: "computer_10",
-    label: "Pro",
     specs: null,
   },
 ] as const;

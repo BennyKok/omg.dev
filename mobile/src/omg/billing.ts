@@ -152,12 +152,6 @@ const MOCK_ACCOUNT_TOKEN = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
  */
 const MOCK_CATALOG: unknown = [
   {
-    productId: "dev.omg.computer.computer_s20.monthly.v1",
-    plan: "computer_s20",
-    label: "Starter",
-    specs: { parallelAgents: 3, vcpus: 2, memoryMb: 4096, diskGb: 16, computeHours: 20, alwaysOn: false },
-  },
-  {
     productId: "dev.omg.computer.computer_s40.monthly.v1",
     plan: "computer_s40",
     label: "Starter Plus",
@@ -169,15 +163,14 @@ const MOCK_CATALOG: unknown = [
     label: "Personal",
     specs: { parallelAgents: 5, vcpus: 4, memoryMb: 8192, diskGb: 64, computeHours: 150, alwaysOn: false },
   },
-  {
-    productId: "dev.omg.computer.computer_10.monthly.v1",
-    plan: "computer_10",
-    label: "Pro",
-    specs: { parallelAgents: 16, vcpus: 8, memoryMb: 16384, diskGb: 128, computeHours: 300, alwaysOn: false },
-  },
   // Always On is not sold on iOS, so the mock does not pretend it is. A mock
   // that shows a rung production won't is a screenshot waiting to mislead
   // someone — including whoever reviews this screen next.
+  //
+  // Starter and Pro left on 2026-09-01 for the same reason, when they left
+  // STOREKIT_PLAN_ORDER on the control plane. Pro upgrades belong on the web;
+  // Starter is a rung the web offer has never sold. Two tiles here because
+  // production sells two.
 ];
 
 /** The same list with every `specs` null — a server that can sell but cannot describe. */
