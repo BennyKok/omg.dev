@@ -12,7 +12,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PATHS } from "./config.ts";
 import * as settings from "./settings.ts";
-import { managedAisdkSessionArgv, managedCodexAisdkSessionArgv } from "./tmux.ts";
+import {
+  managedAisdkSessionArgv,
+  managedCodexAisdkSessionArgv,
+  managedStructuredSessionArgv,
+  type ManagedStructuredModule,
+} from "./tmux.ts";
 
 const originalData = PATHS.data;
 let testData = "";
@@ -98,5 +103,45 @@ describe("standing instructions reach a launch", () => {
       sessionId: "session-key",
     });
     expect(argv).not.toContain("--");
+  });
+});
+
+// Every ACP/SDK harness shares one spawner. deepseek used to be carved out of
+// it: the commit that added the DeepSeek Harness (a4da911fc) also made that one
+// module take `opts.prompt` raw instead of the launch envelope, with no comment
+// and no test. The result was the one agent that got neither MCP nor the
+// contract, while omgCapabilityAccess("deepseek") told the Coding agents page
+// it was "contract-only" — that is, that the contract was how it heard from
+// omg.dev at all. Its prompt handling is identical to its siblings, so there
+// was nothing to carve out for.
+describe("no structured adapter is a special case", () => {
+  const MODULES: ManagedStructuredModule[] = [
+    "grok-acp-session",
+    "cursor-acp-session",
+    "fx-acp-session",
+    "deepseek-acp-session",
+    "copilot-sdk-session",
+    "jcode-sdk-session",
+  ];
+
+  test("every one carries the contract and the owner's instructions", async () => {
+    await settings.setGlobalSettings({ customInstructions: RULES });
+    for (const moduleName of MODULES) {
+      const prompt = promptArg(
+        managedStructuredSessionArgv(moduleName, {
+          name: `lfg-${moduleName}`,
+          cwd: "/tmp/lfg-instructions-test",
+          model: "default",
+          key: "session-key",
+          prompt: "Fix the mobile navigation",
+        }),
+      );
+      expect(prompt, `${moduleName} sends no prompt`).toBeDefined();
+      expect(prompt, `${moduleName} lost the runtime contract`).toContain(
+        "omg.dev RUNTIME CONTRACT",
+      );
+      expect(prompt, `${moduleName} lost the standing instructions`).toContain(RULES);
+      expect(prompt, `${moduleName} lost the task`).toContain("Fix the mobile navigation");
+    }
   });
 });

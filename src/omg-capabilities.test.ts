@@ -219,6 +219,13 @@ describe("omg.dev runtime capabilities", () => {
     expect(omgCapabilityAccess("cursor")).toBe("mcp");
     expect(omgCapabilityAccess("copilot")).toBe("contract-only");
     expect(omgCapabilityAccess("hermes")).toBe("contract-only");
+    // "contract-only" is a promise, not a label: it is surfaced to the Coding
+    // agents page (coding-agents.ts) as "this agent hears from omg.dev through
+    // the contract rather than MCP". deepseek claimed it while tmux.ts stripped
+    // the contract from its prompt, so it actually heard nothing. The launch
+    // side is pinned in src/launch-custom-instructions.test.ts.
+    expect(omgCapabilityAccess("deepseek")).toBe("contract-only");
+    expect(omgCapabilityAccess("pi")).toBe("contract-only");
   });
 });
 
