@@ -79,7 +79,12 @@ const pressSpring = { duration: 220, dampingRatio: 0.9 };
  * is already correct instead of assuming motion is on; `AccessibilityInfo`
  * then keeps it live for the rest of the component's life.
  */
-function useReduceMotionEnabled(): boolean {
+/**
+ * Exported so a screen that hand-rolls a Reanimated loop (onboarding's art)
+ * reads the SAME source as the shared builders here, rather than calling
+ * AccessibilityInfo itself and drifting on the listener detail.
+ */
+export function useReduceMotionEnabled(): boolean {
   const initial = useReducedMotion();
   const [enabled, setEnabled] = useState(initial);
   useEffect(() => {
