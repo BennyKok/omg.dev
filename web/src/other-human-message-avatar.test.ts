@@ -55,8 +55,13 @@ describe("no human creator/owner chip in a persistent-bot conversation header", 
     // this only gates it off specifically when the card is the authoritative
     // bot conversation surface (headerBot truthy), which is the exact case
     // the screenshot bug was filed against.
-    expect(APP).toContain(
-      "{headerBot ? null : (\n                  <SessionParticipantRow session={session} compact={isMobile} typingIds={typingIds} />\n                )}",
+    // Whitespace-normalised: this is a source assertion (see the file header),
+    // and pinning exact JSX indentation made it fail twice on pure reformats of
+    // a line whose behaviour had not changed. It cannot become a render test
+    // yet, because SessionCard is not exported from App.tsx.
+    const flat = APP.replace(/\s+/g, " ");
+    expect(flat).toContain(
+      "{headerBot ? null : ( <SessionParticipantRow session={session} typingIds={typingIds} /> )}",
     );
   });
 

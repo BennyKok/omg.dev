@@ -84,9 +84,9 @@ describe("faces", () => {
     expect(ui.text()).toContain("+2");
   });
 
-  test("a bot participant keeps its own mascot treatment", () => {
-    ui.render(<ConversationParticipantRow participants={[ANA, BOT]} />);
-    expect(ui.query("[aria-label='Scout, bot']")).not.toBeNull();
+  test("a bot participant is not drawn in the roster", () => {
+    ui.render(<ConversationParticipantRow participants={[ANA, BEN, BOT]} />);
+    expect(ui.query("[aria-label='Scout, bot']")).toBeNull();
   });
 });
 
@@ -170,11 +170,25 @@ describe("the pile is the only avatar display on the header", () => {
     expect(ui.query(".-ml-1.first\\:ml-0")).not.toBeNull();
   });
 
-  test("a bot sits beside the pile instead of overlapping it", () => {
+  test("a bot is never drawn here — the header names it elsewhere", () => {
+    ui.render(<ConversationParticipantRow participants={[ANA, BEN, BOT]} />);
+    expect(ui.query("[aria-label='Scout, bot']")).toBeNull();
+    expect(ui.text()).not.toContain("Scout");
+    expect(ui.query("[aria-label='Ana, owner']") ?? ui.query("[aria-label='Ana, member']")).not.toBeNull();
+    expect(ui.query("[aria-label='Ben, member']")).not.toBeNull();
+  });
+
+  test("one human plus a bot draws nothing, because that is one person", () => {
     ui.render(<ConversationParticipantRow participants={[ANA, BOT]} />);
-    const bot = ui.query("[aria-label='Scout, bot']");
-    expect(bot).not.toBeNull();
-    expect(bot!.className).toContain("ml-1");
-    expect(bot!.className).not.toContain("-ml-1");
+    expect(ui.host.innerHTML).toBe("");
+  });
+
+  test("the label and the overflow count people, not bots", () => {
+    const many = [ANA, BEN, BOT, human("human:c", "Cy"), human("human:d", "Di"),
+                  human("human:e", "Ed"), human("human:f", "Fi"), human("human:g", "Gi")];
+    ui.render(<ConversationParticipantRow participants={many} />);
+    const row = ui.query("[aria-label^='Conversation participants']")!;
+    expect(row.getAttribute("aria-label")).not.toContain("Scout");
+    expect(ui.text()).toContain("+2");
   });
 });
