@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync, existsSync, realpathSync, mkdirSync } from
 import { homedir } from "node:os";
 import { reposRoot } from "./projects";
 import { OMG_CAPABILITY_VERSION, withOmgRuntimeContract } from "./omg-capabilities.ts";
+import { getGlobalSettingsSync } from "./settings.ts";
 import {
   CLAUDE_ENV_TOKEN_KEY,
   CLAUDE_PLATFORM_ENV_KEYS,
@@ -20,6 +21,20 @@ import {
   codexServiceTierArgs,
   type CodexServiceTier,
 } from "./service-tier.ts";
+
+/**
+ * The first prompt for a managed session, with omg.dev's launch envelope on it.
+ *
+ * Every adapter below goes through this instead of calling
+ * withOmgRuntimeContract directly, so the owner's standing instructions
+ * (GlobalSettings.customInstructions) are read in exactly one place and no
+ * adapter can be added later that quietly skips them. The read is synchronous
+ * and happens per launch, so editing the setting takes effect on the next
+ * session with no restart.
+ */
+function launchEnvelope(prompt: string | undefined): string | undefined {
+  return withOmgRuntimeContract(prompt, getGlobalSettingsSync().customInstructions);
+}
 
 // Known-good Claude model alias to launch with when a caller doesn't specify
 // one. Never launch a managed `claude` bare — see spawnManagedSession. Opus is
@@ -648,7 +663,7 @@ export function spawnManagedSession(opts: {
   // `--` terminates option parsing so the variadic --add-dir can't swallow the
   // positional prompt as a second directory (which strands the new session at
   // an empty composer — the first message never gets submitted).
-  const prompt = withOmgRuntimeContract(opts.prompt);
+  const prompt = launchEnvelope(opts.prompt);
   if (prompt?.trim()) claudeArgv.push("--", prompt);
   const argv = [
     "tmux",
@@ -733,7 +748,7 @@ export function managedCodexSessionArgv(opts: ManagedCodexSessionOptions): strin
   if (opts.model) argv.push("--model", opts.model);
   if (opts.thinkingLevel) argv.push("-c", `reasoning_effort=${JSON.stringify(opts.thinkingLevel)}`);
   argv.push(...codexServiceTierArgs(opts.serviceTier));
-  const prompt = withOmgRuntimeContract(opts.prompt);
+  const prompt = launchEnvelope(opts.prompt);
   if (prompt?.trim()) argv.push("--", prompt);
   addSessionEnv(argv, opts.omgSessionId, opts.omgUser, opts.name);
   containTmuxCommand(argv, codexBin(), opts.containInAgentSlice, opts);
@@ -783,7 +798,7 @@ export function managedGrokSessionArgv(opts: ManagedGrokSessionOptions): string[
   // xhigh/max carried over from another agent would stop the session launching.
   const effort = grokEffortFor(opts.thinkingLevel);
   if (effort) argv.push("--effort", effort);
-  const prompt = withOmgRuntimeContract(opts.prompt);
+  const prompt = launchEnvelope(opts.prompt);
   if (prompt?.trim()) argv.push("--", prompt);
   addSessionEnv(argv, opts.omgSessionId, opts.omgUser, opts.name);
   return argv;
@@ -831,7 +846,7 @@ export function managedCopilotSessionArgv(opts: ManagedCopilotSessionOptions): s
   ];
   if (process.env.LFG_COPILOT_ALLOW_ALL_TOOLS === "1") argv.push("--allow-all-tools");
   if (opts.model) argv.push("--model", opts.model);
-  const prompt = withOmgRuntimeContract(opts.prompt);
+  const prompt = launchEnvelope(opts.prompt);
   if (prompt?.trim()) argv.push("-i", prompt);
   addSessionEnv(argv, opts.omgSessionId, opts.omgUser, opts.name);
   return argv;
@@ -916,7 +931,7 @@ export function spawnManagedJcodeSession(opts: ManagedJcodeSessionOptions): { ok
   if (create.exitCode !== 0) {
     return { ok: false, error: dec.decode(create.stderr) || "new-session failed" };
   }
-  const prompt = jcodeReplPrompt(withOmgRuntimeContract(opts.prompt));
+  const prompt = jcodeReplPrompt(launchEnvelope(opts.prompt));
   if (prompt?.trim()) {
     if (!tmuxType(opts.name, prompt) || !tmuxEnter(opts.name)) {
       return { ok: false, error: "failed to send the initial Jcode prompt" };
@@ -952,7 +967,7 @@ export function managedCursorSessionArgv(opts: ManagedCursorSessionOptions): str
   ];
   if (opts.nativeSessionId) argv.push("--resume", opts.nativeSessionId);
   if (opts.model && opts.model !== "auto") argv.push("--model", opts.model);
-  const prompt = withOmgRuntimeContract(opts.prompt);
+  const prompt = launchEnvelope(opts.prompt);
   if (prompt?.trim()) argv.push(prompt);
   addSessionEnv(argv, opts.omgSessionId, opts.omgUser, opts.name);
   return argv;
@@ -1125,7 +1140,7 @@ export function managedAisdkSessionArgv(opts: ManagedAisdkSessionOptions): strin
   if (opts.fastMode) argv.push("--fast-mode");
   if (opts.claudeAccountId) argv.push("--claude-account", opts.claudeAccountId);
   if (opts.recoveredAt) argv.push("--recovered-at", String(opts.recoveredAt));
-  const prompt = withOmgRuntimeContract(opts.prompt);
+  const prompt = launchEnvelope(opts.prompt);
   if (prompt?.trim()) argv.push("--", prompt);
   return argv;
 }
@@ -1182,7 +1197,7 @@ export function managedCodexAisdkSessionArgv(opts: ManagedCodexAisdkSessionOptio
   if (opts.serviceTier) argv.push("--service-tier", opts.serviceTier);
   if (opts.resume) argv.push("--resume", opts.resume);
   if (opts.recoveredAt) argv.push("--recovered-at", String(opts.recoveredAt));
-  const prompt = withOmgRuntimeContract(opts.prompt);
+  const prompt = launchEnvelope(opts.prompt);
   if (prompt?.trim()) argv.push("--", prompt);
   return argv;
 }
@@ -1288,7 +1303,7 @@ export function spawnManagedOpencodeAisdkSession(opts: {
   if (opts.thinkingLevel) argv.push("--thinking-level", opts.thinkingLevel);
   if (opts.resume) argv.push("--resume", opts.resume);
   if (opts.recoveredAt) argv.push("--recovered-at", String(opts.recoveredAt));
-  const prompt = withOmgRuntimeContract(opts.prompt);
+  const prompt = launchEnvelope(opts.prompt);
   if (prompt?.trim()) argv.push("--", prompt);
   return spawnManagedHarness(argv, {
     name: opts.name,
@@ -1331,7 +1346,7 @@ function spawnManagedStructuredSession(
   if (opts.recoveredAt) argv.push("--recovered-at", String(opts.recoveredAt));
   const prompt = moduleName === "deepseek-acp-session"
     ? opts.prompt
-    : withOmgRuntimeContract(opts.prompt);
+    : launchEnvelope(opts.prompt);
   if (prompt?.trim()) argv.push("--", prompt);
   return spawnManagedHarness(argv, {
     name: opts.name,
