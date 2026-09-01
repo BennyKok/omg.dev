@@ -2,6 +2,17 @@
 
 Recent product updates and deployment notes.
 
+## September 1, 2026 - The transcript holds still while you type (v0.6.32)
+
+- **Typing no longer moves the transcript.** The message box measures itself
+  after every keystroke. That measurement collapsed the box to zero height for
+  one layout pass, which made the transcript above it taller by the full height
+  of the box. The browser then pulled the scroll position to the shorter
+  maximum, and the transcript snapped back to the newest message. This is most
+  visible on a phone, where the message box is a large part of the screen.
+- **The measurement now stays inside the message box.** Nothing above the box
+  moves while it measures. The box still grows and shrinks with your text.
+
 ## September 1, 2026 - The faces move to the right of the header (v0.6.31)
 
 - **The faces are now where the assignee avatar used to be.** They sat under
