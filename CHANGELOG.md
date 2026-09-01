@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## September 1, 2026 - Tap the faces to see who is in the session (v0.6.30)
+
+- **The faces in the header now open a list.** Tap or click them. The list
+  names each person and says who owns the session and who is a member. It also
+  says who is typing.
+- **The blue ring is gone.** The owner had a coloured ring on a 16 pixel face.
+  The ring was a quarter of the circle, so it looked like a blue background
+  instead of a highlight. The list says "Owner" in words instead.
+
 ## September 1, 2026 - The bot is named once in a header, not three times (v0.6.29)
 
 - **A bot no longer appears three times in one session header.** The header

@@ -148,14 +148,24 @@ describe("HumanTypingIndicator", () => {
 describe("the pile is the only avatar display on the header", () => {
   const OWNER = human("human:ana", "Ana", { role: "owner" });
 
-  test("the owner's face is tinted so a second assignee avatar is not needed", () => {
+  test("no accent ring on any face — the owner is named in words instead", () => {
     ui.render(<ConversationParticipantRow participants={[OWNER, BEN]} />);
-    const owner = ui.query("[aria-label='Ana, owner']");
-    const member = ui.query("[aria-label='Ben, member']");
-    expect(owner).not.toBeNull();
-    expect(member).not.toBeNull();
-    expect(owner!.querySelector(".ring-primary")).not.toBeNull();
-    expect(member!.querySelector(".ring-primary")).toBeNull();
+    expect(ui.query("[aria-label='Ana, owner']")).not.toBeNull();
+    expect(ui.query("[aria-label='Ben, member']")).not.toBeNull();
+    // A 2px accent ring on a 16px circle reads as a blue background.
+    expect(ui.query(".ring-primary")).toBeNull();
+  });
+
+  test("the pile is an operable control, not decoration", () => {
+    ui.render(<ConversationParticipantRow participants={[OWNER, BEN]} />);
+    const trigger = ui.query("[aria-label^='Conversation participants']")!;
+    expect(trigger).not.toBeNull();
+    expect(trigger.getAttribute("role")).toBe("button");
+    expect(trigger.getAttribute("tabindex")).toBe("0");
+    // Never a nested <button>: the card header mounts this inside its own
+    // rename button, and that is invalid HTML.
+    expect(trigger.tagName).toBe("SPAN");
+    expect(trigger.closest("button")).toBeNull();
   });
 
   test("a member-only roster tints nobody", () => {

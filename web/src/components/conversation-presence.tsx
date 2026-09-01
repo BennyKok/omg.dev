@@ -9,6 +9,14 @@
 import type { ConversationParticipant } from "../../../src/conversation-contract";
 import { conversationParticipantDisplayName } from "../lib/conversation-ui";
 import { cn } from "../lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 
 const MAX_FACES = 5;
 
@@ -25,13 +33,10 @@ export function HumanFace({
   participant,
   className,
   typing = false,
-  owner = false,
 }: {
   participant: ConversationParticipant;
   className?: string;
   typing?: boolean;
-  /** Draw the "this session is theirs" tint. See ConversationParticipantRow. */
-  owner?: boolean;
 }) {
   const name = displayName(participant);
   // The face itself must stay `overflow-hidden` so a photo is clipped to the
@@ -41,10 +46,11 @@ export function HumanFace({
     <span
       className={cn(
         "relative grid size-4 shrink-0 place-items-center overflow-hidden rounded-full bg-primary/12 text-[9px] font-semibold text-primary",
-        // Faces overlap, so each needs a halo to stay separable. The owner's
-        // is tinted: same geometry, no layout shift, and it replaces the second
-        // avatar this header used to carry.
-        owner ? "ring-2 ring-primary" : "ring-2 ring-card",
+        // Faces overlap, so each needs a halo to stay separable. It is the
+        // CARD colour, never an accent: at 16px a 2px accent ring is a quarter
+        // of the circle and reads as a blue background rather than a highlight.
+        // Who owns the session is said in words in the menu below instead.
+        "ring-2 ring-card",
         !typing && className,
       )}
     >
@@ -87,7 +93,8 @@ export function HumanFace({
 }
 
 /**
- * The header roster: the humans in this conversation, as one overlapping pile.
+ * The header roster: the humans in this conversation, as one overlapping pile
+ * you can tap to see who they are.
  *
  * PEOPLE ONLY. Every header that mounts this already names the bot somewhere
  * else in the same bar — as the header identity and title when the session is
@@ -96,16 +103,21 @@ export function HumanFace({
  *
  * This is also the only avatar display on that header. It used to share it with
  * a standalone SessionAssigneeAvatar, which drew the assignee a second time.
- * The assignee is a participant like any other, so the owner is marked with a
- * tinted ring here instead of getting its own avatar.
  *
- * Owner comes from `participant.role`, which the server already seeds from the
- * assigned user. Matching on the assignee email would need a hash that lives in
- * a server module the browser bundle must not import.
+ * WHO OWNS THE SESSION IS SAID IN WORDS, in the menu, not with a coloured ring
+ * on the face. A 2px accent ring on a 16px circle is a quarter of the circle,
+ * so it read as a blue background rather than as a highlight, and the member
+ * ring (card-coloured, by design) was invisible next to it. The menu says
+ * "Owner" and can be read.
+ *
+ * A `<span role="button">`, not a `<button>`: the session card header nests
+ * this inside its own rename button, and a nested <button> is invalid HTML and
+ * fights the parent for the click (same reason OwnershipPill does this). The
+ * click is stopped from reaching that parent.
  *
  * Hidden below two people, so a session you work on alone is unchanged. A bot
- * is not company: one human plus a bot draws nothing now, because the bot is
- * named elsewhere and a lone face says nothing the header did not already say.
+ * is not company: one human plus a bot draws nothing, because the bot is named
+ * elsewhere and a lone face says nothing the header did not already say.
  */
 export function ConversationParticipantRow({
   participants,
@@ -118,26 +130,66 @@ export function ConversationParticipantRow({
   const people = participants.filter((participant) => participant.kind === "human");
   if (people.length < 2) return null;
   const typing = new Set(typingIds ?? []);
+  const names = people.map(displayName).join(", ");
   return (
-    <div
-      className="mt-0.5 flex min-w-0 max-w-full items-center overflow-hidden"
-      aria-label={`Conversation participants: ${people.map(displayName).join(", ")}`}
-    >
-      {people.slice(0, MAX_FACES).map((participant) => (
-        <HumanFace
-          key={participant.id}
-          participant={participant}
-          typing={typing.has(participant.id)}
-          owner={participant.role === "owner"}
-          className="-ml-1 first:ml-0"
-        />
-      ))}
-      {people.length > MAX_FACES ? (
-        <span className="ml-1.5 shrink-0 text-[10px] text-muted-foreground">
-          +{people.length - MAX_FACES}
-        </span>
-      ) : null}
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        // The trigger is a <span role="button"> (see the note above), so Base UI
+        // must be told not to expect native button semantics.
+        nativeButton={false}
+        render={
+          <span
+            role="button"
+            tabIndex={0}
+            aria-label={`Conversation participants: ${names}`}
+            title={names}
+            className="mt-0.5 flex w-fit max-w-full cursor-pointer items-center overflow-hidden rounded-full outline-none"
+            // stopPropagation ONLY. preventDefault here also cancels Base UI's
+            // own trigger action, so the menu never opened.
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") event.stopPropagation();
+            }}
+          >
+            {people.slice(0, MAX_FACES).map((participant) => (
+              <HumanFace
+                key={participant.id}
+                participant={participant}
+                typing={typing.has(participant.id)}
+                className="-ml-1 first:ml-0"
+              />
+            ))}
+            {people.length > MAX_FACES ? (
+              <span className="ml-1.5 shrink-0 text-[10px] text-muted-foreground">
+                +{people.length - MAX_FACES}
+              </span>
+            ) : null}
+          </span>
+        }
+      />
+      <DropdownMenuContent align="start" className="min-w-52">
+        {/* Menu.GroupLabel throws without a Menu.Group around it, and the throw
+            takes down the whole session column through the render boundary. */}
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>In this session</DropdownMenuLabel>
+          {people.map((participant) => (
+            <DropdownMenuItem key={participant.id} className="gap-2" closeOnClick={false}>
+              <HumanFace participant={participant} />
+              <span className="min-w-0 flex-1 truncate">{displayName(participant)}</span>
+              <span className="shrink-0 text-[10px] text-muted-foreground">
+                {typing.has(participant.id)
+                  ? "typing"
+                  : participant.role === "owner"
+                    ? "Owner"
+                    : participant.role === "observer"
+                      ? "Observer"
+                      : "Member"}
+              </span>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
