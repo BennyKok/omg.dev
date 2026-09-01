@@ -2,6 +2,19 @@
 
 Recent product updates and deployment notes.
 
+## September 1, 2026 - Agents can paste into the desktop browser (v0.6.33)
+
+- **The Computer Use MCP has a new tool: computer_paste.** It puts text on
+  the desktop clipboard and sends a real Ctrl+V to the agent's tab. Paste
+  handlers fire. Fields that react to paste now work. Verification-code boxes
+  that split digits are the common case. computer_type cannot fill them,
+  because it never sends a paste event.
+- **The text stays on the desktop clipboard.** A person watching the Computer
+  tab can paste it again with Ctrl+V.
+- **The clipboard write uses xclip, not the page.** No clipboard permission is
+  granted to any page. Paste also works on plain-http pages. If xclip is not
+  installed, the tool error says how to install it.
+
 ## September 1, 2026 - The transcript holds still while you type (v0.6.32)
 
 - **Typing no longer moves the transcript.** The message box measures itself
