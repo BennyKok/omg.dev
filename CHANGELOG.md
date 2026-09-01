@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## September 1, 2026 - The faces move to the right of the header (v0.6.31)
+
+- **The faces are now where the assignee avatar used to be.** They sat under
+  the session title. They now sit at the right end of the header, next to the
+  model name, which is where people look to see who is on a session.
+- **Tapping them still opens the list.** The list is unchanged. It names each
+  person and says who owns the session.
+
 ## September 1, 2026 - Tap the faces to see who is in the session (v0.6.30)
 
 - **The faces in the header now open a list.** Tap or click them. The list

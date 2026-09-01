@@ -17520,15 +17520,6 @@ const onTouchStart = (e: ReactTouchEvent) => {
                     {latest}
                   </div>
                 ) : null}
-                {/* A persistent bot conversation's header shows the bot's own
-                    identity and settings only — never who created or owns it.
-                    SessionParticipantRow's human chip belongs beside each
-                    message that sender actually wrote (see
-                    OtherHumanMessageBubble), not on the card that represents
-                    the bot itself. */}
-                {headerBot ? null : (
-                  <SessionParticipantRow session={session} typingIds={typingIds} />
-                )}
               </div>
             </button>
           )}
@@ -17556,11 +17547,18 @@ const onTouchStart = (e: ReactTouchEvent) => {
             <Pin className="size-3.5" fill="currentColor" />
           </span>
         ) : null}
-        {/* No assignee avatar here. The assignee is a participant, so this
-            header drew them twice: once in the pile under the title and once
-            again on this end of the bar. The pile marks the owner instead. The
-            session MARK keeps its own corner assignee badge, which is a
-            different surface with no roster beside it. */}
+        {/* The faces sit where the assignee avatar used to, because that is
+            where people look for "who is on this". They replace it rather than
+            join it: the assignee is a participant, so keeping both drew the
+            same person twice in one bar. The session MARK keeps its own corner
+            assignee badge — a different surface, with no roster beside it.
+
+            A persistent bot conversation's header shows the bot's own identity
+            and settings only, never who owns it, so headerBot suppresses this
+            (see OtherHumanMessageBubble for where a sender's face belongs). */}
+        {headerBot ? null : (
+          <SessionParticipantRow session={session} typingIds={typingIds} />
+        )}
         {/* A bot-backed card is the authoritative desktop bot conversation.
             Keep its lifecycle menu on the same header instead of exposing the
             regular session menu or a settings-only shortcut. */}
