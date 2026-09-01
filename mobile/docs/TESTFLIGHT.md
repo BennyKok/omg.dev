@@ -15,7 +15,8 @@ read off the EAS docs.
 | App Store Connect app | `6800792515`, listing name `omg.dev` |
 | iOS credentials | distribution certificate + provisioning profile, on EAS |
 | ASC API key | `P37PJ5VSHN`, issuer `8e538491-9c7f-4ddf-88ba-4bf3e4f81fa6`, ADMIN |
-| App Store | **LIVE since 2026-09-01T02:04:11Z** — version 1.0, build 37, released manually. `asc-status` still prints `Store: not live`: its iTunes probe omits `country`, which returns `resultCount 0`; with `country=us` it returns 1. Do not trust that field. |
+| App Store | **LIVE since 2026-09-01T02:04:11Z** — version 1.0, build 37, released manually. `asc-status` now reports `Store: LIVE ... storefront us`. |
+| `asc-status` store probe | Fixed 2026-09-01. It had called the iTunes lookup with no `country`, which answered `resultCount 0` for a live app three times out of three, so it printed `Store: not live` for hours after release and the review-watch bot repeated it. It now asks `us,hk,gb,jp` in order and reports the first storefront that answers. A total lookup failure reads as unknown, not as not-live. **The script lives at `~/.local/bin/asc-status` and is NOT in this repository**, so the fix is on this box only. |
 | Latest TestFlight build | `1.0.2 (37)` — released to the App Store |
 | EAS Update | live, branch `production`, runtimeVersion policy `appVersion`; last group `d8591766-71bf-49da-a453-8499fb8c2191` (2026-09-01, `gitCommitHash a9f939a7a`) — see the publish log below |
 
