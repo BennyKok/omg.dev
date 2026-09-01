@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## September 1, 2026 - One set of faces on the session header (v0.6.27)
+
+- **The assigned person is no longer drawn two times.** The session header
+  showed them in the participant row under the title, and again as a separate
+  avatar at the other end of the same bar. There is one group of faces now.
+- **The faces overlap, and the assigned person has a coloured ring.** The ring
+  carries what the second avatar used to say, so the header gives the same
+  information in less space.
+
 ## September 1, 2026 - One keystroke, one action (v0.6.26)
 
 - **Shift+E no longer opens two archive dialogs.** When two workspace surfaces
