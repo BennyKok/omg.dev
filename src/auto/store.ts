@@ -417,6 +417,44 @@ export async function updateFinding(
   return found;
 }
 
+/**
+ * Empty the findings feed in one action.
+ *
+ * The feed is exactly `status: "open"` — the web app fetches
+ * `/api/auto/findings?status=open` — so clearing it means moving every open
+ * row to "dismissed", the same terminal state a per-finding dismiss writes.
+ *
+ * Deliberately NOT a delete. A dismissed row still does two jobs: runner.ts
+ * feeds low/med dismissed titles back as "do NOT resurface" (the anti-noise
+ * loop), and UNRESOLVED above counts "dismissed" so a repeat still escalates
+ * through recordRecurrence. Truncating findings.jsonl would reset both, and
+ * the next scheduled run would re-report everything the human just cleared.
+ *
+ * One read and one write for the whole batch, rather than N calls to
+ * updateFinding, so a large feed cannot interleave with a concurrent add.
+ *
+ * `ids` restricts the clear to a specific set. The UI is project-scoped — the
+ * rail shows only the findings of the selected project's agents — so a global
+ * clear would dismiss more rows than the button's count offered to. Callers
+ * pass exactly what they displayed. Omitting `ids` clears every open finding.
+ * Ids that are unknown or already non-open are skipped, so the count returned
+ * is what actually changed, not what was asked for.
+ */
+export async function dismissAllFindings(ids?: readonly string[]): Promise<number> {
+  const only = ids ? new Set(ids) : null;
+  const rows = await listFindings();
+  let cleared = 0;
+  const next = rows.map((r) => {
+    if (r.status !== "open") return r;
+    if (only && !only.has(r.id)) return r;
+    cleared++;
+    return { ...r, status: "dismissed" as const };
+  });
+  if (!cleared) return 0;
+  await writeFindings(next);
+  return cleared;
+}
+
 // ---------- fix-dispatch lifecycle ----------
 // The other half of the #185 postmortem: dispatchFixAgent (src/client-errors.ts)
 // spawns a session but nothing ever tied that session back to the finding it

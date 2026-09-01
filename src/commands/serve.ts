@@ -63,6 +63,7 @@ import {
   isRunning,
   listFindings,
   updateFinding,
+  dismissAllFindings,
   logFindingAction,
   type AutoAgent,
   type AutoAgentOwner,
@@ -6839,6 +6840,27 @@ a{color:#60a5fa}
           if (!q) return err(404, "unknown or not-yet-answered question");
           return json({ question: q });
         }
+      }
+      // Empty the feed in one action. The per-finding route below is the
+      // single-row equivalent; this is not a loop over it on purpose. Each
+      // updateFinding call re-reads and rewrites the whole JSONL file, so a
+      // client-side fan-out over N findings is N full rewrites that interleave
+      // and drop each other's writes. One batched write in the store instead.
+      //
+      // Literal path, and it cannot collide with the /:id route below: that
+      // regex is [0-9a-f]+ and "clear" contains l and r.
+      if (path === "/api/auto/findings/clear" && req.method === "POST") {
+        // Optional { ids }: the caller clears exactly the findings it showed.
+        // The rail is project-scoped, so an unscoped clear would dismiss rows
+        // the button never offered to. No body = every open finding.
+        const b = (await req.json().catch(() => null)) as { ids?: unknown } | null;
+        let ids: string[] | undefined;
+        if (b?.ids !== undefined) {
+          if (!Array.isArray(b.ids) || b.ids.some((i) => typeof i !== "string"))
+            return err(400, "expected { ids?: string[] }");
+          ids = b.ids as string[];
+        }
+        return json({ cleared: await dismissAllFindings(ids) });
       }
       {
         const m = path.match(/^\/api\/auto\/findings\/([0-9a-f]+)$/);
