@@ -23407,14 +23407,12 @@ function ComposerThinkingControl({
           (scrub.scrubbing || scrub.sticky) && "scale-[1.02] bg-foreground/10",
         )}
       >
+        {/* The signal bars say "thinking"; the word was redundant next to
+            them. The pill reads as signal + level (e.g. "Medium"), and the
+            aria-label above keeps the full name for screen readers. */}
         <ThinkingSignal value={shown} levels={levels} />
-        <span className="text-xs font-medium">Thinking</span>
-        <span aria-hidden="true" className="text-[11px] text-muted-foreground/60">·</span>
         <span
-          className={cn(
-            "max-w-14 truncate text-[11px] font-medium capitalize transition-colors duration-150",
-            scrub.scrubbing ? "text-foreground" : "text-muted-foreground",
-          )}
+          className="max-w-16 truncate text-xs font-medium capitalize transition-colors duration-150"
           style={scrub.scrubbing ? { color: scrub.previewAccent } : undefined}
         >
           {thinkingLevelLabel(shown)}
