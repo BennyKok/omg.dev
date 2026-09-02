@@ -29179,10 +29179,10 @@ function AutoManageView({
                 })}
               </div>
             );
-            // A lone group has nothing to distinguish it from: the header
-            // would only say "Unassigned 22/32 on" over the whole list. Owner
-            // headers appear once a bot owns schedules too.
-            if (groups.length === 1) return <div key={group.key}>{card}</div>;
+            // No header over the human's own list: "Unassigned 22/32 on"
+            // names nothing you chose. Bot-owned groups keep a header,
+            // because the bot's name is what distinguishes those rows.
+            if (!group.botId) return <div key={group.key}>{card}</div>;
             return (
               <Collapsible
                 key={group.key}
