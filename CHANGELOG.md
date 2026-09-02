@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## September 2, 2026 - Claude Fable 5.1 for the SDK Claude agent too (v0.6.35)
+
+- **The picker has two agents named "claude".** One is the Claude CLI harness.
+  The other is the Agent SDK harness, which the interface also labels
+  "claude". v0.6.34 added Claude Fable 5.1 to the CLI harness only, so most
+  users did not see the new model.
+- **Claude Fable 5.1 is now on both.** The Agent SDK accepts the same model
+  strings as the CLI, aliases or full ids.
+
 ## September 2, 2026 - Claude Fable 5.1 is in the model picker (v0.6.34)
 
 - **You can select Claude Fable 5.1 for a Claude session.** The picker shows it

@@ -1255,7 +1255,7 @@ const CODEX_MODELS = [
 ];
 // Models the one-shot AI-SDK test option supports (the provider maps these
 // aliases). Kept in sync with the AISDK_MODELS allowlist in serve.ts.
-const AISDK_MODELS = ["fable", "opus", "sonnet", "haiku"];
+const AISDK_MODELS = ["fable", "claude-fable-5-1", "opus", "sonnet", "haiku"];
 const CODEX_AISDK_MODELS = [
   "gpt-5.6-sol",
   "gpt-5.6-terra",

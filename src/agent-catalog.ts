@@ -36,7 +36,10 @@ export const CODEX_MODELS: string[] = [
   "gpt-5.4-mini",
   "gpt-5.3-codex-spark",
 ];
-export const AISDK_MODELS: string[] = ["fable", "opus", "sonnet", "haiku"];
+// The Agent SDK takes the same model strings as the CLI, aliases or full ids
+// (see claude-ai-sdk.ts, which passes this straight to query({ model })), so
+// `claude-fable-5-1` is carried here for the same reason as CLAUDE_MODELS.
+export const AISDK_MODELS: string[] = ["fable", "claude-fable-5-1", "opus", "sonnet", "haiku"];
 export const CODEX_AISDK_MODELS: string[] = [
   "gpt-5.6-sol",
   "gpt-5.6-terra",
