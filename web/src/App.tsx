@@ -11985,19 +11985,13 @@ function RailStage({
   // drawer flow runs as before. Opening a session (rail click, digit
   // shortcut, the fresh session after Start) retires the in-pane composer, so
   // it can never linger behind a transcript.
-  const [stageComposerOpen, setStageComposerOpen] = useState(false);
-  const stageEmpty = railSurface !== "chat" && columnIds.length === 0;
   const startNew = () => {
     if (railSurface !== "chat" && validPinned.length === 0) {
       setPreview(null);
-      setStageComposerOpen(true);
       return;
     }
     onNew();
   };
-  useEffect(() => {
-    if (!stageEmpty) setStageComposerOpen(false);
-  }, [stageEmpty]);
 
   // Stage columns are open transcript surfaces even though they do not use the
   // mobile card collapse toggle. Keep the app-level lazy stream manager in sync
@@ -12023,18 +12017,11 @@ function RailStage({
     };
   }, [columnIds]);
 
-  // Never leave the stage empty when there's something to show: preview the
-  // first working session (or the first session) on load. (A pending focus
-  // request wins — don't race it with the default pick; the `focus` effect
-  // above sets the preview itself once its session lands.)
-  // The in-pane composer owns the empty stage while it is open; refilling it
-  // with a preview would hide the composer the person just asked for.
-  useEffect(() => {
-    if (focus || stageComposerOpen) return;
-    if (columnIds.length || !sessions.length) return;
-    const first = sessions.find((s) => busyBySid[s.sessionId ?? ""]) ?? sessions[0];
-    if (first?.sessionId) setPreview(first.sessionId);
-  }, [columnIds.length, sessions, busyBySid, focus, stageComposerOpen]);
+  // No default preview. The stage used to fill itself with the first working
+  // session on load, picked from the raw `sessions` list — which still holds
+  // bot conversations the Chat rail hides, so it sometimes "auto selected the
+  // bot". An empty stage is now the new-session composer by design, and a
+  // session opens only when the person (or a focus/deep link) picks one.
 
   const openSession = useCallback(
     (sid: string) => {
@@ -12956,9 +12943,10 @@ function RailStage({
               <div className="mx-auto w-full max-w-xl shrink-0 px-4 pt-4 text-left">{coach}</div>
             ) : null}
             {stageComposer({
-              onClose: () => setStageComposerOpen(false),
+              // The composer IS the empty stage; there is nothing to close
+              // back to. Esc just stays put.
+              onClose: () => {},
               onCreated: async (result) => {
-                setStageComposerOpen(false);
                 // The shell has already refreshed (and seeded) the session
                 // list, so the new session is in `bySid` and can take the
                 // pane now.
