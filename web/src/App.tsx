@@ -8410,10 +8410,27 @@ export function App() {
         ? bots.find((item) => item.id === botEditorTarget) ?? null
         : null;
   const botsInWorkspace = tab === "bots" && isWide;
+  // Schedules ride the same workspace on desktop: rail on the left, the
+  // schedule list in the stage. Narrow layouts keep the standalone page.
+  const autoInWorkspace = tab === "auto" && isWide;
+  const autoManageView = (
+    <AutoManageView
+      autoAgents={autoAgents}
+      findings={findings}
+      tz={schedTz}
+      onEdit={setEditingAgent}
+      onRunNow={runAutoNow}
+      onToggleEnabled={(id, enabled) => void setAutoAgentEnabled(id, enabled)}
+      onChangeAgent={(id, patch) => void patchAutoAgentRuntime(id, patch)}
+      settings={settings}
+      onSettingsChange={updateSettings}
+    />
+  );
   // The editor is the page while it is open, so the desktop workspace steps
   // aside for it. It stays MOUNTED (just hidden) — its sessions, streams and
   // scroll survive the trip into the editor and back.
-  const workspaceVisible = (tab === "live" || botsInWorkspace) && !botEditor;
+  const workspaceVisible =
+    (tab === "live" || botsInWorkspace || autoInWorkspace) && !botEditor;
   const liveDesktopWorkspace = workspaceVisible && isWide;
   // Surfaces that render their own chrome, so the app header must not also
   // render over them. Each one owes the user a way back by its own means:
@@ -8820,7 +8837,8 @@ export function App() {
               onOpenBots={() => setTab("bots")}
               onOpenSessions={() => setTab("live")}
               onOpenAuto={() => setTab("auto")}
-              railSurface={tab === "bots" ? "chat" : "sessions"}
+              railSurface={tab === "bots" ? "chat" : tab === "auto" ? "auto" : "sessions"}
+              stageOverride={autoInWorkspace ? autoManageView : null}
               bots={bots}
               selectedBotId={selectedBotId}
               onOpenBot={openBot}
@@ -8962,19 +8980,7 @@ export function App() {
             onDelete={deletePersistentBot}
           />
         ) : null}
-        {tab === "auto" ? (
-          <AutoManageView
-            autoAgents={autoAgents}
-            findings={findings}
-            tz={schedTz}
-            onEdit={setEditingAgent}
-            onRunNow={runAutoNow}
-            onToggleEnabled={(id, enabled) => void setAutoAgentEnabled(id, enabled)}
-            onChangeAgent={(id, patch) => void patchAutoAgentRuntime(id, patch)}
-            settings={settings}
-            onSettingsChange={updateSettings}
-          />
-        ) : null}
+        {tab === "auto" && !autoInWorkspace ? autoManageView : null}
         {tab === "usage" ? <UsagePage /> : null}
         {tab === "coding-agents" ? (
           <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}>
@@ -11063,6 +11069,7 @@ function LiveView({
   coach = null,
   focus,
   stageComposer,
+  stageOverride = null,
 }: {
   sessions: Session[];
   shippedReview?: Session | null;
@@ -11085,7 +11092,7 @@ function LiveView({
   onOpenSessions?: () => void;
   onOpenAuto: () => void;
   /** Which list the rail is showing. Bots ride the same rail as sessions. */
-  railSurface?: "sessions" | "chat";
+  railSurface?: "sessions" | "chat" | "auto";
   bots?: PersistentBot[];
   selectedBotId?: string | null;
   onOpenBot?: (id: string, conversationId?: string | null) => void;
@@ -11125,6 +11132,8 @@ function LiveView({
   focus?: { sid: string; n: number } | null;
   /** Desktop only. See RailStage. */
   stageComposer: StageComposerRender;
+  /** Desktop only. See RailStage. */
+  stageOverride?: ReactNode;
 }) {
   const isWide = useIsWide();
   const isMobile = useIsMobile();
@@ -11438,6 +11447,7 @@ function LiveView({
         coach={coach}
         focus={focus}
         stageComposer={stageComposer}
+        stageOverride={stageOverride}
         topPinned={topPinned}
         onToggleTopPin={toggleTopPin}
       />
@@ -11638,6 +11648,7 @@ function RailStage({
   topPinned,
   onToggleTopPin,
   stageComposer,
+  stageOverride = null,
 }: {
   sessions: Session[];
   shippedReview?: Session | null;
@@ -11652,7 +11663,7 @@ function RailStage({
   onOpenBots: () => void;
   onOpenSessions?: () => void;
   onOpenAuto: () => void;
-  railSurface?: "sessions" | "chat";
+  railSurface?: "sessions" | "chat" | "auto";
   bots?: PersistentBot[];
   selectedBotId?: string | null;
   onOpenBot?: (id: string, conversationId?: string | null) => void;
@@ -11688,6 +11699,11 @@ function RailStage({
   onNew: () => void;
   /** The empty stage's content: the in-pane new-session composer. */
   stageComposer: StageComposerRender;
+  /**
+   * Replaces the stage columns entirely while `railSurface === "auto"`: the
+   * Schedules list lives in the pane, the session rail stays on the left.
+   */
+  stageOverride?: ReactNode;
 }) {
   const appDialog = useAppDialog();
   const { conversations: botConversationsForRail, selectedConversationId: selectedBotConversationForRail, markRead: markBotRowRead } = useContext(BotUnreadContext);
@@ -11986,7 +12002,7 @@ function RailStage({
   // shortcut, the fresh session after Start) retires the in-pane composer, so
   // it can never linger behind a transcript.
   const startNew = () => {
-    if (railSurface !== "chat" && validPinned.length === 0) {
+    if (railSurface === "sessions" && validPinned.length === 0) {
       setPreview(null);
       return;
     }
@@ -12025,10 +12041,14 @@ function RailStage({
 
   const openSession = useCallback(
     (sid: string) => {
+      // From Schedules, picking a session in the rail goes back to Chat: the
+      // stage is showing the schedule list, and a preview set underneath it
+      // would be an open session nobody can see.
+      if (railSurface === "auto") onOpenSessions();
       if (validPinned.includes(sid)) return; // already a persistent column
       setPreview(sid);
     },
-    [validPinned],
+    [validPinned, railSurface, onOpenSessions],
   );
   const togglePin = useCallback(
     (sid: string) => {
@@ -12906,7 +12926,9 @@ function RailStage({
               : "grid-cols-2 grid-rows-2",
         )}
       >
-        {activeStageColumns.length ? (
+        {railSurface === "auto" ? (
+          <div className="h-full min-h-0 overflow-y-auto px-2 pt-2">{stageOverride}</div>
+        ) : activeStageColumns.length ? (
           activeStageColumns.map(({ sid, session }) => {
             return (
               <div
