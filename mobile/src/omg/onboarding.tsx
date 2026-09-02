@@ -42,7 +42,8 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Image, Pressable, View } from "react-native";
+import { Image, Linking, Pressable, View } from "react-native";
+import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -86,20 +87,98 @@ type Panel = {
 export const PANELS: Panel[] = [
   {
     art: "mark",
-    title: "Your own computer",
-    body: "Claude Code, Codex, OpenCode and Pi run on a cloud machine of your own, not on this phone.",
+    title: "All coding agents on your phone",
+    body: "Claude Code, Codex, OpenCode and Pi, running on a cloud machine of your own.",
   },
   {
     art: "keeps-going",
-    title: "Runs while closed",
+    title: "Close your MacBook",
     body: "Files and sessions stay intact, so you can pick up later from the browser, over SSH, or back in here.",
   },
   {
     art: "notify",
-    title: "Notified when needed",
+    title: "Get notified when needed",
     body: "A push notification lands when an agent finishes a task or gets stuck.",
   },
 ];
+
+/**
+ * Bring your own agent subscription.
+ *
+ * GitHub IS NOT HERE, and that is not an oversight. omg.dev has no GitHub
+ * account linking anywhere: control-plane/functions/githubDiscovery.ts only
+ * browses PUBLIC repos by username or org, with no user token. A "Connect
+ * GitHub" row would be a button that cannot do anything, on the first screen
+ * a new account ever sees. Add it here when the linking exists, not before.
+ *
+ * Both of these are real: apps/web/src/lib/ai-oauth.ts does Anthropic via
+ * browser OAuth and OpenAI Codex via device code, surfaced on the web at
+ * /settings/ai. NEITHER IS IMPLEMENTED IN THIS APP YET, so the rows link out
+ * to that page rather than pretending to run the flow here. Linking out for
+ * account setup is not the purchase link-out that guideline 3.1.1 covers, and
+ * it is not a purchase of any kind.
+ */
+export const CONNECTIONS: { agent: string; label: string; detail: string }[] = [
+  { agent: "claude", label: "Claude", detail: "Use your Claude subscription" },
+  { agent: "codex", label: "Codex", detail: "Use your OpenAI account" },
+];
+
+const CONNECT_URL = "https://app.omg.dev/settings/ai";
+
+/** Explainers, then connect, then plans. */
+const STEP_COUNT = PANELS.length + 2;
+const CONNECT_STEP = PANELS.length;
+const PLAN_STEP = PANELS.length + 1;
+
+/**
+ * ── The intro is DEVICE state, not account state ──────────────────────────
+ *
+ * The three explainer panels run BEFORE sign-in, so there is no user id to key
+ * them on. They get their own device-level flag. The post-auth setup below
+ * stays per-user, because "has this person connected an agent" is a fact about
+ * an account and not about a handset.
+ *
+ * Keeping them separate also means a second person signing in on the same
+ * phone does not sit through the pitch again, while still getting their own
+ * setup steps.
+ */
+export const INTRO_VERSION = 1;
+const INTRO_KEY = "omg:mobile:intro";
+
+type IntroState = "loading" | "needed" | "done";
+
+export function useIntro(): { state: IntroState; complete: () => void } {
+  const [state, setState] = useState<IntroState>("loading");
+
+  useEffect(() => {
+    let cancelled = false;
+    AsyncStorage.getItem(INTRO_KEY)
+      .then((raw) => {
+        if (cancelled) return;
+        setState(seenVersion(raw) >= INTRO_VERSION ? "done" : "needed");
+      })
+      // Same reasoning as the setup gate: a read error means storage exists
+      // and is unreadable, which in practice is a returning user.
+      .catch(() => {
+        if (!cancelled) setState("done");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const complete = useCallback(() => {
+    setState("done");
+    void AsyncStorage.setItem(INTRO_KEY, String(INTRO_VERSION)).catch(() => {});
+  }, []);
+
+  return { state, complete };
+}
+
+/** Test/support hook: show the intro again on this device. */
+export async function resetIntro(): Promise<void> {
+  await AsyncStorage.removeItem(INTRO_KEY);
+}
 
 type OnboardingState = "loading" | "needed" | "done";
 
@@ -517,7 +596,11 @@ function Dots({ count, index }: { count: number; index: number }) {
   );
 }
 
-export function OnboardingScreen({ onDone }: { onDone: () => void }) {
+/**
+ * The intro: three panels then a way in. Pre-auth, so it can only talk about
+ * the product — it has no account to reason about yet.
+ */
+export function IntroScreen({ onSignIn }: { onSignIn: () => void }) {
   const { colors, space, type } = useTheme();
   const insets = useSafeAreaInsets();
   const still = useReduceMotionEnabled();
@@ -526,15 +609,10 @@ export function OnboardingScreen({ onDone }: { onDone: () => void }) {
   const panel = PANELS[index];
   const last = index === PANELS.length - 1;
 
-  /*
-   * Advance, or finish. Guarding on `last` rather than incrementing and
-   * letting a render off the end of the array decide: PANELS[3] is undefined,
-   * and a crash on the welcome screen is the worst possible first impression.
-   */
   const next = useCallback(() => {
-    if (last) onDone();
+    if (last) onSignIn();
     else setIndex((current) => current + 1);
-  }, [last, onDone]);
+  }, [last, onSignIn]);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -547,66 +625,201 @@ export function OnboardingScreen({ onDone }: { onDone: () => void }) {
           justifyContent: "space-between",
         }}
       >
-        {/* Skip is always available. Someone who already knows what this is
-            should not have to tap through three panels to reach their work. */}
         <View style={{ width: 44 }} />
         <Dots count={PANELS.length} index={index} />
+        {/*
+         * Skip goes STRAIGHT to sign-in, not past it. Nothing here is a
+         * precondition for having an account, and a returning user who
+         * reinstalled should not read the pitch again to reach the field.
+         */}
+        <Pressable accessibilityRole="button" onPress={onSignIn} hitSlop={12}>
+          <Text style={{ ...type.subhead, color: colors.textMuted }}>Skip</Text>
+        </Pressable>
+      </View>
+
+      <View style={{ flex: 1 }} />
+      <View style={{ paddingHorizontal: space.xl, alignItems: "center", gap: space.xl }}>
+        <PanelArt key={panel.art} art={panel.art} still={still} />
+        <View style={{ gap: space.md }}>
+          <Text style={{ ...type.largeTitle, color: colors.text, textAlign: "center" }}>
+            {panel.title}
+          </Text>
+          <Text
+            style={{ ...type.body, color: colors.textMuted, textAlign: "center", lineHeight: 24 }}
+          >
+            {panel.body}
+          </Text>
+        </View>
+      </View>
+      <View style={{ flex: 0.6 }} />
+
+      <View style={{ padding: space.lg, paddingBottom: insets.bottom + space.lg }}>
+        <BigButton label={last ? "Sign in" : "Continue"} onPress={next} />
+      </View>
+    </View>
+  );
+}
+
+/** One agent row on the connect step, straight off the Computer's roster. */
+function AgentRow({
+  agent,
+  label,
+  connected,
+}: {
+  agent: string;
+  label: string;
+  connected: boolean;
+}) {
+  const { colors, radius, space, type } = useTheme();
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: space.md,
+        padding: space.md,
+        borderRadius: radius.lg,
+        backgroundColor: colors.card,
+        borderWidth: 1,
+        borderColor: colors.border,
+      }}
+    >
+      <Image source={agentIcon(agent)} style={{ width: 28, height: 28 }} resizeMode="contain" />
+      <View style={{ flex: 1 }}>
+        <Text style={{ ...type.headline, color: colors.text }}>{label}</Text>
+        <Text style={{ ...type.footnote, color: connected ? colors.success : colors.textMuted }}>
+          {connected ? "Connected" : "Not connected"}
+        </Text>
+      </View>
+      {connected ? <Icon ios="checkmark" android="check" size={16} color={colors.success} /> : null}
+    </View>
+  );
+}
+
+/**
+ * The post-auth setup: connect an agent, then plans.
+ *
+ * ── Why connect can legitimately be empty ─────────────────────────────────
+ *
+ * The roster comes off the Computer's own /api/bootstrap, the same source the
+ * web onboarding's Agents step reads, surfaced here through `readiness`. A
+ * brand-new account is exactly the case where that box may not be answering
+ * yet: it can be provisioning, or cold and returning 425 while it wakes. So
+ * this screen has to be honest about "nothing to show yet" instead of drawing
+ * an empty list that reads as "no agents exist".
+ *
+ * Plans stay LAST, after connect, because that is the order Benny asked for.
+ * The cost is accepted deliberately: the newest accounts are the most likely
+ * to see the waking state on the connect step.
+ */
+export function SetupScreen({
+  onDone,
+  agents,
+  waking,
+}: {
+  onDone: () => void;
+  agents: { key: string; label: string; connected: boolean }[];
+  waking: boolean;
+}) {
+  const { colors, space, type } = useTheme();
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const still = useReduceMotionEnabled();
+  const [step, setStep] = useState<0 | 1>(0);
+
+  /*
+   * Mark setup done BEFORE pushing the paywall. Backing out of plans lands on
+   * the app rather than at the top of setup again, and a purchase that never
+   * happens is not a reason to re-run onboarding on the next launch.
+   */
+  const seePlans = useCallback(() => {
+    onDone();
+    router.push("/plan");
+  }, [onDone, router]);
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <View
+        style={{
+          paddingTop: insets.top + space.md,
+          paddingHorizontal: space.lg,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <View style={{ width: 44 }} />
+        <Dots count={2} index={step} />
         <Pressable accessibilityRole="button" onPress={onDone} hitSlop={12}>
           <Text style={{ ...type.subhead, color: colors.textMuted }}>Skip</Text>
         </Pressable>
       </View>
 
-      <View style={{ flex: 1, alignItems: "center", paddingHorizontal: space.xl }}>
-        {/*
-         * Centering this block in the FULL remaining flex (the old
-         * `justifyContent: "center"`) put it dead-centre between the header
-         * and the button. That reads fine on panel 1, whose art+copy is the
-         * tallest, but panels 2 and 3 are shorter, so the same centring
-         * left a gap under the copy that was often bigger than the gap
-         * above the art — the block visually floats, disconnected from the
-         * Continue button beneath it.
-         *
-         * Two unequal spacers instead of one centred block: more room above
-         * (near the dots, which already reads as a header) than below, so
-         * the content sits closer to the button it leads into, for every
-         * panel's content height, without a hard-coded pixel offset.
-         */}
-        <View style={{ flex: 1 }} />
-        <View style={{ alignItems: "center", gap: space.xl }}>
-          {/*
-           * Keyed on the panel so switching remounts the art and its loop
-           * restarts from the top. Without the key, Reanimated keeps the
-           * previous shared values running and panel 3's bell would arrive
-           * mid-swing, which reads as a glitch rather than a ring.
-           */}
-          <PanelArt key={panel.art} art={panel.art} still={still} />
-
-          <View style={{ gap: space.md }}>
-            <Text style={{ ...type.largeTitle, color: colors.text, textAlign: "center" }}>
-              {panel.title}
-            </Text>
-            <Text
-              style={{
-                ...type.body,
-                color: colors.textMuted,
-                textAlign: "center",
-                lineHeight: 24,
-              }}
-            >
-              {panel.body}
-            </Text>
+      <View style={{ flex: 1 }} />
+      <View style={{ paddingHorizontal: space.xl, alignItems: "center", width: "100%" }}>
+        {step === 0 ? (
+          <View style={{ width: "100%", gap: space.xl }}>
+            <View style={{ gap: space.md }}>
+              <Text style={{ ...type.largeTitle, color: colors.text, textAlign: "center" }}>
+                Connect an agent
+              </Text>
+              <Text
+                style={{ ...type.body, color: colors.textMuted, textAlign: "center", lineHeight: 24 }}
+              >
+                Sessions run on a coding agent. You can add more later in Settings.
+              </Text>
+            </View>
+            {agents.length > 0 ? (
+              <View style={{ gap: space.sm }}>
+                {agents.map((a) => (
+                  <AgentRow key={a.key} agent={a.key} label={a.label} connected={a.connected} />
+                ))}
+              </View>
+            ) : (
+              <Text
+                style={{ ...type.footnote, color: colors.textMuted, textAlign: "center" }}
+              >
+                {waking
+                  ? "Your Computer is starting up. Its agents will appear here in a moment."
+                  : "No agents yet. You can set one up in Settings once your Computer is ready."}
+              </Text>
+            )}
           </View>
-        </View>
-        <View style={{ flex: 0.6 }} />
+        ) : (
+          <View style={{ width: "100%", alignItems: "center", gap: space.xl }}>
+            <PanelArt key="plan" art="mark" still={still} />
+            <View style={{ gap: space.md }}>
+              <Text style={{ ...type.largeTitle, color: colors.text, textAlign: "center" }}>
+                Pick a Computer
+              </Text>
+              <Text
+                style={{ ...type.body, color: colors.textMuted, textAlign: "center", lineHeight: 24 }}
+              >
+                Plans differ in machine size, included compute time, and how many agents run at once.
+              </Text>
+            </View>
+          </View>
+        )}
       </View>
+      <View style={{ flex: 0.6 }} />
 
-      <View
-        style={{
-          padding: space.lg,
-          paddingBottom: insets.bottom + space.lg,
-        }}
-      >
-        <BigButton label={last ? "Start" : "Continue"} onPress={next} />
+      <View style={{ padding: space.lg, paddingBottom: insets.bottom + space.lg, gap: space.sm }}>
+        <BigButton
+          label={step === 0 ? "Continue" : "See plans"}
+          onPress={step === 0 ? () => setStep(1) : seePlans}
+        />
+        {/*
+         * A free way past, always. Free is a real plan — 2 vCPU, 4 GB, 3 active
+         * hours, three agents — so this is not a dead end, and a welcome flow
+         * that terminates on a purchase is both hostile and a 3.1.1 risk.
+         */}
+        {step === 1 ? (
+          <Pressable accessibilityRole="button" onPress={onDone} style={{ paddingVertical: 12 }}>
+            <Text style={{ ...type.subhead, color: colors.textMuted, textAlign: "center" }}>
+              Start free
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
