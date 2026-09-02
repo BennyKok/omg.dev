@@ -22498,8 +22498,13 @@ function NewSessionDialog({
     );
   }
 
-  // Desktop stage: the same card the drawer shows, sitting in the empty pane
-  // instead of sliding over it. Escape closes it the way it closes the sheet.
+  // Desktop stage: the same composer the drawer shows, sitting flat in the
+  // empty pane instead of sliding over it. Escape closes it the way it closes
+  // the sheet. Greets the session owner by roster name, falling back to the
+  // local part of the email, then to a plain "there".
+  const stageOwner = users.find((item) => item.email === user);
+  const stageGreetingName =
+    stageOwner?.name?.trim() || (user ? user.split("@")[0] : "") || "there";
   if (variant === "stage") {
     return (
       <div
@@ -22516,18 +22521,11 @@ function NewSessionDialog({
             is the page's content, not a dialog over it, so it gets no dialog
             chrome. The field's own outline is the only frame. */}
         <section aria-label="New session" className="w-full max-w-xl">
-          <div className="flex items-center justify-between px-3 pb-2">
-            <h2 className="text-lg font-semibold">New session</h2>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close"
-              title="Close (Esc)"
-              className="flex size-7 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
-            >
-              <X className="size-4" />
-            </button>
-          </div>
+          {/* A greeting, not a dialog title. No close control: Esc, or
+              opening any session from the rail, leaves this surface. */}
+          <h2 className="px-3 pb-2 text-lg font-semibold">
+            Hello {stageGreetingName}!
+          </h2>
           {formBody}
         </section>
       </div>
