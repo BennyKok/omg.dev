@@ -19,6 +19,7 @@ export type AutoAgentBackend =
   | "grok"
   | "cursor"
   | "fx"
+  | "muse"
   | "opencode"
   | "hermes";
 

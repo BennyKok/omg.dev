@@ -1193,7 +1193,7 @@ function persistManagedResume(session: Session): void {
         : session.agent === "pi"
           ? "pi"
           : session.runtime === "command-file" &&
-              (session.agent === "grok" || session.agent === "cursor" || session.agent === "fx" || session.agent === "copilot" || session.agent === "jcode")
+              (session.agent === "grok" || session.agent === "cursor" || session.agent === "fx" || session.agent === "muse" || session.agent === "copilot" || session.agent === "jcode")
             ? session.agent
           : null;
   if (!backend && !session.transcriptPath) return;
@@ -1220,7 +1220,7 @@ function persistManagedResume(session: Session): void {
         ? "opencode"
         : backend === "pi"
           ? "pi"
-          : backend === "grok" || backend === "cursor" || backend === "fx" || backend === "copilot" || backend === "jcode"
+          : backend === "grok" || backend === "cursor" || backend === "fx" || backend === "muse" || backend === "copilot" || backend === "jcode"
             ? backend
           : session.agent === "grok"
             ? "grok"
@@ -1561,6 +1561,7 @@ const STATIC_FILES: Record<string, { path: string; type: string }> = {
   "/agent-codex.svg": { path: join(WEB_DIR, "agent-codex.svg"), type: "image/svg+xml" },
   "/agent-cursor.svg": { path: join(WEB_DIR, "agent-cursor.svg"), type: "image/svg+xml" },
   "/agent-fx.svg": { path: join(WEB_DIR, "agent-fx.svg"), type: "image/svg+xml" },
+  "/agent-muse.svg": { path: join(WEB_DIR, "agent-muse.svg"), type: "image/svg+xml" },
   "/agent-deepseek.svg": { path: join(WEB_DIR, "agent-deepseek.svg"), type: "image/svg+xml" },
   "/agent-opencode.svg": { path: join(WEB_DIR, "agent-opencode.svg"), type: "image/svg+xml" },
   "/agent-jcode.svg": { path: join(WEB_DIR, "agent-jcode.svg"), type: "image/svg+xml" },
@@ -2467,7 +2468,7 @@ function validateBotAgent(
   }
   if (agent === "codex-aisdk" && model && !/^[A-Za-z0-9_.:-]{1,80}$/.test(model))
     return { error: "invalid codex model name" };
-  if ((agent === "cursor" || agent === "opencode" || agent === "fx") && model && !/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
+  if ((agent === "cursor" || agent === "opencode" || agent === "fx" || agent === "muse") && model && !/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
     return { error: `invalid ${agent} model name` };
   if (agent === "jcode" && model && !/^[A-Za-z0-9_.:\/\-[\],=]{1,160}$/.test(model))
     return { error: "invalid jcode model name" };
@@ -2612,8 +2613,8 @@ async function launchBotSession(
       ? resolvedModel ?? GROK_DEFAULT_MODEL()
       : agent === "cursor" || agent === "jcode" || agent === "copilot" || agent === "fx"
         ? resolvedModel ?? "auto"
-        : agent === "opencode"
-          ? resolvedModel ?? defaultModelForAgent("opencode")
+        : agent === "opencode" || agent === "muse"
+          ? resolvedModel ?? defaultModelForAgent(agent)
           : agent === "codex-aisdk"
             ? resolvedModel ?? "gpt-5.5"
             : agent === "aisdk"
@@ -3378,6 +3379,8 @@ export function resolveAutoAgentRuntime(
     return { ok: false, status: 400, error: "invalid cursor model name" };
   if (autoBackend === "fx" && model && !/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
     return { ok: false, status: 400, error: "invalid fx model name" };
+  if (autoBackend === "muse" && model && !/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
+    return { ok: false, status: 400, error: "invalid muse model name" };
   if (autoBackend === "opencode" && model && !/^[A-Za-z0-9_.:\/-]{1,80}$/.test(model))
     return { ok: false, status: 400, error: "invalid opencode model name" };
   const thinkingLevel = b.thinkingLevel?.trim() || undefined;

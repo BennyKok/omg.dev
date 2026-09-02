@@ -25,6 +25,7 @@ export function agentIconSrc(agent?: string): string {
   if (agent === "grok") return omgAssetUrl(`/agent-grok.svg${v}`);
   if (agent === "cursor") return omgAssetUrl(`/agent-cursor.svg${v}`);
   if (agent === "fx") return omgAssetUrl(`/agent-fx.svg${v}`);
+  if (agent === "muse") return omgAssetUrl(`/agent-muse.svg${v}`);
   if (agent === "deepseek") return omgAssetUrl(`/agent-deepseek.svg${v}`);
   if (agent === "hermes") return omgAssetUrl(`/agent-hermes.svg${v}`);
   if (agent === "opencode") return omgAssetUrl(`/agent-opencode.svg${v}`);
@@ -39,6 +40,7 @@ export function agentIconAlt(agent?: string): string {
   if (agent === "grok") return "Grok";
   if (agent === "cursor") return "Cursor";
   if (agent === "fx") return "fx";
+  if (agent === "muse") return "Muse";
   if (agent === "deepseek") return "DeepSeek";
   if (agent === "hermes") return "Hermes";
   if (agent === "opencode") return "OpenCode";

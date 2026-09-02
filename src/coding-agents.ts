@@ -47,6 +47,7 @@ export type CodingAgentKind =
   | "grok"
   | "cursor"
   | "fx"
+  | "muse"
   | "deepseek"
   | "hermes"
   | "pi"
@@ -215,6 +216,7 @@ export const CODING_AGENT_KINDS: Exclude<CodingAgentKind, "claude" | "hermes">[]
   "grok",
   "cursor",
   "fx",
+  "muse",
   "deepseek",
   "opencode",
   "jcode",
@@ -232,6 +234,7 @@ export const CODING_AGENT_LABELS: Record<CodingAgentKind, string> = {
   grok: "grok",
   cursor: "cursor",
   fx: "fx",
+  muse: "muse",
   deepseek: "deepseek",
   hermes: "hermes",
   pi: "pi",
@@ -449,6 +452,17 @@ function fxPath(): string | null {
     `${home}/.local/bin/fx`,
     `${home}/.bun/bin/fx`,
     "/usr/local/bin/fx",
+  ]);
+}
+
+// Muse's installer drops a launcher in ~/.local/bin/muse (it keeps the real
+// binary next to it). Same single-static-binary shape as fx.
+function musePath(): string | null {
+  const home = userHome();
+  return which("muse", [
+    process.env.LFG_MUSE_PATH ?? "",
+    `${home}/.local/bin/muse`,
+    "/usr/local/bin/muse",
   ]);
 }
 
@@ -782,6 +796,17 @@ function hasFxAccountAuth(): boolean {
   return existsSync(`${home}/.fx/auth.json`) || existsSync(`${home}/.fx/api-key`);
 }
 
+// Muse authenticates with `muse login` (device code in a browser), which writes
+// ~/.config/muse/auth.json. META_API_KEY also makes the CLI runnable, but it is
+// a platform key, not a connected account — same split fx draws.
+function hasMuseAuth(): boolean {
+  return existsSync(`${userHome()}/.config/muse/auth.json`) || !!process.env.META_API_KEY;
+}
+
+function hasMuseAccountAuth(): boolean {
+  return existsSync(`${userHome()}/.config/muse/auth.json`);
+}
+
 function installCommandFor(kind: CodingAgentKind): string | null {
   if (kind === "claude" || kind === "aisdk") return "curl -fsSL https://claude.ai/install.sh | bash";
   if (kind === "codex" || kind === "codex-aisdk") return "bun add -g @openai/codex";
@@ -790,6 +815,7 @@ function installCommandFor(kind: CodingAgentKind): string | null {
   if (kind === "grok") return "curl -fsSL https://x.ai/cli/install.sh | bash";
   if (kind === "cursor") return "curl -fsSL https://cursor.com/install | bash";
   if (kind === "fx") return "curl -fsSL https://fx.sh/setup.sh | bash";
+  if (kind === "muse") return "curl -fsSL https://dev.meta.ai/install.sh | bash";
   if (kind === "deepseek") return "bun add -g @deepseek-ai/dsh@0.1.1-rc.2 pnpm && dsh plugin --profile omg add @deepseek-ai/dsh-acp@0.1.1-rc.2";
   if (kind === "copilot") return "npm install -g @github/copilot";
   // pi is no longer bundled. Its provider layer (@earendil-works/pi-ai) pulls
@@ -814,6 +840,7 @@ function loginCommandPartsFor(kind: CodingAgentKind): string[] | null {
   if (kind === "grok") return [grokPath() ?? "grok", "login", "--device-auth"];
   if (kind === "cursor") return [cursorPath() ?? "cursor-agent", "login"];
   if (kind === "fx") return [fxPath() ?? "fx", "login"];
+  if (kind === "muse") return [musePath() ?? "muse", "login"];
   if (kind === "deepseek") return null;
   if (kind === "copilot") return [copilotPath() ?? "copilot"];
   // pi has no login subcommand — auth is file-based (~/.pi/agent/auth.json) or
@@ -1442,6 +1469,11 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
     addBinary("fx CLI", fxPath());
     addAuth("fx auth", hasFxAuth(), "use Login below or set AI_GATEWAY_API_KEY");
     instructions.push("Use Login to sign in to Vercel in your browser, or set AI_GATEWAY_API_KEY.");
+  } else if (kind === "muse") {
+    accountConnected = hasMuseAccountAuth();
+    addBinary("Muse Code CLI", musePath());
+    addAuth("Muse auth", hasMuseAuth(), "run `muse login` once or set META_API_KEY");
+    instructions.push("Install Muse Code (curl -fsSL https://dev.meta.ai/install.sh | bash), then run `muse login` and approve the code in your browser, or set META_API_KEY.");
   } else if (kind === "deepseek") {
     addBinary("DeepSeek Harness CLI", deepseekPath());
     addAuth("DeepSeek ACP profile", hasDeepseekAcpProfile(), "run Setup to install the omg ACP profile");
@@ -1758,6 +1790,7 @@ function setupEnvFor(kind: CodingAgentKind): Record<string, string> | null {
   if (kind === "grok") return { LFG_INSTALL_GROK: "1" };
   if (kind === "cursor") return { LFG_INSTALL_CURSOR: "1" };
   if (kind === "fx") return { LFG_INSTALL_FX: "1" };
+  if (kind === "muse") return { LFG_INSTALL_MUSE: "1" };
   if (kind === "deepseek") return { LFG_INSTALL_DEEPSEEK: "1" };
   if (kind === "copilot") return { LFG_INSTALL_COPILOT: "1" };
   return null;

@@ -34,7 +34,7 @@ export type ModelDiscoveryCache = {
 const CACHE_PATH = join(PATHS.data, "model-catalog.json");
 const DEFAULT_REFRESH_CRON = "0 8 * * *";
 /** Every provider a full refresh probes. `codex-aisdk` is mirrored from `codex`. */
-const REFRESH_KEYS: ProviderKey[] = ["claude", "aisdk", "codex", "grok", "cursor", "fx", "opencode", "jcode"];
+const REFRESH_KEYS: ProviderKey[] = ["claude", "aisdk", "codex", "grok", "cursor", "fx", "opencode", "jcode", "muse"];
 /**
  * Providers whose failure is structural rather than transient: they expose no
  * model-list command at all, so every attempt returns the same error. Retrying
@@ -372,9 +372,94 @@ async function runCommand(argv: string[], timeoutMs = DEFAULT_TIMEOUT_MS): Promi
   }
 }
 
+// Muse Code has no model-list subcommand; its catalog is the same HTTP
+// document the CLI reads at startup. It needs the Muse Code credential
+// (`muse login` writes ~/.config/muse/auth.json; META_API_KEY overrides), so a
+// signed-out box keeps the static fallback — no network call is made then.
+const MUSE_MODELS_URL = "https://api.meta.ai/muse-code/models";
+
+async function museApiKey(): Promise<string | null> {
+  const env = process.env.META_API_KEY?.trim();
+  if (env) return env;
+  try {
+    const auth = (await Bun.file(join(userHome(), ".config", "muse", "auth.json")).json()) as {
+      providers?: { meta?: { api_key?: unknown } };
+    };
+    const key = auth?.providers?.meta?.api_key;
+    return typeof key === "string" && key ? key : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `GET /muse-code/models` answers `{data:[{id, metadata:{"muse-code":{name,
+ * is_hidden, release_date, variants:{minimal:…}}}}]}` (captured 2026-09-02).
+ * The `-contributor` twin of each model is the same weights under a data-use
+ * clause ("may be used for product improvement"); it is deliberately not
+ * offered, so a picker never selects it by accident. Newest release first.
+ */
+export function parseMuseModels(text: string): { models: string[]; labels: Record<string, string> } {
+  const parsed = JSON.parse(text) as {
+    data?: Array<{
+      id?: unknown;
+      metadata?: { "muse-code"?: { name?: unknown; is_hidden?: unknown; release_date?: unknown } };
+    }>;
+  };
+  const rows: Array<{ id: string; label?: string; released: string }> = [];
+  for (const item of parsed.data ?? []) {
+    if (typeof item?.id !== "string") continue;
+    const id = cleanId(item.id);
+    if (!id || !id.startsWith("muse-spark") || id.endsWith("-contributor")) continue;
+    const meta = item.metadata?.["muse-code"];
+    if (meta?.is_hidden === true) continue;
+    rows.push({
+      id,
+      label: typeof meta?.name === "string" && meta.name !== id ? meta.name : undefined,
+      released: typeof meta?.release_date === "string" ? meta.release_date : "",
+    });
+  }
+  rows.sort((a, b) => (a.released < b.released ? 1 : a.released > b.released ? -1 : 0));
+  const ids: string[] = [];
+  const labels: Record<string, string> = {};
+  for (const row of rows) addModel(ids, labels, row.id, row.label);
+  return { models: ids, labels };
+}
+
+async function discoverMuseProvider(started: number, refreshedAt: number): Promise<DiscoveredModelProvider> {
+  const done = () => Math.round((performance.now() - started) * 1000) / 1000;
+  const apiKey = await museApiKey();
+  if (!apiKey) {
+    return { key: "muse", ok: false, models: [], error: "not signed in (run `muse login`)", refreshedAt, durationMs: done() };
+  }
+  try {
+    const r = await fetch(MUSE_MODELS_URL, {
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+      signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+    });
+    if (!r.ok) {
+      return { key: "muse", ok: false, models: [], error: `${MUSE_MODELS_URL} returned ${r.status}`, refreshedAt, durationMs: done() };
+    }
+    const parsed = parseMuseModels(await r.text());
+    return {
+      key: "muse",
+      ok: parsed.models.length > 0,
+      command: ["GET", MUSE_MODELS_URL],
+      models: parsed.models,
+      labels: Object.keys(parsed.labels).length ? parsed.labels : undefined,
+      error: parsed.models.length ? undefined : "catalog listed no muse-spark model",
+      refreshedAt,
+      durationMs: done(),
+    };
+  } catch (e) {
+    return { key: "muse", ok: false, models: [], error: e instanceof Error ? e.message : String(e), refreshedAt, durationMs: done() };
+  }
+}
+
 async function discoverProvider(key: ProviderKey): Promise<DiscoveredModelProvider> {
   const started = performance.now();
   const refreshedAt = Date.now();
+  if (key === "muse") return discoverMuseProvider(started, refreshedAt);
   const command = commandFor(key);
   if (!command) {
     return {
