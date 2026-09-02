@@ -1243,7 +1243,7 @@ type SlashSkillState = {
   query: string;
 };
 
-const CLAUDE_MODELS = ["sonnet", "opus", "haiku", "fable"];
+const CLAUDE_MODELS = ["sonnet", "opus", "haiku", "fable", "claude-fable-5-1"];
 const CODEX_MODELS = [
   "gpt-5.6-sol",
   "gpt-5.6-terra",
@@ -21465,7 +21465,7 @@ function NewSessionDialog({
     });
     const resumeModel =
       session.agent === "claude"
-        ? ["fable", "opus", "sonnet", "haiku"].includes(model)
+        ? ["fable", "claude-fable-5-1", "opus", "sonnet", "haiku"].includes(model)
           ? model
           : undefined
         : session.agent === "opencode"

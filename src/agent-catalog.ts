@@ -22,7 +22,11 @@ export type SkillCatalogItem = {
   path: string;
 };
 
-export const CLAUDE_MODELS: string[] = ["fable", "opus", "sonnet", "haiku"];
+// `fable` is an alias the claude CLI resolves to the current Fable release
+// (Fable 5 today). `claude-fable-5-1` is pinned on purpose: the CLI accepts the
+// full id and serves it first-party, but no short alias points at 5.1 yet, so
+// without this entry the picker cannot reach it.
+export const CLAUDE_MODELS: string[] = ["fable", "claude-fable-5-1", "opus", "sonnet", "haiku"];
 export const CODEX_MODELS: string[] = [
   "gpt-5.6-sol",
   "gpt-5.6-terra",
