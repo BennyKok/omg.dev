@@ -2279,6 +2279,9 @@ function modelAlias(id: string | null | undefined): string | null {
   if (m.includes("opus")) return "opus";
   if (m.includes("sonnet")) return "sonnet";
   if (m.includes("haiku")) return "haiku";
+  // Fable 5.1 has no short alias, so the picker carries its full id. Collapsing
+  // it to "fable" would highlight Fable 5 as the live model and resume there.
+  if (/fable-5[-.]1/.test(m)) return "claude-fable-5-1";
   if (m.includes("fable")) return "fable";
   return id;
 }
