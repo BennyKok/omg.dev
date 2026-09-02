@@ -1,3 +1,4 @@
+import * as AppleAuthentication from "expo-apple-authentication";
 import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -13,9 +14,15 @@ import {
 import { Text, TextInput, type TextInputHandle } from "../src/omg/text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Icon } from "../src/components";
+import { Icon, PrimaryButton } from "../src/components";
 import { BrandMark } from "../src/omg/brand-mark";
 import { sendSignInCode, verifySignInCode } from "../src/omg/auth";
+import {
+  appleSignInAvailable,
+  googleSignInConfigured,
+  signInWithApple,
+  signInWithGoogle,
+} from "../src/omg/social-sign-in";
 import { useOmg } from "../src/omg/provider";
 import { useTheme } from "../src/omg/theme";
 import { useToast } from "../src/omg/toast";
@@ -51,7 +58,7 @@ function errorMessage(error: unknown): string {
 export default function SignInScreen() {
   const insets = useSafeAreaInsets();
   const { refreshSession } = useOmg();
-  const { colors, radius, space, type } = useTheme();
+  const { colors, radius, space, type, isDark } = useTheme();
   const [step, setStep] = useState<"email" | "code">("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -63,7 +70,19 @@ export default function SignInScreen() {
   const [sending, setSending] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [resendSeconds, setResendSeconds] = useState(0);
+  const [socialBusy, setSocialBusy] = useState<"apple" | "google" | null>(null);
+  const [appleAvailable, setAppleAvailable] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void appleSignInAvailable().then((available) => {
+      if (!cancelled) setAppleAvailable(available);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const codeInput = useRef<TextInputHandle>(null);
+  const busy = sending || verifying;
 
   const normalizedEmail = email.trim().toLowerCase();
   const emailIsValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail);
@@ -133,6 +152,31 @@ export default function SignInScreen() {
     }
   }, [code, codeIsValid, normalizedEmail, refreshSession, verifying]);
 
+  /**
+   * Apple and Google end where the code does: a cookie in the jar, then
+   * refreshSession() flips authStatus and _layout routes away. A dismissed
+   * sheet resolves to null and is not an error.
+   */
+  const signInWith = useCallback(
+    async (provider: "apple" | "google") => {
+      if (busy || socialBusy) return;
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setSocialBusy(provider);
+      setError(null);
+      try {
+        const user = provider === "apple" ? await signInWithApple() : await signInWithGoogle();
+        if (!user) return;
+        await refreshSession();
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } catch (socialError) {
+        setError(errorMessage(socialError));
+      } finally {
+        setSocialBusy(null);
+      }
+    },
+    [busy, refreshSession, socialBusy],
+  );
+
   const useDifferentEmail = useCallback(() => {
     setStep("email");
     setCode("");
@@ -140,7 +184,6 @@ export default function SignInScreen() {
     setResendSeconds(0);
   }, []);
 
-  const busy = sending || verifying;
   const canSubmit = step === "email" ? emailIsValid && !busy : codeIsValid && !busy;
 
   return (
@@ -199,6 +242,7 @@ export default function SignInScreen() {
              * web fades it in: an enabled-looking button that does nothing is
              * worse than no button.
              */
+            <>
             <View style={styles.fieldWrap}>
               <TextInput
                 autoCapitalize="none"
@@ -247,6 +291,46 @@ export default function SignInScreen() {
                 </Pressable>
               ) : null}
             </View>
+            {appleAvailable || googleSignInConfigured ? (
+              <View style={styles.social}>
+                <View style={styles.divider}>
+                  <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+                  <Text style={[type.footnote, { color: colors.textMuted }]}>or</Text>
+                  <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+                </View>
+                {appleAvailable ? (
+                  socialBusy === "apple" ? (
+                    <View style={[styles.socialButton, { alignItems: "center", justifyContent: "center" }]}>
+                      <ActivityIndicator color={colors.text} />
+                    </View>
+                  ) : (
+                    <AppleAuthentication.AppleAuthenticationButton
+                      buttonStyle={
+                        isDark
+                          ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE
+                          : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
+                      }
+                      buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+                      cornerRadius={radius.lg}
+                      onPress={() => void signInWith("apple")}
+                      style={styles.socialButton}
+                    />
+                  )
+                ) : null}
+                {googleSignInConfigured ? (
+                  <View style={appleAvailable ? styles.socialGap : undefined}>
+                    <PrimaryButton
+                      disabled={busy || socialBusy === "apple"}
+                      label="Continue with Google"
+                      loading={socialBusy === "google"}
+                      onPress={() => void signInWith("google")}
+                      tone="quiet"
+                    />
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+            </>
           ) : (
             <>
               <View style={styles.fieldWrap}>
@@ -420,13 +504,26 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 14,
   },
-  button: {
-    alignItems: "center",
-    height: 50,
-    justifyContent: "center",
-    // Close to the field it submits. 32 was the gap that made sense when
-    // space-between was also pushing them apart; without that it is just far.
+  /** Apple and Google, below the email field, behind an "or". */
+  social: {
     marginTop: 20,
     width: "100%",
+  },
+  divider: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 16,
+  },
+  dividerLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+  },
+  socialButton: {
+    height: 50,
+    width: "100%",
+  },
+  socialGap: {
+    marginTop: 12,
   },
 });
