@@ -14,6 +14,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { museChildEnv } from "../../muse-proxy.ts";
 import { runManagedSdkSession, type ManagedSdkEventSink } from "./managed-sdk-session.ts";
 
 function arg(argv: string[], name: string): string | undefined {
@@ -369,7 +370,7 @@ export async function cmdMuseMspSession(argv: string[]): Promise<void> {
     async createRuntime(sink) {
       const child: ChildProcess = spawn(musePath(), museServeArgv(), {
         cwd,
-        env: process.env,
+        env: museChildEnv(),
         stdio: ["pipe", "pipe", "inherit"],
       });
       if (!child.stdin || !child.stdout) throw new Error("muse serve stdio was not available");

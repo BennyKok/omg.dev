@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { museFetchInit } from "./muse-proxy.ts";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { PATHS } from "./config.ts";
@@ -433,10 +434,10 @@ async function discoverMuseProvider(started: number, refreshedAt: number): Promi
     return { key: "muse", ok: false, models: [], error: "not signed in (run `muse login`)", refreshedAt, durationMs: done() };
   }
   try {
-    const r = await fetch(MUSE_MODELS_URL, {
+    const r = await fetch(MUSE_MODELS_URL, museFetchInit({
       headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
       signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
-    });
+    }));
     if (!r.ok) {
       return { key: "muse", ok: false, models: [], error: `${MUSE_MODELS_URL} returned ${r.status}`, refreshedAt, durationMs: done() };
     }

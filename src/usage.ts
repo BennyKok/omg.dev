@@ -31,6 +31,7 @@ import { claudeAccessToken } from "./claude-creds.ts";
 import { claudeAccountConfigDir, connectedClaudeAccounts } from "./claude-accounts.ts";
 import { defaultModelForAgent } from "./agent-catalog.ts";
 import { PATHS } from "./config.ts";
+import { museFetchInit } from "./muse-proxy.ts";
 
 export type UsageWindow = {
   label: string;
@@ -815,7 +816,7 @@ async function probeMuseSubscription(apiKey: string): Promise<MuseSubscriptionSn
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30_000);
   try {
-    const r = await fetch(`${MUSE_API_BASE}/v1/responses`, {
+    const r = await fetch(`${MUSE_API_BASE}/v1/responses`, museFetchInit({
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -829,7 +830,7 @@ async function probeMuseSubscription(apiKey: string): Promise<MuseSubscriptionSn
         stream: true,
       }),
       signal: controller.signal,
-    });
+    }));
     if (r.status === 401 || r.status === 403) throw new Error("Sign-in expired — run `muse login`");
     if (!r.ok) throw new Error(`Usage probe returned ${r.status}`);
     if (!r.body) throw new Error("Usage probe returned no stream");

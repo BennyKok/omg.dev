@@ -1,6 +1,7 @@
 // Headless one-shot Muse Code run for scheduled auto agents: `muse exec --json`
 // prints one JSONL record per runtime event, and the run's terminal record
 // carries the final reply. Recorded against muse 1.0.2.
+import { museChildEnv } from "../../muse-proxy.ts";
 import { museReasoningEffort, musePath } from "./muse-msp-session.ts";
 
 type MuseExecRecord = {
@@ -95,7 +96,7 @@ export async function pipeToMuseCli(
     stdin: new TextEncoder().encode(prompt),
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env },
+    env: museChildEnv(),
   });
   const [out, err, code] = await Promise.all([
     new Response(proc.stdout).text(),
