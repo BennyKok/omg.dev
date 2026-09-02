@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## September 2, 2026 - Custom instructions show in the inspect chip (v0.6.36)
+
+- **The omg.dev instructions chip now shows your standing rules.** Custom
+  instructions already went to the agent. The chip only showed the runtime
+  contract, so they looked missing. Open the chip on an existing session and
+  they are there. No new session is needed.
+
 ## September 2, 2026 - Claude Fable 5.1 for the SDK Claude agent too (v0.6.35)
 
 - **The picker has two agents named "claude".** One is the Claude CLI harness.

@@ -58,7 +58,11 @@ export function parseOmgPromptEnvelope(text: string): OmgPromptEnvelope | null {
 
   const headerLine = text.slice(0, headerEnd);
   const version = headerLine.match(/\(capability version ([^)]+)\)/)?.[1] ?? null;
-  const instructions = text.slice(headerEnd + 1, contractEnd).trim();
+  // Keep in lockstep with web/src/lib/omg-prompt-envelope.ts: standing
+  // instructions ride after the END marker and belong in the inspect chip.
+  const contractBody = text.slice(headerEnd + 1, contractEnd).trim();
+  const standing = text.slice(contractEnd + endMarker.length, taskMarker).trim();
+  const instructions = standing ? `${contractBody}\n\n${standing}` : contractBody;
   const task = text.slice(taskMarker + USER_TASK.length).replace(/^\s*\n?/, "").trim();
 
   if (!instructions || !task) return null;
