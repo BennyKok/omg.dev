@@ -22512,12 +22512,12 @@ function NewSessionDialog({
           }
         }}
       >
-        <section
-          aria-label="New session"
-          className="lfg-gborder w-full max-w-xl rounded-3xl border border-transparent bg-card pb-1 shadow-[0_12px_40px_-24px_rgba(0,0,0,0.5)]"
-        >
-          <div className="flex items-center justify-between px-3 pt-3 pb-1.5">
-            <h2 className="text-base font-semibold">New session</h2>
+        {/* Flat on the stage background: no card, no border, no shadow. This
+            is the page's content, not a dialog over it, so it gets no dialog
+            chrome. The field's own outline is the only frame. */}
+        <section aria-label="New session" className="w-full max-w-xl">
+          <div className="flex items-center justify-between px-3 pb-2">
+            <h2 className="text-lg font-semibold">New session</h2>
             <button
               type="button"
               onClick={onClose}
