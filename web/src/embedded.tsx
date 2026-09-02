@@ -119,7 +119,7 @@ export interface OmgAppSurfaceProps {
    * machine's pages.
    *
    * Set this and the embedded surface carries a Settings entry in its Pages
-   * menu that calls straight back to you, and it marks its header slot
+   * menu that calls straight back to you, and it marks its header slots and the desktop rail-footer slot
    * `data-lfg-host-settings="menu"` so a host drawing its own Settings control
    * beside that menu knows it is now redundant and can drop it. Omit it and
    * the surface renders no host-settings entry at all rather than guessing a

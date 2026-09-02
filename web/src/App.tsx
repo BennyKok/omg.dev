@@ -8848,12 +8848,16 @@ export function App() {
               // Built here rather than inside RailStage: the shell owns the tab
               // state and the extension registry, and the rail should not have to
               // know either to render a menu.
+              hostSettingsInMenu={hostSettingsInMenu}
               pagesMenu={
                 <PagesMenu
                   tab={tab}
                   onOpenTab={setTab}
                   extraTabs={extNavTabs}
                   showSettings={!embedded}
+                  // Hosted: Settings rides in this menu, same as the mobile
+                  // island, instead of a separate control in the rail footer.
+                  onOpenHostSettings={hostSettingsInMenu ? onOpenHostSettings : undefined}
                 />
               }
               repos={repos}
@@ -11070,6 +11074,7 @@ function LiveView({
   focus,
   stageComposer,
   stageOverride = null,
+  hostSettingsInMenu = false,
 }: {
   sessions: Session[];
   shippedReview?: Session | null;
@@ -11134,6 +11139,8 @@ function LiveView({
   stageComposer: StageComposerRender;
   /** Desktop only. See RailStage. */
   stageOverride?: ReactNode;
+  /** Desktop only. See RailStage. */
+  hostSettingsInMenu?: boolean;
 }) {
   const isWide = useIsWide();
   const isMobile = useIsMobile();
@@ -11448,6 +11455,7 @@ function LiveView({
         focus={focus}
         stageComposer={stageComposer}
         stageOverride={stageOverride}
+        hostSettingsInMenu={hostSettingsInMenu}
         topPinned={topPinned}
         onToggleTopPin={toggleTopPin}
       />
@@ -11649,6 +11657,7 @@ function RailStage({
   onToggleTopPin,
   stageComposer,
   stageOverride = null,
+  hostSettingsInMenu = false,
 }: {
   sessions: Session[];
   shippedReview?: Session | null;
@@ -11704,6 +11713,11 @@ function RailStage({
    * Schedules list lives in the pane, the session rail stays on the left.
    */
   stageOverride?: ReactNode;
+  /**
+   * Hosted only: the Pages menu carries the host's Settings, so the
+   * rail-footer slot tells the host its own gear is redundant here.
+   */
+  hostSettingsInMenu?: boolean;
 }) {
   const appDialog = useAppDialog();
   const { conversations: botConversationsForRail, selectedConversationId: selectedBotConversationForRail, markRead: markBotRowRead } = useContext(BotUnreadContext);
@@ -12910,6 +12924,9 @@ function RailStage({
           <div
             data-lfg-host-slot="rail-footer"
             data-lfg-rail-collapsed={railCollapsed ? "true" : undefined}
+            // Same flag the header-actions slots carry: with Settings in our
+            // Pages menu, the host should not also draw a gear down here.
+            data-lfg-host-settings={hostSettingsInMenu ? "menu" : undefined}
             className="shrink-0"
           />
         ) : null}
