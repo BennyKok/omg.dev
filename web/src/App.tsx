@@ -11976,15 +11976,20 @@ function RailStage({
     return cols.slice(0, MAX_COLUMNS);
   }, [validPinned, preview, bySid]);
 
-  // "New session" over an empty stage puts the composer IN the pane instead of
-  // a sheet over nothing. With a column open, or on the bot surface, the
-  // shell's drawer flow runs exactly as before. Opening a column (rail click,
-  // digit shortcut, auto-preview of a fresh session) retires the in-pane
-  // composer, so it can never linger behind a transcript.
+  // "New session" with nothing PINNED puts the composer IN the pane instead of
+  // a sheet over it. The stage is almost never literally empty on desktop —
+  // the effect below previews the first session as soon as one exists — so
+  // "nothing selected" means "nothing the person chose to keep": a preview
+  // column is not a commitment and yields to the composer. Pinned columns are
+  // deliberate, so with any of those (or on the bot surface) the shell's
+  // drawer flow runs as before. Opening a session (rail click, digit
+  // shortcut, the fresh session after Start) retires the in-pane composer, so
+  // it can never linger behind a transcript.
   const [stageComposerOpen, setStageComposerOpen] = useState(false);
   const stageEmpty = railSurface !== "chat" && columnIds.length === 0;
   const startNew = () => {
-    if (stageComposer && stageEmpty) {
+    if (stageComposer && railSurface !== "chat" && validPinned.length === 0) {
+      setPreview(null);
       setStageComposerOpen(true);
       return;
     }
@@ -12022,12 +12027,14 @@ function RailStage({
   // first working session (or the first session) on load. (A pending focus
   // request wins — don't race it with the default pick; the `focus` effect
   // above sets the preview itself once its session lands.)
+  // The in-pane composer owns the empty stage while it is open; refilling it
+  // with a preview would hide the composer the person just asked for.
   useEffect(() => {
-    if (focus) return;
+    if (focus || stageComposerOpen) return;
     if (columnIds.length || !sessions.length) return;
     const first = sessions.find((s) => busyBySid[s.sessionId ?? ""]) ?? sessions[0];
     if (first?.sessionId) setPreview(first.sessionId);
-  }, [columnIds.length, sessions, busyBySid, focus]);
+  }, [columnIds.length, sessions, busyBySid, focus, stageComposerOpen]);
 
   const openSession = useCallback(
     (sid: string) => {
