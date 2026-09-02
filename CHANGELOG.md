@@ -2,8 +2,22 @@
 
 Recent product updates and deployment notes.
 
-## September 2, 2026 - Custom instructions show in the inspect chip (v0.6.36)
+## September 2, 2026 - Desktop lands on the composer, Schedules move inline (v0.6.36)
 
+- **The desktop stage opens on a "Hello {name}!" composer.** With nothing
+  pinned, New session (button, rail, or `C`) fills the chat area. There is no
+  drawer and no "No session open" card. The stage no longer previews a session
+  on load, so it can no longer pick a bot by mistake.
+- **Agent and model are one pill.** The desktop composer shows the agent icon
+  and the model name in one control. Its popover lists the agents and the
+  models for the chosen agent, and always opens downward. The thinking pill
+  shows the signal bars and the level only.
+- **Schedules show inside the desktop workspace.** The session rail stays on
+  the left and the list fills the stage. Each row is the name, when it runs,
+  and the switch. Click a row to edit it. Enabled rows come first.
+- **Hosted: Settings moves into the rail's Pages menu.** The desktop rail
+  footer slot now carries `data-lfg-host-settings="menu"`, so a host that
+  reads it can drop its own Settings control there.
 - **The omg.dev instructions chip now shows your standing rules.** Custom
   instructions already went to the agent. The chip only showed the runtime
   contract, so they looked missing. Open the chip on an existing session and
