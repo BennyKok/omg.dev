@@ -23872,12 +23872,10 @@ function AgentModelPicker<K extends AgentKind>({
             initialFocus={modelListSearchable(models) ? inputRef : true}
             className="w-80 max-w-[calc(100vw-1rem)] rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl ring-1 ring-foreground/5 outline-none"
           >
-            <div className="mb-1 flex items-center justify-between gap-2 px-1">
-              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Agent
-              </span>
-              <span className="min-w-0 truncate text-xs font-medium">{agentLabel}</span>
-            </div>
+            {/* No section labels. The icon strip is obviously the agent
+                row and the list under it is obviously models; the words
+                only added height. Each agent button still carries its name
+                as a title/aria-label. */}
             <AgentIconStrip
               options={options}
               value={agent}
@@ -23887,11 +23885,8 @@ function AgentModelPicker<K extends AgentKind>({
                 setOpen(false);
                 onLocked?.(key);
               }}
-              className="mb-2 h-auto max-w-full flex-wrap"
+              className="mb-1.5 h-auto max-w-full flex-wrap"
             />
-            <div className="mb-1 px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Model
-            </div>
             <ModelOptionList
               value={model}
               models={models}
