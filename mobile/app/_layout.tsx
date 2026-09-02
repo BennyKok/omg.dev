@@ -11,6 +11,7 @@ import Reanimated, {
 } from "react-native-reanimated";
 
 import { AiConsentScreen, useAiDataConsent } from "../src/omg/ai-consent";
+import { IntroScreen, SetupScreen, useIntro, useOnboarding } from "../src/omg/onboarding";
 import { BrandMark } from "../src/omg/brand-mark";
 import { LaunchScreen } from "../src/omg/launch";
 import { useLucideFont } from "../src/omg/lucide";
@@ -137,8 +138,40 @@ function LaunchGate() {
 }
 
 function RootNavigator() {
-  const { authStatus, signOut, user } = useOmg();
+  const { authStatus, signOut, user, readiness, bindings, cloud, machinesLoaded, machinesError } =
+    useOmg();
   const consent = useAiDataConsent(user?.id ?? null);
+  const onboarding = useOnboarding(user?.id ?? null);
+  const intro = useIntro();
+
+  /*
+   * Who is already established, by Benny's rule: an existing Computer OR a
+   * non-free plan. There is no completed-onboarding flag on the server, so
+   * these two observable facts are the predicate.
+   *
+   * `cloud.plan` is only trusted when it is a non-empty string that is not
+   * "free". Unknown is NOT established: a null plan during a slow first load
+   * would otherwise suppress setup for the exact new account it exists for.
+   * Erring toward showing it costs a Skip; erring the other way costs the
+   * whole flow, silently.
+   */
+  const hasComputer = (bindings?.length ?? 0) > 0;
+  const cloudPlan = cloud?.plan;
+  const paidPlan = typeof cloudPlan === "string" && cloudPlan !== "" && cloudPlan !== "free";
+  const established = hasComputer || paidPlan;
+
+  /*
+   * Write the flag for an established account so this stops being asked on
+   * every launch, and so a later downgrade to free cannot resurrect a welcome
+   * flow for someone who has used the app for months.
+   *
+   * In an EFFECT, not in render. Calling onboarding.complete() while rendering
+   * is a state update during render, which React either warns about or turns
+   * into a re-render loop depending on where it lands.
+   */
+  useEffect(() => {
+    if (onboarding.state === "needed" && machinesLoaded && established) onboarding.complete();
+  }, [onboarding, machinesLoaded, established]);
   /**
    * A tapped notification goes to the thing it is about.
    *
@@ -213,6 +246,30 @@ function RootNavigator() {
   }
 
   if (authStatus === "signed-out") {
+    /*
+     * The intro lives INSIDE the signed-out branch, deliberately.
+     *
+     * It has to run before sign-in, and the obvious way to do that is a gate
+     * above this branch. That is exactly the shape of the #237 splash
+     * deadlock: a condition above the signed-out branch went permanently true
+     * and made sign-in unreachable, with no way out but reinstalling. Nesting
+     * it here cannot do that. Whatever the intro decides, this branch still
+     * owns the signed-out tree, and both of the intro's controls — Continue on
+     * the last panel, and Skip on every panel — resolve to the same thing:
+     * mark it seen and fall through to the sign-in Stack below.
+     *
+     * It is also skipped entirely while its own read is in flight rather than
+     * showing a splash, because a returning user reinstalling should reach the
+     * email field without a flash of the pitch.
+     */
+    if (intro.state === "needed") {
+      return (
+        <>
+          <StatusBar style={isDark ? "light" : "dark"} />
+          <IntroScreen onSignIn={intro.complete} />
+        </>
+      );
+    }
     return (
       <>
         <StatusBar style={isDark ? "light" : "dark"} />
@@ -307,6 +364,73 @@ function RootNavigator() {
       <>
         <StatusBar style={isDark ? "light" : "dark"} />
         <AiConsentScreen onAccept={consent.accept} onDecline={handleDecline} />
+      </>
+    );
+  }
+
+  /*
+   * Onboarding, after consent and below the signed-out branch.
+   *
+   * Order matters twice. It is below signed-out for the reason spelled out
+   * above: any gate above that branch can make sign-in unreachable, which is
+   * exactly the splash deadlock #237 fixed. It is below consent because
+   * consent is the precondition for sending anything anywhere, and explaining
+   * the product to someone who then declines and gets signed out is wasted.
+   *
+   * Like consent, this parks in "loading" until there is a user id, so it
+   * cannot flash for the moment between signed-in and the account resolving.
+   */
+  if (onboarding.state === "loading") {
+    return <Splash />;
+  }
+
+  /*
+   * Setup is for people who do not have this yet.
+   *
+   * Benny's rule: an existing Computer OR a non-free plan means established,
+   * and an established account must not be walked through connect and plans
+   * again. There is no completed-onboarding flag on the server to lean on, so
+   * these two observable facts are the predicate.
+   *
+   * `plan` is only trusted once it is a non-empty string that is not "free".
+   * Unknown is NOT treated as established: a null plan on a slow first load
+   * would otherwise silently suppress setup for the exact new account it
+   * exists for. Erring toward showing it costs a Skip; erring the other way
+   * costs the whole flow, silently.
+   */
+  /*
+   * Do not judge before the machines have loaded. `bindings` is empty during
+   * the first fetch as well as when there genuinely is no Computer, and those
+   * two states are opposite answers to the question this predicate asks. An
+   * established user would otherwise see setup flash before it resolved.
+   * A load ERROR is not a reason to wait forever, so that falls through and
+   * the predicate runs on what we have.
+   */
+  if (onboarding.state === "needed" && !machinesLoaded && !machinesError) {
+    return <Splash />;
+  }
+
+  if (onboarding.state === "needed" && !established) {
+    /*
+     * The roster is whatever the Computer has told us so far. `waking` is a
+     * real answer, not an error, so the screen says "starting up" instead of
+     * drawing an empty list that reads as "no agents exist".
+     */
+    const roster =
+      readiness?.status === "ready"
+        ? readiness.roster.agents
+            .filter((a) => a.visible !== false)
+            .map((a) => ({
+              key: a.key,
+              label: a.label,
+              connected: a.status?.accountConnected === true,
+            }))
+        : [];
+    const waking = readiness === null || readiness.status === "connecting" || readiness.status === "waking";
+    return (
+      <>
+        <StatusBar style={isDark ? "light" : "dark"} />
+        <SetupScreen onDone={onboarding.complete} agents={roster} waking={waking} />
       </>
     );
   }
