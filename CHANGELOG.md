@@ -2,6 +2,21 @@
 
 Recent product updates and deployment notes.
 
+## September 2, 2026 - Claude Fable 5.1 is in the model picker (v0.6.34)
+
+- **You can select Claude Fable 5.1 for a Claude session.** The picker shows it
+  as `claude-fable-5-1`, next to the existing `fable` entry.
+- **`fable` and `claude-fable-5-1` are different models.** The Claude CLI
+  resolves the short alias `fable` to the current Fable release, which is
+  Fable 5. There is no short alias for Fable 5.1 yet. The full model id is the
+  only way to reach it.
+- **A Fable 5.1 session now reports the correct model.** Before this change the
+  session view collapsed every Fable id to `fable`. A Fable 5.1 session showed
+  Fable 5 as the live model, and a resume moved that session to Fable 5.
+- **Fable 5.1 costs more than Opus 5.** The rate is 10 USD for each million
+  input tokens and 50 USD for each million output tokens. Thinking is always
+  on. Select it for hard work. Do not use it as a default.
+
 ## September 1, 2026 - Agents can paste into the desktop browser (v0.6.33)
 
 - **The Computer Use MCP has a new tool: computer_paste.** It puts text on
