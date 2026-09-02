@@ -11124,7 +11124,7 @@ function LiveView({
   // External "jump to session" request (e.g. tapping a Shipped post).
   focus?: { sid: string; n: number } | null;
   /** Desktop only. See RailStage. */
-  stageComposer?: StageComposerRender;
+  stageComposer: StageComposerRender;
 }) {
   const isWide = useIsWide();
   const isMobile = useIsMobile();
@@ -11686,8 +11686,8 @@ function RailStage({
   onClearFindings: (targets: AutoFinding[]) => void;
   clearFindingsBusy?: boolean;
   onNew: () => void;
-  /** In-pane composer for an empty stage. Absent: `onNew` always runs. */
-  stageComposer?: StageComposerRender;
+  /** The empty stage's content: the in-pane new-session composer. */
+  stageComposer: StageComposerRender;
 }) {
   const appDialog = useAppDialog();
   const { conversations: botConversationsForRail, selectedConversationId: selectedBotConversationForRail, markRead: markBotRowRead } = useContext(BotUnreadContext);
@@ -11988,7 +11988,7 @@ function RailStage({
   const [stageComposerOpen, setStageComposerOpen] = useState(false);
   const stageEmpty = railSurface !== "chat" && columnIds.length === 0;
   const startNew = () => {
-    if (stageComposer && railSurface !== "chat" && validPinned.length === 0) {
+    if (railSurface !== "chat" && validPinned.length === 0) {
       setPreview(null);
       setStageComposerOpen(true);
       return;
@@ -12946,41 +12946,29 @@ function RailStage({
               await Promise.all([onRefreshBots?.(), onRefresh()]);
             }}
           />
-        ) : stageComposerOpen && stageComposer ? (
-          stageComposer({
-            onClose: () => setStageComposerOpen(false),
-            onCreated: async (result) => {
-              setStageComposerOpen(false);
-              // The shell has already refreshed (and seeded) the session list,
-              // so the new session is in `bySid` and can take the pane now.
-              const sid = result?.sessionId ?? result?.session?.sessionId;
-              if (sid) {
-                setPreview(sid);
-                pulseStage(sid);
-              }
-            },
-          })
         ) : (
-          <div className="flex h-full flex-1 flex-col items-center justify-center gap-4">
-            {coach ? <div className="w-full max-w-md text-left">{coach}</div> : null}
-            <div className="lfg-gborder flex flex-col items-center gap-3 rounded-3xl border border-transparent bg-card px-8 py-10 text-center shadow-[0_12px_40px_-24px_rgba(0,0,0,0.5)]">
-              <div className="lfg-gborder flex size-14 items-center justify-center rounded-2xl border border-transparent bg-muted">
-                <MessageSquare className="size-6 text-muted-foreground" />
-              </div>
-              <div>
-                <div className="font-semibold">No session open</div>
-                <div className="mt-1 text-sm text-muted-foreground">
-                  Pick one from the rail, or press{" "}
-                  <kbd className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px] font-medium">1–9</kbd>{" "}
-                  to jump. <kbd className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px] font-medium">?</kbd>{" "}
-                  shows all shortcuts.
-                </div>
-              </div>
-              <Button variant="brand" className="lfg-gborder lfg-gborder--brand" onClick={startNew}>
-                <Plus className="size-4" />
-                New session
-              </Button>
-            </div>
+          // An empty stage IS the composer. There is no "No session open"
+          // card any more: with nothing to show, the useful thing to show is
+          // the place to start one. The hosted coach, when present, sits
+          // above it.
+          <div className="flex h-full min-h-0 flex-1 flex-col">
+            {coach ? (
+              <div className="mx-auto w-full max-w-xl shrink-0 px-4 pt-4 text-left">{coach}</div>
+            ) : null}
+            {stageComposer({
+              onClose: () => setStageComposerOpen(false),
+              onCreated: async (result) => {
+                setStageComposerOpen(false);
+                // The shell has already refreshed (and seeded) the session
+                // list, so the new session is in `bySid` and can take the
+                // pane now.
+                const sid = result?.sessionId ?? result?.session?.sessionId;
+                if (sid) {
+                  setPreview(sid);
+                  pulseStage(sid);
+                }
+              },
+            })}
           </div>
         )}
       </div>
@@ -23724,6 +23712,9 @@ function ModelPicker({
           side="bottom"
           align="start"
           sideOffset={6}
+          // Never flip above the pill: the list then covers the prompt you
+          // are typing into. Shift/clamp inside the viewport instead.
+          collisionAvoidance={{ side: "none" }}
           className="isolate z-[170] outline-none"
         >
           <Popover.Popup
@@ -23884,6 +23875,9 @@ function AgentModelPicker<K extends AgentKind>({
           side="bottom"
           align="start"
           sideOffset={6}
+          // Never flip above the pill: the list then covers the prompt you
+          // are typing into. Shift/clamp inside the viewport instead.
+          collisionAvoidance={{ side: "none" }}
           className="isolate z-[170] outline-none"
         >
           <Popover.Popup
