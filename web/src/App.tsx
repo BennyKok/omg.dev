@@ -25232,10 +25232,23 @@ function AgentEditorSheet({
 
 const navLocale = typeof navigator !== "undefined" ? navigator.language : undefined;
 
+// "in 12h", "in 4m", "in 3d": the Schedules row has room for one short
+// phrase after the cron description, not a sentence.
+function formatRelativeShort(at: number): string {
+  const diff = at - Date.now();
+  if (diff < 45_000) return "now";
+  const m = Math.round(diff / 60_000);
+  if (m < 60) return `in ${m}m`;
+  const h = Math.round(diff / 3_600_000);
+  if (h < 48) return `in ${h}h`;
+  return `in ${Math.round(diff / 86_400_000)}d`;
+}
+
 function ScheduleSummary({
   expr,
   tz,
   relativeClassName,
+  compact = false,
 }: {
   expr: string;
   tz: string;
@@ -25243,6 +25256,8 @@ function ScheduleSummary({
    *  it below sm, where the row has no width to spare and the cron
    *  description is the part you actually scan for. */
   relativeClassName?: string;
+  /** One line, no icon, short tail: "Every day at 9:00 AM · in 10h". */
+  compact?: boolean;
 }) {
   // describeCron is cheap; nextRunAt scans, so compute it only when expr/tz
   // change — NOT on every 30s re-render.
@@ -25256,6 +25271,16 @@ function ScheduleSummary({
     }, 30_000);
     return () => clearInterval(id);
   }, []);
+  if (compact) {
+    return (
+      <span className="truncate" title={expr}>
+        {desc}
+        {next ? (
+          <span className="text-muted-foreground/70"> · {formatRelativeShort(next)}</span>
+        ) : null}
+      </span>
+    );
+  }
   return (
     <span className="flex items-center gap-1" title={expr}>
       <CalendarClock className="size-3.5 shrink-0" />
@@ -29070,9 +29095,6 @@ function AutoManageView({
             this page, so the heading is the only thing that names it. */}
         <div className="hidden min-w-0 md:block">
           <h1 className="text-lg font-semibold leading-tight">Schedules</h1>
-          <p className="text-sm text-muted-foreground">
-            Prompts that run on a timer on this computer
-          </p>
         </div>
         {/* ml-auto, not justify-between: with the heading hidden this is the
             only child, and justify-between would park it on the left. */}
@@ -29089,6 +29111,78 @@ function AutoManageView({
           {groups.map((group) => {
             const open = !collapsed[group.key];
             const onCount = group.items.filter((a) => a.enabled).length;
+            // Enabled first, paused after, each in their original order. A
+            // paused schedule is not something you scan for; it should not
+            // sit between two live ones.
+            const items = [
+              ...group.items.filter((a) => a.enabled),
+              ...group.items.filter((a) => !a.enabled),
+            ];
+            // One shared card with dividers, not a card per row. Each row is
+            // three things: the name (with its open-findings count and a
+            // running spinner), when it fires, and the switch. The whole row
+            // opens the editor, which is where the agent picker and Run now
+            // live; they used to sit on every row and made 30 rows shout.
+            const card = (
+              <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+                {items.map((a) => {
+                  const openFindings = openByAgent.get(a.id) ?? 0;
+                  return (
+                    <div
+                      key={a.id}
+                      role="button"
+                      tabIndex={0}
+                      title={a.prompt}
+                      onClick={() => onEdit(a)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          onEdit(a);
+                        }
+                      }}
+                      className={cn(
+                        "flex cursor-pointer items-center gap-2 px-3 py-2 outline-none transition-colors hover:bg-muted/50 focus-visible:bg-muted/50",
+                        !a.enabled && "opacity-60",
+                      )}
+                    >
+                      <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                        <span className="truncate text-sm font-medium leading-tight">{a.name}</span>
+                        {openFindings ? (
+                          <span className="shrink-0 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                            {openFindings} open
+                          </span>
+                        ) : null}
+                        {a.running ? (
+                          <Loader2 className="size-3 shrink-0 animate-spin text-primary" aria-label="Running" />
+                        ) : null}
+                      </span>
+                      <span className="flex min-w-0 shrink-0 items-center whitespace-nowrap text-xs text-muted-foreground">
+                        <ScheduleSummary expr={a.schedule} tz={tz} compact />
+                      </span>
+                      {/* Rightmost, where an iOS settings row puts it. The
+                          switch is the one control that must not open the
+                          editor, so its click stays inside this span. */}
+                      <span
+                        className="flex w-[38px] shrink-0 justify-end"
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => event.stopPropagation()}
+                      >
+                        <Switch
+                          checked={a.enabled}
+                          onCheckedChange={(next) => onToggleEnabled(a.id, next)}
+                          className="origin-right scale-75"
+                          aria-label={`${a.enabled ? "Disable" : "Enable"} ${a.name}`}
+                        />
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+            // A lone group has nothing to distinguish it from: the header
+            // would only say "Unassigned 22/32 on" over the whole list. Owner
+            // headers appear once a bot owns schedules too.
+            if (groups.length === 1) return <div key={group.key}>{card}</div>;
             return (
               <Collapsible
                 key={group.key}
@@ -29104,10 +29198,6 @@ function AutoManageView({
                       open && "rotate-90",
                     )}
                   />
-                  {/* The owner pill moves from every row up to the header it
-                      now describes — same component, so "open the owning bot"
-                      survives the regrouping instead of being lost with the
-                      per-row badge. */}
                   {group.botId ? (
                     <AutoAgentOwnerBadge owner={{ kind: "bot", botId: group.botId }} nameClassName="max-w-56" />
                   ) : (
@@ -29122,124 +29212,7 @@ function AutoManageView({
                     {onCount}/{group.items.length} on
                   </span>
                 </CollapsibleTrigger>
-                <CollapsibleContent>
-                  {/* One shared card with dividers, not a card per row — a
-                      schedule is a line in a list, the same treatment the
-                      Settings rows above it use. */}
-                  <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
-                    {group.items.map((a) => {
-                      const openFindings = openByAgent.get(a.id) ?? 0;
-                      return (
-                        <div
-                          key={a.id}
-                          className={cn(
-                            // Below sm the name takes a line of its own and
-                            // everything else drops under it.
-                            //
-                            // Name-absorbs-the-squeeze works while there is
-                            // squeeze to absorb. On a 390px phone there is
-                            // not: the cron text, the agent, run, edit and the
-                            // switch are all fixed width and take about 300px
-                            // between them, so the elastic part collapsed to
-                            // roughly 60px. "Design review" rendered as "Des…",
-                            // and on a row carrying an "N open" badge the name
-                            // lost the last of its width to the badge and
-                            // disappeared, leaving a row that says "2 open"
-                            // about nothing. The name is what you scan the
-                            // list for, so it stops paying for the other five.
-                            "grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] items-center gap-x-1 gap-y-0.5 px-3 py-2",
-                            // From sm there is width for one line, which is
-                            // the denser read when you can have it.
-                            "sm:flex sm:gap-2",
-                          )}
-                        >
-                          {/* Full width on its own line below sm; from sm it is
-                              the elastic cell again and the meta cluster on the
-                              right still never reflows. `col-span-full` is a
-                              grid property, so the flex row at sm ignores it. */}
-                          <button
-                            type="button"
-                            onClick={() => onEdit(a)}
-                            title={a.prompt}
-                            className="col-span-full flex min-w-0 items-center gap-1.5 text-left sm:flex-1"
-                          >
-                            <span
-                              className={cn(
-                                "truncate text-sm font-medium leading-tight",
-                                !a.enabled && "text-muted-foreground",
-                              )}
-                            >
-                              {a.name}
-                            </span>
-                            {openFindings ? (
-                              <span className="shrink-0 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                                {openFindings} open
-                              </span>
-                            ) : null}
-                            {a.running ? (
-                              <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                                <Loader2 className="size-2.5 animate-spin" /> running
-                              </span>
-                            ) : null}
-                          </button>
-                          {/* The schedule belongs with the other per-run facts,
-                              never floating alone under the name: below sm it
-                              leads the second line and the agent, run, edit and
-                              switch sit on that same line with it, so its icon
-                              shares a baseline with them. The relative tail
-                              ("next in 17 hours") is the first thing to go when
-                              the row gets narrow. */}
-                          <span className="flex min-w-0 items-center gap-1 whitespace-nowrap text-xs text-muted-foreground sm:shrink-0">
-                            <ScheduleSummary
-                              expr={a.schedule}
-                              tz={tz}
-                              relativeClassName="hidden sm:inline"
-                            />
-                          </span>
-                          <ScheduleAgentPicker
-                            agent={a}
-                            onChange={(patch) => onChangeAgent(a.id, patch)}
-                          />
-                          <Button
-                            size="icon-sm"
-                            variant="ghost"
-                            className="shrink-0 text-muted-foreground"
-                            onClick={() => onRunNow(a.id)}
-                            disabled={a.running}
-                            aria-label={a.running ? "Running…" : "Run now"}
-                          >
-                            {a.running ? (
-                              <Loader2 className="size-4 animate-spin" />
-                            ) : (
-                              <Play className="size-4" />
-                            )}
-                          </Button>
-                          <Button
-                            size="icon-sm"
-                            variant="ghost"
-                            className="shrink-0 text-muted-foreground"
-                            onClick={() => onEdit(a)}
-                            aria-label="Edit"
-                          >
-                            <Pencil className="size-4" />
-                          </Button>
-                          {/* Rightmost, where an iOS settings row puts it, and
-                              the last thing under your thumb. Scaled to 0.75
-                              so thirty of them do not shout, still a 38 x 23
-                              target. */}
-                          <span className="flex w-[38px] shrink-0 justify-end">
-                            <Switch
-                              checked={a.enabled}
-                              onCheckedChange={(next) => onToggleEnabled(a.id, next)}
-                              className="origin-right scale-75"
-                              aria-label={`${a.enabled ? "Disable" : "Enable"} ${a.name}`}
-                            />
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </CollapsibleContent>
+                <CollapsibleContent>{card}</CollapsibleContent>
               </Collapsible>
             );
           })}
