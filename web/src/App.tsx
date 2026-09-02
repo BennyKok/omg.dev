@@ -22206,10 +22206,16 @@ function NewSessionDialog({
         // Embed cancels --lfg-device-safe-bottom to 0 (host owns that zone) and
         // the shell still applies host-inset, so Start clears the pill without
         // a double gap. Drawer / dialog are full-bleed → global safe bottom.
-        "relative max-h-[70dvh] overscroll-contain px-2 transition-colors",
+        "relative overscroll-contain px-2 transition-colors",
         variant === "inline"
           ? "overflow-visible pb-[max(var(--lfg-device-safe-bottom),0.5rem)] pt-1.5"
-          : "overflow-y-auto pb-[max(var(--lfg-safe-bottom),0.5rem)] pt-1",
+          : variant === "stage"
+            ? // The stage has the whole pane; nothing to cap or scroll. And
+              // it must not clip: the / and @ suggest menus hang above the
+              // field (`bottom-full`), and an overflow-auto form swallowed
+              // them whole.
+              "overflow-visible pb-2 pt-1"
+            : "max-h-[70dvh] overflow-y-auto pb-[max(var(--lfg-safe-bottom),0.5rem)] pt-1",
         draggingFiles && "bg-primary/8",
       )}
     >
@@ -22491,7 +22497,9 @@ function NewSessionDialog({
   if (variant === "stage") {
     return (
       <div
-        className="flex h-full min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto p-4"
+        // overflow-visible on purpose: see the form's stage branch. The
+        // suggest menus need to escape upward past the greeting.
+        className="flex h-full min-h-0 flex-1 flex-col items-center justify-center overflow-visible p-4"
         data-testid="new-session-stage"
         onKeyDown={(e) => {
           if (e.key === "Escape" && !e.defaultPrevented) {
