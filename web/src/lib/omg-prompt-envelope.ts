@@ -58,7 +58,12 @@ export function parseOmgPromptEnvelope(text: string): OmgPromptEnvelope | null {
 
   const headerLine = envelope.slice(0, headerEnd);
   const version = headerLine.match(/\(capability version ([^)]+)\)/)?.[1] ?? null;
-  const instructions = envelope.slice(headerEnd + 1, contractEnd).trim();
+  // The contract body is the chip's original content. Standing instructions
+  // (and any other preamble) sit after the END marker and before USER TASK —
+  // they are sent to the agent, so they belong in the inspect chip too.
+  const contractBody = envelope.slice(headerEnd + 1, contractEnd).trim();
+  const standing = envelope.slice(contractEnd + endMarker.length, taskMarker).trim();
+  const instructions = standing ? `${contractBody}\n\n${standing}` : contractBody;
   const task = envelope.slice(taskMarker + USER_TASK.length).replace(/^\s*\n?/, "").trim();
 
   if (!instructions || !task) return null;
