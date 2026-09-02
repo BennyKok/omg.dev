@@ -2014,6 +2014,21 @@ function putSessionTitle(sid: string, title: string) {
 
 type RenameSession = (sid: string, title: string) => Promise<void>;
 
+/**
+ * The desktop stage's in-pane "new session" composer. The shell builds it (it
+ * owns users, repos, coding agents and the session refresh); RailStage decides
+ * WHEN it shows (only over an empty stage) and what the pane does afterwards.
+ */
+type StageComposerHandlers = {
+  onClose: () => void;
+  onCreated: (result?: {
+    launchId?: string;
+    sessionId?: string;
+    session?: Session | null;
+  }) => Promise<void>;
+};
+type StageComposerRender = (handlers: StageComposerHandlers) => ReactNode;
+
 let skillCatalogPromise: Promise<SkillCatalogItem[]> | null = null;
 let skillCatalogLoadedAt = 0;
 let skillCatalogSnapshot: SkillCatalogItem[] = [];
@@ -8837,6 +8852,28 @@ export function App() {
               onNew={() =>
                 isMobile ? setComposerFocusNonce((n) => n + 1) : setNewOpen(true)
               }
+              // Desktop, empty stage: the composer fills the pane instead of
+              // the drawer. Same props as the drawer below, so both read the
+              // same draft, agents and repos.
+              stageComposer={(handlers) => (
+                <NewSessionDialog
+                  variant="stage"
+                  open
+                  users={users}
+                  repos={repos}
+                  scopedProject={projectFilter}
+                  onReposChanged={loadCore}
+                  codingAgents={codingAgents}
+                  defaultUser={
+                    userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : ""
+                  }
+                  onClose={handlers.onClose}
+                  onCreated={async (result) => {
+                    await refreshSessions({ seed: result?.session ?? null });
+                    await handlers.onCreated(result);
+                  }}
+                />
+              )}
               hosted={embedded}
               // The hosted first run's optional half. Steps complete from
               // EVIDENCE (a session exists, an auto agent exists), so these
@@ -11025,6 +11062,7 @@ function LiveView({
   hosted = false,
   coach = null,
   focus,
+  stageComposer,
 }: {
   sessions: Session[];
   shippedReview?: Session | null;
@@ -11085,6 +11123,8 @@ function LiveView({
   coach?: ReactNode;
   // External "jump to session" request (e.g. tapping a Shipped post).
   focus?: { sid: string; n: number } | null;
+  /** Desktop only. See RailStage. */
+  stageComposer?: StageComposerRender;
 }) {
   const isWide = useIsWide();
   const isMobile = useIsMobile();
@@ -11397,6 +11437,7 @@ function LiveView({
         hosted={hosted}
         coach={coach}
         focus={focus}
+        stageComposer={stageComposer}
         topPinned={topPinned}
         onToggleTopPin={toggleTopPin}
       />
@@ -11596,6 +11637,7 @@ function RailStage({
   focus,
   topPinned,
   onToggleTopPin,
+  stageComposer,
 }: {
   sessions: Session[];
   shippedReview?: Session | null;
@@ -11644,6 +11686,8 @@ function RailStage({
   onClearFindings: (targets: AutoFinding[]) => void;
   clearFindingsBusy?: boolean;
   onNew: () => void;
+  /** In-pane composer for an empty stage. Absent: `onNew` always runs. */
+  stageComposer?: StageComposerRender;
 }) {
   const appDialog = useAppDialog();
   const { conversations: botConversationsForRail, selectedConversationId: selectedBotConversationForRail, markRead: markBotRowRead } = useContext(BotUnreadContext);
@@ -11931,6 +11975,24 @@ function RailStage({
     }
     return cols.slice(0, MAX_COLUMNS);
   }, [validPinned, preview, bySid]);
+
+  // "New session" over an empty stage puts the composer IN the pane instead of
+  // a sheet over nothing. With a column open, or on the bot surface, the
+  // shell's drawer flow runs exactly as before. Opening a column (rail click,
+  // digit shortcut, auto-preview of a fresh session) retires the in-pane
+  // composer, so it can never linger behind a transcript.
+  const [stageComposerOpen, setStageComposerOpen] = useState(false);
+  const stageEmpty = railSurface !== "chat" && columnIds.length === 0;
+  const startNew = () => {
+    if (stageComposer && stageEmpty) {
+      setStageComposerOpen(true);
+      return;
+    }
+    onNew();
+  };
+  useEffect(() => {
+    if (!stageEmpty) setStageComposerOpen(false);
+  }, [stageEmpty]);
 
   // Stage columns are open transcript surfaces even though they do not use the
   // mobile card collapse toggle. Keep the app-level lazy stream manager in sync
@@ -12236,7 +12298,7 @@ function RailStage({
     showHelp,
     busyBySid,
     interruptSid,
-    onNew,
+    onNew: startNew,
     onOpenSettings,
   });
   kb.current = {
@@ -12258,7 +12320,7 @@ function RailStage({
     showHelp,
     busyBySid,
     interruptSid,
-    onNew,
+    onNew: startNew,
     onOpenSettings,
   };
   useEffect(() => {
@@ -12721,7 +12783,7 @@ function RailStage({
             </button>
             <button
               type="button"
-              onClick={onNew}
+              onClick={startNew}
               aria-label="New session"
               title="New session"
               className="flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
@@ -12793,10 +12855,10 @@ function RailStage({
               the collapse control, where it read as app furniture rather than
               as the first row of this list. Chat only — the Bots surface has
               its own New bot. */}
-          {!railCollapsed && onNew ? (
+          {!railCollapsed ? (
             <button
               type="button"
-              onClick={onNew}
+              onClick={startNew}
               className="mb-1 flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
               <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
@@ -12877,6 +12939,20 @@ function RailStage({
               await Promise.all([onRefreshBots?.(), onRefresh()]);
             }}
           />
+        ) : stageComposerOpen && stageComposer ? (
+          stageComposer({
+            onClose: () => setStageComposerOpen(false),
+            onCreated: async (result) => {
+              setStageComposerOpen(false);
+              // The shell has already refreshed (and seeded) the session list,
+              // so the new session is in `bySid` and can take the pane now.
+              const sid = result?.sessionId ?? result?.session?.sessionId;
+              if (sid) {
+                setPreview(sid);
+                pulseStage(sid);
+              }
+            },
+          })
         ) : (
           <div className="flex h-full flex-1 flex-col items-center justify-center gap-4">
             {coach ? <div className="w-full max-w-md text-left">{coach}</div> : null}
@@ -12893,7 +12969,7 @@ function RailStage({
                   shows all shortcuts.
                 </div>
               </div>
-              <Button variant="brand" className="lfg-gborder lfg-gborder--brand" onClick={onNew}>
+              <Button variant="brand" className="lfg-gborder lfg-gborder--brand" onClick={startNew}>
                 <Plus className="size-4" />
                 New session
               </Button>
@@ -21025,6 +21101,9 @@ function NewSessionDialog({
   //    shortcut.
   //  - "inline": mobile home screen — anchored at the bottom of the viewport,
   //    compact at rest and expandable. Always mounted (no open/close).
+  //  - "stage": desktop workspace with nothing open — the composer IS the
+  //    stage content instead of a sheet over an empty pane. Same controls as
+  //    the drawer, no overlay.
   variant = "drawer",
   expanded = false,
   onExpandedChange,
@@ -21050,7 +21129,7 @@ function NewSessionDialog({
   // Inline only: horizontal swipes cycle the live-view project filter.
   onProjectSwipe?: (dir: 1 | -1) => boolean;
   onReposChanged: () => Promise<void>;
-  variant?: "drawer" | "inline";
+  variant?: "drawer" | "inline" | "stage";
   // Inline only: compact↔full controls toggle (lifted to the parent so other
   // affordances can drive it).
   expanded?: boolean;
@@ -21930,53 +22009,75 @@ function NewSessionDialog({
   };
   cycleAgentRef.current = cycleAgent;
 
+  const onAgentLocked = () => {
+    // The whole point of drawing an agent we can't run: this is the one
+    // tap between "I have a Claude account" and using it.
+    //
+    // Get the composer out of the way FIRST, in whichever shape it has.
+    // The drawer is a modal sheet, so leaving it up parks it squarely over
+    // the settings page we just navigated to — the tap looked like it did
+    // nothing. The inline composer only needs its controls row collapsed;
+    // the bar itself is meant to stay.
+    feedback.tap();
+    onExpandedChange?.(false);
+    if (variant === "drawer") onClose();
+    openSettingsPage("coding-agents");
+  };
+  const onAgentSelect = (key: AgentKind, option?: { accountId?: string; selectorId?: string }) => {
+    // Re-tapping the already-selected agent collapses the row.
+    if (
+      variant === "inline" &&
+      expanded &&
+      selectedLaunchId === (option?.selectorId ?? key)
+    ) {
+      onExpandedChange?.(false);
+      return;
+    }
+    setAgent(key);
+    if (key === "aisdk") setClaudeAccountId(option?.accountId ?? "");
+    setModel(localStorage.getItem(`lfg_model_${key}`) || defaultModelFor(key));
+  };
+
   const agentSelector = (
     <AgentIconStrip
       options={agentButtons}
       value={agent}
       selectedId={selectedLaunchId}
       flat={variant === "inline"}
-      onLocked={() => {
-        // The whole point of drawing an agent we can't run: this is the one
-        // tap between "I have a Claude account" and using it.
-        //
-        // Get the composer out of the way FIRST, in whichever shape it has.
-        // The drawer is a modal sheet, so leaving it up parks it squarely over
-        // the settings page we just navigated to — the tap looked like it did
-        // nothing. The inline composer only needs its controls row collapsed;
-        // the bar itself is meant to stay.
-        feedback.tap();
-        onExpandedChange?.(false);
-        if (variant === "drawer") onClose();
-        openSettingsPage("coding-agents");
-      }}
-      onSelect={(key, option) => {
-        // Re-tapping the already-selected agent collapses the row.
-        if (
-          variant === "inline" &&
-          expanded &&
-          selectedLaunchId === (option?.selectorId ?? key)
-        ) {
-          onExpandedChange?.(false);
-          return;
-        }
-        setAgent(key);
-        if (key === "aisdk") setClaudeAccountId(option?.accountId ?? "");
-        setModel(localStorage.getItem(`lfg_model_${key}`) || defaultModelFor(key));
-      }}
+      onLocked={onAgentLocked}
+      onSelect={onAgentSelect}
     />
   );
 
   const modelControls = (
     <>
-      <ModelPicker
-        value={model}
-        models={models}
-        onChange={setModel}
-        flat={variant === "inline"}
-        width="max-w-28"
-        onMobileLayerOpenChange={variant === "inline" ? handleModelLayerOpenChange : undefined}
-      />
+      {variant === "inline" ? (
+        <ModelPicker
+          value={model}
+          models={models}
+          onChange={setModel}
+          flat
+          width="max-w-28"
+          onMobileLayerOpenChange={handleModelLayerOpenChange}
+        />
+      ) : (
+        // Desktop: one pill for "which agent, which model". The agent strip
+        // and the model list live in the same popover, so the row carries one
+        // control fewer and the two choices that belong together are made
+        // together.
+        <AgentModelPicker
+          options={agentButtons}
+          agent={agent}
+          agentLabel={selectedAgentOption.label}
+          agentBadge={selectedAgentOption.badge}
+          selectedId={selectedLaunchId}
+          onSelectAgent={onAgentSelect}
+          onLocked={onAgentLocked}
+          model={model}
+          models={models}
+          onModelChange={setModel}
+        />
+      )}
 
       <ThinkingLevelPill
         agent={agent}
@@ -22037,7 +22138,6 @@ function NewSessionDialog({
     </div>
   ) : (
     <div className="flex flex-wrap items-center gap-1.5 pb-0.5">
-      {agentSelector}
       {modelControls}
     </div>
   );
@@ -22050,7 +22150,9 @@ function NewSessionDialog({
       type="button"
       onClick={() => {
         setResumeOpen(true);
-        if (variant !== "inline") onClose();
+        // Only the drawer has to get out of the way (it is a modal sheet). The
+        // inline and stage composers stay put and host the sheet themselves.
+        if (variant === "drawer") onClose();
       }}
       title="Open Stash and recent sessions"
       aria-label="Open Stash and recent sessions"
@@ -22393,6 +22495,42 @@ function NewSessionDialog({
           onClose={closeResume}
         />
       </Suspense>
+    );
+  }
+
+  // Desktop stage: the same card the drawer shows, sitting in the empty pane
+  // instead of sliding over it. Escape closes it the way it closes the sheet.
+  if (variant === "stage") {
+    return (
+      <div
+        className="flex h-full min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto p-4"
+        data-testid="new-session-stage"
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && !e.defaultPrevented) {
+            e.preventDefault();
+            onClose();
+          }
+        }}
+      >
+        <section
+          aria-label="New session"
+          className="lfg-gborder w-full max-w-xl rounded-3xl border border-transparent bg-card pb-1 shadow-[0_12px_40px_-24px_rgba(0,0,0,0.5)]"
+        >
+          <div className="flex items-center justify-between px-3 pt-3 pb-1.5">
+            <h2 className="text-base font-semibold">New session</h2>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              title="Close (Esc)"
+              className="flex size-7 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+          {formBody}
+        </section>
+      </div>
     );
   }
 
@@ -23464,19 +23602,10 @@ function ModelPicker({
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const [mobileMounted, setMobileMounted] = useState(false);
-  const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const mobileTransitionMs = 360;
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return models;
-    return models.filter((item) => item.toLowerCase().includes(q));
-  }, [models, query]);
-  const searchable = models.length > 8;
+  const searchable = modelListSearchable(models);
 
-  useEffect(() => {
-    if (!open) setQuery("");
-  }, [open]);
   useEffect(() => {
     if (!open || !isMobile) return;
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -23531,53 +23660,15 @@ function ModelPicker({
     </button>
   );
 
-  const search = searchable ? (
-    <div className="relative">
-      <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-      <input
-        ref={inputRef}
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        onKeyDown={(event) => {
-          event.stopPropagation();
-          if (event.key === "Escape") setOpen(false);
-          if (event.key === "Enter" && filtered[0]) choose(filtered[0]);
-        }}
-        placeholder="Filter models"
-        className="h-10 w-full rounded-xl border border-border bg-background pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30"
-      />
-    </div>
-  ) : null;
-
-  const list = (
-    <div className={cn("overflow-y-auto pr-1", isMobile ? "max-h-[52dvh]" : "max-h-72")}>
-      {filtered.length ? (
-        filtered.map((item) => {
-          const selected = value === item;
-          return (
-            <button
-              key={item}
-              type="button"
-              onClick={() => choose(item)}
-              className={cn(
-                "flex w-full min-w-0 items-center gap-3 rounded-xl px-3 text-left text-sm outline-none transition-colors",
-                isMobile ? "h-12" : "h-10",
-                selected
-                  ? "bg-primary/12 text-foreground ring-1 ring-inset ring-primary/20"
-                  : cn("text-foreground focus-visible:bg-muted", !isMobile && "hover:bg-muted"),
-              )}
-            >
-              <Check className={cn("size-4 shrink-0 text-primary", selected ? "opacity-100" : "opacity-0")} />
-              <span className="min-w-0 flex-1 truncate">{item}</span>
-            </button>
-          );
-        })
-      ) : (
-        <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-          No matching models
-        </div>
-      )}
-    </div>
+  const optionList = (
+    <ModelOptionList
+      value={value}
+      models={models}
+      onChoose={choose}
+      onEscape={() => setOpen(false)}
+      inputRef={inputRef}
+      large={isMobile}
+    />
   );
 
   if (isMobile) {
@@ -23614,10 +23705,7 @@ function ModelPicker({
                 <VaulDrawer.Title className="mb-3 text-base font-semibold">
                   Model
                 </VaulDrawer.Title>
-                <div className="min-h-0 space-y-3">
-                  {search}
-                  {list}
-                </div>
+                {optionList}
               </VaulDrawer.Content>
             </VaulDrawer.Portal>
           </VaulDrawer.Root>
@@ -23639,10 +23727,196 @@ function ModelPicker({
             initialFocus={searchable ? inputRef : true}
             className="w-80 max-w-[calc(100vw-1rem)] rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl ring-1 ring-foreground/5 outline-none"
           >
-            <div className="space-y-2">
-              {search}
-              {list}
+            {optionList}
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+function modelListSearchable(models: string[]): boolean {
+  return models.length > 8;
+}
+
+// Filter box + option list shared by the model pill and the combined
+// agent/model pill. Owns the query, so closing the popover (which unmounts
+// this) is what clears it.
+function ModelOptionList({
+  value,
+  models,
+  onChoose,
+  onEscape,
+  inputRef,
+  large = false,
+}: {
+  value: string;
+  models: string[];
+  onChoose: (model: string) => void;
+  onEscape?: () => void;
+  inputRef?: { current: HTMLInputElement | null };
+  large?: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return models;
+    return models.filter((item) => item.toLowerCase().includes(q));
+  }, [models, query]);
+  return (
+    <div className={large ? "min-h-0 space-y-3" : "space-y-2"}>
+      {modelListSearchable(models) ? (
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.key === "Escape") onEscape?.();
+              if (event.key === "Enter" && filtered[0]) onChoose(filtered[0]);
+            }}
+            placeholder="Filter models"
+            className="h-10 w-full rounded-xl border border-border bg-background pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30"
+          />
+        </div>
+      ) : null}
+      <div className={cn("overflow-y-auto pr-1", large ? "max-h-[52dvh]" : "max-h-72")}>
+        {filtered.length ? (
+          filtered.map((item) => {
+            const selected = value === item;
+            return (
+              <button
+                key={item}
+                type="button"
+                onClick={() => onChoose(item)}
+                className={cn(
+                  "flex w-full min-w-0 items-center gap-3 rounded-xl px-3 text-left text-sm outline-none transition-colors",
+                  large ? "h-12" : "h-10",
+                  selected
+                    ? "bg-primary/12 text-foreground ring-1 ring-inset ring-primary/20"
+                    : cn("text-foreground focus-visible:bg-muted", !large && "hover:bg-muted"),
+                )}
+              >
+                <Check className={cn("size-4 shrink-0 text-primary", selected ? "opacity-100" : "opacity-0")} />
+                <span className="min-w-0 flex-1 truncate">{item}</span>
+              </button>
+            );
+          })
+        ) : (
+          <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+            No matching models
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Desktop composer pill: agent AND model behind one trigger. The popover holds
+ * the same AgentIconStrip the other surfaces use, with the model list for the
+ * chosen agent under it. Picking an agent keeps the popover open (the model
+ * list changes with it); picking a model closes it.
+ */
+function AgentModelPicker<K extends AgentKind>({
+  options,
+  agent,
+  agentLabel,
+  agentBadge,
+  selectedId,
+  onSelectAgent,
+  onLocked,
+  model,
+  models,
+  onModelChange,
+}: {
+  options: readonly {
+    key: K;
+    label: string;
+    selectorId?: string;
+    accountId?: string;
+    badge?: number;
+    locked?: boolean;
+  }[];
+  agent: K;
+  agentLabel: string;
+  agentBadge?: number | null;
+  selectedId?: string;
+  onSelectAgent: (key: K, option?: { accountId?: string; selectorId?: string }) => void;
+  onLocked?: (key: K) => void;
+  model: string;
+  models: string[];
+  onModelChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const trigger = (
+    <button
+      type="button"
+      aria-label={`Agent ${agentLabel}, model ${model || "not set"}. Change agent or model`}
+      title={`${agentLabel} · ${model || "model"}`}
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      className="inline-flex h-8 min-w-0 cursor-pointer items-center gap-1.5 rounded-full bg-muted pl-1 pr-2.5 text-foreground transition active:scale-[0.98]"
+    >
+      <span className="relative flex size-6 shrink-0 items-center justify-center rounded-full bg-background shadow-sm">
+        <img src={agentIconSrc(agent)} alt="" className="size-4" />
+        {agentBadge != null ? (
+          <span className="absolute -bottom-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-foreground text-[8px] font-bold leading-none text-background ring-1 ring-background">
+            {agentBadge}
+          </span>
+        ) : null}
+      </span>
+      <span className="max-w-32 truncate text-xs font-medium">{model || "model"}</span>
+      <ChevronDown className="size-3 shrink-0 text-muted-foreground/70" />
+    </button>
+  );
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger render={trigger} />
+      <Popover.Portal>
+        <Popover.Positioner
+          side="bottom"
+          align="start"
+          sideOffset={6}
+          className="isolate z-[170] outline-none"
+        >
+          <Popover.Popup
+            initialFocus={modelListSearchable(models) ? inputRef : true}
+            className="w-80 max-w-[calc(100vw-1rem)] rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl ring-1 ring-foreground/5 outline-none"
+          >
+            <div className="mb-1 flex items-center justify-between gap-2 px-1">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Agent
+              </span>
+              <span className="min-w-0 truncate text-xs font-medium">{agentLabel}</span>
             </div>
+            <AgentIconStrip
+              options={options}
+              value={agent}
+              selectedId={selectedId}
+              onSelect={onSelectAgent}
+              onLocked={(key) => {
+                setOpen(false);
+                onLocked?.(key);
+              }}
+              className="mb-2 h-auto max-w-full flex-wrap"
+            />
+            <div className="mb-1 px-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Model
+            </div>
+            <ModelOptionList
+              value={model}
+              models={models}
+              onChoose={(next) => {
+                onModelChange(next);
+                setOpen(false);
+              }}
+              onEscape={() => setOpen(false)}
+              inputRef={inputRef}
+            />
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
