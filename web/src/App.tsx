@@ -564,7 +564,6 @@ import {
   CustomInstructionsRow,
 } from "./views/custom-instructions-page";
 import { RemoteAccessSettingsSection } from "./components/remote-access-settings";
-import { ExecutorSettingsSection } from "./components/executor-settings";
 import { ConnectorsPage, ConnectorsRow } from "./views/connectors-page";
 import {
   UpdateNavButton,
@@ -1117,9 +1116,6 @@ type GlobalSettings = {
   // Whether this box offers the Computer Use MCP to agents. Off by default;
   // see the MCP servers section in SettingsView.
   computerMcpEnabled: boolean;
-  // Whether this box runs the connector gateway (Executor) and offers it to
-  // agents at /mcp/executor. On by default; see ExecutorSettingsSection.
-  executorEnabled: boolean;
   transcriptView: TranscriptView;
   // The update the "What's new" drawer's Skip button last dismissed. See
   // UpdateProvider in components/update-drawer.tsx.
@@ -6070,7 +6066,6 @@ export function App() {
     maxBotSchedules: 5,
     botAutoCompactionEnabled: true,
     computerMcpEnabled: false,
-    executorEnabled: true,
     botCompactionThresholdPercent: 78,
     transcriptView: "full",
     skippedUpdateVersion: "",
@@ -6380,8 +6375,7 @@ export function App() {
       maxBotSchedules: 5,
       botAutoCompactionEnabled: true,
       computerMcpEnabled: false,
-      executorEnabled: true,
-      botCompactionThresholdPercent: 78,
+        botCompactionThresholdPercent: 78,
       transcriptView: "full",
       skippedUpdateVersion: "",
       customInstructions: "",
@@ -27726,11 +27720,6 @@ function SettingsView({
           />
         </div>
       </section>
-
-      <ExecutorSettingsSection
-        enabled={settings.executorEnabled}
-        onEnabledChange={(executorEnabled) => onSettingsChange({ executorEnabled })}
-      />
 
       <section className="space-y-2">
         <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
