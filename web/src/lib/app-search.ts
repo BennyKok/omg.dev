@@ -26,6 +26,10 @@ export const TAB_VALUES = [
   // The Computer: this box's desktop, streamed and controllable. A page rather
   // than a sheet — it is a place you go to and hand someone a link to.
   "computer",
+  // The Board: every task on this box as a read-only kanban. A page, not a
+  // filter on Live, because it answers "what is the state of everything?"
+  // rather than "which session am I in?".
+  "board",
 ] as const;
 export type Tab = (typeof TAB_VALUES)[number];
 export const DEFAULT_TAB: Tab = "live";

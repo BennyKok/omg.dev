@@ -344,6 +344,7 @@ import {
   GitFork,
   KeyRound,
   LayoutDashboard,
+  SquareKanban,
   Loader2,
   MessageCircleQuestion,
   MessageSquare,
@@ -478,6 +479,7 @@ const CodingAgentsPage = lazyWithReload("CodingAgentsPage", () =>
 );
 // noVNC and the RFB plumbing only load when someone opens the Computer.
 const ComputerPage = lazyWithReload("ComputerPage", () => import("./views/computer-page"));
+const BoardPage = lazyWithReload("BoardPage", () => import("./views/board-page"));
 const ResumeSessionSheet = lazyWithReload("ResumeSessionSheet", () =>
   import("./views/resume-session-sheet"),
 );
@@ -8734,7 +8736,7 @@ export function App() {
       <header className="relative z-40 flex shrink-0 items-center justify-between gap-2 px-2 pb-3 pt-[calc(0.5rem+env(safe-area-inset-top))] md:px-3 md:pb-1">
         <NavIsland className="shrink-0">
           <div className="glass-island flex h-11 items-center rounded-full px-1.5">
-            {isMobile && (tab === "notifications" || tab === "artifacts") ? (
+            {isMobile && (tab === "notifications" || tab === "artifacts" || tab === "board") ? (
               <button
                 type="button"
                 onClick={() => setTab("live")}
@@ -8744,7 +8746,7 @@ export function App() {
                 <ChevronLeft className="size-[18px]" />
                 <span>Live</span>
               </button>
-            ) : isPrimarySurfaceTab(tab) || tab === "notifications" || tab === "artifacts" ? (
+            ) : isPrimarySurfaceTab(tab) || tab === "notifications" || tab === "artifacts" || tab === "board" ? (
               <button
                 type="button"
                 onClick={() => setTab("live")}
@@ -8795,7 +8797,7 @@ export function App() {
                 className="flex items-center gap-1.5"
               />
             ) : null}
-            {tab === "live" || tab === "bots" || tab === "notifications" || tab === "artifacts" ? (
+            {tab === "live" || tab === "bots" || tab === "notifications" || tab === "artifacts" || tab === "board" ? (
               // Page destinations live in PagesMenu. Desktop also keeps its
               // project scope control here; mobile project scope lives in the
               // Live composer and never impersonates a page destination.
@@ -9157,6 +9159,19 @@ export function App() {
             <ComputerPage active onClose={() => setTab("live")} />
           </Suspense>
         ) : null}
+        {tab === "board" ? (
+          <Suspense
+            fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}
+          >
+            {/* The same filtered list Live shows, so the project and user
+                scope controls in the header apply to the Board too. */}
+            <BoardPage
+              sessions={liveSessions}
+              onOpenSession={openSessionPage}
+              onOpenShipped={openShippedSession}
+            />
+          </Suspense>
+        ) : null}
         {tab === "more" ? (
           <MoreView
             // Same source the Settings root used before Ping moved here.
@@ -9194,6 +9209,7 @@ export function App() {
         tab !== "bots" &&
         tab !== "storage" &&
         tab !== "computer" &&
+        tab !== "board" &&
         tab !== "instructions" &&
         tab !== "connectors" &&
         tab !== "more" &&
@@ -9932,6 +9948,7 @@ function PagesMenu({
     tab === "notifications" ||
     tab === "artifacts" ||
     tab === "computer" ||
+    tab === "board" ||
     (showSettings && tab === "settings");
   const value = known || extraTabs.some((t) => t.id === tab) ? tab : "live";
   // Controlled so a selection dismisses the menu. Radio items don't close on
@@ -9984,6 +10001,12 @@ function PagesMenu({
           <DropdownMenuRadioItem value="computer">
             <Monitor className="size-5 shrink-0 text-muted-foreground" />
             Computer
+          </DropdownMenuRadioItem>
+          {/* The Board reads the same sessions as Live, laid out by state. It
+              is read-only, so it sits with the other "look at" pages. */}
+          <DropdownMenuRadioItem value="board">
+            <SquareKanban className="size-5 shrink-0 text-muted-foreground" />
+            Board
           </DropdownMenuRadioItem>
           {showSettings ? (
             <>
@@ -22252,6 +22275,8 @@ function NewSessionDialog({
   // direction. Kept in a ref so the native gesture listeners always call the
   // latest closure.
   const cycleAgent = (dir: 1 | -1) => {
+    // No agent choice on this box: the swipe is a no-op, same as the strip.
+    if (!view.showComposerAgents) return;
     const opts = visibleAgentOptions;
     if (opts.length < 2) return;
     const idx = opts.findIndex((option) => (option.selectorId ?? option.key) === selectedLaunchId);
@@ -22311,14 +22336,16 @@ function NewSessionDialog({
   const modelControls = (
     <>
       {variant === "inline" ? (
-        <ModelPicker
-          value={model}
-          models={models}
-          onChange={setModel}
-          flat
-          width="max-w-28"
-          onMobileLayerOpenChange={handleModelLayerOpenChange}
-        />
+        view.showComposerModels ? (
+          <ModelPicker
+            value={model}
+            models={models}
+            onChange={setModel}
+            flat
+            width="max-w-28"
+            onMobileLayerOpenChange={handleModelLayerOpenChange}
+          />
+        ) : null
       ) : (
         // Desktop: one pill for "which agent, which model". The agent strip
         // and the model list live in the same popover, so the row carries one
@@ -22407,7 +22434,7 @@ function NewSessionDialog({
   // The drawer keeps the same controls in its existing wrapping row.
   const controlsInner = variant === "inline" ? (
     <div className="flex w-max max-w-[calc(100vw-1rem)] origin-bottom-left flex-col items-start gap-1.5">
-      {agentButtons.length ? (
+      {agentButtons.length && view.showComposerAgents ? (
         <div className="origin-bottom-left rounded-2xl bg-popover px-2 py-1.5 shadow-xl ring-1 ring-foreground/5 animate-in fade-in-0 zoom-in-75 slide-in-from-bottom-3 duration-200 ease-out">
           {agentSelector}
         </div>
@@ -22453,8 +22480,16 @@ function NewSessionDialog({
           <button
             ref={agentIconBtnRef}
             type="button"
-            title={`${selectedAgentOption.label} — swipe to switch agent`}
-            aria-label={`Agent: ${selectedAgentOption.label}. Swipe up or down to switch.`}
+            title={
+              view.showComposerAgents
+                ? `${selectedAgentOption.label} — swipe to switch agent`
+                : selectedAgentOption.label
+            }
+            aria-label={
+              view.showComposerAgents
+                ? `Agent: ${selectedAgentOption.label}. Swipe up or down to switch.`
+                : `Agent: ${selectedAgentOption.label}. Open composer options.`
+            }
             style={{ touchAction: "none" }}
             className="relative flex size-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm transition active:scale-[0.96]"
           >
