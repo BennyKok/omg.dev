@@ -13846,9 +13846,13 @@ const RailRow = memo(function RailRow({
                 "border-transparent hover:bg-muted/70",
         )}
       >
-        <span className={cn("relative flex shrink-0 items-center justify-center", markBoxClassName)}>
-          {mark}
-        </span>
+        {/* A row may opt out of the mark entirely (agent icons off): then
+            there is no box and no gap, the text column starts at the edge. */}
+        {mark === null ? null : (
+          <span className={cn("relative flex shrink-0 items-center justify-center", markBoxClassName)}>
+            {mark}
+          </span>
+        )}
         {!collapsed ? (
           <>
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -13939,6 +13943,12 @@ const RailItem = memo(function RailItem({
   // The favicon follows the agent icon setting: hiding agent icons means a
   // plain row, and a project logo is as much an identity mark as the harness.
   const showFavicon = showAgentIcons && !!faviconSrc && failedFaviconSrc !== faviconSrc;
+  // Agent icons off means no identity mark at all in the expanded row: no
+  // harness, no favicon, and no placeholder box holding the space. Busy and
+  // blocked move to the indicator slot. A collapsed rail is only marks, so
+  // it keeps a neutral one. A bot row keeps its face; that is the bot, not
+  // an agent icon.
+  const plainRow = !drivingBot && !showAgentIcons && !collapsed;
   // Read state, from the roster's own set. A working session is never in that
   // set — the server holds the mark back while a turn is running, because the
   // dot means "ready for you" and a session mid-turn is not. It comes back on
@@ -13973,7 +13983,7 @@ const RailItem = memo(function RailItem({
         // ragged.
         drivingBot ? "size-11" : "size-10"
       }
-      mark={
+      mark={plainRow ? null : (
         <>
           {/* A normal thread is anchored by its project when that project has
               a favicon. The small corner badge then says which agent drives
@@ -14064,7 +14074,7 @@ const RailItem = memo(function RailItem({
             />
           ) : null}
         </>
-      }
+      )}
       title={title}
       titleBadge={
         topPinned ? (
@@ -14072,7 +14082,19 @@ const RailItem = memo(function RailItem({
         ) : null
       }
       preview={latest}
-      indicator={unread ? unreadDot : null}
+      indicator={
+        unread ? (
+          unreadDot
+        ) : plainRow && busy ? (
+          <Loader2
+            aria-label="working"
+            className="size-4 shrink-0 animate-spin text-warning motion-reduce:animate-none"
+            strokeWidth={1.75}
+          />
+        ) : plainRow && session.status === "blocked" ? (
+          <SessionStatusDot paused variant="inline" />
+        ) : null
+      }
       trailingStatic={
         session.lastActivityAt || session.startedAt
           ? relTime(session.lastActivityAt ?? session.startedAt ?? 0)
