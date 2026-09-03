@@ -389,6 +389,20 @@ export default function SettingsScreen() {
         These open omg.dev in your browser.
       </Text>
 
+      <SectionLabel>Help</SectionLabel>
+      <Card>
+        <Row onPress={() => router.push("/onboarding")}>
+          <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>Replay the welcome tour</Text>
+          <Icon
+            ios="chevron.right"
+            android="chevron_right"
+            size={13}
+            weight="semibold"
+            color={colors.textMuted}
+          />
+        </Row>
+      </Card>
+
       <View style={{ marginTop: space.xl }}>
         <Card>
           <Row onPress={confirmSignOut}>

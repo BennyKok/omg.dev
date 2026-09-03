@@ -11,7 +11,13 @@ import Reanimated, {
 } from "react-native-reanimated";
 
 import { AiConsentScreen, useAiDataConsent } from "../src/omg/ai-consent";
-import { IntroScreen, SetupScreen, useIntro, useOnboarding } from "../src/omg/onboarding";
+import {
+  IntroScreen,
+  SetupScreen,
+  rosterFromReadiness,
+  useIntro,
+  useOnboarding,
+} from "../src/omg/onboarding";
 import { BrandMark } from "../src/omg/brand-mark";
 import { LaunchScreen } from "../src/omg/launch";
 import { useLucideFont } from "../src/omg/lucide";
@@ -416,21 +422,11 @@ function RootNavigator() {
      * real answer, not an error, so the screen says "starting up" instead of
      * drawing an empty list that reads as "no agents exist".
      */
-    const roster =
-      readiness?.status === "ready"
-        ? readiness.roster.agents
-            .filter((a) => a.visible !== false)
-            .map((a) => ({
-              key: a.key,
-              label: a.label,
-              connected: a.status?.accountConnected === true,
-            }))
-        : [];
-    const waking = readiness === null || readiness.status === "connecting" || readiness.status === "waking";
+    const { agents, waking } = rosterFromReadiness(readiness);
     return (
       <>
         <StatusBar style={isDark ? "light" : "dark"} />
-        <SetupScreen onDone={onboarding.complete} agents={roster} waking={waking} />
+        <SetupScreen onDone={onboarding.complete} agents={agents} waking={waking} />
       </>
     );
   }
@@ -594,6 +590,9 @@ function RootNavigator() {
               disabling a gesture iOS users reach for reflexively. */}
           <Stack.Screen name="bots/new" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="bots/[id]/edit" options={{ headerShown: false }} />
+          {/* Replay of the welcome flow, from Settings. The screens draw their
+              own chrome (dots, Skip), so no system header. */}
+          <Stack.Screen name="onboarding" options={{ headerShown: false }} />
           {/* In-app purchase. Pushed from the blocked cloud computer and from
               Settings — the two places someone learns they need to pay. It is
               a normal pushed screen rather than a modal so the back gesture
