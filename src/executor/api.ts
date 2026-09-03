@@ -34,6 +34,69 @@ export function executorApiAllowed(method: string, path: string): boolean {
   return ALLOWED.some((rule) => rule.method === method && rule.pattern.test(path));
 }
 
+// Management tools the native UI may run (add a source, inspect one). These
+// are catalog operations, not agent tools; running them from Settings is the
+// operator adding an integration, so they run with autoApprove. Anything not
+// on this list is refused — this is not a way to run arbitrary code.
+export const MANAGEMENT_TOOLS = new Set([
+  "executor.openapi.addSpec",
+  "executor.openapi.previewSpec",
+  "executor.mcp.addServer",
+  "executor.mcp.probeEndpoint",
+]);
+
+export function managementToolAllowed(address: string): boolean {
+  return MANAGEMENT_TOOLS.has(address);
+}
+
+export type ManagementResult =
+  | { ok: true; status: "completed" | "paused"; text: string; structured: unknown; isError: boolean }
+  | { ok: false; error: string };
+
+/**
+ * Run one allowlisted management tool through the daemon's execute REST, with
+ * the bearer injected. autoApprove is set because the operator clicking "Add"
+ * in Settings is the approval; a `block` policy still stops it.
+ */
+export async function runManagementTool(
+  address: string,
+  input: unknown,
+  upstream: { origin: string; token: string } | null = executorAuth(),
+  fetchImpl: typeof fetch = fetch,
+): Promise<ManagementResult> {
+  if (!managementToolAllowed(address)) return { ok: false, error: `tool "${address}" is not a management tool` };
+  if (!upstream) return { ok: false, error: "the connector gateway is not running" };
+  // The execute sandbox has no JSON literal injection risk: input is embedded
+  // as a JSON literal, which is valid TypeScript, and the address is
+  // allowlisted so it cannot be an arbitrary expression.
+  const code = `return await tools.${address}(${JSON.stringify(input ?? {})});`;
+  try {
+    const res = await fetchImpl(`${upstream.origin}/api/executions`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${upstream.token}`,
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify({ code, autoApprove: true }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    const body = (await res.json().catch(() => null)) as
+      | { status?: string; text?: string; structured?: unknown; isError?: boolean; message?: string; _tag?: string }
+      | null;
+    if (!res.ok) return { ok: false, error: body?.message || body?._tag || `status ${res.status}` };
+    return {
+      ok: true,
+      status: body?.status === "paused" ? "paused" : "completed",
+      text: body?.text ?? "",
+      structured: body?.structured ?? null,
+      isError: body?.isError === true,
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "the connector gateway is unreachable" };
+  }
+}
+
 /**
  * Forward one `/api/executor/api/<path>` request to the daemon's `/api/<path>`.
  * `upstream` and `fetchImpl` are injectable for tests.

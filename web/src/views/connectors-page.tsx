@@ -688,6 +688,25 @@ export function IntegrationsPanel() {
     }
   };
 
+  const addSource = useCallback(
+    async (address: string, input: unknown) => {
+      const res = await fetch("/api/executor/tool", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address, input }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? `request failed (${res.status})`);
+      }
+      const result = (await res.json()) as { isError: boolean; text: string };
+      if (result.isError) throw new Error(result.text || "the gateway rejected the source");
+      await load();
+    },
+    [load],
+  );
+
   const toolsFor = useMemo(() => {
     const by = new Map<string, number>();
     for (const t of tools) by.set(t.integration, (by.get(t.integration) ?? 0) + 1);
@@ -771,10 +790,12 @@ export function IntegrationsPanel() {
 
       {error ? <p className="px-1 text-xs text-destructive">{error}</p> : null}
 
+      <AddSourceForm onAdd={addSource} />
+
       <div className="rounded-2xl border border-dashed border-border px-4 py-3">
         <p className="text-xs leading-relaxed text-muted-foreground">
-          Adding a service that signs in with OAuth still needs a browser on the computer running the
-          gateway (the sign-in redirect returns to it).{" "}
+          A service that signs in with OAuth still needs a browser on the computer running the gateway
+          (the sign-in redirect returns to it).{" "}
           {dashboardUrl ? (
             <a href={dashboardUrl} target="_blank" rel="noreferrer" className="underline">
               Open the gateway on the box
@@ -785,5 +806,105 @@ export function IntegrationsPanel() {
         </p>
       </div>
     </section>
+  );
+}
+
+// Add an OpenAPI or MCP source natively. Both are catalog operations that
+// create an integration and its tools, run through /api/executor/tool.
+function AddSourceForm({ onAdd }: { onAdd: (address: string, input: unknown) => Promise<void> }) {
+  const [kind, setKind] = useState<"openapi" | "mcp">("openapi");
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+
+  // The gateway addresses an integration by a slug. Derive it from the name so
+  // the operator does not have to think about it; a name is therefore required.
+  const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+
+  const submit = async () => {
+    const trimmedUrl = url.trim();
+    if (!trimmedUrl) return;
+    if (!slug) {
+      setError("A name is required (it becomes the integration id).");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setDone(null);
+    try {
+      if (kind === "openapi") {
+        await onAdd("executor.openapi.addSpec", {
+          spec: { kind: "url", url: trimmedUrl },
+          slug,
+          name: name.trim(),
+        });
+      } else {
+        await onAdd("executor.mcp.addServer", {
+          slug,
+          name: name.trim(),
+          endpoint: trimmedUrl,
+          transport: "remote",
+        });
+      }
+      setDone("Added. Its tools are listed above.");
+      setName("");
+      setUrl("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "could not add the source");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form
+      className="space-y-2 rounded-2xl border border-border bg-card/40 px-4 py-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submit();
+      }}
+    >
+      <div className="flex items-center gap-2">
+        <Plus className="size-4 shrink-0 text-muted-foreground" />
+        <span className="text-sm font-medium">Add a source</span>
+        <select
+          aria-label="Source kind"
+          value={kind}
+          onChange={(e) => setKind(e.target.value as "openapi" | "mcp")}
+          className="ml-auto rounded-md border border-border bg-background px-2 py-1 text-xs"
+        >
+          <option value="openapi">OpenAPI spec</option>
+          <option value="mcp">MCP server</option>
+        </select>
+      </div>
+      <Input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Name (becomes the integration id)"
+        aria-label="Source name"
+        className="h-8 text-xs"
+      />
+      {slug ? <p className="px-1 text-[11px] text-muted-foreground">id: <code>{slug}</code></p> : null}
+      <div className="flex items-center gap-2">
+        <Input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder={kind === "openapi" ? "OpenAPI spec URL" : "MCP endpoint URL"}
+          aria-label="Source URL"
+          className="h-8 font-mono text-xs"
+        />
+        <Button type="submit" size="sm" disabled={busy || !url.trim()}>
+          {busy ? "Adding…" : "Add"}
+        </Button>
+      </div>
+      {error ? <p className="px-1 text-xs text-destructive">{error}</p> : null}
+      {done ? <p className="px-1 text-xs text-success">{done}</p> : null}
+      <p className="px-1 text-xs leading-relaxed text-muted-foreground">
+        An OpenAPI spec or a remote MCP server becomes an integration with its own tools, reachable by
+        agents through the gateway. A source that needs a key can be authenticated after it is added.
+      </p>
+    </form>
   );
 }
