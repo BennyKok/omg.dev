@@ -72,6 +72,43 @@ install command when it is missing.
 - Browser sign-in: `<origin>/?_token=<token>`.
 - Env: `EXECUTOR_DATA_DIR`, `EXECUTOR_DISABLE_ANALYTICS`, `EXECUTOR_DISABLE_UPDATE_CHECK`.
 
+## Phase 2 shape (landed)
+
+```
+ /mcp, /mcp/computer, /mcp/executor
+   |
+   resolveCaller(req)          src/policy/caller.ts
+   |  session from ?session= or x-omg-session-id
+   |  rows with mcpTokenRequired must present x-omg-session-token
+   |  token = HMAC(box secret, session id)   src/policy/session-token.ts
+   |  role  = row.role, else owner
+   v
+   enforceRole(req, role, ns)  src/policy/mcp-filter.ts
+   |  tools/list  -> blocked tools removed from the reply
+   |  tools/call  -> blocked tool answered with an error result, never forwarded
+   v
+   the endpoint's own server or proxy
+```
+
+- Roles: `src/policy/roles.ts`, `PATHS.data/roles.json`. `owner` is built in.
+  Rules use Executor's pattern grammar over `<server>.<tool>` ids
+  (`omg.ship`, `computer.click`, `executor.execute`). Block beats allow;
+  unmatched tools get the role's `defaultAction`.
+- Session role: `ManagedSession.role`, set by `POST /api/sessions/new`
+  (`role`) or `PATCH /api/sessions/:id/role`. Takes effect on the next call.
+- Routes: `/api/roles` (GET, POST), `/api/roles/:id` (PATCH, DELETE),
+  `/api/executor/api/<allowlisted>` forwards policies, tools, integrations
+  and connections to Executor with the bearer injected.
+- UI: Settings > Roles & tool access. Tabs: Roles (omg), Gateway policies
+  (Executor, box-wide), Integrations (Executor UI in an iframe). New-session
+  composer gets a role pill once a role other than owner exists.
+- Executor policy API facts: payload needs `owner: "org"`; actions are
+  `approve`, `require_approval`, `block`; DELETE takes a body with `owner`.
+
+Known limit: role rules see `executor.execute`, not the integration behind it.
+Per-integration restriction per role needs a per-role Executor instance
+(deferred). Box-wide per-integration rules go in Gateway policies.
+
 ## Out of scope for this repository
 
 Login, invites, SSO, team and role storage. Those belong to `vibes`. This

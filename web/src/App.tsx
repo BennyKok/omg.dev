@@ -558,6 +558,7 @@ import {
 } from "./views/custom-instructions-page";
 import { RemoteAccessSettingsSection } from "./components/remote-access-settings";
 import { ExecutorSettingsSection } from "./components/executor-settings";
+import { ConnectorsPage, ConnectorsRow } from "./views/connectors-page";
 import {
   UpdateNavButton,
   UpdateProvider,
@@ -755,6 +756,9 @@ type ActionRow = {
 export type Session = {
   agent?: "claude" | "aisdk" | "codex" | "codex-aisdk" | "opencode" | "grok" | "cursor" | string;
   runtime?: "tmux" | "command-file";
+  // Role the session runs as at the MCP endpoints (Settings > Roles). Missing
+  // means owner.
+  role?: string;
   // Display-name override from a custom agent profile (server-side), when set.
   // Prefer this over the raw agent kind for labels/tooltips.
   agentLabel?: string | null;
@@ -9018,6 +9022,7 @@ export function App() {
             onChange={(customInstructions) => updateSettings({ customInstructions })}
           />
         ) : null}
+        {tab === "connectors" ? <ConnectorsPage /> : null}
         {tab === "computer" ? (
           <Suspense
             fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}
@@ -9061,6 +9066,7 @@ export function App() {
         tab !== "storage" &&
         tab !== "computer" &&
         tab !== "instructions" &&
+        tab !== "connectors" &&
         tab !== "more" &&
         !extNavTabs.some((t) => t.id === tab) ? (
           <SettingsView
@@ -9070,6 +9076,7 @@ export function App() {
             onOpenStorage={() => setTab("storage")}
             onOpenMore={() => setTab("more")}
             onOpenCustomInstructions={() => setTab("instructions")}
+            onOpenConnectors={() => setTab("connectors")}
             settings={settings}
             onSettingsChange={updateSettings}
             connection={useWsLive ? wsLiveStream.connection : null}
@@ -21076,6 +21083,23 @@ function NewSessionDialog({
     () => resolveInitialAgent(localStorage.getItem("lfg_v2_agent"), defaultAgent),
   );
   const [claudeAccountId, setClaudeAccountId] = useState("");
+  // Role the new session runs as (Settings > Roles). "" is owner. The picker
+  // only appears once a role other than owner exists on this box.
+  const [role, setRole] = useState(() => localStorage.getItem("lfg_v2_role") || "");
+  const [roleOptions, setRoleOptions] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch("/api/roles", { credentials: "same-origin", signal: controller.signal })
+      .then(async (res) => (res.ok ? ((await res.json()) as { roles: { id: string; name: string }[] }) : null))
+      .then((payload) => {
+        if (!payload) return;
+        setRoleOptions(payload.roles.map((r) => ({ id: r.id, name: r.name })));
+        // A remembered role that no longer exists must not be sent.
+        setRole((current) => (payload.roles.some((r) => r.id === current) ? current : ""));
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
   const [repo, setRepo] = useState(() => localStorage.getItem("lfg_v2_repo") || "");
   const [model, setModel] = useState(
     () =>
@@ -21814,6 +21838,7 @@ function NewSessionDialog({
             thinkingLevel: thinkingLevels.length ? launchThinkingLevel : undefined,
             fastMode: launchFastMode,
             claudeAccountId: launchClaudeAccountId,
+            role: role || undefined,
             overLimit: overLimit || undefined,
           }),
         });
@@ -21999,6 +22024,25 @@ function NewSessionDialog({
           onToggle={() => setFastMode(!fastModeEnabled)}
           flat={variant === "inline"}
         />
+      ) : null}
+
+      {roleOptions.length > 1 ? (
+        <select
+          aria-label="Session role"
+          title="Role: which tools this session may use"
+          value={role}
+          onChange={(e) => {
+            setRole(e.target.value);
+            localStorage.setItem("lfg_v2_role", e.target.value);
+          }}
+          className="h-7 max-w-32 rounded-full border border-border bg-background px-2 text-xs"
+        >
+          {roleOptions.map((option) => (
+            <option key={option.id} value={option.id === "owner" ? "" : option.id}>
+              {option.name}
+            </option>
+          ))}
+        </select>
       ) : null}
 
       {agent === "codex" || agent === "codex-aisdk" ? (
@@ -26905,6 +26949,7 @@ function SettingsView({
   onOpenStorage,
   onOpenMore,
   onOpenCustomInstructions,
+  onOpenConnectors,
   connection,
   computerVersionReport,
 }: {
@@ -26916,6 +26961,7 @@ function SettingsView({
   onOpenStorage: () => void;
   onOpenMore: () => void;
   onOpenCustomInstructions: () => void;
+  onOpenConnectors: () => void;
   connection: ConnectionState | null;
   computerVersionReport: { version: string | null; generation: number } | null;
 }) {
@@ -27011,6 +27057,12 @@ function SettingsView({
         enabled={settings.executorEnabled}
         onEnabledChange={(executorEnabled) => onSettingsChange({ executorEnabled })}
       />
+
+      <section className="space-y-2">
+        <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
+          <ConnectorsRow onOpen={onOpenConnectors} roleCount={null} />
+        </div>
+      </section>
 
       <RemoteAccessSettingsSection />
 

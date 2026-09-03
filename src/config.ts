@@ -1,4 +1,7 @@
 import { join, dirname, resolve } from "node:path";
+// Cyclic on purpose: session-token reads PATHS from here, and this module only
+// calls sessionToken() at launch time, never during module evaluation.
+import { SESSION_TOKEN_HEADER, sessionToken } from "./policy/session-token.ts";
 import { fileURLToPath } from "node:url";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -83,16 +86,21 @@ export function localServeBaseUrl(): string {
  * Returns nothing outside a managed session, leaving the user-scope
  * registration in charge.
  */
+export type OmgMcpServerConfig = { type: "http"; url: string; headers: Record<string, string> };
+
 export function omgMcpServers(
   sessionId?: string,
-): { mcpServers?: Record<string, { type: "http"; url: string }> } {
+): { mcpServers?: Record<string, OmgMcpServerConfig> } {
   const sid = (sessionId ?? process.env.OMG_SESSION_ID ?? process.env.LFG_SESSION_ID)?.trim();
   if (!sid) return {};
   const session = `?session=${encodeURIComponent(sid)}`;
   const url = `${localServeBaseUrl()}/mcp${session}`;
-  const mcpServers: Record<string, { type: "http"; url: string }> = { omg: { type: "http", url } };
+  // The token that lets this session claim its own id at the endpoint. See
+  // src/policy/session-token.ts for why it is derived rather than stored.
+  const headers = { [SESSION_TOKEN_HEADER]: sessionToken(sid) };
+  const mcpServers: Record<string, OmgMcpServerConfig> = { omg: { type: "http", url, headers } };
   if (executorMcpAdvertised) {
-    mcpServers[EXECUTOR_MCP_SERVER_NAME] = { type: "http", url: executorMcpHttpUrl(sid) };
+    mcpServers[EXECUTOR_MCP_SERVER_NAME] = { type: "http", url: executorMcpHttpUrl(sid), headers };
   }
   return { mcpServers };
 }

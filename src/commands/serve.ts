@@ -32,6 +32,10 @@ import {
 import { compressedAssetResponse, maybeCompressResponse } from "../http-compress.ts";
 import { serveOmgMcpRequest, serveComputerMcpRequest } from "../mcp-http.ts";
 import { serveExecutorMcpRequest } from "../executor/proxy.ts";
+import { forwardExecutorApi } from "../executor/api.ts";
+import { resolveCaller } from "../policy/caller.ts";
+import { enforceRole } from "../policy/mcp-filter.ts";
+import { createRole, deleteRole, getRole, listRoles, updateRole, OWNER_ROLE_ID } from "../policy/roles.ts";
 import {
   ensureExecutorAdopted,
   executorDashboardUrl,
@@ -3921,7 +3925,13 @@ export async function cmdServe() {
       // POST (requests), GET (server-initiated stream) and DELETE (teardown),
       // so the transport owns method handling rather than this router.
       if (path === "/mcp") {
-        return await serveOmgMcpRequest(req);
+        // Who is calling, verified once here (src/policy/caller.ts), then the
+        // role filter (src/policy/mcp-filter.ts) and the server itself both
+        // work from that answer. The owner role passes straight through.
+        const caller = resolveCaller(req);
+        return await enforceRole(req, caller.role, { namespace: "omg", strip: "omg_" }, (r) =>
+          serveOmgMcpRequest(r, caller.sessionId),
+        );
       }
 
       if (path === "/api/connect/reconcile" && req.method === "POST") {
@@ -3976,7 +3986,10 @@ export async function cmdServe() {
       if (path === "/mcp/computer") {
         const { computerMcpEnabled } = await getGlobalSettings();
         if (!computerMcpEnabled) return err(404, "the computer MCP is disabled");
-        return await serveComputerMcpRequest(req);
+        const caller = resolveCaller(req);
+        return await enforceRole(req, caller.role, { namespace: "computer", strip: "computer_" }, (r) =>
+          serveComputerMcpRequest(r, caller.sessionId),
+        );
       }
 
       // The connector gateway, proxied to this box's Executor daemon. Same
@@ -3987,7 +4000,10 @@ export async function cmdServe() {
         const { executorEnabled } = await getGlobalSettings();
         if (!executorEnabled) return err(404, "the connector gateway is disabled");
         await ensureExecutorAdopted();
-        return await serveExecutorMcpRequest(req);
+        const caller = resolveCaller(req);
+        return await enforceRole(req, caller.role, { namespace: "executor" }, (r) =>
+          serveExecutorMcpRequest(r),
+        );
       }
 
       if (path === "/api/live/ws") {
@@ -4089,6 +4105,73 @@ export async function cmdServe() {
         const dashboardUrl = executorDashboardUrl();
         if (!dashboardUrl) return err(409, "the connector gateway is not running");
         return json({ url: dashboardUrl });
+      }
+
+      // Box-level Executor policies and its catalog, for the Settings control
+      // plane. A short allowlist forwarded with the bearer injected
+      // (src/executor/api.ts); the browser never holds the token.
+      {
+        const m = path.match(/^\/api\/executor\/api\/(.+)$/);
+        if (m) {
+          await ensureExecutorAdopted();
+          return await forwardExecutorApi(req, `/${m[1]!}`);
+        }
+      }
+
+      // ---- roles ----
+      // Per-role tool policy for sessions on this box (src/policy/roles.ts).
+      // Rules use Executor's pattern grammar over `<server>.<tool>` ids.
+      if (path === "/api/roles" && req.method === "GET") {
+        return json({ roles: listRoles() });
+      }
+      if (path === "/api/roles" && req.method === "POST") {
+        const body = (await req.json().catch(() => null)) as Parameters<typeof createRole>[0] | null;
+        if (!body) return err(400, "invalid JSON body");
+        const result = createRole(body);
+        if (!result.ok) return err(400, result.error);
+        return json({ role: result.role });
+      }
+      {
+        const m = path.match(/^\/api\/roles\/([a-z0-9-]+)$/);
+        // Method first: src/commands/auto-agent-route-wiring.test.ts locates
+        // the auto-agents PATCH branch by its `if (m && req.method === "PATCH")`
+        // text, and this route sits earlier in the file.
+        if (req.method === "PATCH" && m) {
+          const body = (await req.json().catch(() => null)) as Parameters<typeof updateRole>[1] | null;
+          if (!body) return err(400, "invalid JSON body");
+          const result = updateRole(m[1]!, body);
+          if (!result.ok) return err(result.error === "role not found" ? 404 : 400, result.error);
+          return json({ role: result.role });
+        }
+        if (m && req.method === "DELETE") {
+          const result = deleteRole(m[1]!);
+          if (!result.ok) return err(result.error === "role not found" ? 404 : 400, result.error);
+          // Sessions still pointing at the role fall back to owner in
+          // resolveCaller. Clear the rows so the roster does not show a
+          // role that no longer exists.
+          for (const row of listManaged()) {
+            if (row.role === m[1]) patchManaged(row.tmuxName, { role: undefined });
+          }
+          invalidateListSessionsCache();
+          return json({ ok: true });
+        }
+      }
+      // Move one session to another role. Takes effect on that session's next
+      // tools/list or tools/call; nothing restarts.
+      {
+        const m = path.match(/^\/api\/sessions\/([^/]+)\/role$/);
+        if (req.method === "PATCH" && m) {
+          const sessionId = decodeURIComponent(m[1]!);
+          const body = (await req.json().catch(() => null)) as { role?: unknown } | null;
+          const requested = typeof body?.role === "string" ? body.role.trim() : "";
+          if (!requested) return err(400, "role is required");
+          if (!getRole(requested)) return err(404, `unknown role "${requested}"`);
+          const row = listManaged().find((s) => s.sessionId === sessionId || s.nativeSessionId === sessionId);
+          if (!row) return err(404, "session not found");
+          patchManaged(row.tmuxName, { role: requested === OWNER_ROLE_ID ? undefined : requested });
+          invalidateListSessionsCache();
+          return json({ ok: true, role: requested });
+        }
       }
 
       // Agent control of the browser on that desktop, via Bun.WebView attached
@@ -8111,8 +8194,13 @@ a{color:#60a5fa}
           spawnedBy?: string;
           /** Start even though the live-agent cap is full — self-hosted only. */
           overLimit?: boolean;
+          /** Role the session runs as at the MCP endpoints. Missing = owner. */
+          role?: string;
           agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "jcode" | "grok" | "cursor" | "copilot" | "hermes" | "pi";
         } | null;
+        const requestedRole = typeof body?.role === "string" ? body.role.trim() : "";
+        if (requestedRole && !getRole(requestedRole)) return err(400, `unknown role "${requestedRole}"`);
+        const sessionRole = requestedRole && requestedRole !== OWNER_ROLE_ID ? requestedRole : undefined;
         const agent = resolveActiveSessionAgent(body?.agent);
         if (!agent) {
           if (body?.agent === "hermes") return err(410, "agent \"hermes\" has been removed");
@@ -8346,6 +8434,10 @@ a{color:#60a5fa}
           spawnedBy,
           repoRoot: worktree?.repoRoot,
           worktreeBranch: worktree?.branch,
+          role: sessionRole,
+          // Every session launched from here is handed its token at spawn
+          // (omgMcpServers), so the endpoint may demand it.
+          mcpTokenRequired: true,
         }, idempotencyKey);
         if (!claim.created) return replaySessionCreation(claim.session);
         if (claudeAccountId) bindClaudeSessionAccount(launchId, claudeAccountId);
