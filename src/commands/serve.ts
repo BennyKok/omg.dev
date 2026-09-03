@@ -49,6 +49,32 @@ import {
   resumeExecution,
 } from "../executor/approvals.ts";
 import { resolveCaller } from "../policy/caller.ts";
+import {
+  serveConnectorsMcpRequest,
+  type ApprovalGate as ConnectorApprovalGate,
+} from "../connectors/mcp-endpoint.ts";
+import {
+  createConnector,
+  deleteConnector,
+  getConnector,
+  listConnectors,
+  ownerForUser,
+  publicView,
+  updateConnector,
+} from "../connectors/store.ts";
+import { probeConnector, resetConnector } from "../connectors/hub.ts";
+import { loadCatalog, searchCatalog } from "../connectors/catalog.ts";
+import {
+  APPROVE as CONNECTOR_APPROVE,
+  DENY as CONNECTOR_DENY,
+  clearPendingConnectorApproval,
+  connectorApprovalQuestion,
+  heldText as connectorHeldText,
+  isApproveAnswer as isConnectorApprove,
+  pendingConnectorApprovalByAsk,
+  registerPendingConnectorApproval,
+  resolveConnectorApproval,
+} from "../connectors/approvals.ts";
 import { enforceRole } from "../policy/mcp-filter.ts";
 import { createRole, deleteRole, getRole, listRoles, roleEgress, roleSandbox, updateRole, OWNER_ROLE_ID } from "../policy/roles.ts";
 import { DEFAULT_ALLOW_HOSTS, startEgressProxy, type EgressProxy } from "../sandbox/egress-proxy.ts";
@@ -755,6 +781,16 @@ const PORT = Number(process.env.LFG_PORT ?? process.env.PORT ?? 8766);
 
 /** Ceiling on any single request body. See the Bun.serve options for why. */
 const MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024;
+
+// The connector owner (member) a session runs as: its assigned user, or the
+// box owner bucket when unassigned. All of a member's sessions therefore share
+// that member's connectors (src/connectors/store.ts).
+function connectorOwnerForSession(sessionId: string | undefined): string {
+  if (!sessionId) return ownerForUser(null);
+  const row = listManaged().find((s) => s.sessionId === sessionId || s.nativeSessionId === sessionId);
+  const user = row ? userAssignments()[row.tmuxName] : null;
+  return ownerForUser(user);
+}
 
 // The egress proxy for restricted-role sessions (src/sandbox/egress-proxy.ts).
 // One per box, started at boot. Null until then, and on any host where the
@@ -4114,6 +4150,52 @@ export async function cmdServe() {
         );
       }
 
+      // The native connector surface. Exposes the calling session member's
+      // connectors (own + org-shared) as MCP tools, scoped and role-filtered,
+      // with owner approval for a connector marked requireApproval.
+      if (path === "/mcp/connectors") {
+        const caller = resolveCaller(req);
+        const owner = connectorOwnerForSession(caller.sessionId);
+        const gate: ConnectorApprovalGate = async (connector, tool, args) => {
+          if (!connector.requireApproval || !caller.sessionId) return { held: false };
+          const question = connectorApprovalQuestion(connector, tool, args);
+          const askUser = userAssignments()[
+            listManaged().find((s) => s.sessionId === caller.sessionId || s.nativeSessionId === caller.sessionId)?.tmuxName ?? ""
+          ] ?? null;
+          try {
+            const askRes = await fetch(`http://127.0.0.1:${PORT}/api/ask`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                question,
+                options: [CONNECTOR_APPROVE, CONNECTOR_DENY],
+                sessionId: caller.sessionId,
+                user: askUser,
+                pushback: true,
+                wait: false,
+              }),
+            });
+            if (!askRes.ok) throw new Error(`ask create failed (${askRes.status})`);
+            const { id } = (await askRes.json()) as { id: string };
+            registerPendingConnectorApproval({
+              askId: id,
+              sessionId: caller.sessionId,
+              connectorId: connector.id,
+              connectorName: connector.name,
+              tool,
+              args,
+            });
+            return { held: true, text: connectorHeldText(connector, tool) };
+          } catch {
+            // If the ask cannot be posted, run inline rather than hang the agent.
+            return { held: false };
+          }
+        };
+        return await enforceRole(req, caller.role, { namespace: "connectors" }, (r) =>
+          serveConnectorsMcpRequest(r, owner, gate),
+        );
+      }
+
       if (path === "/api/live/ws") {
         if (!isLiveWsEnabled()) return err(404, "live websocket disabled");
         // Resolve who this socket speaks for ONCE, here, and never again from
@@ -4242,6 +4324,70 @@ export async function cmdServe() {
       // ---- roles ----
       // Per-role tool policy for sessions on this box (src/policy/roles.ts).
       // Rules use Executor's pattern grammar over `<server>.<tool>` ids.
+      // ---- connectors (native, per-member) ----
+      // The UI scopes by ?user=<member>; the store returns that member's own
+      // plus org-shared connectors. Secrets are stripped from every response.
+      if (path === "/api/connectors" && req.method === "GET") {
+        const owner = ownerForUser(url.searchParams.get("user"));
+        return json({ connectors: listConnectors(owner).map(publicView) });
+      }
+      if (path === "/api/connectors" && req.method === "POST") {
+        const body = (await req.json().catch(() => null)) as
+          | { user?: string; org?: boolean; name?: string; endpoint?: string; headers?: Record<string, string>; catalogSlug?: string; requireApproval?: boolean }
+          | null;
+        if (!body) return err(400, "invalid JSON body");
+        const owner = body.org ? "*org*" : ownerForUser(body.user);
+        const result = createConnector({
+          owner,
+          name: body.name ?? "",
+          endpoint: body.endpoint ?? "",
+          headers: body.headers,
+          catalogSlug: body.catalogSlug,
+          requireApproval: body.requireApproval,
+        });
+        if (!result.ok) return err(400, result.error);
+        return json({ connector: publicView(result.connector) });
+      }
+      if (path === "/api/connectors/catalog" && req.method === "GET") {
+        try {
+          const entries = await loadCatalog(url.searchParams.get("refresh") === "1");
+          const q = url.searchParams.get("q") ?? "";
+          const limit = Math.min(Math.max(Number(url.searchParams.get("limit")) || 50, 1), 200);
+          return json({ total: entries.length, results: searchCatalog(entries, q, limit) });
+        } catch (e) {
+          return err(502, e instanceof Error ? e.message : "could not load the catalog");
+        }
+      }
+      {
+        const m = path.match(/^\/api\/connectors\/([0-9a-f]+)$/);
+        if (m && req.method === "PATCH") {
+          const body = (await req.json().catch(() => null)) as Parameters<typeof updateConnector>[1] | null;
+          if (!body) return err(400, "invalid JSON body");
+          const result = updateConnector(m[1]!, body);
+          if (!result.ok) return err(result.error === "connector not found" ? 404 : 400, result.error);
+          await resetConnector(m[1]!);
+          return json({ connector: publicView(result.connector) });
+        }
+        if (m && req.method === "DELETE") {
+          const result = deleteConnector(m[1]!);
+          if (!result.ok) return err(404, result.error);
+          await resetConnector(m[1]!);
+          return json({ ok: true });
+        }
+      }
+      {
+        const m = path.match(/^\/api\/connectors\/([0-9a-f]+)\/tools$/);
+        if (m && req.method === "GET") {
+          const connector = getConnector(m[1]!);
+          if (!connector) return err(404, "connector not found");
+          const probe = await probeConnector(connector);
+          if (!probe.ok) return json({ ok: false, error: probe.error, tools: [] });
+          const { listConnectorTools } = await import("../connectors/hub.ts");
+          const tools = await listConnectorTools(connector);
+          return json({ ok: true, tools: tools.map((t) => ({ name: t.name, description: t.description })) });
+        }
+      }
+
       if (path === "/api/roles" && req.method === "GET") {
         return json({ roles: listRoles() });
       }
@@ -7104,6 +7250,27 @@ a{color:#60a5fa}
           // behalf (the agent was refused resume). The outcome, not the bare
           // "Approve", is what the session hears. Branch before the generic
           // delivery below so the word "Approve" is never sent as a message.
+          // A native connector approval: run or refuse the held call and
+          // deliver the outcome, before the generic answer delivery.
+          const connectorPending = pendingConnectorApprovalByAsk(q.id);
+          if (connectorPending) {
+            const outcome = await resolveConnectorApproval(connectorPending, isConnectorApprove(q.answer));
+            clearPendingConnectorApproval(q.id);
+            if (connectorPending.sessionId) {
+              try {
+                await fetch(`http://127.0.0.1:${PORT}/api/sessions/${connectorPending.sessionId}/send`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ text: outcome.text, mode: "steer" }),
+                });
+              } catch {
+                // answered + resolved; the transcript just missed the note
+              }
+            }
+            await markHandled(q.id);
+            return json({ question: q, approval: { approved: outcome.approved } });
+          }
+
           const pending = pendingApprovalByAsk(q.id);
           if (pending) {
             const approved = isApproveAnswer(q.answer);
