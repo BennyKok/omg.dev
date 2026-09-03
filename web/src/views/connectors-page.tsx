@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronRight, Plug, Plus, Shield, Trash2, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import type { ViewToggleKey } from "@/lib/viewer-role";
 import { Input } from "@/components/ui/input";
 import { ConnectorsNativePanel } from "./connectors-native";
 
@@ -22,9 +23,39 @@ export type Role = {
   sandbox: SandboxMode;
   network: NetworkMode;
   allowHosts: string[];
+  views: RoleViews;
+  members: string[];
   createdAt: number;
   updatedAt: number;
 };
+export type RoleViews = { hide: ViewToggleKey[]; hiddenPages: string[] };
+
+/** Same rows as Settings > View. A role can only turn a switch off. */
+export const VIEW_TOGGLE_ROWS: { key: ViewToggleKey; label: string }[] = [
+  { key: "showSidebarAgentIcons", label: "Agent icons in the sidebar" },
+  { key: "showSessionAgentIcons", label: "Agent icons in chat" },
+  { key: "showSessionDiffBar", label: "Worktree diff badge in chat" },
+  { key: "showComposerAgents", label: "Agent picker in the composer" },
+  { key: "showComposerModels", label: "Model picker in the composer" },
+  { key: "showBots", label: "Bots" },
+  { key: "showSchedules", label: "Schedules" },
+];
+
+/** Pages a role may hide. Live and Settings stay so a role cannot lock itself out. */
+export const HIDEABLE_PAGE_ROWS: { id: string; label: string }[] = [
+  { id: "notifications", label: "Notifications" },
+  { id: "artifacts", label: "Artifacts" },
+  { id: "board", label: "Board" },
+  { id: "computer", label: "Computer" },
+  { id: "auto", label: "Schedules page" },
+  { id: "usage", label: "Provider limits" },
+  { id: "coding-agents", label: "Coding agents" },
+  { id: "term", label: "Terminal" },
+  { id: "browser", label: "Browser" },
+  { id: "changelog", label: "Changelog" },
+];
+
+type RosterUser = { email: string; name?: string };
 
 
 type Tab = "roles" | "connectors";
@@ -126,9 +157,18 @@ const PATTERN_HELP = [
 
 export function RolesPanel() {
   const [roles, setRoles] = useState<Role[] | null>(null);
+  const [roster, setRoster] = useState<RosterUser[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    // The roster is who can be a member. Missing roster (no LFG_USERS) just
+    // leaves the member picker as a free email field.
+    void call<{ users: RosterUser[] }>("/api/users")
+      .then((payload) => setRoster(Array.isArray(payload.users) ? payload.users : []))
+      .catch(() => setRoster([]));
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -178,7 +218,7 @@ export function RolesPanel() {
       </div>
 
       {editable.map((role) => (
-        <RoleCard key={role.id} role={role} onChanged={load} onError={setError} />
+        <RoleCard key={role.id} role={role} roster={roster} onChanged={load} onError={setError} />
       ))}
 
       <form
@@ -213,19 +253,25 @@ export function RolesPanel() {
 
 function RoleCard({
   role,
+  roster,
   onChanged,
   onError,
 }: {
   role: Role;
+  roster: RosterUser[];
   onChanged: () => Promise<void>;
   onError: (message: string | null) => void;
 }) {
   const [pattern, setPattern] = useState("");
+  const [memberDraft, setMemberDraft] = useState("");
+  const views = role.views ?? { hide: [], hiddenPages: [] };
+  const members = role.members ?? [];
+  const unassigned = roster.filter((u) => !members.includes(u.email.toLowerCase()));
   const [action, setAction] = useState<RuleAction>("allow");
   const [busy, setBusy] = useState(false);
 
   const [hostDraft, setHostDraft] = useState("");
-  const save = async (patch: Partial<Pick<Role, "name" | "defaultAction" | "rules" | "sandbox" | "network" | "allowHosts">>) => {
+  const save = async (patch: Partial<Pick<Role, "name" | "defaultAction" | "rules" | "sandbox" | "network" | "allowHosts" | "views" | "members">>) => {
     setBusy(true);
     try {
       await call(`/api/roles/${role.id}`, { method: "PATCH", body: JSON.stringify(patch) });
@@ -378,6 +424,125 @@ function RoleCard({
             </form>
           </div>
         ) : null}
+      </div>
+
+      <div className="space-y-2 px-4 py-2.5">
+        <span className="block text-sm">Views</span>
+        <span className="block text-xs text-muted-foreground">
+          What this role does not see in the web UI. Layout only: tool rules below are the real limit.
+        </span>
+        <div className="grid gap-1 sm:grid-cols-2">
+          {VIEW_TOGGLE_ROWS.map((row) => {
+            const hidden = views.hide.includes(row.key);
+            return (
+              <label key={row.key} className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  aria-label={`${row.label} for ${role.name}`}
+                  checked={!hidden}
+                  disabled={busy}
+                  onChange={(e) =>
+                    void save({
+                      views: {
+                        ...views,
+                        hide: e.target.checked ? views.hide.filter((k) => k !== row.key) : [...views.hide, row.key],
+                      },
+                    })
+                  }
+                />
+                {row.label}
+              </label>
+            );
+          })}
+        </div>
+        <span className="block pt-1 text-xs text-muted-foreground">Pages</span>
+        <div className="grid gap-1 sm:grid-cols-2">
+          {HIDEABLE_PAGE_ROWS.map((page) => {
+            const hidden = views.hiddenPages.includes(page.id);
+            return (
+              <label key={page.id} className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  aria-label={`${page.label} page for ${role.name}`}
+                  checked={!hidden}
+                  disabled={busy}
+                  onChange={(e) =>
+                    void save({
+                      views: {
+                        ...views,
+                        hiddenPages: e.target.checked
+                          ? views.hiddenPages.filter((id) => id !== page.id)
+                          : [...views.hiddenPages, page.id],
+                      },
+                    })
+                  }
+                />
+                {page.label}
+              </label>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="space-y-2 px-4 py-2.5">
+        <span className="block text-sm">Members</span>
+        <span className="block text-xs text-muted-foreground">
+          Roster users who view and start sessions as this role. A user belongs to one role; anyone unlisted is the owner.
+        </span>
+        <div className="flex flex-wrap gap-1.5">
+          {members.length === 0 ? <span className="text-xs text-muted-foreground">No members.</span> : null}
+          {members.map((email) => (
+            <span key={email} className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px]">
+              <span>{roster.find((u) => u.email.toLowerCase() === email)?.name ?? email}</span>
+              <button
+                type="button"
+                aria-label={`Remove member ${email}`}
+                disabled={busy}
+                onClick={() => void save({ members: members.filter((m) => m !== email) })}
+                className="text-muted-foreground hover:text-destructive"
+              >
+                <Trash2 className="size-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const email = memberDraft.trim().toLowerCase();
+            if (!email || members.includes(email)) return;
+            void save({ members: [...members, email] }).then(() => setMemberDraft(""));
+          }}
+        >
+          {unassigned.length > 0 ? (
+            <select
+              aria-label={`Add member to ${role.name}`}
+              value={memberDraft}
+              disabled={busy}
+              onChange={(e) => setMemberDraft(e.target.value)}
+              className="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-xs"
+            >
+              <option value="">Pick a user</option>
+              {unassigned.map((u) => (
+                <option key={u.email} value={u.email}>
+                  {u.name ? `${u.name} (${u.email})` : u.email}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <Input
+              value={memberDraft}
+              onChange={(e) => setMemberDraft(e.target.value)}
+              placeholder="email"
+              aria-label={`Add member to ${role.name}`}
+              className="h-8 text-xs"
+            />
+          )}
+          <Button type="submit" size="sm" variant="secondary" disabled={busy || !memberDraft.trim()}>
+            Add member
+          </Button>
+        </form>
       </div>
 
       <ul className="divide-y divide-border">

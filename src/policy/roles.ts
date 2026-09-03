@@ -43,11 +43,60 @@ export interface Role {
   network: NetworkMode;
   /** Extra hostnames the allowlist permits, beyond the built-in model APIs. */
   allowHosts: string[];
+  /**
+   * What the web UI hides for a viewer in this role. Cosmetic: the box has no
+   * auth, so this is a layout decision, not a boundary. Tool rules above are
+   * the boundary. Owner hides nothing.
+   */
+  views: RoleViews;
+  /**
+   * Roster emails (src/users.ts) that resolve to this role. One email belongs
+   * to at most one role; assigning it here removes it elsewhere. Owner has no
+   * list: an email in no role is the owner.
+   */
+  members: string[];
   createdAt: number;
   updatedAt: number;
 }
 
 export type NetworkMode = "shared" | "allowlist";
+
+/** The box-wide view switches a role may turn off (src/settings.ts). */
+export const VIEW_TOGGLE_KEYS = [
+  "showSidebarAgentIcons",
+  "showSessionAgentIcons",
+  "showComposerModels",
+  "showComposerAgents",
+  "showBots",
+  "showSchedules",
+  "showSessionDiffBar",
+] as const;
+export type ViewToggleKey = (typeof VIEW_TOGGLE_KEYS)[number];
+
+/** Top-level pages a role may hide. Mirrors TAB_VALUES in web/src/lib/app-search.ts. */
+export const HIDEABLE_PAGES = [
+  "notifications",
+  "artifacts",
+  "auto",
+  "usage",
+  "coding-agents",
+  "changelog",
+  "term",
+  "browser",
+  "computer",
+  "board",
+] as const;
+/** `live` and `settings` stay visible so a role can never lock itself out. */
+export const ALWAYS_VISIBLE_PAGES = ["live", "settings"] as const;
+
+export interface RoleViews {
+  /** View toggles this role turns off, on top of the box-wide setting. */
+  hide: ViewToggleKey[];
+  /** Page ids this role cannot open. Never `live` or `settings`. */
+  hiddenPages: string[];
+}
+
+export const EMPTY_VIEWS: RoleViews = Object.freeze({ hide: [], hiddenPages: [] }) as RoleViews;
 
 export const OWNER_ROLE_ID = "owner";
 
@@ -60,6 +109,8 @@ export const OWNER_ROLE: Role = Object.freeze({
   sandbox: "none",
   network: "shared",
   allowHosts: [],
+  views: EMPTY_VIEWS,
+  members: [],
   createdAt: 0,
   updatedAt: 0,
 }) as Role;
@@ -86,6 +137,8 @@ function readFile(): RolesFile {
           sandbox: readSandbox(r.sandbox),
           network: readNetwork((r as Partial<Role>).network),
           allowHosts: readAllowHosts((r as Partial<Role>).allowHosts),
+          views: readViews((r as Partial<Role>).views),
+          members: readMembers((r as Partial<Role>).members),
         }))
       : [];
     return { version: 1, roles };
@@ -124,6 +177,88 @@ function readNetwork(value: unknown): NetworkMode {
 function readAllowHosts(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((h): h is string => typeof h === "string" && h.trim().length > 0).slice(0, 100);
+}
+
+// A role file from before views existed has no field; that role hides nothing.
+function readViews(value: unknown): RoleViews {
+  const v = (value ?? {}) as Partial<RoleViews>;
+  const hide = Array.isArray(v.hide) ? v.hide.filter(isViewToggleKey) : [];
+  const hiddenPages = Array.isArray(v.hiddenPages) ? v.hiddenPages.filter(isHideablePage) : [];
+  return { hide, hiddenPages };
+}
+
+function readMembers(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((m): m is string => typeof m === "string" && m.trim().length > 0).map(normalizeEmail);
+}
+
+function isViewToggleKey(value: unknown): value is ViewToggleKey {
+  return typeof value === "string" && (VIEW_TOGGLE_KEYS as readonly string[]).includes(value);
+}
+
+function isHideablePage(value: unknown): value is string {
+  return typeof value === "string" && (HIDEABLE_PAGES as readonly string[]).includes(value);
+}
+
+function validateViews(views: unknown): RoleViews | string {
+  if (views === undefined) return { hide: [], hiddenPages: [] };
+  if (!views || typeof views !== "object") return "views must be an object";
+  const v = views as Partial<RoleViews>;
+  const hide: ViewToggleKey[] = [];
+  if (v.hide !== undefined) {
+    if (!Array.isArray(v.hide)) return "views.hide must be an array";
+    for (const key of v.hide) {
+      if (!isViewToggleKey(key)) return `unknown view toggle "${String(key)}"`;
+      if (!hide.includes(key)) hide.push(key);
+    }
+  }
+  const hiddenPages: string[] = [];
+  if (v.hiddenPages !== undefined) {
+    if (!Array.isArray(v.hiddenPages)) return "views.hiddenPages must be an array";
+    for (const page of v.hiddenPages) {
+      if (typeof page === "string" && (ALWAYS_VISIBLE_PAGES as readonly string[]).includes(page)) {
+        return `page "${page}" cannot be hidden`;
+      }
+      if (!isHideablePage(page)) return `unknown page "${String(page)}"`;
+      if (!hiddenPages.includes(page)) hiddenPages.push(page);
+    }
+  }
+  return { hide, hiddenPages };
+}
+
+const MAX_MEMBERS = 500;
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function validateMembers(members: unknown): string[] | string {
+  if (members === undefined) return [];
+  if (!Array.isArray(members)) return "members must be an array";
+  if (members.length > MAX_MEMBERS) return `members must have at most ${MAX_MEMBERS} entries`;
+  const out: string[] = [];
+  for (const raw of members) {
+    if (typeof raw !== "string") return "each member must be a string";
+    const email = normalizeEmail(raw);
+    if (!email) continue;
+    if (email.length > 254 || !email.includes("@")) return `invalid member "${raw}"`;
+    if (!out.includes(email)) out.push(email);
+  }
+  return out;
+}
+
+/** One email belongs to at most one role. Drop it from every other role. */
+function claimMembers(file: RolesFile, roleId: string, members: string[]): void {
+  if (members.length === 0) return;
+  const taken = new Set(members);
+  for (const other of file.roles) {
+    if (other.id === roleId) continue;
+    const kept = other.members.filter((m) => !taken.has(m));
+    if (kept.length !== other.members.length) {
+      other.members = kept;
+      other.updatedAt = Date.now();
+    }
+  }
 }
 
 const MAX_HOST_LEN = 253;
@@ -213,6 +348,14 @@ export function roleEgress(roleId: string | undefined | null): { mode: NetworkMo
   return { mode: role.network, allowHosts: role.allowHosts };
 }
 
+/** The role a roster email resolves to. Unknown or unlisted emails are the owner. */
+export function roleForUser(email: string | undefined | null): Role {
+  if (!email) return OWNER_ROLE;
+  const wanted = normalizeEmail(email);
+  if (!wanted) return OWNER_ROLE;
+  return readFile().roles.find((r) => r.members.includes(wanted)) ?? OWNER_ROLE;
+}
+
 function slug(name: string): string {
   return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 }
@@ -224,6 +367,8 @@ export type RoleInput = {
   sandbox?: SandboxMode;
   network?: NetworkMode;
   allowHosts?: string[];
+  views?: RoleViews;
+  members?: string[];
 };
 
 export type RoleResult = { ok: true; role: Role } | { ok: false; error: string };
@@ -265,7 +410,24 @@ export function createRole(input: RoleInput): RoleResult {
   const network: NetworkMode = input.network === "allowlist" ? "allowlist" : "shared";
   const allowHosts = validateAllowHosts(input.allowHosts);
   if (typeof allowHosts === "string") return { ok: false, error: allowHosts };
-  const role: Role = { id: candidate, name, defaultAction, rules, sandbox, network, allowHosts, createdAt: now, updatedAt: now };
+  const views = validateViews(input.views);
+  if (typeof views === "string") return { ok: false, error: views };
+  const members = validateMembers(input.members);
+  if (typeof members === "string") return { ok: false, error: members };
+  const role: Role = {
+    id: candidate,
+    name,
+    defaultAction,
+    rules,
+    sandbox,
+    network,
+    allowHosts,
+    views,
+    members,
+    createdAt: now,
+    updatedAt: now,
+  };
+  claimMembers(file, candidate, members);
   file.roles.push(role);
   writeFile(file);
   return { ok: true, role };
@@ -308,6 +470,17 @@ export function updateRole(id: string, patch: Partial<RoleInput>): RoleResult {
     const hosts = validateAllowHosts(patch.allowHosts);
     if (typeof hosts === "string") return { ok: false, error: hosts };
     role.allowHosts = hosts;
+  }
+  if (patch.views !== undefined) {
+    const views = validateViews(patch.views);
+    if (typeof views === "string") return { ok: false, error: views };
+    role.views = views;
+  }
+  if (patch.members !== undefined) {
+    const members = validateMembers(patch.members);
+    if (typeof members === "string") return { ok: false, error: members };
+    role.members = members;
+    claimMembers(file, id, members);
   }
   role.updatedAt = Date.now();
   writeFile(file);
