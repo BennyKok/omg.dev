@@ -1,4 +1,4 @@
-import { Component, createContext, type ComponentProps, forwardRef, memo, Suspense, useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Component, createContext, type ComponentProps, forwardRef, memo, Suspense, useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type {
   Conversation as ProductConversation,
@@ -84,6 +84,11 @@ import {
   unknownConversationParticipant,
 } from "./lib/conversation-ui";
 import { UNREAD_DOT_CLASS } from "./lib/unread";
+import {
+  getFoldedRailGroups,
+  setFoldedRailGroup,
+  subscribeFoldedRailGroups,
+} from "./lib/rail-group-fold";
 import {
   addVisibleTranscriptSid,
   removeVisibleTranscriptSid,
@@ -11535,6 +11540,7 @@ function LiveView({
               label="Auto"
               count={findings.length}
               collapsed={false}
+              foldKey="__auto"
               action={
                 <span className="flex items-center gap-1">
                   <ClearFindingsButton
@@ -12173,10 +12179,19 @@ function RailStage({
     [railTree, topPinned],
   );
 
+  // A folded group takes its rows out of the DOM, so they must leave the
+  // keyboard order too. Otherwise j/k walks an invisible cursor and Enter
+  // opens a row the reader put away. The icon rail draws no headers and so
+  // cannot fold: there every row stays navigable.
+  const foldedRailGroups = useFoldedRailGroups();
+  const isRailGroupFolded = (key: string) =>
+    !railCollapsed && foldedRailGroups.includes(key);
   const railOrderedSessions = [
-    ...topPinnedSessions,
+    ...(isRailGroupFolded("__pinned") ? [] : topPinnedSessions),
     ...botSessions,
-    ...projectRailGroups.flatMap((group) => railTree.flatten(group.nodes)),
+    ...projectRailGroups.flatMap((group) =>
+      isRailGroupFolded(group.key) ? [] : railTree.flatten(group.nodes),
+    ),
   ];
 
   // Flat rail order the keyboard cursor walks (matching the visible rail;
@@ -12651,6 +12666,7 @@ function RailStage({
         label="Auto"
         count={findings.length}
         collapsed={railCollapsed}
+        foldKey="__auto"
         action={
           <span className="flex items-center gap-1">
             <ClearFindingsButton
@@ -13107,6 +13123,29 @@ function ShortcutsHelp({ onClose }: { onClose: () => void }) {
  * stage" on desktop and "go to its page" on mobile, and pretending those were
  * one call is how the two surfaces diverged in the first place.
  */
+// The folded group keys, live. One store behind every reader, so the desktop
+// rail, the mobile list and the keyboard order cannot disagree about which
+// groups are shut.
+function useFoldedRailGroups(): string[] {
+  return useSyncExternalStore(
+    subscribeFoldedRailGroups,
+    getFoldedRailGroups,
+    getFoldedRailGroups,
+  );
+}
+
+// Every session in a family, for the folded header's unread check. The dot
+// must survive folding, or shutting a group becomes a way to lose the "this
+// said something" signal its rows were carrying.
+function collectGroupSids(nodes: SessionTreeNode[], into: string[] = []): string[] {
+  for (const node of nodes) {
+    const sid = sessionStableId(node.session);
+    if (sid) into.push(sid);
+    collectGroupSids(node.children, into);
+  }
+  return into;
+}
+
 function SessionGroups({
   groups,
   pinnedNodes,
@@ -13203,7 +13242,13 @@ function SessionGroups({
     <>
       {leading}
       {pinnedCount ? (
-        <RailGroup label="Pinned" count={pinnedCount} collapsed={collapsed}>
+        <RailGroup
+          label="Pinned"
+          count={pinnedCount}
+          collapsed={collapsed}
+          foldKey="__pinned"
+          sids={collectGroupSids(pinnedNodes)}
+        >
           {pinnedNodes.map((node) => renderNode(node))}
         </RailGroup>
       ) : null}
@@ -13213,6 +13258,8 @@ function SessionGroups({
           label={group.label}
           count={group.count}
           collapsed={collapsed}
+          foldKey={group.key}
+          sids={collectGroupSids(group.nodes)}
           // The folder title IS the filter. Scoping used to live on the folder
           // button, which made that button mean two things — pick where a new
           // session runs, and narrow the list — and neither was discoverable
@@ -13243,6 +13290,8 @@ function RailGroup({
   action,
   onFilter,
   onClearFilter,
+  foldKey,
+  sids,
   children,
 }: {
   label: string;
@@ -13253,12 +13302,31 @@ function RailGroup({
   onFilter?: () => void;
   /** Drop the scope. Only the group that IS the current scope gets this. */
   onClearFilter?: () => void;
+  /**
+   * Stable identity under which this group's fold is persisted. Absent =
+   * the group cannot fold. The fixed groups use "__pinned"/"__auto"; a
+   * folder group uses its project key, which survives relabeling.
+   */
+  foldKey?: string;
+  /** Sessions inside the group, so a folded header can still carry unread. */
+  sids?: string[];
   children: ReactNode;
 }) {
+  const { unread } = useContext(SessionUnreadContext);
+  // A fold is this browser's reading posture, read from the one live set that
+  // every surface shares. Not local state: the mobile list mounts its own
+  // RailGroups, and the rail's keyboard order is built outside this component.
+  const foldedGroups = useFoldedRailGroups();
+  const folded = !!foldKey && foldedGroups.includes(foldKey);
+  const toggleFold = () => {
+    if (!foldKey) return;
+    setFoldedRailGroup(foldKey, !folded);
+  };
+  const foldedUnread = folded && !!sids?.some((sid) => unread.has(sid));
   // Not uppercased. A folder is named "lfg", not "LFG", and shouting every
   // group label made the rail's quietest text its loudest.
   const title = (
-    <span className={cn(onFilter && "transition-colors hover:text-foreground")}>
+    <span className={cn((onFilter || foldKey) && "transition-colors hover:text-foreground")}>
       {label} · {count}
     </span>
   );
@@ -13272,6 +13340,19 @@ function RailGroup({
               onClick={onFilter}
               title={`Show only ${label}`}
               aria-label={`Show only ${label}`}
+              className="min-w-0 truncate text-left outline-none focus-visible:text-foreground"
+            >
+              {title}
+            </button>
+          ) : foldKey ? (
+            // No filter to collide with, so the title itself folds too — the
+            // chevron alone is a small target on touch.
+            <button
+              type="button"
+              onClick={toggleFold}
+              title={folded ? `Show ${label}` : `Hide ${label}`}
+              aria-label={folded ? `Show ${label}` : `Hide ${label}`}
+              aria-expanded={!folded}
               className="min-w-0 truncate text-left outline-none focus-visible:text-foreground"
             >
               {title}
@@ -13293,10 +13374,38 @@ function RailGroup({
               <X className="size-3" />
             </button>
           ) : null}
-          {action ? <span className="ml-auto normal-case tracking-normal">{action}</span> : null}
+          {foldedUnread ? (
+            // The rows carry their own dots while open; folded, the header
+            // inherits the mark so a shut group cannot hide news.
+            <span className={cn(UNREAD_DOT_CLASS, "ml-1.5")} aria-hidden="true" />
+          ) : null}
+          {action || foldKey ? (
+            <span className="ml-auto flex items-center gap-1 normal-case tracking-normal">
+              {action}
+              {foldKey ? (
+                <button
+                  type="button"
+                  onClick={toggleFold}
+                  title={folded ? `Show ${label}` : `Hide ${label}`}
+                  aria-label={folded ? `Show ${label}` : `Hide ${label}`}
+                  aria-expanded={!folded}
+                  className="-my-1 flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <ChevronDown
+                    className={cn(
+                      "size-3.5 transition-transform duration-150",
+                      folded && "-rotate-90",
+                    )}
+                  />
+                </button>
+              ) : null}
+            </span>
+          ) : null}
         </div>
       ) : null}
-      <div className="flex flex-col gap-0.5">{children}</div>
+      {collapsed || !folded ? (
+        <div className="flex flex-col gap-0.5">{children}</div>
+      ) : null}
     </div>
   );
 }
