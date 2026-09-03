@@ -56,6 +56,36 @@ export function museApprovalMode(env: NodeJS.ProcessEnv = process.env): MuseAppr
   return raw && MUSE_APPROVAL_MODES.includes(raw) ? raw : "allowAll";
 }
 
+/**
+ * Provider routing for `session/start`. Left implicit, MSP resolves a bare
+ * `modelId` to provider `muse`, and that route cannot replay media it retained
+ * from an earlier model call: the first call with an uploaded image succeeds,
+ * the second one after a tool result fails with "retained media history is
+ * unsupported by target provider `muse`" (measured 2026-09-03, muse 1.0.2).
+ * The CLI's own default route is `meta`, which handles it; name it explicitly.
+ * LFG_MUSE_PROVIDER is the test hook (`echo` answers without a login).
+ */
+export function museProviderId(env: NodeJS.ProcessEnv = process.env): string {
+  return env.LFG_MUSE_PROVIDER?.trim() || "meta";
+}
+
+/** The `session/start` params for a fresh omg session. Exposed for tests. */
+export function museSessionStartParams(
+  cwd: string,
+  model: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): Record<string, unknown> {
+  const params: Record<string, unknown> = {
+    commandId: uuidv7(),
+    workspaceRoot: cwd,
+    approvalMode: museApprovalMode(env),
+    providerId: museProviderId(env),
+  };
+  // "auto" is omg's cross-agent placeholder for the provider default.
+  if (model && model !== "auto") params.modelId = model;
+  return params;
+}
+
 export const MUSE_REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "ultra"] as const;
 
 /** Map omg's thinking vocabulary onto Muse's `reasoningEffort`; unknown = server default. */
@@ -475,14 +505,10 @@ export async function cmdMuseMspSession(argv: string[]): Promise<void> {
         });
         sessionId = result?.session?.sessionId ?? resume;
       } else {
-        const params: Record<string, unknown> = {
-          commandId: uuidv7(),
-          workspaceRoot: cwd,
-          approvalMode: museApprovalMode(),
-        };
-        // "auto" is omg's cross-agent placeholder for the provider default.
-        if (model && model !== "auto") params.modelId = model;
-        const result = await client.request<{ session?: { sessionId?: string } }>("session/start", params);
+        const result = await client.request<{ session?: { sessionId?: string } }>(
+          "session/start",
+          museSessionStartParams(cwd, model),
+        );
         sessionId = result?.session?.sessionId ?? "";
         if (!sessionId) throw new Error("muse session/start returned no session id");
       }

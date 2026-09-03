@@ -4,7 +4,9 @@ import {
   applyMuseViewEvent,
   museApprovalMode,
   museReasoningEffort,
+  museProviderId,
   museServeArgv,
+  museSessionStartParams,
   museTurnInput,
   museUserInputAnswers,
   newMuseTurnState,
@@ -47,6 +49,15 @@ describe("muse launch vocabulary", () => {
 
   test("serve argv fixes the sandbox posture and trusts the workspace", () => {
     expect(museServeArgv()).toEqual(["serve", "--disable-sandbox", "--trust-workspace"]);
+  });
+
+  test("session/start names the meta route so retained media survives a tool call", () => {
+    expect(museProviderId({})).toBe("meta");
+    expect(museProviderId({ LFG_MUSE_PROVIDER: "echo" })).toBe("echo");
+    const params = museSessionStartParams("/w", "muse-spark-1.3", {});
+    expect(params).toMatchObject({ workspaceRoot: "/w", approvalMode: "allowAll", providerId: "meta", modelId: "muse-spark-1.3" });
+    expect(typeof params.commandId).toBe("string");
+    expect(museSessionStartParams("/w", "auto", {})).not.toHaveProperty("modelId");
   });
 
   test("approval mode defaults to allowAll and only accepts the closed enum", () => {
