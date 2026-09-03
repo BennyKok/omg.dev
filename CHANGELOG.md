@@ -2,6 +2,19 @@
 
 Recent product updates and deployment notes.
 
+## September 3, 2026 - Board in the desktop workspace (v0.6.38)
+
+- **The Board sits in the desktop workspace.** On a wide screen the session
+  rail stays on the left with its project selector. The four columns fill the
+  stage. The old header pill is gone from this page.
+- **A card opens its session beside the Board.** Click a card and the session
+  opens as a column next to the columns. Close it to return to the Board alone.
+  Narrow screens still open the session page.
+- **Sidebar faces follow the agent icon switch.** Turn off "Agent icons in the
+  sidebar" and the assignee face on each session row is hidden too.
+- **New setting: "Worktree diff badge in chat".** Turn it off to hide the
+  floating changes bar above the composer.
+
 ## September 3, 2026 - Fold a session group shut (v0.6.37)
 
 - **Session rail groups fold.** Every group header carries a chevron: Pinned,
