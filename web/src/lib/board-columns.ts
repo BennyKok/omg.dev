@@ -109,6 +109,10 @@ export function groupBoard(input: {
   for (const session of input.sessions) {
     const sid = session.sessionId;
     if (!sid) continue;
+    // A bot's session is the bot's conversation, not a task you started. It
+    // lives on the Bots page; on the Board it would read as a task that is
+    // always idle or always working. The server stamps `botId` on the record.
+    if (session.botId) continue;
     const question = questionBySession.get(sid);
     const card: BoardCard = {
       key: `session:${sid}`,
