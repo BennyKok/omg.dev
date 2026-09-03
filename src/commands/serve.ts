@@ -32,7 +32,7 @@ import {
 import { compressedAssetResponse, maybeCompressResponse } from "../http-compress.ts";
 import { serveOmgMcpRequest, serveComputerMcpRequest } from "../mcp-http.ts";
 import { serveExecutorMcpRequest } from "../executor/proxy.ts";
-import { forwardExecutorApi } from "../executor/api.ts";
+import { forwardExecutorApi, runManagementTool } from "../executor/api.ts";
 import {
   APPROVE,
   DENY,
@@ -4224,6 +4224,19 @@ export async function cmdServe() {
           await ensureExecutorAdopted();
           return await forwardExecutorApi(req, `/${m[1]!}`);
         }
+      }
+
+      // Run an allowlisted management tool (add an OpenAPI/MCP source, preview
+      // one) for the native Integrations panel. Not a general execute: the
+      // address is checked against MANAGEMENT_TOOLS (src/executor/api.ts).
+      if (path === "/api/executor/tool" && req.method === "POST") {
+        await ensureExecutorAdopted();
+        const body = (await req.json().catch(() => null)) as { address?: unknown; input?: unknown } | null;
+        const address = typeof body?.address === "string" ? body.address : "";
+        if (!address) return err(400, "address is required");
+        const result = await runManagementTool(address, body?.input ?? {});
+        if (!result.ok) return err(502, result.error);
+        return json(result);
       }
 
       // ---- roles ----

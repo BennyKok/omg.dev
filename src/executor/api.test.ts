@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { executorApiAllowed, forwardExecutorApi } from "./api.ts";
+import { executorApiAllowed, forwardExecutorApi, managementToolAllowed, runManagementTool } from "./api.ts";
 
 const UPSTREAM = { origin: "http://127.0.0.1:4788", token: "secret" };
 
@@ -72,5 +72,52 @@ describe("forwardExecutorApi", () => {
     expect(calls[0]!.body).toBe('{"owner":"org"}');
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([{ id: "pol_1" }]);
+  });
+});
+
+describe("management tools", () => {
+  test("only the source-management tools are allowed", () => {
+    expect(managementToolAllowed("executor.openapi.addSpec")).toBe(true);
+    expect(managementToolAllowed("executor.mcp.addServer")).toBe(true);
+    expect(managementToolAllowed("executor.coreTools.connections.list")).toBe(false);
+    expect(managementToolAllowed("anything.else")).toBe(false);
+  });
+
+  test("refuses a non-management address before touching the daemon", async () => {
+    let called = false;
+    const fetchImpl = (async () => {
+      called = true;
+      return Response.json({});
+    }) as unknown as typeof fetch;
+    const out = await runManagementTool("executor.coreTools.connections.list", {}, { origin: "http://x", token: "t" }, fetchImpl);
+    expect(out.ok).toBe(false);
+    expect(called).toBe(false);
+  });
+
+  test("runs an allowed tool via execute with autoApprove and the bearer", async () => {
+    const calls: { url: string; headers: Headers; body: string }[] = [];
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(input), headers: new Headers(init?.headers), body: String(init?.body) });
+      return Response.json({ status: "completed", text: "added", structured: { slug: "petstore" }, isError: false });
+    }) as unknown as typeof fetch;
+    const out = await runManagementTool(
+      "executor.openapi.addSpec",
+      { spec: { kind: "url", url: "https://ex/openapi.json" } },
+      { origin: "http://127.0.0.1:4788", token: "sec" },
+      fetchImpl,
+    );
+    expect(out.ok).toBe(true);
+    if (out.ok) expect(out.structured).toEqual({ slug: "petstore" });
+    expect(calls[0]!.url).toBe("http://127.0.0.1:4788/api/executions");
+    expect(calls[0]!.headers.get("authorization")).toBe("Bearer sec");
+    const sent = JSON.parse(calls[0]!.body) as { code: string; autoApprove: boolean };
+    expect(sent.autoApprove).toBe(true);
+    expect(sent.code).toContain("tools.executor.openapi.addSpec(");
+    expect(sent.code).toContain("https://ex/openapi.json");
+  });
+
+  test("no upstream is a clean failure", async () => {
+    const out = await runManagementTool("executor.openapi.addSpec", {}, null);
+    expect(out.ok).toBe(false);
   });
 });
