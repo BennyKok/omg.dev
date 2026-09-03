@@ -105,6 +105,30 @@ install command when it is missing.
 - Executor policy API facts: payload needs `owner: "org"`; actions are
   `approve`, `require_approval`, `block`; DELETE takes a body with `owner`.
 
+### Approvals in chat (landed)
+
+A gateway policy of `require_approval` pauses a connector call. In this box's
+`model` elicitation mode Executor would have the agent resolve that itself;
+`src/executor/approvals.ts` takes it back:
+
+```
+ agent -> execute (gated tool)
+   proxy sees waiting_for_interaction with an empty schema
+   -> posts an omg ask (Approve / Deny) on the session, via POST /api/ask
+   -> rewrites the reply: "wait, the owner was asked; do not resume"
+   -> records executionId -> askId (in memory)
+ agent -> resume(executionId)   refused while the ask is open
+ human -> Approve / Deny on the ask card in chat
+   -> omg calls Executor's REST resume with the daemon bearer
+   -> the outcome (or the refusal) is sent into the session as a message
+```
+
+The card is the existing ask surface (`web/src/components/ask-center.tsx`),
+so no new UI: the approval is an ask with `Approve` / `Deny` options. Only an
+interaction with an empty requested schema is treated as an approval; a real
+form (fields requested) keeps Executor's own flow. In memory on purpose: a
+serve restart drops the daemon's paused execution and this map together.
+
 Known limit: role rules see `executor.execute`, not the integration behind it.
 Per-integration restriction per role needs a per-role Executor instance
 (deferred). Box-wide per-integration rules go in Gateway policies.
