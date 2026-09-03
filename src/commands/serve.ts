@@ -4753,6 +4753,11 @@ a{color:#60a5fa}
               return err(400, "showComposerModels must be a boolean");
             patch.showComposerModels = b.showComposerModels;
           }
+          if (b?.showComposerAgents !== undefined) {
+            if (typeof b.showComposerAgents !== "boolean")
+              return err(400, "showComposerAgents must be a boolean");
+            patch.showComposerAgents = b.showComposerAgents;
+          }
           if (b?.showBots !== undefined) {
             if (typeof b.showBots !== "boolean") return err(400, "showBots must be a boolean");
             patch.showBots = b.showBots;

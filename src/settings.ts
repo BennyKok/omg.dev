@@ -63,6 +63,9 @@ export type GlobalSettings = {
   showSidebarAgentIcons: boolean;
   showSessionAgentIcons: boolean;
   showComposerModels: boolean;
+  // Off forces every new session onto defaultAgent; the composer shows no
+  // agent choice at all.
+  showComposerAgents: boolean;
   showBots: boolean;
   showSchedules: boolean;
 };
@@ -164,6 +167,7 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
   const showSidebarAgentIcons = input?.showSidebarAgentIcons !== false;
   const showSessionAgentIcons = input?.showSessionAgentIcons !== false;
   const showComposerModels = input?.showComposerModels !== false;
+  const showComposerAgents = input?.showComposerAgents !== false;
   const showBots = input?.showBots !== false;
   const showSchedules = input?.showSchedules !== false;
   return {
@@ -181,6 +185,7 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
     showSidebarAgentIcons,
     showSessionAgentIcons,
     showComposerModels,
+    showComposerAgents,
     showBots,
     showSchedules,
   };
@@ -292,6 +297,7 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
     write.run("showSidebarAgentIcons", JSON.stringify(next.showSidebarAgentIcons), now);
     write.run("showSessionAgentIcons", JSON.stringify(next.showSessionAgentIcons), now);
     write.run("showComposerModels", JSON.stringify(next.showComposerModels), now);
+    write.run("showComposerAgents", JSON.stringify(next.showComposerAgents), now);
     write.run("showBots", JSON.stringify(next.showBots), now);
     write.run("showSchedules", JSON.stringify(next.showSchedules), now);
   })();
