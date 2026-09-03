@@ -13,6 +13,8 @@ const MARKETING: Role = {
   sandbox: "none",
   network: "shared",
   allowHosts: [],
+  views: { hide: [], hiddenPages: [] },
+  members: [],
   createdAt: 0,
   updatedAt: 0,
 };

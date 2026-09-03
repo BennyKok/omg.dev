@@ -160,6 +160,8 @@ import {
 } from "./components/conversation-presence";
 import { SessionAssigneeAvatar } from "./components/session-assignee-avatar";
 import { UserFilterMenu } from "./components/user-filter-menu";
+import { ViewerRoleMenu } from "./components/viewer-role-menu";
+import { OWNER_VIEWER, applyRoleViews, fetchViewer, readRolePreview, writeRolePreview, type Viewer } from "./lib/viewer-role";
 import {
   AuthenticatedArtifactImage,
   AuthenticatedArtifactVideo,
@@ -5882,7 +5884,40 @@ export function App() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const routeSearch = useRouterState({ select: (s) => s.location.search as AppSearch });
-  const tab: string = pathnameToTab(pathname);
+  // The active profile for this browser ("who are you"). Null until chosen —
+  // when null (and a roster exists) we gate the app behind the picker on start.
+  const [identity, setIdentity] = useState<string | null>(() =>
+    localStorage.getItem("lfg_user"),
+  );
+  // The role this browser views as (GET /api/me): the identity's role from
+  // Settings > Roles, or an owner's chosen preview. Layout only; there is no
+  // auth here. The MCP role filter is the real boundary.
+  const [rolePreview, setRolePreview] = useState(readRolePreview);
+  const [roleViewer, setRoleViewer] = useState<Viewer>(OWNER_VIEWER);
+  const [roleOptions, setRoleOptions] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchViewer(identity, rolePreview, controller.signal)
+      .then((next) => {
+        if (next) setRoleViewer(next);
+      })
+      .catch(() => {});
+    void fetch("/api/roles", { credentials: "same-origin", signal: controller.signal })
+      .then(async (res) => (res.ok ? ((await res.json()) as { roles: { id: string; name: string }[] }) : null))
+      .then((payload) => {
+        if (payload) setRoleOptions(payload.roles.map((r) => ({ id: r.id, name: r.name })));
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [identity, rolePreview]);
+  const previewRole = useCallback((roleId: string) => {
+    writeRolePreview(roleId);
+    setRolePreview(roleId === "owner" ? "" : roleId);
+  }, []);
+  const requestedTab: string = pathnameToTab(pathname);
+  // A page the viewer's role hides falls back to Live. The path is left as
+  // is: switching role back restores it without a second navigation.
+  const tab: string = roleViewer.hiddenPages.includes(requestedTab) ? DEFAULT_TAB : requestedTab;
   // `/bots/<id>` is a chat. `/bots/new` and `/bots/<id>/edit` are the editor,
   // which is a PAGE and not a sheet over the list: a form with a name, a
   // persona, a face, a colour, a repo and a model is a place you go to, so it
@@ -6105,11 +6140,8 @@ export function App() {
   });
   const [projectFilter, setProjectFilter] = useState(readCachedProjectFilter);
   const didDefaultFilter = useRef(false);
-  // The active profile for this browser ("who are you"). Null until chosen —
-  // when null (and a roster exists) we gate the app behind the picker on start.
-  const [identity, setIdentity] = useState<string | null>(() =>
-    localStorage.getItem("lfg_user"),
-  );
+  const viewPrefs = useMemo(() => applyRoleViews(settings, roleViewer), [settings, roleViewer]);
+  const hiddenPages = roleViewer.hiddenPages;
   // Hosted surfaces do not show the profile picker. Their one-user roster is
   // still the assigned identity for server-owned bot read state.
   const botUnreadIdentity = identity ??
@@ -8566,7 +8598,7 @@ export function App() {
     <AskProvider>
     <UpdateProvider settings={settings} onSettingsChange={updateSettings}>
     <TranscriptViewContext.Provider value={transcriptViewPreference}>
-    <ViewPrefsContext.Provider value={settings}>
+    <ViewPrefsContext.Provider value={viewPrefs}>
     <ArtifactViewerContext.Provider value={openArtifactViewer}>
     <SessionTerminalContext.Provider value={setTerminalSid}>
     <OpenSettingsPageContext.Provider value={setTab}>
@@ -8657,11 +8689,14 @@ export function App() {
             <NavIsland className="shrink-0">
               <div className="glass-island flex h-11 items-center gap-1.5 rounded-full px-2">
                 {tab === "auto" ? null : (
-                  <UserFilterMenu
-                    value={userFilter}
-                    users={users}
-                    onChange={changeUserFilter}
-                  />
+                  <>
+                    <UserFilterMenu
+                      value={userFilter}
+                      users={users}
+                      onChange={changeUserFilter}
+                    />
+                    <ViewerRoleMenu viewer={roleViewer} roles={roleOptions} onPreview={previewRole} />
+                  </>
                 )}
                 {/* The machine roster comes first, then host actions, with our
                     overflow menu beside the screen edge where it opens. */}
@@ -8688,6 +8723,7 @@ export function App() {
                 />
                 <PagesMenu
                   tab={tab}
+                  hiddenPages={hiddenPages}
                   onOpenTab={setTab}
                   extraTabs={extNavTabs}
                   showSettings={false}
@@ -8704,14 +8740,18 @@ export function App() {
                     onto a page it cannot change would make the shared header
                     a promise the page does not keep. */}
                 {tab === "auto" ? null : (
-                  <UserFilterMenu
-                    value={userFilter}
-                    users={users}
-                    onChange={changeUserFilter}
-                  />
+                  <>
+                    <UserFilterMenu
+                      value={userFilter}
+                      users={users}
+                      onChange={changeUserFilter}
+                    />
+                    <ViewerRoleMenu viewer={roleViewer} roles={roleOptions} onPreview={previewRole} />
+                  </>
                 )}
                 <PagesMenu
                   tab={tab}
+                  hiddenPages={hiddenPages}
                   onOpenTab={setTab}
                   extraTabs={extNavTabs}
                   showSettings
@@ -8839,6 +8879,7 @@ export function App() {
                   users={users}
                   onChange={changeUserFilter}
                 />
+                <ViewerRoleMenu viewer={roleViewer} roles={roleOptions} onPreview={previewRole} />
               </>
             ) : null}
             {isMobile ? null : (
@@ -8854,6 +8895,7 @@ export function App() {
                 the chrome happens to live in a given layout. */}
             <PagesMenu
               tab={tab}
+              hiddenPages={hiddenPages}
               onOpenTab={setTab}
               extraTabs={extNavTabs}
               showSettings={!embedded}
@@ -8973,6 +9015,7 @@ export function App() {
               pagesMenu={
                 <PagesMenu
                   tab={tab}
+                  hiddenPages={hiddenPages}
                   onOpenTab={setTab}
                   extraTabs={extNavTabs}
                   showSettings={!embedded}
@@ -9949,6 +9992,7 @@ function PagesMenu({
   tab,
   onOpenTab,
   extraTabs,
+  hiddenPages = [],
   showSettings = true,
   onOpenHostSettings,
   className,
@@ -9956,6 +10000,8 @@ function PagesMenu({
   tab: string;
   onOpenTab: (tab: string) => void;
   extraTabs: ExtensionNavTab[];
+  /** Pages the viewer's role hides (src/policy/roles.ts views). */
+  hiddenPages?: string[];
   showSettings?: boolean;
   /**
    * Open the HOST's settings, for a surface where the host mounts those pages
@@ -10018,26 +10064,34 @@ function PagesMenu({
               control for that choice — repeating the destinations here made one
               decision reachable two ways, with the menu's version giving no
               hint that the faster one was inches below it. */}
-          <DropdownMenuRadioItem value="notifications">
-            <Bell className="size-5 shrink-0 text-muted-foreground" />
-            Notifications
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="artifacts">
-            <LayoutDashboard className="size-5 shrink-0 text-muted-foreground" />
-            Artifacts
-          </DropdownMenuRadioItem>
+          {hiddenPages.includes("notifications") ? null : (
+            <DropdownMenuRadioItem value="notifications">
+              <Bell className="size-5 shrink-0 text-muted-foreground" />
+              Notifications
+            </DropdownMenuRadioItem>
+          )}
+          {hiddenPages.includes("artifacts") ? null : (
+            <DropdownMenuRadioItem value="artifacts">
+              <LayoutDashboard className="size-5 shrink-0 text-muted-foreground" />
+              Artifacts
+            </DropdownMenuRadioItem>
+          )}
           {/* The Computer is a page like the others, not a tool buried under
               More: it is a place you go to and hand someone a link to. */}
-          <DropdownMenuRadioItem value="computer">
-            <Monitor className="size-5 shrink-0 text-muted-foreground" />
-            Computer
-          </DropdownMenuRadioItem>
+          {hiddenPages.includes("computer") ? null : (
+            <DropdownMenuRadioItem value="computer">
+              <Monitor className="size-5 shrink-0 text-muted-foreground" />
+              Computer
+            </DropdownMenuRadioItem>
+          )}
           {/* The Board reads the same sessions as Live, laid out by state. It
               is read-only, so it sits with the other "look at" pages. */}
-          <DropdownMenuRadioItem value="board">
-            <SquareKanban className="size-5 shrink-0 text-muted-foreground" />
-            Board
-          </DropdownMenuRadioItem>
+          {hiddenPages.includes("board") ? null : (
+            <DropdownMenuRadioItem value="board">
+              <SquareKanban className="size-5 shrink-0 text-muted-foreground" />
+              Board
+            </DropdownMenuRadioItem>
+          )}
           {showSettings ? (
             <>
               <DropdownMenuSeparator />
