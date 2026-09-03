@@ -102,6 +102,16 @@ install command when it is missing.
 - UI: Settings > Roles & tool access. Tabs: Roles (omg), Gateway policies
   (Executor, box-wide), Integrations (Executor UI in an iframe). New-session
   composer gets a role pill once a role other than owner exists.
+- Views and members (landed): `role.views = { hide, hiddenPages }` turns off
+  Settings > View switches and hides top-level pages for viewers in that role.
+  Layout only; the box has no auth, so the MCP filter above stays the boundary.
+  `live` and `settings` cannot be hidden. `role.members` is a roster email
+  list; one email belongs to one role, unlisted emails are the owner. This is
+  the field vibes sync will write into. `GET /api/me?user=&role=` resolves
+  the browser's pick (`lfg_user`) to `{ role, views, hide, hiddenPages }`;
+  an owner may pass `role=` to preview. A new session with no explicit `role`
+  takes the tagged user's role. The header shows a role pill next to the user
+  filter once a role other than owner exists.
 - Executor policy API facts: payload needs `owner: "org"`; actions are
   `approve`, `require_approval`, `block`; DELETE takes a body with `owner`.
 

@@ -50,7 +50,7 @@ import {
 } from "../executor/approvals.ts";
 import { resolveCaller } from "../policy/caller.ts";
 import { enforceRole } from "../policy/mcp-filter.ts";
-import { createRole, deleteRole, getRole, listRoles, roleEgress, roleSandbox, updateRole, OWNER_ROLE_ID } from "../policy/roles.ts";
+import { createRole, deleteRole, getRole, listRoles, roleEgress, roleForUser, roleSandbox, updateRole, OWNER_ROLE_ID, VIEW_TOGGLE_KEYS } from "../policy/roles.ts";
 import { DEFAULT_ALLOW_HOSTS, startEgressProxy, type EgressProxy } from "../sandbox/egress-proxy.ts";
 import { sessionToken, verifySessionToken } from "../policy/session-token.ts";
 import {
@@ -4239,6 +4239,33 @@ export async function cmdServe() {
         return json(result);
       }
 
+      // Who the browser is viewing as, and what that role lets it see. The
+      // user is the browser's own pick (lfg_user); there is no auth, so this
+      // is a layout answer. Owner may preview another role with `?role=`.
+      if (path === "/api/me" && req.method === "GET") {
+        const user = url.searchParams.get("user")?.trim() || undefined;
+        const preview = url.searchParams.get("role")?.trim() || undefined;
+        let role = roleForUser(user);
+        if (preview && role.id === OWNER_ROLE_ID) {
+          const wanted = getRole(preview);
+          if (!wanted) return err(404, `unknown role "${preview}"`);
+          role = wanted;
+        }
+        const settings = getGlobalSettingsSync();
+        const views: Record<string, boolean> = {};
+        for (const key of VIEW_TOGGLE_KEYS) views[key] = settings[key] && !role.views.hide.includes(key);
+        return json({
+          user: user ?? null,
+          role: { id: role.id, name: role.name },
+          canSwitchRole: roleForUser(user).id === OWNER_ROLE_ID,
+          views,
+          // The raw role lists too, so the web can AND them against a settings
+          // change without a round trip.
+          hide: role.views.hide,
+          hiddenPages: role.views.hiddenPages,
+        });
+      }
+
       // ---- roles ----
       // Per-role tool policy for sessions on this box (src/policy/roles.ts).
       // Rules use Executor's pattern grammar over `<server>.<tool>` ids.
@@ -8401,7 +8428,9 @@ a{color:#60a5fa}
         } | null;
         const requestedRole = typeof body?.role === "string" ? body.role.trim() : "";
         if (requestedRole && !getRole(requestedRole)) return err(400, `unknown role "${requestedRole}"`);
-        const sessionRole = requestedRole && requestedRole !== OWNER_ROLE_ID ? requestedRole : undefined;
+        // Resolved below once the user tag is known: an explicit role wins,
+        // else the tagged user's role (src/policy/roles.ts members).
+        let sessionRole: string | undefined;
         const agent = resolveActiveSessionAgent(body?.agent);
         if (!agent) {
           if (body?.agent === "hermes") return err(410, "agent \"hermes\" has been removed");
@@ -8610,6 +8639,8 @@ a{color:#60a5fa}
                         ? resolvedModel ?? PI_DEFAULT_MODEL
                         : resolvedModel;
         const requestedTitle = body?.title?.trim().slice(0, 200);
+        const resolvedRole = requestedRole || roleForUser(assignedUser).id;
+        sessionRole = resolvedRole !== OWNER_ROLE_ID ? resolvedRole : undefined;
         const claim = addManaged({
           tmuxName,
           cwd,
