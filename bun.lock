@@ -48,6 +48,13 @@
         "@omg-dev/protocol": "workspace:*",
       },
     },
+    "packages/connectors": {
+      "name": "@omg-dev/connectors",
+      "version": "0.1.0",
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.30.0",
+      },
+    },
     "packages/protocol": {
       "name": "@omg-dev/protocol",
       "version": "0.1.84",
@@ -546,6 +553,8 @@
     "@omg-dev/cli": ["@omg-dev/cli@workspace:packages/cli"],
 
     "@omg-dev/client": ["@omg-dev/client@workspace:packages/client"],
+
+    "@omg-dev/connectors": ["@omg-dev/connectors@workspace:packages/connectors"],
 
     "@omg-dev/desktop": ["@omg-dev/desktop@workspace:desktop"],
 

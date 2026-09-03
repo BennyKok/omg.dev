@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
-import { PATHS } from "../config.ts";
+import { configureConnectors } from "./context.ts";
 import { ORG_OWNER, createConnector } from "./store.ts";
 import { resetAllConnectorsForTests } from "./hub.ts";
 import { serveConnectorsMcpRequest, splitConnectorTool } from "./mcp-endpoint.ts";
@@ -32,12 +32,11 @@ async function answer(req: Request, label: string): Promise<Response> {
 }
 
 let tmp: string;
-const originalData = PATHS.data;
 let s1: ReturnType<typeof Bun.serve>, s2: ReturnType<typeof Bun.serve>;
 
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), "omg-cmcp-"));
-  PATHS.data = tmp;
+  configureConnectors({ dataDir: () => tmp, secret: () => "test-secret", baseUrl: () => "http://127.0.0.1:8766" });
   s1 = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: (r) => answer(r, "bennySrv") });
   s2 = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: (r) => answer(r, "sharedSrv") });
 });
@@ -46,7 +45,6 @@ afterEach(async () => {
   await resetAllConnectorsForTests();
   s1.stop(true);
   s2.stop(true);
-  PATHS.data = originalData;
   rmSync(tmp, { recursive: true, force: true });
 });
 

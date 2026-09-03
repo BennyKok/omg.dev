@@ -10,8 +10,8 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { PATHS } from "../config.ts";
-import { boxSecretMaterial } from "../policy/session-token.ts";
+import { connectorDataDir } from "./context.ts";
+import { connectorSecret } from "./context.ts";
 
 export interface OAuthClientInfo {
   client_id: string;
@@ -42,13 +42,13 @@ interface FileShape {
 }
 
 function filePath(): string {
-  return join(PATHS.data, "connector-oauth.enc");
+  return join(connectorDataDir(), "connector-oauth.enc");
 }
 
 function key(): Buffer {
   // A stable 32-byte key from the box secret. createHash gives determinism
   // across restarts so previously-stored tokens stay decryptable.
-  return createHash("sha256").update(`connector-oauth:${boxSecretMaterial()}`).digest();
+  return createHash("sha256").update(`connector-oauth:${connectorSecret()}`).digest();
 }
 
 function encrypt(plaintext: string): string {
@@ -84,7 +84,7 @@ function read(): FileShape {
 }
 
 function write(file: FileShape): void {
-  mkdirSync(PATHS.data, { recursive: true });
+  mkdirSync(connectorDataDir(), { recursive: true });
   const tmp = `${filePath()}.tmp`;
   writeFileSync(tmp, encrypt(JSON.stringify(file)), { mode: 0o600 });
   renameSync(tmp, filePath());

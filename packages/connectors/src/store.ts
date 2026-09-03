@@ -12,7 +12,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
-import { PATHS } from "../config.ts";
+import { connectorDataDir } from "./context.ts";
 
 /** Connections everyone in the team may use. */
 export const ORG_OWNER = "*org*";
@@ -49,7 +49,7 @@ export type PublicConnector = Omit<Connector, "headers"> & { headerNames: string
 const MAX = 500;
 
 function filePath(): string {
-  return join(PATHS.data, "connectors.json");
+  return join(connectorDataDir(), "connectors.json");
 }
 
 interface FileShape {
@@ -69,7 +69,7 @@ function read(): FileShape {
 }
 
 function write(file: FileShape): void {
-  mkdirSync(PATHS.data, { recursive: true });
+  mkdirSync(connectorDataDir(), { recursive: true });
   const tmp = `${filePath()}.tmp`;
   writeFileSync(tmp, JSON.stringify(file, null, 2));
   renameSync(tmp, filePath());

@@ -33,10 +33,9 @@ import { compressedAssetResponse, maybeCompressResponse } from "../http-compress
 import { serveOmgMcpRequest, serveComputerMcpRequest } from "../mcp-http.ts";
 import { resolveCaller } from "../policy/caller.ts";
 import {
+  configureConnectors,
   serveConnectorsMcpRequest,
   type ApprovalGate as ConnectorApprovalGate,
-} from "../connectors/mcp-endpoint.ts";
-import {
   createConnector,
   deleteConnector,
   getConnector,
@@ -44,12 +43,13 @@ import {
   ownerForUser,
   publicView,
   updateConnector,
-} from "../connectors/store.ts";
-import { probeConnector, resetConnector } from "../connectors/hub.ts";
-import { loadCatalog, searchCatalog } from "../connectors/catalog.ts";
-import { startConnectorOAuth, completeConnectorOAuth } from "../connectors/oauth-provider.ts";
-import { hasTokens as hasOAuthTokens } from "../connectors/oauth-store.ts";
-import {
+  probeConnector,
+  resetConnector,
+  loadCatalog,
+  searchCatalog,
+  startConnectorOAuth,
+  completeConnectorOAuth,
+  hasTokens as hasOAuthTokens,
   APPROVE as CONNECTOR_APPROVE,
   DENY as CONNECTOR_DENY,
   clearPendingConnectorApproval,
@@ -59,11 +59,11 @@ import {
   pendingConnectorApprovalByAsk,
   registerPendingConnectorApproval,
   resolveConnectorApproval,
-} from "../connectors/approvals.ts";
+} from "@omg-dev/connectors";
 import { enforceRole } from "../policy/mcp-filter.ts";
 import { createRole, deleteRole, getRole, listRoles, roleEgress, roleForUser, roleSandbox, updateRole, OWNER_ROLE_ID, VIEW_TOGGLE_KEYS } from "../policy/roles.ts";
 import { DEFAULT_ALLOW_HOSTS, startEgressProxy, type EgressProxy } from "../sandbox/egress-proxy.ts";
-import { sessionToken, verifySessionToken } from "../policy/session-token.ts";
+import { sessionToken, verifySessionToken, boxSecretMaterial } from "../policy/session-token.ts";
 import * as pwaBootLog from "../pwa-boot-log.ts";
 import { botRuntimeContract, shortSessionId } from "../omg-capabilities.ts";
 import {
@@ -4221,7 +4221,7 @@ export async function cmdServe() {
       {
         const m = path.match(/^\/api\/connectors\/([0-9a-f]+)\/oauth$/);
         if (req.method === "DELETE" && m) {
-          const { clearOAuth } = await import("../connectors/oauth-store.ts");
+          const { clearOAuth } = await import("@omg-dev/connectors");
           clearOAuth(m[1]!);
           await resetConnector(m[1]!);
           return json({ ok: true });
@@ -4280,7 +4280,7 @@ export async function cmdServe() {
           if (!connector) return err(404, "connector not found");
           const probe = await probeConnector(connector);
           if (!probe.ok) return json({ ok: false, error: probe.error, tools: [] });
-          const { listConnectorTools } = await import("../connectors/hub.ts");
+          const { listConnectorTools } = await import("@omg-dev/connectors");
           const tools = await listConnectorTools(connector);
           return json({ ok: true, tools: tools.map((t) => ({ name: t.name, description: t.description })) });
         }
@@ -10811,6 +10811,14 @@ a{color:#60a5fa}
   // Keep SQLite as the chat read model for every active session. Transcript
   // JSONL files are treated as an import source; live draft deltas stay
   // ephemeral until the provider writes the completed turn.
+  // Give the connector package (@omg-dev/connectors) this host's data dir,
+  // token-encryption secret, and base URL. The same package runs in the
+  // hosted omg.dev sandbox with its own values.
+  configureConnectors({
+    dataDir: () => PATHS.data,
+    secret: () => boxSecretMaterial(),
+    baseUrl: () => localServeBaseUrl(),
+  });
   startChatIngestMonitor(listSessionsCached);
 
   // The egress proxy: a restricted-role session's harness is pointed here, so
