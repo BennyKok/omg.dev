@@ -4767,6 +4767,11 @@ a{color:#60a5fa}
               return err(400, "showSchedules must be a boolean");
             patch.showSchedules = b.showSchedules;
           }
+          if (b?.showSessionDiffBar !== undefined) {
+            if (typeof b.showSessionDiffBar !== "boolean")
+              return err(400, "showSessionDiffBar must be a boolean");
+            patch.showSessionDiffBar = b.showSessionDiffBar;
+          }
           if (b?.customInstructions !== undefined) {
             if (
               typeof b.customInstructions !== "string" ||
