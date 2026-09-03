@@ -100,8 +100,8 @@ install command when it is missing.
   `/api/executor/api/<allowlisted>` forwards policies, tools, integrations
   and connections to Executor with the bearer injected.
 - UI: Settings > Roles & tool access. Tabs: Roles (omg), Gateway policies
-  (Executor, box-wide), Integrations (Executor UI in an iframe). New-session
-  composer gets a role pill once a role other than owner exists.
+  (Executor, box-wide), Integrations (Executor UI in an iframe). The
+  composer has no role picker: a new session takes its user's role.
 - Views and members (landed): `role.views = { hide, hiddenPages }` turns off
   Settings > View switches and hides top-level pages for viewers in that role.
   Layout only; the box has no auth, so the MCP filter above stays the boundary.
