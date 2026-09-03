@@ -1119,6 +1119,8 @@ type GlobalSettings = {
   showSidebarAgentIcons: boolean;
   showSessionAgentIcons: boolean;
   showComposerModels: boolean;
+  // Off: no agent choice in the composer; every new session uses defaultAgent.
+  showComposerAgents: boolean;
   showBots: boolean;
   showSchedules: boolean;
 };
@@ -1137,6 +1139,7 @@ type ViewPrefs = Pick<
   | "showSidebarAgentIcons"
   | "showSessionAgentIcons"
   | "showComposerModels"
+  | "showComposerAgents"
   | "showBots"
   | "showSchedules"
 >;
@@ -1146,6 +1149,7 @@ const DEFAULT_VIEW_PREFS: ViewPrefs = {
   showSidebarAgentIcons: true,
   showSessionAgentIcons: true,
   showComposerModels: true,
+  showComposerAgents: true,
   showBots: true,
   showSchedules: true,
 };
@@ -21365,8 +21369,13 @@ function NewSessionDialog({
     if (!view.showComposerModels && boxDefault) return boxDefault;
     return localStorage.getItem(`lfg_model_${key}`) || boxDefault || defaultModelFor(key);
   };
-  const [agent, setAgent] = useState<AgentKind>(
-    () => resolveInitialAgent(localStorage.getItem("lfg_v2_agent"), defaultAgent),
+  // With the agent picker hidden the box default is the only agent; the
+  // browser's saved pick is ignored rather than silently launching something
+  // the composer never showed.
+  const [agent, setAgent] = useState<AgentKind>(() =>
+    view.showComposerAgents
+      ? resolveInitialAgent(localStorage.getItem("lfg_v2_agent"), defaultAgent)
+      : defaultAgent,
   );
   const [claudeAccountId, setClaudeAccountId] = useState("");
   const [repo, setRepo] = useState(() => localStorage.getItem("lfg_v2_repo") || "");
@@ -22296,6 +22305,7 @@ function NewSessionDialog({
           models={models}
           onModelChange={setModel}
           showModels={view.showComposerModels}
+          showAgents={view.showComposerAgents}
         />
       )}
 
@@ -24059,6 +24069,7 @@ function AgentModelPicker<K extends AgentKind>({
   models,
   onModelChange,
   showModels = true,
+  showAgents = true,
 }: {
   options: readonly {
     key: K;
@@ -24080,9 +24091,13 @@ function AgentModelPicker<K extends AgentKind>({
   /** Off: the pill names the agent and the popover lists agents only. The
    *  model then comes from the box default (see ViewPrefs). */
   showModels?: boolean;
+  /** Off: no agent strip; the pill is a model picker with the agent's icon. */
+  showAgents?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Nothing to choose: the pill would open an empty popover.
+  if (!showAgents && !showModels) return null;
   const trigger = (
     <button
       type="button"
@@ -24127,17 +24142,19 @@ function AgentModelPicker<K extends AgentKind>({
                 row and the list under it is obviously models; the words
                 only added height. Each agent button still carries its name
                 as a title/aria-label. */}
-            <AgentIconStrip
-              options={options}
-              value={agent}
-              selectedId={selectedId}
-              onSelect={onSelectAgent}
-              onLocked={(key) => {
-                setOpen(false);
-                onLocked?.(key);
-              }}
-              className={cn("h-auto max-w-full flex-wrap", showModels && "mb-1.5")}
-            />
+            {showAgents ? (
+              <AgentIconStrip
+                options={options}
+                value={agent}
+                selectedId={selectedId}
+                onSelect={onSelectAgent}
+                onLocked={(key) => {
+                  setOpen(false);
+                  onLocked?.(key);
+                }}
+                className={cn("h-auto max-w-full flex-wrap", showModels && "mb-1.5")}
+              />
+            ) : null}
             {showModels ? (
               <ModelOptionList
                 value={model}
@@ -27860,6 +27877,7 @@ function ViewSettingsSection({
   const rows: { key: keyof ViewPrefs & `show${string}`; label: string; hint: string }[] = [
     { key: "showSidebarAgentIcons", label: "Agent icons in the sidebar", hint: "The harness mark on each session row." },
     { key: "showSessionAgentIcons", label: "Agent icons in chat", hint: "The harness mark in a session's header." },
+    { key: "showComposerAgents", label: "Agent picker in the composer", hint: "Off: every new session uses the default agent." },
     { key: "showComposerModels", label: "Model picker in the composer", hint: "Off: every new session uses the default model." },
     { key: "showBots", label: "Bots", hint: "The Bots surface and its switch." },
     { key: "showSchedules", label: "Schedules", hint: "The Schedules surface and its switch." },
