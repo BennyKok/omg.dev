@@ -21576,23 +21576,9 @@ function NewSessionDialog({
       : defaultAgent,
   );
   const [claudeAccountId, setClaudeAccountId] = useState("");
-  // Role the new session runs as (Settings > Roles). "" is owner. The picker
-  // only appears once a role other than owner exists on this box.
-  const [role, setRole] = useState(() => localStorage.getItem("lfg_v2_role") || "");
-  const [roleOptions, setRoleOptions] = useState<{ id: string; name: string }[]>([]);
-  useEffect(() => {
-    const controller = new AbortController();
-    void fetch("/api/roles", { credentials: "same-origin", signal: controller.signal })
-      .then(async (res) => (res.ok ? ((await res.json()) as { roles: { id: string; name: string }[] }) : null))
-      .then((payload) => {
-        if (!payload) return;
-        setRoleOptions(payload.roles.map((r) => ({ id: r.id, name: r.name })));
-        // A remembered role that no longer exists must not be sent.
-        setRole((current) => (payload.roles.some((r) => r.id === current) ? current : ""));
-      })
-      .catch(() => {});
-    return () => controller.abort();
-  }, []);
+  // No role picker here. The server gives a new session the role of the
+  // user it is tagged with (src/policy/roles.ts members); a member cannot
+  // pick another role, and the owner's sessions are owner sessions.
   const [repo, setRepo] = useState(() => localStorage.getItem("lfg_v2_repo") || "");
   const [model, setModel] = useState(
     () =>
@@ -22330,7 +22316,6 @@ function NewSessionDialog({
             thinkingLevel: thinkingLevels.length ? launchThinkingLevel : undefined,
             fastMode: launchFastMode,
             claudeAccountId: launchClaudeAccountId,
-            role: role || undefined,
             overLimit: overLimit || undefined,
           }),
         });
@@ -22544,25 +22529,6 @@ function NewSessionDialog({
           onToggle={() => setFastMode(!fastModeEnabled)}
           flat={variant === "inline"}
         />
-      ) : null}
-
-      {roleOptions.length > 1 ? (
-        <select
-          aria-label="Session role"
-          title="Role: which tools this session may use"
-          value={role}
-          onChange={(e) => {
-            setRole(e.target.value);
-            localStorage.setItem("lfg_v2_role", e.target.value);
-          }}
-          className="h-7 max-w-32 rounded-full border border-border bg-background px-2 text-xs"
-        >
-          {roleOptions.map((option) => (
-            <option key={option.id} value={option.id === "owner" ? "" : option.id}>
-              {option.name}
-            </option>
-          ))}
-        </select>
       ) : null}
 
       {agent === "codex" || agent === "codex-aisdk" ? (
