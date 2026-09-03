@@ -10,7 +10,7 @@ import {
   agentLaunchMemoryBudget,
   computerAgentAdmissionContext,
 } from "../agent-admission.ts";
-import { PATHS, appVersion, installInfo } from "../config.ts";
+import { PATHS, appVersion, installInfo, localServeBaseUrl } from "../config.ts";
 import { desktopRuntimeReadyPayload } from "../desktop-parent.ts";
 import { handleServerAccessRequest } from "../server-access.ts";
 import {
@@ -47,6 +47,8 @@ import {
 } from "../connectors/store.ts";
 import { probeConnector, resetConnector } from "../connectors/hub.ts";
 import { loadCatalog, searchCatalog } from "../connectors/catalog.ts";
+import { startConnectorOAuth, completeConnectorOAuth } from "../connectors/oauth-provider.ts";
+import { hasTokens as hasOAuthTokens } from "../connectors/oauth-store.ts";
 import {
   APPROVE as CONNECTOR_APPROVE,
   DENY as CONNECTOR_DENY,
@@ -756,6 +758,31 @@ const PORT = Number(process.env.LFG_PORT ?? process.env.PORT ?? 8766);
 
 /** Ceiling on any single request body. See the Bun.serve options for why. */
 const MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024;
+
+// The base URL the OAuth redirect_uri is built from. A managed UI passes its
+// hosted relay base explicitly; otherwise the browser's own origin (so a
+// Tailscale user redirects back to the Tailscale URL) is used, falling back to
+// the loopback base for a purely local flow.
+function oauthRedirectBase(req: Request, explicit?: string): string {
+  if (explicit && /^https?:\/\//.test(explicit)) return explicit;
+  const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
+  if (host) {
+    const proto = req.headers.get("x-forwarded-proto") || (host.includes(".ts.net") || host.endsWith(":443") ? "https" : "http");
+    return `${proto}://${host}`;
+  }
+  return localServeBaseUrl();
+}
+
+// The tiny page a browser lands on after the provider redirect: it reports the
+// outcome and closes the popup.
+function oauthClosePage(message: string, ok: boolean): Response {
+  const html = `<!doctype html><meta charset="utf-8"><title>omg connector</title>
+<body style="font:14px system-ui;margin:3rem;text-align:center;color:${ok ? "#111" : "#b00"}">
+<p>${message.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" })[c]!)}</p>
+<script>try{window.opener&&window.opener.postMessage({omgOauth:${ok}},"*")}catch(e){}setTimeout(()=>window.close(),1500)</script>
+</body>`;
+  return new Response(html, { status: 200, headers: { "content-type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+}
 
 // The connector owner (member) a session runs as: its assigned user, or the
 // box owner bucket when unassigned. All of a member's sessions therefore share
@@ -4151,11 +4178,58 @@ export async function cmdServe() {
       // plus org-shared connectors. Secrets are stripped from every response.
       if (path === "/api/connectors" && req.method === "GET") {
         const owner = ownerForUser(url.searchParams.get("user"));
-        return json({ connectors: listConnectors(owner).map(publicView) });
+        return json({
+          connectors: listConnectors(owner).map((c) => ({ ...publicView(c), oauthConnected: hasOAuthTokens(c.id) })),
+        });
+      }
+
+      // ---- connector OAuth ----
+      // omg owns the MCP OAuth flow (src/connectors/oauth-provider.ts). start
+      // returns an authorize URL for the browser; the callback (browser GET) or
+      // complete (POST, for a hosted relay) exchanges the code and stores the
+      // tokens. redirectBase lets a managed UI point the redirect at its relay.
+      {
+        const m = path.match(/^\/api\/connectors\/([0-9a-f]+)\/oauth\/start$/);
+        if (m && req.method === "POST") {
+          const connector = getConnector(m[1]!);
+          if (!connector) return err(404, "connector not found");
+          const body = (await req.json().catch(() => null)) as { redirectBase?: string } | null;
+          const base = oauthRedirectBase(req, body?.redirectBase);
+          const result = await startConnectorOAuth(connector, base);
+          if (!result.ok) return err(502, result.error);
+          return json(result);
+        }
+      }
+      if (path === "/api/connectors/oauth/callback" && req.method === "GET") {
+        const code = url.searchParams.get("code") ?? "";
+        const state = url.searchParams.get("state") ?? "";
+        const errorParam = url.searchParams.get("error");
+        if (errorParam) return oauthClosePage(`Authorization was cancelled: ${errorParam}`, false);
+        const result = code && state ? await completeConnectorOAuth(state, code, getConnector) : { ok: false as const, error: "missing code or state" };
+        if (result.ok) await resetConnector(result.connectorId);
+        return oauthClosePage(result.ok ? "Connected. You can close this window." : `Could not connect: ${result.error}`, result.ok);
+      }
+      if (path === "/api/connectors/oauth/callback" && req.method === "POST") {
+        // The managed relay path: a hosted callback hands omg the code + state.
+        const body = (await req.json().catch(() => null)) as { code?: string; state?: string } | null;
+        if (!body?.code || !body?.state) return err(400, "code and state are required");
+        const result = await completeConnectorOAuth(body.state, body.code, getConnector);
+        if (!result.ok) return err(502, result.error);
+        await resetConnector(result.connectorId);
+        return json({ ok: true });
+      }
+      {
+        const m = path.match(/^\/api\/connectors\/([0-9a-f]+)\/oauth$/);
+        if (req.method === "DELETE" && m) {
+          const { clearOAuth } = await import("../connectors/oauth-store.ts");
+          clearOAuth(m[1]!);
+          await resetConnector(m[1]!);
+          return json({ ok: true });
+        }
       }
       if (path === "/api/connectors" && req.method === "POST") {
         const body = (await req.json().catch(() => null)) as
-          | { user?: string; org?: boolean; name?: string; endpoint?: string; headers?: Record<string, string>; catalogSlug?: string; icon?: string; requireApproval?: boolean }
+          | { user?: string; org?: boolean; name?: string; endpoint?: string; headers?: Record<string, string>; catalogSlug?: string; icon?: string; oauth?: boolean; requireApproval?: boolean }
           | null;
         if (!body) return err(400, "invalid JSON body");
         const owner = body.org ? "*org*" : ownerForUser(body.user);
@@ -4166,6 +4240,7 @@ export async function cmdServe() {
           headers: body.headers,
           catalogSlug: body.catalogSlug,
           icon: body.icon,
+          oauth: body.oauth,
           requireApproval: body.requireApproval,
         });
         if (!result.ok) return err(400, result.error);

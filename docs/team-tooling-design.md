@@ -224,6 +224,38 @@ So strict mode belongs where the box grants CAP_NET_ADMIN (or ships
 slirp4netns/pasta) and must be verified there, not on this host. True
 untrusted-code isolation stays with Firecracker in `vibes`.
 
+## Native connectors and OAuth (landed)
+
+The connector layer is omg's own, not Executor's (that wrapping was removed):
+
+- `src/connectors/store.ts`: per-member connections. Owner is an omg member or
+  the org sentinel; a session sees its member's own plus org-shared.
+- `src/connectors/hub.ts`: omg is an MCP client to each connection, injecting
+  the credential host-side.
+- `src/connectors/mcp-endpoint.ts`: `/mcp/connectors`, the agent surface,
+  scoped to the session's member, role-filtered, with an approval gate.
+- `src/connectors/catalog.ts`: browse the integrations.sh catalog.
+
+OAuth is owned by omg (`src/connectors/oauth-provider.ts`, `oauth-store.ts`):
+the MCP spec's discovery → dynamic client registration → PKCE runs through the
+SDK's `auth()`, tokens are stored encrypted (key derived from the box secret).
+Verified live: Linear and Notion both dynamically registered and returned an
+authorize URL with omg's callback as the redirect.
+
+### Managed UI: the redirect base
+
+The redirect_uri must be an origin the user's browser reaches and omg serves.
+
+- Local / Tailscale: `oauthRedirectBase()` uses the browser's own origin, so
+  the provider redirects back to the Tailscale URL and the browser hits
+  `GET /api/connectors/oauth/callback`.
+- Managed (hosted) UI: the hosted app passes `redirectBase` to
+  `POST /api/connectors/:id/oauth/start` pointing at a hosted relay it owns.
+  The provider redirects to that relay, which then calls
+  `POST /api/connectors/oauth/callback` on the box with `{ code, state }` to
+  finish. That relay lives in `vibes` (this repo only provides the box
+  endpoints it calls); it is the one piece not testable from here.
+
 ## Out of scope for this repository
 
 Login, invites, SSO, team and role storage. Those belong to `vibes`. This

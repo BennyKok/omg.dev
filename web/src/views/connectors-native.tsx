@@ -17,6 +17,8 @@ export type PublicConnector = {
   headerNames: string[];
   catalogSlug?: string;
   icon?: string;
+  oauth?: boolean;
+  oauthConnected?: boolean;
   requireApproval: boolean;
   createdAt: number;
   updatedAt: number;
@@ -175,6 +177,43 @@ function ConnectorRow({
     }
   };
 
+  const connect = async () => {
+    setBusy(true);
+    onError(null);
+    // Open the popup synchronously so the browser does not block it.
+    const popup = window.open("", "omg-oauth", "width=520,height=680");
+    try {
+      const res = await api<{ authorizeUrl?: string; alreadyAuthorized?: boolean }>(
+        `/api/connectors/${connector.id}/oauth/start`,
+        { method: "POST", body: JSON.stringify({}) },
+      );
+      if (res.alreadyAuthorized) {
+        popup?.close();
+        await onChanged();
+        return;
+      }
+      if (res.authorizeUrl && popup) popup.location.href = res.authorizeUrl;
+      else if (res.authorizeUrl) window.open(res.authorizeUrl, "_blank", "noopener");
+      // Refresh when the callback page signals completion (or after a poll).
+      const onMsg = (ev: MessageEvent) => {
+        if (ev.data && typeof ev.data === "object" && "omgOauth" in ev.data) {
+          window.removeEventListener("message", onMsg);
+          void onChanged();
+        }
+      };
+      window.addEventListener("message", onMsg);
+      window.setTimeout(() => {
+        window.removeEventListener("message", onMsg);
+        void onChanged();
+      }, 60_000);
+    } catch (e) {
+      popup?.close();
+      onError(e instanceof Error ? e.message : "could not start sign-in");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="px-4 py-3" data-connector={connector.slug}>
       <div className="flex items-center gap-3">
@@ -192,6 +231,20 @@ function ConnectorRow({
           <span className="block text-sm font-medium">{connector.name}</span>
           <code className="block truncate text-xs text-muted-foreground">{connector.endpoint}</code>
         </span>
+        {connector.oauth ? (
+          connector.oauthConnected ? (
+            <span className="flex items-center gap-2 text-[11px]">
+              <span className="rounded-full bg-success/15 px-2 py-0.5 font-semibold text-success">Connected</span>
+              <button type="button" disabled={busy} onClick={() => void connect()} className="text-muted-foreground hover:text-foreground">
+                Reconnect
+              </button>
+            </span>
+          ) : (
+            <Button type="button" size="sm" disabled={busy} onClick={() => void connect()}>
+              Connect
+            </Button>
+          )
+        ) : null}
         <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground" title="Pause calls for your approval in chat">
           <ShieldQuestion className="size-3.5" />
           <input
@@ -360,7 +413,14 @@ function CatalogBrowser({ user, onAdded }: { user: string; onAdded: () => Promis
     try {
       await api("/api/connectors", {
         method: "POST",
-        body: JSON.stringify({ user, name: entry.name, endpoint: entry.connectUrl, catalogSlug: entry.slug, icon: entry.icon ?? undefined }),
+        body: JSON.stringify({
+          user,
+          name: entry.name,
+          endpoint: entry.connectUrl,
+          catalogSlug: entry.slug,
+          icon: entry.icon ?? undefined,
+          oauth: entry.needsOAuth,
+        }),
       });
       await onAdded();
     } catch (e) {
@@ -392,7 +452,7 @@ function CatalogBrowser({ user, onAdded }: { user: string; onAdded: () => Promis
                 <span className="block truncate text-[11px] text-muted-foreground">{e.description || e.slug}</span>
               </span>
               {e.needsOAuth ? (
-                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground" title="OAuth connect is not supported yet">
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground" title="Sign in after adding">
                   OAuth
                 </span>
               ) : null}
@@ -400,9 +460,9 @@ function CatalogBrowser({ user, onAdded }: { user: string; onAdded: () => Promis
                 type="button"
                 size="sm"
                 variant="secondary"
-                disabled={adding === e.slug || !e.connectUrl || e.needsOAuth}
+                disabled={adding === e.slug || !e.connectUrl}
                 onClick={() => void add(e)}
-                title={e.needsOAuth ? "OAuth connect not supported yet" : !e.connectUrl ? "No MCP endpoint; add by URL" : "Add"}
+                title={!e.connectUrl ? "No MCP endpoint; add by URL" : "Add"}
               >
                 {adding === e.slug ? "Adding…" : "Add"}
               </Button>

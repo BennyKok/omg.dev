@@ -35,6 +35,8 @@ export interface Connector {
   catalogSlug?: string;
   /** Logo URL, kept when added from the catalog. */
   icon?: string;
+  /** This server authenticates with OAuth (connect flow, not a static header). */
+  oauth?: boolean;
   /** Calls to this connector's tools pause for owner approval in chat. */
   requireApproval: boolean;
   createdAt: number;
@@ -127,6 +129,7 @@ export type ConnectorInput = {
   headers?: Record<string, string>;
   catalogSlug?: string;
   icon?: string;
+  oauth?: boolean;
   requireApproval?: boolean;
 };
 
@@ -163,6 +166,7 @@ export function createConnector(input: ConnectorInput): ConnectorResult {
     headers: sanitizeHeaders(input.headers),
     catalogSlug: input.catalogSlug,
     icon: typeof input.icon === "string" ? input.icon : undefined,
+    oauth: input.oauth === true,
     requireApproval: input.requireApproval === true,
     createdAt: now,
     updatedAt: now,
