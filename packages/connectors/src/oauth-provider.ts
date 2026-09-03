@@ -104,8 +104,15 @@ export type StartResult =
  * URL for the browser. If the connector already has a valid token, connect
  * succeeds and no authorization is needed.
  */
-export async function startConnectorOAuth(connector: Connector, redirectBase: string): Promise<StartResult> {
-  const provider = new ConnectorOAuthProvider(connector, redirectBase);
+export async function startConnectorOAuth(
+  connector: Connector,
+  redirectBase: string,
+  state?: string,
+): Promise<StartResult> {
+  // A caller may supply the `state` so a hosted relay can encode which box the
+  // provider's redirect belongs to (see docs/team-tooling-design.md). It stays
+  // the CSRF token, so a caller-supplied state must still be unguessable.
+  const provider = new ConnectorOAuthProvider(connector, redirectBase, state);
   try {
     // auth() runs discovery → dynamic client registration → PKCE, then either
     // reports AUTHORIZED (a valid token already exists) or REDIRECT (it called

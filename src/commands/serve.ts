@@ -4193,9 +4193,12 @@ export async function cmdServe() {
         if (m && req.method === "POST") {
           const connector = getConnector(m[1]!);
           if (!connector) return err(404, "connector not found");
-          const body = (await req.json().catch(() => null)) as { redirectBase?: string } | null;
+          const body = (await req.json().catch(() => null)) as { redirectBase?: string; state?: string } | null;
           const base = oauthRedirectBase(req, body?.redirectBase);
-          const result = await startConnectorOAuth(connector, base);
+          // A hosted relay may supply a state that encodes which box the
+          // redirect belongs to, so the relay can route it back statelessly.
+          const state = typeof body?.state === "string" && body.state.length >= 16 ? body.state : undefined;
+          const result = await startConnectorOAuth(connector, base, state);
           if (!result.ok) return err(502, result.error);
           return json(result);
         }
