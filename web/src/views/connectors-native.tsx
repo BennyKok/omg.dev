@@ -16,6 +16,7 @@ export type PublicConnector = {
   endpoint: string;
   headerNames: string[];
   catalogSlug?: string;
+  icon?: string;
   requireApproval: boolean;
   createdAt: number;
   updatedAt: number;
@@ -29,8 +30,31 @@ export type CatalogEntry = {
   kind: string;
   categories: string[];
   connectUrl: string | null;
+  icon: string | null;
+  domain: string | null;
   needsOAuth: boolean;
 };
+
+/** A logo, falling back to a plug glyph when the image is missing or fails. */
+function Logo({ src, alt }: { src?: string | null; alt: string }) {
+  const [failed, setFailed] = useState(false);
+  if (!src || failed) {
+    return (
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-[6px] bg-muted text-muted-foreground">
+        <Plug className="size-3.5" />
+      </span>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className="size-6 shrink-0 rounded-[6px] bg-muted object-contain"
+    />
+  );
+}
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -89,8 +113,8 @@ export function ConnectorsNativePanel() {
       </div>
       {error ? <p className="px-1 text-xs text-destructive">{error}</p> : null}
 
-      <AddByUrl user={user} onAdded={load} />
       <CatalogBrowser user={user} onAdded={load} />
+      <AddByUrl user={user} onAdded={load} />
     </section>
   );
 }
@@ -159,10 +183,11 @@ function ConnectorRow({
           aria-label={open ? `Hide ${connector.name} tools` : `Show ${connector.name} tools`}
           aria-expanded={open}
           onClick={() => void expand()}
-          className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-foreground text-background"
+          className="flex size-6 shrink-0 items-center justify-center text-muted-foreground"
         >
           <ChevronRight className={`size-4 transition-transform ${open ? "rotate-90" : ""}`} />
         </button>
+        <Logo src={connector.icon} alt="" />
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-medium">{connector.name}</span>
           <code className="block truncate text-xs text-muted-foreground">{connector.endpoint}</code>
@@ -210,6 +235,23 @@ function ConnectorRow({
 }
 
 function AddByUrl({ user, onAdded }: { user: string; onAdded: () => Promise<void> }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        className="flex w-full items-center gap-2 rounded-2xl border border-dashed border-border px-4 py-2.5 text-left text-xs text-muted-foreground hover:bg-foreground/[0.03]"
+      >
+        <Plus className="size-4 shrink-0" />
+        Add a custom MCP server by URL
+      </button>
+    );
+  }
+  return <AddByUrlForm user={user} onAdded={onAdded} onClose={() => setExpanded(false)} />;
+}
+
+function AddByUrlForm({ user, onAdded, onClose }: { user: string; onAdded: () => Promise<void>; onClose: () => void }) {
   const [name, setName] = useState("");
   const [endpoint, setEndpoint] = useState("");
   const [header, setHeader] = useState("");
@@ -235,6 +277,7 @@ function AddByUrl({ user, onAdded }: { user: string; onAdded: () => Promise<void
       setEndpoint("");
       setHeader("");
       await onAdded();
+      onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "could not add the connector");
     } finally {
@@ -251,7 +294,10 @@ function AddByUrl({ user, onAdded }: { user: string; onAdded: () => Promise<void
       }}
     >
       <div className="flex items-center gap-2 text-sm font-medium">
-        <Plus className="size-4 text-muted-foreground" /> Add a connector by URL
+        <Plus className="size-4 text-muted-foreground" /> Add a custom MCP server
+        <button type="button" onClick={onClose} className="ml-auto text-xs font-normal text-muted-foreground hover:text-foreground">
+          Cancel
+        </button>
       </div>
       <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" aria-label="Connector name" className="h-8 text-xs" />
       <Input
@@ -314,7 +360,7 @@ function CatalogBrowser({ user, onAdded }: { user: string; onAdded: () => Promis
     try {
       await api("/api/connectors", {
         method: "POST",
-        body: JSON.stringify({ user, name: entry.name, endpoint: entry.connectUrl, catalogSlug: entry.slug }),
+        body: JSON.stringify({ user, name: entry.name, endpoint: entry.connectUrl, catalogSlug: entry.slug, icon: entry.icon ?? undefined }),
       });
       await onAdded();
     } catch (e) {
@@ -340,7 +386,7 @@ function CatalogBrowser({ user, onAdded }: { user: string; onAdded: () => Promis
         ) : (
           results.map((e) => (
             <li key={e.slug} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-foreground/[0.03]" data-catalog={e.slug}>
-              <Plug className="size-3.5 shrink-0 text-muted-foreground" />
+              <Logo src={e.icon} alt="" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-medium">{e.name}</span>
                 <span className="block truncate text-[11px] text-muted-foreground">{e.description || e.slug}</span>

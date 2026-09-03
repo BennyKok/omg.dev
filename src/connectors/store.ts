@@ -33,6 +33,8 @@ export interface Connector {
   headers: Record<string, string>;
   /** Catalog slug this came from, when added from integrations.sh. */
   catalogSlug?: string;
+  /** Logo URL, kept when added from the catalog. */
+  icon?: string;
   /** Calls to this connector's tools pause for owner approval in chat. */
   requireApproval: boolean;
   createdAt: number;
@@ -124,6 +126,7 @@ export type ConnectorInput = {
   endpoint: string;
   headers?: Record<string, string>;
   catalogSlug?: string;
+  icon?: string;
   requireApproval?: boolean;
 };
 
@@ -159,6 +162,7 @@ export function createConnector(input: ConnectorInput): ConnectorResult {
     endpoint: input.endpoint.trim(),
     headers: sanitizeHeaders(input.headers),
     catalogSlug: input.catalogSlug,
+    icon: typeof input.icon === "string" ? input.icon : undefined,
     requireApproval: input.requireApproval === true,
     createdAt: now,
     updatedAt: now,
