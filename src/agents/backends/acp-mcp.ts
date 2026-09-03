@@ -1,14 +1,13 @@
 import type { McpServer } from "@agentclientprotocol/sdk";
 import { omgMcpServers } from "../../config.ts";
 
-/** Convert the shared managed-session MCP registration to ACP's wire shape. */
+/** The omg-served MCP endpoints for one session, in ACP's server shape. */
 export function omgAcpMcpServers(sessionId: string): McpServer[] {
-  const server = omgMcpServers(sessionId).mcpServers?.omg;
-  if (!server) return [];
-  return [{
+  const servers = omgMcpServers(sessionId).mcpServers ?? {};
+  return Object.entries(servers).map(([name, server]) => ({
     type: "http",
-    name: "omg",
+    name,
     url: server.url,
     headers: [],
-  }];
+  }));
 }
