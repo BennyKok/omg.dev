@@ -51,7 +51,24 @@ export type GlobalSettings = {
   // "" means nothing extra is appended. This is a per-box preference, not a
   // per-project one: repository rules stay in AGENTS.md.
   customInstructions: string;
+  // Default coding agent for a new session when the browser has no saved
+  // choice of its own. "" means the host's built-in default. Stored as the
+  // agent key; the web catalog decides whether it is launchable here.
+  defaultAgent: string;
+  // Model to pair with defaultAgent. "" means the catalog default.
+  defaultModel: string;
+  // View preferences. All on by default (everyone sees everything). Off
+  // hides the piece of UI for every viewer of this box; a role system will
+  // decide per viewer later, so these are plain box-wide switches for now.
+  showSidebarAgentIcons: boolean;
+  showSessionAgentIcons: boolean;
+  showComposerModels: boolean;
+  showBots: boolean;
+  showSchedules: boolean;
 };
+
+export const DEFAULT_AGENT_KEY_MAX_LENGTH = 40;
+export const DEFAULT_MODEL_MAX_LENGTH = 120;
 
 export type TranscriptView = "full" | "user-lfg-output";
 
@@ -136,6 +153,19 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
   const botCompactionThresholdPercent = sanitizeBotCompactionThreshold(
     input?.botCompactionThresholdPercent,
   );
+  const defaultAgent = typeof input?.defaultAgent === "string" &&
+      /^[a-z0-9-]*$/i.test(input.defaultAgent.trim())
+    ? input.defaultAgent.trim().slice(0, DEFAULT_AGENT_KEY_MAX_LENGTH)
+    : "";
+  const defaultModel = typeof input?.defaultModel === "string"
+    ? input.defaultModel.trim().slice(0, DEFAULT_MODEL_MAX_LENGTH)
+    : "";
+  // Missing means on: a box that predates these keys must not lose UI.
+  const showSidebarAgentIcons = input?.showSidebarAgentIcons !== false;
+  const showSessionAgentIcons = input?.showSessionAgentIcons !== false;
+  const showComposerModels = input?.showComposerModels !== false;
+  const showBots = input?.showBots !== false;
+  const showSchedules = input?.showSchedules !== false;
   return {
     timeZone,
     maxLiveAgents,
@@ -146,6 +176,13 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
     botCompactionThresholdPercent,
     skippedUpdateVersion,
     customInstructions,
+    defaultAgent,
+    defaultModel,
+    showSidebarAgentIcons,
+    showSessionAgentIcons,
+    showComposerModels,
+    showBots,
+    showSchedules,
   };
 }
 
@@ -250,6 +287,13 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
     write.run("botCompactionThresholdPercent", JSON.stringify(next.botCompactionThresholdPercent), now);
     write.run("skippedUpdateVersion", JSON.stringify(next.skippedUpdateVersion), now);
     write.run("customInstructions", JSON.stringify(next.customInstructions), now);
+    write.run("defaultAgent", JSON.stringify(next.defaultAgent), now);
+    write.run("defaultModel", JSON.stringify(next.defaultModel), now);
+    write.run("showSidebarAgentIcons", JSON.stringify(next.showSidebarAgentIcons), now);
+    write.run("showSessionAgentIcons", JSON.stringify(next.showSessionAgentIcons), now);
+    write.run("showComposerModels", JSON.stringify(next.showComposerModels), now);
+    write.run("showBots", JSON.stringify(next.showBots), now);
+    write.run("showSchedules", JSON.stringify(next.showSchedules), now);
   })();
   return next;
 }

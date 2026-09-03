@@ -1111,7 +1111,45 @@ type GlobalSettings = {
   // Standing instructions appended to the launch envelope of every new
   // session. "" means nothing extra is sent.
   customInstructions: string;
+  // Default coding agent + model for a new session when this browser has no
+  // saved choice. "" = host default / catalog default.
+  defaultAgent: string;
+  defaultModel: string;
+  // Box-wide view switches. All true by default. See ViewPrefsContext.
+  showSidebarAgentIcons: boolean;
+  showSessionAgentIcons: boolean;
+  showComposerModels: boolean;
+  showBots: boolean;
+  showSchedules: boolean;
 };
+
+/**
+ * The box-wide view preferences, read by the pieces of UI they switch: the
+ * rail rows, session headers, the composer's model list, and the surface
+ * toggle. One context so a deep, memoised row does not need seven props
+ * threaded through it. A role system may later decide these per viewer; the
+ * consumers only ever read the resolved booleans.
+ */
+type ViewPrefs = Pick<
+  GlobalSettings,
+  | "defaultAgent"
+  | "defaultModel"
+  | "showSidebarAgentIcons"
+  | "showSessionAgentIcons"
+  | "showComposerModels"
+  | "showBots"
+  | "showSchedules"
+>;
+const DEFAULT_VIEW_PREFS: ViewPrefs = {
+  defaultAgent: "",
+  defaultModel: "",
+  showSidebarAgentIcons: true,
+  showSessionAgentIcons: true,
+  showComposerModels: true,
+  showBots: true,
+  showSchedules: true,
+};
+const ViewPrefsContext = createContext<ViewPrefs>(DEFAULT_VIEW_PREFS);
 
 type TranscriptViewPreference = {
   value: TranscriptView;
@@ -1863,6 +1901,28 @@ const STATUS_DOT_IDLE = "bg-success/30 ring-1 ring-inset ring-success/20";
  * The parent must be `relative` — the spinner is absolutely positioned so the
  * mark does not shift when it appears.
  */
+// What a session shows in place of its agent icon when the box hides those:
+// a plain thread mark, still carrying the working spinner so the row's state
+// stays readable.
+function NeutralSessionMark({ busy, size = 24 }: { busy: boolean; size?: number }) {
+  return (
+    <span
+      className="relative flex shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
+      style={{ width: size, height: size }}
+      aria-hidden="true"
+    >
+      {busy ? (
+        <Loader2
+          className="absolute inset-0 m-auto animate-spin text-warning motion-reduce:animate-none"
+          style={{ width: size * 1.35, height: size * 1.35 }}
+          strokeWidth={1.75}
+        />
+      ) : null}
+      <MessageSquare style={{ width: size * 0.55, height: size * 0.55 }} />
+    </span>
+  );
+}
+
 function AgentMark({
   session,
   busy,
@@ -5990,6 +6050,7 @@ export function App() {
     transcriptView: "full",
     skippedUpdateVersion: "",
     customInstructions: "",
+    ...DEFAULT_VIEW_PREFS,
   });
   const [schedTz, setSchedTz] = useState<string>(DEFAULT_SCHED_TZ);
   const [findings, setFindings] = useState<AutoFinding[]>([]);
@@ -6298,6 +6359,7 @@ export function App() {
       transcriptView: "full",
       skippedUpdateVersion: "",
       customInstructions: "",
+      ...DEFAULT_VIEW_PREFS,
     });
     // Guard sessions to [] — it feeds `allLiveSessions`/`liveSessions` which
     // call `.filter()` unconditionally on render, so a malformed/empty payload
@@ -7711,10 +7773,11 @@ export function App() {
     });
     const launchAgent = resolveInitialAgent(
       localStorage.getItem("lfg_v2_agent"),
-      defaultAgent,
+      resolveInitialAgent(settings.defaultAgent, defaultAgent),
     );
     const launchModel =
       localStorage.getItem(`lfg_model_${launchAgent}`) ||
+      (launchAgent === settings.defaultAgent ? settings.defaultModel : "") ||
       localStorage.getItem("lfg_model") ||
       modelCatalog.defaults[launchAgent] ||
       AGENT_DEFAULT_MODEL[launchAgent];
@@ -7764,6 +7827,13 @@ export function App() {
     setSettings(payload.settings);
     setSchedTz(payload.settings.timeZone);
   }, []);
+  // A hidden surface is not a destination. Land on Chat if the URL, a
+  // shortcut, or a stale menu still names Bots or Schedules while it is off.
+  useEffect(() => {
+    if ((tab === "bots" && !settings.showBots) || (tab === "auto" && !settings.showSchedules)) {
+      setTab("live");
+    }
+  }, [tab, settings.showBots, settings.showSchedules]);
   const transcriptViewPreference = useMemo<TranscriptViewPreference>(() => ({
     value: settings.transcriptView,
     onChange: (value) => updateSettings({ transcriptView: value }),
@@ -8455,6 +8525,7 @@ export function App() {
     <AskProvider>
     <UpdateProvider settings={settings} onSettingsChange={updateSettings}>
     <TranscriptViewContext.Provider value={transcriptViewPreference}>
+    <ViewPrefsContext.Provider value={settings}>
     <ArtifactViewerContext.Provider value={openArtifactViewer}>
     <SessionTerminalContext.Provider value={setTerminalSid}>
     <OpenSettingsPageContext.Provider value={setTab}>
@@ -9090,6 +9161,8 @@ export function App() {
             onRedoOnboarding={embedded ? restartHostedFirstRun : redoOnboarding}
             extTabs={extNavTabs}
             onOpenExt={(id) => setTab(id)}
+            settings={settings}
+            onSettingsChange={updateSettings}
           />
         ) : null}
         {extNavTabs.some((t) => t.id === tab) ? (
@@ -9314,6 +9387,7 @@ export function App() {
     </OpenSettingsPageContext.Provider>
     </SessionTerminalContext.Provider>
     </ArtifactViewerContext.Provider>
+    </ViewPrefsContext.Provider>
     </TranscriptViewContext.Provider>
     </UpdateProvider>
     </AskProvider>
@@ -13684,6 +13758,7 @@ const RailItem = memo(function RailItem({
   /** Swipe left to archive. Absent on surfaces where that is not offered. */
   onArchive?: () => void;
 }) {
+  const { showSidebarAgentIcons: showAgentIcons } = useContext(ViewPrefsContext);
   const botDirectory = useContext(BotDirectoryContext);
   const drivingBotId = productBotId(session);
   const drivingBot = drivingBotId ? botDirectory.get(drivingBotId) : undefined;
@@ -13755,15 +13830,17 @@ const RailItem = memo(function RailItem({
                 onError={() => setFailedFaviconSrc(faviconSrc)}
               />
             </>
-          ) : (
+          ) : showAgentIcons ? (
             <AgentMark
               session={session}
               busy={busy}
               rounding="rounded-md"
               showAccountNumber={false}
             />
+          ) : (
+            <NeutralSessionMark busy={busy} />
           )}
-          {!drivingBot && showFavicon ? (
+          {!drivingBot && showFavicon && showAgentIcons ? (
             <span
               title={session.agentLabel || agentIconAlt(session.agent)}
               className="absolute bottom-1 right-1 flex size-[18px] items-center justify-center rounded-md bg-card ring-2 ring-card"
@@ -21274,8 +21351,20 @@ function NewSessionDialog({
 }) {
   const catalog = useAgentModelCatalog();
   const accessMode = useContext(AgentAccessModeContext);
-  const { defaultAgent } = useEmbeddedHostOptions();
+  const view = useContext(ViewPrefsContext);
+  const { defaultAgent: hostDefaultAgent } = useEmbeddedHostOptions();
+  // Box default (Settings > More > View) sits between the browser's saved
+  // choice and the host's built-in default.
+  const defaultAgent = resolveInitialAgent(view.defaultAgent, hostDefaultAgent);
   const defaultModelFor = (key: AgentKind) => catalog.defaults[key] ?? AGENT_DEFAULT_MODEL[key];
+  // The model an agent starts on. With the model list hidden the box default
+  // is the only choice, so it wins over anything this browser saved earlier;
+  // otherwise the saved pick leads and the box default is the fallback.
+  const preferredModelFor = (key: AgentKind) => {
+    const boxDefault = key === view.defaultAgent && view.defaultModel ? view.defaultModel : "";
+    if (!view.showComposerModels && boxDefault) return boxDefault;
+    return localStorage.getItem(`lfg_model_${key}`) || boxDefault || defaultModelFor(key);
+  };
   const [agent, setAgent] = useState<AgentKind>(
     () => resolveInitialAgent(localStorage.getItem("lfg_v2_agent"), defaultAgent),
   );
@@ -21283,7 +21372,9 @@ function NewSessionDialog({
   const [repo, setRepo] = useState(() => localStorage.getItem("lfg_v2_repo") || "");
   const [model, setModel] = useState(
     () =>
+      (view.showComposerModels ? "" : preferredModelFor(agent)) ||
       localStorage.getItem(`lfg_model_${agent}`) ||
+      (agent === view.defaultAgent ? view.defaultModel : "") ||
       localStorage.getItem("lfg_model") ||
       defaultModelFor(agent),
   );
@@ -21917,10 +22008,7 @@ function NewSessionDialog({
     appliedAgentNonce.current = agentRequest.nonce;
     setAgent(agentRequest.kind);
     if (agentRequest.kind === "aisdk") setClaudeAccountId(agentRequest.accountId ?? "");
-    setModel(
-      localStorage.getItem(`lfg_model_${agentRequest.kind}`) ||
-        defaultModelFor(agentRequest.kind),
-    );
+    setModel(preferredModelFor(agentRequest.kind));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentRequest]);
 
@@ -22135,7 +22223,7 @@ function NewSessionDialog({
     setAgentIconNonce((n) => n + 1);
     setAgent(nextKey);
     if (nextKey === "aisdk") setClaudeAccountId(next.accountId ?? "");
-    setModel(localStorage.getItem(`lfg_model_${nextKey}`) || defaultModelFor(nextKey));
+    setModel(preferredModelFor(nextKey));
     feedback.swipe();
   };
   cycleAgentRef.current = cycleAgent;
@@ -22166,7 +22254,7 @@ function NewSessionDialog({
     }
     setAgent(key);
     if (key === "aisdk") setClaudeAccountId(option?.accountId ?? "");
-    setModel(localStorage.getItem(`lfg_model_${key}`) || defaultModelFor(key));
+    setModel(preferredModelFor(key));
   };
 
   const agentSelector = (
@@ -22207,6 +22295,7 @@ function NewSessionDialog({
           model={model}
           models={models}
           onModelChange={setModel}
+          showModels={view.showComposerModels}
         />
       )}
 
@@ -23969,6 +24058,7 @@ function AgentModelPicker<K extends AgentKind>({
   model,
   models,
   onModelChange,
+  showModels = true,
 }: {
   options: readonly {
     key: K;
@@ -23987,6 +24077,9 @@ function AgentModelPicker<K extends AgentKind>({
   model: string;
   models: string[];
   onModelChange: (value: string) => void;
+  /** Off: the pill names the agent and the popover lists agents only. The
+   *  model then comes from the box default (see ViewPrefs). */
+  showModels?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -24007,7 +24100,9 @@ function AgentModelPicker<K extends AgentKind>({
           </span>
         ) : null}
       </span>
-      <span className="max-w-32 truncate text-xs font-medium">{model || "model"}</span>
+      <span className="max-w-32 truncate text-xs font-medium">
+        {showModels ? model || "model" : agentLabel}
+      </span>
       <ChevronDown className="size-3 shrink-0 text-muted-foreground/70" />
     </button>
   );
@@ -24025,7 +24120,7 @@ function AgentModelPicker<K extends AgentKind>({
           className="isolate z-[170] outline-none"
         >
           <Popover.Popup
-            initialFocus={modelListSearchable(models) ? inputRef : true}
+            initialFocus={showModels && modelListSearchable(models) ? inputRef : true}
             className="w-80 max-w-[calc(100vw-1rem)] rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl ring-1 ring-foreground/5 outline-none"
           >
             {/* No section labels. The icon strip is obviously the agent
@@ -24041,18 +24136,20 @@ function AgentModelPicker<K extends AgentKind>({
                 setOpen(false);
                 onLocked?.(key);
               }}
-              className="mb-1.5 h-auto max-w-full flex-wrap"
+              className={cn("h-auto max-w-full flex-wrap", showModels && "mb-1.5")}
             />
-            <ModelOptionList
-              value={model}
-              models={models}
-              onChoose={(next) => {
-                onModelChange(next);
-                setOpen(false);
-              }}
-              onEscape={() => setOpen(false)}
-              inputRef={inputRef}
-            />
+            {showModels ? (
+              <ModelOptionList
+                value={model}
+                models={models}
+                onChoose={(next) => {
+                  onModelChange(next);
+                  setOpen(false);
+                }}
+                onEscape={() => setOpen(false)}
+                inputRef={inputRef}
+              />
+            ) : null}
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
@@ -27498,6 +27595,8 @@ function MoreView({
   extTabs,
   onOpenExt,
   connection,
+  settings,
+  onSettingsChange,
 }: {
   dark: boolean;
   toggleTheme: () => void;
@@ -27510,6 +27609,8 @@ function MoreView({
   extTabs: ExtensionNavTab[];
   onOpenExt: (id: string) => void;
   connection: ConnectionState | null;
+  settings: GlobalSettings;
+  onSettingsChange: (patch: Partial<GlobalSettings>) => Promise<void>;
 }) {
   const uiFeedback = useUiFeedbackPrefs();
   const navigationPrefs = useNavigationPrefs();
@@ -27569,6 +27670,8 @@ function MoreView({
           </button>
         </div>
       </section>
+
+      <ViewSettingsSection settings={settings} onChange={onSettingsChange} />
 
       <VoiceSettingsSection />
 
@@ -27727,6 +27830,109 @@ function MoreView({
 }
 
 /**
+ * Settings > More > View. Box-wide switches for what the interface shows,
+ * plus the default agent + model a new session starts on. Collapsed by
+ * default: most boxes never touch these, and the default is "show everything".
+ */
+function ViewSettingsSection({
+  settings,
+  onChange,
+}: {
+  settings: GlobalSettings;
+  onChange: (patch: Partial<GlobalSettings>) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const codingAgents = useContext(CodingAgentsContext);
+  const accessMode = useContext(AgentAccessModeContext);
+  const catalog = useAgentModelCatalog();
+  const { defaultAgent: hostDefaultAgent } = useEmbeddedHostOptions();
+  const options = useMemo(
+    () => configuredLaunchOptions(codingAgents, accessMode, { scheduledOnly: false }),
+    [accessMode, codingAgents],
+  );
+  const agent = resolveInitialAgent(settings.defaultAgent, hostDefaultAgent);
+  const models = useAgentModels(agent);
+  const model =
+    (settings.defaultAgent === agent && settings.defaultModel) ||
+    catalog.defaults[agent] ||
+    AGENT_DEFAULT_MODEL[agent];
+  const agentOption = options.find((option) => option.key === agent);
+  const rows: { key: keyof ViewPrefs & `show${string}`; label: string; hint: string }[] = [
+    { key: "showSidebarAgentIcons", label: "Agent icons in the sidebar", hint: "The harness mark on each session row." },
+    { key: "showSessionAgentIcons", label: "Agent icons in chat", hint: "The harness mark in a session's header." },
+    { key: "showComposerModels", label: "Model picker in the composer", hint: "Off: every new session uses the default model." },
+    { key: "showBots", label: "Bots", hint: "The Bots surface and its switch." },
+    { key: "showSchedules", label: "Schedules", hint: "The Schedules surface and its switch." },
+  ];
+  return (
+    <section className="space-y-2">
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <CollapsibleTrigger className="flex w-full items-center gap-2 px-4 text-left">
+          <h2 className="text-xs font-semibold text-muted-foreground">View</h2>
+          <ChevronRight
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground transition-transform duration-150",
+              open && "rotate-90",
+            )}
+          />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="mt-2 overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+            <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+              <div className="min-w-0">
+                <div className="text-sm font-medium">Default agent and model</div>
+                <div className="text-xs text-muted-foreground">
+                  What a new session starts on when this browser has not picked one.
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <AgentModelPicker
+                  options={options}
+                  agent={agent}
+                  agentLabel={agentOption?.label ?? agent}
+                  agentBadge={agentOption?.badge}
+                  selectedId={agent}
+                  onSelectAgent={(key) =>
+                    void onChange({ defaultAgent: key, defaultModel: "" })
+                  }
+                  model={model}
+                  models={models}
+                  onModelChange={(next) =>
+                    void onChange({ defaultAgent: agent, defaultModel: next })
+                  }
+                />
+                {settings.defaultAgent ? (
+                  <button
+                    type="button"
+                    onClick={() => void onChange({ defaultAgent: "", defaultModel: "" })}
+                    className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                  >
+                    Reset
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            {rows.map((row) => (
+              <div key={row.key} className="flex items-center justify-between gap-4 px-4 py-2.5">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">{row.label}</div>
+                  <div className="text-xs text-muted-foreground">{row.hint}</div>
+                </div>
+                <Switch
+                  checked={settings[row.key]}
+                  onCheckedChange={(next) => void onChange({ [row.key]: next })}
+                  aria-label={row.label}
+                />
+              </div>
+            ))}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    </section>
+  );
+}
+
+/**
  * The stage when the bot surface has no session to show: either nothing is
  * picked, or the picked bot has never been messaged and so has no backing
  * session yet. The say-hi composer is what creates one — after which the
@@ -27792,6 +27998,7 @@ function SurfaceToggle({
 }) {
   const { any: botsUnread } = useContext(BotUnreadContext);
   const { any: sessionsUnread } = useContext(SessionUnreadContext);
+  const { showBots, showSchedules } = useContext(ViewPrefsContext);
   // This is the one segmented-toggle component both the desktop rail header
   // (RailStage, isWide-only) and the mobile primary-surface dock render — one
   // navigation idiom, two mount points, instead of a second control. It used
@@ -27842,6 +28049,17 @@ function SurfaceToggle({
     };
   }, [movePill]);
 
+  const surfaces = ([
+    ["sessions", "Chat", onOpenSessions],
+    ["chat", "Bots", onOpenBots],
+    ["auto", "Schedules", onOpenAuto],
+  ] as const).filter(([value]) =>
+    value === "chat" ? showBots : value === "auto" ? showSchedules : true,
+  );
+  // A switch with one position is not a switch. With Bots and Schedules both
+  // hidden there is only Chat, and the rail already says so.
+  if (surfaces.length < 2) return null;
+
   return (
     <div
       ref={barRef}
@@ -27855,11 +28073,7 @@ function SurfaceToggle({
       aria-label="Switch surface"
     >
       <span ref={pillRef} className="t-tabs-pill" aria-hidden="true" />
-      {([
-        ["sessions", "Chat", onOpenSessions],
-        ["chat", "Bots", onOpenBots],
-        ["auto", "Schedules", onOpenAuto],
-      ] as const).map(([value, label, onClick]) => (
+      {surfaces.map(([value, label, onClick]) => (
         <button
           key={value}
           type="button"
@@ -27991,6 +28205,7 @@ function SessionHeaderIdentity({
   trustedBotId?: string | null;
 }) {
   const botDirectory = useContext(BotDirectoryContext);
+  const { showSessionAgentIcons } = useContext(ViewPrefsContext);
   const identity = resolveSessionHeaderIdentity(
     { ...session, botId: renderedBotId(session, trustedBotId) },
     botDirectory,
@@ -28024,7 +28239,11 @@ function SessionHeaderIdentity({
       {/* "aisdk" is Claude Code under the hood (driven via the AI SDK), so it
           wears the same Claude mark as a tmux claude session; only the
           new-session picker keeps a distinct label to tell them apart. */}
-      <AgentMark session={session} busy={busy} />
+      {showSessionAgentIcons ? (
+        <AgentMark session={session} busy={busy} />
+      ) : (
+        <NeutralSessionMark busy={busy} size={size} />
+      )}
     </div>
   );
 }
