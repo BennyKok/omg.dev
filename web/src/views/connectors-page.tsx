@@ -10,12 +10,14 @@ import { Input } from "@/components/ui/input";
 // ---------------------------------------------------------------------------
 
 export type RuleAction = "allow" | "block";
+export type SandboxMode = "none" | "bwrap";
 export type RoleRule = { pattern: string; action: RuleAction };
 export type Role = {
   id: string;
   name: string;
   defaultAction: RuleAction;
   rules: RoleRule[];
+  sandbox: SandboxMode;
   createdAt: number;
   updatedAt: number;
 };
@@ -240,7 +242,7 @@ function RoleCard({
   const [action, setAction] = useState<RuleAction>("allow");
   const [busy, setBusy] = useState(false);
 
-  const save = async (patch: Partial<Pick<Role, "name" | "defaultAction" | "rules">>) => {
+  const save = async (patch: Partial<Pick<Role, "name" | "defaultAction" | "rules" | "sandbox">>) => {
     setBusy(true);
     try {
       await call(`/api/roles/${role.id}`, { method: "PATCH", body: JSON.stringify(patch) });
@@ -306,6 +308,27 @@ function RoleCard({
         >
           <Trash2 className="size-4" />
         </button>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 px-4 py-2.5">
+        <span className="min-w-0">
+          <span className="block text-sm">Sandbox</span>
+          <span className="block text-xs text-muted-foreground">
+            Run this role&apos;s sessions with an empty home and only their worktree writable.
+          </span>
+        </span>
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <select
+            aria-label={`Sandbox for ${role.name}`}
+            value={role.sandbox}
+            disabled={busy}
+            onChange={(e) => void save({ sandbox: e.target.value as SandboxMode })}
+            className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+          >
+            <option value="none">Off</option>
+            <option value="bwrap">Filesystem (bwrap)</option>
+          </select>
+        </label>
       </div>
 
       <ul className="divide-y divide-border">

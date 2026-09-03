@@ -50,7 +50,7 @@ import {
 } from "../executor/approvals.ts";
 import { resolveCaller } from "../policy/caller.ts";
 import { enforceRole } from "../policy/mcp-filter.ts";
-import { createRole, deleteRole, getRole, listRoles, updateRole, OWNER_ROLE_ID } from "../policy/roles.ts";
+import { createRole, deleteRole, getRole, listRoles, roleSandbox, updateRole, OWNER_ROLE_ID } from "../policy/roles.ts";
 import {
   ensureExecutorAdopted,
   executorAuth,
@@ -8585,6 +8585,9 @@ a{color:#60a5fa}
           omgUser: assignedUser,
           containInAgentSlice: isSubagent,
           claudeAccountId,
+          // Restricted roles run their harness in a filesystem sandbox
+          // (src/sandbox/bwrap.ts). Owner and unknown roles get none.
+          sandbox: roleSandbox(sessionRole),
         });
         if (!r.ok) {
           // The caller received no committed session. Release the claim so a

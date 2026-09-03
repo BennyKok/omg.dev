@@ -18,6 +18,7 @@ import {
   spawnManagedPiSession,
 } from "./tmux.ts";
 import type { CodexServiceTier } from "./service-tier.ts";
+import type { SandboxMode } from "./sandbox/bwrap.ts";
 
 export type CodingAgentLaunchRequest = {
   agent: ActiveSessionAgentKind;
@@ -33,6 +34,13 @@ export type CodingAgentLaunchRequest = {
   containInAgentSlice?: boolean;
   claudeAccountId?: string;
   resume?: string;
+  /**
+   * Filesystem isolation for the session's harness (src/sandbox/bwrap.ts).
+   * Only the process-supervised providers (aisdk, codex-aisdk, opencode, pi)
+   * honour it; a terminal-backed agent ignores it because it reads its own
+   * credentials from home.
+   */
+  sandbox?: SandboxMode;
 };
 
 export type CodingAgentLaunchResult = {
@@ -84,6 +92,7 @@ export const ACTIVE_CODING_AGENT_PROVIDERS = {
       omgUser: request.omgUser,
       containInAgentSlice: request.containInAgentSlice,
       claudeAccountId: request.claudeAccountId,
+      sandbox: request.sandbox,
     })),
   "codex-aisdk": provider("codex-aisdk", (request) =>
     spawnManagedCodexAisdkSession({
@@ -98,6 +107,7 @@ export const ACTIVE_CODING_AGENT_PROVIDERS = {
       omgUser: request.omgUser,
       containInAgentSlice: request.containInAgentSlice,
       resume: request.resume,
+      sandbox: request.sandbox,
     })),
   opencode: provider("opencode", (request) => {
     if (!request.model) return { ok: false, error: "opencode model is required" };
@@ -112,6 +122,7 @@ export const ACTIVE_CODING_AGENT_PROVIDERS = {
       omgUser: request.omgUser,
       containInAgentSlice: request.containInAgentSlice,
       resume: request.resume,
+      sandbox: request.sandbox,
     });
   }),
   jcode: provider("jcode", (request) =>
@@ -187,6 +198,7 @@ export const ACTIVE_CODING_AGENT_PROVIDERS = {
       omgUser: request.omgUser,
       containInAgentSlice: request.containInAgentSlice,
       resume: request.resume,
+      sandbox: request.sandbox,
     })),
   copilot: provider("copilot", (request) =>
     spawnManagedCopilotSdkSession({

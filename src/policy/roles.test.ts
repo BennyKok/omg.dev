@@ -12,6 +12,7 @@ import {
   isValidPattern,
   listRoles,
   matchPattern,
+  roleSandbox,
   updateRole,
 } from "./roles.ts";
 
@@ -90,6 +91,22 @@ describe("role store", () => {
 
     expect(deleteRole("marketing").ok).toBe(true);
     expect(getRole("marketing")).toBeNull();
+  });
+
+  test("sandbox defaults to none and is editable; owner is always none", () => {
+    const created = createRole({ name: "Restricted", sandbox: "bwrap" });
+    expect(created.ok && created.role.sandbox).toBe("bwrap");
+    expect(roleSandbox("restricted")).toBe("bwrap");
+    expect(roleSandbox("owner")).toBe("none");
+    expect(roleSandbox(undefined)).toBe("none");
+    expect(roleSandbox("ghost")).toBe("none");
+
+    const plain = createRole({ name: "Plain" });
+    expect(plain.ok && plain.role.sandbox).toBe("none");
+
+    expect(updateRole("restricted", { sandbox: "none" }).ok).toBe(true);
+    expect(roleSandbox("restricted")).toBe("none");
+    expect(updateRole("restricted", { sandbox: "weird" as never }).ok).toBe(false);
   });
 
   test("rejects bad input", () => {
