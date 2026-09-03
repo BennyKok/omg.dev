@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PATHS } from "../config.ts";
-import { resetSessionSecretForTests } from "../policy/session-token.ts";
+import { configureConnectors } from "./context.ts";
+
 import {
   clearOAuth,
   connectorByState,
@@ -15,18 +15,14 @@ import {
 } from "./oauth-store.ts";
 
 let tmp: string;
-const originalData = PATHS.data;
 
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), "omg-oauth-"));
-  PATHS.data = tmp;
-  resetSessionSecretForTests();
-});
+  configureConnectors({ dataDir: () => tmp, secret: () => "test-secret", baseUrl: () => "http://127.0.0.1:8766" });
+  });
 
 afterEach(() => {
-  PATHS.data = originalData;
-  resetSessionSecretForTests();
-  rmSync(tmp, { recursive: true, force: true });
+    rmSync(tmp, { recursive: true, force: true });
 });
 
 describe("connector oauth store", () => {

@@ -10,7 +10,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Connector } from "./store.ts";
-import { localServeBaseUrl } from "../config.ts";
+import { connectorBaseUrl } from "./context.ts";
 import { hasTokens } from "./oauth-store.ts";
 import { hubAuthProvider } from "./oauth-provider.ts";
 
@@ -53,7 +53,7 @@ async function connect(connector: Connector): Promise<Client> {
   // static headers. A connector uses one or the other.
   const transport = new StreamableHTTPClientTransport(new URL(connector.endpoint), {
     requestInit: { headers: connector.headers },
-    ...(hasTokens(connector.id) ? { authProvider: hubAuthProvider(connector, localServeBaseUrl()) } : {}),
+    ...(hasTokens(connector.id) ? { authProvider: hubAuthProvider(connector, connectorBaseUrl()) } : {}),
   });
   await client.connect(transport);
   clients.set(connector.id, { client, endpoint: connector.endpoint, headersKey: key });
