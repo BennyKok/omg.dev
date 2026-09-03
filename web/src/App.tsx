@@ -1,4 +1,4 @@
-import { Component, createContext, type ComponentProps, forwardRef, memo, Suspense, useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Component, createContext, type ComponentProps, forwardRef, memo, Suspense, useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type {
   Conversation as ProductConversation,
@@ -84,6 +84,11 @@ import {
   unknownConversationParticipant,
 } from "./lib/conversation-ui";
 import { UNREAD_DOT_CLASS } from "./lib/unread";
+import {
+  getFoldedRailGroups,
+  setFoldedRailGroup,
+  subscribeFoldedRailGroups,
+} from "./lib/rail-group-fold";
 import {
   addVisibleTranscriptSid,
   removeVisibleTranscriptSid,
@@ -1114,7 +1119,49 @@ type GlobalSettings = {
   // Standing instructions appended to the launch envelope of every new
   // session. "" means nothing extra is sent.
   customInstructions: string;
+  // Default coding agent + model for a new session when this browser has no
+  // saved choice. "" = host default / catalog default.
+  defaultAgent: string;
+  defaultModel: string;
+  // Box-wide view switches. All true by default. See ViewPrefsContext.
+  showSidebarAgentIcons: boolean;
+  showSessionAgentIcons: boolean;
+  showComposerModels: boolean;
+  // Off: no agent choice in the composer; every new session uses defaultAgent.
+  showComposerAgents: boolean;
+  showBots: boolean;
+  showSchedules: boolean;
 };
+
+/**
+ * The box-wide view preferences, read by the pieces of UI they switch: the
+ * rail rows, session headers, the composer's model list, and the surface
+ * toggle. One context so a deep, memoised row does not need seven props
+ * threaded through it. A role system may later decide these per viewer; the
+ * consumers only ever read the resolved booleans.
+ */
+type ViewPrefs = Pick<
+  GlobalSettings,
+  | "defaultAgent"
+  | "defaultModel"
+  | "showSidebarAgentIcons"
+  | "showSessionAgentIcons"
+  | "showComposerModels"
+  | "showComposerAgents"
+  | "showBots"
+  | "showSchedules"
+>;
+const DEFAULT_VIEW_PREFS: ViewPrefs = {
+  defaultAgent: "",
+  defaultModel: "",
+  showSidebarAgentIcons: true,
+  showSessionAgentIcons: true,
+  showComposerModels: true,
+  showComposerAgents: true,
+  showBots: true,
+  showSchedules: true,
+};
+const ViewPrefsContext = createContext<ViewPrefs>(DEFAULT_VIEW_PREFS);
 
 type TranscriptViewPreference = {
   value: TranscriptView;
@@ -1866,6 +1913,28 @@ const STATUS_DOT_IDLE = "bg-success/30 ring-1 ring-inset ring-success/20";
  * The parent must be `relative` — the spinner is absolutely positioned so the
  * mark does not shift when it appears.
  */
+// What a session shows in place of its agent icon when the box hides those:
+// a plain thread mark, still carrying the working spinner so the row's state
+// stays readable.
+function NeutralSessionMark({ busy, size = 24 }: { busy: boolean; size?: number }) {
+  return (
+    <span
+      className="relative flex shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
+      style={{ width: size, height: size }}
+      aria-hidden="true"
+    >
+      {busy ? (
+        <Loader2
+          className="absolute inset-0 m-auto animate-spin text-warning motion-reduce:animate-none"
+          style={{ width: size * 1.35, height: size * 1.35 }}
+          strokeWidth={1.75}
+        />
+      ) : null}
+      <MessageSquare style={{ width: size * 0.55, height: size * 0.55 }} />
+    </span>
+  );
+}
+
 function AgentMark({
   session,
   busy,
@@ -2021,6 +2090,21 @@ function putSessionTitle(sid: string, title: string) {
 }
 
 type RenameSession = (sid: string, title: string) => Promise<void>;
+
+/**
+ * The desktop stage's in-pane "new session" composer. The shell builds it (it
+ * owns users, repos, coding agents and the session refresh); RailStage decides
+ * WHEN it shows (only over an empty stage) and what the pane does afterwards.
+ */
+type StageComposerHandlers = {
+  onClose: () => void;
+  onCreated: (result?: {
+    launchId?: string;
+    sessionId?: string;
+    session?: Session | null;
+  }) => Promise<void>;
+};
+type StageComposerRender = (handlers: StageComposerHandlers) => ReactNode;
 
 let skillCatalogPromise: Promise<SkillCatalogItem[]> | null = null;
 let skillCatalogLoadedAt = 0;
@@ -5979,6 +6063,7 @@ export function App() {
     transcriptView: "full",
     skippedUpdateVersion: "",
     customInstructions: "",
+    ...DEFAULT_VIEW_PREFS,
   });
   const [schedTz, setSchedTz] = useState<string>(DEFAULT_SCHED_TZ);
   const [findings, setFindings] = useState<AutoFinding[]>([]);
@@ -6288,6 +6373,7 @@ export function App() {
       transcriptView: "full",
       skippedUpdateVersion: "",
       customInstructions: "",
+      ...DEFAULT_VIEW_PREFS,
     });
     // Guard sessions to [] — it feeds `allLiveSessions`/`liveSessions` which
     // call `.filter()` unconditionally on render, so a malformed/empty payload
@@ -7701,10 +7787,11 @@ export function App() {
     });
     const launchAgent = resolveInitialAgent(
       localStorage.getItem("lfg_v2_agent"),
-      defaultAgent,
+      resolveInitialAgent(settings.defaultAgent, defaultAgent),
     );
     const launchModel =
       localStorage.getItem(`lfg_model_${launchAgent}`) ||
+      (launchAgent === settings.defaultAgent ? settings.defaultModel : "") ||
       localStorage.getItem("lfg_model") ||
       modelCatalog.defaults[launchAgent] ||
       AGENT_DEFAULT_MODEL[launchAgent];
@@ -7754,6 +7841,13 @@ export function App() {
     setSettings(payload.settings);
     setSchedTz(payload.settings.timeZone);
   }, []);
+  // A hidden surface is not a destination. Land on Chat if the URL, a
+  // shortcut, or a stale menu still names Bots or Schedules while it is off.
+  useEffect(() => {
+    if ((tab === "bots" && !settings.showBots) || (tab === "auto" && !settings.showSchedules)) {
+      setTab("live");
+    }
+  }, [tab, settings.showBots, settings.showSchedules]);
   const transcriptViewPreference = useMemo<TranscriptViewPreference>(() => ({
     value: settings.transcriptView,
     onChange: (value) => updateSettings({ transcriptView: value }),
@@ -8405,10 +8499,27 @@ export function App() {
         ? bots.find((item) => item.id === botEditorTarget) ?? null
         : null;
   const botsInWorkspace = tab === "bots" && isWide;
+  // Schedules ride the same workspace on desktop: rail on the left, the
+  // schedule list in the stage. Narrow layouts keep the standalone page.
+  const autoInWorkspace = tab === "auto" && isWide;
+  const autoManageView = (
+    <AutoManageView
+      autoAgents={autoAgents}
+      findings={findings}
+      tz={schedTz}
+      onEdit={setEditingAgent}
+      onRunNow={runAutoNow}
+      onToggleEnabled={(id, enabled) => void setAutoAgentEnabled(id, enabled)}
+      onChangeAgent={(id, patch) => void patchAutoAgentRuntime(id, patch)}
+      settings={settings}
+      onSettingsChange={updateSettings}
+    />
+  );
   // The editor is the page while it is open, so the desktop workspace steps
   // aside for it. It stays MOUNTED (just hidden) — its sessions, streams and
   // scroll survive the trip into the editor and back.
-  const workspaceVisible = (tab === "live" || botsInWorkspace) && !botEditor;
+  const workspaceVisible =
+    (tab === "live" || botsInWorkspace || autoInWorkspace) && !botEditor;
   const liveDesktopWorkspace = workspaceVisible && isWide;
   // Surfaces that render their own chrome, so the app header must not also
   // render over them. Each one owes the user a way back by its own means:
@@ -8428,6 +8539,7 @@ export function App() {
     <AskProvider>
     <UpdateProvider settings={settings} onSettingsChange={updateSettings}>
     <TranscriptViewContext.Provider value={transcriptViewPreference}>
+    <ViewPrefsContext.Provider value={settings}>
     <ArtifactViewerContext.Provider value={openArtifactViewer}>
     <SessionTerminalContext.Provider value={setTerminalSid}>
     <OpenSettingsPageContext.Provider value={setTab}>
@@ -8815,7 +8927,8 @@ export function App() {
               onOpenBots={() => setTab("bots")}
               onOpenSessions={() => setTab("live")}
               onOpenAuto={() => setTab("auto")}
-              railSurface={tab === "bots" ? "chat" : "sessions"}
+              railSurface={tab === "bots" ? "chat" : tab === "auto" ? "auto" : "sessions"}
+              stageOverride={autoInWorkspace ? autoManageView : null}
               bots={bots}
               selectedBotId={selectedBotId}
               onOpenBot={openBot}
@@ -8825,12 +8938,16 @@ export function App() {
               // Built here rather than inside RailStage: the shell owns the tab
               // state and the extension registry, and the rail should not have to
               // know either to render a menu.
+              hostSettingsInMenu={hostSettingsInMenu}
               pagesMenu={
                 <PagesMenu
                   tab={tab}
                   onOpenTab={setTab}
                   extraTabs={extNavTabs}
                   showSettings={!embedded}
+                  // Hosted: Settings rides in this menu, same as the mobile
+                  // island, instead of a separate control in the rail footer.
+                  onOpenHostSettings={hostSettingsInMenu ? onOpenHostSettings : undefined}
                 />
               }
               repos={repos}
@@ -8847,6 +8964,28 @@ export function App() {
               onNew={() =>
                 isMobile ? setComposerFocusNonce((n) => n + 1) : setNewOpen(true)
               }
+              // Desktop, empty stage: the composer fills the pane instead of
+              // the drawer. Same props as the drawer below, so both read the
+              // same draft, agents and repos.
+              stageComposer={(handlers) => (
+                <NewSessionDialog
+                  variant="stage"
+                  open
+                  users={users}
+                  repos={repos}
+                  scopedProject={projectFilter}
+                  onReposChanged={loadCore}
+                  codingAgents={codingAgents}
+                  defaultUser={
+                    userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : ""
+                  }
+                  onClose={handlers.onClose}
+                  onCreated={async (result) => {
+                    await refreshSessions({ seed: result?.session ?? null });
+                    await handlers.onCreated(result);
+                  }}
+                />
+              )}
               hosted={embedded}
               // The hosted first run's optional half. Steps complete from
               // EVIDENCE (a session exists, an auto agent exists), so these
@@ -8935,19 +9074,7 @@ export function App() {
             onDelete={deletePersistentBot}
           />
         ) : null}
-        {tab === "auto" ? (
-          <AutoManageView
-            autoAgents={autoAgents}
-            findings={findings}
-            tz={schedTz}
-            onEdit={setEditingAgent}
-            onRunNow={runAutoNow}
-            onToggleEnabled={(id, enabled) => void setAutoAgentEnabled(id, enabled)}
-            onChangeAgent={(id, patch) => void patchAutoAgentRuntime(id, patch)}
-            settings={settings}
-            onSettingsChange={updateSettings}
-          />
-        ) : null}
+        {tab === "auto" && !autoInWorkspace ? autoManageView : null}
         {tab === "usage" ? <UsagePage /> : null}
         {tab === "coding-agents" ? (
           <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}>
@@ -9049,6 +9176,8 @@ export function App() {
             onRedoOnboarding={embedded ? restartHostedFirstRun : redoOnboarding}
             extTabs={extNavTabs}
             onOpenExt={(id) => setTab(id)}
+            settings={settings}
+            onSettingsChange={updateSettings}
           />
         ) : null}
         {extNavTabs.some((t) => t.id === tab) ? (
@@ -9275,6 +9404,7 @@ export function App() {
     </OpenSettingsPageContext.Provider>
     </SessionTerminalContext.Provider>
     </ArtifactViewerContext.Provider>
+    </ViewPrefsContext.Provider>
     </TranscriptViewContext.Provider>
     </UpdateProvider>
     </AskProvider>
@@ -11038,6 +11168,9 @@ function LiveView({
   hosted = false,
   coach = null,
   focus,
+  stageComposer,
+  stageOverride = null,
+  hostSettingsInMenu = false,
 }: {
   sessions: Session[];
   shippedReview?: Session | null;
@@ -11060,7 +11193,7 @@ function LiveView({
   onOpenSessions?: () => void;
   onOpenAuto: () => void;
   /** Which list the rail is showing. Bots ride the same rail as sessions. */
-  railSurface?: "sessions" | "chat";
+  railSurface?: "sessions" | "chat" | "auto";
   bots?: PersistentBot[];
   selectedBotId?: string | null;
   onOpenBot?: (id: string, conversationId?: string | null) => void;
@@ -11098,6 +11231,12 @@ function LiveView({
   coach?: ReactNode;
   // External "jump to session" request (e.g. tapping a Shipped post).
   focus?: { sid: string; n: number } | null;
+  /** Desktop only. See RailStage. */
+  stageComposer: StageComposerRender;
+  /** Desktop only. See RailStage. */
+  stageOverride?: ReactNode;
+  /** Desktop only. See RailStage. */
+  hostSettingsInMenu?: boolean;
 }) {
   const isWide = useIsWide();
   const isMobile = useIsMobile();
@@ -11410,6 +11549,9 @@ function LiveView({
         hosted={hosted}
         coach={coach}
         focus={focus}
+        stageComposer={stageComposer}
+        stageOverride={stageOverride}
+        hostSettingsInMenu={hostSettingsInMenu}
         topPinned={topPinned}
         onToggleTopPin={toggleTopPin}
       />
@@ -11489,6 +11631,7 @@ function LiveView({
               label="Auto"
               count={findings.length}
               collapsed={false}
+              foldKey="__auto"
               action={
                 <span className="flex items-center gap-1">
                   <ClearFindingsButton
@@ -11609,6 +11752,9 @@ function RailStage({
   focus,
   topPinned,
   onToggleTopPin,
+  stageComposer,
+  stageOverride = null,
+  hostSettingsInMenu = false,
 }: {
   sessions: Session[];
   shippedReview?: Session | null;
@@ -11623,7 +11769,7 @@ function RailStage({
   onOpenBots: () => void;
   onOpenSessions?: () => void;
   onOpenAuto: () => void;
-  railSurface?: "sessions" | "chat";
+  railSurface?: "sessions" | "chat" | "auto";
   bots?: PersistentBot[];
   selectedBotId?: string | null;
   onOpenBot?: (id: string, conversationId?: string | null) => void;
@@ -11657,6 +11803,18 @@ function RailStage({
   onClearFindings: (targets: AutoFinding[]) => void;
   clearFindingsBusy?: boolean;
   onNew: () => void;
+  /** The empty stage's content: the in-pane new-session composer. */
+  stageComposer: StageComposerRender;
+  /**
+   * Replaces the stage columns entirely while `railSurface === "auto"`: the
+   * Schedules list lives in the pane, the session rail stays on the left.
+   */
+  stageOverride?: ReactNode;
+  /**
+   * Hosted only: the Pages menu carries the host's Settings, so the
+   * rail-footer slot tells the host its own gear is redundant here.
+   */
+  hostSettingsInMenu?: boolean;
 }) {
   const appDialog = useAppDialog();
   const { conversations: botConversationsForRail, selectedConversationId: selectedBotConversationForRail, markRead: markBotRowRead } = useContext(BotUnreadContext);
@@ -11945,6 +12103,23 @@ function RailStage({
     return cols.slice(0, MAX_COLUMNS);
   }, [validPinned, preview, bySid]);
 
+  // "New session" with nothing PINNED puts the composer IN the pane instead of
+  // a sheet over it. The stage is almost never literally empty on desktop —
+  // the effect below previews the first session as soon as one exists — so
+  // "nothing selected" means "nothing the person chose to keep": a preview
+  // column is not a commitment and yields to the composer. Pinned columns are
+  // deliberate, so with any of those (or on the bot surface) the shell's
+  // drawer flow runs as before. Opening a session (rail click, digit
+  // shortcut, the fresh session after Start) retires the in-pane composer, so
+  // it can never linger behind a transcript.
+  const startNew = () => {
+    if (railSurface === "sessions" && validPinned.length === 0) {
+      setPreview(null);
+      return;
+    }
+    onNew();
+  };
+
   // Stage columns are open transcript surfaces even though they do not use the
   // mobile card collapse toggle. Keep the app-level lazy stream manager in sync
   // so direct-opened / previewed / pinned sessions actually start their SSE.
@@ -11969,23 +12144,22 @@ function RailStage({
     };
   }, [columnIds]);
 
-  // Never leave the stage empty when there's something to show: preview the
-  // first working session (or the first session) on load. (A pending focus
-  // request wins — don't race it with the default pick; the `focus` effect
-  // above sets the preview itself once its session lands.)
-  useEffect(() => {
-    if (focus) return;
-    if (columnIds.length || !sessions.length) return;
-    const first = sessions.find((s) => busyBySid[s.sessionId ?? ""]) ?? sessions[0];
-    if (first?.sessionId) setPreview(first.sessionId);
-  }, [columnIds.length, sessions, busyBySid, focus]);
+  // No default preview. The stage used to fill itself with the first working
+  // session on load, picked from the raw `sessions` list — which still holds
+  // bot conversations the Chat rail hides, so it sometimes "auto selected the
+  // bot". An empty stage is now the new-session composer by design, and a
+  // session opens only when the person (or a focus/deep link) picks one.
 
   const openSession = useCallback(
     (sid: string) => {
+      // From Schedules, picking a session in the rail goes back to Chat: the
+      // stage is showing the schedule list, and a preview set underneath it
+      // would be an open session nobody can see.
+      if (railSurface === "auto") onOpenSessions();
       if (validPinned.includes(sid)) return; // already a persistent column
       setPreview(sid);
     },
-    [validPinned],
+    [validPinned, railSurface, onOpenSessions],
   );
   const togglePin = useCallback(
     (sid: string) => {
@@ -12096,10 +12270,19 @@ function RailStage({
     [railTree, topPinned],
   );
 
+  // A folded group takes its rows out of the DOM, so they must leave the
+  // keyboard order too. Otherwise j/k walks an invisible cursor and Enter
+  // opens a row the reader put away. The icon rail draws no headers and so
+  // cannot fold: there every row stays navigable.
+  const foldedRailGroups = useFoldedRailGroups();
+  const isRailGroupFolded = (key: string) =>
+    !railCollapsed && foldedRailGroups.includes(key);
   const railOrderedSessions = [
-    ...topPinnedSessions,
+    ...(isRailGroupFolded("__pinned") ? [] : topPinnedSessions),
     ...botSessions,
-    ...projectRailGroups.flatMap((group) => railTree.flatten(group.nodes)),
+    ...projectRailGroups.flatMap((group) =>
+      isRailGroupFolded(group.key) ? [] : railTree.flatten(group.nodes),
+    ),
   ];
 
   // Flat rail order the keyboard cursor walks (matching the visible rail;
@@ -12249,7 +12432,7 @@ function RailStage({
     showHelp,
     busyBySid,
     interruptSid,
-    onNew,
+    onNew: startNew,
     onOpenSettings,
   });
   kb.current = {
@@ -12271,7 +12454,7 @@ function RailStage({
     showHelp,
     busyBySid,
     interruptSid,
-    onNew,
+    onNew: startNew,
     onOpenSettings,
   };
   useEffect(() => {
@@ -12574,6 +12757,7 @@ function RailStage({
         label="Auto"
         count={findings.length}
         collapsed={railCollapsed}
+        foldKey="__auto"
         action={
           <span className="flex items-center gap-1">
             <ClearFindingsButton
@@ -12734,7 +12918,7 @@ function RailStage({
             </button>
             <button
               type="button"
-              onClick={onNew}
+              onClick={startNew}
               aria-label="New session"
               title="New session"
               className="flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
@@ -12806,10 +12990,10 @@ function RailStage({
               the collapse control, where it read as app furniture rather than
               as the first row of this list. Chat only — the Bots surface has
               its own New bot. */}
-          {!railCollapsed && onNew ? (
+          {!railCollapsed ? (
             <button
               type="button"
-              onClick={onNew}
+              onClick={startNew}
               className="mb-1 flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
               <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-dashed border-border">
@@ -12847,6 +13031,9 @@ function RailStage({
           <div
             data-lfg-host-slot="rail-footer"
             data-lfg-rail-collapsed={railCollapsed ? "true" : undefined}
+            // Same flag the header-actions slots carry: with Settings in our
+            // Pages menu, the host should not also draw a gear down here.
+            data-lfg-host-settings={hostSettingsInMenu ? "menu" : undefined}
             className="shrink-0"
           />
         ) : null}
@@ -12863,7 +13050,9 @@ function RailStage({
               : "grid-cols-2 grid-rows-2",
         )}
       >
-        {activeStageColumns.length ? (
+        {railSurface === "auto" ? (
+          <div className="h-full min-h-0 overflow-y-auto px-2 pt-2">{stageOverride}</div>
+        ) : activeStageColumns.length ? (
           activeStageColumns.map(({ sid, session }) => {
             return (
               <div
@@ -12891,26 +13080,29 @@ function RailStage({
             }}
           />
         ) : (
-          <div className="flex h-full flex-1 flex-col items-center justify-center gap-4">
-            {coach ? <div className="w-full max-w-md text-left">{coach}</div> : null}
-            <div className="lfg-gborder flex flex-col items-center gap-3 rounded-3xl border border-transparent bg-card px-8 py-10 text-center shadow-[0_12px_40px_-24px_rgba(0,0,0,0.5)]">
-              <div className="lfg-gborder flex size-14 items-center justify-center rounded-2xl border border-transparent bg-muted">
-                <MessageSquare className="size-6 text-muted-foreground" />
-              </div>
-              <div>
-                <div className="font-semibold">No session open</div>
-                <div className="mt-1 text-sm text-muted-foreground">
-                  Pick one from the rail, or press{" "}
-                  <kbd className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px] font-medium">1–9</kbd>{" "}
-                  to jump. <kbd className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[11px] font-medium">?</kbd>{" "}
-                  shows all shortcuts.
-                </div>
-              </div>
-              <Button variant="brand" className="lfg-gborder lfg-gborder--brand" onClick={onNew}>
-                <Plus className="size-4" />
-                New session
-              </Button>
-            </div>
+          // An empty stage IS the composer. There is no "No session open"
+          // card any more: with nothing to show, the useful thing to show is
+          // the place to start one. The hosted coach, when present, sits
+          // above it.
+          <div className="flex h-full min-h-0 flex-1 flex-col">
+            {coach ? (
+              <div className="mx-auto w-full max-w-xl shrink-0 px-4 pt-4 text-left">{coach}</div>
+            ) : null}
+            {stageComposer({
+              // The composer IS the empty stage; there is nothing to close
+              // back to. Esc just stays put.
+              onClose: () => {},
+              onCreated: async (result) => {
+                // The shell has already refreshed (and seeded) the session
+                // list, so the new session is in `bySid` and can take the
+                // pane now.
+                const sid = result?.sessionId ?? result?.session?.sessionId;
+                if (sid) {
+                  setPreview(sid);
+                  pulseStage(sid);
+                }
+              },
+            })}
           </div>
         )}
       </div>
@@ -13022,6 +13214,29 @@ function ShortcutsHelp({ onClose }: { onClose: () => void }) {
  * stage" on desktop and "go to its page" on mobile, and pretending those were
  * one call is how the two surfaces diverged in the first place.
  */
+// The folded group keys, live. One store behind every reader, so the desktop
+// rail, the mobile list and the keyboard order cannot disagree about which
+// groups are shut.
+function useFoldedRailGroups(): string[] {
+  return useSyncExternalStore(
+    subscribeFoldedRailGroups,
+    getFoldedRailGroups,
+    getFoldedRailGroups,
+  );
+}
+
+// Every session in a family, for the folded header's unread check. The dot
+// must survive folding, or shutting a group becomes a way to lose the "this
+// said something" signal its rows were carrying.
+function collectGroupSids(nodes: SessionTreeNode[], into: string[] = []): string[] {
+  for (const node of nodes) {
+    const sid = sessionStableId(node.session);
+    if (sid) into.push(sid);
+    collectGroupSids(node.children, into);
+  }
+  return into;
+}
+
 function SessionGroups({
   groups,
   pinnedNodes,
@@ -13118,7 +13333,13 @@ function SessionGroups({
     <>
       {leading}
       {pinnedCount ? (
-        <RailGroup label="Pinned" count={pinnedCount} collapsed={collapsed}>
+        <RailGroup
+          label="Pinned"
+          count={pinnedCount}
+          collapsed={collapsed}
+          foldKey="__pinned"
+          sids={collectGroupSids(pinnedNodes)}
+        >
           {pinnedNodes.map((node) => renderNode(node))}
         </RailGroup>
       ) : null}
@@ -13128,6 +13349,8 @@ function SessionGroups({
           label={group.label}
           count={group.count}
           collapsed={collapsed}
+          foldKey={group.key}
+          sids={collectGroupSids(group.nodes)}
           // The folder title IS the filter. Scoping used to live on the folder
           // button, which made that button mean two things — pick where a new
           // session runs, and narrow the list — and neither was discoverable
@@ -13158,6 +13381,8 @@ function RailGroup({
   action,
   onFilter,
   onClearFilter,
+  foldKey,
+  sids,
   children,
 }: {
   label: string;
@@ -13168,12 +13393,31 @@ function RailGroup({
   onFilter?: () => void;
   /** Drop the scope. Only the group that IS the current scope gets this. */
   onClearFilter?: () => void;
+  /**
+   * Stable identity under which this group's fold is persisted. Absent =
+   * the group cannot fold. The fixed groups use "__pinned"/"__auto"; a
+   * folder group uses its project key, which survives relabeling.
+   */
+  foldKey?: string;
+  /** Sessions inside the group, so a folded header can still carry unread. */
+  sids?: string[];
   children: ReactNode;
 }) {
+  const { unread } = useContext(SessionUnreadContext);
+  // A fold is this browser's reading posture, read from the one live set that
+  // every surface shares. Not local state: the mobile list mounts its own
+  // RailGroups, and the rail's keyboard order is built outside this component.
+  const foldedGroups = useFoldedRailGroups();
+  const folded = !!foldKey && foldedGroups.includes(foldKey);
+  const toggleFold = () => {
+    if (!foldKey) return;
+    setFoldedRailGroup(foldKey, !folded);
+  };
+  const foldedUnread = folded && !!sids?.some((sid) => unread.has(sid));
   // Not uppercased. A folder is named "lfg", not "LFG", and shouting every
   // group label made the rail's quietest text its loudest.
   const title = (
-    <span className={cn(onFilter && "transition-colors hover:text-foreground")}>
+    <span className={cn((onFilter || foldKey) && "transition-colors hover:text-foreground")}>
       {label} · {count}
     </span>
   );
@@ -13187,6 +13431,19 @@ function RailGroup({
               onClick={onFilter}
               title={`Show only ${label}`}
               aria-label={`Show only ${label}`}
+              className="min-w-0 truncate text-left outline-none focus-visible:text-foreground"
+            >
+              {title}
+            </button>
+          ) : foldKey ? (
+            // No filter to collide with, so the title itself folds too — the
+            // chevron alone is a small target on touch.
+            <button
+              type="button"
+              onClick={toggleFold}
+              title={folded ? `Show ${label}` : `Hide ${label}`}
+              aria-label={folded ? `Show ${label}` : `Hide ${label}`}
+              aria-expanded={!folded}
               className="min-w-0 truncate text-left outline-none focus-visible:text-foreground"
             >
               {title}
@@ -13208,10 +13465,38 @@ function RailGroup({
               <X className="size-3" />
             </button>
           ) : null}
-          {action ? <span className="ml-auto normal-case tracking-normal">{action}</span> : null}
+          {foldedUnread ? (
+            // The rows carry their own dots while open; folded, the header
+            // inherits the mark so a shut group cannot hide news.
+            <span className={cn(UNREAD_DOT_CLASS, "ml-1.5")} aria-hidden="true" />
+          ) : null}
+          {action || foldKey ? (
+            <span className="ml-auto flex items-center gap-1 normal-case tracking-normal">
+              {action}
+              {foldKey ? (
+                <button
+                  type="button"
+                  onClick={toggleFold}
+                  title={folded ? `Show ${label}` : `Hide ${label}`}
+                  aria-label={folded ? `Show ${label}` : `Hide ${label}`}
+                  aria-expanded={!folded}
+                  className="-my-1 flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <ChevronDown
+                    className={cn(
+                      "size-3.5 transition-transform duration-150",
+                      folded && "-rotate-90",
+                    )}
+                  />
+                </button>
+              ) : null}
+            </span>
+          ) : null}
         </div>
       ) : null}
-      <div className="flex flex-col gap-0.5">{children}</div>
+      {collapsed || !folded ? (
+        <div className="flex flex-col gap-0.5">{children}</div>
+      ) : null}
     </div>
   );
 }
@@ -13490,6 +13775,7 @@ const RailItem = memo(function RailItem({
   /** Swipe left to archive. Absent on surfaces where that is not offered. */
   onArchive?: () => void;
 }) {
+  const { showSidebarAgentIcons: showAgentIcons } = useContext(ViewPrefsContext);
   const botDirectory = useContext(BotDirectoryContext);
   const drivingBotId = productBotId(session);
   const drivingBot = drivingBotId ? botDirectory.get(drivingBotId) : undefined;
@@ -13561,15 +13847,17 @@ const RailItem = memo(function RailItem({
                 onError={() => setFailedFaviconSrc(faviconSrc)}
               />
             </>
-          ) : (
+          ) : showAgentIcons ? (
             <AgentMark
               session={session}
               busy={busy}
               rounding="rounded-md"
               showAccountNumber={false}
             />
+          ) : (
+            <NeutralSessionMark busy={busy} />
           )}
-          {!drivingBot && showFavicon ? (
+          {!drivingBot && showFavicon && showAgentIcons ? (
             <span
               title={session.agentLabel || agentIconAlt(session.agent)}
               className="absolute bottom-1 right-1 flex size-[18px] items-center justify-center rounded-md bg-card ring-2 ring-card"
@@ -21038,6 +21326,9 @@ function NewSessionDialog({
   //    shortcut.
   //  - "inline": mobile home screen — anchored at the bottom of the viewport,
   //    compact at rest and expandable. Always mounted (no open/close).
+  //  - "stage": desktop workspace with nothing open — the composer IS the
+  //    stage content instead of a sheet over an empty pane. Same controls as
+  //    the drawer, no overlay.
   variant = "drawer",
   expanded = false,
   onExpandedChange,
@@ -21063,7 +21354,7 @@ function NewSessionDialog({
   // Inline only: horizontal swipes cycle the live-view project filter.
   onProjectSwipe?: (dir: 1 | -1) => boolean;
   onReposChanged: () => Promise<void>;
-  variant?: "drawer" | "inline";
+  variant?: "drawer" | "inline" | "stage";
   // Inline only: compact↔full controls toggle (lifted to the parent so other
   // affordances can drive it).
   expanded?: boolean;
@@ -21077,10 +21368,27 @@ function NewSessionDialog({
 }) {
   const catalog = useAgentModelCatalog();
   const accessMode = useContext(AgentAccessModeContext);
-  const { defaultAgent } = useEmbeddedHostOptions();
+  const view = useContext(ViewPrefsContext);
+  const { defaultAgent: hostDefaultAgent } = useEmbeddedHostOptions();
+  // Box default (Settings > More > View) sits between the browser's saved
+  // choice and the host's built-in default.
+  const defaultAgent = resolveInitialAgent(view.defaultAgent, hostDefaultAgent);
   const defaultModelFor = (key: AgentKind) => catalog.defaults[key] ?? AGENT_DEFAULT_MODEL[key];
-  const [agent, setAgent] = useState<AgentKind>(
-    () => resolveInitialAgent(localStorage.getItem("lfg_v2_agent"), defaultAgent),
+  // The model an agent starts on. With the model list hidden the box default
+  // is the only choice, so it wins over anything this browser saved earlier;
+  // otherwise the saved pick leads and the box default is the fallback.
+  const preferredModelFor = (key: AgentKind) => {
+    const boxDefault = key === view.defaultAgent && view.defaultModel ? view.defaultModel : "";
+    if (!view.showComposerModels && boxDefault) return boxDefault;
+    return localStorage.getItem(`lfg_model_${key}`) || boxDefault || defaultModelFor(key);
+  };
+  // With the agent picker hidden the box default is the only agent; the
+  // browser's saved pick is ignored rather than silently launching something
+  // the composer never showed.
+  const [agent, setAgent] = useState<AgentKind>(() =>
+    view.showComposerAgents
+      ? resolveInitialAgent(localStorage.getItem("lfg_v2_agent"), defaultAgent)
+      : defaultAgent,
   );
   const [claudeAccountId, setClaudeAccountId] = useState("");
   // Role the new session runs as (Settings > Roles). "" is owner. The picker
@@ -21103,7 +21411,9 @@ function NewSessionDialog({
   const [repo, setRepo] = useState(() => localStorage.getItem("lfg_v2_repo") || "");
   const [model, setModel] = useState(
     () =>
+      (view.showComposerModels ? "" : preferredModelFor(agent)) ||
       localStorage.getItem(`lfg_model_${agent}`) ||
+      (agent === view.defaultAgent ? view.defaultModel : "") ||
       localStorage.getItem("lfg_model") ||
       defaultModelFor(agent),
   );
@@ -21737,10 +22047,7 @@ function NewSessionDialog({
     appliedAgentNonce.current = agentRequest.nonce;
     setAgent(agentRequest.kind);
     if (agentRequest.kind === "aisdk") setClaudeAccountId(agentRequest.accountId ?? "");
-    setModel(
-      localStorage.getItem(`lfg_model_${agentRequest.kind}`) ||
-        defaultModelFor(agentRequest.kind),
-    );
+    setModel(preferredModelFor(agentRequest.kind));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentRequest]);
 
@@ -21956,10 +22263,39 @@ function NewSessionDialog({
     setAgentIconNonce((n) => n + 1);
     setAgent(nextKey);
     if (nextKey === "aisdk") setClaudeAccountId(next.accountId ?? "");
-    setModel(localStorage.getItem(`lfg_model_${nextKey}`) || defaultModelFor(nextKey));
+    setModel(preferredModelFor(nextKey));
     feedback.swipe();
   };
   cycleAgentRef.current = cycleAgent;
+
+  const onAgentLocked = () => {
+    // The whole point of drawing an agent we can't run: this is the one
+    // tap between "I have a Claude account" and using it.
+    //
+    // Get the composer out of the way FIRST, in whichever shape it has.
+    // The drawer is a modal sheet, so leaving it up parks it squarely over
+    // the settings page we just navigated to — the tap looked like it did
+    // nothing. The inline composer only needs its controls row collapsed;
+    // the bar itself is meant to stay.
+    feedback.tap();
+    onExpandedChange?.(false);
+    if (variant === "drawer") onClose();
+    openSettingsPage("coding-agents");
+  };
+  const onAgentSelect = (key: AgentKind, option?: { accountId?: string; selectorId?: string }) => {
+    // Re-tapping the already-selected agent collapses the row.
+    if (
+      variant === "inline" &&
+      expanded &&
+      selectedLaunchId === (option?.selectorId ?? key)
+    ) {
+      onExpandedChange?.(false);
+      return;
+    }
+    setAgent(key);
+    if (key === "aisdk") setClaudeAccountId(option?.accountId ?? "");
+    setModel(preferredModelFor(key));
+  };
 
   const agentSelector = (
     <AgentIconStrip
@@ -21967,47 +22303,42 @@ function NewSessionDialog({
       value={agent}
       selectedId={selectedLaunchId}
       flat={variant === "inline"}
-      onLocked={() => {
-        // The whole point of drawing an agent we can't run: this is the one
-        // tap between "I have a Claude account" and using it.
-        //
-        // Get the composer out of the way FIRST, in whichever shape it has.
-        // The drawer is a modal sheet, so leaving it up parks it squarely over
-        // the settings page we just navigated to — the tap looked like it did
-        // nothing. The inline composer only needs its controls row collapsed;
-        // the bar itself is meant to stay.
-        feedback.tap();
-        onExpandedChange?.(false);
-        if (variant === "drawer") onClose();
-        openSettingsPage("coding-agents");
-      }}
-      onSelect={(key, option) => {
-        // Re-tapping the already-selected agent collapses the row.
-        if (
-          variant === "inline" &&
-          expanded &&
-          selectedLaunchId === (option?.selectorId ?? key)
-        ) {
-          onExpandedChange?.(false);
-          return;
-        }
-        setAgent(key);
-        if (key === "aisdk") setClaudeAccountId(option?.accountId ?? "");
-        setModel(localStorage.getItem(`lfg_model_${key}`) || defaultModelFor(key));
-      }}
+      onLocked={onAgentLocked}
+      onSelect={onAgentSelect}
     />
   );
 
   const modelControls = (
     <>
-      <ModelPicker
-        value={model}
-        models={models}
-        onChange={setModel}
-        flat={variant === "inline"}
-        width="max-w-28"
-        onMobileLayerOpenChange={variant === "inline" ? handleModelLayerOpenChange : undefined}
-      />
+      {variant === "inline" ? (
+        <ModelPicker
+          value={model}
+          models={models}
+          onChange={setModel}
+          flat
+          width="max-w-28"
+          onMobileLayerOpenChange={handleModelLayerOpenChange}
+        />
+      ) : (
+        // Desktop: one pill for "which agent, which model". The agent strip
+        // and the model list live in the same popover, so the row carries one
+        // control fewer and the two choices that belong together are made
+        // together.
+        <AgentModelPicker
+          options={agentButtons}
+          agent={agent}
+          agentLabel={selectedAgentOption.label}
+          agentBadge={selectedAgentOption.badge}
+          selectedId={selectedLaunchId}
+          onSelectAgent={onAgentSelect}
+          onLocked={onAgentLocked}
+          model={model}
+          models={models}
+          onModelChange={setModel}
+          showModels={view.showComposerModels}
+          showAgents={view.showComposerAgents}
+        />
+      )}
 
       <ThinkingLevelPill
         agent={agent}
@@ -22087,7 +22418,6 @@ function NewSessionDialog({
     </div>
   ) : (
     <div className="flex flex-wrap items-center gap-1.5 pb-0.5">
-      {agentSelector}
       {modelControls}
     </div>
   );
@@ -22100,7 +22430,9 @@ function NewSessionDialog({
       type="button"
       onClick={() => {
         setResumeOpen(true);
-        if (variant !== "inline") onClose();
+        // Only the drawer has to get out of the way (it is a modal sheet). The
+        // inline and stage composers stay put and host the sheet themselves.
+        if (variant === "drawer") onClose();
       }}
       title="Open Stash and recent sessions"
       aria-label="Open Stash and recent sessions"
@@ -22171,10 +22503,16 @@ function NewSessionDialog({
         // Embed cancels --lfg-device-safe-bottom to 0 (host owns that zone) and
         // the shell still applies host-inset, so Start clears the pill without
         // a double gap. Drawer / dialog are full-bleed → global safe bottom.
-        "relative max-h-[70dvh] overscroll-contain px-2 transition-colors",
+        "relative overscroll-contain px-2 transition-colors",
         variant === "inline"
           ? "overflow-visible pb-[max(var(--lfg-device-safe-bottom),0.5rem)] pt-1.5"
-          : "overflow-y-auto pb-[max(var(--lfg-safe-bottom),0.5rem)] pt-1",
+          : variant === "stage"
+            ? // The stage has the whole pane; nothing to cap or scroll. And
+              // it must not clip: the / and @ suggest menus hang above the
+              // field (`bottom-full`), and an overflow-auto form swallowed
+              // them whole.
+              "overflow-visible pb-2 pt-1"
+            : "max-h-[70dvh] overflow-y-auto pb-[max(var(--lfg-safe-bottom),0.5rem)] pt-1",
         draggingFiles && "bg-primary/8",
       )}
     >
@@ -22443,6 +22781,42 @@ function NewSessionDialog({
           onClose={closeResume}
         />
       </Suspense>
+    );
+  }
+
+  // Desktop stage: the same composer the drawer shows, sitting flat in the
+  // empty pane instead of sliding over it. Escape closes it the way it closes
+  // the sheet. Greets the session owner by roster name, falling back to the
+  // local part of the email, then to a plain "there".
+  const stageOwner = users.find((item) => item.email === user);
+  const stageGreetingName =
+    stageOwner?.name?.trim() || (user ? user.split("@")[0] : "") || "there";
+  if (variant === "stage") {
+    return (
+      <div
+        // overflow-visible on purpose: see the form's stage branch. The
+        // suggest menus need to escape upward past the greeting.
+        className="flex h-full min-h-0 flex-1 flex-col items-center justify-center overflow-visible p-4"
+        data-testid="new-session-stage"
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && !e.defaultPrevented) {
+            e.preventDefault();
+            onClose();
+          }
+        }}
+      >
+        {/* Flat on the stage background: no card, no border, no shadow. This
+            is the page's content, not a dialog over it, so it gets no dialog
+            chrome. The field's own outline is the only frame. */}
+        <section aria-label="New session" className="w-full max-w-xl">
+          {/* A greeting, not a dialog title. No close control: Esc, or
+              opening any session from the rail, leaves this surface. */}
+          <h2 className="px-3 pb-2 text-lg font-semibold">
+            Hello {stageGreetingName}!
+          </h2>
+          {formBody}
+        </section>
+      </div>
     );
   }
 
@@ -23321,14 +23695,12 @@ function ComposerThinkingControl({
           (scrub.scrubbing || scrub.sticky) && "scale-[1.02] bg-foreground/10",
         )}
       >
+        {/* The signal bars say "thinking"; the word was redundant next to
+            them. The pill reads as signal + level (e.g. "Medium"), and the
+            aria-label above keeps the full name for screen readers. */}
         <ThinkingSignal value={shown} levels={levels} />
-        <span className="text-xs font-medium">Thinking</span>
-        <span aria-hidden="true" className="text-[11px] text-muted-foreground/60">·</span>
         <span
-          className={cn(
-            "max-w-14 truncate text-[11px] font-medium capitalize transition-colors duration-150",
-            scrub.scrubbing ? "text-foreground" : "text-muted-foreground",
-          )}
+          className="max-w-16 truncate text-xs font-medium capitalize transition-colors duration-150"
           style={scrub.scrubbing ? { color: scrub.previewAccent } : undefined}
         >
           {thinkingLevelLabel(shown)}
@@ -23514,19 +23886,10 @@ function ModelPicker({
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const [mobileMounted, setMobileMounted] = useState(false);
-  const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const mobileTransitionMs = 360;
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return models;
-    return models.filter((item) => item.toLowerCase().includes(q));
-  }, [models, query]);
-  const searchable = models.length > 8;
+  const searchable = modelListSearchable(models);
 
-  useEffect(() => {
-    if (!open) setQuery("");
-  }, [open]);
   useEffect(() => {
     if (!open || !isMobile) return;
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -23581,53 +23944,15 @@ function ModelPicker({
     </button>
   );
 
-  const search = searchable ? (
-    <div className="relative">
-      <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-      <input
-        ref={inputRef}
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        onKeyDown={(event) => {
-          event.stopPropagation();
-          if (event.key === "Escape") setOpen(false);
-          if (event.key === "Enter" && filtered[0]) choose(filtered[0]);
-        }}
-        placeholder="Filter models"
-        className="h-10 w-full rounded-xl border border-border bg-background pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30"
-      />
-    </div>
-  ) : null;
-
-  const list = (
-    <div className={cn("overflow-y-auto pr-1", isMobile ? "max-h-[52dvh]" : "max-h-72")}>
-      {filtered.length ? (
-        filtered.map((item) => {
-          const selected = value === item;
-          return (
-            <button
-              key={item}
-              type="button"
-              onClick={() => choose(item)}
-              className={cn(
-                "flex w-full min-w-0 items-center gap-3 rounded-xl px-3 text-left text-sm outline-none transition-colors",
-                isMobile ? "h-12" : "h-10",
-                selected
-                  ? "bg-primary/12 text-foreground ring-1 ring-inset ring-primary/20"
-                  : cn("text-foreground focus-visible:bg-muted", !isMobile && "hover:bg-muted"),
-              )}
-            >
-              <Check className={cn("size-4 shrink-0 text-primary", selected ? "opacity-100" : "opacity-0")} />
-              <span className="min-w-0 flex-1 truncate">{item}</span>
-            </button>
-          );
-        })
-      ) : (
-        <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-          No matching models
-        </div>
-      )}
-    </div>
+  const optionList = (
+    <ModelOptionList
+      value={value}
+      models={models}
+      onChoose={choose}
+      onEscape={() => setOpen(false)}
+      inputRef={inputRef}
+      large={isMobile}
+    />
   );
 
   if (isMobile) {
@@ -23664,10 +23989,7 @@ function ModelPicker({
                 <VaulDrawer.Title className="mb-3 text-base font-semibold">
                   Model
                 </VaulDrawer.Title>
-                <div className="min-h-0 space-y-3">
-                  {search}
-                  {list}
-                </div>
+                {optionList}
               </VaulDrawer.Content>
             </VaulDrawer.Portal>
           </VaulDrawer.Root>
@@ -23683,16 +24005,218 @@ function ModelPicker({
           side="bottom"
           align="start"
           sideOffset={6}
+          // Never flip above the pill: the list then covers the prompt you
+          // are typing into. Shift/clamp inside the viewport instead.
+          collisionAvoidance={{ side: "none" }}
           className="isolate z-[170] outline-none"
         >
           <Popover.Popup
             initialFocus={searchable ? inputRef : true}
             className="w-80 max-w-[calc(100vw-1rem)] rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl ring-1 ring-foreground/5 outline-none"
           >
-            <div className="space-y-2">
-              {search}
-              {list}
-            </div>
+            {optionList}
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+function modelListSearchable(models: string[]): boolean {
+  return models.length > 8;
+}
+
+// Filter box + option list shared by the model pill and the combined
+// agent/model pill. Owns the query, so closing the popover (which unmounts
+// this) is what clears it.
+function ModelOptionList({
+  value,
+  models,
+  onChoose,
+  onEscape,
+  inputRef,
+  large = false,
+}: {
+  value: string;
+  models: string[];
+  onChoose: (model: string) => void;
+  onEscape?: () => void;
+  inputRef?: { current: HTMLInputElement | null };
+  large?: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return models;
+    return models.filter((item) => item.toLowerCase().includes(q));
+  }, [models, query]);
+  return (
+    <div className={large ? "min-h-0 space-y-3" : "space-y-2"}>
+      {modelListSearchable(models) ? (
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.key === "Escape") onEscape?.();
+              if (event.key === "Enter" && filtered[0]) onChoose(filtered[0]);
+            }}
+            placeholder="Filter models"
+            className="h-10 w-full rounded-xl border border-border bg-background pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30"
+          />
+        </div>
+      ) : null}
+      <div className={cn("overflow-y-auto pr-1", large ? "max-h-[52dvh]" : "max-h-72")}>
+        {filtered.length ? (
+          filtered.map((item) => {
+            const selected = value === item;
+            return (
+              <button
+                key={item}
+                type="button"
+                onClick={() => onChoose(item)}
+                className={cn(
+                  "flex w-full min-w-0 items-center gap-3 rounded-xl px-3 text-left text-sm outline-none transition-colors",
+                  large ? "h-12" : "h-10",
+                  selected
+                    ? "bg-primary/12 text-foreground ring-1 ring-inset ring-primary/20"
+                    : cn("text-foreground focus-visible:bg-muted", !large && "hover:bg-muted"),
+                )}
+              >
+                <Check className={cn("size-4 shrink-0 text-primary", selected ? "opacity-100" : "opacity-0")} />
+                <span className="min-w-0 flex-1 truncate">{item}</span>
+              </button>
+            );
+          })
+        ) : (
+          <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+            No matching models
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Desktop composer pill: agent AND model behind one trigger. The popover holds
+ * the same AgentIconStrip the other surfaces use, with the model list for the
+ * chosen agent under it. Picking an agent keeps the popover open (the model
+ * list changes with it); picking a model closes it.
+ */
+function AgentModelPicker<K extends AgentKind>({
+  options,
+  agent,
+  agentLabel,
+  agentBadge,
+  selectedId,
+  onSelectAgent,
+  onLocked,
+  model,
+  models,
+  onModelChange,
+  showModels = true,
+  showAgents = true,
+}: {
+  options: readonly {
+    key: K;
+    label: string;
+    selectorId?: string;
+    accountId?: string;
+    badge?: number;
+    locked?: boolean;
+  }[];
+  agent: K;
+  agentLabel: string;
+  agentBadge?: number | null;
+  selectedId?: string;
+  onSelectAgent: (key: K, option?: { accountId?: string; selectorId?: string }) => void;
+  onLocked?: (key: K) => void;
+  model: string;
+  models: string[];
+  onModelChange: (value: string) => void;
+  /** Off: the pill names the agent and the popover lists agents only. The
+   *  model then comes from the box default (see ViewPrefs). */
+  showModels?: boolean;
+  /** Off: no agent strip; the pill is a model picker with the agent's icon. */
+  showAgents?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Nothing to choose: the pill would open an empty popover.
+  if (!showAgents && !showModels) return null;
+  const trigger = (
+    <button
+      type="button"
+      aria-label={`Agent ${agentLabel}, model ${model || "not set"}. Change agent or model`}
+      title={`${agentLabel} · ${model || "model"}`}
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      className="inline-flex h-8 min-w-0 cursor-pointer items-center gap-1.5 rounded-full bg-muted pl-1 pr-2.5 text-foreground transition active:scale-[0.98]"
+    >
+      <span className="relative flex size-6 shrink-0 items-center justify-center rounded-full bg-background shadow-sm">
+        <img src={agentIconSrc(agent)} alt="" className="size-4" />
+        {agentBadge != null ? (
+          <span className="absolute -bottom-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-foreground text-[8px] font-bold leading-none text-background ring-1 ring-background">
+            {agentBadge}
+          </span>
+        ) : null}
+      </span>
+      <span className="max-w-32 truncate text-xs font-medium">
+        {showModels ? model || "model" : agentLabel}
+      </span>
+      <ChevronDown className="size-3 shrink-0 text-muted-foreground/70" />
+    </button>
+  );
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger render={trigger} />
+      <Popover.Portal>
+        <Popover.Positioner
+          side="bottom"
+          align="start"
+          sideOffset={6}
+          // Never flip above the pill: the list then covers the prompt you
+          // are typing into. Shift/clamp inside the viewport instead.
+          collisionAvoidance={{ side: "none" }}
+          className="isolate z-[170] outline-none"
+        >
+          <Popover.Popup
+            initialFocus={showModels && modelListSearchable(models) ? inputRef : true}
+            className="w-80 max-w-[calc(100vw-1rem)] rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-2xl ring-1 ring-foreground/5 outline-none"
+          >
+            {/* No section labels. The icon strip is obviously the agent
+                row and the list under it is obviously models; the words
+                only added height. Each agent button still carries its name
+                as a title/aria-label. */}
+            {showAgents ? (
+              <AgentIconStrip
+                options={options}
+                value={agent}
+                selectedId={selectedId}
+                onSelect={onSelectAgent}
+                onLocked={(key) => {
+                  setOpen(false);
+                  onLocked?.(key);
+                }}
+                className={cn("h-auto max-w-full flex-wrap", showModels && "mb-1.5")}
+              />
+            ) : null}
+            {showModels ? (
+              <ModelOptionList
+                value={model}
+                models={models}
+                onChoose={(next) => {
+                  onModelChange(next);
+                  setOpen(false);
+                }}
+                onEscape={() => setOpen(false)}
+                inputRef={inputRef}
+              />
+            ) : null}
           </Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
@@ -24998,10 +25522,23 @@ function AgentEditorSheet({
 
 const navLocale = typeof navigator !== "undefined" ? navigator.language : undefined;
 
+// "in 12h", "in 4m", "in 3d": the Schedules row has room for one short
+// phrase after the cron description, not a sentence.
+function formatRelativeShort(at: number): string {
+  const diff = at - Date.now();
+  if (diff < 45_000) return "now";
+  const m = Math.round(diff / 60_000);
+  if (m < 60) return `in ${m}m`;
+  const h = Math.round(diff / 3_600_000);
+  if (h < 48) return `in ${h}h`;
+  return `in ${Math.round(diff / 86_400_000)}d`;
+}
+
 function ScheduleSummary({
   expr,
   tz,
   relativeClassName,
+  compact = false,
 }: {
   expr: string;
   tz: string;
@@ -25009,6 +25546,8 @@ function ScheduleSummary({
    *  it below sm, where the row has no width to spare and the cron
    *  description is the part you actually scan for. */
   relativeClassName?: string;
+  /** One line, no icon, short tail: "Every day at 9:00 AM · in 10h". */
+  compact?: boolean;
 }) {
   // describeCron is cheap; nextRunAt scans, so compute it only when expr/tz
   // change — NOT on every 30s re-render.
@@ -25022,6 +25561,16 @@ function ScheduleSummary({
     }, 30_000);
     return () => clearInterval(id);
   }, []);
+  if (compact) {
+    return (
+      <span className="truncate" title={expr}>
+        {desc}
+        {next ? (
+          <span className="text-muted-foreground/70"> · {formatRelativeShort(next)}</span>
+        ) : null}
+      </span>
+    );
+  }
   return (
     <span className="flex items-center gap-1" title={expr}>
       <CalendarClock className="size-3.5 shrink-0" />
@@ -27126,6 +27675,8 @@ function MoreView({
   extTabs,
   onOpenExt,
   connection,
+  settings,
+  onSettingsChange,
 }: {
   dark: boolean;
   toggleTheme: () => void;
@@ -27138,6 +27689,8 @@ function MoreView({
   extTabs: ExtensionNavTab[];
   onOpenExt: (id: string) => void;
   connection: ConnectionState | null;
+  settings: GlobalSettings;
+  onSettingsChange: (patch: Partial<GlobalSettings>) => Promise<void>;
 }) {
   const uiFeedback = useUiFeedbackPrefs();
   const navigationPrefs = useNavigationPrefs();
@@ -27197,6 +27750,8 @@ function MoreView({
           </button>
         </div>
       </section>
+
+      <ViewSettingsSection settings={settings} onChange={onSettingsChange} />
 
       <VoiceSettingsSection />
 
@@ -27355,6 +27910,110 @@ function MoreView({
 }
 
 /**
+ * Settings > More > View. Box-wide switches for what the interface shows,
+ * plus the default agent + model a new session starts on. Collapsed by
+ * default: most boxes never touch these, and the default is "show everything".
+ */
+function ViewSettingsSection({
+  settings,
+  onChange,
+}: {
+  settings: GlobalSettings;
+  onChange: (patch: Partial<GlobalSettings>) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const codingAgents = useContext(CodingAgentsContext);
+  const accessMode = useContext(AgentAccessModeContext);
+  const catalog = useAgentModelCatalog();
+  const { defaultAgent: hostDefaultAgent } = useEmbeddedHostOptions();
+  const options = useMemo(
+    () => configuredLaunchOptions(codingAgents, accessMode, { scheduledOnly: false }),
+    [accessMode, codingAgents],
+  );
+  const agent = resolveInitialAgent(settings.defaultAgent, hostDefaultAgent);
+  const models = useAgentModels(agent);
+  const model =
+    (settings.defaultAgent === agent && settings.defaultModel) ||
+    catalog.defaults[agent] ||
+    AGENT_DEFAULT_MODEL[agent];
+  const agentOption = options.find((option) => option.key === agent);
+  const rows: { key: keyof ViewPrefs & `show${string}`; label: string; hint: string }[] = [
+    { key: "showSidebarAgentIcons", label: "Agent icons in the sidebar", hint: "The harness mark on each session row." },
+    { key: "showSessionAgentIcons", label: "Agent icons in chat", hint: "The harness mark in a session's header." },
+    { key: "showComposerAgents", label: "Agent picker in the composer", hint: "Off: every new session uses the default agent." },
+    { key: "showComposerModels", label: "Model picker in the composer", hint: "Off: every new session uses the default model." },
+    { key: "showBots", label: "Bots", hint: "The Bots surface and its switch." },
+    { key: "showSchedules", label: "Schedules", hint: "The Schedules surface and its switch." },
+  ];
+  return (
+    <section className="space-y-2">
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <CollapsibleTrigger className="flex w-full items-center gap-2 px-4 text-left">
+          <h2 className="text-xs font-semibold text-muted-foreground">View</h2>
+          <ChevronRight
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground transition-transform duration-150",
+              open && "rotate-90",
+            )}
+          />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="mt-2 overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+            <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+              <div className="min-w-0">
+                <div className="text-sm font-medium">Default agent and model</div>
+                <div className="text-xs text-muted-foreground">
+                  What a new session starts on when this browser has not picked one.
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <AgentModelPicker
+                  options={options}
+                  agent={agent}
+                  agentLabel={agentOption?.label ?? agent}
+                  agentBadge={agentOption?.badge}
+                  selectedId={agent}
+                  onSelectAgent={(key) =>
+                    void onChange({ defaultAgent: key, defaultModel: "" })
+                  }
+                  model={model}
+                  models={models}
+                  onModelChange={(next) =>
+                    void onChange({ defaultAgent: agent, defaultModel: next })
+                  }
+                />
+                {settings.defaultAgent ? (
+                  <button
+                    type="button"
+                    onClick={() => void onChange({ defaultAgent: "", defaultModel: "" })}
+                    className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                  >
+                    Reset
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            {rows.map((row) => (
+              <div key={row.key} className="flex items-center justify-between gap-4 px-4 py-2.5">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">{row.label}</div>
+                  <div className="text-xs text-muted-foreground">{row.hint}</div>
+                </div>
+                <Switch
+                  checked={settings[row.key]}
+                  onCheckedChange={(next) => void onChange({ [row.key]: next })}
+                  aria-label={row.label}
+                />
+              </div>
+            ))}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    </section>
+  );
+}
+
+/**
  * The stage when the bot surface has no session to show: either nothing is
  * picked, or the picked bot has never been messaged and so has no backing
  * session yet. The say-hi composer is what creates one — after which the
@@ -27420,6 +28079,7 @@ function SurfaceToggle({
 }) {
   const { any: botsUnread } = useContext(BotUnreadContext);
   const { any: sessionsUnread } = useContext(SessionUnreadContext);
+  const { showBots, showSchedules } = useContext(ViewPrefsContext);
   // This is the one segmented-toggle component both the desktop rail header
   // (RailStage, isWide-only) and the mobile primary-surface dock render — one
   // navigation idiom, two mount points, instead of a second control. It used
@@ -27470,6 +28130,17 @@ function SurfaceToggle({
     };
   }, [movePill]);
 
+  const surfaces = ([
+    ["sessions", "Chat", onOpenSessions],
+    ["chat", "Bots", onOpenBots],
+    ["auto", "Schedules", onOpenAuto],
+  ] as const).filter(([value]) =>
+    value === "chat" ? showBots : value === "auto" ? showSchedules : true,
+  );
+  // A switch with one position is not a switch. With Bots and Schedules both
+  // hidden there is only Chat, and the rail already says so.
+  if (surfaces.length < 2) return null;
+
   return (
     <div
       ref={barRef}
@@ -27483,11 +28154,7 @@ function SurfaceToggle({
       aria-label="Switch surface"
     >
       <span ref={pillRef} className="t-tabs-pill" aria-hidden="true" />
-      {([
-        ["sessions", "Chat", onOpenSessions],
-        ["chat", "Bots", onOpenBots],
-        ["auto", "Schedules", onOpenAuto],
-      ] as const).map(([value, label, onClick]) => (
+      {surfaces.map(([value, label, onClick]) => (
         <button
           key={value}
           type="button"
@@ -27619,6 +28286,7 @@ function SessionHeaderIdentity({
   trustedBotId?: string | null;
 }) {
   const botDirectory = useContext(BotDirectoryContext);
+  const { showSessionAgentIcons } = useContext(ViewPrefsContext);
   const identity = resolveSessionHeaderIdentity(
     { ...session, botId: renderedBotId(session, trustedBotId) },
     botDirectory,
@@ -27652,7 +28320,11 @@ function SessionHeaderIdentity({
       {/* "aisdk" is Claude Code under the hood (driven via the AI SDK), so it
           wears the same Claude mark as a tmux claude session; only the
           new-session picker keeps a distinct label to tell them apart. */}
-      <AgentMark session={session} busy={busy} />
+      {showSessionAgentIcons ? (
+        <AgentMark session={session} busy={busy} />
+      ) : (
+        <NeutralSessionMark busy={busy} size={size} />
+      )}
     </div>
   );
 }
@@ -28849,9 +29521,6 @@ function AutoManageView({
             this page, so the heading is the only thing that names it. */}
         <div className="hidden min-w-0 md:block">
           <h1 className="text-lg font-semibold leading-tight">Schedules</h1>
-          <p className="text-sm text-muted-foreground">
-            Prompts that run on a timer on this computer
-          </p>
         </div>
         {/* ml-auto, not justify-between: with the heading hidden this is the
             only child, and justify-between would park it on the left. */}
@@ -28868,6 +29537,78 @@ function AutoManageView({
           {groups.map((group) => {
             const open = !collapsed[group.key];
             const onCount = group.items.filter((a) => a.enabled).length;
+            // Enabled first, paused after, each in their original order. A
+            // paused schedule is not something you scan for; it should not
+            // sit between two live ones.
+            const items = [
+              ...group.items.filter((a) => a.enabled),
+              ...group.items.filter((a) => !a.enabled),
+            ];
+            // One shared card with dividers, not a card per row. Each row is
+            // three things: the name (with its open-findings count and a
+            // running spinner), when it fires, and the switch. The whole row
+            // opens the editor, which is where the agent picker and Run now
+            // live; they used to sit on every row and made 30 rows shout.
+            const card = (
+              <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+                {items.map((a) => {
+                  const openFindings = openByAgent.get(a.id) ?? 0;
+                  return (
+                    <div
+                      key={a.id}
+                      role="button"
+                      tabIndex={0}
+                      title={a.prompt}
+                      onClick={() => onEdit(a)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          onEdit(a);
+                        }
+                      }}
+                      className={cn(
+                        "flex cursor-pointer items-center gap-2 px-3 py-2 outline-none transition-colors hover:bg-muted/50 focus-visible:bg-muted/50",
+                        !a.enabled && "opacity-60",
+                      )}
+                    >
+                      <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                        <span className="truncate text-sm font-medium leading-tight">{a.name}</span>
+                        {openFindings ? (
+                          <span className="shrink-0 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                            {openFindings} open
+                          </span>
+                        ) : null}
+                        {a.running ? (
+                          <Loader2 className="size-3 shrink-0 animate-spin text-primary" aria-label="Running" />
+                        ) : null}
+                      </span>
+                      <span className="flex min-w-0 shrink-0 items-center whitespace-nowrap text-xs text-muted-foreground">
+                        <ScheduleSummary expr={a.schedule} tz={tz} compact />
+                      </span>
+                      {/* Rightmost, where an iOS settings row puts it. The
+                          switch is the one control that must not open the
+                          editor, so its click stays inside this span. */}
+                      <span
+                        className="flex w-[38px] shrink-0 justify-end"
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => event.stopPropagation()}
+                      >
+                        <Switch
+                          checked={a.enabled}
+                          onCheckedChange={(next) => onToggleEnabled(a.id, next)}
+                          className="origin-right scale-75"
+                          aria-label={`${a.enabled ? "Disable" : "Enable"} ${a.name}`}
+                        />
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+            // No header over the human's own list: "Unassigned 22/32 on"
+            // names nothing you chose. Bot-owned groups keep a header,
+            // because the bot's name is what distinguishes those rows.
+            if (!group.botId) return <div key={group.key}>{card}</div>;
             return (
               <Collapsible
                 key={group.key}
@@ -28883,10 +29624,6 @@ function AutoManageView({
                       open && "rotate-90",
                     )}
                   />
-                  {/* The owner pill moves from every row up to the header it
-                      now describes — same component, so "open the owning bot"
-                      survives the regrouping instead of being lost with the
-                      per-row badge. */}
                   {group.botId ? (
                     <AutoAgentOwnerBadge owner={{ kind: "bot", botId: group.botId }} nameClassName="max-w-56" />
                   ) : (
@@ -28901,124 +29638,7 @@ function AutoManageView({
                     {onCount}/{group.items.length} on
                   </span>
                 </CollapsibleTrigger>
-                <CollapsibleContent>
-                  {/* One shared card with dividers, not a card per row — a
-                      schedule is a line in a list, the same treatment the
-                      Settings rows above it use. */}
-                  <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
-                    {group.items.map((a) => {
-                      const openFindings = openByAgent.get(a.id) ?? 0;
-                      return (
-                        <div
-                          key={a.id}
-                          className={cn(
-                            // Below sm the name takes a line of its own and
-                            // everything else drops under it.
-                            //
-                            // Name-absorbs-the-squeeze works while there is
-                            // squeeze to absorb. On a 390px phone there is
-                            // not: the cron text, the agent, run, edit and the
-                            // switch are all fixed width and take about 300px
-                            // between them, so the elastic part collapsed to
-                            // roughly 60px. "Design review" rendered as "Des…",
-                            // and on a row carrying an "N open" badge the name
-                            // lost the last of its width to the badge and
-                            // disappeared, leaving a row that says "2 open"
-                            // about nothing. The name is what you scan the
-                            // list for, so it stops paying for the other five.
-                            "grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] items-center gap-x-1 gap-y-0.5 px-3 py-2",
-                            // From sm there is width for one line, which is
-                            // the denser read when you can have it.
-                            "sm:flex sm:gap-2",
-                          )}
-                        >
-                          {/* Full width on its own line below sm; from sm it is
-                              the elastic cell again and the meta cluster on the
-                              right still never reflows. `col-span-full` is a
-                              grid property, so the flex row at sm ignores it. */}
-                          <button
-                            type="button"
-                            onClick={() => onEdit(a)}
-                            title={a.prompt}
-                            className="col-span-full flex min-w-0 items-center gap-1.5 text-left sm:flex-1"
-                          >
-                            <span
-                              className={cn(
-                                "truncate text-sm font-medium leading-tight",
-                                !a.enabled && "text-muted-foreground",
-                              )}
-                            >
-                              {a.name}
-                            </span>
-                            {openFindings ? (
-                              <span className="shrink-0 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                                {openFindings} open
-                              </span>
-                            ) : null}
-                            {a.running ? (
-                              <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                                <Loader2 className="size-2.5 animate-spin" /> running
-                              </span>
-                            ) : null}
-                          </button>
-                          {/* The schedule belongs with the other per-run facts,
-                              never floating alone under the name: below sm it
-                              leads the second line and the agent, run, edit and
-                              switch sit on that same line with it, so its icon
-                              shares a baseline with them. The relative tail
-                              ("next in 17 hours") is the first thing to go when
-                              the row gets narrow. */}
-                          <span className="flex min-w-0 items-center gap-1 whitespace-nowrap text-xs text-muted-foreground sm:shrink-0">
-                            <ScheduleSummary
-                              expr={a.schedule}
-                              tz={tz}
-                              relativeClassName="hidden sm:inline"
-                            />
-                          </span>
-                          <ScheduleAgentPicker
-                            agent={a}
-                            onChange={(patch) => onChangeAgent(a.id, patch)}
-                          />
-                          <Button
-                            size="icon-sm"
-                            variant="ghost"
-                            className="shrink-0 text-muted-foreground"
-                            onClick={() => onRunNow(a.id)}
-                            disabled={a.running}
-                            aria-label={a.running ? "Running…" : "Run now"}
-                          >
-                            {a.running ? (
-                              <Loader2 className="size-4 animate-spin" />
-                            ) : (
-                              <Play className="size-4" />
-                            )}
-                          </Button>
-                          <Button
-                            size="icon-sm"
-                            variant="ghost"
-                            className="shrink-0 text-muted-foreground"
-                            onClick={() => onEdit(a)}
-                            aria-label="Edit"
-                          >
-                            <Pencil className="size-4" />
-                          </Button>
-                          {/* Rightmost, where an iOS settings row puts it, and
-                              the last thing under your thumb. Scaled to 0.75
-                              so thirty of them do not shout, still a 38 x 23
-                              target. */}
-                          <span className="flex w-[38px] shrink-0 justify-end">
-                            <Switch
-                              checked={a.enabled}
-                              onCheckedChange={(next) => onToggleEnabled(a.id, next)}
-                              className="origin-right scale-75"
-                              aria-label={`${a.enabled ? "Disable" : "Enable"} ${a.name}`}
-                            />
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </CollapsibleContent>
+                <CollapsibleContent>{card}</CollapsibleContent>
               </Collapsible>
             );
           })}

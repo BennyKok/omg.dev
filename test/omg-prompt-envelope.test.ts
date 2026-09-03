@@ -68,4 +68,33 @@ describe("parseOmgPromptEnvelope", () => {
     expect(parseOmgPromptEnvelope("Just a normal follow-up")).toBeNull();
     expect(parseOmgPromptEnvelope("=== LFG RUNTIME CONTRACT ===\nNo closing marker")).toBeNull();
   });
+
+  test("includes standing instructions in the inspect chip, not the task", () => {
+    expect(
+      parseOmgPromptEnvelope(
+        [
+          "=== omg.dev RUNTIME CONTRACT (capability version 2026-08-21.1) ===",
+          "- Narrate progress.",
+          "=== END omg.dev RUNTIME CONTRACT ===",
+          "",
+          "=== USER STANDING INSTRUCTIONS ===",
+          "Always reply in points.",
+          "=== END USER STANDING INSTRUCTIONS ===",
+          "",
+          "=== USER TASK ===",
+          "Make the first message easy to read.",
+        ].join("\n"),
+      ),
+    ).toEqual({
+      instructions: [
+        "- Narrate progress.",
+        "",
+        "=== USER STANDING INSTRUCTIONS ===",
+        "Always reply in points.",
+        "=== END USER STANDING INSTRUCTIONS ===",
+      ].join("\n"),
+      task: "Make the first message easy to read.",
+      version: "2026-08-21.1",
+    });
+  });
 });

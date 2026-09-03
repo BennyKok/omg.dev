@@ -154,7 +154,8 @@ export interface OmgAppSurfaceProps {
    * machine's pages.
    *
    * Set this and the surface carries a Settings entry in its Pages menu that
-   * calls back to you, and marks its `header-actions` slot
+   * calls back to you, and marks its `header-actions` slots and the desktop
+   * `rail-footer` slot
    * `data-lfg-host-settings="menu"` so a host drawing its own Settings control
    * next to that menu can drop it. Omit it and the surface renders no
    * host-settings entry at all, so the host must keep drawing its own.
