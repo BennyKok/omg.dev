@@ -13942,7 +13942,9 @@ const RailItem = memo(function RailItem({
   const drivingBot = drivingBotId ? botDirectory.get(drivingBotId) : undefined;
   const faviconSrc = projectFaviconSrc(session.project);
   const [failedFaviconSrc, setFailedFaviconSrc] = useState<string | null>(null);
-  const showFavicon = !!faviconSrc && failedFaviconSrc !== faviconSrc;
+  // The favicon follows the agent icon setting: hiding agent icons means a
+  // plain row, and a project logo is as much an identity mark as the harness.
+  const showFavicon = showAgentIcons && !!faviconSrc && failedFaviconSrc !== faviconSrc;
   // Read state, from the roster's own set. A working session is never in that
   // set — the server holds the mark back while a turn is running, because the
   // dot means "ready for you" and a session mid-turn is not. It comes back on
