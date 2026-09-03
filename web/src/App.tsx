@@ -22221,6 +22221,8 @@ function NewSessionDialog({
   // direction. Kept in a ref so the native gesture listeners always call the
   // latest closure.
   const cycleAgent = (dir: 1 | -1) => {
+    // No agent choice on this box: the swipe is a no-op, same as the strip.
+    if (!view.showComposerAgents) return;
     const opts = visibleAgentOptions;
     if (opts.length < 2) return;
     const idx = opts.findIndex((option) => (option.selectorId ?? option.key) === selectedLaunchId);
@@ -22280,14 +22282,16 @@ function NewSessionDialog({
   const modelControls = (
     <>
       {variant === "inline" ? (
-        <ModelPicker
-          value={model}
-          models={models}
-          onChange={setModel}
-          flat
-          width="max-w-28"
-          onMobileLayerOpenChange={handleModelLayerOpenChange}
-        />
+        view.showComposerModels ? (
+          <ModelPicker
+            value={model}
+            models={models}
+            onChange={setModel}
+            flat
+            width="max-w-28"
+            onMobileLayerOpenChange={handleModelLayerOpenChange}
+          />
+        ) : null
       ) : (
         // Desktop: one pill for "which agent, which model". The agent strip
         // and the model list live in the same popover, so the row carries one
@@ -22357,7 +22361,7 @@ function NewSessionDialog({
   // The drawer keeps the same controls in its existing wrapping row.
   const controlsInner = variant === "inline" ? (
     <div className="flex w-max max-w-[calc(100vw-1rem)] origin-bottom-left flex-col items-start gap-1.5">
-      {agentButtons.length ? (
+      {agentButtons.length && view.showComposerAgents ? (
         <div className="origin-bottom-left rounded-2xl bg-popover px-2 py-1.5 shadow-xl ring-1 ring-foreground/5 animate-in fade-in-0 zoom-in-75 slide-in-from-bottom-3 duration-200 ease-out">
           {agentSelector}
         </div>
@@ -22403,8 +22407,16 @@ function NewSessionDialog({
           <button
             ref={agentIconBtnRef}
             type="button"
-            title={`${selectedAgentOption.label} — swipe to switch agent`}
-            aria-label={`Agent: ${selectedAgentOption.label}. Swipe up or down to switch.`}
+            title={
+              view.showComposerAgents
+                ? `${selectedAgentOption.label} — swipe to switch agent`
+                : selectedAgentOption.label
+            }
+            aria-label={
+              view.showComposerAgents
+                ? `Agent: ${selectedAgentOption.label}. Swipe up or down to switch.`
+                : `Agent: ${selectedAgentOption.label}. Open composer options.`
+            }
             style={{ touchAction: "none" }}
             className="relative flex size-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm transition active:scale-[0.96]"
           >
