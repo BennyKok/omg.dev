@@ -160,7 +160,6 @@ import {
 } from "./components/conversation-presence";
 import { SessionAssigneeAvatar } from "./components/session-assignee-avatar";
 import { UserFilterMenu } from "./components/user-filter-menu";
-import { ViewerRoleMenu } from "./components/viewer-role-menu";
 import { OWNER_VIEWER, applyRoleViews, fetchViewer, readRolePreview, writeRolePreview, type Viewer } from "./lib/viewer-role";
 import {
   AuthenticatedArtifactImage,
@@ -1172,6 +1171,19 @@ const DEFAULT_VIEW_PREFS: ViewPrefs = {
   showSessionDiffBar: true,
 };
 const ViewPrefsContext = createContext<ViewPrefs>(DEFAULT_VIEW_PREFS);
+
+/**
+ * The role this browser views as, and the owner's preview control. Read by
+ * Settings > View only: a member is assigned a role and cannot change it,
+ * so the header carries no picker. The owner previews another role from
+ * Settings, the same place the box-wide view switches live.
+ */
+type RoleViewerState = {
+  viewer: Viewer;
+  roles: { id: string; name: string }[];
+  preview: (roleId: string) => void;
+};
+const RoleViewerContext = createContext<RoleViewerState>({ viewer: OWNER_VIEWER, roles: [], preview: () => {} });
 
 type TranscriptViewPreference = {
   value: TranscriptView;
@@ -6137,6 +6149,10 @@ export function App() {
   const didDefaultFilter = useRef(false);
   const viewPrefs = useMemo(() => applyRoleViews(settings, roleViewer), [settings, roleViewer]);
   const hiddenPages = roleViewer.hiddenPages;
+  const roleViewerState = useMemo<RoleViewerState>(
+    () => ({ viewer: roleViewer, roles: roleOptions, preview: previewRole }),
+    [roleViewer, roleOptions, previewRole],
+  );
   // Hosted surfaces do not show the profile picker. Their one-user roster is
   // still the assigned identity for server-owned bot read state.
   const botUnreadIdentity = identity ??
@@ -8593,6 +8609,7 @@ export function App() {
     <UpdateProvider settings={settings} onSettingsChange={updateSettings}>
     <TranscriptViewContext.Provider value={transcriptViewPreference}>
     <ViewPrefsContext.Provider value={viewPrefs}>
+    <RoleViewerContext.Provider value={roleViewerState}>
     <ArtifactViewerContext.Provider value={openArtifactViewer}>
     <SessionTerminalContext.Provider value={setTerminalSid}>
     <OpenSettingsPageContext.Provider value={setTab}>
@@ -8683,14 +8700,11 @@ export function App() {
             <NavIsland className="shrink-0">
               <div className="glass-island flex h-11 items-center gap-1.5 rounded-full px-2">
                 {tab === "auto" ? null : (
-                  <>
-                    <UserFilterMenu
-                      value={userFilter}
-                      users={users}
-                      onChange={changeUserFilter}
-                    />
-                    <ViewerRoleMenu viewer={roleViewer} roles={roleOptions} onPreview={previewRole} />
-                  </>
+                  <UserFilterMenu
+                    value={userFilter}
+                    users={users}
+                    onChange={changeUserFilter}
+                  />
                 )}
                 {/* The machine roster comes first, then host actions, with our
                     overflow menu beside the screen edge where it opens. */}
@@ -8734,14 +8748,11 @@ export function App() {
                     onto a page it cannot change would make the shared header
                     a promise the page does not keep. */}
                 {tab === "auto" ? null : (
-                  <>
-                    <UserFilterMenu
-                      value={userFilter}
-                      users={users}
-                      onChange={changeUserFilter}
-                    />
-                    <ViewerRoleMenu viewer={roleViewer} roles={roleOptions} onPreview={previewRole} />
-                  </>
+                  <UserFilterMenu
+                    value={userFilter}
+                    users={users}
+                    onChange={changeUserFilter}
+                  />
                 )}
                 <PagesMenu
                   tab={tab}
@@ -8873,7 +8884,6 @@ export function App() {
                   users={users}
                   onChange={changeUserFilter}
                 />
-                <ViewerRoleMenu viewer={roleViewer} roles={roleOptions} onPreview={previewRole} />
               </>
             ) : null}
             {isMobile ? null : (
@@ -9487,6 +9497,7 @@ export function App() {
     </OpenSettingsPageContext.Provider>
     </SessionTerminalContext.Provider>
     </ArtifactViewerContext.Provider>
+    </RoleViewerContext.Provider>
     </ViewPrefsContext.Provider>
     </TranscriptViewContext.Provider>
     </UpdateProvider>
@@ -28129,6 +28140,7 @@ function ViewSettingsSection({
     catalog.defaults[agent] ||
     AGENT_DEFAULT_MODEL[agent];
   const agentOption = options.find((option) => option.key === agent);
+  const { viewer: roleViewer, roles, preview } = useContext(RoleViewerContext);
   const rows: { key: keyof ViewPrefs & `show${string}`; label: string; hint: string }[] = [
     { key: "showSidebarAgentIcons", label: "Agent icons in the sidebar", hint: "The harness mark and assignee face on each session row." },
     { key: "showSessionAgentIcons", label: "Agent icons in chat", hint: "The harness mark in a session's header." },
@@ -28152,6 +28164,36 @@ function ViewSettingsSection({
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div className="mt-2 overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+            {roles.length > 1 ? (
+              <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    {roleViewer.canSwitchRole ? "Preview as role" : "Your role"}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {roleViewer.canSwitchRole
+                      ? "See this browser the way a role sees it. Roles are set under Roles & tool access."
+                      : "Set by the owner under Roles & tool access."}
+                  </div>
+                </div>
+                {roleViewer.canSwitchRole ? (
+                  <select
+                    aria-label="Preview as role"
+                    value={roleViewer.role.id}
+                    onChange={(e) => preview(e.target.value)}
+                    className="h-8 shrink-0 rounded-md border border-border bg-background px-2 text-xs"
+                  >
+                    {roles.map((role) => (
+                      <option key={role.id} value={role.id}>
+                        {role.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="shrink-0 text-sm">{roleViewer.role.name}</span>
+                )}
+              </div>
+            ) : null}
             <div className="flex items-center justify-between gap-4 px-4 py-2.5">
               <div className="min-w-0">
                 <div className="text-sm font-medium">Default agent and model</div>
