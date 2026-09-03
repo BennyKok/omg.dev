@@ -674,6 +674,18 @@ export function IntegrationsPanel() {
       .catch(() => {});
   }, [load]);
 
+  const removeIntegration = async (slug: string) => {
+    setBusy(true);
+    try {
+      await gateway(`/integrations/${encodeURIComponent(slug)}`, { method: "DELETE" });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "could not remove the integration");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const removeConnection = async (c: Connection) => {
     setBusy(true);
     try {
@@ -760,6 +772,17 @@ export function IntegrationsPanel() {
                     {conns.length ? ` · ${conns.length} connection${conns.length === 1 ? "" : "s"}` : ""}
                   </span>
                 </span>
+                {integration.canRemove ? (
+                  <button
+                    type="button"
+                    aria-label={`Remove integration ${integration.name}`}
+                    disabled={busy}
+                    onClick={() => void removeIntegration(integration.slug)}
+                    className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-destructive"
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                ) : null}
               </div>
               {conns.length ? (
                 <ul className="mt-2 space-y-1 pl-10">

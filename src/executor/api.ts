@@ -20,6 +20,7 @@ const ALLOWED: { method: string; pattern: RegExp }[] = [
   { method: "GET", pattern: /^\/tools$/ },
   { method: "GET", pattern: /^\/integrations$/ },
   { method: "GET", pattern: new RegExp(`^/integrations/${SEG}$`) },
+  { method: "DELETE", pattern: new RegExp(`^/integrations/${SEG}$`) },
   // Connections: the native Integrations panel lists, inspects, adds
   // (API-key style), refreshes, and removes them.
   { method: "GET", pattern: /^\/connections$/ },

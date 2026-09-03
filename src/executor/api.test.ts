@@ -28,6 +28,7 @@ describe("executorApiAllowed", () => {
     expect(executorApiAllowed("DELETE", "/connections/org/github/main")).toBe(true);
     expect(executorApiAllowed("POST", "/connections/org/github/main/refresh")).toBe(true);
     expect(executorApiAllowed("GET", "/integrations/github")).toBe(true);
+    expect(executorApiAllowed("DELETE", "/integrations/github")).toBe(true);
     // Still refused: execution control and anything not enumerated.
     expect(executorApiAllowed("POST", "/executions")).toBe(false);
     expect(executorApiAllowed("DELETE", "/connections/org/github/main/secrets")).toBe(false);
