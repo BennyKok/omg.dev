@@ -68,6 +68,8 @@ export type GlobalSettings = {
   showComposerAgents: boolean;
   showBots: boolean;
   showSchedules: boolean;
+  // Off hides the floating worktree diff bar in a session's chat.
+  showSessionDiffBar: boolean;
 };
 
 export const DEFAULT_AGENT_KEY_MAX_LENGTH = 40;
@@ -170,6 +172,7 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
   const showComposerAgents = input?.showComposerAgents !== false;
   const showBots = input?.showBots !== false;
   const showSchedules = input?.showSchedules !== false;
+  const showSessionDiffBar = input?.showSessionDiffBar !== false;
   return {
     timeZone,
     maxLiveAgents,
@@ -188,6 +191,7 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
     showComposerAgents,
     showBots,
     showSchedules,
+    showSessionDiffBar,
   };
 }
 
@@ -300,6 +304,7 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
     write.run("showComposerAgents", JSON.stringify(next.showComposerAgents), now);
     write.run("showBots", JSON.stringify(next.showBots), now);
     write.run("showSchedules", JSON.stringify(next.showSchedules), now);
+    write.run("showSessionDiffBar", JSON.stringify(next.showSessionDiffBar), now);
   })();
   return next;
 }

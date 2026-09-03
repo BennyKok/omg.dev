@@ -886,6 +886,12 @@ export type PersistentBot = {
 
 const BotDirectoryContext = createContext<Map<string, PersistentBot>>(new Map());
 /**
+ * Set by RailStage around a page it hosts in the stage (the Board). A card on
+ * that page opens its session as a stage column beside the page instead of
+ * leaving for the session's own route. Null outside the desktop workspace.
+ */
+const StageOpenSessionContext = createContext<((sid: string) => void) | null>(null);
+/**
  * "Me", as a conversation participant id — see the `viewerParticipantId`
  * state in App and BootstrapPayload["viewer"]. Read by the transcript
  * renderer to skip drawing a redundant avatar on the viewer's own turns in a
@@ -1125,6 +1131,8 @@ type GlobalSettings = {
   showComposerAgents: boolean;
   showBots: boolean;
   showSchedules: boolean;
+  // Off hides the floating worktree diff bar in a session's chat.
+  showSessionDiffBar: boolean;
 };
 
 /**
@@ -1144,6 +1152,7 @@ type ViewPrefs = Pick<
   | "showComposerAgents"
   | "showBots"
   | "showSchedules"
+  | "showSessionDiffBar"
 >;
 const DEFAULT_VIEW_PREFS: ViewPrefs = {
   defaultAgent: "",
@@ -1154,6 +1163,7 @@ const DEFAULT_VIEW_PREFS: ViewPrefs = {
   showComposerAgents: true,
   showBots: true,
   showSchedules: true,
+  showSessionDiffBar: true,
 };
 const ViewPrefsContext = createContext<ViewPrefs>(DEFAULT_VIEW_PREFS);
 
@@ -8510,8 +8520,23 @@ export function App() {
   // The editor is the page while it is open, so the desktop workspace steps
   // aside for it. It stays MOUNTED (just hidden) — its sessions, streams and
   // scroll survive the trip into the editor and back.
+  // The Board too: on desktop the rail keeps its project scope and the
+  // columns sit in the stage. A card then opens its session as a column
+  // beside the board rather than as a separate page.
+  const boardInWorkspace = tab === "board" && isWide;
+  const boardStageView = (
+    <Suspense
+      fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}
+    >
+      <BoardInStage
+        sessions={liveSessions}
+        onOpenSessionPage={openSessionPage}
+        onOpenShipped={openShippedSession}
+      />
+    </Suspense>
+  );
   const workspaceVisible =
-    (tab === "live" || botsInWorkspace || autoInWorkspace) && !botEditor;
+    (tab === "live" || botsInWorkspace || autoInWorkspace || boardInWorkspace) && !botEditor;
   const liveDesktopWorkspace = workspaceVisible && isWide;
   // Surfaces that render their own chrome, so the app header must not also
   // render over them. Each one owes the user a way back by its own means:
@@ -8919,8 +8944,12 @@ export function App() {
               onOpenBots={() => setTab("bots")}
               onOpenSessions={() => setTab("live")}
               onOpenAuto={() => setTab("auto")}
-              railSurface={tab === "bots" ? "chat" : tab === "auto" ? "auto" : "sessions"}
-              stageOverride={autoInWorkspace ? autoManageView : null}
+              railSurface={
+                tab === "bots" ? "chat" : tab === "auto" ? "auto" : tab === "board" ? "board" : "sessions"
+              }
+              stageOverride={
+                autoInWorkspace ? autoManageView : boardInWorkspace ? boardStageView : null
+              }
               bots={bots}
               selectedBotId={selectedBotId}
               onOpenBot={openBot}
@@ -9148,12 +9177,13 @@ export function App() {
             <ComputerPage active onClose={() => setTab("live")} />
           </Suspense>
         ) : null}
-        {tab === "board" ? (
+        {tab === "board" && !boardInWorkspace ? (
           <Suspense
             fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}
           >
-            {/* The same filtered list Live shows, so the project and user
-                scope controls in the header apply to the Board too. */}
+            {/* Narrow layouts only; desktop hosts the Board in the workspace
+                stage above. The same filtered list Live shows, so the project
+                and user scope controls in the header apply to the Board too. */}
             <BoardPage
               sessions={liveSessions}
               onOpenSession={openSessionPage}
@@ -11123,6 +11153,27 @@ function buildSessionTree(
   return { roots, effectiveBusy, flatten, nodeForSessionId, rootForSessionId };
 }
 
+/** The Board inside the desktop stage. A card opens its session as a column
+ *  beside the board when RailStage offers that; otherwise it opens the page. */
+function BoardInStage({
+  sessions,
+  onOpenSessionPage,
+  onOpenShipped,
+}: {
+  sessions: Session[];
+  onOpenSessionPage: (sid: string) => void;
+  onOpenShipped: (post: ShipPost) => void;
+}) {
+  const openInStage = useContext(StageOpenSessionContext);
+  return (
+    <BoardPage
+      sessions={sessions}
+      onOpenSession={openInStage ?? onOpenSessionPage}
+      onOpenShipped={onOpenShipped}
+    />
+  );
+}
+
 function LiveView({
   // Defense-in-depth: `sessions`/`findings`/`autoAgents` are read via `.length`
   // unconditionally below (the original `findings.length` crash site). The fetch
@@ -11203,7 +11254,7 @@ function LiveView({
   onOpenSessions?: () => void;
   onOpenAuto: () => void;
   /** Which list the rail is showing. Bots ride the same rail as sessions. */
-  railSurface?: "sessions" | "chat" | "auto";
+  railSurface?: "sessions" | "chat" | "auto" | "board";
   bots?: PersistentBot[];
   selectedBotId?: string | null;
   onOpenBot?: (id: string, conversationId?: string | null) => void;
@@ -11779,7 +11830,7 @@ function RailStage({
   onOpenBots: () => void;
   onOpenSessions?: () => void;
   onOpenAuto: () => void;
-  railSurface?: "sessions" | "chat" | "auto";
+  railSurface?: "sessions" | "chat" | "auto" | "board";
   bots?: PersistentBot[];
   selectedBotId?: string | null;
   onOpenBot?: (id: string, conversationId?: string | null) => void;
@@ -12166,11 +12217,17 @@ function RailStage({
       // stage is showing the schedule list, and a preview set underneath it
       // would be an open session nobody can see.
       if (railSurface === "auto") onOpenSessions();
-      if (validPinned.includes(sid)) return; // already a persistent column
+      // Board mode shows one session beside the board, pinned or not.
+      if (railSurface !== "board" && validPinned.includes(sid)) return; // already a persistent column
       setPreview(sid);
     },
     [validPinned, railSurface, onOpenSessions],
   );
+  // Arriving on the Board shows the board alone; whatever Live was previewing
+  // is not what you came to look at.
+  useEffect(() => {
+    if (railSurface === "board") setPreview(null);
+  }, [railSurface]);
   const togglePin = useCallback(
     (sid: string) => {
       if (shippedReview?.sessionId === sid) return;
@@ -12831,7 +12888,20 @@ function RailStage({
     // trust whatever `botId` the raw record carries. See botStageSession.
     return [{ sid: selectedBotSid, session: botStageSession(selectedBot, rawSession) }];
   }, [railSurface, selectedBotSid, selectedBot, railTree, sessions]);
-  const activeStageColumns = railSurface === "chat" ? botStageColumns : stageColumns;
+  // The Board stage ignores pinned columns: the board is the page, and one
+  // previewed session sits beside it.
+  const boardStageColumns = useMemo(() => {
+    const session = preview ? bySid.get(preview) : undefined;
+    return preview && session ? [{ sid: preview, session }] : [];
+  }, [preview, bySid]);
+  const activeStageColumns =
+    railSurface === "chat"
+      ? botStageColumns
+      : railSurface === "board"
+        ? boardStageColumns
+        : stageColumns;
+  // The board pane counts toward the grid shape.
+  const stagePaneCount = activeStageColumns.length + (railSurface === "board" ? 1 : 0);
 
   // The bot list is the session list's sibling, not a page: same rail, same
   // rows, same click-to-open-a-column behaviour. A bot row IS a session row —
@@ -13053,15 +13123,29 @@ function RailStage({
         className={cn(
           "grid h-full min-h-0 min-w-0 flex-1 gap-3",
           // 1 pane → full; 2 → side by side; 3-4 → 2×2 (panes 1&2 top, 3&4 bottom).
-          activeStageColumns.length <= 1
+          stagePaneCount <= 1
             ? "grid-cols-1 grid-rows-1"
-            : activeStageColumns.length === 2
+            : stagePaneCount === 2
               ? "grid-cols-2 grid-rows-1"
               : "grid-cols-2 grid-rows-2",
         )}
       >
         {railSurface === "auto" ? (
           <div className="h-full min-h-0 overflow-y-auto px-2 pt-2">{stageOverride}</div>
+        ) : railSurface === "board" ? (
+          <>
+            <div className="h-full min-h-0 min-w-0 overflow-hidden pt-2">
+              <StageOpenSessionContext.Provider value={openSession}>
+                {stageOverride}
+              </StageOpenSessionContext.Provider>
+            </div>
+            {activeStageColumns.map(({ sid, session }) => (
+              <div key={sid} data-stage-sid={sid} className="h-full min-h-0 min-w-0">
+                {/* Closing goes back to the board alone. */}
+                {renderStageCard(session, () => closeColumn(sid))}
+              </div>
+            ))}
+          </>
         ) : activeStageColumns.length ? (
           activeStageColumns.map(({ sid, session }) => {
             return (
@@ -13881,7 +13965,10 @@ const RailItem = memo(function RailItem({
               />
             </span>
           ) : null}
-          {!drivingBot ? (
+          {/* The assignee badge follows the agent icon setting: turning the
+              marks off is a request for a quieter rail, and a face in the
+              corner of every row is the other half of that noise. */}
+          {!drivingBot && showAgentIcons ? (
             <SessionAssigneeAvatar
               session={session}
               users={users}
@@ -18138,6 +18225,7 @@ const ChatStream = memo(function ChatStream({
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [hasOlder, setHasOlder] = useState(true);
   const [diffBarVisible, setDiffBarVisible] = useState(false);
+  const { showSessionDiffBar } = useContext(ViewPrefsContext);
   // Generalised from {height, top} to an anchor. Two different things move the
   // content under the viewport now — a page of older messages prepended above
   // it, and a virtual row above it being re-measured from its estimate — and
@@ -19368,7 +19456,9 @@ const ChatStream = memo(function ChatStream({
         has changes; opens the pierre-style diff viewer. Not in a bot chat —
         reviewing a diff is work you do on a session, and the bot's own repo is
         not where its heavy work happens anyway. */}
-    {bot ? null : <SessionDiffBar sid={sid} onVisibilityChange={setDiffBarVisible} />}
+    {bot || !showSessionDiffBar ? null : (
+      <SessionDiffBar sid={sid} onVisibilityChange={setDiffBarVisible} />
+    )}
     </div>
   );
 });
@@ -27910,8 +28000,9 @@ function ViewSettingsSection({
     AGENT_DEFAULT_MODEL[agent];
   const agentOption = options.find((option) => option.key === agent);
   const rows: { key: keyof ViewPrefs & `show${string}`; label: string; hint: string }[] = [
-    { key: "showSidebarAgentIcons", label: "Agent icons in the sidebar", hint: "The harness mark on each session row." },
+    { key: "showSidebarAgentIcons", label: "Agent icons in the sidebar", hint: "The harness mark and assignee face on each session row." },
     { key: "showSessionAgentIcons", label: "Agent icons in chat", hint: "The harness mark in a session's header." },
+    { key: "showSessionDiffBar", label: "Worktree diff badge in chat", hint: "The floating changes bar above the composer." },
     { key: "showComposerAgents", label: "Agent picker in the composer", hint: "Off: every new session uses the default agent." },
     { key: "showComposerModels", label: "Model picker in the composer", hint: "Off: every new session uses the default model." },
     { key: "showBots", label: "Bots", hint: "The Bots surface and its switch." },
@@ -28043,7 +28134,7 @@ function SurfaceToggle({
   onOpenAuto,
   compact = false,
 }: {
-  active: "sessions" | "chat" | "auto";
+  active: "sessions" | "chat" | "auto" | "board";
   onOpenSessions: () => void;
   onOpenBots: () => void;
   onOpenAuto: () => void;
