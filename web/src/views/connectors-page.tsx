@@ -719,9 +719,22 @@ export function IntegrationsPanel() {
     [load],
   );
 
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggle = (slug: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(slug)) next.delete(slug);
+      else next.add(slug);
+      return next;
+    });
+
   const toolsFor = useMemo(() => {
-    const by = new Map<string, number>();
-    for (const t of tools) by.set(t.integration, (by.get(t.integration) ?? 0) + 1);
+    const by = new Map<string, ToolMeta[]>();
+    for (const t of tools) {
+      const list = by.get(t.integration) ?? [];
+      list.push(t);
+      by.set(t.integration, list);
+    }
     return by;
   }, [tools]);
 
@@ -753,13 +766,22 @@ export function IntegrationsPanel() {
       <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
         {integrations.map((integration) => {
           const conns = connsFor.get(integration.slug) ?? [];
-          const toolCount = toolsFor.get(integration.slug) ?? 0;
+          const integrationTools = toolsFor.get(integration.slug) ?? [];
+          const toolCount = integrationTools.length;
+          const isOpen = expanded.has(integration.slug);
           return (
             <div key={integration.slug} className="px-4 py-3" data-integration={integration.slug}>
               <div className="flex items-center gap-3">
-                <span className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-foreground text-background">
-                  <Plug className="size-4" />
-                </span>
+                <button
+                  type="button"
+                  aria-label={isOpen ? `Hide ${integration.name} tools` : `Show ${integration.name} tools`}
+                  aria-expanded={isOpen}
+                  onClick={() => toggle(integration.slug)}
+                  disabled={toolCount === 0}
+                  className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-foreground text-background disabled:opacity-60"
+                >
+                  <ChevronRight className={`size-4 transition-transform ${isOpen ? "rotate-90" : ""}`} />
+                </button>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-2 text-sm font-medium">
                     {integration.name}
@@ -767,10 +789,16 @@ export function IntegrationsPanel() {
                       {integration.kind}
                     </span>
                   </span>
-                  <span className="block truncate text-xs text-muted-foreground">
+                  <button
+                    type="button"
+                    onClick={() => toggle(integration.slug)}
+                    disabled={toolCount === 0}
+                    className="block truncate text-left text-xs text-muted-foreground hover:text-foreground disabled:hover:text-muted-foreground"
+                  >
                     {toolCount} tool{toolCount === 1 ? "" : "s"}
                     {conns.length ? ` · ${conns.length} connection${conns.length === 1 ? "" : "s"}` : ""}
-                  </span>
+                    {toolCount ? (isOpen ? " · hide" : " · show") : ""}
+                  </button>
                 </span>
                 {integration.canRemove ? (
                   <button
@@ -802,6 +830,18 @@ export function IntegrationsPanel() {
                       >
                         <Trash2 className="size-3.5" />
                       </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {isOpen && toolCount ? (
+                <ul className="mt-2 space-y-1 pl-10" data-tools-for={integration.slug}>
+                  {integrationTools.map((t) => (
+                    <li key={t.address} className="text-xs">
+                      <code className="text-foreground">{t.name}</code>
+                      {t.description ? (
+                        <span className="text-muted-foreground"> — {t.description.split("\n")[0]}</span>
+                      ) : null}
                     </li>
                   ))}
                 </ul>
