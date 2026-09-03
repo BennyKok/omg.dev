@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { EXECUTOR_MCP_SERVER_NAME, PATHS, executorMcpHttpUrl, localServeBaseUrl } from "./config.ts";
+import { PATHS, localServeBaseUrl } from "./config.ts";
 import { omgCapabilityAccess } from "./omg-capabilities.ts";
 import { githubCliPath } from "./tool-connections.ts";
 import { agentAccountProfile, type AgentAccountProfile } from "./agent-profiles.ts";
@@ -1610,22 +1610,9 @@ async function installClaudeMcp(claude: string): Promise<void> {
       claude, "mcp", "add", "-s", "user", "--transport", "http", MCP_SERVER_NAME, mcpHttpUrl(),
     ], env);
     if (!out.ok) throw new Error(out.text.trim() || "Claude MCP install failed");
-    await installClaudeExecutorMcp(claude, env);
   }
 }
 
-// The connector gateway beside the general server, at user scope. Session-less:
-// one config serves every session, the same as the omg entry. Best effort, so a
-// Claude build that rejects the second registration still keeps the first.
-async function installClaudeExecutorMcp(
-  claude: string,
-  env: Record<string, string | undefined>,
-): Promise<void> {
-  await commandOutputAsync([claude, "mcp", "remove", EXECUTOR_MCP_SERVER_NAME, "-s", "user"], env);
-  await commandOutputAsync([
-    claude, "mcp", "add", "-s", "user", "--transport", "http", EXECUTOR_MCP_SERVER_NAME, executorMcpHttpUrl(),
-  ], env);
-}
 
 /**
  * Seed a freshly created Claude account's config dir with the omg.dev MCP
@@ -1643,7 +1630,6 @@ export async function registerClaudeMcpForAccount(accountId: string): Promise<bo
   const out = await commandOutputAsync([
     claude, "mcp", "add", "-s", "user", "--transport", "http", MCP_SERVER_NAME, mcpHttpUrl(),
   ], env);
-  if (out.ok) await installClaudeExecutorMcp(claude, env);
   return out.ok;
 }
 
