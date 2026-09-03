@@ -811,6 +811,9 @@ export function SetupScreen({
     router.push("/plan");
   }, [onDone, router]);
 
+  /** The plan step is showing the ladder, so layout gives it the room. */
+  const cards = step === 1 && products !== null && products.length > 0;
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <View
@@ -829,8 +832,53 @@ export function SetupScreen({
         </Pressable>
       </View>
 
-      <View style={{ flex: 1 }} />
-      <View style={{ paddingHorizontal: space.xl, alignItems: "center", width: "100%" }}>
+      {/*
+       * The plan step with cards is the one tall step: it is a ScrollView that
+       * is a DIRECT child of the root column, so flex:1 bounds it between the
+       * header row and the buttons and the ladder scrolls inside that. Nested
+       * flex columns with alignItems:center did not bound it; the list stayed
+       * at its content height and clipped.
+       */}
+      {cards ? (
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingTop: space.xl, paddingBottom: space.md }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={{ paddingHorizontal: space.xl, gap: space.md, marginBottom: space.lg }}>
+            <Text style={{ ...type.largeTitle, color: colors.text, textAlign: "center" }}>
+              Pick a Computer
+            </Text>
+            <Text
+              style={{ ...type.body, color: colors.textMuted, textAlign: "center", lineHeight: 24 }}
+            >
+              Plans differ in machine size, included compute time, and how many agents run at once.
+            </Text>
+          </View>
+          {/* The paywall's own cards. A tap opens the paywall on the same
+              list, where the purchase happens; setup is marked done first. */}
+          {(products ?? []).map((product) => (
+            <TierCard
+              key={product.productId}
+              product={product}
+              current={currentPlan === product.plan}
+              purchasing={false}
+              disabled={false}
+              onPress={seePlans}
+            />
+          ))}
+        </ScrollView>
+      ) : (
+        <View style={{ flex: 1 }} />
+      )}
+      <View
+        style={{
+          paddingHorizontal: space.xl,
+          alignItems: "center",
+          width: "100%",
+          ...(cards ? { display: "none" } : {}),
+        }}
+      >
         {step === 0 ? (
           <View style={{ width: "100%", gap: space.xl }}>
             <View style={{ gap: space.md }}>
@@ -861,7 +909,7 @@ export function SetupScreen({
           </View>
         ) : (
           <View style={{ width: "100%", alignItems: "center", gap: space.lg }}>
-            {products && products.length > 0 ? null : <PanelArt key="plan" art="mark" still={still} />}
+            <PanelArt key="plan" art="mark" still={still} />
             <View style={{ gap: space.md }}>
               <Text style={{ ...type.largeTitle, color: colors.text, textAlign: "center" }}>
                 Pick a Computer
@@ -874,32 +922,11 @@ export function SetupScreen({
             </View>
             {products === null ? (
               <ActivityIndicator color={colors.textMuted} style={{ marginTop: space.md }} />
-            ) : products.length > 0 ? (
-              /* The paywall's own cards, one per tier. A tap opens the paywall
-                 on the same list, where the purchase happens; setup is marked
-                 done first (see seePlans). marginHorizontal is the card's own
-                 spacing inside a padded column, so it is cancelled here. */
-              <ScrollView
-                style={{ width: "100%", maxHeight: 360, marginHorizontal: -space.lg }}
-                contentContainerStyle={{ paddingTop: space.sm }}
-                showsVerticalScrollIndicator={false}
-              >
-                {products.map((product) => (
-                  <TierCard
-                    key={product.productId}
-                    product={product}
-                    current={currentPlan === product.plan}
-                    purchasing={false}
-                    disabled={false}
-                    onPress={seePlans}
-                  />
-                ))}
-              </ScrollView>
             ) : null}
           </View>
         )}
       </View>
-      <View style={{ flex: 0.6 }} />
+      {cards ? null : <View style={{ flex: 0.6 }} />}
 
       <View style={{ padding: space.lg, paddingBottom: insets.bottom + space.lg, gap: space.sm }}>
         <BigButton
