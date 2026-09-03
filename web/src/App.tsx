@@ -344,6 +344,7 @@ import {
   GitFork,
   KeyRound,
   LayoutDashboard,
+  SquareKanban,
   Loader2,
   MessageCircleQuestion,
   MessageSquare,
@@ -478,6 +479,7 @@ const CodingAgentsPage = lazyWithReload("CodingAgentsPage", () =>
 );
 // noVNC and the RFB plumbing only load when someone opens the Computer.
 const ComputerPage = lazyWithReload("ComputerPage", () => import("./views/computer-page"));
+const BoardPage = lazyWithReload("BoardPage", () => import("./views/board-page"));
 const ResumeSessionSheet = lazyWithReload("ResumeSessionSheet", () =>
   import("./views/resume-session-sheet"),
 );
@@ -8724,7 +8726,7 @@ export function App() {
       <header className="relative z-40 flex shrink-0 items-center justify-between gap-2 px-2 pb-3 pt-[calc(0.5rem+env(safe-area-inset-top))] md:px-3 md:pb-1">
         <NavIsland className="shrink-0">
           <div className="glass-island flex h-11 items-center rounded-full px-1.5">
-            {isMobile && (tab === "notifications" || tab === "artifacts") ? (
+            {isMobile && (tab === "notifications" || tab === "artifacts" || tab === "board") ? (
               <button
                 type="button"
                 onClick={() => setTab("live")}
@@ -8734,7 +8736,7 @@ export function App() {
                 <ChevronLeft className="size-[18px]" />
                 <span>Live</span>
               </button>
-            ) : isPrimarySurfaceTab(tab) || tab === "notifications" || tab === "artifacts" ? (
+            ) : isPrimarySurfaceTab(tab) || tab === "notifications" || tab === "artifacts" || tab === "board" ? (
               <button
                 type="button"
                 onClick={() => setTab("live")}
@@ -8785,7 +8787,7 @@ export function App() {
                 className="flex items-center gap-1.5"
               />
             ) : null}
-            {tab === "live" || tab === "bots" || tab === "notifications" || tab === "artifacts" ? (
+            {tab === "live" || tab === "bots" || tab === "notifications" || tab === "artifacts" || tab === "board" ? (
               // Page destinations live in PagesMenu. Desktop also keeps its
               // project scope control here; mobile project scope lives in the
               // Live composer and never impersonates a page destination.
@@ -9146,6 +9148,19 @@ export function App() {
             <ComputerPage active onClose={() => setTab("live")} />
           </Suspense>
         ) : null}
+        {tab === "board" ? (
+          <Suspense
+            fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}
+          >
+            {/* The same filtered list Live shows, so the project and user
+                scope controls in the header apply to the Board too. */}
+            <BoardPage
+              sessions={liveSessions}
+              onOpenSession={openSessionPage}
+              onOpenShipped={openShippedSession}
+            />
+          </Suspense>
+        ) : null}
         {tab === "more" ? (
           <MoreView
             // Same source the Settings root used before Ping moved here.
@@ -9183,6 +9198,7 @@ export function App() {
         tab !== "bots" &&
         tab !== "storage" &&
         tab !== "computer" &&
+        tab !== "board" &&
         tab !== "instructions" &&
         tab !== "more" &&
         !extNavTabs.some((t) => t.id === tab) ? (
@@ -9919,6 +9935,7 @@ function PagesMenu({
     tab === "notifications" ||
     tab === "artifacts" ||
     tab === "computer" ||
+    tab === "board" ||
     (showSettings && tab === "settings");
   const value = known || extraTabs.some((t) => t.id === tab) ? tab : "live";
   // Controlled so a selection dismisses the menu. Radio items don't close on
@@ -9971,6 +9988,12 @@ function PagesMenu({
           <DropdownMenuRadioItem value="computer">
             <Monitor className="size-5 shrink-0 text-muted-foreground" />
             Computer
+          </DropdownMenuRadioItem>
+          {/* The Board reads the same sessions as Live, laid out by state. It
+              is read-only, so it sits with the other "look at" pages. */}
+          <DropdownMenuRadioItem value="board">
+            <SquareKanban className="size-5 shrink-0 text-muted-foreground" />
+            Board
           </DropdownMenuRadioItem>
           {showSettings ? (
             <>
