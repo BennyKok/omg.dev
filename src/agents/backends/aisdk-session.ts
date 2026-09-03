@@ -52,6 +52,7 @@ import {
   writeStoredSessionTokenUsage,
   type ClaudeContextUsageSnapshot,
 } from "../../session-token-usage.ts";
+import { extractAttachments, isImageMime, readAsBase64 } from "../../attachment-images.ts";
 
 function arg(argv: string[], name: string): string | undefined {
   const i = argv.indexOf(name);
@@ -247,11 +248,29 @@ function safeJson(value: unknown): string | null {
   }
 }
 
+function buildClaudeMessage(text: string): { role: "user"; content: string | Array<Record<string, unknown>> } {
+  const extracted = extractAttachments(text);
+  if (!extracted.attachments.length) return { role: "user", content: text };
+  const clean = extracted.cleanText || "(image attachment)";
+  const content: Array<Record<string, unknown>> = [{ type: "text", text: clean }];
+  for (const att of extracted.attachments) {
+    const b64 = readAsBase64(att.path);
+    if (!b64) continue;
+    if (isImageMime(att.mime)) {
+      content.push({ type: "image", source: { type: "base64", media_type: att.mime, data: b64 } });
+    } else if (att.mime === "application/pdf") {
+      content.push({ type: "document", source: { type: "base64", media_type: att.mime, data: b64 } });
+    }
+  }
+  if (content.length === 1) return { role: "user", content: text };
+  return { role: "user", content };
+}
+
 // Minimal push-driven AsyncIterable — the Agent SDK's streaming-input mode
 // consumes this; serve-side sends are pushed in as they arrive on the cmd file.
 type UserMsg = {
   type: "user";
-  message: { role: "user"; content: string };
+  message: { role: "user"; content: string | Array<Record<string, unknown>> };
   parent_tool_use_id: null;
 };
 
@@ -263,7 +282,7 @@ export class InputChannel implements AsyncIterable<UserMsg> {
   push(text: string): void {
     const msg: UserMsg = {
       type: "user",
-      message: { role: "user", content: text },
+      message: buildClaudeMessage(text),
       parent_tool_use_id: null,
     };
     if (this.waiter) {

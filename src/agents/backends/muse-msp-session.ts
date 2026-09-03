@@ -14,6 +14,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { extractAttachments, isImageMime, readAsBase64 } from "../../attachment-images.ts";
 import { museChildEnv } from "../../muse-proxy.ts";
 import { runManagedSdkSession, type ManagedSdkEventSink } from "./managed-sdk-session.ts";
 
@@ -327,6 +328,29 @@ function parseArgs(raw?: string): unknown {
   }
 }
 
+/**
+ * The composer delivers uploads as a trailing "Attached file(s):" block of
+ * local paths. MSP takes images natively (`{type:"image", base64Data,
+ * mediaType}`), so those become parts and the block leaves the text; anything
+ * else (PDFs, unknown types) stays as the path line for the agent to read.
+ */
+export function museTurnInput(prompt: string): Array<Record<string, unknown>> {
+  const extracted = extractAttachments(prompt);
+  const images = extracted.attachments.filter((att) => isImageMime(att.mime));
+  if (!images.length) return [{ type: "text", text: prompt }];
+  const parts: Array<Record<string, unknown>> = [];
+  for (const att of images) {
+    const data = readAsBase64(att.path);
+    if (data) parts.push({ type: "image", mediaType: att.mime, base64Data: data });
+  }
+  if (!parts.length) return [{ type: "text", text: prompt }];
+  const rest = extracted.attachments.filter((att) => !isImageMime(att.mime));
+  const text = rest.length
+    ? `${extracted.cleanText}\n\nAttached files:\n${rest.map((att) => `- ${att.filename}: ${att.path}`).join("\n")}`
+    : extracted.cleanText || "(image attachment)";
+  return [{ type: "text", text }, ...parts];
+}
+
 /** The plain-text question list Muse's `userInput/requested` carries. Exposed for tests. */
 export function museUserInputAnswers(
   questions: Array<{ id: string; question: string; header?: string; options?: Array<{ label: string; description?: string }> }>,
@@ -477,7 +501,7 @@ export async function cmdMuseMspSession(argv: string[]): Promise<void> {
           const params: Record<string, unknown> = {
             commandId: uuidv7(),
             sessionId,
-            input: [{ type: "text", text: prompt }],
+            input: museTurnInput(prompt),
           };
           if (effort) params.reasoningEffort = effort;
           await client.request("turn/start", params);

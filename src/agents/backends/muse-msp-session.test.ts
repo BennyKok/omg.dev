@@ -5,10 +5,14 @@ import {
   museApprovalMode,
   museReasoningEffort,
   museServeArgv,
+  museTurnInput,
   museUserInputAnswers,
   newMuseTurnState,
   uuidv7,
 } from "./muse-msp-session.ts";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ManagedSdkEventSink } from "./managed-sdk-session.ts";
 
 function recordingSink(): { sink: ManagedSdkEventSink; events: string[] } {
@@ -163,5 +167,25 @@ describe("museUserInputAnswers", () => {
       { questionId: "q2", selectedLabel: "staging" },
     ]);
     expect(await museUserInputAnswers(questions, async () => null)).toBeNull();
+  });
+});
+
+describe("museTurnInput", () => {
+  test("plain prompts stay one text part", () => {
+    expect(museTurnInput("hoi")).toEqual([{ type: "text", text: "hoi" }]);
+  });
+
+  test("uploaded images become MSP image parts; other uploads stay as path lines", () => {
+    const uploads = join(mkdtempSync(join(tmpdir(), "lfg-muse-att-")), "lfg-uploads");
+    mkdirSync(uploads);
+    const png = join(uploads, "a.png");
+    const pdf = join(uploads, "b.pdf");
+    writeFileSync(png, Buffer.from([1, 2, 3]));
+    writeFileSync(pdf, "%PDF-1.4");
+    const parts = museTurnInput(`Kijk\n\nAttached files:\n- a.png: ${png}\n- b.pdf: ${pdf}`);
+    expect(parts).toEqual([
+      { type: "text", text: `Kijk\n\nAttached files:\n- b.pdf: ${pdf}` },
+      { type: "image", mediaType: "image/png", base64Data: "AQID" },
+    ]);
   });
 });
