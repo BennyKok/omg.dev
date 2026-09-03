@@ -17,7 +17,7 @@ afterEach(() => {
 
 type Call = { url: string; method: string; body: unknown };
 
-function fakeServer(initialRoles: { id: string; name: string; defaultAction: string; rules: { pattern: string; action: string }[]; sandbox?: string; network?: string; allowHosts?: string[] }[]) {
+function fakeServer(initialRoles: { id: string; name: string; defaultAction: string; rules: { pattern: string; action: string }[]; sandbox?: string; network?: string; allowHosts?: string[]; views?: { hide: string[]; hiddenPages: string[] }; members?: string[] }[]) {
   const calls: Call[] = [];
   let roles = initialRoles;
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -25,6 +25,7 @@ function fakeServer(initialRoles: { id: string; name: string; defaultAction: str
     const method = init?.method ?? "GET";
     const body = init?.body ? JSON.parse(String(init.body)) : null;
     calls.push({ url, method, body });
+    if (url.endsWith("/api/users")) return Response.json({ users: [{ email: "ann@example.com", name: "Ann" }, { email: "bob@example.com" }] });
     if (url.endsWith("/api/roles") && method === "GET") return Response.json({ roles });
     if (url.endsWith("/api/roles") && method === "POST") {
       const role = { id: body.name.toLowerCase(), name: body.name, defaultAction: "block", rules: [], sandbox: "none", network: "shared", allowHosts: [], createdAt: 1, updatedAt: 1 };
@@ -97,6 +98,40 @@ describe("RolesPanel", () => {
     expect(patch?.url.endsWith("/api/roles/design")).toBe(true);
     expect(patch?.body).toEqual({ rules: [{ pattern: "omg.ship", action: "allow" }] });
     expect(ui.text()).toContain("omg.ship");
+  });
+});
+
+describe("RoleCard views and members", () => {
+  test("a hidden view unchecks, a page toggle patches views, a roster user becomes a member", async () => {
+    const { calls } = fakeServer([
+      OWNER,
+      { id: "viewer", name: "Viewer", defaultAction: "block", rules: [], views: { hide: ["showBots"], hiddenPages: ["usage"] }, members: ["ann@example.com"] },
+    ]);
+    ui.render(<RolesPanel />);
+    await ui.flushAsync();
+    const bots = ui.query('input[aria-label="Bots for Viewer"]') as HTMLInputElement;
+    expect(bots.checked).toBe(false);
+    const usage = ui.query('input[aria-label="Provider limits page for Viewer"]') as HTMLInputElement;
+    expect(usage.checked).toBe(false);
+    expect(ui.text()).toContain("Ann");
+
+    await ui.flushAsync(async () => usage.click());
+    const viewsPatch = calls.find((c) => c.method === "PATCH");
+    expect(viewsPatch?.body).toEqual({ views: { hide: ["showBots"], hiddenPages: [] } });
+
+    // Ann is a member already, so only Bob is offered.
+    const pick = ui.query('select[aria-label="Add member to Viewer"]') as HTMLSelectElement;
+    expect(Array.from(pick.options).map((o) => o.value)).toEqual(["", "bob@example.com"]);
+    const setValue = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value")!.set!;
+    await ui.flushAsync(async () => {
+      setValue.call(pick, "bob@example.com");
+      pick.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await ui.flushAsync(async () => {
+      (pick.closest("form") as HTMLFormElement).dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    const membersPatch = calls.filter((c) => c.method === "PATCH").at(-1);
+    expect(membersPatch?.body).toEqual({ members: ["ann@example.com", "bob@example.com"] });
   });
 });
 
