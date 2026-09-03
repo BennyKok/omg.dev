@@ -10,6 +10,9 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Connector } from "./store.ts";
+import { localServeBaseUrl } from "../config.ts";
+import { hasTokens } from "./oauth-store.ts";
+import { hubAuthProvider } from "./oauth-provider.ts";
 
 export interface ConnectorTool {
   name: string;
@@ -35,7 +38,9 @@ function headersKey(headers: Record<string, string>): string {
 }
 
 async function connect(connector: Connector): Promise<Client> {
-  const key = headersKey(connector.headers);
+  // Fold OAuth presence into the key so a just-authorized connector rebuilds
+  // its client with the auth provider instead of reusing a pre-auth one.
+  const key = `${headersKey(connector.headers)}|oauth:${hasTokens(connector.id)}`;
   const cached = clients.get(connector.id);
   if (cached && cached.endpoint === connector.endpoint && cached.headersKey === key) {
     return cached.client;
@@ -43,8 +48,12 @@ async function connect(connector: Connector): Promise<Client> {
   if (cached) await dropClient(connector.id);
 
   const client = new Client({ name: "omg-connectors", version: VERSION });
+  // A connector authenticated by OAuth carries its Bearer through the SDK auth
+  // provider (which also refreshes it); a header-auth connector carries its
+  // static headers. A connector uses one or the other.
   const transport = new StreamableHTTPClientTransport(new URL(connector.endpoint), {
     requestInit: { headers: connector.headers },
+    ...(hasTokens(connector.id) ? { authProvider: hubAuthProvider(connector, localServeBaseUrl()) } : {}),
   });
   await client.connect(transport);
   clients.set(connector.id, { client, endpoint: connector.endpoint, headersKey: key });
