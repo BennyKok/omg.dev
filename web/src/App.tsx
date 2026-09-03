@@ -1,4 +1,4 @@
-import { Component, createContext, type ComponentProps, forwardRef, memo, Suspense, useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Component, createContext, type ComponentProps, forwardRef, memo, Suspense, useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type {
   Conversation as ProductConversation,
@@ -85,9 +85,9 @@ import {
 } from "./lib/conversation-ui";
 import { UNREAD_DOT_CLASS } from "./lib/unread";
 import {
-  readFoldedRailGroups,
-  toggleFoldedRailGroup,
-  writeFoldedRailGroups,
+  getFoldedRailGroups,
+  setFoldedRailGroup,
+  subscribeFoldedRailGroups,
 } from "./lib/rail-group-fold";
 import {
   addVisibleTranscriptSid,
@@ -12014,10 +12014,19 @@ function RailStage({
     [railTree, topPinned],
   );
 
+  // A folded group takes its rows out of the DOM, so they must leave the
+  // keyboard order too. Otherwise j/k walks an invisible cursor and Enter
+  // opens a row the reader put away. The icon rail draws no headers and so
+  // cannot fold: there every row stays navigable.
+  const foldedRailGroups = useFoldedRailGroups();
+  const isRailGroupFolded = (key: string) =>
+    !railCollapsed && foldedRailGroups.includes(key);
   const railOrderedSessions = [
-    ...topPinnedSessions,
+    ...(isRailGroupFolded("__pinned") ? [] : topPinnedSessions),
     ...botSessions,
-    ...projectRailGroups.flatMap((group) => railTree.flatten(group.nodes)),
+    ...projectRailGroups.flatMap((group) =>
+      isRailGroupFolded(group.key) ? [] : railTree.flatten(group.nodes),
+    ),
   ];
 
   // Flat rail order the keyboard cursor walks (matching the visible rail;
@@ -12923,6 +12932,17 @@ function ShortcutsHelp({ onClose }: { onClose: () => void }) {
  * stage" on desktop and "go to its page" on mobile, and pretending those were
  * one call is how the two surfaces diverged in the first place.
  */
+// The folded group keys, live. One store behind every reader, so the desktop
+// rail, the mobile list and the keyboard order cannot disagree about which
+// groups are shut.
+function useFoldedRailGroups(): string[] {
+  return useSyncExternalStore(
+    subscribeFoldedRailGroups,
+    getFoldedRailGroups,
+    getFoldedRailGroups,
+  );
+}
+
 // Every session in a family, for the folded header's unread check. The dot
 // must survive folding, or shutting a group becomes a way to lose the "this
 // said something" signal its rows were carrying.
@@ -13102,17 +13122,14 @@ function RailGroup({
   children: ReactNode;
 }) {
   const { unread } = useContext(SessionUnreadContext);
-  // A fold is this browser's reading posture, shared by the rail and the
-  // mobile list through one storage key. State drives the render; storage
-  // only seeds it and remembers it across reloads.
-  const [folded, setFolded] = useState(
-    () => !!foldKey && readFoldedRailGroups().includes(foldKey),
-  );
+  // A fold is this browser's reading posture, read from the one live set that
+  // every surface shares. Not local state: the mobile list mounts its own
+  // RailGroups, and the rail's keyboard order is built outside this component.
+  const foldedGroups = useFoldedRailGroups();
+  const folded = !!foldKey && foldedGroups.includes(foldKey);
   const toggleFold = () => {
     if (!foldKey) return;
-    const next = toggleFoldedRailGroup(readFoldedRailGroups(), foldKey);
-    writeFoldedRailGroups(next);
-    setFolded(next.includes(foldKey));
+    setFoldedRailGroup(foldKey, !folded);
   };
   const foldedUnread = folded && !!sids?.some((sid) => unread.has(sid));
   // Not uppercased. A folder is named "lfg", not "LFG", and shouting every
