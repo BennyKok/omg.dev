@@ -161,6 +161,7 @@ import {
 import { SessionAssigneeAvatar } from "./components/session-assignee-avatar";
 import { UserFilterMenu } from "./components/user-filter-menu";
 import { OWNER_VIEWER, applyRoleViews, fetchViewer, readRolePreview, writeRolePreview, type Viewer } from "./lib/viewer-role";
+import { RoleViewerContext, type RoleViewerState } from "./lib/viewer-role-context";
 import {
   AuthenticatedArtifactImage,
   AuthenticatedArtifactVideo,
@@ -1172,18 +1173,6 @@ const DEFAULT_VIEW_PREFS: ViewPrefs = {
 };
 const ViewPrefsContext = createContext<ViewPrefs>(DEFAULT_VIEW_PREFS);
 
-/**
- * The role this browser views as, and the owner's preview control. Read by
- * Settings > View only: a member is assigned a role and cannot change it,
- * so the header carries no picker. The owner previews another role from
- * Settings, the same place the box-wide view switches live.
- */
-type RoleViewerState = {
-  viewer: Viewer;
-  roles: { id: string; name: string }[];
-  preview: (roleId: string) => void;
-};
-const RoleViewerContext = createContext<RoleViewerState>({ viewer: OWNER_VIEWER, roles: [], preview: () => {} });
 
 type TranscriptViewPreference = {
   value: TranscriptView;
@@ -28140,7 +28129,7 @@ function ViewSettingsSection({
     catalog.defaults[agent] ||
     AGENT_DEFAULT_MODEL[agent];
   const agentOption = options.find((option) => option.key === agent);
-  const { viewer: roleViewer, roles, preview } = useContext(RoleViewerContext);
+  const { viewer: roleViewer, roles } = useContext(RoleViewerContext);
   const rows: { key: keyof ViewPrefs & `show${string}`; label: string; hint: string }[] = [
     { key: "showSidebarAgentIcons", label: "Agent icons in the sidebar", hint: "The harness mark and assignee face on each session row." },
     { key: "showSessionAgentIcons", label: "Agent icons in chat", hint: "The harness mark in a session's header. Off shows nothing there." },
@@ -28164,34 +28153,19 @@ function ViewSettingsSection({
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div className="mt-2 overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
-            {roles.length > 1 ? (
+            {roles.length > 1 && roleViewer.role.id !== "owner" ? (
               <div className="flex items-center justify-between gap-4 px-4 py-2.5">
                 <div className="min-w-0">
                   <div className="text-sm font-medium">
-                    {roleViewer.canSwitchRole ? "Preview as role" : "Your role"}
+                    {roleViewer.canSwitchRole ? "Previewing as role" : "Your role"}
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {roleViewer.canSwitchRole
-                      ? "See this browser the way a role sees it. Roles are set under Roles & tool access."
+                      ? "Change the preview under Roles & tool access."
                       : "Set by the owner under Roles & tool access."}
                   </div>
                 </div>
-                {roleViewer.canSwitchRole ? (
-                  <select
-                    aria-label="Preview as role"
-                    value={roleViewer.role.id}
-                    onChange={(e) => preview(e.target.value)}
-                    className="h-8 shrink-0 rounded-md border border-border bg-background px-2 text-xs"
-                  >
-                    {roles.map((role) => (
-                      <option key={role.id} value={role.id}>
-                        {role.name}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <span className="shrink-0 text-sm">{roleViewer.role.name}</span>
-                )}
+                <span className="shrink-0 text-sm">{roleViewer.role.name}</span>
               </div>
             ) : null}
             <div className="flex items-center justify-between gap-4 px-4 py-2.5">
@@ -28228,19 +28202,33 @@ function ViewSettingsSection({
                 ) : null}
               </div>
             </div>
-            {rows.map((row) => (
-              <div key={row.key} className="flex items-center justify-between gap-4 px-4 py-2.5">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium">{row.label}</div>
-                  <div className="text-xs text-muted-foreground">{row.hint}</div>
+            {rows.map((row) => {
+              // A switch the current role turns off is overridden: the box
+              // value still exists, but this viewer sees "off" whatever it
+              // says. Grey it out and say why, rather than showing a live
+              // control that appears to do nothing.
+              const overridden = roleViewer.hide.includes(row.key);
+              return (
+                <div
+                  key={row.key}
+                  className={cn("flex items-center justify-between gap-4 px-4 py-2.5", overridden && "opacity-50")}
+                  aria-disabled={overridden || undefined}
+                >
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium">{row.label}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {overridden ? `Hidden by the ${roleViewer.role.name} role.` : row.hint}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={overridden ? false : settings[row.key]}
+                    disabled={overridden}
+                    onCheckedChange={(next) => void onChange({ [row.key]: next })}
+                    aria-label={row.label}
+                  />
                 </div>
-                <Switch
-                  checked={settings[row.key]}
-                  onCheckedChange={(next) => void onChange({ [row.key]: next })}
-                  aria-label={row.label}
-                />
-              </div>
-            ))}
+              );
+            })}
           </div>
         </CollapsibleContent>
       </Collapsible>
