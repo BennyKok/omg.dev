@@ -99,9 +99,6 @@ export function omgMcpServers(
   // src/policy/session-token.ts for why it is derived rather than stored.
   const headers = { [SESSION_TOKEN_HEADER]: sessionToken(sid) };
   const mcpServers: Record<string, OmgMcpServerConfig> = { omg: { type: "http", url, headers } };
-  if (executorMcpAdvertised) {
-    mcpServers[EXECUTOR_MCP_SERVER_NAME] = { type: "http", url: executorMcpHttpUrl(sid), headers };
-  }
   // The native connector surface, always offered: its tool set is the session
   // member's connectors, which may be empty, and that is a valid empty list.
   mcpServers[CONNECTORS_MCP_SERVER_NAME] = {
@@ -114,26 +111,6 @@ export function omgMcpServers(
 
 /** The tool namespace agents see for native connectors (`mcp__connectors__*`). */
 export const CONNECTORS_MCP_SERVER_NAME = "connectors";
-
-/** The tool namespace agents see for the connector gateway (`mcp__executor__*`). */
-export const EXECUTOR_MCP_SERVER_NAME = "executor";
-
-/** The omg-served connector endpoint. Session-less for a user-scope registration. */
-export function executorMcpHttpUrl(sessionId?: string): string {
-  const base = `${localServeBaseUrl()}/mcp/executor`;
-  return sessionId ? `${base}?session=${encodeURIComponent(sessionId)}` : base;
-}
-
-// Whether sessions launched from this process are handed the connector
-// endpoint. Owned by src/executor/daemon.ts: set once the daemon answers, and
-// cleared when it stops, so no session is registered against a dead URL. A
-// plain flag rather than a settings read because this function runs on every
-// launch and must stay synchronous and dependency-free.
-let executorMcpAdvertised = false;
-
-export function setExecutorMcpAdvertised(advertised: boolean): void {
-  executorMcpAdvertised = advertised;
-}
 
 function readVersionFromDisk(): string {
   try {

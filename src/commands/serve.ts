@@ -31,23 +31,6 @@ import {
 } from "../self-update.ts";
 import { compressedAssetResponse, maybeCompressResponse } from "../http-compress.ts";
 import { serveOmgMcpRequest, serveComputerMcpRequest } from "../mcp-http.ts";
-import { serveExecutorMcpRequest } from "../executor/proxy.ts";
-import { forwardExecutorApi, runManagementTool } from "../executor/api.ts";
-import {
-  APPROVE,
-  DENY,
-  approvalDeliveryText,
-  approvalQuestion,
-  blockedResumeReply,
-  clearPendingApproval,
-  executionAwaitingApproval,
-  interceptExecuteReplyBody,
-  isApproveAnswer,
-  parseToolCall,
-  pendingApprovalByAsk,
-  registerPendingApproval,
-  resumeExecution,
-} from "../executor/approvals.ts";
 import { resolveCaller } from "../policy/caller.ts";
 import {
   serveConnectorsMcpRequest,
@@ -79,14 +62,6 @@ import { enforceRole } from "../policy/mcp-filter.ts";
 import { createRole, deleteRole, getRole, listRoles, roleEgress, roleSandbox, updateRole, OWNER_ROLE_ID } from "../policy/roles.ts";
 import { DEFAULT_ALLOW_HOSTS, startEgressProxy, type EgressProxy } from "../sandbox/egress-proxy.ts";
 import { sessionToken, verifySessionToken } from "../policy/session-token.ts";
-import {
-  ensureExecutorAdopted,
-  executorAuth,
-  executorDashboardUrl,
-  executorStatus,
-  startExecutor,
-  stopExecutor,
-} from "../executor/daemon.ts";
 import * as pwaBootLog from "../pwa-boot-log.ts";
 import { botRuntimeContract, shortSessionId } from "../omg-capabilities.ts";
 import {
@@ -798,87 +773,6 @@ function connectorOwnerForSession(sessionId: string | undefined): string {
 // URL and is logged, rather than failing to start.
 let egressProxy: EgressProxy | null = null;
 
-/**
- * The connector proxy, with owner-approval interception on execute/resume.
- *
- * A gated `execute` returns a paused interaction that Executor, in model mode,
- * would have the agent resolve itself. This turns it into an omg ask card:
- * the reply the agent gets says "wait", an ask with Approve/Deny is posted to
- * the session, and the agent's own `resume` is refused while that ask is open.
- * The human's answer drives resume (src/executor/approvals.ts and the
- * /api/ask answer route). Everything that is not an approvable execute or a
- * gated resume passes straight through, so the SSE listen stream and ordinary
- * calls are untouched.
- */
-async function interceptExecutorApprovals(
-  req: Request,
-  sessionId: string | undefined,
-): Promise<Response> {
-  if (req.method !== "POST") return serveExecutorMcpRequest(req);
-  const bodyText = await req.text();
-  const call = parseToolCall(bodyText);
-
-  if (call?.name === "resume") {
-    const executionId = typeof call.args.executionId === "string" ? call.args.executionId : "";
-    if (executionId && executionAwaitingApproval(executionId)) {
-      return Response.json(blockedResumeReply(call.id, executionId), {
-        headers: { "Cache-Control": "no-store" },
-      });
-    }
-  }
-
-  const forwarded = new Request(req.url, { method: "POST", headers: req.headers, body: bodyText });
-  const res = await serveExecutorMcpRequest(forwarded);
-
-  // Only an execute reply from a real session can become an approval card.
-  // Without a session we cannot deliver the outcome, so we leave Executor's
-  // own ask-then-resume flow in place.
-  if (call?.name !== "execute" || !sessionId) return res;
-
-  const contentType = res.headers.get("content-type") ?? "";
-  const replyText = await res.text();
-  const intercepted = interceptExecuteReplyBody(replyText, contentType);
-  if (!intercepted) {
-    return new Response(replyText, {
-      status: res.status,
-      headers: res.headers,
-    });
-  }
-
-  // Post the ask through the same route the MCP ask tool uses, so push and
-  // user scoping behave identically. Best effort: if the ask cannot be
-  // created, fall back to handing the agent Executor's original reply rather
-  // than a "wait" it will wait on forever.
-  const user = userAssignments();
-  const row = listManaged().find((s) => s.sessionId === sessionId || s.nativeSessionId === sessionId);
-  const askUser = row ? user[row.tmuxName] ?? null : null;
-  try {
-    const askRes = await fetch(`http://127.0.0.1:${PORT}/api/ask`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        question: approvalQuestion(intercepted.paused),
-        options: [APPROVE, DENY],
-        sessionId,
-        user: askUser,
-        pushback: true,
-        wait: false,
-      }),
-    });
-    if (!askRes.ok) throw new Error(`ask create failed (${askRes.status})`);
-    const { id } = (await askRes.json()) as { id: string };
-    registerPendingApproval({
-      askId: id,
-      executionId: intercepted.paused.executionId,
-      sessionId,
-      address: intercepted.paused.address,
-    });
-  } catch {
-    return new Response(replyText, { status: res.status, headers: res.headers });
-  }
-
-  return new Response(intercepted.heldBody, { status: res.status, headers: res.headers });
-}
 
 /** Root URL this box's web UI is reachable at (e.g. `http://box.tailnet.ts.net:8766`
  * over Tailscale). Optional — when unset, no session URLs are advertised and
@@ -4136,19 +4030,6 @@ export async function cmdServe() {
         );
       }
 
-      // The connector gateway, proxied to this box's Executor daemon. Same
-      // gate shape as the computer MCP: 404 when the owner turned it off, so
-      // a probing client finds nothing. Adopt first so a serve restart does
-      // not answer 503 for a daemon that is still up.
-      if (path === "/mcp/executor") {
-        const { executorEnabled } = await getGlobalSettings();
-        if (!executorEnabled) return err(404, "the connector gateway is disabled");
-        await ensureExecutorAdopted();
-        const caller = resolveCaller(req);
-        return await enforceRole(req, caller.role, { namespace: "executor" }, (r) =>
-          interceptExecutorApprovals(r, caller.sessionId),
-        );
-      }
 
       // The native connector surface. Exposes the calling session member's
       // connectors (own + org-shared) as MCP tools, scoped and role-filtered,
@@ -4264,66 +4145,7 @@ export async function cmdServe() {
         return json(desktopStatus());
       }
 
-      // ---- connector gateway (Executor) ----
-      // Status is safe to poll. It reports whether the binary is installed so
-      // the Settings card can show the exact install command instead of a
-      // dead switch.
-      if (path === "/api/executor/status" && req.method === "GET") {
-        const { executorEnabled } = await getGlobalSettings();
-        await ensureExecutorAdopted();
-        return json({ enabled: executorEnabled, ...executorStatus() });
-      }
 
-      if (path === "/api/executor/start" && req.method === "POST") {
-        const { executorEnabled } = await getGlobalSettings();
-        if (!executorEnabled) return err(409, "the connector gateway is disabled in settings");
-        return json({ enabled: executorEnabled, ...(await startExecutor({ log: (l) => console.log(l) })) });
-      }
-
-      if (path === "/api/executor/stop" && req.method === "POST") {
-        const { executorEnabled } = await getGlobalSettings();
-        return json({ enabled: executorEnabled, ...(await stopExecutor()) });
-      }
-
-      // The dashboard URL carries the daemon's bearer token, which is how
-      // Executor's own `executor web` signs the browser in. Minted per request
-      // and never rendered until asked for, so the token does not sit in a
-      // status payload every poll fetches. Loopback only: the dashboard is
-      // reachable from a browser on this machine, not through remote access.
-      if (path === "/api/executor/dashboard" && req.method === "GET") {
-        await ensureExecutorAdopted();
-        const dashboardUrl = executorDashboardUrl();
-        if (!dashboardUrl) return err(409, "the connector gateway is not running");
-        return json({ url: dashboardUrl });
-      }
-
-      // Box-level Executor policies and its catalog, for the Settings control
-      // plane. A short allowlist forwarded with the bearer injected
-      // (src/executor/api.ts); the browser never holds the token.
-      {
-        const m = path.match(/^\/api\/executor\/api\/(.+)$/);
-        if (m) {
-          await ensureExecutorAdopted();
-          return await forwardExecutorApi(req, `/${m[1]!}`);
-        }
-      }
-
-      // Run an allowlisted management tool (add an OpenAPI/MCP source, preview
-      // one) for the native Integrations panel. Not a general execute: the
-      // address is checked against MANAGEMENT_TOOLS (src/executor/api.ts).
-      if (path === "/api/executor/tool" && req.method === "POST") {
-        await ensureExecutorAdopted();
-        const body = (await req.json().catch(() => null)) as { address?: unknown; input?: unknown } | null;
-        const address = typeof body?.address === "string" ? body.address : "";
-        if (!address) return err(400, "address is required");
-        const result = await runManagementTool(address, body?.input ?? {});
-        if (!result.ok) return err(502, result.error);
-        return json(result);
-      }
-
-      // ---- roles ----
-      // Per-role tool policy for sessions on this box (src/policy/roles.ts).
-      // Rules use Executor's pattern grammar over `<server>.<tool>` ids.
       // ---- connectors (native, per-member) ----
       // The UI scopes by ?user=<member>; the store returns that member's own
       // plus org-shared connectors. Secrets are stripped from every response.
@@ -4360,7 +4182,7 @@ export async function cmdServe() {
       }
       {
         const m = path.match(/^\/api\/connectors\/([0-9a-f]+)$/);
-        if (m && req.method === "PATCH") {
+        if (req.method === "PATCH" && m) {
           const body = (await req.json().catch(() => null)) as Parameters<typeof updateConnector>[1] | null;
           if (!body) return err(400, "invalid JSON body");
           const result = updateConnector(m[1]!, body);
@@ -4368,7 +4190,7 @@ export async function cmdServe() {
           await resetConnector(m[1]!);
           return json({ connector: publicView(result.connector) });
         }
-        if (m && req.method === "DELETE") {
+        if (req.method === "DELETE" && m) {
           const result = deleteConnector(m[1]!);
           if (!result.ok) return err(404, result.error);
           await resetConnector(m[1]!);
@@ -4377,7 +4199,7 @@ export async function cmdServe() {
       }
       {
         const m = path.match(/^\/api\/connectors\/([0-9a-f]+)\/tools$/);
-        if (m && req.method === "GET") {
+        if (req.method === "GET" && m) {
           const connector = getConnector(m[1]!);
           if (!connector) return err(404, "connector not found");
           const probe = await probeConnector(connector);
@@ -5097,11 +4919,6 @@ a{color:#60a5fa}
               return err(400, "computerMcpEnabled must be a boolean");
             patch.computerMcpEnabled = b.computerMcpEnabled;
           }
-          if (b?.executorEnabled !== undefined) {
-            if (typeof b.executorEnabled !== "boolean")
-              return err(400, "executorEnabled must be a boolean");
-            patch.executorEnabled = b.executorEnabled;
-          }
           if (b?.botAutoCompactionEnabled !== undefined) {
             if (typeof b.botAutoCompactionEnabled !== "boolean")
               return err(400, "botAutoCompactionEnabled must be a boolean");
@@ -5194,11 +5011,6 @@ a{color:#60a5fa}
           // now rather than leaving it running behind a 404, and on starts it
           // without waiting for the next boot. Off the response path: a cold
           // start is seconds.
-          if (patch.executorEnabled === true) {
-            void startExecutor({ log: (l) => console.log(l) }).catch(() => {});
-          } else if (patch.executorEnabled === false) {
-            void stopExecutor().catch(() => {});
-          }
           return json({ settings });
         }
         return err(405, "method not allowed");
@@ -7245,55 +7057,6 @@ a{color:#60a5fa}
           const q = await answerQuestion(m[1], { answer: b.answer.trim(), via: b.via });
           if (!q) return err(404, "unknown or already-answered question");
 
-          // A connector approval: the answer is Approve or Deny, and the real
-          // work is resuming the paused Executor execution on the human's
-          // behalf (the agent was refused resume). The outcome, not the bare
-          // "Approve", is what the session hears. Branch before the generic
-          // delivery below so the word "Approve" is never sent as a message.
-          // A native connector approval: run or refuse the held call and
-          // deliver the outcome, before the generic answer delivery.
-          const connectorPending = pendingConnectorApprovalByAsk(q.id);
-          if (connectorPending) {
-            const outcome = await resolveConnectorApproval(connectorPending, isConnectorApprove(q.answer));
-            clearPendingConnectorApproval(q.id);
-            if (connectorPending.sessionId) {
-              try {
-                await fetch(`http://127.0.0.1:${PORT}/api/sessions/${connectorPending.sessionId}/send`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ text: outcome.text, mode: "steer" }),
-                });
-              } catch {
-                // answered + resolved; the transcript just missed the note
-              }
-            }
-            await markHandled(q.id);
-            return json({ question: q, approval: { approved: outcome.approved } });
-          }
-
-          const pending = pendingApprovalByAsk(q.id);
-          if (pending) {
-            const approved = isApproveAnswer(q.answer);
-            const outcome = approved
-              ? await resumeExecution(executorAuth(), pending.executionId, "accept")
-              : await resumeExecution(executorAuth(), pending.executionId, "decline");
-            clearPendingApproval(q.id);
-            const text = approvalDeliveryText(pending, approved, outcome);
-            if (pending.sessionId) {
-              try {
-                await fetch(`http://127.0.0.1:${PORT}/api/sessions/${pending.sessionId}/send`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ text, mode: "steer" }),
-                });
-              } catch {
-                // Loopback send failed. The question is answered and the
-                // execution resolved; the transcript just missed the note.
-              }
-            }
-            await markHandled(q.id);
-            return json({ question: q, approval: { approved, executionId: pending.executionId } });
-          }
           // `deliver: false` — the person answered by typing in the owning
           // session's own composer, so that message is ALREADY on its way to
           // the agent. Record the answer (this also wakes a blocked long-poll)
@@ -10939,14 +10702,6 @@ a{color:#60a5fa}
   // JSONL files are treated as an import source; live draft deltas stay
   // ephemeral until the provider writes the completed turn.
   startChatIngestMonitor(listSessionsCached);
-  // The connector gateway. Adopts a daemon left running by the previous serve
-  // process, or starts one. Off the boot path: a cold Executor start is
-  // seconds, and nothing at boot needs it.
-  void getGlobalSettings().then(async ({ executorEnabled }) => {
-    if (!executorEnabled) return;
-    const status = await startExecutor({ log: (l) => console.log(l) });
-    if (!status.running && status.error) console.log(`[executor] ${status.error}`);
-  }).catch((e) => console.error(`[executor] start failed: ${e instanceof Error ? e.message : String(e)}`));
 
   // The egress proxy: a restricted-role session's harness is pointed here, so
   // it reaches only the model APIs plus its role's allowed hosts. Resolves the
