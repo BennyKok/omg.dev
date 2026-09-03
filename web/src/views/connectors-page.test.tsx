@@ -41,17 +41,8 @@ function fakeServer(initialRoles: { id: string; name: string; defaultAction: str
       roles = roles.filter((r) => r.id !== m[1]);
       return Response.json({ ok: true });
     }
-    if (url.includes("/api/executor/api/policies")) return Response.json([]);
-    if (url.includes("/api/executor/api/integrations"))
-      return Response.json([
-        { slug: "executor", name: "Executor", description: "Executor", kind: "built-in", canRemove: false, canRefresh: false, authMethods: [] },
-      ]);
-    if (url.includes("/api/executor/api/connections")) return Response.json([]);
-    if (url.includes("/api/executor/api/tools"))
-      return Response.json([
-        { address: "executor.coreTools.integrations.list", integration: "executor", connection: "coreTools", name: "coreTools.integrations.list", description: "List integrations in the catalog." },
-      ]);
-    if (url.includes("/api/executor/dashboard")) return Response.json({ url: "http://127.0.0.1:4788/?_token=t" });
+    if (url.includes("/api/connectors/catalog")) return Response.json({ total: 0, results: [] });
+    if (url.includes("/api/connectors")) return Response.json({ connectors: [] });
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
   return { calls };
@@ -145,24 +136,15 @@ describe("RoleCard views and members", () => {
 });
 
 describe("ConnectorsPage", () => {
-  test("switches between roles, gateway policies and integrations", async () => {
+  test("has Roles and Connectors tabs; no iframe, no Executor", async () => {
     fakeServer([OWNER]);
     ui.render(<ConnectorsPage />);
     await ui.flushAsync();
-    expect(ui.text()).toContain("Built in.");
+    expect(ui.text()).toContain("Built in."); // Roles tab, owner
 
     await ui.flushAsync(async () => (ui.queryAll('[role="tab"]')[1] as HTMLElement).click());
-    expect(ui.text()).toContain("No gateway policies");
-
-    await ui.flushAsync(async () => (ui.queryAll('[role="tab"]')[2] as HTMLElement).click());
-    // Native panel (no iframe): the integration is listed from the forwarded API.
-    expect(ui.query('iframe')).toBeNull();
-    expect(ui.query('[data-integration="executor"]')).not.toBeNull();
-    expect(ui.text()).toContain("Executor");
-    // Its tools are hidden until expanded, then listed.
-    expect(ui.query('[data-tools-for="executor"]')).toBeNull();
-    await ui.flushAsync(async () => (ui.query('[aria-label="Show Executor tools"]') as HTMLElement).click());
-    expect(ui.query('[data-tools-for="executor"]')).not.toBeNull();
-    expect(ui.text()).toContain("coreTools.integrations.list");
+    // Native connectors panel: no iframe, reads /api/connectors, not Executor.
+    expect(ui.query("iframe")).toBeNull();
+    expect(ui.text()).toContain("MCP servers you add");
   });
 });
