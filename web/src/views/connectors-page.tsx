@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { ChevronRight, Plug, Plus, Shield, Trash2, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { ViewToggleKey } from "@/lib/viewer-role";
+import { RoleViewerContext } from "@/lib/viewer-role-context";
 import { Input } from "@/components/ui/input";
 import { ConnectorsNativePanel } from "./connectors-native";
 
@@ -158,6 +159,7 @@ const PATTERN_HELP = [
 export function RolesPanel() {
   const [roles, setRoles] = useState<Role[] | null>(null);
   const [roster, setRoster] = useState<RosterUser[]>([]);
+  const { viewer, preview } = useContext(RoleViewerContext);
   const [error, setError] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -216,6 +218,29 @@ export function RolesPanel() {
           </span>
         </div>
       </div>
+
+      {viewer.canSwitchRole && editable.length > 0 ? (
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-card/40 px-4 py-3">
+          <span className="min-w-0">
+            <span className="block text-sm font-medium">Preview as</span>
+            <span className="block text-xs text-muted-foreground">
+              See this browser the way a role sees it. Layout only; tool rules apply to sessions.
+            </span>
+          </span>
+          <select
+            aria-label="Preview as role"
+            value={viewer.role.id}
+            onChange={(e) => preview(e.target.value)}
+            className="h-8 shrink-0 rounded-md border border-border bg-background px-2 text-xs"
+          >
+            {(roles ?? []).map((role) => (
+              <option key={role.id} value={role.id}>
+                {role.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
 
       {editable.map((role) => (
         <RoleCard key={role.id} role={role} roster={roster} onChanged={load} onError={setError} />

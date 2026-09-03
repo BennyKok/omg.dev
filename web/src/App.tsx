@@ -160,8 +160,8 @@ import {
 } from "./components/conversation-presence";
 import { SessionAssigneeAvatar } from "./components/session-assignee-avatar";
 import { UserFilterMenu } from "./components/user-filter-menu";
-import { ViewerRoleMenu } from "./components/viewer-role-menu";
 import { OWNER_VIEWER, applyRoleViews, fetchViewer, readRolePreview, writeRolePreview, type Viewer } from "./lib/viewer-role";
+import { RoleViewerContext, type RoleViewerState } from "./lib/viewer-role-context";
 import {
   AuthenticatedArtifactImage,
   AuthenticatedArtifactVideo,
@@ -1172,6 +1172,7 @@ const DEFAULT_VIEW_PREFS: ViewPrefs = {
   showSessionDiffBar: true,
 };
 const ViewPrefsContext = createContext<ViewPrefs>(DEFAULT_VIEW_PREFS);
+
 
 type TranscriptViewPreference = {
   value: TranscriptView;
@@ -6137,6 +6138,10 @@ export function App() {
   const didDefaultFilter = useRef(false);
   const viewPrefs = useMemo(() => applyRoleViews(settings, roleViewer), [settings, roleViewer]);
   const hiddenPages = roleViewer.hiddenPages;
+  const roleViewerState = useMemo<RoleViewerState>(
+    () => ({ viewer: roleViewer, roles: roleOptions, preview: previewRole }),
+    [roleViewer, roleOptions, previewRole],
+  );
   // Hosted surfaces do not show the profile picker. Their one-user roster is
   // still the assigned identity for server-owned bot read state.
   const botUnreadIdentity = identity ??
@@ -8593,6 +8598,7 @@ export function App() {
     <UpdateProvider settings={settings} onSettingsChange={updateSettings}>
     <TranscriptViewContext.Provider value={transcriptViewPreference}>
     <ViewPrefsContext.Provider value={viewPrefs}>
+    <RoleViewerContext.Provider value={roleViewerState}>
     <ArtifactViewerContext.Provider value={openArtifactViewer}>
     <SessionTerminalContext.Provider value={setTerminalSid}>
     <OpenSettingsPageContext.Provider value={setTab}>
@@ -8683,14 +8689,11 @@ export function App() {
             <NavIsland className="shrink-0">
               <div className="glass-island flex h-11 items-center gap-1.5 rounded-full px-2">
                 {tab === "auto" ? null : (
-                  <>
-                    <UserFilterMenu
-                      value={userFilter}
-                      users={users}
-                      onChange={changeUserFilter}
-                    />
-                    <ViewerRoleMenu viewer={roleViewer} roles={roleOptions} onPreview={previewRole} />
-                  </>
+                  <UserFilterMenu
+                    value={userFilter}
+                    users={users}
+                    onChange={changeUserFilter}
+                  />
                 )}
                 {/* The machine roster comes first, then host actions, with our
                     overflow menu beside the screen edge where it opens. */}
@@ -8734,14 +8737,11 @@ export function App() {
                     onto a page it cannot change would make the shared header
                     a promise the page does not keep. */}
                 {tab === "auto" ? null : (
-                  <>
-                    <UserFilterMenu
-                      value={userFilter}
-                      users={users}
-                      onChange={changeUserFilter}
-                    />
-                    <ViewerRoleMenu viewer={roleViewer} roles={roleOptions} onPreview={previewRole} />
-                  </>
+                  <UserFilterMenu
+                    value={userFilter}
+                    users={users}
+                    onChange={changeUserFilter}
+                  />
                 )}
                 <PagesMenu
                   tab={tab}
@@ -8873,7 +8873,6 @@ export function App() {
                   users={users}
                   onChange={changeUserFilter}
                 />
-                <ViewerRoleMenu viewer={roleViewer} roles={roleOptions} onPreview={previewRole} />
               </>
             ) : null}
             {isMobile ? null : (
@@ -9487,6 +9486,7 @@ export function App() {
     </OpenSettingsPageContext.Provider>
     </SessionTerminalContext.Provider>
     </ArtifactViewerContext.Provider>
+    </RoleViewerContext.Provider>
     </ViewPrefsContext.Provider>
     </TranscriptViewContext.Provider>
     </UpdateProvider>
@@ -13846,9 +13846,13 @@ const RailRow = memo(function RailRow({
                 "border-transparent hover:bg-muted/70",
         )}
       >
-        <span className={cn("relative flex shrink-0 items-center justify-center", markBoxClassName)}>
-          {mark}
-        </span>
+        {/* A row may opt out of the mark entirely (agent icons off): then
+            there is no box and no gap, the text column starts at the edge. */}
+        {mark === null ? null : (
+          <span className={cn("relative flex shrink-0 items-center justify-center", markBoxClassName)}>
+            {mark}
+          </span>
+        )}
         {!collapsed ? (
           <>
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -13936,7 +13940,15 @@ const RailItem = memo(function RailItem({
   const drivingBot = drivingBotId ? botDirectory.get(drivingBotId) : undefined;
   const faviconSrc = projectFaviconSrc(session.project);
   const [failedFaviconSrc, setFailedFaviconSrc] = useState<string | null>(null);
-  const showFavicon = !!faviconSrc && failedFaviconSrc !== faviconSrc;
+  // The favicon follows the agent icon setting: hiding agent icons means a
+  // plain row, and a project logo is as much an identity mark as the harness.
+  const showFavicon = showAgentIcons && !!faviconSrc && failedFaviconSrc !== faviconSrc;
+  // Agent icons off means no identity mark at all in the expanded row: no
+  // harness, no favicon, and no placeholder box holding the space. Busy and
+  // blocked move to the indicator slot. A collapsed rail is only marks, so
+  // it keeps a neutral one. A bot row keeps its face; that is the bot, not
+  // an agent icon.
+  const plainRow = !drivingBot && !showAgentIcons && !collapsed;
   // Read state, from the roster's own set. A working session is never in that
   // set — the server holds the mark back while a turn is running, because the
   // dot means "ready for you" and a session mid-turn is not. It comes back on
@@ -13971,7 +13983,7 @@ const RailItem = memo(function RailItem({
         // ragged.
         drivingBot ? "size-11" : "size-10"
       }
-      mark={
+      mark={plainRow ? null : (
         <>
           {/* A normal thread is anchored by its project when that project has
               a favicon. The small corner badge then says which agent drives
@@ -14062,7 +14074,7 @@ const RailItem = memo(function RailItem({
             />
           ) : null}
         </>
-      }
+      )}
       title={title}
       titleBadge={
         topPinned ? (
@@ -14070,7 +14082,19 @@ const RailItem = memo(function RailItem({
         ) : null
       }
       preview={latest}
-      indicator={unread ? unreadDot : null}
+      indicator={
+        unread ? (
+          unreadDot
+        ) : plainRow && busy ? (
+          <Loader2
+            aria-label="working"
+            className="size-4 shrink-0 animate-spin text-warning motion-reduce:animate-none"
+            strokeWidth={1.75}
+          />
+        ) : plainRow && session.status === "blocked" ? (
+          <SessionStatusDot paused variant="inline" />
+        ) : null
+      }
       trailingStatic={
         session.lastActivityAt || session.startedAt
           ? relTime(session.lastActivityAt ?? session.startedAt ?? 0)
@@ -28105,9 +28129,10 @@ function ViewSettingsSection({
     catalog.defaults[agent] ||
     AGENT_DEFAULT_MODEL[agent];
   const agentOption = options.find((option) => option.key === agent);
+  const { viewer: roleViewer, roles } = useContext(RoleViewerContext);
   const rows: { key: keyof ViewPrefs & `show${string}`; label: string; hint: string }[] = [
     { key: "showSidebarAgentIcons", label: "Agent icons in the sidebar", hint: "The harness mark and assignee face on each session row." },
-    { key: "showSessionAgentIcons", label: "Agent icons in chat", hint: "The harness mark in a session's header." },
+    { key: "showSessionAgentIcons", label: "Agent icons in chat", hint: "The harness mark in a session's header. Off shows nothing there." },
     { key: "showSessionDiffBar", label: "Worktree diff badge in chat", hint: "The floating changes bar above the composer." },
     { key: "showComposerAgents", label: "Agent picker in the composer", hint: "Off: every new session uses the default agent." },
     { key: "showComposerModels", label: "Model picker in the composer", hint: "Off: every new session uses the default model." },
@@ -28128,6 +28153,21 @@ function ViewSettingsSection({
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div className="mt-2 overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+            {roles.length > 1 && roleViewer.role.id !== "owner" ? (
+              <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    {roleViewer.canSwitchRole ? "Previewing as role" : "Your role"}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {roleViewer.canSwitchRole
+                      ? "Change the preview under Roles & tool access."
+                      : "Set by the owner under Roles & tool access."}
+                  </div>
+                </div>
+                <span className="shrink-0 text-sm">{roleViewer.role.name}</span>
+              </div>
+            ) : null}
             <div className="flex items-center justify-between gap-4 px-4 py-2.5">
               <div className="min-w-0">
                 <div className="text-sm font-medium">Default agent and model</div>
@@ -28162,19 +28202,33 @@ function ViewSettingsSection({
                 ) : null}
               </div>
             </div>
-            {rows.map((row) => (
-              <div key={row.key} className="flex items-center justify-between gap-4 px-4 py-2.5">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium">{row.label}</div>
-                  <div className="text-xs text-muted-foreground">{row.hint}</div>
+            {rows.map((row) => {
+              // A switch the current role turns off is overridden: the box
+              // value still exists, but this viewer sees "off" whatever it
+              // says. Grey it out and say why, rather than showing a live
+              // control that appears to do nothing.
+              const overridden = roleViewer.hide.includes(row.key);
+              return (
+                <div
+                  key={row.key}
+                  className={cn("flex items-center justify-between gap-4 px-4 py-2.5", overridden && "opacity-50")}
+                  aria-disabled={overridden || undefined}
+                >
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium">{row.label}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {overridden ? `Hidden by the ${roleViewer.role.name} role.` : row.hint}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={overridden ? false : settings[row.key]}
+                    disabled={overridden}
+                    onCheckedChange={(next) => void onChange({ [row.key]: next })}
+                    aria-label={row.label}
+                  />
                 </div>
-                <Switch
-                  checked={settings[row.key]}
-                  onCheckedChange={(next) => void onChange({ [row.key]: next })}
-                  aria-label={row.label}
-                />
-              </div>
-            ))}
+              );
+            })}
           </div>
         </CollapsibleContent>
       </Collapsible>
@@ -28461,6 +28515,20 @@ function SessionHeaderIdentity({
     botDirectory,
   );
 
+  // Agent icons off: no mark in the header at all, not a placeholder. Busy
+  // keeps a bare spinner so a running turn is still visible. A bot keeps its
+  // face; that is the bot, not an agent icon.
+  if (!showSessionAgentIcons && identity.kind !== "bot" && identity.kind !== "bot-loading") {
+    if (!busy) return null;
+    return (
+      <Loader2
+        aria-label="working"
+        className="size-5 shrink-0 animate-spin text-warning motion-reduce:animate-none"
+        strokeWidth={1.75}
+      />
+    );
+  }
+
   if (identity.kind === "bot") {
     return (
       <div
@@ -28489,11 +28557,7 @@ function SessionHeaderIdentity({
       {/* "aisdk" is Claude Code under the hood (driven via the AI SDK), so it
           wears the same Claude mark as a tmux claude session; only the
           new-session picker keeps a distinct label to tell them apart. */}
-      {showSessionAgentIcons ? (
-        <AgentMark session={session} busy={busy} />
-      ) : (
-        <NeutralSessionMark busy={busy} size={size} />
-      )}
+      <AgentMark session={session} busy={busy} />
     </div>
   );
 }

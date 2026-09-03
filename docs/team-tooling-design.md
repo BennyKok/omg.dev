@@ -110,8 +110,10 @@ install command when it is missing.
   the field vibes sync will write into. `GET /api/me?user=&role=` resolves
   the browser's pick (`lfg_user`) to `{ role, views, hide, hiddenPages }`;
   an owner may pass `role=` to preview. A new session with no explicit `role`
-  takes the tagged user's role. The header shows a role pill next to the user
-  filter once a role other than owner exists.
+  takes the tagged user's role. The owner previews a role from a "Preview
+  as" picker at the top of Roles & tool access. Settings > View greys out a
+  switch the current role overrides and names the role. A member sees
+  "Your role" there and cannot change it. There is no picker in the header.
 - Executor policy API facts: payload needs `owner: "org"`; actions are
   `approve`, `require_approval`, `block`; DELETE takes a body with `owner`.
 
