@@ -14,6 +14,11 @@ Recent product updates and deployment notes.
   sidebar" and the assignee face on each session row is hidden too.
 - **New setting: "Worktree diff badge in chat".** Turn it off to hide the
   floating changes bar above the composer.
+- **Also in this release.** The read-only Board page (every task as a kanban,
+  at `/board`), box defaults for agent and model with View switches in
+  Settings, an agent picker switch that can force the default agent, the agent
+  and model switches on the mobile inline composer, and Sign in with Apple and
+  Google in the mobile app.
 
 ## September 3, 2026 - Fold a session group shut (v0.6.37)
 
