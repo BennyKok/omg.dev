@@ -73,6 +73,18 @@ describe("groupBoard", () => {
     expect(cols[2].cards.map((c) => c.sessionId)).toEqual(["new", "old"]);
   });
 
+  test("leaves bot sessions to the Bots page", () => {
+    const cols = groupBoard({
+      sessions: [
+        session({ sessionId: "s-bot", botId: "b1", botName: "Manager", busy: true }),
+        session({ sessionId: "s-task", busy: true }),
+      ],
+      questions: [],
+      posts: [],
+    });
+    expect(cols[1].cards.map((c) => c.sessionId)).toEqual(["s-task"]);
+  });
+
   test("skips rows with no session id", () => {
     const cols = groupBoard({
       sessions: [{ sessionId: null } as Session],
