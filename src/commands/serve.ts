@@ -31,6 +31,14 @@ import {
 } from "../self-update.ts";
 import { compressedAssetResponse, maybeCompressResponse } from "../http-compress.ts";
 import { serveOmgMcpRequest, serveComputerMcpRequest } from "../mcp-http.ts";
+import { serveExecutorMcpRequest } from "../executor/proxy.ts";
+import {
+  ensureExecutorAdopted,
+  executorDashboardUrl,
+  executorStatus,
+  startExecutor,
+  stopExecutor,
+} from "../executor/daemon.ts";
 import * as pwaBootLog from "../pwa-boot-log.ts";
 import { botRuntimeContract, shortSessionId } from "../omg-capabilities.ts";
 import {
@@ -3971,6 +3979,17 @@ export async function cmdServe() {
         return await serveComputerMcpRequest(req);
       }
 
+      // The connector gateway, proxied to this box's Executor daemon. Same
+      // gate shape as the computer MCP: 404 when the owner turned it off, so
+      // a probing client finds nothing. Adopt first so a serve restart does
+      // not answer 503 for a daemon that is still up.
+      if (path === "/mcp/executor") {
+        const { executorEnabled } = await getGlobalSettings();
+        if (!executorEnabled) return err(404, "the connector gateway is disabled");
+        await ensureExecutorAdopted();
+        return await serveExecutorMcpRequest(req);
+      }
+
       if (path === "/api/live/ws") {
         if (!isLiveWsEnabled()) return err(404, "live websocket disabled");
         // Resolve who this socket speaks for ONCE, here, and never again from
@@ -4037,6 +4056,39 @@ export async function cmdServe() {
       if (path === "/api/computer/stop" && req.method === "POST") {
         await stopDesktop();
         return json(desktopStatus());
+      }
+
+      // ---- connector gateway (Executor) ----
+      // Status is safe to poll. It reports whether the binary is installed so
+      // the Settings card can show the exact install command instead of a
+      // dead switch.
+      if (path === "/api/executor/status" && req.method === "GET") {
+        const { executorEnabled } = await getGlobalSettings();
+        await ensureExecutorAdopted();
+        return json({ enabled: executorEnabled, ...executorStatus() });
+      }
+
+      if (path === "/api/executor/start" && req.method === "POST") {
+        const { executorEnabled } = await getGlobalSettings();
+        if (!executorEnabled) return err(409, "the connector gateway is disabled in settings");
+        return json({ enabled: executorEnabled, ...(await startExecutor({ log: (l) => console.log(l) })) });
+      }
+
+      if (path === "/api/executor/stop" && req.method === "POST") {
+        const { executorEnabled } = await getGlobalSettings();
+        return json({ enabled: executorEnabled, ...(await stopExecutor()) });
+      }
+
+      // The dashboard URL carries the daemon's bearer token, which is how
+      // Executor's own `executor web` signs the browser in. Minted per request
+      // and never rendered until asked for, so the token does not sit in a
+      // status payload every poll fetches. Loopback only: the dashboard is
+      // reachable from a browser on this machine, not through remote access.
+      if (path === "/api/executor/dashboard" && req.method === "GET") {
+        await ensureExecutorAdopted();
+        const dashboardUrl = executorDashboardUrl();
+        if (!dashboardUrl) return err(409, "the connector gateway is not running");
+        return json({ url: dashboardUrl });
       }
 
       // Agent control of the browser on that desktop, via Bun.WebView attached
@@ -4695,6 +4747,11 @@ a{color:#60a5fa}
               return err(400, "computerMcpEnabled must be a boolean");
             patch.computerMcpEnabled = b.computerMcpEnabled;
           }
+          if (b?.executorEnabled !== undefined) {
+            if (typeof b.executorEnabled !== "boolean")
+              return err(400, "executorEnabled must be a boolean");
+            patch.executorEnabled = b.executorEnabled;
+          }
           if (b?.botAutoCompactionEnabled !== undefined) {
             if (typeof b.botAutoCompactionEnabled !== "boolean")
               return err(400, "botAutoCompactionEnabled must be a boolean");
@@ -4732,6 +4789,15 @@ a{color:#60a5fa}
             patch.customInstructions = b.customInstructions;
           }
           const settings = await setGlobalSettings(patch);
+          // The connector gateway follows its switch: off stops the daemon
+          // now rather than leaving it running behind a 404, and on starts it
+          // without waiting for the next boot. Off the response path: a cold
+          // start is seconds.
+          if (patch.executorEnabled === true) {
+            void startExecutor({ log: (l) => console.log(l) }).catch(() => {});
+          } else if (patch.executorEnabled === false) {
+            void stopExecutor().catch(() => {});
+          }
           return json({ settings });
         }
         return err(405, "method not allowed");
@@ -10404,6 +10470,14 @@ a{color:#60a5fa}
   // JSONL files are treated as an import source; live draft deltas stay
   // ephemeral until the provider writes the completed turn.
   startChatIngestMonitor(listSessionsCached);
+  // The connector gateway. Adopts a daemon left running by the previous serve
+  // process, or starts one. Off the boot path: a cold Executor start is
+  // seconds, and nothing at boot needs it.
+  void getGlobalSettings().then(async ({ executorEnabled }) => {
+    if (!executorEnabled) return;
+    const status = await startExecutor({ log: (l) => console.log(l) });
+    if (!status.running && status.error) console.log(`[executor] ${status.error}`);
+  }).catch((e) => console.error(`[executor] start failed: ${e instanceof Error ? e.message : String(e)}`));
   // Warm the resumable-session cache in the background so the first time someone
   // opens the resume picker it's already served from SQLite (no cold scan wait).
   void refreshResumableCache({ force: true }).catch(() => {});

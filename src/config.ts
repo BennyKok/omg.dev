@@ -88,8 +88,33 @@ export function omgMcpServers(
 ): { mcpServers?: Record<string, { type: "http"; url: string }> } {
   const sid = (sessionId ?? process.env.OMG_SESSION_ID ?? process.env.LFG_SESSION_ID)?.trim();
   if (!sid) return {};
-  const url = `${localServeBaseUrl()}/mcp?session=${encodeURIComponent(sid)}`;
-  return { mcpServers: { omg: { type: "http", url } } };
+  const session = `?session=${encodeURIComponent(sid)}`;
+  const url = `${localServeBaseUrl()}/mcp${session}`;
+  const mcpServers: Record<string, { type: "http"; url: string }> = { omg: { type: "http", url } };
+  if (executorMcpAdvertised) {
+    mcpServers[EXECUTOR_MCP_SERVER_NAME] = { type: "http", url: executorMcpHttpUrl(sid) };
+  }
+  return { mcpServers };
+}
+
+/** The tool namespace agents see for the connector gateway (`mcp__executor__*`). */
+export const EXECUTOR_MCP_SERVER_NAME = "executor";
+
+/** The omg-served connector endpoint. Session-less for a user-scope registration. */
+export function executorMcpHttpUrl(sessionId?: string): string {
+  const base = `${localServeBaseUrl()}/mcp/executor`;
+  return sessionId ? `${base}?session=${encodeURIComponent(sessionId)}` : base;
+}
+
+// Whether sessions launched from this process are handed the connector
+// endpoint. Owned by src/executor/daemon.ts: set once the daemon answers, and
+// cleared when it stops, so no session is registered against a dead URL. A
+// plain flag rather than a settings read because this function runs on every
+// launch and must stay synchronous and dependency-free.
+let executorMcpAdvertised = false;
+
+export function setExecutorMcpAdvertised(advertised: boolean): void {
+  executorMcpAdvertised = advertised;
 }
 
 function readVersionFromDisk(): string {
