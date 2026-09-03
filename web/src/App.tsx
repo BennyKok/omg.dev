@@ -28143,7 +28143,7 @@ function ViewSettingsSection({
   const { viewer: roleViewer, roles, preview } = useContext(RoleViewerContext);
   const rows: { key: keyof ViewPrefs & `show${string}`; label: string; hint: string }[] = [
     { key: "showSidebarAgentIcons", label: "Agent icons in the sidebar", hint: "The harness mark and assignee face on each session row." },
-    { key: "showSessionAgentIcons", label: "Agent icons in chat", hint: "The harness mark in a session's header." },
+    { key: "showSessionAgentIcons", label: "Agent icons in chat", hint: "The harness mark in a session's header. Off shows nothing there." },
     { key: "showSessionDiffBar", label: "Worktree diff badge in chat", hint: "The floating changes bar above the composer." },
     { key: "showComposerAgents", label: "Agent picker in the composer", hint: "Off: every new session uses the default agent." },
     { key: "showComposerModels", label: "Model picker in the composer", hint: "Off: every new session uses the default model." },
@@ -28527,6 +28527,20 @@ function SessionHeaderIdentity({
     botDirectory,
   );
 
+  // Agent icons off: no mark in the header at all, not a placeholder. Busy
+  // keeps a bare spinner so a running turn is still visible. A bot keeps its
+  // face; that is the bot, not an agent icon.
+  if (!showSessionAgentIcons && identity.kind !== "bot" && identity.kind !== "bot-loading") {
+    if (!busy) return null;
+    return (
+      <Loader2
+        aria-label="working"
+        className="size-5 shrink-0 animate-spin text-warning motion-reduce:animate-none"
+        strokeWidth={1.75}
+      />
+    );
+  }
+
   if (identity.kind === "bot") {
     return (
       <div
@@ -28555,11 +28569,7 @@ function SessionHeaderIdentity({
       {/* "aisdk" is Claude Code under the hood (driven via the AI SDK), so it
           wears the same Claude mark as a tmux claude session; only the
           new-session picker keeps a distinct label to tell them apart. */}
-      {showSessionAgentIcons ? (
-        <AgentMark session={session} busy={busy} />
-      ) : (
-        <NeutralSessionMark busy={busy} size={size} />
-      )}
+      <AgentMark session={session} busy={busy} />
     </div>
   );
 }
