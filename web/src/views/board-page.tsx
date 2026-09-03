@@ -101,10 +101,11 @@ export function BoardView({
           {total} {total === 1 ? "card" : "cards"} · read only
         </span>
       </div>
-      {/* Phones stack the columns; there is no room for four side by side and
-          a sideways scroll hides three of them. From md up they sit in a row
-          and each column scrolls on its own. */}
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pb-2 md:flex-row md:overflow-x-auto md:overflow-y-hidden">
+      {/* One layout everywhere: the columns sit in a row and each scrolls on
+          its own. On a phone the row scrolls sideways and snaps per column,
+          so the board reads the same as on desktop instead of as a long
+          stacked list. */}
+      <div className="flex min-h-0 flex-1 flex-row snap-x snap-mandatory gap-3 overflow-x-auto overflow-y-hidden pb-2 md:snap-none">
         {columns.map((column) => {
           const style = COLUMN_STYLE[column.id];
           const Icon = style.icon;
@@ -112,7 +113,7 @@ export function BoardView({
             <section
               key={column.id}
               aria-label={column.label}
-              className="flex w-full shrink-0 flex-col rounded-2xl bg-muted/40 ring-1 ring-inset ring-border/60 md:w-72 md:min-h-0"
+              className="flex min-h-0 w-[82vw] max-w-72 shrink-0 snap-start flex-col rounded-2xl bg-muted/40 ring-1 ring-inset ring-border/60 md:w-72"
             >
               <header className="flex items-center gap-2 px-3 pt-3 pb-2">
                 <Icon
@@ -132,7 +133,7 @@ export function BoardView({
                   {column.cards.length}
                 </span>
               </header>
-              <div className="flex flex-col gap-2 px-2 pb-2 md:min-h-0 md:flex-1 md:overflow-y-auto">
+              <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2">
                 {column.cards.length === 0 ? (
                   <p className="px-1 py-6 text-center text-xs text-muted-foreground">
                     {style.empty}
