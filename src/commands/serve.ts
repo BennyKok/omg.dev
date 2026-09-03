@@ -500,6 +500,8 @@ import {
 import {
   BOT_SCHEDULE_LIMIT,
   CUSTOM_INSTRUCTIONS_MAX_LENGTH,
+  DEFAULT_AGENT_KEY_MAX_LENGTH,
+  DEFAULT_MODEL_MAX_LENGTH,
   DEFAULT_TIME_ZONE,
   getGlobalSettings,
   getGlobalSettingsSync,
@@ -4964,6 +4966,52 @@ a{color:#60a5fa}
             if (typeof b.skippedUpdateVersion !== "string" || b.skippedUpdateVersion.length > 100)
               return err(400, "skippedUpdateVersion must be a string of 100 characters or fewer");
             patch.skippedUpdateVersion = b.skippedUpdateVersion;
+          }
+          if (b?.defaultAgent !== undefined) {
+            if (
+              typeof b.defaultAgent !== "string" ||
+              b.defaultAgent.length > DEFAULT_AGENT_KEY_MAX_LENGTH ||
+              !/^[a-z0-9-]*$/i.test(b.defaultAgent)
+            ) {
+              return err(400, "defaultAgent must be an agent key (letters, digits, dashes) or empty");
+            }
+            patch.defaultAgent = b.defaultAgent;
+          }
+          if (b?.defaultModel !== undefined) {
+            if (typeof b.defaultModel !== "string" || b.defaultModel.length > DEFAULT_MODEL_MAX_LENGTH)
+              return err(400, `defaultModel must be a string of ${DEFAULT_MODEL_MAX_LENGTH} characters or fewer`);
+            patch.defaultModel = b.defaultModel;
+          }
+          // One explicit branch per switch: settings-validation.test.ts reads
+          // this handler for a `patch.<field> =` per GlobalSettings key.
+          if (b?.showSidebarAgentIcons !== undefined) {
+            if (typeof b.showSidebarAgentIcons !== "boolean")
+              return err(400, "showSidebarAgentIcons must be a boolean");
+            patch.showSidebarAgentIcons = b.showSidebarAgentIcons;
+          }
+          if (b?.showSessionAgentIcons !== undefined) {
+            if (typeof b.showSessionAgentIcons !== "boolean")
+              return err(400, "showSessionAgentIcons must be a boolean");
+            patch.showSessionAgentIcons = b.showSessionAgentIcons;
+          }
+          if (b?.showComposerModels !== undefined) {
+            if (typeof b.showComposerModels !== "boolean")
+              return err(400, "showComposerModels must be a boolean");
+            patch.showComposerModels = b.showComposerModels;
+          }
+          if (b?.showComposerAgents !== undefined) {
+            if (typeof b.showComposerAgents !== "boolean")
+              return err(400, "showComposerAgents must be a boolean");
+            patch.showComposerAgents = b.showComposerAgents;
+          }
+          if (b?.showBots !== undefined) {
+            if (typeof b.showBots !== "boolean") return err(400, "showBots must be a boolean");
+            patch.showBots = b.showBots;
+          }
+          if (b?.showSchedules !== undefined) {
+            if (typeof b.showSchedules !== "boolean")
+              return err(400, "showSchedules must be a boolean");
+            patch.showSchedules = b.showSchedules;
           }
           if (b?.customInstructions !== undefined) {
             if (
