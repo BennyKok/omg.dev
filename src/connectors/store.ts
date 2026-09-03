@@ -92,6 +92,18 @@ function slugify(name: string): string {
   return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 }
 
+/**
+ * The owner bucket for a session's member. An assigned user is that member;
+ * an unassigned session falls back to the box owner bucket, so a solo box
+ * keeps working with one implicit member.
+ */
+export const BOX_OWNER = "owner";
+
+export function ownerForUser(user: string | null | undefined): string {
+  const u = user?.trim();
+  return u ? u : BOX_OWNER;
+}
+
 /** Every connection an owner may use: their own plus the org-shared ones. */
 export function connectorsForOwner(owner: string): Connector[] {
   return read().connectors.filter((c) => c.owner === owner || c.owner === ORG_OWNER);

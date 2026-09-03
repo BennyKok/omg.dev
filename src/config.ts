@@ -102,8 +102,18 @@ export function omgMcpServers(
   if (executorMcpAdvertised) {
     mcpServers[EXECUTOR_MCP_SERVER_NAME] = { type: "http", url: executorMcpHttpUrl(sid), headers };
   }
+  // The native connector surface, always offered: its tool set is the session
+  // member's connectors, which may be empty, and that is a valid empty list.
+  mcpServers[CONNECTORS_MCP_SERVER_NAME] = {
+    type: "http",
+    url: `${localServeBaseUrl()}/mcp/connectors${session}`,
+    headers,
+  };
   return { mcpServers };
 }
+
+/** The tool namespace agents see for native connectors (`mcp__connectors__*`). */
+export const CONNECTORS_MCP_SERVER_NAME = "connectors";
 
 /** The tool namespace agents see for the connector gateway (`mcp__executor__*`). */
 export const EXECUTOR_MCP_SERVER_NAME = "executor";
