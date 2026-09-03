@@ -596,60 +596,194 @@ export function GatewayPoliciesPanel() {
 }
 
 // ---------------------------------------------------------------------------
-// Integrations: the Executor UI itself, embedded. Sign-in flows and secret
-// entry stay in their own app; this page only frames it.
+// Integrations: a native panel over the connector gateway's REST API,
+// forwarded through omg (/api/executor/api/...) so it works from any device,
+// not just a browser on the box. No iframe.
 // ---------------------------------------------------------------------------
 
-export function IntegrationsPanel() {
-  const [url, setUrl] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+export type Integration = {
+  slug: string;
+  name: string;
+  description: string;
+  kind: string;
+  canRemove: boolean;
+  canRefresh: boolean;
+  authMethods: string[];
+};
 
-  useEffect(() => {
-    const controller = new AbortController();
-    void fetch("/api/executor/dashboard", { credentials: "same-origin", signal: controller.signal })
-      .then(async (res) => {
-        if (!res.ok) {
-          const body = (await res.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(body?.error ?? `status ${res.status}`);
-        }
-        return (await res.json()) as { url: string };
-      })
-      .then((payload) => setUrl(payload.url))
-      .catch((e) => {
-        if (controller.signal.aborted) return;
-        setError(e instanceof Error ? e.message : "the connector gateway is not running");
-      });
-    return () => controller.abort();
+export type Connection = {
+  owner: string;
+  integration: string;
+  name: string;
+  status?: string;
+};
+
+export type ToolMeta = {
+  address: string;
+  integration: string;
+  connection: string;
+  name: string;
+  description: string;
+};
+
+async function gateway<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`/api/executor/api${path}`, {
+    credentials: "same-origin",
+    ...init,
+    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string; message?: string } | null;
+    throw new Error(body?.error ?? body?.message ?? `request failed (${res.status})`);
+  }
+  return (await res.json()) as T;
+}
+
+export function IntegrationsPanel() {
+  const [integrations, setIntegrations] = useState<Integration[] | null>(null);
+  const [connections, setConnections] = useState<Connection[]>([]);
+  const [tools, setTools] = useState<ToolMeta[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [dashboardUrl, setDashboardUrl] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const [ints, conns, tls] = await Promise.all([
+        gateway<Integration[]>("/integrations"),
+        gateway<Connection[]>("/connections"),
+        gateway<ToolMeta[]>("/tools"),
+      ]);
+      setIntegrations(ints);
+      setConnections(conns);
+      setTools(tls);
+      setError(null);
+    } catch (e) {
+      setIntegrations(null);
+      setError(e instanceof Error ? e.message : "the connector gateway is not running");
+    }
   }, []);
 
-  if (error) {
+  useEffect(() => {
+    void load();
+    // The dashboard link is the escape hatch for OAuth connect flows, which
+    // still need a browser on the box. Loopback only, so it may be null here.
+    void fetch("/api/executor/dashboard", { credentials: "same-origin" })
+      .then((r) => (r.ok ? (r.json() as Promise<{ url: string }>) : null))
+      .then((p) => setDashboardUrl(p?.url ?? null))
+      .catch(() => {});
+  }, [load]);
+
+  const removeConnection = async (c: Connection) => {
+    setBusy(true);
+    try {
+      await gateway(`/connections/${encodeURIComponent(c.owner)}/${encodeURIComponent(c.integration)}/${encodeURIComponent(c.name)}`, {
+        method: "DELETE",
+      });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "could not remove the connection");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toolsFor = useMemo(() => {
+    const by = new Map<string, number>();
+    for (const t of tools) by.set(t.integration, (by.get(t.integration) ?? 0) + 1);
+    return by;
+  }, [tools]);
+
+  const connsFor = useMemo(() => {
+    const by = new Map<string, Connection[]>();
+    for (const c of connections) {
+      const list = by.get(c.integration) ?? [];
+      list.push(c);
+      by.set(c.integration, list);
+    }
+    return by;
+  }, [connections]);
+
+  if (integrations === null) {
     return (
       <section className="rounded-2xl border border-border bg-card/40 px-4 py-3 text-sm text-muted-foreground" aria-label="Integrations">
-        {error}
+        {error ?? "Loading integrations."}
       </section>
     );
   }
-  if (!url) {
-    return (
-      <section className="rounded-2xl border border-border bg-card/40 px-4 py-3 text-sm text-muted-foreground" aria-label="Integrations">
-        Loading the connector gateway.
-      </section>
-    );
-  }
+
   return (
-    <section className="space-y-2" aria-label="Integrations">
-      <iframe
-        title="Connector gateway"
-        src={url}
-        className="h-[70vh] w-full rounded-2xl border border-border bg-background"
-      />
+    <section className="space-y-3" aria-label="Integrations">
       <p className="px-1 text-xs leading-relaxed text-muted-foreground">
-        Served on this computer only. From another device, this frame stays empty.{" "}
-        <a href={url} target="_blank" rel="noreferrer" className="underline">
-          Open in a new tab
-        </a>
-        .
+        Services connected to the gateway, and the tools each one exposes to agents. This reads the
+        gateway directly, so it works from any device.
       </p>
+
+      <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+        {integrations.map((integration) => {
+          const conns = connsFor.get(integration.slug) ?? [];
+          const toolCount = toolsFor.get(integration.slug) ?? 0;
+          return (
+            <div key={integration.slug} className="px-4 py-3" data-integration={integration.slug}>
+              <div className="flex items-center gap-3">
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-foreground text-background">
+                  <Plug className="size-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-2 text-sm font-medium">
+                    {integration.name}
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-foreground/70">
+                      {integration.kind}
+                    </span>
+                  </span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {toolCount} tool{toolCount === 1 ? "" : "s"}
+                    {conns.length ? ` · ${conns.length} connection${conns.length === 1 ? "" : "s"}` : ""}
+                  </span>
+                </span>
+              </div>
+              {conns.length ? (
+                <ul className="mt-2 space-y-1 pl-10">
+                  {conns.map((c) => (
+                    <li key={`${c.owner}/${c.name}`} className="flex items-center gap-2 text-xs">
+                      <code className="min-w-0 flex-1 truncate">
+                        {c.name}
+                        <span className="text-muted-foreground"> · {c.owner}</span>
+                        {c.status ? <span className="text-muted-foreground"> · {c.status}</span> : null}
+                      </code>
+                      <button
+                        type="button"
+                        aria-label={`Remove connection ${c.name}`}
+                        disabled={busy}
+                        onClick={() => void removeConnection(c)}
+                        className="text-muted-foreground hover:text-destructive"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+
+      {error ? <p className="px-1 text-xs text-destructive">{error}</p> : null}
+
+      <div className="rounded-2xl border border-dashed border-border px-4 py-3">
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Adding a service that signs in with OAuth still needs a browser on the computer running the
+          gateway (the sign-in redirect returns to it).{" "}
+          {dashboardUrl ? (
+            <a href={dashboardUrl} target="_blank" rel="noreferrer" className="underline">
+              Open the gateway on the box
+            </a>
+          ) : (
+            <span>Open the gateway on the box to connect one.</span>
+          )}
+        </p>
+      </div>
     </section>
   );
 }

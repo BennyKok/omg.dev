@@ -24,8 +24,13 @@ describe("executorApiAllowed", () => {
     expect(executorApiAllowed("DELETE", "/policies/pol_1")).toBe(true);
     expect(executorApiAllowed("GET", "/tools")).toBe(true);
     expect(executorApiAllowed("GET", "/connections")).toBe(true);
+    expect(executorApiAllowed("POST", "/connections")).toBe(true);
+    expect(executorApiAllowed("DELETE", "/connections/org/github/main")).toBe(true);
+    expect(executorApiAllowed("POST", "/connections/org/github/main/refresh")).toBe(true);
+    expect(executorApiAllowed("GET", "/integrations/github")).toBe(true);
+    // Still refused: execution control and anything not enumerated.
     expect(executorApiAllowed("POST", "/executions")).toBe(false);
-    expect(executorApiAllowed("DELETE", "/connections/org/github/main")).toBe(false);
+    expect(executorApiAllowed("DELETE", "/connections/org/github/main/secrets")).toBe(false);
     expect(executorApiAllowed("GET", "/health")).toBe(false);
   });
 });

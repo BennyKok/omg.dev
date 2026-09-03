@@ -6,14 +6,28 @@
 // outside the allowlist is refused, so this is not a general proxy.
 import { executorAuth } from "./daemon.ts";
 
+// One connection is addressed by three path segments (owner/integration/name).
+// Segments are slugs: letters, digits, dot, dash, underscore.
+const SEG = "[A-Za-z0-9._-]+";
+
 const ALLOWED: { method: string; pattern: RegExp }[] = [
+  // Box-wide tool policies.
   { method: "GET", pattern: /^\/policies$/ },
   { method: "POST", pattern: /^\/policies$/ },
   { method: "PATCH", pattern: /^\/policies\/[A-Za-z0-9_-]+$/ },
   { method: "DELETE", pattern: /^\/policies\/[A-Za-z0-9_-]+$/ },
+  // Catalog reads.
   { method: "GET", pattern: /^\/tools$/ },
   { method: "GET", pattern: /^\/integrations$/ },
+  { method: "GET", pattern: new RegExp(`^/integrations/${SEG}$`) },
+  // Connections: the native Integrations panel lists, inspects, adds
+  // (API-key style), refreshes, and removes them.
   { method: "GET", pattern: /^\/connections$/ },
+  { method: "POST", pattern: /^\/connections$/ },
+  { method: "GET", pattern: new RegExp(`^/connections/${SEG}/${SEG}/${SEG}$`) },
+  { method: "PATCH", pattern: new RegExp(`^/connections/${SEG}/${SEG}/${SEG}$`) },
+  { method: "DELETE", pattern: new RegExp(`^/connections/${SEG}/${SEG}/${SEG}$`) },
+  { method: "POST", pattern: new RegExp(`^/connections/${SEG}/${SEG}/${SEG}/refresh$`) },
 ];
 
 export function executorApiAllowed(method: string, path: string): boolean {
