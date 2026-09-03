@@ -163,9 +163,40 @@ Verified on this box: inside the sandbox a command reads and writes its
 worktree, cannot read a sibling path, reads the omg code tree, and cannot read
 the masked omg data dir (the session-token secret and the Executor bearer).
 
-Deliberately not done: network isolation. The harness still needs the model
-API and the omg MCP endpoint on loopback, and per-host restriction needs a
-local proxy or nftables in the namespace. This is the next sandbox step.
+### Network egress allowlist (landed: best-effort layer)
+
+A role's `network` is `shared` or `allowlist`, with `allowHosts` (owner is
+always `shared`). An allowlist session's harness is pointed at the box's egress
+proxy (`src/sandbox/egress-proxy.ts`): a loopback HTTP CONNECT proxy that lets
+it reach only the built-in model APIs plus the role's hosts, and refuses the
+rest.
+
+```
+ harness (HTTP_PROXY=http://<sessionId>:<token>@127.0.0.1:<port>, NO_PROXY=loopback)
+    | CONNECT api.anthropic.com:443   CONNECT pastebin.com:443
+    v
+ egress proxy   verify token -> role -> allow = model APIs + allowHosts
+    |  allowed -> tunnel        denied -> 403        bad token -> 407
+    v
+ upstream (only allowlisted hosts)
+```
+
+- Caller identity is the same per-session token the MCP endpoints use, carried
+  in the proxy credentials, so one proxy serves every session at its own
+  role's allowlist.
+- Loopback is in `NO_PROXY`, so the omg MCP endpoint is reached directly.
+- Verified on this box: through the proxy, an allowlisted host tunnels (200), a
+  non-allowlisted host is refused (403 / connection failed), and a bad token is
+  407.
+
+This is the best-effort layer: the SDKs honour `HTTP(S)_PROXY`, so ordinary
+model and tool traffic is filtered and logged, but an agent that dials a raw IP
+past the proxy env escapes it.
+
+Deliberately not done yet: the strict layer. `--unshare-net` plus nftables in
+the namespace, allowing only this proxy, closes the raw-IP gap; it needs
+CAP_NET_ADMIN to build the firewall and is opt-in per box. True untrusted-code
+isolation stays with Firecracker in `vibes`.
 
 ## Out of scope for this repository
 

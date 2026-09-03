@@ -35,9 +35,19 @@ export interface Role {
    * only its worktree writable. Owner is always `none`.
    */
   sandbox: SandboxMode;
+  /**
+   * Outbound network policy (src/sandbox/egress-proxy.ts). `allowlist` points
+   * the harness at the egress proxy so it reaches only the model APIs plus
+   * `allowHosts`; `shared` leaves the network open. Owner is always `shared`.
+   */
+  network: NetworkMode;
+  /** Extra hostnames the allowlist permits, beyond the built-in model APIs. */
+  allowHosts: string[];
   createdAt: number;
   updatedAt: number;
 }
+
+export type NetworkMode = "shared" | "allowlist";
 
 export const OWNER_ROLE_ID = "owner";
 
@@ -48,6 +58,8 @@ export const OWNER_ROLE: Role = Object.freeze({
   defaultAction: "allow",
   rules: [],
   sandbox: "none",
+  network: "shared",
+  allowHosts: [],
   createdAt: 0,
   updatedAt: 0,
 }) as Role;
@@ -69,7 +81,12 @@ function readFile(): RolesFile {
     if (!existsSync(rolesPath())) return { version: 1, roles: [] };
     const parsed = JSON.parse(readFileSync(rolesPath(), "utf8")) as Partial<RolesFile>;
     const roles = Array.isArray(parsed.roles)
-      ? parsed.roles.filter(isRole).map((r) => ({ ...r, sandbox: readSandbox(r.sandbox) }))
+      ? parsed.roles.filter(isRole).map((r) => ({
+          ...r,
+          sandbox: readSandbox(r.sandbox),
+          network: readNetwork((r as Partial<Role>).network),
+          allowHosts: readAllowHosts((r as Partial<Role>).allowHosts),
+        }))
       : [];
     return { version: 1, roles };
   } catch {
@@ -98,6 +115,33 @@ function isRole(value: unknown): value is Role {
 // A role file from before sandbox existed has no field; treat it as "none".
 function readSandbox(value: unknown): SandboxMode {
   return value === "bwrap" ? "bwrap" : "none";
+}
+
+function readNetwork(value: unknown): NetworkMode {
+  return value === "allowlist" ? "allowlist" : "shared";
+}
+
+function readAllowHosts(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((h): h is string => typeof h === "string" && h.trim().length > 0).slice(0, 100);
+}
+
+const MAX_HOST_LEN = 253;
+
+function validateAllowHosts(hosts: unknown): string[] | string {
+  if (hosts === undefined) return [];
+  if (!Array.isArray(hosts)) return "allowHosts must be an array";
+  const out: string[] = [];
+  for (const raw of hosts) {
+    if (typeof raw !== "string") return "each allowHost must be a string";
+    const host = raw.trim().toLowerCase();
+    if (!host) continue;
+    if (host.length > MAX_HOST_LEN || !/^\.?[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(host)) {
+      return `invalid host "${raw}"`;
+    }
+    out.push(host);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -157,6 +201,18 @@ export function roleSandbox(roleId: string | undefined | null): SandboxMode {
   return getRole(roleId)?.sandbox ?? "none";
 }
 
+/**
+ * The egress policy for a session's role. Owner and unknown roles are shared
+ * (no proxy). For an allowlist role the allowed hosts are its own `allowHosts`
+ * plus the built-in model APIs, resolved by the proxy.
+ */
+export function roleEgress(roleId: string | undefined | null): { mode: NetworkMode; allowHosts: string[] } {
+  if (!roleId || roleId === OWNER_ROLE_ID) return { mode: "shared", allowHosts: [] };
+  const role = getRole(roleId);
+  if (!role) return { mode: "shared", allowHosts: [] };
+  return { mode: role.network, allowHosts: role.allowHosts };
+}
+
 function slug(name: string): string {
   return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 }
@@ -166,6 +222,8 @@ export type RoleInput = {
   defaultAction?: RuleAction;
   rules?: RoleRule[];
   sandbox?: SandboxMode;
+  network?: NetworkMode;
+  allowHosts?: string[];
 };
 
 export type RoleResult = { ok: true; role: Role } | { ok: false; error: string };
@@ -204,7 +262,10 @@ export function createRole(input: RoleInput): RoleResult {
   for (let n = 2; taken.has(candidate); n += 1) candidate = `${id}-${n}`;
   const now = Date.now();
   const sandbox: SandboxMode = input.sandbox === "bwrap" ? "bwrap" : "none";
-  const role: Role = { id: candidate, name, defaultAction, rules, sandbox, createdAt: now, updatedAt: now };
+  const network: NetworkMode = input.network === "allowlist" ? "allowlist" : "shared";
+  const allowHosts = validateAllowHosts(input.allowHosts);
+  if (typeof allowHosts === "string") return { ok: false, error: allowHosts };
+  const role: Role = { id: candidate, name, defaultAction, rules, sandbox, network, allowHosts, createdAt: now, updatedAt: now };
   file.roles.push(role);
   writeFile(file);
   return { ok: true, role };
@@ -236,6 +297,17 @@ export function updateRole(id: string, patch: Partial<RoleInput>): RoleResult {
       return { ok: false, error: "sandbox must be none or bwrap" };
     }
     role.sandbox = patch.sandbox;
+  }
+  if (patch.network !== undefined) {
+    if (patch.network !== "shared" && patch.network !== "allowlist") {
+      return { ok: false, error: "network must be shared or allowlist" };
+    }
+    role.network = patch.network;
+  }
+  if (patch.allowHosts !== undefined) {
+    const hosts = validateAllowHosts(patch.allowHosts);
+    if (typeof hosts === "string") return { ok: false, error: hosts };
+    role.allowHosts = hosts;
   }
   role.updatedAt = Date.now();
   writeFile(file);

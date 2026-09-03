@@ -24,8 +24,8 @@ afterEach(() => {
   rmSync(tmp, { recursive: true, force: true });
 });
 
-function captured(): { cmd: string[] } {
-  return JSON.parse(readFileSync(capture, "utf8")) as { cmd: string[] };
+function captured(): { cmd: string[]; env: Record<string, string> } {
+  return JSON.parse(readFileSync(capture, "utf8")) as { cmd: string[]; env: Record<string, string> };
 }
 
 describe("harness sandbox wrapping", () => {
@@ -50,5 +50,22 @@ describe("harness sandbox wrapping", () => {
     const sep = cmd.indexOf("--");
     expect(sep).toBeGreaterThan(0);
     expect(cmd[sep + 1]).toBe(process.execPath);
+  });
+
+  test("egress proxy url becomes HTTP(S)_PROXY with loopback in NO_PROXY", () => {
+    const url = "http://s3:tok@127.0.0.1:41000";
+    const res = spawnManagedAisdkSession({ name: "n3", cwd: tmp, model: "opus", sessionId: "s3", egressProxyUrl: url });
+    expect(res.ok).toBe(true);
+    const { env } = captured();
+    expect(env.HTTP_PROXY).toBe(url);
+    expect(env.HTTPS_PROXY).toBe(url);
+    expect(env.NO_PROXY).toContain("127.0.0.1");
+  });
+
+  test("no egress: no proxy env", () => {
+    const res = spawnManagedAisdkSession({ name: "n4", cwd: tmp, model: "opus", sessionId: "s4" });
+    expect(res.ok).toBe(true);
+    const { env } = captured();
+    expect(env.HTTP_PROXY ?? null).toBeNull();
   });
 });
