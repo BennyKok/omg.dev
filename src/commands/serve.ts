@@ -50,7 +50,9 @@ import {
 } from "../executor/approvals.ts";
 import { resolveCaller } from "../policy/caller.ts";
 import { enforceRole } from "../policy/mcp-filter.ts";
-import { createRole, deleteRole, getRole, listRoles, roleSandbox, updateRole, OWNER_ROLE_ID } from "../policy/roles.ts";
+import { createRole, deleteRole, getRole, listRoles, roleEgress, roleSandbox, updateRole, OWNER_ROLE_ID } from "../policy/roles.ts";
+import { DEFAULT_ALLOW_HOSTS, startEgressProxy, type EgressProxy } from "../sandbox/egress-proxy.ts";
+import { sessionToken, verifySessionToken } from "../policy/session-token.ts";
 import {
   ensureExecutorAdopted,
   executorAuth,
@@ -751,6 +753,12 @@ const PORT = Number(process.env.LFG_PORT ?? process.env.PORT ?? 8766);
 
 /** Ceiling on any single request body. See the Bun.serve options for why. */
 const MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024;
+
+// The egress proxy for restricted-role sessions (src/sandbox/egress-proxy.ts).
+// One per box, started at boot. Null until then, and on any host where the
+// listener fails to bind — a restricted session then launches without a proxy
+// URL and is logged, rather than failing to start.
+let egressProxy: EgressProxy | null = null;
 
 /**
  * The connector proxy, with owner-approval interception on execute/resume.
@@ -8588,6 +8596,12 @@ a{color:#60a5fa}
           // Restricted roles run their harness in a filesystem sandbox
           // (src/sandbox/bwrap.ts). Owner and unknown roles get none.
           sandbox: roleSandbox(sessionRole),
+          // An allowlist role also gets an egress proxy URL carrying its own
+          // token, so its outbound traffic is held to the role's hosts.
+          egressProxyUrl:
+            roleEgress(sessionRole).mode === "allowlist" && egressProxy
+              ? egressProxy.proxyUrlFor(launchId, sessionToken(launchId))
+              : undefined,
         });
         if (!r.ok) {
           // The caller received no committed session. Release the claim so a
@@ -10700,6 +10714,24 @@ a{color:#60a5fa}
     const status = await startExecutor({ log: (l) => console.log(l) });
     if (!status.running && status.error) console.log(`[executor] ${status.error}`);
   }).catch((e) => console.error(`[executor] start failed: ${e instanceof Error ? e.message : String(e)}`));
+
+  // The egress proxy: a restricted-role session's harness is pointed here, so
+  // it reaches only the model APIs plus its role's allowed hosts. Resolves the
+  // caller from the same per-session token the MCP endpoints use.
+  void startEgressProxy({
+    log: (l) => console.log(l),
+    resolve: (sessionId, token) => {
+      if (!verifySessionToken(sessionId, token)) return null;
+      const row = listManaged().find((s) => s.sessionId === sessionId || s.nativeSessionId === sessionId);
+      const egress = roleEgress(row?.role);
+      if (egress.mode !== "allowlist") return null;
+      return { sessionId, allow: [...DEFAULT_ALLOW_HOSTS, ...egress.allowHosts] };
+    },
+  })
+    .then((proxy) => {
+      egressProxy = proxy;
+    })
+    .catch((e) => console.error(`[egress] start failed: ${e instanceof Error ? e.message : String(e)}`));
   // Warm the resumable-session cache in the background so the first time someone
   // opens the resume picker it's already served from SQLite (no cold scan wait).
   void refreshResumableCache({ force: true }).catch(() => {});

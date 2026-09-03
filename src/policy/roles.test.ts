@@ -12,6 +12,7 @@ import {
   isValidPattern,
   listRoles,
   matchPattern,
+  roleEgress,
   roleSandbox,
   updateRole,
 } from "./roles.ts";
@@ -107,6 +108,24 @@ describe("role store", () => {
     expect(updateRole("restricted", { sandbox: "none" }).ok).toBe(true);
     expect(roleSandbox("restricted")).toBe("none");
     expect(updateRole("restricted", { sandbox: "weird" as never }).ok).toBe(false);
+  });
+
+  test("network defaults to shared; allowlist carries validated hosts", () => {
+    const created = createRole({
+      name: "Net",
+      network: "allowlist",
+      allowHosts: ["api.internal.example", ".corp.example"],
+    });
+    expect(created.ok && created.role.network).toBe("allowlist");
+    expect(created.ok && created.role.allowHosts).toEqual(["api.internal.example", ".corp.example"]);
+
+    expect(roleEgress("net")).toEqual({ mode: "allowlist", allowHosts: ["api.internal.example", ".corp.example"] });
+    expect(roleEgress("owner")).toEqual({ mode: "shared", allowHosts: [] });
+    expect(roleEgress("ghost")).toEqual({ mode: "shared", allowHosts: [] });
+
+    expect(createRole({ name: "BadHost", network: "allowlist", allowHosts: ["not a host!"] }).ok).toBe(false);
+    expect(updateRole("net", { network: "shared" }).ok).toBe(true);
+    expect(roleEgress("net").mode).toBe("shared");
   });
 
   test("rejects bad input", () => {

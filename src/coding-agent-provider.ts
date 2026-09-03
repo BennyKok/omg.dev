@@ -41,6 +41,12 @@ export type CodingAgentLaunchRequest = {
    * credentials from home.
    */
   sandbox?: SandboxMode;
+  /**
+   * Egress proxy URL for a restricted role (src/sandbox/egress-proxy.ts). When
+   * set, the harness reaches only the allowlisted hosts. Same provider scope
+   * as sandbox.
+   */
+  egressProxyUrl?: string;
 };
 
 export type CodingAgentLaunchResult = {
@@ -93,6 +99,7 @@ export const ACTIVE_CODING_AGENT_PROVIDERS = {
       containInAgentSlice: request.containInAgentSlice,
       claudeAccountId: request.claudeAccountId,
       sandbox: request.sandbox,
+      egressProxyUrl: request.egressProxyUrl,
     })),
   "codex-aisdk": provider("codex-aisdk", (request) =>
     spawnManagedCodexAisdkSession({
@@ -108,6 +115,7 @@ export const ACTIVE_CODING_AGENT_PROVIDERS = {
       containInAgentSlice: request.containInAgentSlice,
       resume: request.resume,
       sandbox: request.sandbox,
+      egressProxyUrl: request.egressProxyUrl,
     })),
   opencode: provider("opencode", (request) => {
     if (!request.model) return { ok: false, error: "opencode model is required" };
@@ -123,6 +131,7 @@ export const ACTIVE_CODING_AGENT_PROVIDERS = {
       containInAgentSlice: request.containInAgentSlice,
       resume: request.resume,
       sandbox: request.sandbox,
+      egressProxyUrl: request.egressProxyUrl,
     });
   }),
   jcode: provider("jcode", (request) =>
@@ -199,6 +208,7 @@ export const ACTIVE_CODING_AGENT_PROVIDERS = {
       containInAgentSlice: request.containInAgentSlice,
       resume: request.resume,
       sandbox: request.sandbox,
+      egressProxyUrl: request.egressProxyUrl,
     })),
   copilot: provider("copilot", (request) =>
     spawnManagedCopilotSdkSession({

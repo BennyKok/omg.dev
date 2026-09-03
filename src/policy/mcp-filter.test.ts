@@ -11,6 +11,8 @@ const MARKETING: Role = {
     { pattern: "omg.display_image", action: "allow" },
   ],
   sandbox: "none",
+  network: "shared",
+  allowHosts: [],
   createdAt: 0,
   updatedAt: 0,
 };

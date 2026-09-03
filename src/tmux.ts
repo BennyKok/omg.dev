@@ -228,7 +228,7 @@ export type ManagedHarnessSpawnResult = { ok: boolean; error?: string; pid?: num
 // separately by the boot reconciliation journal in session-recovery.ts.
 function spawnManagedHarness(
   command: string[],
-  opts: AgentContainment & { containInAgentSlice?: boolean; sandbox?: SandboxMode },
+  opts: AgentContainment & { containInAgentSlice?: boolean; sandbox?: SandboxMode; egressProxyUrl?: string },
 ): ManagedHarnessSpawnResult {
   const sessionId = opts.omgSessionId?.trim() || undefined;
   const env: Record<string, string> = { ...process.env } as Record<string, string>;
@@ -240,6 +240,18 @@ function spawnManagedHarness(
   // spawns. containInAgentSlice still only wraps subagents in systemd-run.
   Object.assign(env, agentBrowserEnv(opts.name));
   Object.assign(env, agentTmpEnv());
+  // Outbound network allowlist for a restricted role: point the harness at the
+  // egress proxy (src/sandbox/egress-proxy.ts). Loopback (the omg MCP endpoint)
+  // bypasses it. Both spellings, since tools disagree on case.
+  if (opts.egressProxyUrl) {
+    const noProxy = "127.0.0.1,localhost,::1";
+    env.HTTP_PROXY = opts.egressProxyUrl;
+    env.HTTPS_PROXY = opts.egressProxyUrl;
+    env.http_proxy = opts.egressProxyUrl;
+    env.https_proxy = opts.egressProxyUrl;
+    env.NO_PROXY = noProxy;
+    env.no_proxy = noProxy;
+  }
   // Filesystem isolation wraps the harness command itself, inside any systemd
   // containment: bwrap needs its own namespaces, and the transient service (a
   // subagent-only path) supervises the whole thing. A requested sandbox that
@@ -268,6 +280,9 @@ function spawnManagedHarness(
       LFG_USER: env.LFG_USER,
       AGENT_BROWSER_SESSION: env.AGENT_BROWSER_SESSION,
       AGENT_BROWSER_IDLE_TIMEOUT_MS: env.AGENT_BROWSER_IDLE_TIMEOUT_MS,
+      HTTP_PROXY: env.HTTP_PROXY,
+      HTTPS_PROXY: env.HTTPS_PROXY,
+      NO_PROXY: env.NO_PROXY,
     } }));
     return { ok: true, pid: 424242 };
   }
@@ -1141,6 +1156,8 @@ export type ManagedAisdkSessionOptions = {
   containInAgentSlice?: boolean;
   /** Filesystem isolation for this session (src/sandbox/bwrap.ts). */
   sandbox?: SandboxMode;
+  /** Egress proxy URL (src/sandbox/egress-proxy.ts) when the role restricts network. */
+  egressProxyUrl?: string;
   claudeAccountId?: string;
   recoveredAt?: number;
 };
@@ -1178,6 +1195,7 @@ export function spawnManagedAisdkSession(opts: ManagedAisdkSessionOptions): Mana
     omgUser: opts.omgUser,
     containInAgentSlice: opts.containInAgentSlice,
     sandbox: opts.sandbox,
+    egressProxyUrl: opts.egressProxyUrl,
   });
 }
 
@@ -1199,6 +1217,8 @@ export type ManagedCodexAisdkSessionOptions = {
   containInAgentSlice?: boolean;
   /** Filesystem isolation for this session (src/sandbox/bwrap.ts). */
   sandbox?: SandboxMode;
+  /** Egress proxy URL (src/sandbox/egress-proxy.ts) when the role restricts network. */
+  egressProxyUrl?: string;
   // When set, resume this existing codex rollout/thread instead of starting a
   // fresh persistent thread — the harness seeds its threadId with it.
   resume?: string;
@@ -1239,6 +1259,7 @@ export function spawnManagedCodexAisdkSession(opts: ManagedCodexAisdkSessionOpti
     omgUser: opts.omgUser,
     containInAgentSlice: opts.containInAgentSlice,
     sandbox: opts.sandbox,
+    egressProxyUrl: opts.egressProxyUrl,
   });
 }
 
@@ -1259,6 +1280,8 @@ export function spawnManagedPiSession(opts: {
   containInAgentSlice?: boolean;
   /** Filesystem isolation for this session (src/sandbox/bwrap.ts). */
   sandbox?: SandboxMode;
+  /** Egress proxy URL (src/sandbox/egress-proxy.ts) when the role restricts network. */
+  egressProxyUrl?: string;
   // When set, resume this existing pi session file instead of starting a fresh
   // one — the harness passes it through as `--session <id>`.
   resume?: string;
@@ -1289,6 +1312,7 @@ export function spawnManagedPiSession(opts: {
     omgUser: opts.omgUser,
     containInAgentSlice: opts.containInAgentSlice,
     sandbox: opts.sandbox,
+    egressProxyUrl: opts.egressProxyUrl,
   });
 }
 
@@ -1311,6 +1335,8 @@ export function spawnManagedOpencodeAisdkSession(opts: {
   containInAgentSlice?: boolean;
   /** Filesystem isolation for this session (src/sandbox/bwrap.ts). */
   sandbox?: SandboxMode;
+  /** Egress proxy URL (src/sandbox/egress-proxy.ts) when the role restricts network. */
+  egressProxyUrl?: string;
   recoveredAt?: number;
 }): ManagedHarnessSpawnResult {
   // Harmless for opencode: ensureFolderTrusted only patches ~/.claude.json and
@@ -1339,6 +1365,7 @@ export function spawnManagedOpencodeAisdkSession(opts: {
     omgUser: opts.omgUser,
     containInAgentSlice: opts.containInAgentSlice,
     sandbox: opts.sandbox,
+    egressProxyUrl: opts.egressProxyUrl,
   });
 }
 
@@ -1354,6 +1381,8 @@ type ManagedStructuredSessionOptions = {
   containInAgentSlice?: boolean;
   /** Filesystem isolation for this session (src/sandbox/bwrap.ts). */
   sandbox?: SandboxMode;
+  /** Egress proxy URL (src/sandbox/egress-proxy.ts) when the role restricts network. */
+  egressProxyUrl?: string;
   resume?: string;
   recoveredAt?: number;
 };
@@ -1407,6 +1436,7 @@ function spawnManagedStructuredSession(
     omgUser: opts.omgUser,
     containInAgentSlice: opts.containInAgentSlice,
     sandbox: opts.sandbox,
+    egressProxyUrl: opts.egressProxyUrl,
   });
 }
 

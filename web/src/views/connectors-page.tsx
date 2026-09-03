@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 
 export type RuleAction = "allow" | "block";
 export type SandboxMode = "none" | "bwrap";
+export type NetworkMode = "shared" | "allowlist";
 export type RoleRule = { pattern: string; action: RuleAction };
 export type Role = {
   id: string;
@@ -18,6 +19,8 @@ export type Role = {
   defaultAction: RuleAction;
   rules: RoleRule[];
   sandbox: SandboxMode;
+  network: NetworkMode;
+  allowHosts: string[];
   createdAt: number;
   updatedAt: number;
 };
@@ -242,7 +245,8 @@ function RoleCard({
   const [action, setAction] = useState<RuleAction>("allow");
   const [busy, setBusy] = useState(false);
 
-  const save = async (patch: Partial<Pick<Role, "name" | "defaultAction" | "rules" | "sandbox">>) => {
+  const [hostDraft, setHostDraft] = useState("");
+  const save = async (patch: Partial<Pick<Role, "name" | "defaultAction" | "rules" | "sandbox" | "network" | "allowHosts">>) => {
     setBusy(true);
     try {
       await call(`/api/roles/${role.id}`, { method: "PATCH", body: JSON.stringify(patch) });
@@ -329,6 +333,72 @@ function RoleCard({
             <option value="bwrap">Filesystem (bwrap)</option>
           </select>
         </label>
+      </div>
+
+      <div className="space-y-2 px-4 py-2.5">
+        <div className="flex items-center justify-between gap-3">
+          <span className="min-w-0">
+            <span className="block text-sm">Network</span>
+            <span className="block text-xs text-muted-foreground">
+              Allowlist restricts outbound traffic to the model APIs plus the hosts below.
+            </span>
+          </span>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <select
+              aria-label={`Network for ${role.name}`}
+              value={role.network}
+              disabled={busy}
+              onChange={(e) => void save({ network: e.target.value as NetworkMode })}
+              className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+            >
+              <option value="shared">Shared</option>
+              <option value="allowlist">Allowlist</option>
+            </select>
+          </label>
+        </div>
+        {role.network === "allowlist" ? (
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap gap-1.5">
+              {role.allowHosts.length === 0 ? (
+                <span className="text-xs text-muted-foreground">Model APIs only. Add a host to allow more.</span>
+              ) : null}
+              {role.allowHosts.map((host) => (
+                <span key={host} className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px]">
+                  <code>{host}</code>
+                  <button
+                    type="button"
+                    aria-label={`Remove host ${host}`}
+                    disabled={busy}
+                    onClick={() => void save({ allowHosts: role.allowHosts.filter((h) => h !== host) })}
+                    className="text-muted-foreground hover:text-destructive"
+                  >
+                    <Trash2 className="size-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+            <form
+              className="flex items-center gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const host = hostDraft.trim().toLowerCase();
+                if (!host || role.allowHosts.includes(host)) return;
+                void save({ allowHosts: [...role.allowHosts, host] }).then(() => setHostDraft(""));
+              }}
+            >
+              <Input
+                value={hostDraft}
+                onChange={(e) => setHostDraft(e.target.value)}
+                placeholder="host, e.g. github.com or .corp.example"
+                aria-label={`New allowed host for ${role.name}`}
+                className="h-8 font-mono text-xs"
+              />
+              <Button type="submit" size="sm" variant="secondary" disabled={busy || !hostDraft.trim()}>
+                Add host
+              </Button>
+            </form>
+          </div>
+        ) : null}
       </div>
 
       <ul className="divide-y divide-border">
