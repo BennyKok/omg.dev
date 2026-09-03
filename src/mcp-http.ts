@@ -48,10 +48,15 @@ function callerSessionFromRequest(req: Request): string | undefined {
  * cheap; it registers plain closures. The expensive thing was the *process*,
  * which is what this removes.
  */
-export async function serveOmgMcpRequest(req: Request): Promise<Response> {
+export async function serveOmgMcpRequest(
+  req: Request,
+  sessionId: string | undefined = callerSessionFromRequest(req),
+): Promise<Response> {
   // Bind the caller for the whole request, so every tool handler it reaches
-  // resolves the same session the agent is running as.
-  return await withCallerSession(callerSessionFromRequest(req), () =>
+  // resolves the same session the agent is running as. serve.ts passes the
+  // session it verified (src/policy/caller.ts); the default keeps the raw
+  // query-string behaviour for callers that bypass that layer, such as tests.
+  return await withCallerSession(sessionId, () =>
     answerOne(req, buildOmgMcpServer, true),
   );
 }
@@ -69,8 +74,11 @@ export async function serveOmgMcpRequest(req: Request): Promise<Response> {
  * No legacy alias here: these tools are new, so no session has ever called them
  * by an older name.
  */
-export async function serveComputerMcpRequest(req: Request): Promise<Response> {
-  return await withCallerSession(callerSessionFromRequest(req), () =>
+export async function serveComputerMcpRequest(
+  req: Request,
+  sessionId: string | undefined = callerSessionFromRequest(req),
+): Promise<Response> {
+  return await withCallerSession(sessionId, () =>
     answerOne(req, buildComputerMcpServer, false),
   );
 }

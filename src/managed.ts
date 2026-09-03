@@ -78,6 +78,18 @@ export type ManagedSession = {
    * to keep a crash-looping relaunch from respawning on every serve restart.
    */
   recoveryClaimBootId?: string;
+  /**
+   * Role this session runs as at the shared MCP endpoints (src/policy/roles.ts).
+   * Missing means owner, which is every row created before roles existed.
+   */
+  role?: string;
+  /**
+   * Set on rows created after session tokens landed: the endpoint then only
+   * honours this session's id with its token (src/policy/session-token.ts).
+   * Missing keeps the pre-token behaviour for rows that were launched
+   * without one, so an upgrade does not silently make them anonymous.
+   */
+  mcpTokenRequired?: boolean;
 };
 
 type ManagedRegistry = {

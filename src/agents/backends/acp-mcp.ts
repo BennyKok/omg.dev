@@ -8,6 +8,6 @@ export function omgAcpMcpServers(sessionId: string): McpServer[] {
     type: "http",
     name,
     url: server.url,
-    headers: [],
+    headers: Object.entries(server.headers).map(([hname, value]) => ({ name: hname, value })),
   }));
 }

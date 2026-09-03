@@ -85,6 +85,8 @@ describe("omgMcpServers", () => {
           omg: {
             type: "http",
             url: "http://127.0.0.1:8766/mcp?session=ba4522bc-6607-4691-b69e-8b99cfb3ead2",
+            // The per-session token (src/policy/session-token.ts); box-specific.
+            headers: { "x-omg-session-token": expect.any(String) },
           },
         },
       });

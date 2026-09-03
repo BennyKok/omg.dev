@@ -18,7 +18,9 @@ describe("omgAcpMcpServers", () => {
       type: "http",
       name: "omg",
       url: "http://127.0.0.1:4567/mcp?session=session%20with%20spaces",
-      headers: [],
+      // The session token that lets this session claim its own id at the
+      // endpoint (src/policy/session-token.ts). Value is box-specific.
+      headers: [{ name: "x-omg-session-token", value: expect.any(String) }],
     }]);
   });
 });
