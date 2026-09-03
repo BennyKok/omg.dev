@@ -5,6 +5,12 @@
   },
   "build": {
     "development": {
+      // Google iOS OAuth client (public identifier, not a secret). app.config.js
+      // registers the Google Sign-In plugin and reversed URL scheme only when
+      // this is set, and the Google button renders only when it is set.
+      "env": {
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "470443022473-sj262et812jqi3pvl05ccr8spuq2th45.apps.googleusercontent.com"
+      },
       "developmentClient": true,
       "distribution": "internal",
       "ios": {
@@ -18,6 +24,12 @@
     // lets it load JS from a Metro tunnel — so once installed, every JS change
     // is a reload rather than a rebuild.
     "simulator": {
+      // Google iOS OAuth client (public identifier, not a secret). app.config.js
+      // registers the Google Sign-In plugin and reversed URL scheme only when
+      // this is set, and the Google button renders only when it is set.
+      "env": {
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "470443022473-sj262et812jqi3pvl05ccr8spuq2th45.apps.googleusercontent.com"
+      },
       "developmentClient": true,
       "distribution": "internal",
       "ios": {
@@ -26,6 +38,12 @@
       "channel": "development"
     },
     "preview": {
+      // Google iOS OAuth client (public identifier, not a secret). app.config.js
+      // registers the Google Sign-In plugin and reversed URL scheme only when
+      // this is set, and the Google button renders only when it is set.
+      "env": {
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "470443022473-sj262et812jqi3pvl05ccr8spuq2th45.apps.googleusercontent.com"
+      },
       "distribution": "internal",
       "ios": {
         "simulator": false
@@ -33,6 +51,12 @@
       "channel": "preview"
     },
     "production": {
+      // Google iOS OAuth client (public identifier, not a secret). app.config.js
+      // registers the Google Sign-In plugin and reversed URL scheme only when
+      // this is set, and the Google button renders only when it is set.
+      "env": {
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "470443022473-sj262et812jqi3pvl05ccr8spuq2th45.apps.googleusercontent.com"
+      },
       "autoIncrement": true,
       "channel": "production"
     }

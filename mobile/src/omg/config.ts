@@ -35,6 +35,22 @@ export const AUTH_ORIGIN =
  */
 export const AUTH_REQUEST_ORIGIN = "https://omg.dev";
 
+/**
+ * Google sign-in client ids. Both are public identifiers, not secrets.
+ *
+ * WEB is the OAuth "Web application" client that auth.omg.dev verifies id
+ * tokens against (better-auth checks `aud === GOOGLE_CLIENT_ID`), so it must be
+ * the same id the server was deployed with. IOS is the "iOS" client bound to
+ * the bundle id; the native SDK needs it to open the account picker, and its
+ * reversed form is the URL scheme registered in app.config.js. When IOS is
+ * unset the Google button does not render at all: a button that opens an SDK
+ * with no client is a runtime error dressed as a feature.
+ */
+export const GOOGLE_WEB_CLIENT_ID =
+  process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ??
+  "470443022473-ntdiuc043cfutlcbceolf7rcs14aars6.apps.googleusercontent.com";
+export const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? "";
+
 /** Control plane: account, machine bindings, cloud Computer lifecycle. */
 export const CONTROLPLANE_ORIGIN =
   process.env.EXPO_PUBLIC_OMG_CONTROLPLANE_URL ?? "https://backend.omg.dev";

@@ -113,6 +113,39 @@ export async function verifySignInCode(
   return data.user;
 }
 
+export type SocialProvider = "apple" | "google";
+
+/**
+ * Exchange a provider id token for a session cookie, no browser round trip.
+ *
+ * better-auth's /sign-in/social accepts `idToken` and verifies it against the
+ * provider's JWKS instead of redirecting: Apple checks the audience against
+ * APPLE_APP_BUNDLE_IDENTIFIER on the server, Google against GOOGLE_CLIENT_ID.
+ * `nonce` is the RAW nonce; Apple's token carries its SHA-256 and the server
+ * hashes to compare. Apple sends the name only on the very first authorization,
+ * so it travels as `user` here or the account is created nameless forever.
+ */
+export async function signInWithIdToken(
+  provider: SocialProvider,
+  idToken: string,
+  options: { nonce?: string; name?: { firstName?: string; lastName?: string }; email?: string } = {},
+): Promise<SignedInUser> {
+  const data = (await authFetch("/sign-in/social", {
+    provider,
+    idToken: {
+      token: idToken,
+      ...(options.nonce ? { nonce: options.nonce } : {}),
+      ...(options.name || options.email
+        ? { user: { ...(options.name ? { name: options.name } : {}), ...(options.email ? { email: options.email } : {}) } }
+        : {}),
+    },
+  })) as { user?: SignedInUser };
+  if (!data?.user?.id) {
+    throw new OmgAuthError("That sign-in didn't work. Try again.", 401);
+  }
+  return data.user;
+}
+
 export async function getSession(): Promise<SignedInUser | null> {
   try {
     const response = await fetch(`${AUTH_ORIGIN}${BETTER_AUTH_BASE}/get-session`, {
