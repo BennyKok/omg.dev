@@ -56,6 +56,14 @@ export function verifySessionToken(sessionId: string, token: string | null | und
   return expected.length === given.length && timingSafeEqual(expected, given);
 }
 
+/**
+ * The raw box secret, for deriving other at-rest keys (e.g. connector OAuth
+ * token encryption). Same secret the session tokens are HMAC'd with.
+ */
+export function boxSecretMaterial(): string {
+  return boxSecret();
+}
+
 /** Test seam: forget the cached secret so a repointed data dir mints a new one. */
 export function resetSessionSecretForTests(): void {
   cached = null;
