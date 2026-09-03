@@ -117,7 +117,7 @@ describe("isPrimarySurfaceTab", () => {
   });
 
   test("secondary pages are not primary surfaces", () => {
-    for (const tab of ["settings", "notifications", "artifacts", "computer", "storage", "more"]) {
+    for (const tab of ["settings", "notifications", "artifacts", "computer", "board", "storage", "more"]) {
       expect(isPrimarySurfaceTab(tab)).toBe(false);
     }
   });
