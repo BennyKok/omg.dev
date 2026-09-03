@@ -193,10 +193,26 @@ This is the best-effort layer: the SDKs honour `HTTP(S)_PROXY`, so ordinary
 model and tool traffic is filtered and logged, but an agent that dials a raw IP
 past the proxy env escapes it.
 
-Deliberately not done yet: the strict layer. `--unshare-net` plus nftables in
-the namespace, allowing only this proxy, closes the raw-IP gap; it needs
-CAP_NET_ADMIN to build the firewall and is opt-in per box. True untrusted-code
-isolation stays with Firecracker in `vibes`.
+The proxy already denies a dialled raw IP that is not on the allowlist, so the
+env-honouring path cannot exfiltrate to an arbitrary address through it.
+
+Deliberately not done: the strict layer. `--unshare-net` plus nftables in the
+namespace, allowing only this proxy, would close the raw-IP-past-the-env gap.
+
+This layer is BLOCKED for local development on the current box and was not
+written, to keep every landed piece testable here. Measured on this machine:
+
+- `CapEff: 0` — no CAP_NET_ADMIN to program a firewall.
+- No `nft`, `iptables`, `slirp4netns`, or `pasta` installed.
+- Rootless network namespaces are denied: `unshare --user --net` fails with
+  `/proc/self/uid_map: Operation not permitted`.
+- `--unshare-net` also severs the host loopback that the egress proxy and the
+  omg MCP endpoint listen on, so a working strict mode must additionally plumb
+  those two back in (a veth pair + NAT, or slirp4netns/pasta).
+
+So strict mode belongs where the box grants CAP_NET_ADMIN (or ships
+slirp4netns/pasta) and must be verified there, not on this host. True
+untrusted-code isolation stays with Firecracker in `vibes`.
 
 ## Out of scope for this repository
 

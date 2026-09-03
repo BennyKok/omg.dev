@@ -101,6 +101,17 @@ describe("egress proxy (live)", () => {
     expect(unauth).toContain("407");
   });
 
+  test("a raw IP not on the allowlist is denied (no exfil to an arbitrary address)", async () => {
+    upstream = net.createServer((s) => s.end());
+    await new Promise<void>((r) => upstream!.listen(0, "127.0.0.1", () => r()));
+    const upstreamPort = (upstream.address() as net.AddressInfo).port;
+    // The allowlist is a hostname; a dialled raw IP does not match it.
+    proxy = await startEgressProxy({ resolve: (sessionId) => ({ sessionId, allow: ["api.anthropic.com"] }) });
+    const auth = `Basic ${Buffer.from("s1:good").toString("base64")}`;
+    const denied = await connectThrough(proxy.port, auth, `127.0.0.1:${upstreamPort}`);
+    expect(denied).toContain("403");
+  });
+
   test("proxyUrlFor embeds the session credentials", async () => {
     proxy = await startEgressProxy({ resolve: () => null });
     const url = proxy.proxyUrlFor("s 1", "t/k");
