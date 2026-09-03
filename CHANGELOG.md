@@ -2,6 +2,20 @@
 
 Recent product updates and deployment notes.
 
+## September 3, 2026 - Fold a session group shut (v0.6.37)
+
+- **Session rail groups fold.** Every group header carries a chevron: Pinned,
+  each folder, and Auto. Click it to hide the rows in that group. The label and
+  the count stay. Click it again to show the rows.
+- **A fold is remembered.** The folded groups are kept in this browser, so a
+  group that you shut is still shut after a reload. The desktop rail and the
+  mobile list share one answer. A folder that you rename keeps its fold.
+- **A folded group still shows unread.** If a session inside a shut group is
+  unread, the group header shows the unread dot. A fold cannot hide news.
+- **The keyboard cursor obeys the fold.** `j`, `k` and the arrow keys move only
+  through rows that you can see. The icon-collapsed rail has no headers, so it
+  cannot fold, and it keeps every row.
+
 ## September 2, 2026 - Desktop lands on the composer, Schedules move inline (v0.6.36)
 
 - **The desktop stage opens on a "Hello {name}!" composer.** With nothing
