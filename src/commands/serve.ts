@@ -33,11 +33,27 @@ import { compressedAssetResponse, maybeCompressResponse } from "../http-compress
 import { serveOmgMcpRequest, serveComputerMcpRequest } from "../mcp-http.ts";
 import { serveExecutorMcpRequest } from "../executor/proxy.ts";
 import { forwardExecutorApi } from "../executor/api.ts";
+import {
+  APPROVE,
+  DENY,
+  approvalDeliveryText,
+  approvalQuestion,
+  blockedResumeReply,
+  clearPendingApproval,
+  executionAwaitingApproval,
+  interceptExecuteReplyBody,
+  isApproveAnswer,
+  parseToolCall,
+  pendingApprovalByAsk,
+  registerPendingApproval,
+  resumeExecution,
+} from "../executor/approvals.ts";
 import { resolveCaller } from "../policy/caller.ts";
 import { enforceRole } from "../policy/mcp-filter.ts";
 import { createRole, deleteRole, getRole, listRoles, updateRole, OWNER_ROLE_ID } from "../policy/roles.ts";
 import {
   ensureExecutorAdopted,
+  executorAuth,
   executorDashboardUrl,
   executorStatus,
   startExecutor,
@@ -735,6 +751,88 @@ const PORT = Number(process.env.LFG_PORT ?? process.env.PORT ?? 8766);
 
 /** Ceiling on any single request body. See the Bun.serve options for why. */
 const MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024;
+
+/**
+ * The connector proxy, with owner-approval interception on execute/resume.
+ *
+ * A gated `execute` returns a paused interaction that Executor, in model mode,
+ * would have the agent resolve itself. This turns it into an omg ask card:
+ * the reply the agent gets says "wait", an ask with Approve/Deny is posted to
+ * the session, and the agent's own `resume` is refused while that ask is open.
+ * The human's answer drives resume (src/executor/approvals.ts and the
+ * /api/ask answer route). Everything that is not an approvable execute or a
+ * gated resume passes straight through, so the SSE listen stream and ordinary
+ * calls are untouched.
+ */
+async function interceptExecutorApprovals(
+  req: Request,
+  sessionId: string | undefined,
+): Promise<Response> {
+  if (req.method !== "POST") return serveExecutorMcpRequest(req);
+  const bodyText = await req.text();
+  const call = parseToolCall(bodyText);
+
+  if (call?.name === "resume") {
+    const executionId = typeof call.args.executionId === "string" ? call.args.executionId : "";
+    if (executionId && executionAwaitingApproval(executionId)) {
+      return Response.json(blockedResumeReply(call.id, executionId), {
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+  }
+
+  const forwarded = new Request(req.url, { method: "POST", headers: req.headers, body: bodyText });
+  const res = await serveExecutorMcpRequest(forwarded);
+
+  // Only an execute reply from a real session can become an approval card.
+  // Without a session we cannot deliver the outcome, so we leave Executor's
+  // own ask-then-resume flow in place.
+  if (call?.name !== "execute" || !sessionId) return res;
+
+  const contentType = res.headers.get("content-type") ?? "";
+  const replyText = await res.text();
+  const intercepted = interceptExecuteReplyBody(replyText, contentType);
+  if (!intercepted) {
+    return new Response(replyText, {
+      status: res.status,
+      headers: res.headers,
+    });
+  }
+
+  // Post the ask through the same route the MCP ask tool uses, so push and
+  // user scoping behave identically. Best effort: if the ask cannot be
+  // created, fall back to handing the agent Executor's original reply rather
+  // than a "wait" it will wait on forever.
+  const user = userAssignments();
+  const row = listManaged().find((s) => s.sessionId === sessionId || s.nativeSessionId === sessionId);
+  const askUser = row ? user[row.tmuxName] ?? null : null;
+  try {
+    const askRes = await fetch(`http://127.0.0.1:${PORT}/api/ask`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        question: approvalQuestion(intercepted.paused),
+        options: [APPROVE, DENY],
+        sessionId,
+        user: askUser,
+        pushback: true,
+        wait: false,
+      }),
+    });
+    if (!askRes.ok) throw new Error(`ask create failed (${askRes.status})`);
+    const { id } = (await askRes.json()) as { id: string };
+    registerPendingApproval({
+      askId: id,
+      executionId: intercepted.paused.executionId,
+      sessionId,
+      address: intercepted.paused.address,
+    });
+  } catch {
+    return new Response(replyText, { status: res.status, headers: res.headers });
+  }
+
+  return new Response(intercepted.heldBody, { status: res.status, headers: res.headers });
+}
 
 /** Root URL this box's web UI is reachable at (e.g. `http://box.tailnet.ts.net:8766`
  * over Tailscale). Optional — when unset, no session URLs are advertised and
@@ -4002,7 +4100,7 @@ export async function cmdServe() {
         await ensureExecutorAdopted();
         const caller = resolveCaller(req);
         return await enforceRole(req, caller.role, { namespace: "executor" }, (r) =>
-          serveExecutorMcpRequest(r),
+          interceptExecutorApprovals(r, caller.sessionId),
         );
       }
 
@@ -6926,6 +7024,35 @@ a{color:#60a5fa}
           if (!b?.answer?.trim()) return err(400, "missing answer");
           const q = await answerQuestion(m[1], { answer: b.answer.trim(), via: b.via });
           if (!q) return err(404, "unknown or already-answered question");
+
+          // A connector approval: the answer is Approve or Deny, and the real
+          // work is resuming the paused Executor execution on the human's
+          // behalf (the agent was refused resume). The outcome, not the bare
+          // "Approve", is what the session hears. Branch before the generic
+          // delivery below so the word "Approve" is never sent as a message.
+          const pending = pendingApprovalByAsk(q.id);
+          if (pending) {
+            const approved = isApproveAnswer(q.answer);
+            const outcome = approved
+              ? await resumeExecution(executorAuth(), pending.executionId, "accept")
+              : await resumeExecution(executorAuth(), pending.executionId, "decline");
+            clearPendingApproval(q.id);
+            const text = approvalDeliveryText(pending, approved, outcome);
+            if (pending.sessionId) {
+              try {
+                await fetch(`http://127.0.0.1:${PORT}/api/sessions/${pending.sessionId}/send`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ text, mode: "steer" }),
+                });
+              } catch {
+                // Loopback send failed. The question is answered and the
+                // execution resolved; the transcript just missed the note.
+              }
+            }
+            await markHandled(q.id);
+            return json({ question: q, approval: { approved, executionId: pending.executionId } });
+          }
           // `deliver: false` — the person answered by typing in the owning
           // session's own composer, so that message is ALREADY on its way to
           // the agent. Record the answer (this also wakes a blocked long-poll)
