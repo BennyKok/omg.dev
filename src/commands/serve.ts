@@ -4155,7 +4155,7 @@ export async function cmdServe() {
       }
       if (path === "/api/connectors" && req.method === "POST") {
         const body = (await req.json().catch(() => null)) as
-          | { user?: string; org?: boolean; name?: string; endpoint?: string; headers?: Record<string, string>; catalogSlug?: string; requireApproval?: boolean }
+          | { user?: string; org?: boolean; name?: string; endpoint?: string; headers?: Record<string, string>; catalogSlug?: string; icon?: string; requireApproval?: boolean }
           | null;
         if (!body) return err(400, "invalid JSON body");
         const owner = body.org ? "*org*" : ownerForUser(body.user);
@@ -4165,6 +4165,7 @@ export async function cmdServe() {
           endpoint: body.endpoint ?? "",
           headers: body.headers,
           catalogSlug: body.catalogSlug,
+          icon: body.icon,
           requireApproval: body.requireApproval,
         });
         if (!result.ok) return err(400, result.error);

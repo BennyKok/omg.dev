@@ -14,6 +14,9 @@ export interface CatalogEntry {
   kind: string;
   categories: string[];
   connectUrl: string | null;
+  /** Logo URL for the integration, when the catalog carries one. */
+  icon: string | null;
+  domain: string | null;
   /** True when connecting needs OAuth, which is not yet supported end to end. */
   needsOAuth: boolean;
 }
@@ -39,6 +42,8 @@ function project(raw: unknown): CatalogEntry | null {
     kind: typeof r.kind === "string" ? r.kind : "",
     categories: Array.isArray(r.categories) ? r.categories.filter((c): c is string => typeof c === "string") : [],
     connectUrl: typeof r.connectUrl === "string" ? r.connectUrl : null,
+    icon: typeof r.icon === "string" ? r.icon : null,
+    domain: typeof r.domain === "string" ? r.domain : null,
     needsOAuth: auth.includes("oauth"),
   };
 }
