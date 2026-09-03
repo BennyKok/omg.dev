@@ -680,6 +680,7 @@ type AuthProvider =
   | "codex"
   | "grok"
   | "fx"
+  | "muse"
   | "github"
   | "pi-anthropic"
   | "pi-codex"
@@ -691,6 +692,7 @@ const AUTH_PROVIDER_LABELS: Record<AuthProvider, string> = {
   codex: "Codex",
   grok: "Grok",
   fx: "Vercel",
+  muse: "Meta",
   github: "GitHub",
   "pi-anthropic": "Claude",
   "pi-codex": "ChatGPT",

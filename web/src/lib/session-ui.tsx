@@ -161,6 +161,8 @@ export const BROWSER_AUTH_PROVIDER_LABELS: Record<string, string> = {
   // `fx login` is itself the Vercel device flow — there is no --device-auth
   // variant to pick, so the browser path is the only sensible one.
   fx: "Vercel",
+  // `muse login` is the Meta device flow: a verification URL plus a code.
+  muse: "Meta",
 };
 
 export const BROWSER_AUTH_KINDS = new Set<string>(

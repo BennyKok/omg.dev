@@ -145,6 +145,7 @@ export type AuthProvider =
   | "codex"
   | "grok"
   | "fx"
+  | "muse"
   | "github"
   | "pi-anthropic"
   | "pi-codex"
@@ -156,6 +157,7 @@ const AUTH_PROVIDER_LABELS: Record<AuthProvider, string> = {
   codex: "Codex",
   grok: "Grok",
   fx: "Vercel",
+  muse: "Meta",
   github: "GitHub",
   "pi-anthropic": "Claude",
   "pi-codex": "ChatGPT",
@@ -854,6 +856,7 @@ function authProviderFor(kind: CodingAgentKind): AuthProvider | null {
   if (kind === "codex" || kind === "codex-aisdk") return "codex";
   if (kind === "grok") return "grok";
   if (kind === "fx") return "fx";
+  if (kind === "muse") return "muse";
   return null;
 }
 
@@ -862,6 +865,7 @@ function authProviderBinary(provider: AuthProvider): string | null {
   if (provider === "codex") return codexPath();
   if (provider === "grok") return grokPath();
   if (provider === "fx") return fxPath();
+  if (provider === "muse") return musePath();
   return githubCliPath();
 }
 
@@ -882,6 +886,8 @@ function authProviderArgv(provider: AuthProvider, binary: string): string[] {
   // fx has no --device-auth flag because `fx login` IS the device flow: it
   // prints the Vercel verification URL and code, then polls.
   if (provider === "fx") return [binary, "login"];
+  // `muse login` is itself the Meta device flow (RFC 8628 against auth.meta.com).
+  if (provider === "muse") return [binary, "login"];
   // Codex and Grok both expose an RFC 8628 device flow that prints a
   // verification URL plus a short user code — no terminal interaction needed.
   return [binary, "login", "--device-auth"];
@@ -929,6 +935,20 @@ export function parseAuthOutput(
     const userCode =
       output.match(/[?&]user_code=([A-Z0-9]{4,}-[A-Z0-9]{4,})/i)?.[1] ??
       output.match(/^\s*Code:\s*([A-Z0-9]{4,}-[A-Z0-9]{4,})\s*$/im)?.[1];
+    return { authorizationUrl, userCode, needsCode: false };
+  }
+  if (provider === "muse") {
+    // `muse login` prints:
+    //   Open this page to sign in:
+    //     https://auth.meta.com/oauth/device/?code=JZDZ-HSCZ
+    //   confirm this code matches:
+    //     JZDZ-HSCZ
+    //
+    //   Waiting for approval…
+    // The URL carries the code; the bare line under "confirm" is the fallback.
+    const userCode =
+      output.match(/[?&]code=([A-Z0-9]{4,}-[A-Z0-9]{4,})/i)?.[1] ??
+      output.match(/^\s*([A-Z0-9]{4,}-[A-Z0-9]{4,})\s*$/m)?.[1];
     return { authorizationUrl, userCode, needsCode: false };
   }
   if (provider === "github") {
