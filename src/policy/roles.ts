@@ -14,6 +14,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PATHS } from "../config.ts";
+import type { SandboxMode } from "../sandbox/bwrap.ts";
 
 export type RuleAction = "allow" | "block";
 
@@ -28,6 +29,12 @@ export interface Role {
   /** What a tool gets when no rule matches. Restricted roles want `block`. */
   defaultAction: RuleAction;
   rules: RoleRule[];
+  /**
+   * Filesystem isolation for sessions in this role (src/sandbox/bwrap.ts).
+   * `bwrap` runs the harness with an empty home, the omg secrets masked, and
+   * only its worktree writable. Owner is always `none`.
+   */
+  sandbox: SandboxMode;
   createdAt: number;
   updatedAt: number;
 }
@@ -40,6 +47,7 @@ export const OWNER_ROLE: Role = Object.freeze({
   name: "Owner",
   defaultAction: "allow",
   rules: [],
+  sandbox: "none",
   createdAt: 0,
   updatedAt: 0,
 }) as Role;
@@ -60,7 +68,9 @@ function readFile(): RolesFile {
   try {
     if (!existsSync(rolesPath())) return { version: 1, roles: [] };
     const parsed = JSON.parse(readFileSync(rolesPath(), "utf8")) as Partial<RolesFile>;
-    const roles = Array.isArray(parsed.roles) ? parsed.roles.filter(isRole) : [];
+    const roles = Array.isArray(parsed.roles)
+      ? parsed.roles.filter(isRole).map((r) => ({ ...r, sandbox: readSandbox(r.sandbox) }))
+      : [];
     return { version: 1, roles };
   } catch {
     return { version: 1, roles: [] };
@@ -83,6 +93,11 @@ function isRole(value: unknown): value is Role {
     (r.defaultAction === "allow" || r.defaultAction === "block") &&
     Array.isArray(r.rules)
   );
+}
+
+// A role file from before sandbox existed has no field; treat it as "none".
+function readSandbox(value: unknown): SandboxMode {
+  return value === "bwrap" ? "bwrap" : "none";
 }
 
 // ---------------------------------------------------------------------------
@@ -136,6 +151,12 @@ export function getRole(id: string): Role | null {
   return readFile().roles.find((r) => r.id === id) ?? null;
 }
 
+/** The sandbox mode for a session's role. Owner and unknown roles are `none`. */
+export function roleSandbox(roleId: string | undefined | null): SandboxMode {
+  if (!roleId || roleId === OWNER_ROLE_ID) return "none";
+  return getRole(roleId)?.sandbox ?? "none";
+}
+
 function slug(name: string): string {
   return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 }
@@ -144,6 +165,7 @@ export type RoleInput = {
   name: string;
   defaultAction?: RuleAction;
   rules?: RoleRule[];
+  sandbox?: SandboxMode;
 };
 
 export type RoleResult = { ok: true; role: Role } | { ok: false; error: string };
@@ -181,7 +203,8 @@ export function createRole(input: RoleInput): RoleResult {
   let candidate = id;
   for (let n = 2; taken.has(candidate); n += 1) candidate = `${id}-${n}`;
   const now = Date.now();
-  const role: Role = { id: candidate, name, defaultAction, rules, createdAt: now, updatedAt: now };
+  const sandbox: SandboxMode = input.sandbox === "bwrap" ? "bwrap" : "none";
+  const role: Role = { id: candidate, name, defaultAction, rules, sandbox, createdAt: now, updatedAt: now };
   file.roles.push(role);
   writeFile(file);
   return { ok: true, role };
@@ -207,6 +230,12 @@ export function updateRole(id: string, patch: Partial<RoleInput>): RoleResult {
     const rules = validateRules(patch.rules);
     if (typeof rules === "string") return { ok: false, error: rules };
     role.rules = rules;
+  }
+  if (patch.sandbox !== undefined) {
+    if (patch.sandbox !== "none" && patch.sandbox !== "bwrap") {
+      return { ok: false, error: "sandbox must be none or bwrap" };
+    }
+    role.sandbox = patch.sandbox;
   }
   role.updatedAt = Date.now();
   writeFile(file);

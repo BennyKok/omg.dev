@@ -133,6 +133,40 @@ Known limit: role rules see `executor.execute`, not the integration behind it.
 Per-integration restriction per role needs a per-role Executor instance
 (deferred). Box-wide per-integration rules go in Gateway policies.
 
+## Phase 3 shape (landed): filesystem sandbox
+
+A role can require a filesystem sandbox for its sessions
+(`src/sandbox/bwrap.ts`). `Role.sandbox` is `none` or `bwrap`; owner is always
+`none`. `POST /api/sessions/new` reads the session role's sandbox and passes it
+to the harness spawn.
+
+```
+ spawnManagedHarness(command, { sandbox: "bwrap", cwd, ... })
+   sandboxCommand wraps command with bwrap:
+     --ro-bind /usr /bin /sbin /lib* /etc /opt /nix   (system, read-only)
+     --tmpfs <home>                                   (empty home)
+     --ro-bind <omgRoot>                              (code, read-only)
+     --tmpfs <omgRoot>/data                           (mask omg secrets)
+     --ro-bind <bun dir>                              (runtime)
+     --bind <worktree>                                (the one writable path)
+     --unshare-user/pid/ipc/uts/cgroup                (network stays shared)
+```
+
+Applies to the process-supervised harnesses only (aisdk, codex-aisdk,
+opencode, pi), whose model credentials arrive through the environment, which
+bwrap passes through — so an empty home costs nothing and withholds the
+owner's stored logins. Terminal-backed agents read their own credentials from
+home and are not sandboxed; a `bwrap` request for one is logged and the
+session runs unsandboxed rather than failing.
+
+Verified on this box: inside the sandbox a command reads and writes its
+worktree, cannot read a sibling path, reads the omg code tree, and cannot read
+the masked omg data dir (the session-token secret and the Executor bearer).
+
+Deliberately not done: network isolation. The harness still needs the model
+API and the omg MCP endpoint on loopback, and per-host restriction needs a
+local proxy or nftables in the namespace. This is the next sandbox step.
+
 ## Out of scope for this repository
 
 Login, invites, SSO, team and role storage. Those belong to `vibes`. This

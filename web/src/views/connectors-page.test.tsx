@@ -17,7 +17,7 @@ afterEach(() => {
 
 type Call = { url: string; method: string; body: unknown };
 
-function fakeServer(initialRoles: { id: string; name: string; defaultAction: string; rules: { pattern: string; action: string }[] }[]) {
+function fakeServer(initialRoles: { id: string; name: string; defaultAction: string; rules: { pattern: string; action: string }[]; sandbox?: string }[]) {
   const calls: Call[] = [];
   let roles = initialRoles;
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -27,7 +27,7 @@ function fakeServer(initialRoles: { id: string; name: string; defaultAction: str
     calls.push({ url, method, body });
     if (url.endsWith("/api/roles") && method === "GET") return Response.json({ roles });
     if (url.endsWith("/api/roles") && method === "POST") {
-      const role = { id: body.name.toLowerCase(), name: body.name, defaultAction: "block", rules: [], createdAt: 1, updatedAt: 1 };
+      const role = { id: body.name.toLowerCase(), name: body.name, defaultAction: "block", rules: [], sandbox: "none", createdAt: 1, updatedAt: 1 };
       roles = [...roles, role];
       return Response.json({ role });
     }
@@ -47,13 +47,13 @@ function fakeServer(initialRoles: { id: string; name: string; defaultAction: str
   return { calls };
 }
 
-const OWNER = { id: "owner", name: "Owner", defaultAction: "allow", rules: [] };
+const OWNER = { id: "owner", name: "Owner", defaultAction: "allow", rules: [], sandbox: "none" };
 
 describe("RolesPanel", () => {
   test("lists owner and the stored roles with their rules", async () => {
     fakeServer([
       OWNER,
-      { id: "marketing", name: "Marketing", defaultAction: "block", rules: [{ pattern: "executor.*", action: "allow" }] },
+      { id: "marketing", name: "Marketing", defaultAction: "block", rules: [{ pattern: "executor.*", action: "allow" }], sandbox: "bwrap" },
     ]);
     ui.render(<RolesPanel />);
     await ui.flushAsync();
@@ -61,6 +61,8 @@ describe("RolesPanel", () => {
     expect(ui.text()).toContain("Marketing");
     expect(ui.text()).toContain("executor.*");
     expect(ui.text()).toContain("Allow");
+    const sandbox = ui.query('select[aria-label="Sandbox for Marketing"]') as HTMLSelectElement | null;
+    expect(sandbox?.value).toBe("bwrap");
   });
 
   test("creates a role and adds a rule to it", async () => {

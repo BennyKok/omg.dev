@@ -17,6 +17,8 @@ import {
   resolveClaudeAccount,
 } from "./claude-accounts.ts";
 import { agentTmpEnv } from "./tmp-reclaim.ts";
+import { PATHS } from "./config.ts";
+import { sandboxCommand, type SandboxMode } from "./sandbox/bwrap.ts";
 import {
   codexServiceTierArgs,
   type CodexServiceTier,
@@ -226,7 +228,7 @@ export type ManagedHarnessSpawnResult = { ok: boolean; error?: string; pid?: num
 // separately by the boot reconciliation journal in session-recovery.ts.
 function spawnManagedHarness(
   command: string[],
-  opts: AgentContainment & { containInAgentSlice?: boolean },
+  opts: AgentContainment & { containInAgentSlice?: boolean; sandbox?: SandboxMode },
 ): ManagedHarnessSpawnResult {
   const sessionId = opts.omgSessionId?.trim() || undefined;
   const env: Record<string, string> = { ...process.env } as Record<string, string>;
@@ -238,9 +240,23 @@ function spawnManagedHarness(
   // spawns. containInAgentSlice still only wraps subagents in systemd-run.
   Object.assign(env, agentBrowserEnv(opts.name));
   Object.assign(env, agentTmpEnv());
+  // Filesystem isolation wraps the harness command itself, inside any systemd
+  // containment: bwrap needs its own namespaces, and the transient service (a
+  // subagent-only path) supervises the whole thing. A requested sandbox that
+  // cannot run here does not silently pass — it is logged and the session runs
+  // unsandboxed rather than failing to launch.
+  const sandboxed = sandboxCommand(command, opts.sandbox ?? "none", {
+    worktree: opts.cwd,
+    omgRoot: PATHS.root,
+    dataDir: PATHS.data,
+  });
+  if (opts.sandbox === "bwrap" && !sandboxed.sandboxed) {
+    console.error(`[sandbox] session ${opts.name} requested bwrap but ${sandboxed.reason}; running unsandboxed`);
+  }
+  const base = sandboxed.command;
   const cmd = opts.containInAgentSlice
-    ? containedAgentCommand(command, opts, { pty: false })
-    : command;
+    ? containedAgentCommand(base, opts, { pty: false })
+    : base;
 
   // Process-isolated integration tests capture the launch contract without
   // starting a real provider harness.
@@ -1123,6 +1139,8 @@ export type ManagedAisdkSessionOptions = {
   omgSessionId?: string;
   omgUser?: string | null;
   containInAgentSlice?: boolean;
+  /** Filesystem isolation for this session (src/sandbox/bwrap.ts). */
+  sandbox?: SandboxMode;
   claudeAccountId?: string;
   recoveredAt?: number;
 };
@@ -1159,6 +1177,7 @@ export function spawnManagedAisdkSession(opts: ManagedAisdkSessionOptions): Mana
     omgSessionId: opts.omgSessionId ?? opts.sessionId,
     omgUser: opts.omgUser,
     containInAgentSlice: opts.containInAgentSlice,
+    sandbox: opts.sandbox,
   });
 }
 
@@ -1178,6 +1197,8 @@ export type ManagedCodexAisdkSessionOptions = {
   omgSessionId?: string;
   omgUser?: string | null;
   containInAgentSlice?: boolean;
+  /** Filesystem isolation for this session (src/sandbox/bwrap.ts). */
+  sandbox?: SandboxMode;
   // When set, resume this existing codex rollout/thread instead of starting a
   // fresh persistent thread — the harness seeds its threadId with it.
   resume?: string;
@@ -1217,6 +1238,7 @@ export function spawnManagedCodexAisdkSession(opts: ManagedCodexAisdkSessionOpti
     omgSessionId: opts.omgSessionId ?? opts.key,
     omgUser: opts.omgUser,
     containInAgentSlice: opts.containInAgentSlice,
+    sandbox: opts.sandbox,
   });
 }
 
@@ -1235,6 +1257,8 @@ export function spawnManagedPiSession(opts: {
   omgSessionId?: string;
   omgUser?: string | null;
   containInAgentSlice?: boolean;
+  /** Filesystem isolation for this session (src/sandbox/bwrap.ts). */
+  sandbox?: SandboxMode;
   // When set, resume this existing pi session file instead of starting a fresh
   // one — the harness passes it through as `--session <id>`.
   resume?: string;
@@ -1264,6 +1288,7 @@ export function spawnManagedPiSession(opts: {
     omgSessionId: opts.omgSessionId ?? opts.key,
     omgUser: opts.omgUser,
     containInAgentSlice: opts.containInAgentSlice,
+    sandbox: opts.sandbox,
   });
 }
 
@@ -1284,6 +1309,8 @@ export function spawnManagedOpencodeAisdkSession(opts: {
   omgUser?: string | null;
   resume?: string;
   containInAgentSlice?: boolean;
+  /** Filesystem isolation for this session (src/sandbox/bwrap.ts). */
+  sandbox?: SandboxMode;
   recoveredAt?: number;
 }): ManagedHarnessSpawnResult {
   // Harmless for opencode: ensureFolderTrusted only patches ~/.claude.json and
@@ -1311,6 +1338,7 @@ export function spawnManagedOpencodeAisdkSession(opts: {
     omgSessionId: opts.omgSessionId ?? opts.key,
     omgUser: opts.omgUser,
     containInAgentSlice: opts.containInAgentSlice,
+    sandbox: opts.sandbox,
   });
 }
 
@@ -1324,6 +1352,8 @@ type ManagedStructuredSessionOptions = {
   omgSessionId?: string;
   omgUser?: string | null;
   containInAgentSlice?: boolean;
+  /** Filesystem isolation for this session (src/sandbox/bwrap.ts). */
+  sandbox?: SandboxMode;
   resume?: string;
   recoveredAt?: number;
 };
@@ -1376,6 +1406,7 @@ function spawnManagedStructuredSession(
     omgSessionId: opts.omgSessionId ?? opts.key,
     omgUser: opts.omgUser,
     containInAgentSlice: opts.containInAgentSlice,
+    sandbox: opts.sandbox,
   });
 }
 

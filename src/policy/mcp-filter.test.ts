@@ -10,6 +10,7 @@ const MARKETING: Role = {
     { pattern: "omg.ship", action: "allow" },
     { pattern: "omg.display_image", action: "allow" },
   ],
+  sandbox: "none",
   createdAt: 0,
   updatedAt: 0,
 };
