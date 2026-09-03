@@ -27,6 +27,10 @@ on:
         options:
           - production
           - preview
+          # Unsigned dev client for the iOS Simulator. Native modules cannot
+          # ship over the air, so every native dependency change needs one of
+          # these before the change can be looked at. Never submit this.
+          - simulator
       submit:
         description: "Submit to App Store Connect after a successful build"
         default: false
@@ -107,7 +111,7 @@ jobs:
       # Connect. Keeping them apart means a submit failure does not read as a
       # build failure, and a build can be produced without being submitted.
       - name: Submit to App Store Connect
-        if: ${{ inputs.submit }}
+        if: ${{ inputs.submit && inputs.profile != 'simulator' }}
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |

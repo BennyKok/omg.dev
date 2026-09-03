@@ -42,7 +42,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import { Image, Linking, Pressable, View } from "react-native";
+import { ActivityIndicator, Image, Linking, Pressable, ScrollView, View } from "react-native";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -61,6 +61,11 @@ import Reanimated, {
 
 import { Icon } from "../components";
 import { agentIcon } from "./agent-icons";
+import { fetchPurchaseAccount } from "./billing";
+import { FALLBACK_TIERS } from "./plan-specs";
+import type { ComputerReadiness } from "./readiness";
+import { connectStore, fetchTiers, isStoreAvailable, type StoreProduct } from "./store";
+import { TierCard } from "./tier-card";
 import { BrandMark } from "./brand-mark";
 import { useReduceMotionEnabled } from "./motion";
 import { Text } from "./text";
@@ -241,6 +246,33 @@ export function useOnboarding(userId: string | null): {
 /** Test/support hook: forget one account's run so the screen shows again. */
 export async function resetOnboarding(userId: string): Promise<void> {
   await AsyncStorage.removeItem(storageKeyFor(userId));
+}
+
+export type SetupAgent = { key: string; label: string; connected: boolean };
+
+/**
+ * The connect step's input, derived from the Computer's readiness. `waking` is
+ * a real answer rather than an error: the box is provisioning or cold, so the
+ * screen says "starting up" instead of drawing an empty list that reads as
+ * "no agents exist". One derivation, used by the first-run gate and by replay.
+ */
+export function rosterFromReadiness(readiness: ComputerReadiness | null): {
+  agents: SetupAgent[];
+  waking: boolean;
+} {
+  const agents =
+    readiness?.status === "ready"
+      ? readiness.roster.agents
+          .filter((a) => a.visible !== false)
+          .map((a) => ({
+            key: a.key,
+            label: a.label,
+            connected: a.status?.accountConnected === true,
+          }))
+      : [];
+  const waking =
+    readiness === null || readiness.status === "connecting" || readiness.status === "waking";
+  return { agents, waking };
 }
 
 /* ── Animated art, one per panel ───────────────────────────────────────────
@@ -600,7 +632,18 @@ function Dots({ count, index }: { count: number; index: number }) {
  * The intro: three panels then a way in. Pre-auth, so it can only talk about
  * the product — it has no account to reason about yet.
  */
-export function IntroScreen({ onSignIn }: { onSignIn: () => void }) {
+/**
+ * `finalLabel` is "Sign in" on first run, where the last panel leads to the
+ * sign-in field, and "Continue" when replayed from Settings, where there is no
+ * sign-in to lead to.
+ */
+export function IntroScreen({
+  onSignIn,
+  finalLabel = "Sign in",
+}: {
+  onSignIn: () => void;
+  finalLabel?: string;
+}) {
   const { colors, space, type } = useTheme();
   const insets = useSafeAreaInsets();
   const still = useReduceMotionEnabled();
@@ -654,7 +697,7 @@ export function IntroScreen({ onSignIn }: { onSignIn: () => void }) {
       <View style={{ flex: 0.6 }} />
 
       <View style={{ padding: space.lg, paddingBottom: insets.bottom + space.lg }}>
-        <BigButton label={last ? "Sign in" : "Continue"} onPress={next} />
+        <BigButton label={last ? finalLabel : "Continue"} onPress={next} />
       </View>
     </View>
   );
@@ -718,7 +761,7 @@ export function SetupScreen({
   waking,
 }: {
   onDone: () => void;
-  agents: { key: string; label: string; connected: boolean }[];
+  agents: SetupAgent[];
   waking: boolean;
 }) {
   const { colors, space, type } = useTheme();
@@ -726,6 +769,37 @@ export function SetupScreen({
   const router = useRouter();
   const still = useReduceMotionEnabled();
   const [step, setStep] = useState<0 | 1>(0);
+
+  /*
+   * The plan step shows the SAME cards as the paywall, from the same source:
+   * the control plane's catalog, priced by StoreKit. Loading starts on mount so
+   * the cards are usually there by the time the step is reached. A build with
+   * no store, or a failed load, falls back to the text-only step with a link
+   * to the paywall, which has its own retry.
+   */
+  const [products, setProducts] = useState<StoreProduct[] | null>(null);
+  const [currentPlan, setCurrentPlan] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!isStoreAvailable()) {
+      setProducts([]);
+      return;
+    }
+    (async () => {
+      try {
+        const [, account] = await Promise.all([connectStore(), fetchPurchaseAccount()]);
+        const loaded = await fetchTiers(account.tiers ?? FALLBACK_TIERS);
+        if (cancelled) return;
+        setCurrentPlan(account.plan ?? null);
+        setProducts(loaded);
+      } catch {
+        if (!cancelled) setProducts([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /*
    * Mark setup done BEFORE pushing the paywall. Backing out of plans lands on
@@ -786,8 +860,8 @@ export function SetupScreen({
             )}
           </View>
         ) : (
-          <View style={{ width: "100%", alignItems: "center", gap: space.xl }}>
-            <PanelArt key="plan" art="mark" still={still} />
+          <View style={{ width: "100%", alignItems: "center", gap: space.lg }}>
+            {products && products.length > 0 ? null : <PanelArt key="plan" art="mark" still={still} />}
             <View style={{ gap: space.md }}>
               <Text style={{ ...type.largeTitle, color: colors.text, textAlign: "center" }}>
                 Pick a Computer
@@ -798,6 +872,30 @@ export function SetupScreen({
                 Plans differ in machine size, included compute time, and how many agents run at once.
               </Text>
             </View>
+            {products === null ? (
+              <ActivityIndicator color={colors.textMuted} style={{ marginTop: space.md }} />
+            ) : products.length > 0 ? (
+              /* The paywall's own cards, one per tier. A tap opens the paywall
+                 on the same list, where the purchase happens; setup is marked
+                 done first (see seePlans). marginHorizontal is the card's own
+                 spacing inside a padded column, so it is cancelled here. */
+              <ScrollView
+                style={{ width: "100%", maxHeight: 360, marginHorizontal: -space.lg }}
+                contentContainerStyle={{ paddingTop: space.sm }}
+                showsVerticalScrollIndicator={false}
+              >
+                {products.map((product) => (
+                  <TierCard
+                    key={product.productId}
+                    product={product}
+                    current={currentPlan === product.plan}
+                    purchasing={false}
+                    disabled={false}
+                    onPress={seePlans}
+                  />
+                ))}
+              </ScrollView>
+            ) : null}
           </View>
         )}
       </View>
