@@ -47,7 +47,7 @@ import Reanimated from "react-native-reanimated";
 import { type AndroidSymbol, type SFSymbol } from "expo-symbols";
 import { ActivityIndicator, View } from "react-native";
 
-import { Icon } from "../components";
+import { Icon, SESSION_ROW } from "../components";
 import { Text } from "./text";
 import { useListItemMotion, PressableScale } from "./motion";
 import { useSwipeToCommit } from "./swipe-row";
@@ -174,7 +174,7 @@ export function AutoFindingCard({
   const { finding, agent } = row;
   const seen = finding.occurrences ?? 1;
 
-  const corners = { borderRadius: radius.xl };
+  const corners = { borderRadius: radius.md };
 
   // Swipe-to-dismiss — see useSwipeToCommit (swipe-row.ts) for the gesture
   // and arbitration reasoning. Same hook backs SessionCard's swipe-to-archive
@@ -204,7 +204,7 @@ export function AutoFindingCard({
             left: 0,
             backgroundColor: colors.danger,
             ...corners,
-            marginHorizontal: space.lg,
+            marginHorizontal: SESSION_ROW.inset,
             alignItems: "flex-end",
             justifyContent: "center",
             paddingRight: space.xl,
@@ -221,46 +221,58 @@ export function AutoFindingCard({
           accessibilityLabel={`${agent?.name ?? "Auto agent"} finding: ${finding.title}`}
           accessibilityState={{ expanded }}
           /**
-           * The web's AutoFindingCard, line for line: a 12pt-radius card,
-           * 12/10 padding, severity dot + agent name + age on the first
-           * line, the title on the second, indented to the name. No agent
-           * avatar — the web's row has only the dot, and the mark on the
-           * phone made this the one home row with a picture. The age is
-           * `createdAt`, as on the web; `lastSeenAt` made a recurring
-           * finding read "2h" here and "3d" there.
+           * A ROW, NOT A CARD — the web's mobile live list (the "Auto"
+           * RailGroup in web/src/App.tsx): a 6px severity dot, the agent's
+           * name, the title truncated to one line, no fill and no border at
+           * rest. It sits in the same 60pt geometry as SessionCard so the
+           * dot lands in the mark column and the Auto group reads as one
+           * more group of the same list. The old AutoFindingCard the web
+           * kept for its desktop rail is not what the phone was matching.
+           *
+           * Fixed height only while collapsed, for the same one-pass layout
+           * reason SessionCard gives; expanded grows to fit the details.
            */
           style={({ pressed }) => ({
-            marginHorizontal: space.lg,
-            paddingHorizontal: space.md,
-            paddingVertical: 10,
-            gap: space.xs,
-            borderRadius: radius.lg,
-            borderWidth: 1,
-            borderColor: colors.borderSoft,
-            backgroundColor: pressed ? colors.cardPressed : colors.card,
+            marginHorizontal: SESSION_ROW.inset,
+            paddingLeft: SESSION_ROW.padding + (SESSION_ROW.avatar - 8) / 2,
+            paddingRight: space.sm,
+            ...(expanded ? { paddingVertical: space.md } : { height: SESSION_ROW.height }),
+            justifyContent: "center",
+            ...corners,
+            backgroundColor: pressed ? colors.cardPressed : "transparent",
           })}
         >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
             <SeverityDot severity={finding.severity} />
+            <View style={{ flex: 1, gap: 1, minWidth: 0 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+                <Text
+                  numberOfLines={1}
+                  style={{ ...type.callout, fontWeight: "600", color: colors.text, flexShrink: 1 }}
+                >
+                  {agent?.name ?? "Auto agent"}
+                </Text>
+                {agent?.running ? <ActivityIndicator size="small" color={colors.primary} /> : null}
+              </View>
+              <Text
+                numberOfLines={expanded ? undefined : 1}
+                style={{ ...type.caption, fontWeight: "400", color: colors.textMuted }}
+              >
+                {finding.title}
+              </Text>
+            </View>
             <Text
               numberOfLines={1}
-              style={{ ...type.footnote, fontWeight: "600", color: colors.text, flexShrink: 1 }}
+              style={{
+                ...type.caption,
+                fontVariant: ["tabular-nums"],
+                color: colors.textMuted,
+              }}
             >
-              {agent?.name ?? "Auto agent"}
-            </Text>
-            {agent?.running ? <ActivityIndicator size="small" color={colors.primary} /> : null}
-            <Text style={{ ...type.caption, fontSize: 11, color: colors.textMuted, marginLeft: "auto" }}>
               {relativeTime(finding.createdAt ?? finding.lastSeenAt)}
             </Text>
           </View>
-          <View style={{ paddingLeft: 8 + space.sm }}>
-            <Text
-              numberOfLines={expanded ? undefined : 3}
-              style={{ ...type.footnote, color: colors.textMuted, lineHeight: 17 }}
-            >
-              {finding.title}
-            </Text>
-
+          <View style={{ paddingLeft: 8 + space.md }}>
             {expanded ? (
               <View style={{ gap: space.sm, paddingTop: space.xs }}>
                 {seen > 1 ? (
