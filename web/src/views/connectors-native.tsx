@@ -75,10 +75,54 @@ function currentUser(): string {
   return (typeof localStorage !== "undefined" && localStorage.getItem("lfg_user")) || "owner";
 }
 
+/**
+ * Who a new connector is for. Three levels: the member adding it, every
+ * member of one role, or the whole team. Sent as `role` / `org` on POST.
+ */
+export type Scope = { kind: "me" } | { kind: "role"; roleId: string } | { kind: "org" };
+
+type RoleOption = { id: string; name: string };
+
+function scopeBody(scope: Scope, user: string): { user: string; role?: string; org?: boolean } {
+  if (scope.kind === "role") return { user, role: scope.roleId };
+  if (scope.kind === "org") return { user, org: true };
+  return { user };
+}
+
+function encodeScope(scope: Scope): string {
+  return scope.kind === "role" ? `role:${scope.roleId}` : scope.kind;
+}
+
+function decodeScope(value: string): Scope {
+  if (value === "org") return { kind: "org" };
+  if (value.startsWith("role:")) return { kind: "role", roleId: value.slice(5) };
+  return { kind: "me" };
+}
+
+/** The level a stored connector lives at, from its owner bucket. */
+export function connectorLevel(owner: string, roles: RoleOption[]): { label: string; shared: boolean } {
+  if (owner === "*org*") return { label: "Team", shared: true };
+  if (owner.startsWith("role:")) {
+    const id = owner.slice(5);
+    return { label: `Role: ${roles.find((r) => r.id === id)?.name ?? id}`, shared: true };
+  }
+  return { label: "Only you", shared: false };
+}
+
 export function ConnectorsNativePanel() {
   const [connectors, setConnectors] = useState<PublicConnector[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [roles, setRoles] = useState<RoleOption[]>([]);
+  const [scope, setScope] = useState<Scope>({ kind: "me" });
   const user = useMemo(() => currentUser(), []);
+
+  useEffect(() => {
+    // Roles feed the scope picker. Owner is not a bucket; a connector for
+    // everyone is the team level.
+    void api<{ roles: RoleOption[] }>("/api/roles")
+      .then((payload) => setRoles((payload.roles ?? []).filter((r) => r.id !== "owner")))
+      .catch(() => setRoles([]));
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -98,9 +142,27 @@ export function ConnectorsNativePanel() {
   return (
     <section className="space-y-4" aria-label="Connectors">
       <p className="px-1 text-xs leading-relaxed text-muted-foreground">
-        Connectors are MCP servers you add. They are scoped to you ({user}) and shared across all of
-        your agents. Credentials stay on the box; agents never see them.
+        Connectors are MCP servers you add. Each one is for you ({user}), for every member of one role,
+        or for the whole team. Your agents see all three. Credentials stay on the box; agents never see them.
       </p>
+
+      <label className="flex items-center gap-3 rounded-2xl border border-border bg-card/40 px-4 py-2.5 text-xs">
+        <span className="shrink-0 font-medium">Add new connectors for</span>
+        <select
+          aria-label="Connector scope"
+          value={encodeScope(scope)}
+          onChange={(e) => setScope(decodeScope(e.target.value))}
+          className="h-7 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-xs"
+        >
+          <option value="me">Only me ({user})</option>
+          {roles.map((r) => (
+            <option key={r.id} value={`role:${r.id}`}>
+              Role: {r.name}
+            </option>
+          ))}
+          <option value="org">Whole team</option>
+        </select>
+      </label>
 
       <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
         {connectors === null ? (
@@ -110,23 +172,25 @@ export function ConnectorsNativePanel() {
             No connectors yet. Add one from the catalog or by URL below.
           </div>
         ) : (
-          connectors.map((c) => <ConnectorRow key={c.id} connector={c} onChanged={load} onError={setError} />)
+          connectors.map((c) => <ConnectorRow key={c.id} connector={c} roles={roles} onChanged={load} onError={setError} />)
         )}
       </div>
       {error ? <p className="px-1 text-xs text-destructive">{error}</p> : null}
 
-      <CatalogBrowser user={user} onAdded={load} />
-      <AddByUrl user={user} onAdded={load} />
+      <CatalogBrowser user={user} scope={scope} onAdded={load} />
+      <AddByUrl user={user} scope={scope} onAdded={load} />
     </section>
   );
 }
 
 function ConnectorRow({
   connector,
+  roles,
   onChanged,
   onError,
 }: {
   connector: PublicConnector;
+  roles: RoleOption[];
   onChanged: () => Promise<void>;
   onError: (m: string | null) => void;
 }) {
@@ -228,7 +292,17 @@ function ConnectorRow({
         </button>
         <Logo src={connector.icon} alt="" />
         <span className="min-w-0 flex-1">
-          <span className="block text-sm font-medium">{connector.name}</span>
+          <span className="flex items-center gap-2 text-sm font-medium">
+            <span className="truncate">{connector.name}</span>
+            {(() => {
+              const level = connectorLevel(connector.owner, roles);
+              return level.shared ? (
+                <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground" data-level={connector.owner}>
+                  {level.label}
+                </span>
+              ) : null;
+            })()}
+          </span>
           <code className="block truncate text-xs text-muted-foreground">{connector.endpoint}</code>
         </span>
         {connector.oauth ? (
@@ -287,7 +361,7 @@ function ConnectorRow({
   );
 }
 
-function AddByUrl({ user, onAdded }: { user: string; onAdded: () => Promise<void> }) {
+function AddByUrl({ user, scope, onAdded }: { user: string; scope: Scope; onAdded: () => Promise<void> }) {
   const [expanded, setExpanded] = useState(false);
   if (!expanded) {
     return (
@@ -301,10 +375,10 @@ function AddByUrl({ user, onAdded }: { user: string; onAdded: () => Promise<void
       </button>
     );
   }
-  return <AddByUrlForm user={user} onAdded={onAdded} onClose={() => setExpanded(false)} />;
+  return <AddByUrlForm user={user} scope={scope} onAdded={onAdded} onClose={() => setExpanded(false)} />;
 }
 
-function AddByUrlForm({ user, onAdded, onClose }: { user: string; onAdded: () => Promise<void>; onClose: () => void }) {
+function AddByUrlForm({ user, scope, onAdded, onClose }: { user: string; scope: Scope; onAdded: () => Promise<void>; onClose: () => void }) {
   const [name, setName] = useState("");
   const [endpoint, setEndpoint] = useState("");
   const [header, setHeader] = useState("");
@@ -324,7 +398,7 @@ function AddByUrlForm({ user, onAdded, onClose }: { user: string; onAdded: () =>
       }
       await api("/api/connectors", {
         method: "POST",
-        body: JSON.stringify({ user, name: name.trim(), endpoint: endpoint.trim(), headers }),
+        body: JSON.stringify({ ...scopeBody(scope, user), name: name.trim(), endpoint: endpoint.trim(), headers }),
       });
       setName("");
       setEndpoint("");
@@ -377,7 +451,7 @@ function AddByUrlForm({ user, onAdded, onClose }: { user: string; onAdded: () =>
   );
 }
 
-function CatalogBrowser({ user, onAdded }: { user: string; onAdded: () => Promise<void> }) {
+function CatalogBrowser({ user, scope, onAdded }: { user: string; scope: Scope; onAdded: () => Promise<void> }) {
   const [q, setQ] = useState("");
   const [results, setResults] = useState<CatalogEntry[] | null>(null);
   const [total, setTotal] = useState<number | null>(null);
@@ -414,7 +488,7 @@ function CatalogBrowser({ user, onAdded }: { user: string; onAdded: () => Promis
       await api("/api/connectors", {
         method: "POST",
         body: JSON.stringify({
-          user,
+          ...scopeBody(scope, user),
           name: entry.name,
           endpoint: entry.connectUrl,
           catalogSlug: entry.slug,

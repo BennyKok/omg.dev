@@ -12,7 +12,7 @@
 // through preserves them exactly (the Zod round-trip McpServer needs would
 // flatten them). Role filtering and approval are applied by the caller in
 // serve.ts, on the `connectors.<slug>.<tool>` id.
-import { connectorsForOwner, type Connector } from "./store.ts";
+import { connectorsForMember, type Connector } from "./store.ts";
 import { callConnectorTool, listConnectorTools } from "./hub.ts";
 
 export const NS = "__";
@@ -42,12 +42,15 @@ const runInline: ApprovalGate = async () => ({ held: false });
 
 type Rpc = { jsonrpc?: string; id?: number | string | null; method?: string; params?: Record<string, unknown> };
 
-/** The tools this owner's connectors expose, namespaced, with a slug index. */
-export async function listOwnerTools(owner: string): Promise<{
+/**
+ * The tools this member's connectors expose, namespaced, with a slug index.
+ * The member reads three buckets: team, their role (`roleId`), and their own.
+ */
+export async function listOwnerTools(owner: string, roleId?: string | null): Promise<{
   tools: { name: string; description: string; inputSchema: unknown }[];
   bySlug: Map<string, Connector>;
 }> {
-  const connectors = connectorsForOwner(owner);
+  const connectors = connectorsForMember(owner, roleId);
   const bySlug = new Map(connectors.map((c) => [c.slug, c]));
   const tools: { name: string; description: string; inputSchema: unknown }[] = [];
   for (const connector of connectors) {
@@ -68,7 +71,7 @@ export async function listOwnerTools(owner: string): Promise<{
   return { tools, bySlug };
 }
 
-async function handleMessage(msg: Rpc, owner: string, gate: ApprovalGate): Promise<Rpc | null> {
+async function handleMessage(msg: Rpc, owner: string, gate: ApprovalGate, roleId?: string | null): Promise<Rpc | null> {
   const id = msg.id ?? null;
   switch (msg.method) {
     case "initialize":
@@ -85,14 +88,14 @@ async function handleMessage(msg: Rpc, owner: string, gate: ApprovalGate): Promi
     case "notifications/cancelled":
       return null; // notifications get no response
     case "tools/list": {
-      const { tools } = await listOwnerTools(owner);
+      const { tools } = await listOwnerTools(owner, roleId);
       return { jsonrpc: "2.0", id, result: { tools } } as Rpc;
     }
     case "tools/call": {
       const name = String(msg.params?.name ?? "");
       const args = (msg.params?.arguments as Record<string, unknown>) ?? {};
       const split = splitConnectorTool(name);
-      const bySlug = new Map(connectorsForOwner(owner).map((c) => [c.slug, c]));
+      const bySlug = new Map(connectorsForMember(owner, roleId).map((c) => [c.slug, c]));
       const connector = split ? bySlug.get(split.slug) : undefined;
       if (!split || !connector) {
         return { jsonrpc: "2.0", id, result: toolError(`unknown connector tool "${name}"`) } as Rpc;
@@ -121,11 +124,12 @@ function toolError(text: string) {
   return { isError: true, content: [{ type: "text", text }] };
 }
 
-/** Answer one `/mcp/connectors` request for `owner`. */
+/** Answer one `/mcp/connectors` request for `owner`, a member in `roleId`. */
 export async function serveConnectorsMcpRequest(
   req: Request,
   owner: string,
   gate: ApprovalGate = runInline,
+  roleId?: string | null,
 ): Promise<Response> {
   if (req.method === "GET") {
     // No server-initiated stream; the client falls back to POST request/response.
@@ -142,7 +146,7 @@ export async function serveConnectorsMcpRequest(
   const messages = (batch ? parsed : [parsed]) as Rpc[];
   const responses: Rpc[] = [];
   for (const m of messages) {
-    const r = await handleMessage(m, owner, gate);
+    const r = await handleMessage(m, owner, gate, roleId);
     if (r) responses.push(r);
   }
   const headers = { "Cache-Control": "no-store" } as Record<string, string>;
