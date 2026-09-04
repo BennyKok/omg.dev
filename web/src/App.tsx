@@ -581,6 +581,7 @@ import {
   CustomInstructionsRow,
 } from "./views/custom-instructions-page";
 import { RemoteAccessSettingsSection } from "./components/remote-access-settings";
+import { CloudAccountSettingsSection } from "./components/cloud-account-settings";
 import { ConnectorsPage, ConnectorsRow } from "./views/connectors-page";
 import {
   UpdateNavButton,
@@ -28139,6 +28140,8 @@ function SettingsView({
           <ConnectorsRow onOpen={onOpenConnectors} roleCount={null} />
         </div>
       </section>
+
+      <CloudAccountSettingsSection />
 
       <RemoteAccessSettingsSection />
 
