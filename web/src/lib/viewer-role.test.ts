@@ -3,6 +3,7 @@ import { OWNER_VIEWER, applyRoleViews, type Viewer } from "./viewer-role";
 
 const settings = {
   showSidebarAgentIcons: true,
+  showSidebarFavicons: true,
   showSessionAgentIcons: true,
   showComposerModels: true,
   showComposerAgents: true,

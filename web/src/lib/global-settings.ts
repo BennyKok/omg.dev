@@ -30,6 +30,8 @@ export type GlobalSettings = {
   defaultModel: string;
   // Box-wide view switches. All true by default. See ViewPrefsContext.
   showSidebarAgentIcons: boolean;
+  // Off hides the project favicon on each session row in the sidebar.
+  showSidebarFavicons: boolean;
   showSessionAgentIcons: boolean;
   showComposerModels: boolean;
   // Off: no agent choice in the composer; every new session uses defaultAgent.
@@ -55,6 +57,7 @@ export type ViewPrefs = Pick<
   | "defaultAgent"
   | "defaultModel"
   | "showSidebarAgentIcons"
+  | "showSidebarFavicons"
   | "showSessionAgentIcons"
   | "showComposerModels"
   | "showComposerAgents"
@@ -67,6 +70,7 @@ export const DEFAULT_VIEW_PREFS: ViewPrefs = {
   defaultAgent: "",
   defaultModel: "",
   showSidebarAgentIcons: true,
+  showSidebarFavicons: true,
   showSessionAgentIcons: true,
   showComposerModels: true,
   showComposerAgents: true,

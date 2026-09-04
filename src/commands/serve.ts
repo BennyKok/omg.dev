@@ -5125,6 +5125,11 @@ a{color:#60a5fa}
               return err(400, "showSidebarAgentIcons must be a boolean");
             patch.showSidebarAgentIcons = b.showSidebarAgentIcons;
           }
+          if (b?.showSidebarFavicons !== undefined) {
+            if (typeof b.showSidebarFavicons !== "boolean")
+              return err(400, "showSidebarFavicons must be a boolean");
+            patch.showSidebarFavicons = b.showSidebarFavicons;
+          }
           if (b?.showSessionAgentIcons !== undefined) {
             if (typeof b.showSessionAgentIcons !== "boolean")
               return err(400, "showSessionAgentIcons must be a boolean");

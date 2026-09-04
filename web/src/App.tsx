@@ -13904,21 +13904,23 @@ const RailItem = memo(function RailItem({
   /** Swipe left to archive. Absent on surfaces where that is not offered. */
   onArchive?: () => void;
 }) {
-  const { showSidebarAgentIcons: showAgentIcons } = useContext(ViewPrefsContext);
+  const { showSidebarAgentIcons: showAgentIcons, showSidebarFavicons: showFavicons } =
+    useContext(ViewPrefsContext);
   const botDirectory = useContext(BotDirectoryContext);
   const drivingBotId = productBotId(session);
   const drivingBot = drivingBotId ? botDirectory.get(drivingBotId) : undefined;
   const faviconSrc = projectFaviconSrc(session.project);
   const [failedFaviconSrc, setFailedFaviconSrc] = useState<string | null>(null);
-  // The favicon follows the agent icon setting: hiding agent icons means a
-  // plain row, and a project logo is as much an identity mark as the harness.
-  const showFavicon = showAgentIcons && !!faviconSrc && failedFaviconSrc !== faviconSrc;
-  // Agent icons off means no identity mark at all in the expanded row: no
-  // harness, no favicon, and no placeholder box holding the space. Busy and
-  // blocked move to the indicator slot. A collapsed rail is only marks, so
-  // it keeps a neutral one. A bot row keeps its face; that is the bot, not
-  // an agent icon.
-  const plainRow = !drivingBot && !showAgentIcons && !collapsed;
+  // The favicon has its own switch. Favicons on with agent icons off keeps
+  // the project logo as the row's only mark, with no agent badge in the
+  // corner. Favicons off with agent icons on falls back to the harness mark.
+  const showFavicon = showFavicons && !!faviconSrc && failedFaviconSrc !== faviconSrc;
+  // Both off means no identity mark at all in the expanded row: no harness,
+  // no favicon, and no placeholder box holding the space. Busy and blocked
+  // move to the indicator slot. A collapsed rail is only marks, so it keeps
+  // a neutral one. A bot row keeps its face; that is the bot, not an agent
+  // icon.
+  const plainRow = !drivingBot && !showAgentIcons && !showFavicon && !collapsed;
   // Read state, from the roster's own set. A working session is never in that
   // set — the server holds the mark back while a turn is running, because the
   // dot means "ready for you" and a session mid-turn is not. It comes back on
@@ -28465,6 +28467,7 @@ function ViewSettingsSection({
   const { viewer: roleViewer, roles } = useContext(RoleViewerContext);
   const rows: { key: keyof ViewPrefs & `show${string}`; label: string; hint: string }[] = [
     { key: "showSidebarAgentIcons", label: "Agent icons in the sidebar", hint: "The harness mark and assignee face on each session row." },
+    { key: "showSidebarFavicons", label: "Project favicons in the sidebar", hint: "The project logo on each session row. Off shows the agent mark instead." },
     { key: "showSessionAgentIcons", label: "Agent icons in chat", hint: "The harness mark in a session's header. Off shows nothing there." },
     { key: "showSessionDiffBar", label: "Worktree diff badge in chat", hint: "The floating changes bar above the composer." },
     { key: "showComposerAgents", label: "Agent picker in the composer", hint: "Off: every new session uses the default agent." },
