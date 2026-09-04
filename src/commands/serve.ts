@@ -39,6 +39,7 @@ import {
   createConnector,
   deleteConnector,
   getConnector,
+  deleteConnectorsForOwner,
   listConnectors,
   ownerForUser,
   roleOwner,
@@ -4386,6 +4387,14 @@ export async function cmdServe() {
             if (row.role === m[1]) patchManaged(row.tmuxName, { role: undefined });
           }
           invalidateListSessionsCache();
+          // The role's connector bucket goes with it: no member can read a
+          // `role:<id>` bucket for a role that no longer exists. Drop the
+          // stored OAuth tokens and any live hub client for each one.
+          const { clearOAuth } = await import("@omg-dev/connectors");
+          for (const connector of deleteConnectorsForOwner(roleOwner(m[1]!))) {
+            clearOAuth(connector.id);
+            await resetConnector(connector.id);
+          }
           return json({ ok: true });
         }
       }

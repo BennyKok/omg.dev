@@ -10,6 +10,7 @@ import {
   roleOwner,
   createConnector,
   deleteConnector,
+  deleteConnectorsForOwner,
   getConnector,
   listConnectors,
   publicView,
@@ -70,6 +71,18 @@ describe("connector store", () => {
 
     // The UI list keeps the shadowed role GitHub so it can be managed.
     expect(listConnectors("benny", "support").filter((c) => c.slug === "github")).toHaveLength(2);
+  });
+
+  test("deleting a role bucket removes only that role's connectors", () => {
+    createConnector({ owner: roleOwner("support"), name: "Desk", endpoint: "https://r/mcp" });
+    createConnector({ owner: roleOwner("support"), name: "Zendesk", endpoint: "https://r2/mcp" });
+    createConnector({ owner: roleOwner("design"), name: "Figma", endpoint: "https://d/mcp" });
+    createConnector({ owner: "benny", name: "Own", endpoint: "https://o/mcp" });
+
+    const removed = deleteConnectorsForOwner(roleOwner("support"));
+    expect(removed.map((c) => c.name).sort()).toEqual(["Desk", "Zendesk"]);
+    expect(listConnectors().map((c) => c.name).sort()).toEqual(["Figma", "Own"]);
+    expect(deleteConnectorsForOwner(roleOwner("support"))).toEqual([]);
   });
 
   test("public view strips header secrets", () => {
