@@ -10009,7 +10009,7 @@ function PagesMenu({
     tab === "artifacts" ||
     tab === "computer" ||
     tab === "board" ||
-    (showSettings && tab === "settings");
+    (showSettings && (tab === "settings" || tab === "usage" || tab === "storage"));
   const value = known || extraTabs.some((t) => t.id === tab) ? tab : "live";
   // Controlled so a selection dismisses the menu. Radio items don't close on
   // their own — correct for a filter, wrong here: the selection navigates, and
@@ -10082,6 +10082,16 @@ function PagesMenu({
               <DropdownMenuRadioItem value="settings">
                 <Settings className="size-5 shrink-0 text-muted-foreground" />
                 Settings
+              </DropdownMenuRadioItem>
+              {/* Two Settings sub-pages Sam opens often enough that the
+                  detour through Settings cost more than it was worth. */}
+              <DropdownMenuRadioItem value="usage">
+                <Gauge className="size-5 shrink-0 text-muted-foreground" />
+                Usage limits
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="storage">
+                <HardDrive className="size-5 shrink-0 text-muted-foreground" />
+                Storage & performance
               </DropdownMenuRadioItem>
             </>
           ) : null}
