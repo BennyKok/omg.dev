@@ -233,7 +233,9 @@ function artifactIdFromUrl(url?: string): string | null {
 }
 
 function mediaIdentity(message: { kind?: string; id?: string | null; artifactId?: string; url?: string; ts?: number | null; name?: string; size?: number; text?: string }): string | null {
-  if (message.kind !== "image" && message.kind !== "video") return message.id ?? null;
+  if (message.kind !== "image" && message.kind !== "video" && message.kind !== "file") {
+    return message.id ?? null;
+  }
   const artifactId = message.artifactId || artifactIdFromUrl(message.url);
   if (artifactId) return `artifact-${artifactId}`;
   if (message.url) return `media-${message.kind}-${message.url}`;

@@ -166,6 +166,7 @@ import {
   AuthenticatedArtifactImage,
   AuthenticatedArtifactVideo,
 } from "./components/authenticated-artifact";
+import { ArtifactFileCard } from "./components/artifact-file-card";
 import {
   NativeArtifact,
   NativeArtifactEmbed,
@@ -1820,6 +1821,16 @@ function ArtifactViewerPage({
               title={label}
               onNeedsFrame={setFramed}
               className={cn("block w-full", framed && "h-full")}
+            />
+          </div>
+        ) : artifact.kind === "file" ? (
+          <div className="flex h-full items-start justify-center overflow-auto bg-background p-4">
+            <ArtifactFileCard
+              url={artifact.url}
+              name={artifact.name}
+              mimeType={artifact.mimeType}
+              size={artifact.size}
+              caption={artifact.caption}
             />
           </div>
         ) : artifact.kind === "video" ? (
@@ -20295,6 +20306,22 @@ const MessageBubble = memo(function MessageBubble({
     );
   }
 
+  if (message.kind === "file" && message.url) {
+    return (
+      <AiMessage className={cn("msg", entering && "lfg-msg-in")} from="assistant">
+        <MessageContent className="not-prose w-full max-w-[min(42rem,92vw)] p-0">
+          <ArtifactFileCard
+            url={message.url}
+            name={message.name}
+            mimeType={message.mimeType}
+            size={message.size}
+            caption={message.caption || message.text || message.alt}
+          />
+        </MessageContent>
+      </AiMessage>
+    );
+  }
+
   if ((message.kind === "image" || message.kind === "video") && message.url) {
     const isVideo = message.kind === "video";
     const label =
@@ -27131,7 +27158,7 @@ function UsagePage() {
 
 export type GalleryArtifact = {
   id: string;
-  kind: "image" | "video" | "html";
+  kind: "image" | "video" | "html" | "file";
   url: string;
   name: string;
   title?: string;
@@ -27151,10 +27178,12 @@ export type GalleryArtifact = {
 
 export type ShipMediaItem = {
   artifactId: string;
-  kind: "image" | "video" | "html";
+  kind: "image" | "video" | "html" | "file";
   url: string;
   name: string;
   caption?: string;
+  mimeType?: string;
+  size?: number;
   version?: number;
   updatedAt?: number;
   lastRefreshedAt?: number;

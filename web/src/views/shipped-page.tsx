@@ -7,6 +7,7 @@ import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from
 import {
   CheckCheck,
   ChevronRight,
+  FileText,
   LayoutDashboard,
   Loader2,
   MessageSquareText,
@@ -95,6 +96,8 @@ function ShipMediaThumb({
       kind: item.kind,
       caption: item.caption,
       name: item.name,
+      mimeType: item.mimeType,
+      size: item.size,
       version: item.version,
       cacheKey: item.updatedAt,
     });
@@ -119,6 +122,10 @@ function ShipMediaThumb({
         // fetch + parse per row. The Artifacts page is where previews belong.
         <span className="flex size-full items-center justify-center bg-primary/10 text-primary">
           <LayoutDashboard className="size-4" />
+        </span>
+      ) : item.kind === "file" ? (
+        <span className="flex size-full items-center justify-center bg-muted text-muted-foreground">
+          <FileText className="size-4" />
         </span>
       ) : (
         <span className="flex size-full items-center justify-center bg-black/80 text-white/80">

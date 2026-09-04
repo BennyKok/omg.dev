@@ -59,10 +59,12 @@ export type ShipPostHydrated = Omit<ShipPostRevision, "media"> & {
   firstTs: number;
   mediaItems: Array<{
     artifactId: string;
-    kind: "image" | "video" | "html";
+    kind: "image" | "video" | "html" | "file";
     url: string;
     name: string;
     caption?: string;
+    mimeType?: string;
+    size?: number;
     version?: number;
     updatedAt?: number;
     lastRefreshedAt?: number;
@@ -306,10 +308,12 @@ export function listShipPosts(
           const message = imageArtifactToMessage(artifact);
           return {
             artifactId: id,
-            kind: (artifact.media ?? "image") as "image" | "video" | "html",
+            kind: (artifact.media ?? "image") as "image" | "video" | "html" | "file",
             url: message.url,
             name: artifact.name,
             caption: artifact.caption,
+            mimeType: artifact.mimeType,
+            size: artifact.size,
             version: artifact.version,
             updatedAt: artifact.updatedAt ?? artifact.createdAt,
             lastRefreshedAt: artifact.refresh?.lastSuccessAt,

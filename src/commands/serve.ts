@@ -517,8 +517,10 @@ import {
   type GlobalSettings,
 } from "../settings.ts";
 import { listSkillCatalog, searchSkillCatalog, withoutSkillKeywords } from "../skills-catalog.ts";
+import { contentDisposition } from "../artifact-headers.ts";
 import {
   collapseArtifactRetryMessages,
+  createFileArtifact,
   createImageArtifact,
   createVideoArtifact,
   deleteArtifact,
@@ -8997,12 +8999,23 @@ a{color:#60a5fa}
               },
             });
           }
+          // A "file" artifact is never rendered by omg.dev, only downloaded.
+          // These bytes are agent-chosen and are served from the app's own
+          // origin, so anything the browser would INTERPRET here is something
+          // the agent can execute as the user. Forcing the attachment for the
+          // whole kind means there is no allowlist to keep correct: a `.html`
+          // or `.svg` the agent wrote is saved, never run. Do not relax this
+          // to add an inline preview without solving that first.
+          const isFileArtifact = (artifact.media ?? "image") === "file";
           const baseHeaders: Record<string, string> = {
             "Content-Type": contentType,
             "Cache-Control": "private, max-age=31536000, immutable",
             "X-Content-Type-Options": "nosniff",
             // Video seeking (and Safari playback) needs byte-range support.
             "Accept-Ranges": "bytes",
+            ...(isFileArtifact
+              ? { "Content-Disposition": contentDisposition("attachment", artifact.name) }
+              : {}),
           };
           // Honor a single-range request so the <video> element can seek without
           // re-downloading the whole file. Bun.file().slice() streams the slice.
@@ -9199,6 +9212,35 @@ a{color:#60a5fa}
             return json({ ok: true, artifact, message: imageArtifactToMessage(artifact), indexed: true });
           } catch (e) {
             return err(400, e instanceof Error ? e.message : "could not create video artifact");
+          }
+        }
+      }
+
+      {
+        // Any other file the agent wants to put in front of the user: a PDF,
+        // an audio clip, a CSV, an archive. One route for all of them — the
+        // stored mime type, not the artifact kind, decides the presentation.
+        const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/artifacts\/files$/);
+        if (m && req.method === "POST") {
+          const body = (await req.json().catch(() => null)) as {
+            path?: string;
+            caption?: string;
+            alt?: string;
+          } | null;
+          if (!body?.path?.trim()) return err(400, "path required");
+          try {
+            const transcriptPath = await resolveTranscript(m[1]);
+            const indexPath = transcriptPath ?? sessionIndexKey(m[1]);
+            const artifact = createFileArtifact({
+              sessionId: m[1],
+              path: body.path,
+              caption: body.caption,
+              alt: body.alt,
+            });
+            indexArtifactMessage(indexPath, m[1], artifact);
+            return json({ ok: true, artifact, message: imageArtifactToMessage(artifact), indexed: true });
+          } catch (e) {
+            return err(400, e instanceof Error ? e.message : "could not create file artifact");
           }
         }
       }
