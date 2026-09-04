@@ -34,6 +34,7 @@ export type RoleViews = { hide: ViewToggleKey[]; hiddenPages: string[] };
 /** Same rows as Settings > View. A role can only turn a switch off. */
 export const VIEW_TOGGLE_ROWS: { key: ViewToggleKey; label: string }[] = [
   { key: "showSidebarAgentIcons", label: "Agent icons in the sidebar" },
+  { key: "showSidebarFavicons", label: "Project favicons in the sidebar" },
   { key: "showSessionAgentIcons", label: "Agent icons in chat" },
   { key: "showSessionDiffBar", label: "Worktree diff badge in chat" },
   { key: "showComposerAgents", label: "Agent picker in the composer" },

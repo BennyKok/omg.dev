@@ -61,6 +61,8 @@ export type GlobalSettings = {
   // hides the piece of UI for every viewer of this box; a role system will
   // decide per viewer later, so these are plain box-wide switches for now.
   showSidebarAgentIcons: boolean;
+  // Off hides the project favicon on each session row in the sidebar.
+  showSidebarFavicons: boolean;
   showSessionAgentIcons: boolean;
   showComposerModels: boolean;
   // Off forces every new session onto defaultAgent; the composer shows no
@@ -170,6 +172,7 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
     : "";
   // Missing means on: a box that predates these keys must not lose UI.
   const showSidebarAgentIcons = input?.showSidebarAgentIcons !== false;
+  const showSidebarFavicons = input?.showSidebarFavicons !== false;
   const showSessionAgentIcons = input?.showSessionAgentIcons !== false;
   const showComposerModels = input?.showComposerModels !== false;
   const showComposerAgents = input?.showComposerAgents !== false;
@@ -190,6 +193,7 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
     defaultAgent,
     defaultModel,
     showSidebarAgentIcons,
+    showSidebarFavicons,
     showSessionAgentIcons,
     showComposerModels,
     showComposerAgents,
@@ -304,6 +308,7 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
     write.run("defaultAgent", JSON.stringify(next.defaultAgent), now);
     write.run("defaultModel", JSON.stringify(next.defaultModel), now);
     write.run("showSidebarAgentIcons", JSON.stringify(next.showSidebarAgentIcons), now);
+    write.run("showSidebarFavicons", JSON.stringify(next.showSidebarFavicons), now);
     write.run("showSessionAgentIcons", JSON.stringify(next.showSessionAgentIcons), now);
     write.run("showComposerModels", JSON.stringify(next.showComposerModels), now);
     write.run("showComposerAgents", JSON.stringify(next.showComposerAgents), now);

@@ -6,6 +6,7 @@
 
 export const VIEW_TOGGLE_KEYS = [
   "showSidebarAgentIcons",
+  "showSidebarFavicons",
   "showSessionAgentIcons",
   "showComposerModels",
   "showComposerAgents",

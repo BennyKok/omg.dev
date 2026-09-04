@@ -64,6 +64,7 @@ export type NetworkMode = "shared" | "allowlist";
 /** The box-wide view switches a role may turn off (src/settings.ts). */
 export const VIEW_TOGGLE_KEYS = [
   "showSidebarAgentIcons",
+  "showSidebarFavicons",
   "showSessionAgentIcons",
   "showComposerModels",
   "showComposerAgents",
