@@ -284,6 +284,14 @@ import {
 import { findingReference } from "./lib/finding-reference";
 import { buildAutoTriagePrompt, resolveAutoTriageCwd } from "./lib/auto-triage";
 import { resolveComposerRepo } from "./lib/composer-repo";
+import type { ComputerInspectionSession } from "./views/computer-inspection-control";
+import { SessionComputerInspectionAction } from "./views/session-computer-inspection-action";
+import {
+  fetchSessionInspectionUrl,
+  readSessionInspectionTarget,
+  resolveSessionInspectionUrl,
+  stashSessionInspectionTarget,
+} from "./lib/session-inspection-target";
 import {
   browseFolderWithRecovery,
   folderRecoveryNotice,
@@ -5875,6 +5883,12 @@ export function App() {
   // ours — leaves the session instead of the app, and so the transcript can be
   // linked to. `pathnameToTab` keeps Live selected underneath it.
   const openSessionId = pathnameToSessionId(pathname);
+  // Design Mode is launched by one session composer. The URL keeps that
+  // session as the immutable target across the Computer page and gives mobile
+  // browser back a real route to leave. A generic /computer visit has no
+  // inspection target and therefore no ambiguous fleet-wide picker.
+  const computerInspectSessionId =
+    tab === "computer" ? routeSearch.inspectSession ?? null : null;
   // Carry the host-mode contract across the navigation, the same as setTab
   // does: the router clears search when none is supplied, and dropping `embed`
   // brings LFG back up as a standalone app inside omg.
@@ -6909,6 +6923,36 @@ export function App() {
   const liveStatusIds = useMemo(
     () => allLiveSessions.map((s) => s.sessionId).filter((id): id is string => !!id),
     [allLiveSessions],
+  );
+  const computerInspectionSessions = useMemo<ComputerInspectionSession[]>(
+    () =>
+      allLiveSessions.flatMap((session) =>
+        session.sessionId
+          ? [
+              {
+                sessionId: session.sessionId,
+                title: session.title || session.project || session.agent || "Agent session",
+                project: session.project || "Unknown project",
+              },
+            ]
+          : [],
+      ),
+    [allLiveSessions],
+  );
+  const computerInspectionTarget = useMemo(
+    () => {
+      if (!computerInspectSessionId) return null;
+      const session = computerInspectionSessions.find(
+        (candidate) => candidate.sessionId === computerInspectSessionId,
+      );
+      return session
+        ? {
+            ...session,
+            pageUrl: readSessionInspectionTarget(session.sessionId),
+          }
+        : null;
+    },
+    [computerInspectSessionId, computerInspectionSessions],
   );
   const openHistoricalSession = useCallback(
     (source: {
@@ -9148,7 +9192,19 @@ export function App() {
           <Suspense
             fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}
           >
-            <ComputerPage active onClose={() => setTab("live")} />
+            <ComputerPage
+              active
+              inspectionSession={computerInspectionTarget}
+              autoStartInspection={!!computerInspectionTarget}
+              onInspectionReady={openSessionPage}
+              onInspectionCancelled={openSessionPage}
+              onClose={() => {
+                if (computerInspectionTarget) {
+                  openSessionPage(computerInspectionTarget.sessionId);
+                }
+                else setTab("live");
+              }}
+            />
           </Suspense>
         ) : null}
         {tab === "board" && !boardInWorkspace ? (
@@ -15312,6 +15368,7 @@ function SessionChatBody({
   beforeComposer,
 }: SessionChatProps) {
   const sid = session.sessionId;
+  const chatNavigate = useNavigate();
   const reviewingShipped = !!session.shippedReview;
   // Open ask-user questions raised BY this session. The conversation shows them
   // above the composer (SessionQuestionPanel) and the composer is their reply
@@ -15369,11 +15426,16 @@ function SessionChatBody({
   const chat = useOmgChat();
   const { messages: uiMessages, setMessages, sendMessage: sendChatMessage, status: chatStatus } = chat;
   const chatMessages = useMemo(() => omgUIMessagesToMessages(uiMessages), [uiMessages]);
+  const inspectionPageUrl = useMemo(
+    () => resolveSessionInspectionUrl(chatMessages),
+    [chatMessages],
+  );
   // Busy straight from the transcript subscription: the harness flips it the
   // moment it starts a turn, ahead of the ~1s status-poll row that feeds the
   // `busy` prop, so the working indicator tracks the session even for turns
   // driven from another device (where chatStatus never leaves "ready").
   const [liveBusy, setLiveBusy] = useState(false);
+  const [inspectionOpening, setInspectionOpening] = useState(false);
   const chatBusy = busy || liveBusy || chatStatus === "submitted" || chatStatus === "streaming";
   const setMessageText = useCallback(
     (text: string) => {
@@ -15407,6 +15469,38 @@ function SessionChatBody({
     );
   }, [typingIds, session]);
 
+  const openComputerInspection = useCallback(
+    async (sessionId: string, pageUrl: string | null) => {
+      if (!sessionId || sessionId !== sid) return;
+      setInspectionOpening(true);
+      try {
+        // The browser cache can contain only the recent end of a long chat and
+        // session titles are display-clipped. Resolve against the server
+        // transcript at click time so `github.com/st` can never replace the
+        // complete user URL merely because it fits in the title.
+        const resolvedPageUrl = await fetchSessionInspectionUrl(
+          sessionId,
+          chatMessages,
+        ).catch(() => pageUrl);
+        // Keep the page target out of browser history: query strings can carry
+        // private state. The route only exposes the immutable return session.
+        stashSessionInspectionTarget(sessionId, resolvedPageUrl);
+        haptic("selection");
+        await chatNavigate({
+          to: "/$tab",
+          params: { tab: "computer" },
+          search: (previous) => ({
+            ...(previous.embed ? { embed: true } : {}),
+            ...(previous.embedOrigin ? { embedOrigin: previous.embedOrigin } : {}),
+            inspectSession: sessionId,
+          }),
+        });
+      } finally {
+        setInspectionOpening(false);
+      }
+    },
+    [chatMessages, chatNavigate, sid],
+  );
   const setDictatedMessageText = useCallback(
     (text: string, base: string) => {
       setMessageText(base.trim() ? `${base.trimEnd()} ${text}` : text);
@@ -15418,7 +15512,11 @@ function SessionChatBody({
   // SessionChat can be reused as the focused card changes. Recover that
   // session's own draft instead of carrying text across cards.
   useEffect(() => {
-    setMessageTextState(readPromptDraft(stashContext)?.text ?? "");
+    const draft = readPromptDraft(stashContext)?.text ?? "";
+    setMessageTextState(draft);
+    if (draft.includes("<computer_inspection_context>")) {
+      setDictationScrollNonce((nonce) => nonce + 1);
+    }
   }, [stashContext]);
 
   // Closing the card, or switching it to another session, ends any claim this
@@ -15429,6 +15527,21 @@ function SessionChatBody({
     if (!sid || !onTyping) return;
     return () => onTyping(sid, false);
   }, [onTyping, sid]);
+
+  // Design Mode can populate this session while the Computer page is visible.
+  // Prompt stash is the durable cross-page handoff; this event also updates an
+  // already-mounted composer immediately without sending anything to the agent.
+  useEffect(() => {
+    const refreshDraft = () => {
+      const draft = readPromptDraft(stashContext)?.text ?? "";
+      setMessageTextState(draft);
+      if (draft.includes("<computer_inspection_context>")) {
+        setDictationScrollNonce((nonce) => nonce + 1);
+      }
+    };
+    window.addEventListener(PROMPT_STASH_EVENT, refreshDraft);
+    return () => window.removeEventListener(PROMPT_STASH_EVENT, refreshDraft);
+  }, [stashContext]);
 
   useEffect(() => {
     if (!sid) {
@@ -15814,6 +15927,15 @@ function SessionChatBody({
             >
               <Plus className="size-4" />
             </Button>
+            {sid ? (
+              <SessionComputerInspectionAction
+                sessionId={sid}
+                sessionTitle={session.title || session.project || "Current session"}
+                pageUrl={inspectionPageUrl}
+                disabled={sending || historyLoading || inspectionOpening}
+                onOpen={openComputerInspection}
+              />
+            ) : null}
             <ComposerTextarea
               textareaRef={messageInputRef}
               data-composer-sid={sid}
@@ -16983,130 +17105,6 @@ function SessionTitleSheet({
       fill: "both",
     });
   }, [flipTransform, onClose]);
-
-  // Full-details-only gesture: swipe up from the session composer to dismiss
-  // the zoomed-in sheet. This deliberately starts only from the input bar area,
-  // leaving transcript scroll and header touches alone.
-  useEffect(() => {
-    const panel = panelRef.current;
-    if (!panel) return;
-    const DISMISS_Y = 88;
-    const VELOCITY = 0.45; // px/ms
-    const st = { active: false, decided: false, dismissing: false, x0: 0, y0: 0, y: 0, t0: 0 };
-    const setY = (y: number, animate = false) => {
-      panel.style.transition = animate
-        ? "transform 180ms cubic-bezier(0.22,1,0.36,1), opacity 180ms ease"
-        : "none";
-      panel.style.transform = y ? `translate3d(0, ${y}px, 0)` : "";
-      panel.style.opacity = y ? `${1 - Math.min(0.16, Math.abs(y) / 1200)}` : "";
-    };
-    const finishDismiss = () => {
-      if (closingRef.current) return;
-      closingRef.current = true;
-      haptic("selection");
-      const backdrop = backdropRef.current;
-      const body = bodyRef.current;
-      let done = false;
-      const finish = () => {
-        if (done) return;
-        done = true;
-        onClose();
-      };
-      panel.getAnimations().forEach((animation) => animation.cancel());
-      panel.style.transition =
-        "transform 300ms cubic-bezier(0.32,0.72,0,1), opacity 220ms ease-out";
-      panel.style.transform = "translate3d(0, -105%, 0)";
-      panel.style.opacity = "0.92";
-      const onTransitionEnd = (event: TransitionEvent) => {
-        if (event.propertyName !== "transform") return;
-        panel.removeEventListener("transitionend", onTransitionEnd);
-        finish();
-      };
-      panel.addEventListener("transitionend", onTransitionEnd);
-      window.setTimeout(finish, 340);
-      if (backdrop) {
-        backdrop.style.transition = "opacity 240ms ease-out";
-        backdrop.style.opacity = "0";
-      }
-      if (body) {
-        body.style.transition = "transform 260ms cubic-bezier(0.32,0.72,0,1), opacity 180ms ease-out";
-        body.style.transform = "translate3d(0, -18px, 0)";
-        body.style.opacity = "0";
-      }
-    };
-    const onStart = (event: TouchEvent) => {
-      if (closingRef.current || event.touches.length !== 1) return;
-      const target = event.target as HTMLElement | null;
-      if (!target?.closest("form")) return;
-      const touch = event.touches[0];
-      st.active = true;
-      st.decided = false;
-      st.dismissing = false;
-      st.x0 = touch.clientX;
-      st.y0 = touch.clientY;
-      st.y = 0;
-      st.t0 = performance.now();
-      panel.getAnimations().forEach((animation) => {
-        if (animation.playState !== "finished") animation.cancel();
-      });
-      setY(0);
-    };
-    const onMove = (event: TouchEvent) => {
-      if (!st.active) return;
-      const touch = event.touches[0];
-      const dx = touch.clientX - st.x0;
-      const dy = touch.clientY - st.y0;
-      if (!st.decided) {
-        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
-        st.decided = true;
-        st.dismissing = dy < 0 && Math.abs(dy) > Math.abs(dx) * 1.2;
-        if (!st.dismissing) {
-          st.active = false;
-          return;
-        }
-      }
-      if (!st.dismissing) return;
-      event.preventDefault();
-      st.y = -Math.min(Math.abs(dy), window.innerHeight * 0.6);
-      setY(st.y);
-      const backdrop = backdropRef.current;
-      if (backdrop) backdrop.style.opacity = `${1 - Math.min(0.35, Math.abs(st.y) / 520)}`;
-    };
-    const onEnd = () => {
-      if (!st.active) return;
-      st.active = false;
-      const dt = Math.max(1, performance.now() - st.t0);
-      const velocity = st.y / dt;
-      if (st.dismissing && (st.y <= -DISMISS_Y || velocity <= -VELOCITY)) {
-        finishDismiss();
-        return;
-      }
-      setY(0, true);
-      const backdrop = backdropRef.current;
-      if (backdrop) {
-        backdrop.style.transition = "opacity 180ms ease";
-        backdrop.style.opacity = "";
-        window.setTimeout(() => {
-          backdrop.style.transition = "";
-        }, 200);
-      }
-      window.setTimeout(() => {
-        panel.style.transition = "";
-        panel.style.transform = "";
-        panel.style.opacity = "";
-      }, 200);
-    };
-    panel.addEventListener("touchstart", onStart, { passive: true });
-    panel.addEventListener("touchmove", onMove, { passive: false });
-    panel.addEventListener("touchend", onEnd, { passive: true });
-    panel.addEventListener("touchcancel", onEnd, { passive: true });
-    return () => {
-      panel.removeEventListener("touchstart", onStart);
-      panel.removeEventListener("touchmove", onMove);
-      panel.removeEventListener("touchend", onEnd);
-      panel.removeEventListener("touchcancel", onEnd);
-    };
-  }, [onClose]);
 
   // Escape-to-close, arrow-keys-to-switch + lock background scroll while open.
   useEffect(() => {

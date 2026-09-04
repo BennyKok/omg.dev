@@ -14,8 +14,20 @@ import type React from "react";
 import RFB from "@novnc/novnc";
 import { Keyboard, Loader2, MousePointer2, Power, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  computerInspectionDraft,
+  inspectionPngBlob,
+  mergeComputerInspectionDraft,
+  type ComputerInspectionResult,
+} from "@/lib/computer-inspection-draft";
+import { navigateComputerToInspectionTarget } from "@/lib/computer-inspection-navigation";
 import { omgFetch, openOmgSocket } from "@/lib/omg-client";
+import { readPromptDraft, stashPromptDraft } from "@/lib/prompt-stash";
 import { RfbChannel } from "@/lib/rfb-channel";
+import {
+  ComputerInspectionControl,
+  type ComputerInspectionSession,
+} from "./computer-inspection-control";
 
 interface DepReport {
   ok: boolean;
@@ -32,14 +44,41 @@ interface ComputerStatus {
   height: number;
   startedAt: number | null;
   deps: DepReport;
+  inspection?: {
+    active: boolean;
+    startedAt: number | null;
+  };
 }
 
 type Phase = "idle" | "starting" | "connecting" | "live" | "stopping";
 
-export function ComputerPage({ active, onClose }: { active: boolean; onClose?: () => void }) {
+// noVNC 1.7 exposes these documented runtime properties, but the package's
+// bundled declaration still omits two of them. Keep the compatibility cast at
+// this narrow boundary instead of weakening the component's RFB ref type.
+type RfbViewportControls = RFB & {
+  clipViewport: boolean;
+  dragViewport: boolean;
+};
+
+export function ComputerPage({
+  active,
+  onClose,
+  inspectionSession = null,
+  autoStartInspection = false,
+  onInspectionReady,
+  onInspectionCancelled,
+}: {
+  active: boolean;
+  onClose?: () => void;
+  inspectionSession?: ComputerInspectionSession | null;
+  autoStartInspection?: boolean;
+  onInspectionReady?: (sessionId: string) => void;
+  onInspectionCancelled?: (sessionId: string) => void;
+}) {
   const [status, setStatus] = useState<ComputerStatus | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [inspectionStarting, setInspectionStarting] = useState(false);
   // Read-only is the safe default for a shared screen: opening the tab should
   // not let a stray click land on whatever the agent is doing mid-task.
   const [viewOnly, setViewOnly] = useState(true);
@@ -66,6 +105,7 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
   // real mouse events, so we keep a position here and synthesize events at it.
   const cursorRef = useRef<{ x: number; y: number } | null>(null);
   const touchRef = useRef<{ x: number; y: number; moved: boolean; at: number } | null>(null);
+  const autoStartedForRef = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -80,7 +120,7 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
   useEffect(() => {
     if (!active) return;
     void refresh();
-    const t = setInterval(() => void refresh(), 5000);
+    const t = setInterval(() => void refresh(), 2000);
     return () => clearInterval(t);
   }, [active, refresh]);
 
@@ -100,10 +140,19 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
     setError(null);
     try {
       const socket = await openOmgSocket("/api/computer");
-      const rfb = new RFB(screenRef.current, new RfbChannel(socket) as unknown as object, {
-        shared: true,
-      });
-      rfb.scaleViewport = true;
+      const rfb = new RFB(
+        screenRef.current,
+        new RfbChannel(socket) as unknown as object,
+        { shared: true },
+      ) as RfbViewportControls;
+      const panInspection = !!inspectionSession && trackpad;
+      // A desktop shrunk to 374x234 was technically complete and practically
+      // untappable in the user's phone recording. In finger-driven inspection
+      // show the remote pixels at readable size: a drag pans the clipped
+      // desktop and a tap still selects through noVNC's own gesture handler.
+      rfb.scaleViewport = !panInspection;
+      rfb.clipViewport = panInspection;
+      rfb.dragViewport = panInspection;
       rfb.background = "#0b0b0d";
       // Without this the remote cursor can be invisible, which makes a relative
       // pointer impossible to aim.
@@ -119,7 +168,22 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
       setPhase("idle");
       setError(e instanceof Error ? e.message : "could not open the screen");
     }
-  }, [viewOnly]);
+  }, [viewOnly, inspectionSession, trackpad]);
+
+  useEffect(() => {
+    const rfb = rfbRef.current as RfbViewportControls | null;
+    if (!rfb) return;
+    const panInspection = !!inspectionSession && trackpad;
+    if (panInspection) {
+      rfb.scaleViewport = false;
+      rfb.clipViewport = true;
+      rfb.dragViewport = true;
+    } else {
+      rfb.dragViewport = false;
+      rfb.clipViewport = false;
+      rfb.scaleViewport = true;
+    }
+  }, [inspectionSession, trackpad]);
 
   // Keep the live connection's input mode in sync with the toggle.
   useEffect(() => {
@@ -285,9 +349,141 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
     }
   };
 
+  const cancelInspection = async () => {
+    try {
+      const res = await omgFetch("/api/computer/browser/inspect/cancel", { method: "POST" });
+      if (!res.ok) throw new Error((await res.text()) || "failed to cancel inspection");
+      await refresh();
+      if (inspectionSession) onInspectionCancelled?.(inspectionSession.sessionId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to cancel inspection");
+    }
+  };
+
+  const startInspection = async () => {
+    const target = inspectionSession;
+    if (!target) {
+      setError("Open Design Mode from the session that should receive the element.");
+      return;
+    }
+
+    setInspectionStarting(true);
+    setError(null);
+    // Pointing at the remote page is the purpose of this action. Make the RFB
+    // bridge writable immediately as well as updating React state, so the first
+    // click cannot be swallowed by the previous view-only mode.
+    if (rfbRef.current) rfbRef.current.viewOnly = false;
+    setViewOnly(false);
+
+    try {
+      // The shared Computer remembers its last global tab. Bind the source as
+      // well as the destination: a session-provided URL must replace stale
+      // browser state before the blocking element picker is armed.
+      await navigateComputerToInspectionTarget(target.pageUrl);
+      const response = await omgFetch("/api/computer/browser/inspect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timeoutMs: 120_000 }),
+      });
+      if (!response.ok) {
+        throw new Error((await response.text()) || "element inspection failed");
+      }
+      const inspection = (await response.json()) as ComputerInspectionResult;
+      if (inspection.status === "cancelled") {
+        onInspectionCancelled?.(target.sessionId);
+        return;
+      }
+      if (inspection.status !== "selected" || !inspection.selector) {
+        throw new Error("the page returned no selected element");
+      }
+
+      let screenshotPath: string | undefined;
+      if (inspection.screenshotBase64) {
+        const filename = `computer-design-mode-${Date.now()}.png`;
+        const uploaded = await omgFetch(
+          `/api/sessions/${encodeURIComponent(target.sessionId)}/upload?filename=${encodeURIComponent(filename)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "image/png" },
+            body: inspectionPngBlob(inspection.screenshotBase64),
+          },
+        );
+        if (!uploaded.ok) {
+          throw new Error((await uploaded.text()) || "could not persist the element crop");
+        }
+        const saved = (await uploaded.json()) as { path?: string };
+        if (!saved.path) throw new Error("the crop upload returned no file path");
+        screenshotPath = saved.path;
+      }
+
+      const contextKey = `session:${target.sessionId}`;
+      const inspectionDraft = computerInspectionDraft(inspection, screenshotPath);
+      stashPromptDraft({
+        contextKey,
+        source: "session",
+        text: mergeComputerInspectionDraft(
+          inspectionDraft,
+          readPromptDraft(contextKey)?.text,
+        ),
+        sessionId: target.sessionId,
+        sessionTitle: target.title,
+        project: target.project,
+      });
+      onInspectionReady?.(target.sessionId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "element inspection failed");
+    } finally {
+      setInspectionStarting(false);
+      void refresh();
+    }
+  };
+
 
   const deps = status?.deps;
   const running = !!status?.running;
+
+  // Session-first is intentionally one action: the session composer names the
+  // immutable target, navigation opens Computer, and selection arms as soon as
+  // the RFB screen is live. The ref prevents 2s status polls from launching a
+  // second blocking inspection request for the same route.
+  useEffect(() => {
+    const sessionId = inspectionSession?.sessionId;
+    if (
+      !active ||
+      !autoStartInspection ||
+      !sessionId ||
+      !running ||
+      phase !== "live" ||
+      status?.inspection?.active ||
+      inspectionStarting ||
+      autoStartedForRef.current === sessionId
+    ) {
+      return;
+    }
+    autoStartedForRef.current = sessionId;
+    void startInspection();
+    // startInspection intentionally belongs to this route attempt. Depending
+    // on its render identity would re-arm the blocking request every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    active,
+    autoStartInspection,
+    inspectionSession?.sessionId,
+    inspectionStarting,
+    phase,
+    running,
+    status?.inspection?.active,
+  ]);
+
+  // Browser back and the mobile back gesture unmount this page. Cancel the
+  // outstanding server-side inspection as cleanup so the shared Computer is
+  // never left behind in a two-minute selection mode.
+  useEffect(() => {
+    if (!autoStartInspection || !inspectionSession?.sessionId) return;
+    return () => {
+      void omgFetch("/api/computer/browser/inspect/cancel", { method: "POST" });
+    };
+  }, [autoStartInspection, inspectionSession?.sessionId]);
 
   return (
     // Full bleed: the screen is the page. No title, no chrome, no padding --
@@ -320,7 +516,7 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
           here: React's touch props are passive, and preventDefault is the whole
           point. No onDoubleClick either -- the browser synthesizes dblclick
           from taps, and reacting to it is what made a tap-then-drag stall. */}
-      {running && !viewOnly && trackpad ? (
+      {running && !viewOnly && trackpad && !status?.inspection?.active ? (
         <div
           ref={overlayRef}
           className="absolute inset-0 z-[6] touch-none select-none"
@@ -377,6 +573,19 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
           rfb.sendKey(keysym, e.code || null, false);
         }}
       />
+
+      {running && inspectionSession ? (
+        <div className="absolute bottom-[calc(0.75rem+env(safe-area-inset-bottom))] left-3 z-10">
+          <ComputerInspectionControl
+            active={status?.inspection?.active ?? false}
+            starting={inspectionStarting}
+            mobilePan={trackpad}
+            session={inspectionSession}
+            onStart={() => void startInspection()}
+            onCancel={() => void cancelInspection()}
+          />
+        </div>
+      ) : null}
 
       {/* Controls float over the screen, top right, rather than occupying a
           header band. Stop is gone on purpose: leaving the page is how you

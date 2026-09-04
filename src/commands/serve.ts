@@ -362,12 +362,16 @@ import {
 } from "../computer/desktop.ts";
 import {
   browserClick,
+  browserInspectElement,
+  browserInspectionStatus,
   browserNavigate,
   browserPaste,
   browserPress,
   browserReadText,
   browserScreenshot,
   browserType,
+  cancelBrowserInspection,
+  closeAgentView,
 } from "../computer/browser.ts";
 import { capturePaneScroll, capturePaneEscaped, paneWidth } from "../tmux.ts";
 import { detectUrls } from "../links.ts";
@@ -4173,7 +4177,7 @@ export async function cmdServe() {
         // kept running, and reporting "stopped" for a live screen is worse
         // than the extra probe costs.
         await ensureDesktopAdopted();
-        return json(desktopStatus());
+        return json({ ...desktopStatus(), inspection: browserInspectionStatus() });
       }
 
       if (path === "/api/computer/start" && req.method === "POST") {
@@ -4188,15 +4192,23 @@ export async function cmdServe() {
             ...(body.height ? { height: body.height } : {}),
             ...(body.proxy ? { proxy: body.proxy } : {}),
           });
-          return json(status);
+          return json({ ...status, inspection: browserInspectionStatus() });
         } catch (e) {
           return err(500, e instanceof Error ? e.message : "failed to start the computer");
         }
       }
 
       if (path === "/api/computer/stop" && req.method === "POST") {
+        await cancelBrowserInspection("desktop stopped");
+        closeAgentView();
         await stopDesktop();
-        return json(desktopStatus());
+        return json({ ...desktopStatus(), inspection: browserInspectionStatus() });
+      }
+
+      if (path === "/api/computer/browser/inspect/cancel" && req.method === "POST") {
+        return json({
+          cancelled: await cancelBrowserInspection("cancelled from the Computer"),
+        });
       }
 
 
@@ -4430,6 +4442,7 @@ export async function cmdServe() {
             y?: number;
             text?: string;
             key?: string;
+            timeoutMs?: number;
           };
           switch (action) {
             case "navigate": {
@@ -4460,6 +4473,14 @@ export async function cmdServe() {
             }
             case "text": {
               return json({ text: await browserReadText() });
+            }
+            case "inspect": {
+              return json(
+                await browserInspectElement({
+                  ...(body.timeoutMs ? { timeoutMs: body.timeoutMs } : {}),
+                  signal: req.signal,
+                }),
+              );
             }
             case "screenshot": {
               const blob = await browserScreenshot();

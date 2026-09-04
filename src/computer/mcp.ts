@@ -30,7 +30,7 @@ const COMPUTER_MCP_INSTRUCTIONS = `This server controls the Computer: one shared
 
 The desktop is shared, not per-session. A person may be watching it in the omg.dev Computer tab while you work, and they see exactly what you do -- your browsing happens in a visible window on their screen. Call computer_status first; if it is not running, call computer_start.
 
-Browser actions act on one visible tab. Prefer computer_click with a CSS selector over raw coordinates: the selector form waits for the element to be attached, visible, stable and unobscured, while coordinates are a guess about layout. Use computer_read to see page text and computer_screenshot when you need to look at the page.`;
+Browser actions act on one visible tab. Prefer computer_click with a CSS selector over raw coordinates: the selector form waits for the element to be attached, visible, stable and unobscured, while coordinates are a guess about layout. Use computer_read to see page text and computer_screenshot when you need to look at the page. When a person wants to point at an element, call computer_inspect and wait for their click.`;
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${localServeBaseUrl()}${path}`, init);
@@ -167,6 +167,52 @@ export function buildComputerMcpServer(): McpServer {
       inputSchema: {},
     },
     async () => result(await post("/api/computer/browser/text")),
+  );
+
+  server.registerTool(
+    "computer_inspect",
+    {
+      title: "Inspect An Element",
+      description:
+        "Let the person point at one element in the visible browser. This call waits while a cyan outline follows their pointer. Their click returns a stable selector, bounded DOM context, computed CSS, accessibility data, a source hint when the framework exposes one, and a cropped screenshot. Escape cancels. Only one inspection can run at a time.",
+      inputSchema: {
+        timeoutSeconds: z
+          .number()
+          .int()
+          .min(10)
+          .max(300)
+          .optional()
+          .describe("How long to wait for the person. Default: 120 seconds."),
+      },
+    },
+    async ({ timeoutSeconds }) => {
+      const inspected = await post<{
+        screenshotBase64?: string;
+        [key: string]: unknown;
+      }>("/api/computer/browser/inspect", {
+        ...(timeoutSeconds ? { timeoutMs: timeoutSeconds * 1000 } : {}),
+      });
+      const { screenshotBase64, ...details } = inspected;
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(details) },
+          ...(screenshotBase64
+            ? [{ type: "image" as const, data: screenshotBase64, mimeType: "image/png" }]
+            : []),
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "computer_inspect_cancel",
+    {
+      title: "Cancel Element Inspection",
+      description:
+        "Cancel the active element inspection. Use this when the person no longer wants to select an element or the page must change before the timeout.",
+      inputSchema: {},
+    },
+    async () => result(await post("/api/computer/browser/inspect/cancel")),
   );
 
   server.registerTool(
