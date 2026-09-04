@@ -402,6 +402,7 @@ import {
 import { toast } from "@/lib/notify";
 import { haptic } from "@/lib/haptics";
 import { feedback } from "@/lib/feedback";
+import { waitForRefine, type AutoAgentRefine } from "@/lib/auto-refine";
 import { useUiFeedbackPrefs, setUiFeedbackPrefs } from "@/lib/ui-feedback-prefs";
 import { useNavigationPrefs, setNavigationPrefs } from "@/lib/navigation-prefs";
 import { subscribeSelectionChange } from "./lib/selection-change";
@@ -871,6 +872,9 @@ type AutoAgent = {
   thinkingLevel?: string;
   lastRunAt?: number;
   running?: boolean; // mid-run right now (live, from the server poll)
+  // A feedback-driven rewrite of `prompt` in flight or just settled (live,
+  // from the server poll; absent until one has been asked for).
+  refine?: AutoAgentRefine;
   // List responses ship only the first ~200 chars of `prompt` (the row renders
   // it CSS-truncated anyway). When this is true, `prompt` is a preview and the
   // editor must refetch GET /api/auto/agents/:id before editing it.
@@ -7536,16 +7540,28 @@ export function App() {
   // agent's own instruction in place, so the correction is live before the next
   // scheduled run. Fire-and-close under a toast — the rewrite is a real model
   // call against the agent's repo and can take a while; nothing should block on
-  // it, and the sheet has already served its purpose.
+  // it, and the sheet has already served its purpose. The server answers 202
+  // at once and we follow the rewrite through the agent's `refine` state:
+  // holding one fetch open for the whole call is what a phone's 60s timeout
+  // used to cut off, so the toast said "couldn't update" over an agent that
+  // had in fact changed.
   function refineAgentFromFinding(f: AutoFinding, feedbackText: string) {
     const name = agentName(f.agentId);
+    const id = encodeURIComponent(f.agentId);
     setOpenFinding(null);
     toast.promise(
-      api(`/api/auto/agents/${f.agentId}/refine`, {
+      api(`/api/auto/agents/${id}/refine`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ feedback: feedbackText, findingId: f.id }),
-      }).then(() => refreshAuto()),
+      })
+        .then(() => refreshAuto())
+        .then(() =>
+          waitForRefine(() =>
+            api<{ agent: AutoAgent }>(`/api/auto/agents/${id}`).then((r) => r.agent.refine),
+          ),
+        )
+        .then(() => refreshAuto()),
       {
         loading: `Updating ${name}…`,
         success: `${name} updated`,
@@ -25297,6 +25313,11 @@ function AgentReportSheet({
               </span>
               {agent?.running ? (
                 <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" aria-label="Running" />
+              ) : agent?.refine?.state === "running" ? (
+                <Loader2
+                  className="size-3.5 shrink-0 animate-spin text-muted-foreground"
+                  aria-label="Updating from feedback"
+                />
               ) : null}
               {worst ? (
                 <span
@@ -30156,6 +30177,11 @@ function AutoManageView({
                           <span className="truncate text-sm font-medium leading-tight">{a.name}</span>
                           {a.running ? (
                             <Loader2 className="size-3 shrink-0 animate-spin text-primary" aria-label="Running" />
+                          ) : a.refine?.state === "running" ? (
+                            <Loader2
+                              className="size-3 shrink-0 animate-spin text-muted-foreground"
+                              aria-label="Updating from feedback"
+                            />
                           ) : null}
                         </span>
                         <span className="flex min-w-0 items-center text-xs text-muted-foreground">

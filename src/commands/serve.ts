@@ -97,6 +97,9 @@ import {
   deleteAutoAgentsOwnedByBot,
   countAutoAgentsOwnedByBot,
   isRunning,
+  markRefining,
+  settleRefine,
+  refineStatus,
   listFindings,
   updateFinding,
   dismissAllFindings,
@@ -1131,7 +1134,12 @@ type RepoEntry = Awaited<ReturnType<typeof listRepos>>[number];
 // worktree cwds back to the main checkout, so compute it server-side — the
 // browser cannot read .git files to do this itself.
 function withAutoAgentMeta<T extends { id: string; cwd?: string }>(a: T) {
-  return { ...a, project: projectName(a.cwd || SELF_REPO), running: isRunning(a.id) };
+  return {
+    ...a,
+    project: projectName(a.cwd || SELF_REPO),
+    running: isRunning(a.id),
+    refine: refineStatus(a.id),
+  };
 }
 
 /**
@@ -6973,6 +6981,14 @@ a{color:#60a5fa}
       // agent's own instruction so the correction survives into the next
       // scheduled run. Everything else about the row (schedule, backend, cwd)
       // is carried through untouched.
+      //
+      // The rewrite is a real model call against the agent's repo and
+      // routinely runs past a minute — longer than a phone holds a fetch open
+      // (Safari drops it at 60s, and the server used to finish and save into a
+      // connection nobody was listening on, so the toast said "couldn't
+      // update" over an agent that had in fact changed). So the request is
+      // answered now with 202 and the work carries on here; the browser
+      // follows it through `refine` on the agent it polls anyway.
       {
         const m = path.match(/^\/api\/auto\/agents\/([a-z0-9_-]+)\/refine$/);
         if (m && req.method === "POST") {
@@ -6980,24 +6996,29 @@ a{color:#60a5fa}
             feedback?: string;
             findingId?: string;
           } | null;
-          if (!b?.feedback?.trim()) return err(400, "feedback is required");
+          const feedback = b?.feedback?.trim();
+          if (!feedback) return err(400, "feedback is required");
           const agent = await getAutoAgent(m[1]);
           if (!agent) return err(404, "unknown auto agent");
           // Only ever ground the rewrite in a finding this agent actually
           // produced — an id from another agent would teach it about work it
           // does not do.
-          const findingId = b.findingId?.trim();
+          const findingId = b?.findingId?.trim();
           const finding = findingId
             ? (await listFindings()).find((f) => f.id === findingId && f.agentId === agent.id)
             : undefined;
-          try {
+          // A second tap while one rewrite is in flight would race two saves
+          // of the same instruction; the first one wins.
+          if (!markRefining(agent.id)) return err(409, "this agent is already being updated from feedback");
+          console.log(`[auto] refining ${agent.id} from feedback (${feedback.length} chars)`);
+          void (async () => {
             const { refineAutoPrompt } = await import("../auto/enhance.ts");
             const cwd = await resolveAutoCwd(agent.cwd);
             const prompt = await refineAutoPrompt(
               {
                 name: agent.name,
                 prompt: agent.prompt,
-                feedback: b.feedback,
+                feedback,
                 finding: finding
                   ? {
                       title: finding.title,
@@ -7010,22 +7031,34 @@ a{color:#60a5fa}
               cwd,
               (l) => console.log(l),
             );
-            const saved = await saveAutoAgent({
-              id: agent.id,
-              name: agent.name,
+            // Re-read the row before saving: an edit (schedule, enabled, model)
+            // that landed while the model was thinking must not be clobbered
+            // by the snapshot we started from, and a row deleted meanwhile
+            // must not come back.
+            const current = await getAutoAgent(agent.id);
+            if (!current) throw new Error("the agent was deleted while it was being updated");
+            await saveAutoAgent({
+              id: current.id,
+              name: current.name,
               prompt,
-              schedule: agent.schedule,
-              enabled: agent.enabled,
-              cwd: agent.cwd,
-              agent: agent.agent,
-              model: agent.model,
-              thinkingLevel: agent.thinkingLevel,
-              tools: agent.tools,
+              schedule: current.schedule,
+              enabled: current.enabled,
+              cwd: current.cwd,
+              agent: current.agent,
+              model: current.model,
+              thinkingLevel: current.thinkingLevel,
+              tools: current.tools,
             });
-            return json({ agent: withAutoAgentMeta(saved) });
-          } catch (e) {
-            return err(502, e instanceof Error ? e.message : String(e));
-          }
+            console.log(`[auto] refined ${agent.id} from feedback (${prompt.length} chars)`);
+          })().then(
+            () => settleRefine(agent.id),
+            (e) => {
+              const msg = e instanceof Error ? e.message : String(e);
+              console.error(`[auto] refine of ${agent.id} failed: ${msg}`);
+              settleRefine(agent.id, msg);
+            },
+          );
+          return json({ ok: true, agent: withAutoAgentMeta(agent) }, { status: 202 });
         }
       }
       if (path === "/api/auto/findings" && req.method === "GET") {
