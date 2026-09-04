@@ -34,6 +34,12 @@ cp -R \
 cp -R web/dist "$RUNTIME_DIR/web/dist"
 find "$RUNTIME_DIR/web/dist" -name '*.map' -delete
 find "$RUNTIME_DIR/src" "$RUNTIME_DIR/scripts" -name '*.test.ts' -delete
+# Same list as scripts/release.sh: workspace packages the server imports from
+# source through tsconfig.json "paths".
+mkdir -p "$RUNTIME_DIR/packages/connectors"
+cp packages/connectors/package.json "$RUNTIME_DIR/packages/connectors/"
+cp -R packages/connectors/src "$RUNTIME_DIR/packages/connectors/src"
+find "$RUNTIME_DIR/packages" -name '*.test.ts' -delete
 
 bun run scripts/prepare-release-manifest.ts "$RUNTIME_DIR/package.json"
 (
