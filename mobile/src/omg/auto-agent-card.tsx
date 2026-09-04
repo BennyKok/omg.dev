@@ -45,9 +45,9 @@
 
 import Reanimated from "react-native-reanimated";
 import { type AndroidSymbol, type SFSymbol } from "expo-symbols";
-import { View } from "react-native";
+import { ActivityIndicator, View } from "react-native";
 
-import { AgentAvatar, Icon } from "../components";
+import { Icon, SESSION_ROW } from "../components";
 import { Text } from "./text";
 import { useListItemMotion, PressableScale } from "./motion";
 import { useSwipeToCommit } from "./swipe-row";
@@ -69,15 +69,15 @@ function severityColor(
   }
 }
 
-/** The severity dot. 7pt: reads next to 13pt text without becoming a bullet. */
+/** The severity dot. 8pt, the web's `size-2`. */
 function SeverityDot({ severity }: { severity?: AutoFindingSeverity }) {
   const { colors } = useTheme();
   return (
     <View
       style={{
-        width: 7,
-        height: 7,
-        borderRadius: 3.5,
+        width: 8,
+        height: 8,
+        borderRadius: 4,
         backgroundColor: severityColor(severity, colors),
       }}
     />
@@ -174,7 +174,7 @@ export function AutoFindingCard({
   const { finding, agent } = row;
   const seen = finding.occurrences ?? 1;
 
-  const corners = { borderRadius: radius.xl };
+  const corners = { borderRadius: radius.md };
 
   // Swipe-to-dismiss — see useSwipeToCommit (swipe-row.ts) for the gesture
   // and arbitration reasoning. Same hook backs SessionCard's swipe-to-archive
@@ -204,7 +204,7 @@ export function AutoFindingCard({
             left: 0,
             backgroundColor: colors.danger,
             ...corners,
-            marginHorizontal: space.lg,
+            marginHorizontal: SESSION_ROW.inset,
             alignItems: "flex-end",
             justifyContent: "center",
             paddingRight: space.xl,
@@ -220,82 +220,59 @@ export function AutoFindingCard({
           accessibilityRole="button"
           accessibilityLabel={`${agent?.name ?? "Auto agent"} finding: ${finding.title}`}
           accessibilityState={{ expanded }}
+          /**
+           * A ROW, NOT A CARD — the web's mobile live list (the "Auto"
+           * RailGroup in web/src/App.tsx): a 6px severity dot, the agent's
+           * name, the title truncated to one line, no fill and no border at
+           * rest. It sits in the same 60pt geometry as SessionCard so the
+           * dot lands in the mark column and the Auto group reads as one
+           * more group of the same list. The old AutoFindingCard the web
+           * kept for its desktop rail is not what the phone was matching.
+           *
+           * Fixed height only while collapsed, for the same one-pass layout
+           * reason SessionCard gives; expanded grows to fit the details.
+           */
           style={({ pressed }) => ({
-            flexDirection: "row",
-            gap: space.md,
-            marginHorizontal: space.lg,
-            padding: space.md,
-            borderRadius: radius.xl,
-            borderWidth: 1,
-            borderColor: colors.borderStrong,
-            backgroundColor: pressed ? colors.cardPressed : colors.card,
+            marginHorizontal: SESSION_ROW.inset,
+            paddingLeft: SESSION_ROW.padding + (SESSION_ROW.avatar - 8) / 2,
+            paddingRight: space.sm,
+            ...(expanded ? { paddingVertical: space.md } : { height: SESSION_ROW.height }),
+            justifyContent: "center",
+            ...corners,
+            backgroundColor: pressed ? colors.cardPressed : "transparent",
           })}
         >
-          <AgentAvatar agent={agent?.agent} size={26} plain busy={!!agent?.running} />
-          <View style={{ flex: 1, gap: 3 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
-              <Text
-                numberOfLines={1}
-                style={{ ...type.headline, color: colors.text, flexShrink: 1 }}
-              >
-                {agent?.name ?? "Auto agent"}
-              </Text>
-              <Text style={{ ...type.caption, color: colors.textMuted, marginLeft: "auto" }}>
-                {relativeTime(finding.lastSeenAt ?? finding.createdAt)}
-              </Text>
-            </View>
-
-            <View style={{ flexDirection: "row", gap: space.sm }}>
-              <View style={{ marginTop: 5 }}>
-                <SeverityDot severity={finding.severity} />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
+            <SeverityDot severity={finding.severity} />
+            <View style={{ flex: 1, gap: 1, minWidth: 0 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+                <Text
+                  numberOfLines={1}
+                  style={{ ...type.callout, fontWeight: "600", color: colors.text, flexShrink: 1 }}
+                >
+                  {agent?.name ?? "Auto agent"}
+                </Text>
+                {agent?.running ? <ActivityIndicator size="small" color={colors.primary} /> : null}
               </View>
-              {/**
-               * COLLAPSED HEIGHT IS FIXED AT TWO LINES, NOT "UP TO TWO."
-               *
-               * `numberOfLines={2}` alone caps wrapping but does not RESERVE
-               * the space — a one-line title sizes to one line, a two-line
-               * title sizes to two, and which one you get depends on the
-               * text's actual measured width against the row's available
-               * width. That measurement is a SECOND layout pass Yoga has to
-               * run after resolving this row's flex width, which every other
-               * home-list row (SessionCard's `numberOfLines={1}` title and
-               * subtitle, always exactly one line) never needs. This
-               * two-pass convergence is what list-overlap-watch.tsx's
-               * diagnostics caught: when a section above this one grows late
-               * (see the ordering fix in app/index.tsx), Session rows
-               * resettle in one pass and this row needed a second — the
-               * asymmetry that made Auto specifically the one that showed a
-               * transient wrong position rather than Working/Idle/Recent.
-               *
-               * `height: lineHeight * 2` while collapsed makes the box a
-               * CONSTANT regardless of whether the title needs one line or
-               * two — no text measurement required to know this row's
-               * height before Yoga can place it, same one-pass shape as
-               * every other row. Expanded stays auto-sized (`numberOfLines`
-               * already goes to `undefined` there) since a tap is a
-               * deliberate, one-row-at-a-time action, not a burst of many
-               * rows settling at once — the case this addresses.
-               *
-               * THE COST, ON PURPOSE, NOT HIDDEN: a one-line title now
-               * leaves visible blank space below it where a second line
-               * would have gone. That is a real visual change for short
-               * findings, not a free win — Benny should see it before/after
-               * rather than have it decided for him.
-               */}
               <Text
-                numberOfLines={expanded ? undefined : 2}
-                style={{
-                  ...type.footnote,
-                  color: colors.textSecondary,
-                  flex: 1,
-                  lineHeight: 18,
-                  ...(expanded ? null : { height: 18 * 2 }),
-                }}
+                numberOfLines={expanded ? undefined : 1}
+                style={{ ...type.caption, fontWeight: "400", color: colors.textMuted }}
               >
                 {finding.title}
               </Text>
             </View>
-
+            <Text
+              numberOfLines={1}
+              style={{
+                ...type.caption,
+                fontVariant: ["tabular-nums"],
+                color: colors.textMuted,
+              }}
+            >
+              {relativeTime(finding.createdAt ?? finding.lastSeenAt)}
+            </Text>
+          </View>
+          <View style={{ paddingLeft: 8 + space.md }}>
             {expanded ? (
               <View style={{ gap: space.sm, paddingTop: space.xs }}>
                 {seen > 1 ? (

@@ -556,6 +556,15 @@ export function TranscriptEntry({
     return <DisplayedImage message={message} />;
   }
 
+  // A displayed file is an artifact, never prose. Its caption arrives in
+  // `text`, and the `!message.text` guard below therefore used to let it fall
+  // all the way through to the markdown renderer — so an agent that handed you
+  // a PDF handed you a grey sentence about a PDF instead. That is the same bug
+  // `DisplayedImage` above exists to fix, and it is one branch earlier here.
+  if (message.kind === "file" && (message.url || message.artifactId)) {
+    return <AttachmentEntry message={message} />;
+  }
+
   const isAttachment =
     !!message.url || !!message.artifactId || message.kind === "image" || message.kind === "file";
   if (isAttachment && !message.text) return <AttachmentEntry message={message} />;
@@ -1203,7 +1212,8 @@ function DisplayedImage({ message }: { message: Entry }) {
 export function AttachmentEntry({ message }: { message: Entry }) {
   const { colors, type, space, radius } = useTheme();
   const isImage = message.kind === "image" || !!message.mimeType?.startsWith("image/");
-  const label = message.name ?? message.caption ?? message.alt ?? (isImage ? "Image" : "File");
+  const label =
+    message.name ?? message.caption ?? message.alt ?? message.text ?? (isImage ? "Image" : "File");
   const size =
     typeof message.size === "number" && message.size > 0
       ? `${Math.max(1, Math.round(message.size / 1024))} KB`

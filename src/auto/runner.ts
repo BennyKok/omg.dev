@@ -299,6 +299,18 @@ async function runSelectedBackend(
       }),
     );
   }
+  if (backend === "muse") {
+    onLog(`[auto] muse run (${prompt.length} chars) in ${cwd} [model: ${agent.model ?? "default"}]`);
+    const { pipeToMuseCli } = await import("../agents/backends/muse-cli.ts");
+    return await runInCwd(cwd, () =>
+      pipeToMuseCli(prompt, onLog, {
+        cwd,
+        model: agent.model,
+        thinkingLevel: agent.thinkingLevel,
+        writable: (agent.tools ?? []).includes("Bash"),
+      }),
+    );
+  }
   if (backend === "hermes") {
     throw new Error("Hermes has been removed. Select another auto-agent backend.");
   }

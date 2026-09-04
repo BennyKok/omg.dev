@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ChevronRight, Plug, Plus, Shield, Trash2, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -109,10 +109,7 @@ export function ConnectorsPage() {
     <div className="mx-auto max-w-2xl space-y-6 pb-10" data-lfg-page-column>
       <div>
         <h1 className="text-lg font-semibold">Tool access</h1>
-        <p className="text-sm text-muted-foreground">
-          Roles decide which tools a session can see and call. Connectors are MCP servers you add,
-          scoped to you and shared across your agents.
-        </p>
+        <p className="text-sm text-muted-foreground">Who can use which tools.</p>
       </div>
       <div role="tablist" className="flex gap-1 rounded-xl bg-muted p-1 text-sm">
         {(
@@ -223,9 +220,7 @@ export function RolesPanel() {
           </span>
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-medium">Owner</span>
-            <span className="block text-xs text-muted-foreground">
-              Built in. Every tool, no rules. Sessions without a role run as owner.
-            </span>
+            <span className="block text-xs text-muted-foreground">Every tool. Built in.</span>
           </span>
         </div>
       </div>
@@ -234,9 +229,7 @@ export function RolesPanel() {
         <div className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-card/40 px-4 py-3">
           <span className="min-w-0">
             <span className="block text-sm font-medium">Preview as</span>
-            <span className="block text-xs text-muted-foreground">
-              See this browser the way a role sees it. Layout only; tool rules apply to sessions.
-            </span>
+            <span className="block text-xs text-muted-foreground">See the app as a role sees it.</span>
           </span>
           <select
             aria-label="Preview as role"
@@ -278,12 +271,6 @@ export function RolesPanel() {
       </form>
 
       {error ? <p className="px-1 text-xs text-destructive">{error}</p> : null}
-      <p className="px-1 text-xs leading-relaxed text-muted-foreground">
-        Tool ids are <code>server.tool</code>: <code>omg.ship</code>, <code>computer.screenshot</code>,{" "}
-        <code>executor.execute</code>. Connectors are <code>connectors.slug.tool</code>, so{" "}
-        <code>connectors.gmail.*</code> blocks one connector. A trailing <code>*</code> matches the rest.
-        Block wins over allow. Tools with no matching rule get the role&apos;s default.
-      </p>
     </section>
   );
 }
@@ -342,6 +329,27 @@ function RoleCard({
     }
   };
 
+  const memberNames = members.map((email) => roster.find((u) => u.email.toLowerCase() === email)?.name ?? email);
+  const hiddenCount = views.hide.length + views.hiddenPages.length;
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const joinSummary = (parts: string[]) => parts.join(" · ");
+
+  const overview = joinSummary([
+    members.length === 0 ? "No members" : plural(members.length, "member"),
+    role.defaultAction === "allow" ? "Allows tools by default" : "Blocks tools by default",
+    ...(role.sandbox === "bwrap" ? ["Sandboxed"] : []),
+  ]);
+  const membersSummary = memberNames.length === 0 ? "Nobody yet" : memberNames.join(", ");
+  const toolsSummary = joinSummary([
+    role.defaultAction === "allow" ? "Allow by default" : "Block by default",
+    role.rules.length === 0 ? "no rules" : plural(role.rules.length, "rule"),
+  ]);
+  const viewsSummary = hiddenCount === 0 ? "Sees everything" : `Hides ${plural(hiddenCount, "item")}`;
+  const safetySummary = joinSummary([
+    role.sandbox === "bwrap" ? "Sandboxed files" : "Normal files",
+    role.network === "allowlist" ? `Network: ${role.allowHosts.length === 0 ? "model APIs only" : plural(role.allowHosts.length, "host")}` : "Open network",
+  ]);
+
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border" data-role-id={role.id}>
       <div className="flex items-center gap-3 px-4 py-3">
@@ -350,23 +358,8 @@ function RoleCard({
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-medium">{role.name}</span>
-          <span className="block text-xs text-muted-foreground">
-            id <code>{role.id}</code> · {role.rules.length} rule{role.rules.length === 1 ? "" : "s"}
-          </span>
+          <span className="block truncate text-xs text-muted-foreground">{overview}</span>
         </span>
-        <label className="flex items-center gap-2 text-xs text-muted-foreground">
-          Default
-          <select
-            aria-label={`Default action for ${role.name}`}
-            value={role.defaultAction}
-            disabled={busy}
-            onChange={(e) => void save({ defaultAction: e.target.value as RuleAction })}
-            className="rounded-md border border-border bg-background px-2 py-1 text-xs"
-          >
-            <option value="block">Block</option>
-            <option value="allow">Allow</option>
-          </select>
-        </label>
         <button
           type="button"
           aria-label={`Delete role ${role.name}`}
@@ -378,158 +371,8 @@ function RoleCard({
         </button>
       </div>
 
-      <div className="flex items-center justify-between gap-3 px-4 py-2.5">
-        <span className="min-w-0">
-          <span className="block text-sm">Sandbox</span>
-          <span className="block text-xs text-muted-foreground">
-            Run this role&apos;s sessions with an empty home and only their worktree writable.
-          </span>
-        </span>
-        <label className="flex items-center gap-2 text-xs text-muted-foreground">
-          <select
-            aria-label={`Sandbox for ${role.name}`}
-            value={role.sandbox}
-            disabled={busy}
-            onChange={(e) => void save({ sandbox: e.target.value as SandboxMode })}
-            className="rounded-md border border-border bg-background px-2 py-1 text-xs"
-          >
-            <option value="none">Off</option>
-            <option value="bwrap">Filesystem (bwrap)</option>
-          </select>
-        </label>
-      </div>
-
-      <div className="space-y-2 px-4 py-2.5">
-        <div className="flex items-center justify-between gap-3">
-          <span className="min-w-0">
-            <span className="block text-sm">Network</span>
-            <span className="block text-xs text-muted-foreground">
-              Allowlist restricts outbound traffic to the model APIs plus the hosts below.
-            </span>
-          </span>
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <select
-              aria-label={`Network for ${role.name}`}
-              value={role.network}
-              disabled={busy}
-              onChange={(e) => void save({ network: e.target.value as NetworkMode })}
-              className="rounded-md border border-border bg-background px-2 py-1 text-xs"
-            >
-              <option value="shared">Shared</option>
-              <option value="allowlist">Allowlist</option>
-            </select>
-          </label>
-        </div>
-        {role.network === "allowlist" ? (
-          <div className="space-y-1.5">
-            <div className="flex flex-wrap gap-1.5">
-              {role.allowHosts.length === 0 ? (
-                <span className="text-xs text-muted-foreground">Model APIs only. Add a host to allow more.</span>
-              ) : null}
-              {role.allowHosts.map((host) => (
-                <span key={host} className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px]">
-                  <code>{host}</code>
-                  <button
-                    type="button"
-                    aria-label={`Remove host ${host}`}
-                    disabled={busy}
-                    onClick={() => void save({ allowHosts: role.allowHosts.filter((h) => h !== host) })}
-                    className="text-muted-foreground hover:text-destructive"
-                  >
-                    <Trash2 className="size-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
-            <form
-              className="flex items-center gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const host = hostDraft.trim().toLowerCase();
-                if (!host || role.allowHosts.includes(host)) return;
-                void save({ allowHosts: [...role.allowHosts, host] }).then(() => setHostDraft(""));
-              }}
-            >
-              <Input
-                value={hostDraft}
-                onChange={(e) => setHostDraft(e.target.value)}
-                placeholder="host, e.g. github.com or .corp.example"
-                aria-label={`New allowed host for ${role.name}`}
-                className="h-8 font-mono text-xs"
-              />
-              <Button type="submit" size="sm" variant="secondary" disabled={busy || !hostDraft.trim()}>
-                Add host
-              </Button>
-            </form>
-          </div>
-        ) : null}
-      </div>
-
-      <div className="space-y-2 px-4 py-2.5">
-        <span className="block text-sm">Views</span>
-        <span className="block text-xs text-muted-foreground">
-          What this role does not see in the web UI. Layout only: tool rules below are the real limit.
-        </span>
-        <div className="grid gap-1 sm:grid-cols-2">
-          {VIEW_TOGGLE_ROWS.map((row) => {
-            const hidden = views.hide.includes(row.key);
-            return (
-              <label key={row.key} className="flex items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  aria-label={`${row.label} for ${role.name}`}
-                  checked={!hidden}
-                  disabled={busy}
-                  onChange={(e) =>
-                    void save({
-                      views: {
-                        ...views,
-                        hide: e.target.checked ? views.hide.filter((k) => k !== row.key) : [...views.hide, row.key],
-                      },
-                    })
-                  }
-                />
-                {row.label}
-              </label>
-            );
-          })}
-        </div>
-        <span className="block pt-1 text-xs text-muted-foreground">Pages</span>
-        <div className="grid gap-1 sm:grid-cols-2">
-          {HIDEABLE_PAGE_ROWS.map((page) => {
-            const hidden = views.hiddenPages.includes(page.id);
-            return (
-              <label key={page.id} className="flex items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  aria-label={`${page.label} page for ${role.name}`}
-                  checked={!hidden}
-                  disabled={busy}
-                  onChange={(e) =>
-                    void save({
-                      views: {
-                        ...views,
-                        hiddenPages: e.target.checked
-                          ? views.hiddenPages.filter((id) => id !== page.id)
-                          : [...views.hiddenPages, page.id],
-                      },
-                    })
-                  }
-                />
-                {page.label}
-              </label>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="space-y-2 px-4 py-2.5">
-        <span className="block text-sm">Members</span>
-        <span className="block text-xs text-muted-foreground">
-          Roster users who view and start sessions as this role. A user belongs to one role; anyone unlisted is the owner.
-        </span>
+      <Section title="Members" summary={membersSummary}>
         <div className="flex flex-wrap gap-1.5">
-          {members.length === 0 ? <span className="text-xs text-muted-foreground">No members.</span> : null}
           {members.map((email) => (
             <span key={email} className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px]">
               <span>{roster.find((u) => u.email.toLowerCase() === email)?.name ?? email}</span>
@@ -579,74 +422,233 @@ function RoleCard({
             />
           )}
           <Button type="submit" size="sm" variant="secondary" disabled={busy || !memberDraft.trim()}>
-            Add member
+            Add
           </Button>
         </form>
-      </div>
+      </Section>
 
-      <ul className="divide-y divide-border">
-        {role.rules.length === 0 ? (
-          <li className="px-4 py-2 text-xs text-muted-foreground">No rules. Every tool gets the default.</li>
-        ) : null}
-        {role.rules.map((rule, index) => (
-          <li key={`${rule.pattern}-${index}`} className="flex items-center gap-3 px-4 py-2 text-sm">
-            <code className="min-w-0 flex-1 truncate text-xs">{rule.pattern}</code>
-            <span
-              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                rule.action === "allow" ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive"
-              }`}
-            >
-              {ACTION_LABEL[rule.action]}
-            </span>
-            <button
-              type="button"
-              aria-label={`Remove rule ${rule.pattern}`}
-              disabled={busy}
-              onClick={() => void save({ rules: role.rules.filter((_, i) => i !== index) })}
-              className="text-muted-foreground hover:text-destructive"
-            >
-              <Trash2 className="size-3.5" />
-            </button>
-          </li>
-        ))}
-      </ul>
-
-      <form
-        className="flex items-center gap-2 px-4 py-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void addRule();
-        }}
-      >
-        <Input
-          value={pattern}
-          onChange={(e) => setPattern(e.target.value)}
-          placeholder="pattern, e.g. executor.*"
-          aria-label={`New rule pattern for ${role.name}`}
-          list={`patterns-${role.id}`}
-          className="h-8 font-mono text-xs"
-        />
-        <datalist id={`patterns-${role.id}`}>
-          {connectors.map((c) => (
-            <option key={`connector-${c.slug}`} value={`connectors.${c.slug}.*`} label={`${c.name} (all tools)`} />
+      <Section title="Tools" summary={toolsSummary}>
+        <label className="flex items-center justify-between gap-3 text-sm">
+          <span>Tools with no rule</span>
+          <select
+            aria-label={`Default action for ${role.name}`}
+            value={role.defaultAction}
+            disabled={busy}
+            onChange={(e) => void save({ defaultAction: e.target.value as RuleAction })}
+            className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+          >
+            <option value="block">Block</option>
+            <option value="allow">Allow</option>
+          </select>
+        </label>
+        <ul className="divide-y divide-border rounded-lg border border-border">
+          {role.rules.length === 0 ? <li className="px-3 py-2 text-xs text-muted-foreground">No rules yet.</li> : null}
+          {role.rules.map((rule, index) => (
+            <li key={`${rule.pattern}-${index}`} className="flex items-center gap-3 px-3 py-2 text-sm">
+              <code className="min-w-0 flex-1 truncate text-xs">{rule.pattern}</code>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                  rule.action === "allow" ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive"
+                }`}
+              >
+                {ACTION_LABEL[rule.action]}
+              </span>
+              <button
+                type="button"
+                aria-label={`Remove rule ${rule.pattern}`}
+                disabled={busy}
+                onClick={() => void save({ rules: role.rules.filter((_, i) => i !== index) })}
+                className="text-muted-foreground hover:text-destructive"
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            </li>
           ))}
-          {PATTERN_HELP.map((p) => (
-            <option key={p} value={p} />
-          ))}
-        </datalist>
-        <select
-          aria-label={`New rule action for ${role.name}`}
-          value={action}
-          onChange={(e) => setAction(e.target.value as RuleAction)}
-          className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+        </ul>
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void addRule();
+          }}
         >
-          <option value="allow">Allow</option>
-          <option value="block">Block</option>
-        </select>
-        <Button type="submit" size="sm" variant="secondary" disabled={busy || !pattern.trim()}>
-          Add rule
-        </Button>
-      </form>
+          <Input
+            value={pattern}
+            onChange={(e) => setPattern(e.target.value)}
+            placeholder="tool, e.g. connectors.gmail.*"
+            aria-label={`New rule pattern for ${role.name}`}
+            list={`patterns-${role.id}`}
+            className="h-8 font-mono text-xs"
+          />
+          <datalist id={`patterns-${role.id}`}>
+            {connectors.map((c) => (
+              <option key={`connector-${c.slug}`} value={`connectors.${c.slug}.*`} label={`${c.name} (all tools)`} />
+            ))}
+            {PATTERN_HELP.map((p) => (
+              <option key={p} value={p} />
+            ))}
+          </datalist>
+          <select
+            aria-label={`New rule action for ${role.name}`}
+            value={action}
+            onChange={(e) => setAction(e.target.value as RuleAction)}
+            className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+          >
+            <option value="allow">Allow</option>
+            <option value="block">Block</option>
+          </select>
+          <Button type="submit" size="sm" variant="secondary" disabled={busy || !pattern.trim()}>
+            Add
+          </Button>
+        </form>
+        <p className="text-xs text-muted-foreground">
+          <code>*</code> means all. Block wins over allow.
+        </p>
+      </Section>
+
+      <Section title="What they see" summary={viewsSummary}>
+        <div className="grid gap-1 sm:grid-cols-2">
+          {VIEW_TOGGLE_ROWS.map((row) => {
+            const hidden = views.hide.includes(row.key);
+            return (
+              <label key={row.key} className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  aria-label={`${row.label} for ${role.name}`}
+                  checked={!hidden}
+                  disabled={busy}
+                  onChange={(e) =>
+                    void save({
+                      views: {
+                        ...views,
+                        hide: e.target.checked ? views.hide.filter((k) => k !== row.key) : [...views.hide, row.key],
+                      },
+                    })
+                  }
+                />
+                {row.label}
+              </label>
+            );
+          })}
+        </div>
+        <span className="block pt-1 text-xs font-medium">Pages</span>
+        <div className="grid gap-1 sm:grid-cols-2">
+          {HIDEABLE_PAGE_ROWS.map((page) => {
+            const hidden = views.hiddenPages.includes(page.id);
+            return (
+              <label key={page.id} className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  aria-label={`${page.label} page for ${role.name}`}
+                  checked={!hidden}
+                  disabled={busy}
+                  onChange={(e) =>
+                    void save({
+                      views: {
+                        ...views,
+                        hiddenPages: e.target.checked
+                          ? views.hiddenPages.filter((id) => id !== page.id)
+                          : [...views.hiddenPages, page.id],
+                      },
+                    })
+                  }
+                />
+                {page.label}
+              </label>
+            );
+          })}
+        </div>
+      </Section>
+
+      <Section title="Safety" summary={safetySummary}>
+        <label className="flex items-center justify-between gap-3 text-sm">
+          <span>Files</span>
+          <select
+            aria-label={`Sandbox for ${role.name}`}
+            value={role.sandbox}
+            disabled={busy}
+            onChange={(e) => void save({ sandbox: e.target.value as SandboxMode })}
+            className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+          >
+            <option value="none">Normal</option>
+            <option value="bwrap">Sandboxed</option>
+          </select>
+        </label>
+        <label className="flex items-center justify-between gap-3 text-sm">
+          <span>Network</span>
+          <select
+            aria-label={`Network for ${role.name}`}
+            value={role.network}
+            disabled={busy}
+            onChange={(e) => void save({ network: e.target.value as NetworkMode })}
+            className="rounded-md border border-border bg-background px-2 py-1 text-xs"
+          >
+            <option value="shared">Open</option>
+            <option value="allowlist">Only listed hosts</option>
+          </select>
+        </label>
+        {role.network === "allowlist" ? (
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap gap-1.5">
+              {role.allowHosts.length === 0 ? <span className="text-xs text-muted-foreground">Model APIs only.</span> : null}
+              {role.allowHosts.map((host) => (
+                <span key={host} className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px]">
+                  <code>{host}</code>
+                  <button
+                    type="button"
+                    aria-label={`Remove host ${host}`}
+                    disabled={busy}
+                    onClick={() => void save({ allowHosts: role.allowHosts.filter((h) => h !== host) })}
+                    className="text-muted-foreground hover:text-destructive"
+                  >
+                    <Trash2 className="size-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+            <form
+              className="flex items-center gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const host = hostDraft.trim().toLowerCase();
+                if (!host || role.allowHosts.includes(host)) return;
+                void save({ allowHosts: [...role.allowHosts, host] }).then(() => setHostDraft(""));
+              }}
+            >
+              <Input
+                value={hostDraft}
+                onChange={(e) => setHostDraft(e.target.value)}
+                placeholder="host, e.g. github.com"
+                aria-label={`New allowed host for ${role.name}`}
+                className="h-8 font-mono text-xs"
+              />
+              <Button type="submit" size="sm" variant="secondary" disabled={busy || !hostDraft.trim()}>
+                Add
+              </Button>
+            </form>
+          </div>
+        ) : null}
+      </Section>
     </div>
+  );
+}
+
+/**
+ * One collapsed row of a role card. Closed, it is a title and a one-line
+ * summary; open, it shows the controls. Native disclosure, so it works with
+ * a keyboard and a screen reader without extra wiring.
+ */
+function Section({ title, summary, children }: { title: string; summary: string; children: ReactNode }) {
+  return (
+    <details className="group">
+      <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-2.5 hover:bg-foreground/[0.03] [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm">{title}</span>
+          <span className="block truncate text-xs text-muted-foreground">{summary}</span>
+        </span>
+        <ChevronRight className="size-4 shrink-0 text-muted-foreground/60 transition-transform group-open:rotate-90" />
+      </summary>
+      <div className="space-y-2 px-4 pb-3 pt-1">{children}</div>
+    </details>
   );
 }
