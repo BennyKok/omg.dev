@@ -152,7 +152,12 @@ function useMenuImageUris(options: MenuOption[]): number {
     void Promise.all(
       pending.map(async (image) => {
         try {
-          const asset = Asset.fromModule(Number(image));
+          // A bundled module resolves through the asset registry; a remote
+          // picture (a roster avatar) is pulled into the cache once, because
+          // SwiftUI's `Image` still wants bytes it can read from disk.
+          const asset = /^https?:\/\//.test(image)
+            ? Asset.fromURI(image)
+            : Asset.fromModule(Number(image));
           const uri = asset.localUri ?? (await asset.downloadAsync()).localUri;
           if (uri) imageUriCache.set(image, uri);
         } catch {
@@ -176,7 +181,7 @@ function collectImages(options: MenuOption[]): string[] {
   const out: string[] = [];
   const walk = (list: MenuOption[]) => {
     for (const option of list) {
-      if (option.image) out.push(String(option.image));
+      if (option.image) out.push(imageKey(option.image));
       if (option.submenu) walk(option.submenu);
     }
   };
@@ -184,8 +189,20 @@ function collectImages(options: MenuOption[]): string[] {
   return out;
 }
 
+/**
+ * The cache key for an image: the module number for a `require()`d asset,
+ * the URL for a `{ uri }` source. `String()` on the object form would give
+ * every remote picture the same "[object Object]" key.
+ */
+function imageKey(image: ImageSourcePropType): string {
+  if (typeof image === "object" && image !== null && !Array.isArray(image) && "uri" in image) {
+    return String(image.uri ?? "");
+  }
+  return String(image);
+}
+
 function uriFor(option: MenuOption): string | undefined {
-  return option.image ? imageUriCache.get(String(option.image)) : undefined;
+  return option.image ? imageUriCache.get(imageKey(option.image)) : undefined;
 }
 
 export function DropdownMenu({

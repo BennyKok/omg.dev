@@ -49,6 +49,8 @@ export type AutoAgent = {
   /** 5-field cron, evaluated by the machine in the payload's `tz`. */
   schedule: string;
   enabled: boolean;
+  /** Who the schedule belongs to. Absent on old rows means the user. */
+  owner?: { kind: "user" } | { kind: "bot"; botId: string };
   cwd?: string;
   /** Backend key — "grok", "codex-aisdk", …; absent on old rows means Claude. */
   agent?: string;
@@ -94,6 +96,14 @@ export type AutoAgentsState = {
    * already resolved a different way (from another device, or the web).
    */
   setFindingStatus: (id: string, status: "dismissed" | "session") => Promise<void>;
+  /**
+   * Flip one schedule on or off — the Schedules row switch, as on the web's
+   * AutoManageView. PATCH /api/auto/agents/:id carries every other field
+   * forward server-side, so this never has to know the untruncated prompt.
+   * Optimistic like setFindingStatus; a failure refetches rather than
+   * guessing at the row's real state.
+   */
+  setAgentEnabled: (id: string, enabled: boolean) => Promise<void>;
 };
 
 /**
@@ -197,7 +207,24 @@ export function useAutoAgents(): AutoAgentsState {
     [client],
   );
 
-  return { agents, findings, tz, loading, refresh, setFindingStatus };
+  const setAgentEnabled = useCallback(
+    async (id: string, enabled: boolean) => {
+      if (!client) return;
+      setAgents((prev) => prev.map((a) => (a.id === id ? { ...a, enabled } : a)));
+      try {
+        await client.transport.request(`/api/auto/agents/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled }),
+        });
+      } catch {
+        setTick((n) => n + 1);
+      }
+    },
+    [client],
+  );
+
+  return { agents, findings, tz, loading, refresh, setFindingStatus, setAgentEnabled };
 }
 
 const SEVERITY_RANK: Record<string, number> = { high: 0, med: 1, low: 2 };

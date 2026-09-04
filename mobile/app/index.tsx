@@ -24,10 +24,10 @@ import type { OmgConnectionStatus } from "@omg-dev/client";
 
 import {
   EmptyState,
+  Icon,
   SESSION_ROW_MARK_X,
   SESSION_ROW_MARK_Y,
   HomeComposer,
-  IconButton,
   PrimaryButton,
   SectionHeader,
   SessionCard,
@@ -48,6 +48,8 @@ import { groupNodesByProject } from "../src/omg/session-groups";
 import { sessionPreview } from "../src/omg/session-preview";
 import { selectHomeAutoFindings, useAutoAgents, type AutoFindingRow } from "../src/omg/auto-agents";
 import { useComputerPicker } from "../src/omg/computer-picker";
+import { UserFilterMenu } from "../src/omg/user-filter-menu";
+import { sessionMatchesUserFilter, useUserFilter, useUserRoster } from "../src/omg/users";
 import { useDictation } from "../src/omg/dictation";
 import { PressableScale } from "../src/omg/motion";
 import { useUsage } from "../src/omg/usage";
@@ -389,6 +391,8 @@ export default function SessionsScreen() {
   } = useAutoAgents();
   const agentPicker = useAgentPicker();
   const projectPicker = useProjectPicker();
+  const rosterUsers = useUserRoster();
+  const [userFilter, setUserFilter] = useUserFilter(rosterUsers);
 
   const [sessions, setSessions] = useState<OmgSession[]>([]);
   /**
@@ -745,8 +749,12 @@ export default function SessionsScreen() {
    * with the same narrow cast already used in app/bots/index.tsx.
    */
   const visibleSessions = useMemo(
-    () => sessions.filter((session) => !(session as BotDrivenSession).botId),
-    [sessions],
+    () =>
+      sessions.filter(
+        (session) =>
+          !(session as BotDrivenSession).botId && sessionMatchesUserFilter(session, userFilter),
+      ),
+    [sessions, userFilter],
   );
 
   /**
@@ -1046,32 +1054,11 @@ export default function SessionsScreen() {
       ],
       headerRight: () => (
         <View style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}>
-          {/* The greeting is the door on the web, but a sentence inside a
-              custom bar item does not reliably take a tap on iOS — verified on
-              the simulator, twice. A bar BUTTON does, so the Notification
-              Center gets one of its own. */}
-          <IconButton
-            ios="bell"
-            android="notifications"
-            accessibilityLabel="Notifications"
-            onPress={() => router.push("/notifications")}
-            size={19}
-            color={colors.textSecondary}
-          />
-          {/* Bots. Same idiom as the bell/computer/gear beside it — a plain
-              bar button pushing a full screen — rather than the web's rail
-              toggle, which this app has no rail to hang. See
-              app/bots/index.tsx for the navigation reasoning. Lucide, not an
-              SF Symbol: `person.and.background.dotted` and friends read as
-              "people," not "a bot," and this app already reaches for Lucide
-              exactly when SF Symbols has no honest equivalent (lucide.tsx). */}
-          <IconButton
-            lucide="bot"
-            accessibilityLabel="Bots"
-            onPress={() => router.push("/bots")}
-            size={19}
-            color={colors.textSecondary}
-          />
+          {/* The web's island, in the web's order: the roster filter first,
+              then the machine, then one overflow menu for the pages. The
+              bell, the bot and the gear used to be three more discs here;
+              they live in the menu now, as the web's PagesMenu keeps them. */}
+          <UserFilterMenu value={userFilter} users={rosterUsers} onChange={setUserFilter} />
           {/* TWO BUTTONS, NOT ONE CHIP.
               The machine name and the gear used to share a single pill, which
               read as one control and made the name look pressable-adjacent
@@ -1105,13 +1092,42 @@ export default function SessionsScreen() {
               </View>
             </View>
           </DropdownMenu>
-          <IconButton
-            lucide="settings"
-            accessibilityLabel="Settings"
-            onPress={() => router.push("/settings")}
-            size={20}
-            color={colors.textSecondary}
-          />
+          {/* Pages. The web's PagesMenu: everything that is a screen rather
+              than a filter, behind one control, so the island stays three
+              wide. Live is this screen and is not listed. */}
+          <DropdownMenu
+            title="Pages"
+            options={[
+              {
+                label: "Notifications",
+                icon: "bell",
+                onPress: () => router.push("/notifications"),
+              },
+              {
+                label: "Bots",
+                icon: "bubble.left.and.bubble.right",
+                onPress: () => router.push("/bots"),
+              },
+              {
+                label: "Schedules",
+                icon: "calendar.badge.clock",
+                onPress: () => router.push("/schedules"),
+              },
+              {
+                label: "Settings",
+                icon: "gearshape",
+                onPress: () => router.push("/settings"),
+              },
+            ]}
+          >
+            <View
+              accessibilityRole="button"
+              accessibilityLabel="Pages"
+              style={{ width: 36, height: 36, alignItems: "center", justifyContent: "center" }}
+            >
+              <Icon ios="ellipsis" android="more_vert" size={20} color={colors.textSecondary} />
+            </View>
+          </DropdownMenu>
         </View>
       ),
     });
@@ -1121,6 +1137,9 @@ export default function SessionsScreen() {
     computerPicker.options,
     machineName,
     currentBinding?.online,
+    userFilter,
+    rosterUsers,
+    setUserFilter,
     firstName,
     working.length,
     colors,

@@ -106,6 +106,8 @@ export const STORAGE_KEYS = {
    * would be a 400 at launch discovered only after typing a prompt.
    */
   composerSetup: "omg:mobile:composer-setup",
+  /** The session-list user filter: "__all", "__unassigned", or an email. */
+  userFilter: "omg:mobile:user-filter",
 } as const;
 
 export type ComputerMode = "direct" | "hosted";
