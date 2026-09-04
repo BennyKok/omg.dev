@@ -765,12 +765,35 @@ const MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024;
 // the loopback base for a purely local flow.
 function oauthRedirectBase(req: Request, explicit?: string): string {
   if (explicit && /^https?:\/\//.test(explicit)) return explicit;
+  const relay = oauthRelayConfig();
+  if (relay) return relay.base;
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
   if (host) {
     const proto = req.headers.get("x-forwarded-proto") || (host.includes(".ts.net") || host.endsWith(":443") ? "https" : "http");
     return `${proto}://${host}`;
   }
   return localServeBaseUrl();
+}
+
+// A box that cannot receive the provider redirect directly (a hosted sandbox,
+// or a self-hosted box behind NAT) is told at launch to route OAuth through a
+// hosted relay: OMG_OAUTH_RELAY_BASE is the relay origin, and the box's own
+// id (OMG_OAUTH_RELAY_PROJECT, else RUN_ID) is encoded into the state as
+// `omgc.<id>.<random>` so the relay can forward the callback back to this box
+// (see docs/team-tooling-design.md and the vibes relay). Unset on a directly
+// reachable box, which uses its own request origin instead.
+function oauthRelayConfig(): { base: string; project: string } | null {
+  const base = process.env.OMG_OAUTH_RELAY_BASE?.trim();
+  const project = (process.env.OMG_OAUTH_RELAY_PROJECT || process.env.RUN_ID)?.trim();
+  if (base && /^https?:\/\//.test(base) && project) return { base: base.replace(/\/+$/, ""), project };
+  return null;
+}
+
+/** The relay-routable OAuth state for this box, or undefined when not relaying. */
+function oauthRelayState(): string | undefined {
+  const relay = oauthRelayConfig();
+  if (!relay) return undefined;
+  return `omgc.${relay.project}.${randomBytes(24).toString("base64url")}`;
 }
 
 // The tiny page a browser lands on after the provider redirect: it reports the
@@ -4195,9 +4218,11 @@ export async function cmdServe() {
           if (!connector) return err(404, "connector not found");
           const body = (await req.json().catch(() => null)) as { redirectBase?: string; state?: string } | null;
           const base = oauthRedirectBase(req, body?.redirectBase);
-          // A hosted relay may supply a state that encodes which box the
-          // redirect belongs to, so the relay can route it back statelessly.
-          const state = typeof body?.state === "string" && body.state.length >= 16 ? body.state : undefined;
+          // State that routes the redirect back to this box through a relay: a
+          // caller may supply it, else the box mints one from its relay env.
+          const state =
+            (typeof body?.state === "string" && body.state.length >= 16 ? body.state : undefined) ??
+            oauthRelayState();
           const result = await startConnectorOAuth(connector, base, state);
           if (!result.ok) return err(502, result.error);
           return json(result);
