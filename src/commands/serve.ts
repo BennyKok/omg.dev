@@ -5128,6 +5128,11 @@ a{color:#60a5fa}
               return err(400, "showSessionDiffBar must be a boolean");
             patch.showSessionDiffBar = b.showSessionDiffBar;
           }
+          if (b?.showComposerFastMode !== undefined) {
+            if (typeof b.showComposerFastMode !== "boolean")
+              return err(400, "showComposerFastMode must be a boolean");
+            patch.showComposerFastMode = b.showComposerFastMode;
+          }
           if (b?.customInstructions !== undefined) {
             if (
               typeof b.customInstructions !== "string" ||

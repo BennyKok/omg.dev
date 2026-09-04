@@ -70,6 +70,7 @@ export const VIEW_TOGGLE_KEYS = [
   "showBots",
   "showSchedules",
   "showSessionDiffBar",
+  "showComposerFastMode",
 ] as const;
 export type ViewToggleKey = (typeof VIEW_TOGGLE_KEYS)[number];
 

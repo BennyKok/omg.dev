@@ -1139,6 +1139,9 @@ type GlobalSettings = {
   showSchedules: boolean;
   // Off hides the floating worktree diff bar in a session's chat.
   showSessionDiffBar: boolean;
+  // Off hides the Fast pill in the composer; new sessions launch without
+  // fast mode.
+  showComposerFastMode: boolean;
 };
 
 /**
@@ -1159,6 +1162,7 @@ type ViewPrefs = Pick<
   | "showBots"
   | "showSchedules"
   | "showSessionDiffBar"
+  | "showComposerFastMode"
 >;
 const DEFAULT_VIEW_PREFS: ViewPrefs = {
   defaultAgent: "",
@@ -1170,6 +1174,7 @@ const DEFAULT_VIEW_PREFS: ViewPrefs = {
   showBots: true,
   showSchedules: true,
   showSessionDiffBar: true,
+  showComposerFastMode: true,
 };
 const ViewPrefsContext = createContext<ViewPrefs>(DEFAULT_VIEW_PREFS);
 
@@ -22056,7 +22061,9 @@ function NewSessionDialog({
 
   const models = catalog.models[agent] ?? AGENT_MODELS[agent];
   const thinkingLevels = useAgentThinkingLevels(agent, model);
-  const fastModeAvailable = composerSupportsFastMode({ agent, model });
+  // Hidden by the box (or the viewer's role) means off. A saved "on" in
+  // localStorage must not launch fast mode through a pill nobody can see.
+  const fastModeAvailable = view.showComposerFastMode && composerSupportsFastMode({ agent, model });
   const fastModeEnabled = fastMode && fastModeAvailable;
   const tiboModeAvailable = canUseTiboMode({ agent, model, thinkingLevels });
   const tiboModeActive =
@@ -28102,6 +28109,7 @@ function ViewSettingsSection({
     { key: "showSessionDiffBar", label: "Worktree diff badge in chat", hint: "The floating changes bar above the composer." },
     { key: "showComposerAgents", label: "Agent picker in the composer", hint: "Off: every new session uses the default agent." },
     { key: "showComposerModels", label: "Model picker in the composer", hint: "Off: every new session uses the default model." },
+    { key: "showComposerFastMode", label: "Fast mode toggle in the composer", hint: "Off: no Fast pill; new sessions launch without fast mode." },
     { key: "showBots", label: "Bots", hint: "The Bots surface and its switch." },
     { key: "showSchedules", label: "Schedules", hint: "The Schedules surface and its switch." },
   ];
