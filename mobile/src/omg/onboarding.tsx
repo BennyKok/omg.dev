@@ -42,7 +42,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Image, Linking, Pressable, ScrollView, View } from "react-native";
+import { ActivityIndicator, Image, LayoutAnimation, Linking, Pressable, ScrollView, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -60,7 +60,7 @@ import Reanimated, {
   withTiming,
 } from "react-native-reanimated";
 
-import { Icon } from "../components";
+import { Icon, Separator } from "../components";
 import { agentIcon } from "./agent-icons";
 import {
   type ClaudeConnectAttempt,
@@ -144,6 +144,11 @@ const AGENT_LABELS: Record<string, string> = {
   codex: "Codex",
   "codex-aisdk": "Codex",
 };
+/** The two featured cards, in order, and what each one is sold on. */
+const FEATURED: { provider: "claude" | "codex"; fallbackKey: string; label: string; detail: string }[] = [
+  { provider: "claude", fallbackKey: "claude", label: "Claude Code", detail: "Use your Claude subscription" },
+  { provider: "codex", fallbackKey: "codex", label: "Codex", detail: "Use your ChatGPT subscription" },
+];
 
 /** Explainers, then connect, then plans. */
 const STEP_COUNT = PANELS.length + 2;
@@ -719,52 +724,189 @@ export function IntroScreen({
 }
 
 /**
- * One agent row on the connect step, straight off the Computer's roster.
- * Claude and Codex open their connect panel when tapped and not connected.
+ * A featured agent: the card someone is expected to act on.
+ *
+ * The connect panel opens INSIDE the card, below a separator, so the thing
+ * being connected and the controls that connect it are one object. The
+ * header is the tap target; the panel has its own buttons.
  */
-function AgentRow({
+function FeaturedCard({
   agent,
   label,
+  detail,
   connected,
-  active,
-  onPress,
+  open,
+  onToggle,
+  children,
 }: {
   agent: string;
   label: string;
+  detail: string;
   connected: boolean;
-  active: boolean;
-  onPress?: () => void;
+  open: boolean;
+  onToggle: () => void;
+  children?: React.ReactNode;
 }) {
   const { colors, radius, space, type } = useTheme();
   return (
-    <Pressable
-      accessibilityRole={onPress ? "button" : undefined}
-      disabled={!onPress}
-      onPress={onPress}
-      style={({ pressed }) => ({
-        flexDirection: "row",
-        alignItems: "center",
-        gap: space.md,
-        padding: space.md,
-        borderRadius: radius.lg,
-        backgroundColor: pressed && onPress ? colors.cardPressed : colors.card,
+    <View
+      style={{
+        borderRadius: radius.xl,
+        backgroundColor: colors.card,
         borderWidth: 1,
-        borderColor: active ? brand.orange : colors.border,
-      })}
+        borderColor: open ? brand.orange : colors.border,
+        overflow: "hidden",
+      }}
     >
-      <Image source={agentIcon(agent)} style={{ width: 28, height: 28 }} resizeMode="contain" />
-      <View style={{ flex: 1 }}>
-        <Text style={{ ...type.headline, color: colors.text }}>{AGENT_LABELS[agent] ?? label}</Text>
-        <Text style={{ ...type.footnote, color: connected ? colors.success : colors.textMuted }}>
-          {connected ? "Connected" : onPress ? "Tap to connect" : "Not connected"}
-        </Text>
-      </View>
-      {connected ? (
-        <Icon ios="checkmark" android="check" size={16} color={colors.success} />
-      ) : onPress ? (
-        <Icon ios="chevron.right" android="chevron_right" size={14} color={colors.textMuted} />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${label}, ${connected ? "connected" : "not connected"}`}
+        disabled={connected}
+        onPress={onToggle}
+        style={({ pressed }) => ({
+          flexDirection: "row",
+          alignItems: "center",
+          gap: space.md,
+          padding: space.lg,
+          backgroundColor: pressed && !connected ? colors.cardPressed : "transparent",
+        })}
+      >
+        <View
+          style={{
+            width: 48,
+            height: 48,
+            borderRadius: radius.lg,
+            backgroundColor: colors.fieldFill,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Image source={agentIcon(agent)} style={{ width: 30, height: 30 }} resizeMode="contain" />
+        </View>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={{ ...type.headline, color: colors.text }}>{label}</Text>
+          <Text style={{ ...type.footnote, color: colors.textMuted }}>{detail}</Text>
+        </View>
+        {connected ? (
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 4,
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+              borderRadius: radius.pill,
+              backgroundColor: "rgba(48, 209, 88, 0.14)",
+            }}
+          >
+            <Icon ios="checkmark" android="check" size={11} weight="semibold" color={colors.success} />
+            <Text style={{ ...type.caption, fontWeight: "600", color: colors.success }}>Connected</Text>
+          </View>
+        ) : (
+          <View
+            style={{
+              paddingHorizontal: 14,
+              paddingVertical: 7,
+              borderRadius: radius.pill,
+              backgroundColor: open ? colors.secondary : brand.orange,
+            }}
+          >
+            <Text style={{ ...type.subhead, fontWeight: "600", color: open ? colors.text : "#ffffff" }}>
+              {open ? "Close" : "Connect"}
+            </Text>
+          </View>
+        )}
+      </Pressable>
+      {open && children ? (
+        <View style={{ paddingHorizontal: space.lg, paddingBottom: space.lg }}>
+          <Separator />
+          <View style={{ paddingTop: space.md }}>{children}</View>
+        </View>
       ) : null}
-    </Pressable>
+    </View>
+  );
+}
+
+/** Everything that is not featured: compact, behind a disclosure. */
+function OtherAgentRow({ agent, label, connected }: { agent: string; label: string; connected: boolean }) {
+  const { colors, space, type } = useTheme();
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: space.md, paddingVertical: 10 }}>
+      <Image source={agentIcon(agent)} style={{ width: 22, height: 22 }} resizeMode="contain" />
+      <Text style={{ ...type.callout, color: colors.text, flex: 1 }}>{label}</Text>
+      <Text style={{ ...type.footnote, color: connected ? colors.success : colors.textMuted }}>
+        {connected ? "Connected" : "Set up on the web"}
+      </Text>
+    </View>
+  );
+}
+
+function OtherAgents({ agents }: { agents: SetupAgent[] }) {
+  const { colors, radius, space, type } = useTheme();
+  const [open, setOpen] = useState(false);
+  if (agents.length === 0) return null;
+  const connectedCount = agents.filter((a) => a.connected).length;
+  return (
+    <View style={{ borderRadius: radius.xl, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        onPress={() => {
+          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+          setOpen((v) => !v);
+        }}
+        style={({ pressed }) => ({
+          flexDirection: "row",
+          alignItems: "center",
+          gap: space.md,
+          padding: space.lg,
+          borderRadius: radius.xl,
+          backgroundColor: pressed ? colors.cardPressed : "transparent",
+        })}
+      >
+        <View style={{ flexDirection: "row" }}>
+          {agents.slice(0, 4).map((a, i) => (
+            <View
+              key={a.key}
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 8,
+                backgroundColor: colors.fieldFill,
+                borderWidth: 2,
+                borderColor: colors.card,
+                alignItems: "center",
+                justifyContent: "center",
+                marginLeft: i === 0 ? 0 : -8,
+              }}
+            >
+              <Image source={agentIcon(a.key)} style={{ width: 16, height: 16 }} resizeMode="contain" />
+            </View>
+          ))}
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ ...type.headline, color: colors.text }}>Other agents</Text>
+          <Text style={{ ...type.footnote, color: colors.textMuted }}>
+            {agents.length} available{connectedCount > 0 ? `, ${connectedCount} connected` : ""}
+          </Text>
+        </View>
+        <Icon
+          ios={open ? "chevron.up" : "chevron.down"}
+          android={open ? "expand_less" : "expand_more"}
+          size={14}
+          weight="semibold"
+          color={colors.textMuted}
+        />
+      </Pressable>
+      {open ? (
+        <View style={{ paddingHorizontal: space.lg, paddingBottom: space.sm }}>
+          <Separator />
+          {agents.map((a) => (
+            <OtherAgentRow key={a.key} agent={a.key} label={a.label} connected={a.connected} />
+          ))}
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -815,7 +957,7 @@ function ClaudeConnectPanel({ onConnected }: { onConnected: () => void }) {
   }, [attempt, busy, code, onConnected]);
 
   return (
-    <View style={{ gap: space.md, padding: space.md, borderRadius: radius.lg, backgroundColor: colors.card }}>
+    <View style={{ gap: space.md }}>
       <Text style={{ ...type.footnote, color: colors.textMuted, lineHeight: 18 }}>
         1. Sign in to Claude in Safari. 2. Copy the code it shows. 3. Paste it here.
       </Text>
@@ -922,7 +1064,7 @@ function CodexConnectPanel({ onConnected }: { onConnected: () => void }) {
   }, [auth, onConnected]);
 
   return (
-    <View style={{ gap: space.md, padding: space.md, borderRadius: radius.lg, backgroundColor: colors.card }}>
+    <View style={{ gap: space.md }}>
       {auth ? (
         <>
           <Text style={{ ...type.footnote, color: colors.textMuted, lineHeight: 18 }}>
@@ -1086,7 +1228,7 @@ export function SetupScreen({
   /** The plan step is showing the ladder, so layout gives it the room. */
   const cards = step === 1 && products !== null && products.length > 0;
   /** The connect step has rows, and a panel can open under one. Same treatment. */
-  const rows = step === 0 && agents.length > 0;
+  const rows = step === 0;
   const tall = cards || rows;
 
   return (
@@ -1131,30 +1273,42 @@ export function SetupScreen({
               Sessions run on a coding agent. Connect Claude or Codex here, or add more later in Settings.
             </Text>
           </View>
-          <View style={{ gap: space.sm }}>
-            {agents.map((a) => {
-              const provider = CONNECT_PROVIDER[a.key];
-              const isConnected = a.connected || justConnected.has(a.key);
-              const connectable = provider !== undefined && !isConnected;
-              const open = openAgent === a.key;
+          <View style={{ gap: space.md }}>
+            {FEATURED.map((f) => {
+              const fromRoster = agents.find((a) => CONNECT_PROVIDER[a.key] === f.provider);
+              const key = fromRoster?.key ?? f.fallbackKey;
+              const isConnected =
+                fromRoster?.connected === true || justConnected.has(key);
+              const open = openAgent === key;
               return (
-                <View key={a.key} style={{ gap: space.sm }}>
-                  <AgentRow
-                    agent={a.key}
-                    label={a.label}
-                    connected={isConnected}
-                    active={open}
-                    onPress={connectable ? () => setOpenAgent(open ? null : a.key) : undefined}
-                  />
-                  {open && provider === "claude" ? (
-                    <ClaudeConnectPanel onConnected={() => connected(a.key)} />
-                  ) : null}
-                  {open && provider === "codex" ? (
-                    <CodexConnectPanel onConnected={() => connected(a.key)} />
-                  ) : null}
-                </View>
+                <FeaturedCard
+                  key={key}
+                  agent={key}
+                  label={f.label}
+                  detail={isConnected ? "Ready to run sessions" : f.detail}
+                  connected={isConnected}
+                  open={open}
+                  onToggle={() => {
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                    setOpenAgent(open ? null : key);
+                  }}
+                >
+                  {f.provider === "claude" ? (
+                    <ClaudeConnectPanel onConnected={() => connected(key)} />
+                  ) : (
+                    <CodexConnectPanel onConnected={() => connected(key)} />
+                  )}
+                </FeaturedCard>
               );
             })}
+            <OtherAgents agents={agents.filter((a) => CONNECT_PROVIDER[a.key] === undefined)} />
+            {agents.length === 0 ? (
+              <Text style={{ ...type.footnote, color: colors.textMuted, textAlign: "center", lineHeight: 18 }}>
+                {waking
+                  ? "Your Computer is starting up. Its other agents will appear here in a moment."
+                  : "Other agents appear here once your Computer is ready."}
+              </Text>
+            ) : null}
           </View>
         </ScrollView>
       ) : cards ? (
