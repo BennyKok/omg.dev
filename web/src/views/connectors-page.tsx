@@ -153,13 +153,18 @@ const PATTERN_HELP = [
   "omg.*",
   "omg.ship",
   "computer.*",
+  "connectors.*",
   "executor.*",
   "executor.execute",
 ];
 
+/** A connector as `/api/connectors` lists it; only the slug matters here. */
+type ConnectorSlug = { slug: string; name: string };
+
 export function RolesPanel() {
   const [roles, setRoles] = useState<Role[] | null>(null);
   const [roster, setRoster] = useState<RosterUser[]>([]);
+  const [connectors, setConnectors] = useState<ConnectorSlug[]>([]);
   const { viewer, preview } = useContext(RoleViewerContext);
   const [error, setError] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
@@ -171,6 +176,11 @@ export function RolesPanel() {
     void call<{ users: RosterUser[] }>("/api/users")
       .then((payload) => setRoster(Array.isArray(payload.users) ? payload.users : []))
       .catch(() => setRoster([]));
+    // Connector slugs feed the rule suggestions, so an owner can block one
+    // connector for a role without knowing the `connectors.<slug>.*` grammar.
+    void call<{ connectors: ConnectorSlug[] }>("/api/connectors")
+      .then((payload) => setConnectors(Array.isArray(payload.connectors) ? payload.connectors : []))
+      .catch(() => setConnectors([]));
   }, []);
 
   const load = useCallback(async () => {
@@ -244,7 +254,7 @@ export function RolesPanel() {
       ) : null}
 
       {editable.map((role) => (
-        <RoleCard key={role.id} role={role} roster={roster} onChanged={load} onError={setError} />
+        <RoleCard key={role.id} role={role} roster={roster} connectors={connectors} onChanged={load} onError={setError} />
       ))}
 
       <form
@@ -270,8 +280,9 @@ export function RolesPanel() {
       {error ? <p className="px-1 text-xs text-destructive">{error}</p> : null}
       <p className="px-1 text-xs leading-relaxed text-muted-foreground">
         Tool ids are <code>server.tool</code>: <code>omg.ship</code>, <code>computer.screenshot</code>,{" "}
-        <code>executor.execute</code>. A trailing <code>*</code> matches the rest. Block wins over
-        allow. Tools with no matching rule get the role&apos;s default.
+        <code>executor.execute</code>. Connectors are <code>connectors.slug.tool</code>, so{" "}
+        <code>connectors.gmail.*</code> blocks one connector. A trailing <code>*</code> matches the rest.
+        Block wins over allow. Tools with no matching rule get the role&apos;s default.
       </p>
     </section>
   );
@@ -280,11 +291,13 @@ export function RolesPanel() {
 function RoleCard({
   role,
   roster,
+  connectors,
   onChanged,
   onError,
 }: {
   role: Role;
   roster: RosterUser[];
+  connectors: ConnectorSlug[];
   onChanged: () => Promise<void>;
   onError: (message: string | null) => void;
 }) {
@@ -614,6 +627,9 @@ function RoleCard({
           className="h-8 font-mono text-xs"
         />
         <datalist id={`patterns-${role.id}`}>
+          {connectors.map((c) => (
+            <option key={`connector-${c.slug}`} value={`connectors.${c.slug}.*`} label={`${c.name} (all tools)`} />
+          ))}
           {PATTERN_HELP.map((p) => (
             <option key={p} value={p} />
           ))}

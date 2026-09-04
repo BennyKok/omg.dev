@@ -236,6 +236,11 @@ The connector layer is omg's own, not Executor's (that wrapping was removed):
   the credential host-side.
 - `src/connectors/mcp-endpoint.ts`: `/mcp/connectors`, the agent surface,
   scoped to the session's member, role-filtered, with an approval gate.
+  Tool names are `<slug>__<tool>`; the role filter reads them as
+  `connectors.<slug>.<tool>`, so a role rule can block one connector
+  (`connectors.gmail.*`), one tool (`connectors.gmail.send_message`), or all
+  connectors (`connectors.*`). The Roles card lists the box's connector slugs
+  as pattern suggestions.
 - `src/connectors/catalog.ts`: browse the integrations.sh catalog.
 
 OAuth is owned by omg (`src/connectors/oauth-provider.ts`, `oauth-store.ts`):

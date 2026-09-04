@@ -4083,7 +4083,9 @@ export async function cmdServe() {
 
       // The native connector surface. Exposes the calling session member's
       // connectors (own + org-shared) as MCP tools, scoped and role-filtered,
-      // with owner approval for a connector marked requireApproval.
+      // with owner approval for a connector marked requireApproval. Tool names
+      // are `<slug>__<tool>`, so the role id is `connectors.<slug>.<tool>` and
+      // a rule can block one connector (`connectors.gmail.*`) or one tool.
       if (path === "/mcp/connectors") {
         const caller = resolveCaller(req);
         const owner = connectorOwnerForSession(caller.sessionId);
@@ -4122,7 +4124,7 @@ export async function cmdServe() {
             return { held: false };
           }
         };
-        return await enforceRole(req, caller.role, { namespace: "connectors" }, (r) =>
+        return await enforceRole(req, caller.role, { namespace: "connectors", split: "__" }, (r) =>
           serveConnectorsMcpRequest(r, owner, gate),
         );
       }
