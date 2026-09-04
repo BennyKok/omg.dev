@@ -4,10 +4,8 @@
 //   - Claude  : live OAuth usage endpoint (5-hour + 7-day utilization), once
 //               per connected Claude account — each numbered account is its own
 //               subscription with its own windows.
-//   - Codex   : no public usage API, but the CLI persists the server's
-//               rate-limit snapshot into each session rollout. We read the
-//               newest rollout and surface its last `rate_limits` block, plus
-//               the ChatGPT plan decoded from the local auth token.
+//   - Codex   : live local app-server read for current windows and banked reset
+//               expiries. Older CLIs fall back to the newest rollout snapshot.
 //   - Grok    : cli-chat-proxy billing endpoints (monthly credits + weekly
 //               creditUsagePercent). Auth is the OIDC access token in
 //               ~/.grok/auth.json (same token the CLI uses for /usage).
@@ -29,6 +27,10 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { claudeAccessToken } from "./claude-creds.ts";
 import { claudeAccountConfigDir, connectedClaudeAccounts } from "./claude-accounts.ts";
+import {
+  readCodexRateLimits,
+  type CodexRateLimitResetCredits,
+} from "./codex-rate-limits.ts";
 import { defaultModelForAgent } from "./agent-catalog.ts";
 import { PATHS } from "./config.ts";
 import { museFetchInit } from "./muse-proxy.ts";
@@ -64,6 +66,8 @@ export type ProviderUsage = UsageProviderRef & {
   /** Human-readable explanation when `available` is false. */
   note?: string;
   windows?: UsageWindow[];
+  /** Earned Codex resets. Read-only: no redemption action exists in omg.dev. */
+  resetCredits?: CodexRateLimitResetCredits;
 };
 
 /** One provider family, folded across every account that reported usage. */
@@ -77,6 +81,7 @@ export type UsageSummaryProvider = {
   accounts: number;
   note?: string;
   windows?: UsageWindow[];
+  resetCredits?: CodexRateLimitResetCredits;
 };
 
 const HOME = homedir();
@@ -218,6 +223,44 @@ async function codexUsage(ref: UsageProviderRef): Promise<ProviderUsage> {
   }
   const base = { ...ref, plan };
   try {
+    const snapshot = await readCodexRateLimits();
+    const bucket = snapshot.rateLimitsByLimitId?.codex
+      ?? snapshot.rateLimits
+      ?? Object.values(snapshot.rateLimitsByLimitId ?? {})[0]
+      ?? null;
+    const livePlan = bucket?.planType ?? plan;
+    const windows: UsageWindow[] = [];
+    if (bucket?.primary) {
+      windows.push({
+        label: windowLabel(bucket.primary.windowDurationMins, "Session"),
+        pct: bucket.primary.usedPercent ?? null,
+        resetsAt: secToMs(bucket.primary.resetsAt),
+      });
+    }
+    if (bucket?.secondary) {
+      windows.push({
+        label: windowLabel(bucket.secondary.windowDurationMins, "Weekly"),
+        pct: bucket.secondary.usedPercent ?? null,
+        resetsAt: secToMs(bucket.secondary.resetsAt),
+      });
+    }
+    if (windows.length || snapshot.rateLimitResetCredits) {
+      return {
+        ...ref,
+        plan: livePlan,
+        available: true,
+        windows,
+        ...(snapshot.rateLimitResetCredits
+          ? { resetCredits: snapshot.rateLimitResetCredits }
+          : {}),
+        ...(!windows.length ? { note: "Rate-limit windows were not returned" } : {}),
+      };
+    }
+  } catch {
+    // The app-server read needs a recent Codex CLI. Preserve the rollout path
+    // so usage remains visible during upgrades or a temporary auth failure.
+  }
+  try {
     const newest = await newestFile(join(HOME, ".codex", "sessions"), ".jsonl");
     if (!newest)
       return { ...base, available: false, note: "No recent Codex sessions on this box" };
@@ -255,7 +298,12 @@ async function codexUsage(ref: UsageProviderRef): Promise<ProviderUsage> {
         pct: rl.secondary.used_percent ?? null,
         resetsAt: secToMs(rl.secondary.resets_at),
       });
-    return { ...base, available: true, windows };
+    return {
+      ...base,
+      available: true,
+      windows,
+      note: "Latest session snapshot; live Codex account details unavailable",
+    };
   } catch (e) {
     return { ...base, available: false, note: e instanceof Error ? e.message : String(e) };
   }
@@ -925,6 +973,10 @@ function collect(ref: UsageProviderRef, force = false): Promise<ProviderUsage> {
 const cache = new Map<string, { at: number; data: ProviderUsage }>();
 const inflight = new Map<string, Promise<ProviderUsage>>();
 
+export function invalidateProviderUsage(id: string): void {
+  cache.delete(id);
+}
+
 function loadProvider(ref: UsageProviderRef, force: boolean): Promise<ProviderUsage> {
   if (!force) {
     const hit = cache.get(ref.id);
@@ -1037,7 +1089,14 @@ export function mergeUsageByKind(providers: ProviderUsage[]): UsageSummaryProvid
       : members.length === 1
         ? members[0].note
         : undefined;
-    return { ...base, available: true, windows, ...(note ? { note } : {}) };
+    const resetCredits = members.find((member) => member.resetCredits)?.resetCredits;
+    return {
+      ...base,
+      available: true,
+      windows,
+      ...(resetCredits ? { resetCredits } : {}),
+      ...(note ? { note } : {}),
+    };
   });
 }
 

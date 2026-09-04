@@ -108,6 +108,18 @@ describe("usage summary", () => {
 
     expect(summary.windows?.[0]?.resetsAt).toBe(1_000);
   });
+
+  test("preserves a provider's banked reset inventory in the family summary", () => {
+    const [summary] = mergeUsageByKind([
+      provider(
+        "codex",
+        [{ label: "5 hr", pct: 10, resetsAt: 3_000 }],
+        { kind: "codex", resetCredits: { availableCount: 2, credits: null } },
+      ),
+    ]);
+
+    expect(summary.resetCredits).toEqual({ availableCount: 2, credits: null });
+  });
 });
 
 describe("usage providers", () => {
