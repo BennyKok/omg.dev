@@ -2,6 +2,20 @@
 
 Recent product updates and deployment notes.
 
+## September 4, 2026 - Banked Codex resets in Usage (v0.6.39)
+
+- **Usage shows every banked Codex reset.** The Codex row now gives the
+  authoritative available count, each returned expiry date and grant date, and
+  says when Codex returned a count without all detail rows.
+- **A selected reset can be used from Usage.** Each available credit has a
+  `Use reset` button, followed by an explicit confirmation because redemption
+  immediately resets the current Codex limit and cannot be undone.
+- **The remaining stock is hard to miss.** A prominent counter says exactly
+  how many resets are still available before any action is taken.
+- **Codex usage is current when the local app server is available.** Older
+  Codex installs still fall back to the last session snapshot for the normal
+  usage windows.
+
 ## September 3, 2026 - Board in the desktop workspace (v0.6.38)
 
 - **The Board sits in the desktop workspace.** On a wide screen the session
