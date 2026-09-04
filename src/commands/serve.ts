@@ -39,8 +39,10 @@ import {
   createConnector,
   deleteConnector,
   getConnector,
+  deleteConnectorsForOwner,
   listConnectors,
   ownerForUser,
+  roleOwner,
   publicView,
   updateConnector,
   probeConnector,
@@ -517,8 +519,10 @@ import {
   type GlobalSettings,
 } from "../settings.ts";
 import { listSkillCatalog, searchSkillCatalog, withoutSkillKeywords } from "../skills-catalog.ts";
+import { contentDisposition } from "../artifact-headers.ts";
 import {
   collapseArtifactRetryMessages,
+  createFileArtifact,
   createImageArtifact,
   createVideoArtifact,
   deleteArtifact,
@@ -4085,7 +4089,9 @@ export async function cmdServe() {
 
       // The native connector surface. Exposes the calling session member's
       // connectors (own + org-shared) as MCP tools, scoped and role-filtered,
-      // with owner approval for a connector marked requireApproval.
+      // with owner approval for a connector marked requireApproval. Tool names
+      // are `<slug>__<tool>`, so the role id is `connectors.<slug>.<tool>` and
+      // a rule can block one connector (`connectors.gmail.*`) or one tool.
       if (path === "/mcp/connectors") {
         const caller = resolveCaller(req);
         const owner = connectorOwnerForSession(caller.sessionId);
@@ -4124,8 +4130,8 @@ export async function cmdServe() {
             return { held: false };
           }
         };
-        return await enforceRole(req, caller.role, { namespace: "connectors" }, (r) =>
-          serveConnectorsMcpRequest(r, owner, gate),
+        return await enforceRole(req, caller.role, { namespace: "connectors", split: "__" }, (r) =>
+          serveConnectorsMcpRequest(r, owner, gate, caller.role.id),
         );
       }
 
@@ -4199,12 +4205,15 @@ export async function cmdServe() {
 
 
       // ---- connectors (native, per-member) ----
-      // The UI scopes by ?user=<member>; the store returns that member's own
-      // plus org-shared connectors. Secrets are stripped from every response.
+      // The UI scopes by ?user=<member>; the store returns that member's own,
+      // their role's, and the team-shared connectors. Secrets are stripped
+      // from every response.
       if (path === "/api/connectors" && req.method === "GET") {
-        const owner = ownerForUser(url.searchParams.get("user"));
+        const user = url.searchParams.get("user");
+        const owner = ownerForUser(user);
+        const roleId = roleForUser(user).id;
         return json({
-          connectors: listConnectors(owner).map((c) => ({ ...publicView(c), oauthConnected: hasOAuthTokens(c.id) })),
+          connectors: listConnectors(owner, roleId).map((c) => ({ ...publicView(c), oauthConnected: hasOAuthTokens(c.id) })),
         });
       }
 
@@ -4259,10 +4268,14 @@ export async function cmdServe() {
       }
       if (path === "/api/connectors" && req.method === "POST") {
         const body = (await req.json().catch(() => null)) as
-          | { user?: string; org?: boolean; name?: string; endpoint?: string; headers?: Record<string, string>; catalogSlug?: string; icon?: string; oauth?: boolean; requireApproval?: boolean }
+          | { user?: string; org?: boolean; role?: string; name?: string; endpoint?: string; headers?: Record<string, string>; catalogSlug?: string; icon?: string; oauth?: boolean; requireApproval?: boolean }
           | null;
         if (!body) return err(400, "invalid JSON body");
-        const owner = body.org ? "*org*" : ownerForUser(body.user);
+        // Three levels: `org` is the team, `role` is every member of that
+        // role, otherwise the connector belongs to the requesting member.
+        const roleId = typeof body.role === "string" ? body.role.trim() : "";
+        if (roleId && (roleId === OWNER_ROLE_ID || !getRole(roleId))) return err(404, `unknown role "${roleId}"`);
+        const owner = body.org ? "*org*" : roleId ? roleOwner(roleId) : ownerForUser(body.user);
         const result = createConnector({
           owner,
           name: body.name ?? "",
@@ -4378,6 +4391,14 @@ export async function cmdServe() {
             if (row.role === m[1]) patchManaged(row.tmuxName, { role: undefined });
           }
           invalidateListSessionsCache();
+          // The role's connector bucket goes with it: no member can read a
+          // `role:<id>` bucket for a role that no longer exists. Drop the
+          // stored OAuth tokens and any live hub client for each one.
+          const { clearOAuth } = await import("@omg-dev/connectors");
+          for (const connector of deleteConnectorsForOwner(roleOwner(m[1]!))) {
+            clearOAuth(connector.id);
+            await resetConnector(connector.id);
+          }
           return json({ ok: true });
         }
       }
@@ -9003,12 +9024,23 @@ a{color:#60a5fa}
               },
             });
           }
+          // A "file" artifact is never rendered by omg.dev, only downloaded.
+          // These bytes are agent-chosen and are served from the app's own
+          // origin, so anything the browser would INTERPRET here is something
+          // the agent can execute as the user. Forcing the attachment for the
+          // whole kind means there is no allowlist to keep correct: a `.html`
+          // or `.svg` the agent wrote is saved, never run. Do not relax this
+          // to add an inline preview without solving that first.
+          const isFileArtifact = (artifact.media ?? "image") === "file";
           const baseHeaders: Record<string, string> = {
             "Content-Type": contentType,
             "Cache-Control": "private, max-age=31536000, immutable",
             "X-Content-Type-Options": "nosniff",
             // Video seeking (and Safari playback) needs byte-range support.
             "Accept-Ranges": "bytes",
+            ...(isFileArtifact
+              ? { "Content-Disposition": contentDisposition("attachment", artifact.name) }
+              : {}),
           };
           // Honor a single-range request so the <video> element can seek without
           // re-downloading the whole file. Bun.file().slice() streams the slice.
@@ -9205,6 +9237,35 @@ a{color:#60a5fa}
             return json({ ok: true, artifact, message: imageArtifactToMessage(artifact), indexed: true });
           } catch (e) {
             return err(400, e instanceof Error ? e.message : "could not create video artifact");
+          }
+        }
+      }
+
+      {
+        // Any other file the agent wants to put in front of the user: a PDF,
+        // an audio clip, a CSV, an archive. One route for all of them — the
+        // stored mime type, not the artifact kind, decides the presentation.
+        const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/artifacts\/files$/);
+        if (m && req.method === "POST") {
+          const body = (await req.json().catch(() => null)) as {
+            path?: string;
+            caption?: string;
+            alt?: string;
+          } | null;
+          if (!body?.path?.trim()) return err(400, "path required");
+          try {
+            const transcriptPath = await resolveTranscript(m[1]);
+            const indexPath = transcriptPath ?? sessionIndexKey(m[1]);
+            const artifact = createFileArtifact({
+              sessionId: m[1],
+              path: body.path,
+              caption: body.caption,
+              alt: body.alt,
+            });
+            indexArtifactMessage(indexPath, m[1], artifact);
+            return json({ ok: true, artifact, message: imageArtifactToMessage(artifact), indexed: true });
+          } catch (e) {
+            return err(400, e instanceof Error ? e.message : "could not create file artifact");
           }
         }
       }

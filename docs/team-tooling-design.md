@@ -230,12 +230,20 @@ untrusted-code isolation stays with Firecracker in `vibes`.
 
 The connector layer is omg's own, not Executor's (that wrapping was removed):
 
-- `src/connectors/store.ts`: per-member connections. Owner is an omg member or
-  the org sentinel; a session sees its member's own plus org-shared.
+- `src/connectors/store.ts`: connections at three levels. Owner is an omg
+  member, a role bucket (`role:<id>`), or the org sentinel. A session reads
+  team, then its role's, then its member's own; the most specific bucket wins
+  a slug collision. The Connectors tab picks the level when adding
+  ("Only me", "Role: X", "Whole team") and badges shared rows.
 - `src/connectors/hub.ts`: omg is an MCP client to each connection, injecting
   the credential host-side.
 - `src/connectors/mcp-endpoint.ts`: `/mcp/connectors`, the agent surface,
   scoped to the session's member, role-filtered, with an approval gate.
+  Tool names are `<slug>__<tool>`; the role filter reads them as
+  `connectors.<slug>.<tool>`, so a role rule can block one connector
+  (`connectors.gmail.*`), one tool (`connectors.gmail.send_message`), or all
+  connectors (`connectors.*`). The Roles card lists the box's connector slugs
+  as pattern suggestions.
 - `src/connectors/catalog.ts`: browse the integrations.sh catalog.
 
 OAuth is owned by omg (`src/connectors/oauth-provider.ts`, `oauth-store.ts`):

@@ -83,10 +83,14 @@ export function timeAgo(value?: number | null): string {
  */
 export type ViewerArtifact = {
   url: string;
-  kind: "image" | "video" | "html";
+  kind: "image" | "video" | "html" | "file";
   title?: string;
   caption?: string;
   name?: string;
+  // File artifacts pick their presentation from the mime type, and show the
+  // size on the card. Unused by the image/video/html branches.
+  mimeType?: string;
+  size?: number;
   version?: number;
   // Changes on every successful content write, including data-only refreshes.
   // Kept separate from the user-facing authored revision.

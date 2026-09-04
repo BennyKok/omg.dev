@@ -5,9 +5,12 @@ import { join } from "node:path";
 import { configureConnectors } from "./context.ts";
 import {
   ORG_OWNER,
+  connectorsForMember,
   connectorsForOwner,
+  roleOwner,
   createConnector,
   deleteConnector,
+  deleteConnectorsForOwner,
   getConnector,
   listConnectors,
   publicView,
@@ -46,6 +49,40 @@ describe("connector store", () => {
     expect(forBenny).toEqual(["Benny GH", "Shared"]);
     const forAngel = connectorsForOwner("angel").map((c) => c.name).sort();
     expect(forAngel).toEqual(["Angel GH", "Shared"]);
+  });
+
+  test("three levels: team, role, own; the most specific wins a slug collision", () => {
+    createConnector({ owner: ORG_OWNER, name: "Shared", endpoint: "https://z/mcp" });
+    createConnector({ owner: roleOwner("support"), name: "Zendesk", endpoint: "https://r/mcp" });
+    createConnector({ owner: roleOwner("support"), name: "GitHub", endpoint: "https://role-gh/mcp" });
+    createConnector({ owner: roleOwner("design"), name: "Figma", endpoint: "https://d/mcp" });
+    createConnector({ owner: "benny", name: "GitHub", endpoint: "https://own-gh/mcp" });
+
+    const support = connectorsForMember("benny", "support");
+    expect(support.map((c) => c.name).sort()).toEqual(["GitHub", "Shared", "Zendesk"]);
+    expect(support.find((c) => c.slug === "github")?.endpoint).toBe("https://own-gh/mcp");
+
+    const angelInDesign = connectorsForMember("angel", "design").map((c) => c.name).sort();
+    expect(angelInDesign).toEqual(["Figma", "Shared"]);
+
+    // No role, or the owner role, reads only own + team.
+    expect(connectorsForMember("angel", null).map((c) => c.name)).toEqual(["Shared"]);
+    expect(connectorsForMember("angel", "owner").map((c) => c.name)).toEqual(["Shared"]);
+
+    // The UI list keeps the shadowed role GitHub so it can be managed.
+    expect(listConnectors("benny", "support").filter((c) => c.slug === "github")).toHaveLength(2);
+  });
+
+  test("deleting a role bucket removes only that role's connectors", () => {
+    createConnector({ owner: roleOwner("support"), name: "Desk", endpoint: "https://r/mcp" });
+    createConnector({ owner: roleOwner("support"), name: "Zendesk", endpoint: "https://r2/mcp" });
+    createConnector({ owner: roleOwner("design"), name: "Figma", endpoint: "https://d/mcp" });
+    createConnector({ owner: "benny", name: "Own", endpoint: "https://o/mcp" });
+
+    const removed = deleteConnectorsForOwner(roleOwner("support"));
+    expect(removed.map((c) => c.name).sort()).toEqual(["Desk", "Zendesk"]);
+    expect(listConnectors().map((c) => c.name).sort()).toEqual(["Figma", "Own"]);
+    expect(deleteConnectorsForOwner(roleOwner("support"))).toEqual([]);
   });
 
   test("public view strips header secrets", () => {

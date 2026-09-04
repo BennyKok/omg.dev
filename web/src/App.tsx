@@ -166,6 +166,7 @@ import {
   AuthenticatedArtifactImage,
   AuthenticatedArtifactVideo,
 } from "./components/authenticated-artifact";
+import { ArtifactFileCard } from "./components/artifact-file-card";
 import {
   NativeArtifact,
   NativeArtifactEmbed,
@@ -217,6 +218,14 @@ export function prefetchChatEngine(): void {
   if (typeof ric === "function") ric(run, { timeout: 3000 });
   else setTimeout(run, 1500);
 }
+import {
+  DEFAULT_GLOBAL_SETTINGS,
+  DEFAULT_VIEW_PREFS,
+  resolveGlobalSettings,
+  type GlobalSettings,
+  type ViewPrefs,
+} from "./lib/global-settings";
+export type { GlobalSettings, ViewPrefs };
 import {
   DEFAULT_SCHED_TZ,
   DEFAULT_SIMPLE,
@@ -1108,76 +1117,6 @@ type ModelCatalogItem = {
   configured?: boolean;
 };
 
-type GlobalSettings = {
-  timeZone: string;
-  // Cap on total LIVE agents, idle included (0 = unlimited).
-  maxLiveAgents: number;
-  // Per-bot cap on self-scheduled routines. Always >= 1 — unlike
-  // maxLiveAgents, 0-as-unlimited is not offered here.
-  maxBotSchedules: number;
-  botAutoCompactionEnabled: boolean;
-  botCompactionThresholdPercent: number;
-  // Whether this box offers the Computer Use MCP to agents. Off by default;
-  // see the MCP servers section in SettingsView.
-  computerMcpEnabled: boolean;
-  transcriptView: TranscriptView;
-  // The update the "What's new" drawer's Skip button last dismissed. See
-  // UpdateProvider in components/update-drawer.tsx.
-  skippedUpdateVersion: string;
-  // Standing instructions appended to the launch envelope of every new
-  // session. "" means nothing extra is sent.
-  customInstructions: string;
-  // Default coding agent + model for a new session when this browser has no
-  // saved choice. "" = host default / catalog default.
-  defaultAgent: string;
-  defaultModel: string;
-  // Box-wide view switches. All true by default. See ViewPrefsContext.
-  showSidebarAgentIcons: boolean;
-  showSessionAgentIcons: boolean;
-  showComposerModels: boolean;
-  // Off: no agent choice in the composer; every new session uses defaultAgent.
-  showComposerAgents: boolean;
-  showBots: boolean;
-  showSchedules: boolean;
-  // Off hides the floating worktree diff bar in a session's chat.
-  showSessionDiffBar: boolean;
-  // Off hides the Fast pill in the composer; new sessions launch without
-  // fast mode.
-  showComposerFastMode: boolean;
-};
-
-/**
- * The box-wide view preferences, read by the pieces of UI they switch: the
- * rail rows, session headers, the composer's model list, and the surface
- * toggle. One context so a deep, memoised row does not need seven props
- * threaded through it. A role system may later decide these per viewer; the
- * consumers only ever read the resolved booleans.
- */
-type ViewPrefs = Pick<
-  GlobalSettings,
-  | "defaultAgent"
-  | "defaultModel"
-  | "showSidebarAgentIcons"
-  | "showSessionAgentIcons"
-  | "showComposerModels"
-  | "showComposerAgents"
-  | "showBots"
-  | "showSchedules"
-  | "showSessionDiffBar"
-  | "showComposerFastMode"
->;
-const DEFAULT_VIEW_PREFS: ViewPrefs = {
-  defaultAgent: "",
-  defaultModel: "",
-  showSidebarAgentIcons: true,
-  showSessionAgentIcons: true,
-  showComposerModels: true,
-  showComposerAgents: true,
-  showBots: true,
-  showSchedules: true,
-  showSessionDiffBar: true,
-  showComposerFastMode: true,
-};
 const ViewPrefsContext = createContext<ViewPrefs>(DEFAULT_VIEW_PREFS);
 
 
@@ -1296,7 +1235,8 @@ type BootstrapPayload = {
   agents?: Agent[] | null;
   codingAgents?: CodingAgentInfo[] | null;
   models?: ModelCatalogItem[] | null;
-  settings?: GlobalSettings | null;
+  // Partial on purpose: an older box omits the fields it does not know.
+  settings?: Partial<GlobalSettings> | null;
   sessions?: Session[] | null;
   sessionPins?: string[] | null;
   conversations?: ProductConversation[] | null;
@@ -1883,6 +1823,16 @@ function ArtifactViewerPage({
               title={label}
               onNeedsFrame={setFramed}
               className={cn("block w-full", framed && "h-full")}
+            />
+          </div>
+        ) : artifact.kind === "file" ? (
+          <div className="flex h-full items-start justify-center overflow-auto bg-background p-4">
+            <ArtifactFileCard
+              url={artifact.url}
+              name={artifact.name}
+              mimeType={artifact.mimeType}
+              size={artifact.size}
+              caption={artifact.caption}
             />
           </div>
         ) : artifact.kind === "video" ? (
@@ -6103,18 +6053,7 @@ export function App() {
     [bots],
   );
   const [managedComputer, setManagedComputer] = useState(false);
-  const [settings, setSettings] = useState<GlobalSettings>({
-    timeZone: DEFAULT_SCHED_TZ,
-    maxLiveAgents: 16,
-    maxBotSchedules: 5,
-    botAutoCompactionEnabled: true,
-    computerMcpEnabled: false,
-    botCompactionThresholdPercent: 78,
-    transcriptView: "full",
-    skippedUpdateVersion: "",
-    customInstructions: "",
-    ...DEFAULT_VIEW_PREFS,
-  });
+  const [settings, setSettings] = useState<GlobalSettings>(DEFAULT_GLOBAL_SETTINGS);
   const [schedTz, setSchedTz] = useState<string>(DEFAULT_SCHED_TZ);
   const [findings, setFindings] = useState<AutoFinding[]>([]);
   const [autoTriageBusy, setAutoTriageBusy] = useState(false);
@@ -6413,18 +6352,11 @@ export function App() {
     setManagedComputer(!!payload.computer);
     setCodingAgents(payload.codingAgents ?? []);
     setModelCatalog(buildAgentModelCatalog(payload.models));
-    setSettings(payload.settings ?? {
-      timeZone: payload.auto?.tz ?? DEFAULT_SCHED_TZ,
-      maxLiveAgents: 16,
-      maxBotSchedules: 5,
-      botAutoCompactionEnabled: true,
-      computerMcpEnabled: false,
-        botCompactionThresholdPercent: 78,
-      transcriptView: "full",
-      skippedUpdateVersion: "",
-      customInstructions: "",
-      ...DEFAULT_VIEW_PREFS,
-    });
+    // The scheduler's zone stands in for timeZone only when the box sends no
+    // settings of its own.
+    setSettings(
+      resolveGlobalSettings({ timeZone: payload.auto?.tz, ...payload.settings }),
+    );
     // Guard sessions to [] — it feeds `allLiveSessions`/`liveSessions` which
     // call `.filter()` unconditionally on render, so a malformed/empty payload
     // must degrade to an empty live view rather than crash.
@@ -7883,13 +7815,14 @@ export function App() {
   }
 
   const updateSettings = useCallback(async (patch: Partial<GlobalSettings>) => {
-    const payload = await api<{ settings: GlobalSettings }>("/api/settings", {
+    const payload = await api<{ settings: Partial<GlobalSettings> }>("/api/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
     });
-    setSettings(payload.settings);
-    setSchedTz(payload.settings.timeZone);
+    const next = resolveGlobalSettings(payload.settings);
+    setSettings(next);
+    setSchedTz(next.timeZone);
   }, []);
   // A hidden surface is not a destination. Land on Chat if the URL, a
   // shortcut, or a stale menu still names Bots or Schedules while it is off.
@@ -20375,6 +20308,22 @@ const MessageBubble = memo(function MessageBubble({
     );
   }
 
+  if (message.kind === "file" && message.url) {
+    return (
+      <AiMessage className={cn("msg", entering && "lfg-msg-in")} from="assistant">
+        <MessageContent className="not-prose w-full max-w-[min(42rem,92vw)] p-0">
+          <ArtifactFileCard
+            url={message.url}
+            name={message.name}
+            mimeType={message.mimeType}
+            size={message.size}
+            caption={message.caption || message.text || message.alt}
+          />
+        </MessageContent>
+      </AiMessage>
+    );
+  }
+
   if ((message.kind === "image" || message.kind === "video") && message.url) {
     const isVideo = message.kind === "video";
     const label =
@@ -27255,7 +27204,7 @@ function UsagePage() {
 
 export type GalleryArtifact = {
   id: string;
-  kind: "image" | "video" | "html";
+  kind: "image" | "video" | "html" | "file";
   url: string;
   name: string;
   title?: string;
@@ -27275,10 +27224,12 @@ export type GalleryArtifact = {
 
 export type ShipMediaItem = {
   artifactId: string;
-  kind: "image" | "video" | "html";
+  kind: "image" | "video" | "html" | "file";
   url: string;
   name: string;
   caption?: string;
+  mimeType?: string;
+  size?: number;
   version?: number;
   updatedAt?: number;
   lastRefreshedAt?: number;

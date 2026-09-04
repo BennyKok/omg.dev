@@ -15,7 +15,10 @@
 // Tool ids are `<namespace>.<name>` with the server's own prefix stripped
 // (`omg_ship` -> `omg.ship`, `computer_click` -> `computer.click`,
 // `execute` -> `executor.execute`), so a rule reads the same whichever
-// endpoint the tool lives on.
+// endpoint the tool lives on. A server that packs two levels into one name
+// declares its separator with `split`, so the levels become segments and a
+// rule can glob on either: `gmail__send` -> `connectors.gmail.send`, which
+// `connectors.gmail.*` (one connector) or `connectors.*` (all) match.
 import { evaluateRole, type Role } from "./roles.ts";
 
 type JsonRpcMessage = {
@@ -31,11 +34,14 @@ export interface FilterNamespace {
   namespace: string;
   /** Prefix the server puts on its tool names, stripped for the policy id. */
   strip?: string;
+  /** Separator the server uses inside a tool name; each part becomes a segment. */
+  split?: string;
 }
 
 export function policyToolId(ns: FilterNamespace, toolName: string): string {
   const bare = ns.strip && toolName.startsWith(ns.strip) ? toolName.slice(ns.strip.length) : toolName;
-  return `${ns.namespace}.${bare}`;
+  const segments = ns.split ? bare.split(ns.split).join(".") : bare;
+  return `${ns.namespace}.${segments}`;
 }
 
 function blockedReply(id: JsonRpcMessage["id"], toolName: string, roleName: string): Response {

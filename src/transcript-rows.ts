@@ -56,7 +56,7 @@ export function toolGroupLabel(items: ChatRenderMessage[]): string {
   return parts.join(" · ") || `${items.length} step${items.length === 1 ? "" : "s"}`;
 }
 
-function artifactKindForTool(message: ChatRenderMessage): "image" | "video" | "html" | null {
+function artifactKindForTool(message: ChatRenderMessage): "image" | "video" | "html" | "file" | null {
   if (message.kind !== "tool_use") return null;
   const name = toolName(message.text);
   // The tools are registered as omg_*; the lfg_* spellings are kept so
@@ -64,6 +64,7 @@ function artifactKindForTool(message: ChatRenderMessage): "image" | "video" | "h
   if (matchesTool(name, "display_image")) return "image";
   if (matchesTool(name, "display_video")) return "video";
   if (matchesTool(name, "publish_artifact")) return "html";
+  if (matchesTool(name, "display_file")) return "file";
   return null;
 }
 

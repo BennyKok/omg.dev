@@ -285,7 +285,7 @@ export type SessionMsg = {
   // whole chunk again.
   id: string | null;
   role: string;
-  kind: "text" | "thinking" | "tool_use" | "tool_result" | "image" | "video" | "html";
+  kind: "text" | "thinking" | "tool_use" | "tool_result" | "image" | "video" | "html" | "file";
   text: string;
   ts: number | null;
   // True only for a genuine upstream API-error turn (Claude Code stamps the
