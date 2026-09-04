@@ -7053,10 +7053,14 @@ a{color:#60a5fa}
             // The finding the owner was looking at is answered by the rewrite:
             // leaving it open under "Auto" reads as "still needs doing" (the
             // very first report of this fix was a screenshot of it still
-            // sitting there). Dismissed, not resolved — that is also what
-            // feeds the runner's "do NOT resurface" list next run.
+            // sitting there). "read", NOT "dismissed": a dismissed title is
+            // fed back to the next run as "do NOT resurface" (runner.ts), and
+            // feedback usually means the opposite — "handle this properly" —
+            // so dismissing it made the retuned agent skip exactly that case
+            // on its very next run. "read" drops it from the open list and
+            // still counts as unresolved, so a real recurrence escalates.
             if (finding && finding.status === "open") {
-              await updateFinding(finding.id, { status: "dismissed" });
+              await updateFinding(finding.id, { status: "read" });
             }
           })().then(
             () => settleRefine(agent.id),
