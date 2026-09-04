@@ -10,7 +10,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { configureConnectors } from "./context.ts";
-import { ORG_OWNER, createConnector } from "./store.ts";
+import { ORG_OWNER, createConnector, roleOwner } from "./store.ts";
 import { resetAllConnectorsForTests } from "./hub.ts";
 import { serveConnectorsMcpRequest, splitConnectorTool } from "./mcp-endpoint.ts";
 
@@ -48,10 +48,12 @@ afterEach(async () => {
   rmSync(tmp, { recursive: true, force: true });
 });
 
-function rpc(owner: string, body: unknown) {
+function rpc(owner: string, body: unknown, roleId?: string) {
   return serveConnectorsMcpRequest(
     new Request("http://box/mcp/connectors", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
     owner,
+    undefined,
+    roleId,
   );
 }
 
@@ -115,5 +117,23 @@ describe("connectors MCP endpoint", () => {
     const body = (await res.json()) as { result: { content: { text: string }[] } };
     expect(called).toBe(true);
     expect(body.result.content[0]!.text).toContain("waiting for the owner");
+  });
+
+  test("a role connector is visible to a member of that role and callable, not to another role", async () => {
+    createConnector({ owner: roleOwner("support"), name: "Desk", endpoint: `http://127.0.0.1:${s2.port}/mcp` });
+    createConnector({ owner: "benny", name: "Benny", endpoint: `http://127.0.0.1:${s1.port}/mcp` });
+
+    const list = { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} };
+    const inSupport = (await (await rpc("benny", list, "support")).json()) as { result: { tools: { name: string }[] } };
+    expect(inSupport.result.tools.map((t) => t.name).sort()).toEqual(["benny__echo", "desk__echo"]);
+
+    const inDesign = (await (await rpc("benny", list, "design")).json()) as { result: { tools: { name: string }[] } };
+    expect(inDesign.result.tools.map((t) => t.name)).toEqual(["benny__echo"]);
+
+    const call = { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "desk__echo", arguments: { message: "hi" } } };
+    const ok = (await (await rpc("angel", call, "support")).json()) as { result: { content: { text: string }[] } };
+    expect(ok.result.content[0]?.text).toBe("sharedSrv:hi");
+    const denied = (await (await rpc("angel", call, "design")).json()) as { result: { isError?: boolean } };
+    expect(denied.result.isError).toBe(true);
   });
 });

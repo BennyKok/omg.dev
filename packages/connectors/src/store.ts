@@ -3,12 +3,13 @@
 // integrations.sh catalog or by hand), with the credential omg holds and
 // injects host-side — the agent never sees it.
 //
-// Scoping is the whole point: every connection has an `owner` (an omg member,
-// or the shared sentinel ORG_OWNER). A session runs as a member, and the hub
-// (./hub.ts) exposes that member's own connections plus the org-shared ones,
-// so all of a member's agents share their connections and cannot see another
-// member's. This is what Executor could not do — its ownership is a single
-// org|user bucket, not one per team member.
+// Scoping is the whole point: every connection has an `owner`: an omg member,
+// a role bucket (`role:<id>`, shared by every member of that role), or the
+// team sentinel ORG_OWNER. A session runs as a member in a role, and the MCP
+// endpoint (./mcp-endpoint.ts) exposes the team connections, then the role's,
+// then the member's own, so all of a member's agents share their connections
+// and cannot see another member's. This is what Executor could not do — its
+// ownership is a single org|user bucket, not one per team member.
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
@@ -17,11 +18,23 @@ import { connectorDataDir } from "./context.ts";
 /** Connections everyone in the team may use. */
 export const ORG_OWNER = "*org*";
 
+/** Owner prefix for connections shared by every member of one role. */
+export const ROLE_OWNER_PREFIX = "role:";
+
+export function roleOwner(roleId: string): string {
+  return `${ROLE_OWNER_PREFIX}${roleId}`;
+}
+
+/** The role id a `role:<id>` owner names, or null for a member or team owner. */
+export function roleOfOwner(owner: string): string | null {
+  return owner.startsWith(ROLE_OWNER_PREFIX) ? owner.slice(ROLE_OWNER_PREFIX.length) || null : null;
+}
+
 export type ConnectorKind = "mcp";
 
 export interface Connector {
   id: string;
-  /** omg member id, or ORG_OWNER for a team-shared connection. */
+  /** omg member id, `role:<id>` for a role-shared connection, or ORG_OWNER for the team. */
   owner: string;
   /** Human label and the id agents see as the tool namespace. */
   name: string;
@@ -108,14 +121,39 @@ export function ownerForUser(user: string | null | undefined): string {
   return u ? u : BOX_OWNER;
 }
 
-/** Every connection an owner may use: their own plus the org-shared ones. */
-export function connectorsForOwner(owner: string): Connector[] {
-  return read().connectors.filter((c) => c.owner === owner || c.owner === ORG_OWNER);
+/** The owner buckets a member in `roleId` reads, least specific first. */
+function bucketsFor(owner: string, roleId?: string | null): string[] {
+  const buckets = [ORG_OWNER];
+  if (roleId && roleId !== "owner") buckets.push(roleOwner(roleId));
+  if (owner !== ORG_OWNER) buckets.push(owner);
+  return buckets;
 }
 
-export function listConnectors(owner?: string): Connector[] {
+/**
+ * Every connection a member's agents may call: team, then role, then their
+ * own. One entry per slug; the most specific bucket wins a collision, so a
+ * member's own "github" shadows a role or team "github" of the same name.
+ */
+export function connectorsForMember(owner: string, roleId?: string | null): Connector[] {
   const all = read().connectors;
-  return owner ? all.filter((c) => c.owner === owner || c.owner === ORG_OWNER) : all;
+  const bySlug = new Map<string, Connector>();
+  for (const bucket of bucketsFor(owner, roleId)) {
+    for (const c of all) if (c.owner === bucket) bySlug.set(c.slug, c);
+  }
+  return [...bySlug.values()];
+}
+
+/** Every connection an owner may use: their own plus the org-shared ones. */
+export function connectorsForOwner(owner: string): Connector[] {
+  return connectorsForMember(owner, null);
+}
+
+/** For the UI: every connection in the member's buckets, no shadowing. */
+export function listConnectors(owner?: string, roleId?: string | null): Connector[] {
+  const all = read().connectors;
+  if (!owner) return all;
+  const buckets = new Set(bucketsFor(owner, roleId));
+  return all.filter((c) => buckets.has(c.owner));
 }
 
 export function getConnector(id: string): Connector | null {

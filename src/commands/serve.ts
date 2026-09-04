@@ -41,6 +41,7 @@ import {
   getConnector,
   listConnectors,
   ownerForUser,
+  roleOwner,
   publicView,
   updateConnector,
   probeConnector,
@@ -4125,7 +4126,7 @@ export async function cmdServe() {
           }
         };
         return await enforceRole(req, caller.role, { namespace: "connectors", split: "__" }, (r) =>
-          serveConnectorsMcpRequest(r, owner, gate),
+          serveConnectorsMcpRequest(r, owner, gate, caller.role.id),
         );
       }
 
@@ -4199,12 +4200,15 @@ export async function cmdServe() {
 
 
       // ---- connectors (native, per-member) ----
-      // The UI scopes by ?user=<member>; the store returns that member's own
-      // plus org-shared connectors. Secrets are stripped from every response.
+      // The UI scopes by ?user=<member>; the store returns that member's own,
+      // their role's, and the team-shared connectors. Secrets are stripped
+      // from every response.
       if (path === "/api/connectors" && req.method === "GET") {
-        const owner = ownerForUser(url.searchParams.get("user"));
+        const user = url.searchParams.get("user");
+        const owner = ownerForUser(user);
+        const roleId = roleForUser(user).id;
         return json({
-          connectors: listConnectors(owner).map((c) => ({ ...publicView(c), oauthConnected: hasOAuthTokens(c.id) })),
+          connectors: listConnectors(owner, roleId).map((c) => ({ ...publicView(c), oauthConnected: hasOAuthTokens(c.id) })),
         });
       }
 
@@ -4259,10 +4263,14 @@ export async function cmdServe() {
       }
       if (path === "/api/connectors" && req.method === "POST") {
         const body = (await req.json().catch(() => null)) as
-          | { user?: string; org?: boolean; name?: string; endpoint?: string; headers?: Record<string, string>; catalogSlug?: string; icon?: string; oauth?: boolean; requireApproval?: boolean }
+          | { user?: string; org?: boolean; role?: string; name?: string; endpoint?: string; headers?: Record<string, string>; catalogSlug?: string; icon?: string; oauth?: boolean; requireApproval?: boolean }
           | null;
         if (!body) return err(400, "invalid JSON body");
-        const owner = body.org ? "*org*" : ownerForUser(body.user);
+        // Three levels: `org` is the team, `role` is every member of that
+        // role, otherwise the connector belongs to the requesting member.
+        const roleId = typeof body.role === "string" ? body.role.trim() : "";
+        if (roleId && (roleId === OWNER_ROLE_ID || !getRole(roleId))) return err(404, `unknown role "${roleId}"`);
+        const owner = body.org ? "*org*" : roleId ? roleOwner(roleId) : ownerForUser(body.user);
         const result = createConnector({
           owner,
           name: body.name ?? "",
