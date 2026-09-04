@@ -92,14 +92,15 @@ describe("agent detection", () => {
   });
 
   test("a machine with every agent reports them all ready", () => {
-    const result = probeAgents(["claude", "codex", "opencode", "jcode", "grok", "cursor-agent", "fx", "copilot"]);
+    const result = probeAgents(["claude", "codex", "opencode", "jcode", "grok", "cursor-agent", "fx", "muse", "copilot"]);
     expect(result).not.toBeNull();
     expect(result!.ready).toContain("claude");
     expect(result!.ready).toContain("codex");
     // Neither of these is a PATH lookup, so "every CLI installed" cannot make
     // them ready. pi is probed by file and is not bundled any more. deepseek is
     // probed by `deepseek_harness_ready`, a function defined above the block
-    // under test. Both are opt-in, so both read missing here by design.
+    // under test. Both are opt-in, so both read missing here by design. muse,
+    // like fx, is probed by PATH, so it counts as ready above.
     expect(result!.missing).toEqual(["deepseek", "pi"]);
   });
 

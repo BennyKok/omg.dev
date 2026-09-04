@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { defaultModelForCatalogItem } from "./agent-catalog.ts";
 import {
   providersDueForRetry,
   parseFxModels,
@@ -7,6 +8,7 @@ import {
   retryDelayMs,
   type ModelDiscoveryCache,
   type DiscoveredModelProvider,
+  parseMuseModels,
 } from "./model-discovery.ts";
 
 function provider(
@@ -44,6 +46,7 @@ function cache(
       fx: provider("fx"),
       opencode: provider("opencode"),
       jcode: provider("jcode"),
+      muse: provider("muse"),
       ...providers,
     },
   };
@@ -100,7 +103,7 @@ describe("model discovery retry policy", () => {
       timeZone: "UTC",
       providers: { codex: provider("codex") },
     };
-    expect(providersDueForRetry(older, 0)).toEqual(["grok", "cursor", "fx", "opencode", "jcode"]);
+    expect(providersDueForRetry(older, 0)).toEqual(["grok", "cursor", "fx", "opencode", "jcode", "muse"]);
   });
 
   test("no cache means the initial full refresh owns it, not the retry path", () => {
@@ -192,5 +195,31 @@ opencode/deepseek-v4-flash-free
     expect(parsed.variants).toEqual({
       "zai-coding-plan/glm-5.3": ["low", "high", "max"],
     });
+  });
+});
+
+describe("muse model discovery", () => {
+  // Shape captured from GET api.meta.ai/muse-code/models on 2026-09-02.
+  const body = JSON.stringify({
+    object: "list",
+    data: [
+      { id: "muse-spark-1.2-contributor", metadata: { "muse-code": { name: "muse-spark-1.2-contributor", release_date: "2026-08-05", is_hidden: false } } },
+      { id: "muse-spark-1.2", metadata: { "muse-code": { name: "muse-spark-1.2", release_date: "2026-08-05", is_hidden: false } } },
+      { id: "muse-spark-1.3", metadata: { "muse-code": { name: "muse-spark-1.3", release_date: "2026-09-01", is_hidden: false } } },
+      { id: "muse-spark-0.9", metadata: { "muse-code": { name: "old", release_date: "2026-01-01", is_hidden: true } } },
+      { id: "muse-image-1.0", metadata: { "muse-code": { name: "muse-image-1.0", release_date: "2026-08-05", is_hidden: false } } },
+    ],
+  });
+
+  test("keeps visible muse-spark models newest first and never a contributor twin", () => {
+    expect(parseMuseModels(body)).toEqual({ models: ["muse-spark-1.3", "muse-spark-1.2"], labels: {} });
+  });
+
+  test("the newest discovered muse-spark becomes the default", () => {
+    expect(defaultModelForCatalogItem("muse", ["muse-spark-1.3", "muse-spark-1.2"], false)).toBe("muse-spark-1.3");
+  });
+
+  test("an empty catalog yields no models", () => {
+    expect(parseMuseModels(JSON.stringify({ data: [] })).models).toEqual([]);
   });
 });

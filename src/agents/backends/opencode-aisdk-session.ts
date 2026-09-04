@@ -48,6 +48,7 @@ import { readFileSync, statSync } from "node:fs";
 import { initialCmdOffset, readNewCmdLines, writeCursor } from "./cmd-tail.ts";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { extractAttachments } from "../../attachment-images.ts";
 
 // Headless OpenCode can't show its TUI question picker. If the user never
 // answers via LFG, reject after this so the turn can't hang forever.
@@ -100,12 +101,22 @@ export function opencodePromptBody(
 ): {
   model?: { providerID: string; modelID: string };
   variant?: string;
-  parts: Array<{ type: "text"; text: string }>;
+  parts: Array<{ type: "text"; text: string } | { type: "file"; mime: string; url: string; filename?: string }>;
 } {
+  const extracted = extractAttachments(prompt);
+  const text = extracted.hadBlock && extracted.attachments.length
+    ? extracted.cleanText || "(image attachment)"
+    : prompt;
+  const parts: Array<{ type: "text"; text: string } | { type: "file"; mime: string; url: string; filename?: string }> = [
+    { type: "text", text },
+  ];
+  for (const att of extracted.attachments) {
+    parts.push({ type: "file", mime: att.mime, url: `file://${att.path}`, filename: att.filename });
+  }
   return {
     ...(modelRef(model) ? { model: modelRef(model) } : {}),
     ...(thinkingLevel ? { variant: thinkingLevel } : {}),
-    parts: [{ type: "text", text: prompt }],
+    parts,
   };
 }
 

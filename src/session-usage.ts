@@ -180,6 +180,7 @@ const HARNESS_BINARIES = new Set([
   "cursor",
   "cursor-agent",
   "fx",
+  "muse",
   "opencode",
   "copilot",
   "pi",

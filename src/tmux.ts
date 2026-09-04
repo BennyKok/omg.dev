@@ -421,6 +421,23 @@ export function fxBin(): string {
   return (_fxBin = "fx");
 }
 
+let _museBin: string | null = null;
+export function museBin(): string {
+  if (_museBin) return _museBin;
+  const onPath = Bun.which("muse");
+  if (onPath) return (_museBin = onPath);
+  const home = process.env.HOME ?? homedir();
+  // Muse's installer drops the launcher in ~/.local/bin, honouring LFG_MUSE_PATH.
+  for (const p of [
+    process.env.LFG_MUSE_PATH ?? "",
+    `${home}/.local/bin/muse`,
+    "/usr/local/bin/muse",
+  ]) {
+    if (p && existsSync(p)) return (_museBin = p);
+  }
+  return (_museBin = "muse");
+}
+
 let _copilotBin: string | null = null;
 export function copilotBin(): string {
   if (_copilotBin) return _copilotBin;
@@ -1391,6 +1408,7 @@ export type ManagedStructuredModule =
   | "grok-acp-session"
   | "cursor-acp-session"
   | "fx-acp-session"
+  | "muse-msp-session"
   | "deepseek-acp-session"
   | "copilot-sdk-session"
   | "jcode-sdk-session";
@@ -1448,6 +1466,9 @@ export const spawnManagedCursorAcpSession = (opts: ManagedStructuredSessionOptio
 
 export const spawnManagedFxAcpSession = (opts: ManagedStructuredSessionOptions) =>
   spawnManagedStructuredSession("fx-acp-session", opts);
+
+export const spawnManagedMuseMspSession = (opts: ManagedStructuredSessionOptions) =>
+  spawnManagedStructuredSession("muse-msp-session", opts);
 
 export const spawnManagedDeepseekAcpSession = (opts: ManagedStructuredSessionOptions) =>
   spawnManagedStructuredSession("deepseek-acp-session", opts);

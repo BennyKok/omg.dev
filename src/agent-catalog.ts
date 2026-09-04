@@ -74,6 +74,14 @@ export const FX_MODELS: string[] = [
   "zai/glm-5.2",
 ];
 export const DEEPSEEK_MODELS: string[] = ["deepseek-v4-flash", "deepseek-v4-pro"];
+// Static fallback until model discovery (GET api.meta.ai/muse-code/models, the
+// document the CLI itself reads) has answered; discovery is authoritative and
+// is how a newly released muse-spark shows up. The server-side default is the
+// `-contributor` twin ("content may be used for product improvement"), so
+// neither that twin nor "auto" (= that server default) is ever offered; omg
+// always names the plain model. The default is whatever discovery lists
+// first (newest release), see defaultModelForCatalogItem.
+export const MUSE_MODELS: string[] = ["muse-spark-1.2"];
 export const HERMES_MODELS: string[] = [
   "nousresearch/hermes-4-405b",
   "nousresearch/hermes-4-70b",
@@ -143,6 +151,7 @@ export const AUTO_AGENT_BACKENDS = [
   "grok",
   "cursor",
   "fx",
+  "muse",
   "opencode",
 ] as const;
 export type AutoAgentBackend = (typeof AUTO_AGENT_BACKENDS)[number];
@@ -154,6 +163,7 @@ const MODEL_CATALOG_KEYS: CodingAgentKind[] = [
   "grok",
   "cursor",
   "fx",
+  "muse",
   "deepseek",
   "opencode",
   "jcode",
@@ -183,6 +193,8 @@ export const PI_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "x
 // Jcode exposes the same /effort vocabulary as Claude. The managed REPL uses
 // that command both before the first prompt and for live session changes.
 export const JCODE_THINKING_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+// Muse's reasoningEffort vocabulary, changeable live per turn over MSP.
+export const MUSE_THINKING_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh", "ultra"] as const;
 export type ModelCatalogItem = {
   key: CodingAgentKind;
   label: string;
@@ -207,6 +219,7 @@ const LABELS: Record<CodingAgentKind, string> = {
   grok: "grok",
   cursor: "cursor",
   fx: "fx",
+  muse: "muse",
   deepseek: "deepseek",
   hermes: "hermes",
   pi: "pi",
@@ -221,6 +234,7 @@ export const MODEL_OPTIONS: Record<CodingAgentKind, { defaultModel: string; mode
   grok: { defaultModel: "grok-4.6", models: GROK_MODELS },
   cursor: { defaultModel: "auto", models: CURSOR_MODELS },
   fx: { defaultModel: "auto", models: FX_MODELS },
+  muse: { defaultModel: "muse-spark-1.2", models: MUSE_MODELS },
   deepseek: { defaultModel: "deepseek-v4-flash", models: DEEPSEEK_MODELS },
   hermes: { defaultModel: "nousresearch/hermes-4-405b", models: HERMES_MODELS },
   opencode: { defaultModel: "opencode/deepseek-v4-flash-free", models: OPENCODE_MODELS },
@@ -483,6 +497,13 @@ function curateFxModels(models: string[]): string[] {
   return out.length ? out : models;
 }
 
+// Discovery already drops the contributor twins; this also guards a stale
+// cache or a hand-typed id so the picker never carries one.
+function curateMuseModels(models: string[]): string[] {
+  const out = models.filter((model) => model !== "auto" && !model.endsWith("-contributor"));
+  return out.length ? out : [...MUSE_MODELS];
+}
+
 function curateModels(
   agent: CodingAgentKind,
   models: string[],
@@ -493,6 +514,7 @@ function curateModels(
   if (agent === "codex" || agent === "codex-aisdk") return curateCodexModels(models);
   if (agent === "grok") return curateGrokModels(models);
   if (agent === "fx") return curateFxModels(models);
+  if (agent === "muse") return curateMuseModels(models);
   return models;
 }
 
@@ -561,6 +583,7 @@ export function thinkingLevelsForAgent(
   if (agent === "jcode") return JCODE_THINKING_LEVELS;
   if (agent === "codex" || agent === "codex-aisdk") return CODEX_THINKING_LEVELS;
   if (agent === "cursor") return CURSOR_THINKING_LEVELS;
+  if (agent === "muse") return MUSE_THINKING_LEVELS;
   return null;
 }
 
@@ -673,7 +696,7 @@ export function accessibleModelsForAgent(
   return anonymous.length ? anonymous : [...OPENCODE_MODELS];
 }
 
-function defaultModelForCatalogItem(
+export function defaultModelForCatalogItem(
   key: CodingAgentKind,
   models: string[],
   /** True only when the full OpenCode catalog is on offer — see the gates above. */
@@ -683,6 +706,9 @@ function defaultModelForCatalogItem(
     const free = models.find((model) => /^opencode\/.+-free$/.test(model));
     if (free) return free;
   }
+  // Muse: discovery lists the catalog newest release first, and the newest
+  // muse-spark is the one to launch — never a pinned id that ages.
+  if (key === "muse") return models[0] ?? MODEL_OPTIONS.muse.defaultModel;
   return models.includes(MODEL_OPTIONS[key].defaultModel)
     ? MODEL_OPTIONS[key].defaultModel
     : models[0] ?? MODEL_OPTIONS[key].defaultModel;
