@@ -10114,9 +10114,36 @@ function PagesMenu({
             one tap from anywhere. A toggle, not a page — the menu stays open
             so the blur is visible behind it. */}
         <DropdownMenuSeparator />
+        <PagesMenuDarkModeItem />
         <PagesMenuFilmModeItem />
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function PagesMenuDarkModeItem() {
+  // Same source of truth as the App-level `dark` state: the class on <html>,
+  // re-read on the theme change event so a toggle elsewhere updates this row.
+  const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
+  useEffect(() => {
+    const sync = () => setDark(document.documentElement.classList.contains("dark"));
+    window.addEventListener(THEME_CHANGE_EVENT, sync);
+    return () => window.removeEventListener(THEME_CHANGE_EVENT, sync);
+  }, []);
+  return (
+    <DropdownMenuItem
+      closeOnClick={false}
+      onClick={() => setThemePreference(!document.documentElement.classList.contains("dark"))}
+      aria-label="Toggle dark mode"
+    >
+      {dark ? (
+        <Moon className="size-5 shrink-0 text-muted-foreground" />
+      ) : (
+        <Sun className="size-5 shrink-0 text-muted-foreground" />
+      )}
+      <span className="flex-1">Dark mode</span>
+      <Switch checked={dark} tabIndex={-1} aria-hidden="true" className="pointer-events-none" />
+    </DropdownMenuItem>
   );
 }
 
