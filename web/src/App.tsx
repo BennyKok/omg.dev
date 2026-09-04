@@ -8802,6 +8802,20 @@ export function App() {
                 </span>
               </button>
             )}
+            {/* Settings sub-pages (Usage, Storage, More, …) sit two taps from
+                the chats: back to Settings, back to Live. The Pages menu now
+                opens them directly, so the way home should be direct too — a
+                second pill in the same island jumps straight to Live. */}
+            {!embedded && !isPrimarySurfaceTab(tab) && tab !== "settings" && tab !== "notifications" && tab !== "artifacts" && tab !== "board" ? (
+              <button
+                type="button"
+                onClick={() => setTab("live")}
+                aria-label="Back to Live"
+                className="flex h-8 items-center rounded-full border-l border-border/60 pl-3 pr-3 text-[13px] font-medium tracking-[-0.01em] text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground active:scale-[0.96]"
+              >
+                Live
+              </button>
+            ) : null}
           </div>
         </NavIsland>
 
