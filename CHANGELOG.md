@@ -2,6 +2,28 @@
 
 Recent product updates and deployment notes.
 
+## September 4, 2026 - Auto agent reports and a clearer schedule editor (v0.6.40)
+
+- **One row per auto agent in the Auto section.** Findings from the same
+  agent no longer stack as separate rows. The row shows the agent, a count
+  pill, the worst open finding, and a severity dot in the unread-dot slot.
+- **Agent report sheet.** Tap a row to open the agent's report. It lists the
+  open findings worst first, with the last sighting and how many runs repeated
+  each one. Tap a finding to read it and act on it in place. Dismiss all or
+  edit the schedule from the footer.
+- **Full-height sheets on mobile.** The finding sheet, the report sheet and the
+  schedule editor are full pages on a phone. The composer no longer hides
+  behind the keyboard.
+- **Schedules list rows are two lines.** The name gets the full width. The
+  "N open" pill opens the agent's report.
+- **Schedule editor redesign.** The prompt comes first. Schedule, repo, agent
+  and enabled sit in one grouped card. The schedule picker has labelled rows.
+  Save and Run now stay pinned at the bottom.
+- **Meta Muse Code is available as a coding agent.**
+- **Agents can show any file with `omg_display_file`.**
+- **Mobile app:** findings are rows like the web live list, and the app gains a
+  user filter, a Pages menu and a Schedules screen.
+
 ## September 4, 2026 - Banked Codex resets in Usage (v0.6.39)
 
 - **Usage shows every banked Codex reset.** The Codex row now gives the

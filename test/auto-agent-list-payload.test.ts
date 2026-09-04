@@ -84,7 +84,9 @@ describe("the editor cannot save a preview", () => {
   });
 
   test("the save button is disabled while hydrating", () => {
-    expect(APP).toContain("disabled={busy || !promptHydrated}");
+    // The button's enabled state is one derived flag; hydration is a term in it.
+    expect(APP).toContain("!busy && promptHydrated;");
+    expect(APP).toContain("disabled={!canSave}");
   });
 
   test("a hydrating fetch does not clobber what the user already typed", () => {
