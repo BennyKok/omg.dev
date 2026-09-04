@@ -12,8 +12,10 @@ const slice = (from: string, to: string) => {
   return APP.slice(start, end);
 };
 
-const sheet = () => slice("function FindingSheet(", "// Single-box create:");
-const bottomSheet = () => slice("function BottomSheet(", "function FindingSheet(");
+// The finding's body and actions live in FindingDetail now; FindingSheet and
+// AgentReportSheet are two hosts for it.
+const sheet = () => slice("function FindingDetail(", "type FindingDetailProps");
+const bottomSheet = () => slice("function BottomSheet(", "// What FindingDetail hands back");
 // The morph itself now lives in a hook, so the guards that used to read
 // BottomSheet's body read the hook's source instead.
 const HOOK = readFileSync(new URL("../web/src/lib/expand-on-focus.ts", import.meta.url), "utf8");
@@ -87,7 +89,7 @@ describe("the composer is opt-in", () => {
 
   test("revealing a field also enters page mode", () => {
     const src = sheet();
-    const reveal = src.slice(src.indexOf('function reveal('), src.indexOf("</BottomSheet>"));
+    const reveal = src.slice(src.indexOf('function reveal('), src.indexOf("return render("));
     expect(reveal.slice(0, 400)).toContain("setPaged(true)");
   });
 

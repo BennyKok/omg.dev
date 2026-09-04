@@ -283,6 +283,12 @@ import {
 } from "./lib/shipped-feed";
 import { findingReference } from "./lib/finding-reference";
 import { buildAutoTriagePrompt, resolveAutoTriageCwd } from "./lib/auto-triage";
+import {
+  findingSeenAt,
+  groupFindingsByAgent,
+  sortFindings,
+  type AgentReport,
+} from "./lib/finding-groups";
 import { resolveComposerRepo } from "./lib/composer-repo";
 import {
   browseFolderWithRecovery,
@@ -967,6 +973,10 @@ type AutoFinding = {
   createdAt: number;
   status: "open" | "dismissed" | "session" | "read" | "fix-landed" | "resolved";
   sessionId?: string;
+  /** How many runs have independently reported this. 1 on first sight. */
+  occurrences?: number;
+  /** When it was most recently re-observed (differs from createdAt once it recurs). */
+  lastSeenAt?: number;
   /** The commit a dispatched fix actually landed in. See src/auto/fix-landing.ts. */
   fixCommit?: string;
   fixLandedAt?: number;
@@ -6047,6 +6057,10 @@ export function App() {
   const [clearFindingsBusy, setClearFindingsBusy] = useState(false);
   const [toastedFindingIds, setToastedFindingIds] = useState<Set<string>>(() => new Set());
   const [openFinding, setOpenFinding] = useState<AutoFinding | null>(null);
+  // The agent whose report sheet is open. The sheet reads its findings live
+  // from `findings`, so a dismissal inside it shortens the list in place and
+  // an empty list closes it (see AgentReportSheet's mount below).
+  const [openReport, setOpenReport] = useState<string | null>(null);
   const [editingAgent, setEditingAgent] = useState<AutoAgent | "new" | null>(null);
   const seededAuto = useRef(false);
   const seenFindings = useRef<Set<string>>(new Set());
@@ -7440,6 +7454,7 @@ export function App() {
       users,
     );
     setOpenFinding(null);
+    setOpenReport(null);
     // Named so the agent-cap toast can run the identical request again with the
     // override, instead of making someone reopen the finding and retype a reply
     // the app is still holding.
@@ -8481,6 +8496,7 @@ export function App() {
       onRunNow={runAutoNow}
       onToggleEnabled={(id, enabled) => void setAutoAgentEnabled(id, enabled)}
       onChangeAgent={(id, patch) => void patchAutoAgentRuntime(id, patch)}
+      onOpenReport={setOpenReport}
       settings={settings}
       onSettingsChange={updateSettings}
     />
@@ -9014,7 +9030,7 @@ export function App() {
               }
               findings={projectScopedFindings}
               autoAgents={projectScopedAutoAgents}
-              onOpenFinding={setOpenFinding}
+              onOpenReport={setOpenReport}
               onDismissFinding={(finding) => void dismissFinding(finding)}
               onTriageFindings={() => void launchAutoTriage(projectScopedFindings)}
               autoTriageBusy={autoTriageBusy}
@@ -9286,6 +9302,27 @@ export function App() {
           onReply={replyToFinding}
           onDismiss={dismissFinding}
           onRefineAgent={refineAgentFromFinding}
+        />
+      ) : null}
+
+      {openReport ? (
+        <AgentReportSheet
+          key={openReport}
+          agent={autoAgents.find((a) => a.id === openReport)}
+          agentName={agentName(openReport)}
+          findings={findings.filter((f) => f.agentId === openReport)}
+          tz={schedTz}
+          codingAgents={codingAgents}
+          onClose={() => setOpenReport(null)}
+          onReply={replyToFinding}
+          onDismiss={dismissFinding}
+          onDismissAll={(targets) => void clearAllFindings(targets)}
+          dismissAllBusy={clearFindingsBusy}
+          onRefineAgent={refineAgentFromFinding}
+          onEditAgent={(agent) => {
+            setOpenReport(null);
+            setEditingAgent(agent);
+          }}
         />
       ) : null}
 
@@ -11190,7 +11227,7 @@ function LiveView({
   onNew,
   findings = [],
   autoAgents = [],
-  onOpenFinding,
+  onOpenReport,
   onDismissFinding,
   onTriageFindings,
   autoTriageBusy = false,
@@ -11267,7 +11304,8 @@ function LiveView({
   onNew: () => void;
   findings: AutoFinding[];
   autoAgents: AutoAgent[];
-  onOpenFinding: (f: AutoFinding) => void;
+  /** Open the report sheet for one agent's open findings. */
+  onOpenReport: (agentId: string) => void;
   onDismissFinding: (f: AutoFinding) => void;
   onTriageFindings: () => void;
   autoTriageBusy?: boolean;
@@ -11570,7 +11608,7 @@ function LiveView({
         onRemove={onRemove}
         findings={findings}
         nameFor={nameFor}
-        onOpenFinding={onOpenFinding}
+        onOpenReport={onOpenReport}
         onTriageFindings={onTriageFindings}
         autoTriageBusy={autoTriageBusy}
         onClearFindings={onClearFindings}
@@ -11697,23 +11735,13 @@ function LiveView({
                 </span>
               }
             >
-              {findings.map((finding) => (
-                <button
-                  key={finding.id}
-                  type="button"
-                  onClick={() => onOpenFinding(finding)}
-                  className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-muted"
-                >
-                  <span className={cn("size-1.5 shrink-0 rounded-full", SEV_DOT[finding.severity])} />
-                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="truncate text-sm font-medium leading-tight">
-                      {nameFor(finding.agentId)}
-                    </span>
-                    <span className="truncate text-xs leading-tight text-muted-foreground">
-                      {finding.title}
-                    </span>
-                  </span>
-                </button>
+              {groupFindingsByAgent(findings).map((report) => (
+                <AutoReportRow
+                  key={report.agentId}
+                  report={report}
+                  agentName={nameFor(report.agentId)}
+                  onOpen={() => onOpenReport(report.agentId)}
+                />
               ))}
             </RailGroup>
           ) : null
@@ -11771,7 +11799,7 @@ function RailStage({
   onRemove,
   findings = [],
   nameFor,
-  onOpenFinding,
+  onOpenReport,
   onTriageFindings,
   autoTriageBusy = false,
   onClearFindings,
@@ -11846,7 +11874,8 @@ function RailStage({
   onRemove: (sid: string) => void;
   findings: AutoFinding[];
   nameFor: (id: string) => string;
-  onOpenFinding: (f: AutoFinding) => void;
+  /** Open the report sheet for one agent's open findings. */
+  onOpenReport: (agentId: string) => void;
   onTriageFindings: () => void;
   autoTriageBusy?: boolean;
   onClearFindings: (targets: AutoFinding[]) => void;
@@ -12829,23 +12858,13 @@ function RailStage({
           </span>
         }
       >
-        {findings.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            onClick={() => onOpenFinding(f)}
-            className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-muted"
-          >
-            <span className={cn("size-1.5 shrink-0 rounded-full", SEV_DOT[f.severity])} />
-            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="truncate text-sm font-medium leading-tight">
-                {nameFor(f.agentId)}
-              </span>
-              <span className="truncate text-xs leading-tight text-muted-foreground">
-                {f.title}
-              </span>
-            </span>
-          </button>
+        {groupFindingsByAgent(findings).map((report) => (
+          <AutoReportRow
+            key={report.agentId}
+            report={report}
+            agentName={nameFor(report.agentId)}
+            onOpen={() => onOpenReport(report.agentId)}
+          />
         ))}
       </RailGroup>
     ) : null;
@@ -24510,21 +24529,29 @@ function BottomSheet({
   );
 }
 
-function FindingSheet({
+// What FindingDetail hands back to whoever hosts it. `paged` is true while a
+// field inside the detail has focus, so the host can bottom-anchor the body
+// against the keyboard the same way the standalone sheet does.
+type FindingDetailParts = { paged: boolean; footer: ReactNode; body: ReactNode };
+
+// One finding, read and acted on. Owns nothing about the surface it sits in:
+// FindingSheet wraps it in its own bottom sheet, and AgentReportSheet swaps it
+// in for the list when a row is tapped, so the two never drift apart.
+function FindingDetail({
   finding,
   agentName,
   sourceAgent,
   codingAgents,
-  onClose,
   onReply,
   onDismiss,
   onRefineAgent,
+  render,
 }: {
   finding: AutoFinding;
   agentName: string;
   sourceAgent?: AutoAgent;
   codingAgents?: CodingAgentInfo[];
-  onClose: () => void;
+  render: (parts: FindingDetailParts) => ReactNode;
   onReply: (
     f: AutoFinding,
     text: string,
@@ -24939,11 +24966,13 @@ function FindingSheet({
     </div>
   );
 
-  return (
-    <BottomSheet onClose={onClose} title={`${agentName} finding`} page={paged} footer={footer}>
-      {/* Bottom-anchored once this is a page: the finding stays next to the
-          field you're typing into, and the slack sits above it where the
-          keyboard is — not as a hole between the two. */}
+  return render({
+    paged,
+    footer,
+    body: (
+      // Bottom-anchored while a field has focus: the finding stays next to
+      // the field you're typing into, and the slack sits above it where the
+      // keyboard is — not as a hole between the two.
       <div className={cn("px-2 pb-2 pt-1", paged && "mt-auto")}>
         {/* One quiet identity line. The old header set the agent name at the
             same weight as the title, so two lines competed to be read first —
@@ -25013,6 +25042,249 @@ function FindingSheet({
         ) : null}
 
       </div>
+    ),
+  });
+}
+
+type FindingDetailProps = Omit<Parameters<typeof FindingDetail>[0], "render">;
+
+// A single finding in its own sheet. Reached from the new-finding toast; the
+// Auto section opens the agent's report instead (AgentReportSheet).
+//
+// Always a page on a phone. The content-sized card this used to be capped at
+// 80vh and only grew to the full screen once a field took focus, so a long
+// finding was read through a letterbox and the composer, when it appeared,
+// arrived with a jump. Desktop ignores `page` (see index.css) and keeps the
+// centered dialog.
+function FindingSheet({ onClose, ...props }: FindingDetailProps & { onClose: () => void }) {
+  return (
+    <FindingDetail
+      {...props}
+      render={({ footer, body }) => (
+        <BottomSheet onClose={onClose} title={`${props.agentName} finding`} page footer={footer}>
+          {body}
+        </BottomSheet>
+      )}
+    />
+  );
+}
+
+// One row per agent in the Auto section. The dot is the agent's worst open
+// severity, the pill is how many findings it is sitting on, the caption is
+// the one to read first. Tapping opens the agent's report, not a finding —
+// one row per finding put five "Fleet Health" rows in a list meant for
+// sessions, each distinguishable only by a truncated title.
+function AutoReportRow({
+  report,
+  agentName,
+  onOpen,
+}: {
+  report: AgentReport<AutoFinding>;
+  agentName: string;
+  onOpen: () => void;
+}) {
+  const count = report.findings.length;
+  const lead = report.findings[0];
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-muted"
+    >
+      <span className={cn("size-1.5 shrink-0 rounded-full", SEV_DOT[report.severity])} />
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate text-sm font-medium leading-tight">{agentName}</span>
+          {count > 1 ? (
+            <span
+              className="shrink-0 rounded-full bg-primary/12 px-1.5 py-px text-[10px] font-semibold tabular-nums text-primary"
+              aria-label={`${count} open findings`}
+            >
+              {count}
+            </span>
+          ) : null}
+          <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
+            {relTime(report.latestAt)}
+          </span>
+        </span>
+        <span className="truncate text-xs leading-tight text-muted-foreground">{lead.title}</span>
+      </span>
+    </button>
+  );
+}
+
+// Everything one agent currently has open, on one full-height sheet.
+//
+// The list is the report: each row is a finding, worst first, with when it
+// was last seen and how many runs have repeated it. Tapping a row swaps the
+// list for FindingDetail (the same body and actions as FindingSheet) with a
+// back link at the top, so reading and acting on four findings is one sheet,
+// not four trips from the feed. The footer offers the two things that apply
+// to the agent as a whole: tune its schedule, or clear the lot.
+//
+// `findings` is read live from the app's list, so a dismissal here shortens
+// the list in place. The sheet closes itself once nothing is left.
+function AgentReportSheet({
+  agent,
+  agentName,
+  findings: unsorted,
+  tz,
+  codingAgents,
+  onClose,
+  onReply,
+  onDismiss,
+  onDismissAll,
+  dismissAllBusy,
+  onRefineAgent,
+  onEditAgent,
+}: {
+  agent?: AutoAgent;
+  agentName: string;
+  /** This agent's open findings, in any order; the sheet sorts them worst first. */
+  findings: AutoFinding[];
+  tz: string;
+  codingAgents?: CodingAgentInfo[];
+  onClose: () => void;
+  onReply: FindingDetailProps["onReply"];
+  onDismiss: (f: AutoFinding) => void;
+  onDismissAll: (targets: AutoFinding[]) => void;
+  dismissAllBusy?: boolean;
+  onRefineAgent?: (f: AutoFinding, feedback: string) => void;
+  onEditAgent: (agent: AutoAgent) => void;
+}) {
+  const findings = useMemo(() => sortFindings(unsorted), [unsorted]);
+  // A single finding needs no list to pick from: open straight on it.
+  const [selectedId, setSelectedId] = useState<string | null>(
+    findings.length === 1 ? findings[0].id : null,
+  );
+  const selected = findings.find((f) => f.id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (findings.length === 0) onClose();
+  }, [findings.length, onClose]);
+  // The selected finding left the list (dismissed, graduated): fall back to
+  // the list rather than to a blank sheet.
+  useEffect(() => {
+    if (selectedId && !selected) setSelectedId(null);
+  }, [selectedId, selected]);
+
+  if (selected) {
+    return (
+      <FindingDetail
+        key={selected.id}
+        finding={selected}
+        agentName={agentName}
+        sourceAgent={agent}
+        codingAgents={codingAgents}
+        onReply={onReply}
+        onDismiss={onDismiss}
+        onRefineAgent={onRefineAgent}
+        render={({ footer, body }) => (
+          <BottomSheet onClose={onClose} title={`${agentName} finding`} page footer={footer}>
+            {findings.length > 1 ? (
+              <div className="shrink-0 px-1 pb-1 pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => setSelectedId(null)}
+                  className="flex items-center gap-1 rounded-md py-1 pr-2 text-[12.5px] font-medium text-muted-foreground hover:text-foreground"
+                >
+                  <ChevronLeft className="size-4" />
+                  All {findings.length} from {agentName}
+                </button>
+              </div>
+            ) : null}
+            {body}
+          </BottomSheet>
+        )}
+      />
+    );
+  }
+
+  const worst = findings[0];
+  const footer = (
+    <div className="flex items-center gap-2 px-2 pb-1 pt-2">
+      {agent ? (
+        <Button variant="tint" className="flex-1" onClick={() => onEditAgent(agent)}>
+          <SlidersHorizontal className="size-4" />
+          Edit schedule
+        </Button>
+      ) : null}
+      <Button
+        variant="ghost"
+        className="flex-1 text-muted-foreground"
+        disabled={dismissAllBusy || findings.length === 0}
+        onClick={() => onDismissAll(findings)}
+      >
+        {dismissAllBusy ? <Loader2 className="size-4 animate-spin" /> : <X className="size-4" />}
+        Dismiss all
+      </Button>
+    </div>
+  );
+
+  return (
+    <BottomSheet
+      onClose={onClose}
+      title={`${agentName} report`}
+      page
+      expandOnFocus={false}
+      footer={footer}
+    >
+      <div className="px-2 pb-2 pt-1">
+        <div className="flex items-start gap-2.5">
+          {worst ? (
+            <span className={cn("mt-2 size-2 shrink-0 rounded-full", SEV_DOT[worst.severity])} />
+          ) : null}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="truncate text-[17px] font-semibold leading-snug tracking-[-0.01em]">
+                {agentName}
+              </span>
+              {agent?.running ? (
+                <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" aria-label="Running" />
+              ) : null}
+            </div>
+            {agent ? (
+              <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+                <ScheduleSummary expr={agent.schedule} tz={tz} compact />
+                {agent.lastRunAt ? (
+                  <span className="shrink-0">· ran {relTime(agent.lastRunAt)} ago</span>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-4 text-[11px] font-semibold text-muted-foreground">
+          {findings.length} open {findings.length === 1 ? "finding" : "findings"}
+        </div>
+        <div className="mt-1.5 flex flex-col gap-1.5">
+          {findings.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => setSelectedId(f.id)}
+              className="lfg-gborder flex w-full flex-col gap-1 rounded-xl border border-transparent bg-card px-3 py-2.5 text-left transition-transform active:scale-[0.99]"
+            >
+              <span className="flex w-full items-center gap-2 text-[11px] text-muted-foreground">
+                <span className={cn("size-1.5 shrink-0 rounded-full", SEV_DOT[f.severity])} />
+                <span className="shrink-0">{relTime(findingSeenAt(f))} ago</span>
+                {(f.occurrences ?? 1) > 1 ? (
+                  <span className="shrink-0 rounded-full bg-warning/15 px-1.5 py-px font-semibold text-warning">
+                    seen {f.occurrences}×
+                  </span>
+                ) : null}
+                <ChevronRight className="ml-auto size-3.5 shrink-0 text-muted-foreground/60" />
+              </span>
+              <span className="text-[13.5px] font-medium leading-snug">{f.title}</span>
+              {f.suggest ? (
+                <span className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                  {f.suggest}
+                </span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      </div>
     </BottomSheet>
   );
 }
@@ -25077,7 +25349,7 @@ function NewAutoAgentComposer({
   }
 
   return (
-    <BottomSheet onClose={onClose} title="New auto agent">
+    <BottomSheet onClose={onClose} title="New auto agent" page>
       <div className="px-2 pb-4 pt-1">
         <div className="flex items-center gap-2">
           <Sparkles className="size-5 text-primary" />
@@ -25313,9 +25585,12 @@ function AgentEditorSheet({
   }
 
   return (
+    // A page, not a card, on a phone: the form is six rows and a prompt, and a
+    // content-sized sheet put the prompt under the keyboard on every visit.
     <BottomSheet
       onClose={onClose}
       title={isNew ? "New auto agent" : "Edit auto agent"}
+      page
     >
       <div className="px-2 pb-4 pt-1">
         <div className="flex items-center gap-2">
@@ -29571,6 +29846,7 @@ function AutoManageView({
   onRunNow,
   onToggleEnabled,
   onChangeAgent,
+  onOpenReport,
   settings,
   onSettingsChange,
 }: {
@@ -29585,6 +29861,8 @@ function AutoManageView({
     id: string,
     patch: { agent: AutoAgentBackend; model?: string; claudeAccountId?: string | null },
   ) => void;
+  /** The "N open" pill opens this agent's report rather than the editor. */
+  onOpenReport: (agentId: string) => void;
   settings?: GlobalSettings;
   onSettingsChange?: (patch: Partial<GlobalSettings>) => Promise<void>;
 }) {
@@ -29696,24 +29974,41 @@ function AutoManageView({
                         }
                       }}
                       className={cn(
-                        "flex cursor-pointer items-center gap-2 px-3 py-2 outline-none transition-colors hover:bg-muted/50 focus-visible:bg-muted/50",
+                        "flex cursor-pointer items-center gap-3 px-3 py-2.5 outline-none transition-colors hover:bg-muted/50 focus-visible:bg-muted/50",
                         !a.enabled && "opacity-60",
                       )}
                     >
-                      <span className="flex min-w-0 flex-1 items-center gap-1.5">
-                        <span className="truncate text-sm font-medium leading-tight">{a.name}</span>
-                        {openFindings ? (
-                          <span className="shrink-0 rounded-full bg-primary/12 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                            {openFindings} open
-                          </span>
-                        ) : null}
-                        {a.running ? (
-                          <Loader2 className="size-3 shrink-0 animate-spin text-primary" aria-label="Running" />
-                        ) : null}
+                      {/* Two lines, not one. Name, badge, schedule and next run
+                          on a single line left the name with a third of a
+                          phone's width and truncated "house-com…" — the
+                          schedule is metadata and goes under the name. */}
+                      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <span className="truncate text-sm font-medium leading-tight">{a.name}</span>
+                          {a.running ? (
+                            <Loader2 className="size-3 shrink-0 animate-spin text-primary" aria-label="Running" />
+                          ) : null}
+                        </span>
+                        <span className="flex min-w-0 items-center text-xs text-muted-foreground">
+                          <ScheduleSummary expr={a.schedule} tz={tz} compact />
+                        </span>
                       </span>
-                      <span className="flex min-w-0 shrink-0 items-center whitespace-nowrap text-xs text-muted-foreground">
-                        <ScheduleSummary expr={a.schedule} tz={tz} compact />
-                      </span>
+                      {openFindings ? (
+                        // Its own target: the pill answers "what did it find",
+                        // the row answers "how is it configured".
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onOpenReport(a.id);
+                          }}
+                          onKeyDown={(event) => event.stopPropagation()}
+                          aria-label={`Open ${openFindings} open ${openFindings === 1 ? "finding" : "findings"} from ${a.name}`}
+                          className="shrink-0 rounded-full bg-primary/12 px-2 py-1 text-[11px] font-semibold tabular-nums text-primary transition-colors hover:bg-primary/20"
+                        >
+                          {openFindings} open
+                        </button>
+                      ) : null}
                       {/* Rightmost, where an iOS settings row puts it. The
                           switch is the one control that must not open the
                           editor, so its click stays inside this span. */}
