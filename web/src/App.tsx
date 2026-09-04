@@ -14283,6 +14283,11 @@ const SEV_DOT: Record<AutoFinding["severity"], string> = {
   med: "bg-warning",
   low: "bg-muted-foreground",
 };
+const SEV_LABEL: Record<AutoFinding["severity"], string> = {
+  high: "High",
+  med: "Medium",
+  low: "Low",
+};
 function relTime(ts: number): string {
   const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
   if (s < 60) return "now";
@@ -24978,10 +24983,14 @@ function FindingDetail({
             same weight as the title, so two lines competed to be read first —
             the finding is the headline, the agent is metadata. */}
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className={cn("size-2 shrink-0 rounded-full", SEV_DOT[finding.severity])} />
           <span className="truncate font-medium text-foreground/75">{agentName}</span>
           <span aria-hidden>·</span>
           <span className="shrink-0">{relTime(finding.createdAt)}</span>
+          <span
+            role="status"
+            aria-label={`${SEV_LABEL[finding.severity]} severity`}
+            className={cn("ml-auto inline-block size-2 shrink-0 rounded-full", SEV_DOT[finding.severity])}
+          />
         </div>
 
         <p className="mt-2 text-[17px] font-semibold leading-snug tracking-[-0.01em]">
@@ -25091,7 +25100,6 @@ function AutoReportRow({
       onClick={onOpen}
       className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-muted"
     >
-      <span className={cn("size-1.5 shrink-0 rounded-full", SEV_DOT[report.severity])} />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex min-w-0 items-center gap-1.5">
           <span className="truncate text-sm font-medium leading-tight">{agentName}</span>
@@ -25103,11 +25111,19 @@ function AutoReportRow({
               {count}
             </span>
           ) : null}
-          <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
-            {relTime(report.latestAt)}
-          </span>
         </span>
         <span className="truncate text-xs leading-tight text-muted-foreground">{lead.title}</span>
+      </span>
+      {/* Severity sits where a session row puts its unread dot: same size,
+          same slot, right of the text and left of the time. One place for
+          "this needs you" across the list, coloured by how badly. */}
+      <span
+        role="status"
+        aria-label={`${SEV_LABEL[report.severity]} severity`}
+        className={cn("inline-block size-2 shrink-0 rounded-full", SEV_DOT[report.severity])}
+      />
+      <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground/70">
+        {relTime(report.latestAt)}
       </span>
     </button>
   );
@@ -25231,9 +25247,6 @@ function AgentReportSheet({
     >
       <div className="px-2 pb-2 pt-1">
         <div className="flex items-start gap-2.5">
-          {worst ? (
-            <span className={cn("mt-2 size-2 shrink-0 rounded-full", SEV_DOT[worst.severity])} />
-          ) : null}
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span className="truncate text-[17px] font-semibold leading-snug tracking-[-0.01em]">
@@ -25241,6 +25254,13 @@ function AgentReportSheet({
               </span>
               {agent?.running ? (
                 <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" aria-label="Running" />
+              ) : null}
+              {worst ? (
+                <span
+                  role="status"
+                  aria-label={`${SEV_LABEL[worst.severity]} severity`}
+                  className={cn("ml-auto inline-block size-2 shrink-0 rounded-full", SEV_DOT[worst.severity])}
+                />
               ) : null}
             </div>
             {agent ? (
@@ -25266,14 +25286,18 @@ function AgentReportSheet({
               className="lfg-gborder flex w-full flex-col gap-1 rounded-xl border border-transparent bg-card px-3 py-2.5 text-left transition-transform active:scale-[0.99]"
             >
               <span className="flex w-full items-center gap-2 text-[11px] text-muted-foreground">
-                <span className={cn("size-1.5 shrink-0 rounded-full", SEV_DOT[f.severity])} />
                 <span className="shrink-0">{relTime(findingSeenAt(f))} ago</span>
                 {(f.occurrences ?? 1) > 1 ? (
                   <span className="shrink-0 rounded-full bg-warning/15 px-1.5 py-px font-semibold text-warning">
                     seen {f.occurrences}×
                   </span>
                 ) : null}
-                <ChevronRight className="ml-auto size-3.5 shrink-0 text-muted-foreground/60" />
+                <span
+                  role="status"
+                  aria-label={`${SEV_LABEL[f.severity]} severity`}
+                  className={cn("ml-auto inline-block size-2 shrink-0 rounded-full", SEV_DOT[f.severity])}
+                />
+                <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/60" />
               </span>
               <span className="text-[13.5px] font-medium leading-snug">{f.title}</span>
               {f.suggest ? (
