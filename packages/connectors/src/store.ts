@@ -246,6 +246,19 @@ export function updateConnector(
   return { ok: true, connector: c };
 }
 
+/**
+ * Remove every connection in one owner bucket and return what was removed, so
+ * the caller can drop OAuth tokens and live hub clients. Used when a role is
+ * deleted: its `role:<id>` connections would otherwise sit unreachable.
+ */
+export function deleteConnectorsForOwner(owner: string): Connector[] {
+  const file = read();
+  const removed = file.connectors.filter((c) => c.owner === owner);
+  if (removed.length === 0) return [];
+  write({ version: 1, connectors: file.connectors.filter((c) => c.owner !== owner) });
+  return removed;
+}
+
 export function deleteConnector(id: string): { ok: true } | { ok: false; error: string } {
   const file = read();
   const next = file.connectors.filter((c) => c.id !== id);
