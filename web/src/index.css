@@ -2920,3 +2920,21 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
     animation: none;
   }
 }
+
+/* ------------------------------------------------------------------
+ * Film mode (More → Film mode). Everything that names a session or
+ * shows what it produced gets blurred so the app can be filmed; the
+ * chrome — icons, counts, tabs, buttons — stays sharp so the video
+ * still reads as the app. Opt-in per element with .lfg-film-blur, plus
+ * the few structural hooks that already exist (rail preview, message
+ * bubbles, composer, terminal).
+ * ------------------------------------------------------------------ */
+html.lfg-film .lfg-film-blur,
+html.lfg-film .rail-preview,
+html.lfg-film .msg,
+html.lfg-film [data-composer-sid],
+html.lfg-film .xterm {
+  filter: blur(7px);
+  user-select: none;
+  -webkit-user-select: none;
+}

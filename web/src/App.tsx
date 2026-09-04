@@ -404,6 +404,7 @@ import { haptic } from "@/lib/haptics";
 import { feedback } from "@/lib/feedback";
 import { useUiFeedbackPrefs, setUiFeedbackPrefs } from "@/lib/ui-feedback-prefs";
 import { useNavigationPrefs, setNavigationPrefs } from "@/lib/navigation-prefs";
+import { useFilmMode, setFilmMode } from "@/lib/film-mode";
 import { subscribeSelectionChange } from "./lib/selection-change";
 import { useProjectListPrefs, setProjectListPrefs } from "@/lib/project-list-prefs";
 import { useSendMorph } from "@/lib/use-send-morph";
@@ -13828,7 +13829,7 @@ const RailRow = memo(function RailRow({
           <>
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
               <span className="flex items-baseline gap-1.5">
-                <span className="min-w-0 flex-1 truncate text-base font-semibold leading-tight">
+                <span className="lfg-film-blur min-w-0 flex-1 truncate text-base font-semibold leading-tight">
                   {title}
                 </span>
                 {titleBadge}
@@ -16078,7 +16079,7 @@ function SessionTitleLine({ title }: { title: string }) {
       <div
         ref={lineRef}
         className={cn(
-          "text-[17px] font-semibold leading-tight whitespace-nowrap",
+          "lfg-film-blur text-[17px] font-semibold leading-tight whitespace-nowrap",
           marquee ? "lfg-marquee inline-block" : "overflow-hidden text-ellipsis",
         )}
         style={
@@ -18004,7 +18005,7 @@ const onTouchStart = (e: ReactTouchEvent) => {
                   "cursor-text rounded-md hover:bg-muted/50",
               )}
             >
-              <div className="flex min-w-0 flex-1 flex-col">
+              <div className="lfg-film-blur flex min-w-0 flex-1 flex-col">
                 <div className="truncate text-[15px] font-semibold leading-tight">
                   {headerBot ? headerBot.name : titleForSession(session)}
                 </div>
@@ -28224,6 +28225,7 @@ function MoreView({
 }) {
   const uiFeedback = useUiFeedbackPrefs();
   const navigationPrefs = useNavigationPrefs();
+  const filmMode = useFilmMode();
 
   return (
     <div className="mx-auto max-w-xl space-y-8 pb-10" data-lfg-page-column>
@@ -28367,6 +28369,26 @@ function MoreView({
               checked={navigationPrefs.swipeBetweenChats}
               onCheckedChange={(v) => setNavigationPrefs({ swipeBetweenChats: v })}
               aria-label="Toggle swipe between chats"
+            />
+          </div>
+          {/* Film mode: blur titles, previews, messages and terminals on this
+              browser only, so the screen can be recorded without leaking what
+              the agents are doing. A presentation switch, never a setting the
+              server knows about. */}
+          <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+            <div className="flex items-center gap-3">
+              <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
+                <EyeOff className="size-4" />
+              </span>
+              <span className="flex min-w-0 flex-col">
+                <span className="text-sm font-medium">Film mode</span>
+                <span className="text-xs text-muted-foreground">Blur titles and output for recording</span>
+              </span>
+            </div>
+            <Switch
+              checked={filmMode}
+              onCheckedChange={(v) => setFilmMode(v)}
+              aria-label="Toggle film mode"
             />
           </div>
         </div>
