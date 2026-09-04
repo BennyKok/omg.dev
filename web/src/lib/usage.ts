@@ -28,11 +28,28 @@ export type UsageProviderRef = {
   accountNumber?: number;
 };
 
+export type RateLimitResetCredit = {
+  id: string | null;
+  resetType: string | null;
+  status: string | null;
+  grantedAt: number | null;
+  expiresAt: number | null;
+  title: string | null;
+  description: string | null;
+};
+
+export type RateLimitResetCredits = {
+  availableCount: number;
+  /** null means Codex supplied a count but no per-credit expiry rows. */
+  credits: RateLimitResetCredit[] | null;
+};
+
 export type ProviderUsage = UsageProviderRef & {
   available: boolean;
   plan?: string | null;
   note?: string;
   windows?: UsageWindow[];
+  resetCredits?: RateLimitResetCredits;
 };
 
 /**
@@ -121,6 +138,19 @@ export async function fetchProviderUsage(
 ): Promise<ProviderUsage> {
   const payload = await api<{ provider: ProviderUsage }>(providerPath(id, force));
   return payload.provider;
+}
+
+export type ResetConsumeOutcome = "reset" | "nothingToReset" | "noCredit" | "alreadyRedeemed";
+
+export async function consumeBankedReset(
+  creditId: string,
+  idempotencyKey: string,
+): Promise<{ outcome: ResetConsumeOutcome; provider: ProviderUsage }> {
+  return api("/api/usage/codex/reset-credit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ creditId, idempotencyKey }),
+  });
 }
 
 // The directory is derived from local files only, but it's still a round-trip,

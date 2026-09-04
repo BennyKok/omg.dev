@@ -25,6 +25,7 @@ export function agentIconSrc(agent?: string): string {
   if (agent === "grok") return omgAssetUrl(`/agent-grok.svg${v}`);
   if (agent === "cursor") return omgAssetUrl(`/agent-cursor.svg${v}`);
   if (agent === "fx") return omgAssetUrl(`/agent-fx.svg${v}`);
+  if (agent === "muse") return omgAssetUrl(`/agent-muse.svg${v}`);
   if (agent === "deepseek") return omgAssetUrl(`/agent-deepseek.svg${v}`);
   if (agent === "hermes") return omgAssetUrl(`/agent-hermes.svg${v}`);
   if (agent === "opencode") return omgAssetUrl(`/agent-opencode.svg${v}`);
@@ -39,6 +40,7 @@ export function agentIconAlt(agent?: string): string {
   if (agent === "grok") return "Grok";
   if (agent === "cursor") return "Cursor";
   if (agent === "fx") return "fx";
+  if (agent === "muse") return "Muse";
   if (agent === "deepseek") return "DeepSeek";
   if (agent === "hermes") return "Hermes";
   if (agent === "opencode") return "OpenCode";
@@ -83,10 +85,14 @@ export function timeAgo(value?: number | null): string {
  */
 export type ViewerArtifact = {
   url: string;
-  kind: "image" | "video" | "html";
+  kind: "image" | "video" | "html" | "file";
   title?: string;
   caption?: string;
   name?: string;
+  // File artifacts pick their presentation from the mime type, and show the
+  // size on the card. Unused by the image/video/html branches.
+  mimeType?: string;
+  size?: number;
   version?: number;
   // Changes on every successful content write, including data-only refreshes.
   // Kept separate from the user-facing authored revision.
@@ -159,6 +165,8 @@ export const BROWSER_AUTH_PROVIDER_LABELS: Record<string, string> = {
   // `fx login` is itself the Vercel device flow — there is no --device-auth
   // variant to pick, so the browser path is the only sensible one.
   fx: "Vercel",
+  // `muse login` is the Meta device flow: a verification URL plus a code.
+  muse: "Meta",
 };
 
 export const BROWSER_AUTH_KINDS = new Set<string>(

@@ -741,7 +741,14 @@ function rowMessage(row: IndexedMessageRow): SessionMsg | ImageArtifactMessage {
     ts: row.ts,
     author,
   };
-  if (row.kind !== "image" && row.kind !== "video" && row.kind !== "html") return base;
+  if (
+    row.kind !== "image" &&
+    row.kind !== "video" &&
+    row.kind !== "html" &&
+    row.kind !== "file"
+  ) {
+    return base;
+  }
 
   // Prefer the JOIN payload so the page/live stream never needs a second
   // artifact-store pass to learn url/size/caption.
@@ -1440,7 +1447,7 @@ export async function indexedMessagePage(
           END
         WHERE m.path = ? AND m.order_seq < ?
           AND (
-            m.kind NOT IN ('image', 'video', 'html')
+            m.kind NOT IN ('image', 'video', 'html', 'file')
             OR m.message_id NOT LIKE 'artifact-%'
             OR a.id IS NOT NULL
           )
@@ -1621,7 +1628,7 @@ export function indexedMessagesAfterRowid(
             END
           WHERE m.path = ? AND m.rowid > ?
             AND (
-              m.kind NOT IN ('image', 'video', 'html')
+              m.kind NOT IN ('image', 'video', 'html', 'file')
               OR m.message_id NOT LIKE 'artifact-%'
               OR a.id IS NOT NULL
             )

@@ -166,6 +166,7 @@ import {
   AuthenticatedArtifactImage,
   AuthenticatedArtifactVideo,
 } from "./components/authenticated-artifact";
+import { ArtifactFileCard } from "./components/artifact-file-card";
 import {
   NativeArtifact,
   NativeArtifactEmbed,
@@ -587,7 +588,9 @@ import {
   UpdateSettingsRow,
 } from "./components/update-drawer";
 import { UsageCampfireHost, useUsageRingLongPress } from "./components/UsageCampfire";
+import { BankedResetCredits } from "./components/BankedResetCredits";
 import {
+  consumeBankedReset,
   invalidateUsageProviders,
   useProviderUsage,
   useUsageFeed,
@@ -704,6 +707,7 @@ type AuthProvider =
   | "codex"
   | "grok"
   | "fx"
+  | "muse"
   | "github"
   | "pi-anthropic"
   | "pi-codex"
@@ -715,6 +719,7 @@ const AUTH_PROVIDER_LABELS: Record<AuthProvider, string> = {
   codex: "Codex",
   grok: "Grok",
   fx: "Vercel",
+  muse: "Meta",
   github: "GitHub",
   "pi-anthropic": "Claude",
   "pi-codex": "ChatGPT",
@@ -1321,9 +1326,13 @@ const FX_MODELS = [
   "moonshotai/kimi-k3",
   "zai/glm-5.2",
 ];
+// Kept in sync with MUSE_MODELS in src/agent-catalog.ts (the server catalog,
+// fed by discovery, is authoritative). No "auto" and no -contributor twin:
+// the server default is the contributor variant, which omg never selects.
+const MUSE_MODELS = ["muse-spark-1.2"];
 const THINKING_LEVELS = ["low", "medium", "high", "xhigh"] as const;
 type ThinkingLevel = string;
-type AutoAgentBackend = "aisdk" | "codex-aisdk" | "grok" | "cursor" | "fx" | "opencode";
+type AutoAgentBackend = "aisdk" | "codex-aisdk" | "grok" | "cursor" | "fx" | "muse" | "opencode";
 function savedThinkingLevel(): ThinkingLevel {
   const value = localStorage.getItem("lfg_thinking_level");
   return value && (THINKING_LEVELS as readonly string[]).includes(value) ? value : "medium";
@@ -1345,7 +1354,8 @@ function agentSupportsThinking(agent: AgentKind): boolean {
     agent === "codex-aisdk" ||
     agent === "opencode" ||
     agent === "jcode" ||
-    agent === "pi"
+    agent === "pi" ||
+    agent === "muse"
   );
 }
 
@@ -1360,6 +1370,7 @@ const AGENT_MODELS: Record<AgentKind, string[]> = {
   grok: GROK_MODELS,
   cursor: CURSOR_MODELS,
   fx: FX_MODELS,
+  muse: MUSE_MODELS,
   deepseek: DEEPSEEK_MODELS,
   opencode: OPENCODE_MODELS,
   jcode: JCODE_MODELS,
@@ -1374,6 +1385,7 @@ const AGENT_DEFAULT_MODEL: Record<AgentKind, string> = {
   grok: "grok-4.6",
   cursor: "auto",
   fx: "auto",
+  muse: "muse-spark-1.2",
   deepseek: "deepseek-v4-flash",
   opencode: "opencode/deepseek-v4-flash-free",
   jcode: "auto",
@@ -1391,6 +1403,8 @@ const AGENT_THINKING_LEVELS: Record<AgentKind, string[]> = {
   // fx keeps reasoning effort in ~/.fx/settings.json and takes no per-launch
   // flag on `fx acp`, so the selector stays hidden.
   fx: [],
+  // Muse accepts its reasoningEffort vocabulary live per turn over MSP.
+  muse: ["none", "minimal", "low", "medium", "high", "xhigh", "ultra"],
   deepseek: [],
   opencode: [],
   jcode: ["low", "medium", "high", "xhigh", "max"],
@@ -1830,6 +1844,16 @@ function ArtifactViewerPage({
               title={label}
               onNeedsFrame={setFramed}
               className={cn("block w-full", framed && "h-full")}
+            />
+          </div>
+        ) : artifact.kind === "file" ? (
+          <div className="flex h-full items-start justify-center overflow-auto bg-background p-4">
+            <ArtifactFileCard
+              url={artifact.url}
+              name={artifact.name}
+              mimeType={artifact.mimeType}
+              size={artifact.size}
+              caption={artifact.caption}
             />
           </div>
         ) : artifact.kind === "video" ? (
@@ -20319,6 +20343,22 @@ const MessageBubble = memo(function MessageBubble({
     );
   }
 
+  if (message.kind === "file" && message.url) {
+    return (
+      <AiMessage className={cn("msg", entering && "lfg-msg-in")} from="assistant">
+        <MessageContent className="not-prose w-full max-w-[min(42rem,92vw)] p-0">
+          <ArtifactFileCard
+            url={message.url}
+            name={message.name}
+            mimeType={message.mimeType}
+            size={message.size}
+            caption={message.caption || message.text || message.alt}
+          />
+        </MessageContent>
+      </AiMessage>
+    );
+  }
+
   if ((message.kind === "image" || message.kind === "video") && message.url) {
     const isVideo = message.kind === "video";
     const label =
@@ -20738,7 +20778,7 @@ export type ResumableSession = {
   title: string;
   lastActivityAt: number | null;
   lastUserText: string | null;
-  agent: "claude" | "codex" | "opencode" | "grok" | "cursor" | "fx";
+  agent: "claude" | "codex" | "opencode" | "grok" | "cursor" | "fx" | "muse";
   model?: string | null;
 };
 
@@ -27340,10 +27380,40 @@ function UsageLimitsSection() {
   // account that answers fast isn't held behind a slow provider — and each
   // connected account gets its own row with its own windows.
   const { refs, providers, error, refreshing, refresh } = useUsageFeed();
+  const appDialog = useAppDialog();
+  const [usingCreditId, setUsingCreditId] = useState<string | null>(null);
   const byId = useMemo(
     () => new Map(providers.map((provider) => [provider.id, provider])),
     [providers],
   );
+
+  const useBankedReset = useCallback(async (
+    credit: import("./lib/usage").RateLimitResetCredit,
+    availableCount: number,
+  ) => {
+    if (!credit.id || usingCreditId) return;
+    const confirmed = await appDialog.confirm({
+      title: `Use 1 of ${availableCount} banked ${availableCount === 1 ? "reset" : "resets"}?`,
+      description: "This immediately resets your current Codex rate-limit window and cannot be undone.",
+      confirmLabel: "Use reset",
+      destructive: true,
+    });
+    if (!confirmed) return;
+
+    setUsingCreditId(credit.id);
+    try {
+      const { outcome } = await consumeBankedReset(credit.id, crypto.randomUUID());
+      if (outcome === "reset") toast.success("Codex limit reset. One banked reset was used.");
+      else if (outcome === "nothingToReset") toast("Your Codex limit does not need a reset yet.");
+      else if (outcome === "alreadyRedeemed") toast("That reset was already used.");
+      else toast.error("No banked reset is available.");
+      refresh();
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Could not use the banked reset");
+    } finally {
+      setUsingCreditId(null);
+    }
+  }, [appDialog, refresh, usingCreditId]);
 
   return (
     <section className="space-y-2">
@@ -27393,11 +27463,25 @@ function UsageLimitsSection() {
                 </div>
                 {!p ? (
                   <p className="pl-10 text-xs text-muted-foreground">Reading limits…</p>
-                ) : p.available && p.windows?.length ? (
-                  <div className="space-y-2 pl-10">
-                    {p.windows.map((w) => (
-                      <UsageBar key={w.label} w={w} />
-                    ))}
+                ) : p.available && ((p.windows?.length ?? 0) > 0 || p.resetCredits) ? (
+                  <div className="space-y-3 pl-10">
+                    {p.windows?.length ? (
+                      <div className="space-y-2">
+                        {p.windows.map((w) => (
+                          <UsageBar key={w.label} w={w} />
+                        ))}
+                      </div>
+                    ) : null}
+                    {p.resetCredits ? (
+                      <BankedResetCredits
+                        value={p.resetCredits}
+                        usingCreditId={usingCreditId}
+                        onUse={(credit) => void useBankedReset(credit, p.resetCredits!.availableCount)}
+                      />
+                    ) : null}
+                    {p.note ? (
+                      <p className="text-[11px] text-muted-foreground/70">{p.note}</p>
+                    ) : null}
                   </div>
                 ) : (
                   <p className="pl-10 text-xs text-muted-foreground">{p.note ?? "No data"}</p>
@@ -27408,8 +27492,8 @@ function UsageLimitsSection() {
         )}
       </div>
       <p className="px-4 text-xs text-muted-foreground">
-        Claude reads the live subscription usage endpoint once per connected account; Codex
-        reflects the latest rate-limit snapshot from its most recent session; Grok pulls monthly
+        Claude reads the live subscription usage endpoint once per connected account; Codex reads
+        current limits and banked-reset expiries through its local app server; Grok pulls monthly
         and weekly credits from the cli-chat-proxy billing API. Press{" "}
         <kbd className="rounded bg-muted px-1 font-mono text-[10px]">Shift</kbd> anywhere (or
         long-press the composer activity rings) for the campfire view of every agent.
@@ -27430,7 +27514,7 @@ function UsagePage() {
 
 export type GalleryArtifact = {
   id: string;
-  kind: "image" | "video" | "html";
+  kind: "image" | "video" | "html" | "file";
   url: string;
   name: string;
   title?: string;
@@ -27450,10 +27534,12 @@ export type GalleryArtifact = {
 
 export type ShipMediaItem = {
   artifactId: string;
-  kind: "image" | "video" | "html";
+  kind: "image" | "video" | "html" | "file";
   url: string;
   name: string;
   caption?: string;
+  mimeType?: string;
+  size?: number;
   version?: number;
   updatedAt?: number;
   lastRefreshedAt?: number;

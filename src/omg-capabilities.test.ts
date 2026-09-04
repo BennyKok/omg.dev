@@ -164,7 +164,7 @@ describe("omg.dev runtime capabilities", () => {
     expect(OMG_CAPABILITIES.map((item) => item.tool)).toEqual([
       "omg_create_owned_bot / omg_update_self / omg_list_owned_bots / omg_send_message_to_peer",
       "omg_ship",
-      "omg_display_image / omg_display_video",
+      "omg_display_image / omg_display_video / omg_display_file",
       "omg_input",
       "omg_find_sessions",
       "omg_close_session",
@@ -179,6 +179,7 @@ describe("omg.dev runtime capabilities", () => {
     expect(mcpSource).not.toContain('registerTool(\n    "omg_output"');
     expect(mcpSource).toContain('registerTool(\n    "omg_display_image"');
     expect(mcpSource).toContain('registerTool(\n    "omg_display_video"');
+    expect(mcpSource).toContain('registerTool(\n    "omg_display_file"');
     expect(mcpSource).toContain('registerTool(\n    "omg_ship"');
     expect(mcpSource).not.toContain('registerTool(\n    "omg_ask_question"');
     expect(mcpSource).not.toContain('"advisor"');

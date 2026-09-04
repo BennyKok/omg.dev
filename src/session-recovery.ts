@@ -17,6 +17,7 @@ import {
   spawnManagedGrokAcpSession,
   spawnManagedJcodeSession,
   spawnManagedJcodeSdkSession,
+  spawnManagedMuseMspSession,
   spawnManagedOpencodeAisdkSession,
   spawnManagedPiSession,
   tmuxHasSession,
@@ -152,6 +153,15 @@ function launchRecovered(
   if (entry.agent === "fx") {
     if (!entry.threadId) return { ok: false, error: "fx recovery handle missing" };
     return spawnManagedFxAcpSession({ ...common, key: entry.sessionId, resume: entry.threadId });
+  }
+  if (entry.agent === "muse") {
+    if (!entry.threadId) return { ok: false, error: "muse recovery handle missing" };
+    return spawnManagedMuseMspSession({
+      ...common,
+      key: entry.sessionId,
+      resume: entry.threadId,
+      thinkingLevel: entry.thinkingLevel ?? undefined,
+    });
   }
   if (entry.agent === "copilot") {
     if (!entry.threadId) return { ok: false, error: "copilot recovery handle missing" };

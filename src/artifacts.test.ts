@@ -5,9 +5,11 @@ import { join } from "node:path";
 import { PATHS } from "./config.ts";
 import {
   collapseArtifactRetryMessages,
+  createFileArtifact,
   createImageArtifact,
   deleteArtifact,
   getImageArtifact,
+  imageArtifactToMessage,
   publishHtmlArtifact,
   updateHtmlArtifactRefresh,
   type ArtifactRefreshConfig,
@@ -125,5 +127,106 @@ describe("stable HTML artifact ownership", () => {
       html: "<!doctype html><html><body>collision</body></html>",
     })).toThrow("different media kind");
     expect(getImageArtifact(image.id)?.media).toBe("image");
+  });
+});
+
+describe("file artifacts", () => {
+  const originalData = PATHS.data;
+  let root: string;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "lfg-artifact-file-"));
+    PATHS.data = join(root, "data");
+  });
+
+  afterEach(() => {
+    PATHS.data = originalData;
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function source(name: string, body = "x"): string {
+    const path = join(root, name);
+    writeFileSync(path, body);
+    return path;
+  }
+
+  test("types a known document format and copies the bytes into the store", () => {
+    const artifact = createFileArtifact({
+      sessionId: SESSION_A,
+      path: source("report.pdf", "%PDF-1.4 body"),
+      caption: "Q3 report",
+    });
+
+    expect(artifact.media).toBe("file");
+    expect(artifact.mimeType).toBe("application/pdf");
+    expect(artifact.name).toBe("report.pdf");
+    expect(artifact.caption).toBe("Q3 report");
+    expect(readFileSync(artifact.filePath, "utf8")).toBe("%PDF-1.4 body");
+  });
+
+  test("types an audio clip so the transcript can play it", () => {
+    const artifact = createFileArtifact({ sessionId: SESSION_A, path: source("clip.mp3") });
+    expect(artifact.mimeType).toBe("audio/mpeg");
+  });
+
+  // The whole point of the kind: an unrecognized format is still displayable.
+  // Image and video reject instead, which is why they cannot carry a document.
+  test("accepts an unknown extension as an opaque download", () => {
+    const artifact = createFileArtifact({ sessionId: SESSION_A, path: source("data.parquet") });
+    expect(artifact.mimeType).toBe("application/octet-stream");
+  });
+
+  test("accepts a file with no extension at all", () => {
+    const artifact = createFileArtifact({ sessionId: SESSION_A, path: source("Makefile") });
+    expect(artifact.mimeType).toBe("application/octet-stream");
+    expect(artifact.name).toBe("Makefile");
+  });
+
+  // Every file artifact is served as an attachment, so the stored type cannot
+  // make a browser render anything. This keeps script-bearing formats off a
+  // real content type anyway, so that relaxing the disposition later fails
+  // safe instead of silently becoming an execution bug.
+  test.each([
+    ["page.html", "<script>alert(1)</script>"],
+    ["page.htm", "<script>alert(1)</script>"],
+    ["vector.svg", "<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>"],
+    ["doc.xhtml", "<html xmlns='http://www.w3.org/1999/xhtml'/>"],
+    ["feed.xml", "<?xml version='1.0'?><root/>"],
+  ])("stores %s as an opaque type, never a renderable one", (name, body) => {
+    const artifact = createFileArtifact({ sessionId: SESSION_A, path: source(name, body) });
+    expect(artifact.mimeType).toBe("application/octet-stream");
+  });
+
+  test("rejects a relative path and a missing file", () => {
+    expect(() => createFileArtifact({ sessionId: SESSION_A, path: "report.pdf" })).toThrow(
+      /absolute/,
+    );
+    expect(() =>
+      createFileArtifact({ sessionId: SESSION_A, path: join(root, "absent.pdf") }),
+    ).toThrow();
+  });
+
+  test("renders as a file message carrying its own artifact url", () => {
+    const artifact = createFileArtifact({
+      sessionId: SESSION_A,
+      path: source("rows.csv", "a,b\n1,2\n"),
+      caption: "Export",
+    });
+    const message = imageArtifactToMessage(artifact);
+
+    expect(message.kind).toBe("file");
+    expect(message.mimeType).toBe("text/csv; charset=utf-8");
+    expect(message.url).toBe(`/api/artifacts/${artifact.id}`);
+    expect(message.name).toBe("rows.csv");
+    expect(message.text).toBe("Export");
+  });
+
+  test("collapses an identical file retry the way media retries collapse", () => {
+    const base = { kind: "file", name: "report.pdf", mimeType: "application/pdf", size: 9 };
+    const messages = [
+      { ...base, id: "artifact-a", ts: 10_000 },
+      { ...base, id: "artifact-b", ts: 30_000 },
+    ];
+    expect(collapseArtifactRetryMessages(messages).map((m) => m.id)).toEqual(["artifact-a"]);
   });
 });

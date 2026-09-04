@@ -4,7 +4,7 @@ import { DEFAULT_MAX_BOT_SCHEDULES } from "./settings.ts";
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-08-21.1";
+export const OMG_CAPABILITY_VERSION = "2026-09-01.1";
 
 export const OMG_CAPABILITIES = [
   {
@@ -20,9 +20,9 @@ export const OMG_CAPABILITIES = [
       "This is how finished work reaches the human — a session that never ships is invisible. Post a headline, a tweet-length result and the strongest evidence. Posting does not close the session. Never ship planning, partial, or blocked work.",
   },
   {
-    tool: "omg_display_image / omg_display_video",
-    useWhen: "A local screenshot or recording would provide useful visual evidence in the omg.dev transcript.",
-    guidance: "Use these only for image/video evidence. Communicate with the human through normal assistant messages.",
+    tool: "omg_display_image / omg_display_video / omg_display_file",
+    useWhen: "A local screenshot, recording, or file would be useful evidence in the omg.dev transcript.",
+    guidance: "Use omg_display_file for a PDF, an audio clip, a CSV, a log, or any other document. Use these to show artifacts, not to talk: communicate with the human through normal assistant messages.",
   },
   {
     tool: "omg_input",
@@ -66,7 +66,7 @@ export function shortSessionId(id: string): string {
 
 export const OMG_MCP_INSTRUCTIONS = [
   `This is omg.dev's agent capability server (capability version ${OMG_CAPABILITY_VERSION}).`,
-  "Communicate with the human through normal assistant messages. Use omg_display_image or omg_display_video when local visual evidence is useful.",
+  "Communicate with the human through normal assistant messages. Use omg_display_image or omg_display_video when local visual evidence is useful, and omg_display_file to put a PDF, an audio clip, a CSV, or any other document in front of the user.",
   // Scoped to task sessions on purpose. These instructions reach every session
   // the MCP server answers, bots included, and an unscoped "ship or stay
   // invisible" told a named bot the exact opposite of its own envelope — which
@@ -81,7 +81,7 @@ export function omgRuntimeContract(): string {
   return [
     `=== omg.dev RUNTIME CONTRACT (capability version ${OMG_CAPABILITY_VERSION}) ===`,
     "- You are an omg.dev-managed coding agent. Communicate with the human through normal assistant messages; omg.dev tool calls do not replace those replies.",
-    "- Use `omg_display_image` or `omg_display_video` when a local screenshot or recording provides useful evidence in the omg.dev transcript.",
+    "- Use `omg_display_image` or `omg_display_video` when a local screenshot or recording provides useful evidence in the omg.dev transcript. Use `omg_display_file` for any other file the user should see: a PDF, an audio clip, a CSV, a log, an archive.",
     "- Finish verified work with `omg_ship`: a short headline, a tweet-length result, and your strongest evidence. Publishing does not close the session, so keep working if anything is left. Never ship planning, partial, or blocked work.",
     "- Shipped is not deployed. If deployment was requested, verify it before you claim it.",
     "- Decide and continue when safe. Use `omg_input` only for an irreversible, risky, or ambiguous decision; it is fire-and-forget, so do not poll.",
@@ -325,7 +325,8 @@ export function sessionTitleFromPrompt(prompt: string | null | undefined, max = 
 export function omgCapabilityAccess(agent: CodingAgentKind): "mcp" | "contract-only" {
   // pi is an RPC backend with no MCP registration surface (its harness drives
   // the bundled pi CLI directly), so it never gets the omg.dev MCP toolset.
-  return agent === "hermes" || agent === "copilot" || agent === "pi" || agent === "deepseek"
+  // Same for muse: MSP has no client-supplied MCP servers.
+  return agent === "hermes" || agent === "copilot" || agent === "pi" || agent === "deepseek" || agent === "muse"
     ? "contract-only"
     : "mcp";
 }

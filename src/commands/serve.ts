@@ -233,8 +233,10 @@ import {
   getAllUsage,
   getProviderUsage,
   getUsageSummary,
+  invalidateProviderUsage,
   listUsageProviders,
 } from "../usage.ts";
+import { consumeCodexRateLimitResetCredit } from "../codex-rate-limits.ts";
 import { sessionTokenUsage } from "../session-token-usage.ts";
 import {
   vapidPublicKey,
@@ -517,8 +519,10 @@ import {
   type GlobalSettings,
 } from "../settings.ts";
 import { listSkillCatalog, searchSkillCatalog, withoutSkillKeywords } from "../skills-catalog.ts";
+import { contentDisposition } from "../artifact-headers.ts";
 import {
   collapseArtifactRetryMessages,
+  createFileArtifact,
   createImageArtifact,
   createVideoArtifact,
   deleteArtifact,
@@ -1295,7 +1299,7 @@ function persistManagedResume(session: Session): void {
         : session.agent === "pi"
           ? "pi"
           : session.runtime === "command-file" &&
-              (session.agent === "grok" || session.agent === "cursor" || session.agent === "fx" || session.agent === "copilot" || session.agent === "jcode")
+              (session.agent === "grok" || session.agent === "cursor" || session.agent === "fx" || session.agent === "muse" || session.agent === "copilot" || session.agent === "jcode")
             ? session.agent
           : null;
   if (!backend && !session.transcriptPath) return;
@@ -1322,7 +1326,7 @@ function persistManagedResume(session: Session): void {
         ? "opencode"
         : backend === "pi"
           ? "pi"
-          : backend === "grok" || backend === "cursor" || backend === "fx" || backend === "copilot" || backend === "jcode"
+          : backend === "grok" || backend === "cursor" || backend === "fx" || backend === "muse" || backend === "copilot" || backend === "jcode"
             ? backend
           : session.agent === "grok"
             ? "grok"
@@ -1663,6 +1667,7 @@ const STATIC_FILES: Record<string, { path: string; type: string }> = {
   "/agent-codex.svg": { path: join(WEB_DIR, "agent-codex.svg"), type: "image/svg+xml" },
   "/agent-cursor.svg": { path: join(WEB_DIR, "agent-cursor.svg"), type: "image/svg+xml" },
   "/agent-fx.svg": { path: join(WEB_DIR, "agent-fx.svg"), type: "image/svg+xml" },
+  "/agent-muse.svg": { path: join(WEB_DIR, "agent-muse.svg"), type: "image/svg+xml" },
   "/agent-deepseek.svg": { path: join(WEB_DIR, "agent-deepseek.svg"), type: "image/svg+xml" },
   "/agent-opencode.svg": { path: join(WEB_DIR, "agent-opencode.svg"), type: "image/svg+xml" },
   "/agent-jcode.svg": { path: join(WEB_DIR, "agent-jcode.svg"), type: "image/svg+xml" },
@@ -2569,7 +2574,7 @@ function validateBotAgent(
   }
   if (agent === "codex-aisdk" && model && !/^[A-Za-z0-9_.:-]{1,80}$/.test(model))
     return { error: "invalid codex model name" };
-  if ((agent === "cursor" || agent === "opencode" || agent === "fx") && model && !/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
+  if ((agent === "cursor" || agent === "opencode" || agent === "fx" || agent === "muse") && model && !/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
     return { error: `invalid ${agent} model name` };
   if (agent === "jcode" && model && !/^[A-Za-z0-9_.:\/\-[\],=]{1,160}$/.test(model))
     return { error: "invalid jcode model name" };
@@ -2714,8 +2719,8 @@ async function launchBotSession(
       ? resolvedModel ?? GROK_DEFAULT_MODEL()
       : agent === "cursor" || agent === "jcode" || agent === "copilot" || agent === "fx"
         ? resolvedModel ?? "auto"
-        : agent === "opencode"
-          ? resolvedModel ?? defaultModelForAgent("opencode")
+        : agent === "opencode" || agent === "muse"
+          ? resolvedModel ?? defaultModelForAgent(agent)
           : agent === "codex-aisdk"
             ? resolvedModel ?? "gpt-5.5"
             : agent === "aisdk"
@@ -3480,6 +3485,8 @@ export function resolveAutoAgentRuntime(
     return { ok: false, status: 400, error: "invalid cursor model name" };
   if (autoBackend === "fx" && model && !/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
     return { ok: false, status: 400, error: "invalid fx model name" };
+  if (autoBackend === "muse" && model && !/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
+    return { ok: false, status: 400, error: "invalid muse model name" };
   if (autoBackend === "opencode" && model && !/^[A-Za-z0-9_.:\/-]{1,80}$/.test(model))
     return { ok: false, status: 400, error: "invalid opencode model name" };
   const thinkingLevel = b.thinkingLevel?.trim() || undefined;
@@ -7811,6 +7818,29 @@ a{color:#60a5fa}
         });
       }
 
+      if (path === "/api/usage/codex/reset-credit") {
+        if (req.method !== "POST") return err(405, "method not allowed");
+        const body = (await req.json().catch(() => null)) as {
+          creditId?: unknown;
+          idempotencyKey?: unknown;
+        } | null;
+        const creditId = typeof body?.creditId === "string" ? body.creditId.trim() : "";
+        const idempotencyKey = typeof body?.idempotencyKey === "string"
+          ? body.idempotencyKey.trim()
+          : "";
+        if (!creditId || !idempotencyKey) {
+          return err(400, "creditId and idempotencyKey are required");
+        }
+        try {
+          const outcome = await consumeCodexRateLimitResetCredit({ creditId, idempotencyKey });
+          invalidateProviderUsage("codex");
+          const provider = await getProviderUsage("codex", { force: true });
+          return json({ outcome, provider });
+        } catch (error) {
+          return err(502, error instanceof Error ? error.message : String(error));
+        }
+      }
+
       // One source, fetched on its own. This is what makes a single ring (the
       // composer's) or a single account's refresh cost one round-trip instead
       // of a full sweep of every provider.
@@ -8997,12 +9027,23 @@ a{color:#60a5fa}
               },
             });
           }
+          // A "file" artifact is never rendered by omg.dev, only downloaded.
+          // These bytes are agent-chosen and are served from the app's own
+          // origin, so anything the browser would INTERPRET here is something
+          // the agent can execute as the user. Forcing the attachment for the
+          // whole kind means there is no allowlist to keep correct: a `.html`
+          // or `.svg` the agent wrote is saved, never run. Do not relax this
+          // to add an inline preview without solving that first.
+          const isFileArtifact = (artifact.media ?? "image") === "file";
           const baseHeaders: Record<string, string> = {
             "Content-Type": contentType,
             "Cache-Control": "private, max-age=31536000, immutable",
             "X-Content-Type-Options": "nosniff",
             // Video seeking (and Safari playback) needs byte-range support.
             "Accept-Ranges": "bytes",
+            ...(isFileArtifact
+              ? { "Content-Disposition": contentDisposition("attachment", artifact.name) }
+              : {}),
           };
           // Honor a single-range request so the <video> element can seek without
           // re-downloading the whole file. Bun.file().slice() streams the slice.
@@ -9199,6 +9240,35 @@ a{color:#60a5fa}
             return json({ ok: true, artifact, message: imageArtifactToMessage(artifact), indexed: true });
           } catch (e) {
             return err(400, e instanceof Error ? e.message : "could not create video artifact");
+          }
+        }
+      }
+
+      {
+        // Any other file the agent wants to put in front of the user: a PDF,
+        // an audio clip, a CSV, an archive. One route for all of them — the
+        // stored mime type, not the artifact kind, decides the presentation.
+        const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/artifacts\/files$/);
+        if (m && req.method === "POST") {
+          const body = (await req.json().catch(() => null)) as {
+            path?: string;
+            caption?: string;
+            alt?: string;
+          } | null;
+          if (!body?.path?.trim()) return err(400, "path required");
+          try {
+            const transcriptPath = await resolveTranscript(m[1]);
+            const indexPath = transcriptPath ?? sessionIndexKey(m[1]);
+            const artifact = createFileArtifact({
+              sessionId: m[1],
+              path: body.path,
+              caption: body.caption,
+              alt: body.alt,
+            });
+            indexArtifactMessage(indexPath, m[1], artifact);
+            return json({ ok: true, artifact, message: imageArtifactToMessage(artifact), indexed: true });
+          } catch (e) {
+            return err(400, e instanceof Error ? e.message : "could not create file artifact");
           }
         }
       }

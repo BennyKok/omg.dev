@@ -19,6 +19,7 @@ export type AgentKind =
   | "grok"
   | "cursor"
   | "fx"
+  | "muse"
   | "deepseek"
   | "pi"
   | "copilot";

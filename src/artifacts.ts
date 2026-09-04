@@ -27,13 +27,18 @@ function indexPath(): string {
 const UUID = /^[0-9a-fA-F-]{36}$/;
 const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 250 * 1024 * 1024;
+const MAX_FILE_BYTES = 100 * 1024 * 1024;
 // Agents commonly retry a display tool after a transport/indexing error.  The
 // media copy may already be durable at that point, so treat an identical call
 // in this short window as the same publish instead of creating a second chat
 // message.  Deliberately displaying the same file again later still works.
 const RETRY_DEDUPE_MS = 5 * 60 * 1000;
 
-export type MediaKind = "image" | "video" | "html";
+export type MediaKind = "image" | "video" | "html" | "file";
+
+// The kinds whose bytes are copied into the store from a source path. "html"
+// is authored in-band and never goes through `createMediaArtifact`.
+export type StoredMediaKind = "image" | "video" | "file";
 
 export type ArtifactRefreshStatus = "idle" | "running" | "success" | "error";
 
@@ -70,11 +75,61 @@ const VIDEO_TYPES: Record<string, string> = {
   ".ogv": "video/ogg",
 };
 
+// "file" is the general kind: a PDF, an audio clip, a spreadsheet, an archive.
+// Unlike image and video it does NOT reject unknown extensions, because the
+// point of the kind is to carry whatever the agent produced. An extension that
+// is absent here is still stored and still displayed; it is simply typed
+// `application/octet-stream`.
+//
+// This table only decides what the DOWNLOADED file is labelled as. Every file
+// artifact is served as an attachment (see the artifact byte route), so no
+// entry here can cause a browser to render anything. Script-bearing formats
+// are still left out as a second line of defence, so that a future change
+// which relaxes the disposition cannot silently become an execution bug.
+const FILE_TYPES: Record<string, string> = {
+  ".pdf": "application/pdf",
+  ".mp3": "audio/mpeg",
+  ".m4a": "audio/mp4",
+  ".aac": "audio/aac",
+  ".wav": "audio/wav",
+  ".ogg": "audio/ogg",
+  ".oga": "audio/ogg",
+  ".opus": "audio/ogg",
+  ".flac": "audio/flac",
+  ".txt": "text/plain; charset=utf-8",
+  ".log": "text/plain; charset=utf-8",
+  ".md": "text/markdown; charset=utf-8",
+  ".csv": "text/csv; charset=utf-8",
+  ".tsv": "text/tab-separated-values; charset=utf-8",
+  ".json": "application/json",
+};
+
+const FALLBACK_FILE_TYPE = "application/octet-stream";
+
+const MEDIA_TYPES: Record<StoredMediaKind, Record<string, string>> = {
+  image: IMAGE_TYPES,
+  video: VIDEO_TYPES,
+  file: FILE_TYPES,
+};
+
+const MEDIA_MAX_BYTES: Record<StoredMediaKind, number> = {
+  image: MAX_IMAGE_BYTES,
+  video: MAX_VIDEO_BYTES,
+  file: MAX_FILE_BYTES,
+};
+
+const MEDIA_TYPE_ERROR: Record<StoredMediaKind, string> = {
+  image: "only png, jpg, jpeg, webp, and gif images can be displayed",
+  video: "only mp4, m4v, webm, mov, and ogv videos can be displayed",
+  // Unreachable: the file table falls back instead of rejecting.
+  file: "this file cannot be displayed",
+};
+
 export type ImageArtifact = {
   id: string;
   sessionId: string;
   createdAt: number;
-  // "image" (default for legacy entries that predate video support) or "video".
+  // "image" is the default for legacy entries that predate the other kinds.
   media?: MediaKind;
   sourcePath: string;
   sourceMtimeMs?: number;
@@ -184,12 +239,21 @@ function cleanText(value: string | undefined, max: number): string | undefined {
   return text ? text.slice(0, max) : undefined;
 }
 
-function imageMimeFor(path: string): string | null {
-  return IMAGE_TYPES[extname(path).toLowerCase()] ?? null;
+function mediaMimeFor(path: string, media: StoredMediaKind): string | null {
+  const mime = MEDIA_TYPES[media][extname(path).toLowerCase()] ?? null;
+  // Image and video reject an unlisted extension. "file" accepts it and
+  // downgrades to an opaque download instead, so the kind stays general.
+  if (!mime && media === "file") return FALLBACK_FILE_TYPE;
+  return mime;
 }
 
-function videoMimeFor(path: string): string | null {
-  return VIDEO_TYPES[extname(path).toLowerCase()] ?? null;
+// The stored copy keeps the source extension so the served bytes carry a
+// recognizable name. `extname` on a resolved absolute path cannot contain a
+// separator, but it can contain arbitrary punctuation, and this value is
+// concatenated into a path. Only accept a plain alphanumeric suffix.
+function safeExt(sourcePath: string): string {
+  const ext = extname(sourcePath).toLowerCase();
+  return /^\.[a-z0-9]{1,12}$/.test(ext) ? ext : "";
 }
 
 function createMediaArtifact(
@@ -199,7 +263,7 @@ function createMediaArtifact(
     caption?: string;
     alt?: string;
   },
-  media: MediaKind,
+  media: StoredMediaKind,
   dimensions?: { width: number; height: number },
 ): ImageArtifact {
   const sessionId = input.sessionId.trim();
@@ -207,16 +271,10 @@ function createMediaArtifact(
 
   if (!isAbsolute(input.path)) throw new Error(`${media} path must be absolute`);
   const sourcePath = resolve(input.path);
-  const mimeType = media === "video" ? videoMimeFor(sourcePath) : imageMimeFor(sourcePath);
-  if (!mimeType) {
-    throw new Error(
-      media === "video"
-        ? "only mp4, m4v, webm, mov, and ogv videos can be displayed"
-        : "only png, jpg, jpeg, webp, and gif images can be displayed",
-    );
-  }
+  const mimeType = mediaMimeFor(sourcePath, media);
+  if (!mimeType) throw new Error(MEDIA_TYPE_ERROR[media]);
 
-  const maxBytes = media === "video" ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
+  const maxBytes = MEDIA_MAX_BYTES[media];
   const st = statSync(sourcePath);
   if (!st.isFile()) throw new Error(`${media} path is not a file`);
   if (st.size <= 0) throw new Error(`${media} file is empty`);
@@ -257,8 +315,7 @@ function createMediaArtifact(
   const dir = filesDir();
   mkdirSync(dir, { recursive: true });
   const id = `${Date.now().toString(36)}-${randomBytes(6).toString("hex")}`;
-  const ext = extname(sourcePath).toLowerCase();
-  const filePath = join(dir, `${id}${ext}`);
+  const filePath = join(dir, `${id}${safeExt(sourcePath)}`);
   copyFileSync(sourcePath, filePath);
 
   const artifact: ImageArtifact = {
@@ -311,6 +368,21 @@ export function createVideoArtifact(input: {
   alt?: string;
 }): ImageArtifact {
   return createMediaArtifact(input, "video");
+}
+
+/**
+ * Display any other file: a PDF, an audio clip, a CSV, an archive. The kind is
+ * deliberately one bucket rather than one kind per format. The stored
+ * `mimeType` is what decides the presentation, so a new format needs a
+ * renderer, not a new artifact kind or a migration.
+ */
+export function createFileArtifact(input: {
+  sessionId: string;
+  path: string;
+  caption?: string;
+  alt?: string;
+}): ImageArtifact {
+  return createMediaArtifact(input, "file");
 }
 
 // HTML artifacts are UPDATABLE: an intentional publish bumps the user-facing
@@ -515,7 +587,10 @@ export function collapseArtifactRetryMessages<T extends {
   const out: T[] = [];
   const lastBySignature = new Map<string, number>();
   for (const message of messages) {
-    if ((message.kind !== "image" && message.kind !== "video") || message.ts == null) {
+    if (
+      (message.kind !== "image" && message.kind !== "video" && message.kind !== "file") ||
+      message.ts == null
+    ) {
       out.push(message);
       continue;
     }
@@ -536,7 +611,14 @@ export function collapseArtifactRetryMessages<T extends {
 }
 
 export function hydrateImageArtifactMessage(message: SessionMsg): SessionMsg | ImageArtifactMessage {
-  if (message.kind !== "image" && message.kind !== "video" && message.kind !== "html") return message;
+  if (
+    message.kind !== "image" &&
+    message.kind !== "video" &&
+    message.kind !== "html" &&
+    message.kind !== "file"
+  ) {
+    return message;
+  }
   const artifactId = message.id?.startsWith("artifact-") ? message.id.slice("artifact-".length) : null;
   if (!artifactId) return message;
   const artifact = getImageArtifact(artifactId);

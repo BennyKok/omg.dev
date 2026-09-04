@@ -256,6 +256,12 @@ export const NATIVE_ARTIFACT_BASE_CSS = `
   --lfg-artifact-fg: var(--omg-artifact-foreground);
   --lfg-artifact-muted-fg: var(--omg-artifact-muted-foreground);
   display: block;
+  /* A shadow host has no UA body margin, so an artifact that relies on the
+     browser default (or resets it with body{margin:0} expecting a frame to
+     inset it) lands flush against the card edge. Give the host the breathing
+     room a document would have had. The artifact's own body{padding} is
+     rewritten to :host and comes later in the sheet, so it still wins. */
+  padding: clamp(16px, 3vw, 28px);
   background: var(--omg-artifact-surface);
   color: var(--omg-artifact-foreground);
   color-scheme: inherit;

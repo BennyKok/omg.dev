@@ -41,7 +41,12 @@ export function messagesForTranscriptView<T extends TranscriptViewMessage>(
 
   return messages.flatMap((message) => {
     if (message.role === "user") return [message];
-    if (message.kind === "image" || message.kind === "video" || message.kind === "html") {
+    if (
+      message.kind === "image" ||
+      message.kind === "video" ||
+      message.kind === "html" ||
+      message.kind === "file"
+    ) {
       return [message];
     }
     if (!isOmgOutputTool(message)) return [];
