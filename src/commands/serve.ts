@@ -13,6 +13,7 @@ import {
 import { PATHS, appVersion, installInfo, localServeBaseUrl } from "../config.ts";
 import { desktopRuntimeReadyPayload } from "../desktop-parent.ts";
 import { handleServerAccessRequest } from "../server-access.ts";
+import { createCloudAccount } from "../cloud-account.ts";
 import {
   importSessionPins,
   visibleSessionPins,
@@ -3814,6 +3815,7 @@ export async function cmdServe() {
     subscribeAgentRun,
   });
   const connectManager = createConnectManager();
+  const cloudAccount = createCloudAccount();
   const server = Bun.serve<AppSocketData>({
     port: PORT,
     hostname: HOST,
@@ -4972,6 +4974,19 @@ a{color:#60a5fa}
       }
       if (path === "/api/server/access" && req.method === "GET") {
         return handleServerAccessRequest();
+      }
+      // omg Cloud account on this box (src/cloud-account.ts). Listed one by
+      // one so the client route coverage test can see each of them.
+      if (
+        path === "/api/cloud/session" ||
+        path === "/api/cloud/login" ||
+        path === "/api/cloud/callback" ||
+        path === "/api/cloud/token" ||
+        path === "/api/cloud/logout" ||
+        path === "/api/cloud/computers"
+      ) {
+        const handled = await cloudAccount.handleRequest(req, url);
+        if (handled) return handled;
       }
       if (path === "/api/server/wake-tick" && req.method === "POST") {
         return handleWakeTick((l) => console.log(l));

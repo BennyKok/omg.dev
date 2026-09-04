@@ -4,7 +4,7 @@
 # release-ready tarballs.
 #
 # Internal workspace dependencies are rewritten to the EXACT published version,
-# not a range: the four packages are versioned in lockstep off the root
+# not a range: the packages are versioned in lockstep off the root
 # package.json and share wire types, so a consumer that resolved
 # @omg-dev/client 0.1.5 against @omg-dev/protocol 0.1.9 would typecheck and then
 # disagree at runtime. Exact pinning makes a release one indivisible set.
@@ -12,7 +12,7 @@
 # These used to be rewritten to immutable GitHub release asset URLs, because the
 # packages were not on npm. They are now published to the public registry under
 # @omg-dev, so a plain semver dependency resolves for everyone.
-# @omg-dev/cli is packed after these four and keeps its own version.
+# @omg-dev/cli is packed after these and keeps its own version.
 
 set -euo pipefail
 
@@ -21,7 +21,7 @@ cd "$ROOT"
 
 OUT_DIR="$ROOT/dist"
 VERSION="$(bun -e 'console.log(JSON.parse(require("node:fs").readFileSync("package.json","utf8")).version)')"
-PACKAGES=(protocol client react)
+PACKAGES=(protocol client cloud react)
 
 if [ "${SKIP_PACKAGE_BUILD:-}" != "1" ]; then
   for package in "${PACKAGES[@]}"; do

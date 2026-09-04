@@ -1,0 +1,35 @@
+{
+  "name": "@omg-dev/cloud",
+  "version": "0.1.84",
+  "description": "omg Cloud account client: sign-in, machine list, session grants, and one transport per machine.",
+  "license": "MIT",
+  "homepage": "https://omg.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BennyKok/omg.dev.git",
+    "directory": "packages/cloud"
+  },
+  "bugs": {
+    "url": "https://github.com/BennyKok/omg.dev/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf dist && bun x tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@omg-dev/client": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
