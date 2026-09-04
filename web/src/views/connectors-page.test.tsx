@@ -17,7 +17,10 @@ afterEach(() => {
 
 type Call = { url: string; method: string; body: unknown };
 
-function fakeServer(initialRoles: { id: string; name: string; defaultAction: string; rules: { pattern: string; action: string }[]; sandbox?: string; network?: string; allowHosts?: string[]; views?: { hide: string[]; hiddenPages: string[] }; members?: string[] }[]) {
+function fakeServer(
+  initialRoles: { id: string; name: string; defaultAction: string; rules: { pattern: string; action: string }[]; sandbox?: string; network?: string; allowHosts?: string[]; views?: { hide: string[]; hiddenPages: string[] }; members?: string[] }[],
+  connectors: { slug: string; name: string }[] = [],
+) {
   const calls: Call[] = [];
   let roles = initialRoles;
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -42,7 +45,7 @@ function fakeServer(initialRoles: { id: string; name: string; defaultAction: str
       return Response.json({ ok: true });
     }
     if (url.includes("/api/connectors/catalog")) return Response.json({ total: 0, results: [] });
-    if (url.includes("/api/connectors")) return Response.json({ connectors: [] });
+    if (url.includes("/api/connectors")) return Response.json({ connectors });
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
   return { calls };
@@ -67,6 +70,19 @@ describe("RolesPanel", () => {
     const network = ui.query('select[aria-label="Network for Marketing"]') as HTMLSelectElement | null;
     expect(network?.value).toBe("allowlist");
     expect(ui.text()).toContain("github.com");
+  });
+
+  test("offers each box connector as a connectors.<slug>.* rule suggestion", async () => {
+    fakeServer(
+      [OWNER, { id: "support", name: "Support", defaultAction: "allow", rules: [], sandbox: "none", network: "shared", allowHosts: [] }],
+      [{ slug: "gmail", name: "Gmail" }, { slug: "linear-2", name: "Linear" }],
+    );
+    ui.render(<RolesPanel />);
+    await ui.flushAsync();
+    const options = ui.queryAll("datalist#patterns-support option").map((o) => (o as HTMLOptionElement).value);
+    expect(options).toContain("connectors.gmail.*");
+    expect(options).toContain("connectors.linear-2.*");
+    expect(options).toContain("connectors.*");
   });
 
   test("creates a role and adds a rule to it", async () => {

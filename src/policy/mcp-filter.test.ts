@@ -37,6 +37,12 @@ describe("policyToolId", () => {
     expect(policyToolId(OMG, "omg_ship")).toBe("omg.ship");
     expect(policyToolId({ namespace: "executor" }, "execute")).toBe("executor.execute");
   });
+
+  test("splits a packed connector name into segments so a rule can glob one connector", () => {
+    const CONNECTORS = { namespace: "connectors", split: "__" };
+    expect(policyToolId(CONNECTORS, "gmail__send_message")).toBe("connectors.gmail.send_message");
+    expect(policyToolId(CONNECTORS, "linear")).toBe("connectors.linear");
+  });
 });
 
 describe("enforceRole", () => {
@@ -112,5 +118,41 @@ describe("enforceRole", () => {
       return new Response(null);
     });
     expect(seen[0]).toBe(req);
+  });
+});
+
+describe("enforceRole on /mcp/connectors", () => {
+  const CONNECTORS = { namespace: "connectors", split: "__" };
+  const role: Role = {
+    ...MARKETING,
+    id: "support",
+    name: "Support",
+    defaultAction: "allow",
+    rules: [{ pattern: "connectors.gmail.*", action: "block" }],
+  };
+  const tools = [{ name: "gmail__send_message" }, { name: "gmail__list_threads" }, { name: "linear__create_issue" }];
+
+  test("tools/list hides every tool of a blocked connector and keeps the rest", async () => {
+    const res = await enforceRole(rpc(LIST), role, CONNECTORS, async () =>
+      Response.json({ jsonrpc: "2.0", id: 1, result: { tools } }),
+    );
+    const body = (await res.json()) as { result: { tools: { name: string }[] } };
+    expect(body.result.tools.map((t) => t.name)).toEqual(["linear__create_issue"]);
+  });
+
+  test("tools/call on a blocked connector never reaches the handler", async () => {
+    let reached = false;
+    const res = await enforceRole(
+      rpc({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "gmail__send_message", arguments: {} } }),
+      role,
+      CONNECTORS,
+      async () => {
+        reached = true;
+        return Response.json({ jsonrpc: "2.0", id: 2, result: { content: [] } });
+      },
+    );
+    expect(reached).toBe(false);
+    const body = (await res.json()) as { result: { isError: boolean } };
+    expect(body.result.isError).toBe(true);
   });
 });
