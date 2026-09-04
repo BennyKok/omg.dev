@@ -13,6 +13,7 @@ import {
   listRoles,
   matchPattern,
   roleEgress,
+  roleForUser,
   roleSandbox,
   updateRole,
 } from "./roles.ts";
@@ -133,5 +134,41 @@ describe("role store", () => {
     expect(createRole({ name: "x", rules: [{ pattern: "bad pattern", action: "allow" }] }).ok).toBe(false);
     expect(createRole({ name: "x", rules: [{ pattern: "*", action: "maybe" as never }] }).ok).toBe(false);
     expect(updateRole("missing", { name: "x" }).ok).toBe(false);
+  });
+});
+
+describe("views and members", () => {
+  test("old role files read as hiding nothing with no members", () => {
+    const r = createRole({ name: "Legacy" });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.role.views).toEqual({ hide: [], hiddenPages: [] });
+    expect(r.role.members).toEqual([]);
+  });
+
+  test("validates view toggles and refuses to hide live or settings", () => {
+    const bad = createRole({ name: "X", views: { hide: ["showNothing" as never], hiddenPages: [] } });
+    expect(bad.ok).toBe(false);
+    const locked = createRole({ name: "X", views: { hide: [], hiddenPages: ["settings"] } });
+    expect(locked.ok).toBe(false);
+    if (!locked.ok) expect(locked.error).toContain("cannot be hidden");
+    const ok = createRole({ name: "Viewer", views: { hide: ["showBots", "showBots"], hiddenPages: ["usage", "board"] } });
+    expect(ok.ok).toBe(true);
+    if (ok.ok) expect(ok.role.views).toEqual({ hide: ["showBots"], hiddenPages: ["usage", "board"] });
+  });
+
+  test("members resolve a user to one role; a later claim moves the email", () => {
+    const a = createRole({ name: "A", members: ["Ann@Example.com"] });
+    const b = createRole({ name: "B" });
+    expect(a.ok && b.ok).toBe(true);
+    if (!a.ok || !b.ok) return;
+    expect(roleForUser("ann@example.com").id).toBe("a");
+    expect(roleForUser("nobody@example.com").id).toBe(OWNER_ROLE.id);
+    expect(roleForUser(undefined).id).toBe(OWNER_ROLE.id);
+    const moved = updateRole("b", { members: ["ann@example.com"] });
+    expect(moved.ok).toBe(true);
+    expect(roleForUser("ann@example.com").id).toBe("b");
+    expect(getRole("a")?.members).toEqual([]);
+    expect(updateRole("b", { members: ["not-an-email"] }).ok).toBe(false);
   });
 });

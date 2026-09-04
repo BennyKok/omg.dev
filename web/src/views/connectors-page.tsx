@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { ChevronRight, Plug, Plus, Shield, Trash2, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import type { ViewToggleKey } from "@/lib/viewer-role";
+import { RoleViewerContext } from "@/lib/viewer-role-context";
 import { Input } from "@/components/ui/input";
+import { ConnectorsNativePanel } from "./connectors-native";
 
 // ---------------------------------------------------------------------------
 // Types mirrored from the server. Kept small on purpose; the server is the
@@ -21,32 +24,43 @@ export type Role = {
   sandbox: SandboxMode;
   network: NetworkMode;
   allowHosts: string[];
+  views: RoleViews;
+  members: string[];
   createdAt: number;
   updatedAt: number;
 };
+export type RoleViews = { hide: ViewToggleKey[]; hiddenPages: string[] };
 
-/** Executor's own policy row (GET /api/executor/api/policies). */
-export type ExecutorPolicy = {
-  id: string;
-  owner: "org" | "user";
-  pattern: string;
-  action: "approve" | "require_approval" | "block";
-};
-
-// Executor's action literals, with the labels its own UI uses. `approve` is
-// "runs without asking", which reads as Allow to anyone who has not seen the
-// Executor code.
-const GATEWAY_ACTIONS: { value: ExecutorPolicy["action"]; label: string }[] = [
-  { value: "approve", label: "Allow" },
-  { value: "require_approval", label: "Require approval" },
-  { value: "block", label: "Block" },
+/** Same rows as Settings > View. A role can only turn a switch off. */
+export const VIEW_TOGGLE_ROWS: { key: ViewToggleKey; label: string }[] = [
+  { key: "showSidebarAgentIcons", label: "Agent icons in the sidebar" },
+  { key: "showSessionAgentIcons", label: "Agent icons in chat" },
+  { key: "showSessionDiffBar", label: "Worktree diff badge in chat" },
+  { key: "showComposerAgents", label: "Agent picker in the composer" },
+  { key: "showComposerModels", label: "Model picker in the composer" },
+  { key: "showComposerFastMode", label: "Fast mode toggle in the composer" },
+  { key: "showBots", label: "Bots" },
+  { key: "showSchedules", label: "Schedules" },
 ];
 
-// Every policy this box writes is tenant-wide: one Executor, one org, and
-// the omg owner is the one editing it.
-const GATEWAY_OWNER: ExecutorPolicy["owner"] = "org";
+/** Pages a role may hide. Live and Settings stay so a role cannot lock itself out. */
+export const HIDEABLE_PAGE_ROWS: { id: string; label: string }[] = [
+  { id: "notifications", label: "Notifications" },
+  { id: "artifacts", label: "Artifacts" },
+  { id: "board", label: "Board" },
+  { id: "computer", label: "Computer" },
+  { id: "auto", label: "Schedules page" },
+  { id: "usage", label: "Provider limits" },
+  { id: "coding-agents", label: "Coding agents" },
+  { id: "term", label: "Terminal" },
+  { id: "browser", label: "Browser" },
+  { id: "changelog", label: "Changelog" },
+];
 
-type Tab = "roles" | "gateway" | "integrations";
+type RosterUser = { email: string; name?: string };
+
+
+type Tab = "roles" | "connectors";
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -96,16 +110,15 @@ export function ConnectorsPage() {
       <div>
         <h1 className="text-lg font-semibold">Tool access</h1>
         <p className="text-sm text-muted-foreground">
-          Roles decide which tools a session can see and call. Gateway policies are the box-wide
-          floor inside the connector gateway. Integrations are where services get connected.
+          Roles decide which tools a session can see and call. Connectors are MCP servers you add,
+          scoped to you and shared across your agents.
         </p>
       </div>
       <div role="tablist" className="flex gap-1 rounded-xl bg-muted p-1 text-sm">
         {(
           [
             ["roles", "Roles", Users],
-            ["gateway", "Gateway policies", Shield],
-            ["integrations", "Integrations", Plug],
+            ["connectors", "Connectors", Plug],
           ] as const
         ).map(([key, label, Icon]) => (
           <button
@@ -124,8 +137,7 @@ export function ConnectorsPage() {
         ))}
       </div>
       {tab === "roles" ? <RolesPanel /> : null}
-      {tab === "gateway" ? <GatewayPoliciesPanel /> : null}
-      {tab === "integrations" ? <IntegrationsPanel /> : null}
+      {tab === "connectors" ? <ConnectorsNativePanel /> : null}
     </div>
   );
 }
@@ -147,9 +159,19 @@ const PATTERN_HELP = [
 
 export function RolesPanel() {
   const [roles, setRoles] = useState<Role[] | null>(null);
+  const [roster, setRoster] = useState<RosterUser[]>([]);
+  const { viewer, preview } = useContext(RoleViewerContext);
   const [error, setError] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    // The roster is who can be a member. Missing roster (no LFG_USERS) just
+    // leaves the member picker as a free email field.
+    void call<{ users: RosterUser[] }>("/api/users")
+      .then((payload) => setRoster(Array.isArray(payload.users) ? payload.users : []))
+      .catch(() => setRoster([]));
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -198,8 +220,31 @@ export function RolesPanel() {
         </div>
       </div>
 
+      {viewer.canSwitchRole && editable.length > 0 ? (
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-card/40 px-4 py-3">
+          <span className="min-w-0">
+            <span className="block text-sm font-medium">Preview as</span>
+            <span className="block text-xs text-muted-foreground">
+              See this browser the way a role sees it. Layout only; tool rules apply to sessions.
+            </span>
+          </span>
+          <select
+            aria-label="Preview as role"
+            value={viewer.role.id}
+            onChange={(e) => preview(e.target.value)}
+            className="h-8 shrink-0 rounded-md border border-border bg-background px-2 text-xs"
+          >
+            {(roles ?? []).map((role) => (
+              <option key={role.id} value={role.id}>
+                {role.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+
       {editable.map((role) => (
-        <RoleCard key={role.id} role={role} onChanged={load} onError={setError} />
+        <RoleCard key={role.id} role={role} roster={roster} onChanged={load} onError={setError} />
       ))}
 
       <form
@@ -234,19 +279,25 @@ export function RolesPanel() {
 
 function RoleCard({
   role,
+  roster,
   onChanged,
   onError,
 }: {
   role: Role;
+  roster: RosterUser[];
   onChanged: () => Promise<void>;
   onError: (message: string | null) => void;
 }) {
   const [pattern, setPattern] = useState("");
+  const [memberDraft, setMemberDraft] = useState("");
+  const views = role.views ?? { hide: [], hiddenPages: [] };
+  const members = role.members ?? [];
+  const unassigned = roster.filter((u) => !members.includes(u.email.toLowerCase()));
   const [action, setAction] = useState<RuleAction>("allow");
   const [busy, setBusy] = useState(false);
 
   const [hostDraft, setHostDraft] = useState("");
-  const save = async (patch: Partial<Pick<Role, "name" | "defaultAction" | "rules" | "sandbox" | "network" | "allowHosts">>) => {
+  const save = async (patch: Partial<Pick<Role, "name" | "defaultAction" | "rules" | "sandbox" | "network" | "allowHosts" | "views" | "members">>) => {
     setBusy(true);
     try {
       await call(`/api/roles/${role.id}`, { method: "PATCH", body: JSON.stringify(patch) });
@@ -401,6 +452,125 @@ function RoleCard({
         ) : null}
       </div>
 
+      <div className="space-y-2 px-4 py-2.5">
+        <span className="block text-sm">Views</span>
+        <span className="block text-xs text-muted-foreground">
+          What this role does not see in the web UI. Layout only: tool rules below are the real limit.
+        </span>
+        <div className="grid gap-1 sm:grid-cols-2">
+          {VIEW_TOGGLE_ROWS.map((row) => {
+            const hidden = views.hide.includes(row.key);
+            return (
+              <label key={row.key} className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  aria-label={`${row.label} for ${role.name}`}
+                  checked={!hidden}
+                  disabled={busy}
+                  onChange={(e) =>
+                    void save({
+                      views: {
+                        ...views,
+                        hide: e.target.checked ? views.hide.filter((k) => k !== row.key) : [...views.hide, row.key],
+                      },
+                    })
+                  }
+                />
+                {row.label}
+              </label>
+            );
+          })}
+        </div>
+        <span className="block pt-1 text-xs text-muted-foreground">Pages</span>
+        <div className="grid gap-1 sm:grid-cols-2">
+          {HIDEABLE_PAGE_ROWS.map((page) => {
+            const hidden = views.hiddenPages.includes(page.id);
+            return (
+              <label key={page.id} className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  aria-label={`${page.label} page for ${role.name}`}
+                  checked={!hidden}
+                  disabled={busy}
+                  onChange={(e) =>
+                    void save({
+                      views: {
+                        ...views,
+                        hiddenPages: e.target.checked
+                          ? views.hiddenPages.filter((id) => id !== page.id)
+                          : [...views.hiddenPages, page.id],
+                      },
+                    })
+                  }
+                />
+                {page.label}
+              </label>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="space-y-2 px-4 py-2.5">
+        <span className="block text-sm">Members</span>
+        <span className="block text-xs text-muted-foreground">
+          Roster users who view and start sessions as this role. A user belongs to one role; anyone unlisted is the owner.
+        </span>
+        <div className="flex flex-wrap gap-1.5">
+          {members.length === 0 ? <span className="text-xs text-muted-foreground">No members.</span> : null}
+          {members.map((email) => (
+            <span key={email} className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px]">
+              <span>{roster.find((u) => u.email.toLowerCase() === email)?.name ?? email}</span>
+              <button
+                type="button"
+                aria-label={`Remove member ${email}`}
+                disabled={busy}
+                onClick={() => void save({ members: members.filter((m) => m !== email) })}
+                className="text-muted-foreground hover:text-destructive"
+              >
+                <Trash2 className="size-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const email = memberDraft.trim().toLowerCase();
+            if (!email || members.includes(email)) return;
+            void save({ members: [...members, email] }).then(() => setMemberDraft(""));
+          }}
+        >
+          {unassigned.length > 0 ? (
+            <select
+              aria-label={`Add member to ${role.name}`}
+              value={memberDraft}
+              disabled={busy}
+              onChange={(e) => setMemberDraft(e.target.value)}
+              className="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-xs"
+            >
+              <option value="">Pick a user</option>
+              {unassigned.map((u) => (
+                <option key={u.email} value={u.email}>
+                  {u.name ? `${u.name} (${u.email})` : u.email}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <Input
+              value={memberDraft}
+              onChange={(e) => setMemberDraft(e.target.value)}
+              placeholder="email"
+              aria-label={`Add member to ${role.name}`}
+              className="h-8 text-xs"
+            />
+          )}
+          <Button type="submit" size="sm" variant="secondary" disabled={busy || !memberDraft.trim()}>
+            Add member
+          </Button>
+        </form>
+      </div>
+
       <ul className="divide-y divide-border">
         {role.rules.length === 0 ? (
           <li className="px-4 py-2 text-xs text-muted-foreground">No rules. Every tool gets the default.</li>
@@ -462,472 +632,5 @@ function RoleCard({
         </Button>
       </form>
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Gateway (Executor) policies
-// ---------------------------------------------------------------------------
-
-export function GatewayPoliciesPanel() {
-  const [policies, setPolicies] = useState<ExecutorPolicy[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [pattern, setPattern] = useState("");
-  const [action, setAction] = useState<ExecutorPolicy["action"]>("require_approval");
-  const [busy, setBusy] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const rows = await call<ExecutorPolicy[] | { policies: ExecutorPolicy[] }>("/api/executor/api/policies");
-      setPolicies(Array.isArray(rows) ? rows : rows.policies ?? []);
-      setError(null);
-    } catch (e) {
-      setPolicies(null);
-      setError(e instanceof Error ? e.message : "could not load gateway policies");
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const add = async () => {
-    const p = pattern.trim();
-    if (!p) return;
-    setBusy(true);
-    try {
-      await call("/api/executor/api/policies", {
-        method: "POST",
-        body: JSON.stringify({ owner: GATEWAY_OWNER, pattern: p, action }),
-      });
-      setPattern("");
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "could not add the policy");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const remove = async (id: string) => {
-    setBusy(true);
-    try {
-      await call(`/api/executor/api/policies/${encodeURIComponent(id)}`, {
-        method: "DELETE",
-        body: JSON.stringify({ owner: GATEWAY_OWNER }),
-      });
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "could not remove the policy");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <section className="space-y-4" aria-label="Gateway policies">
-      <p className="px-1 text-xs leading-relaxed text-muted-foreground">
-        These rules live inside the connector gateway and apply to every session on this box,
-        whatever its role. Patterns are integration tool ids such as <code>github.*</code> or{" "}
-        <code>gmail.send</code>. The most restrictive matching rule wins.
-      </p>
-      <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
-        {policies === null ? (
-          <div className="px-4 py-3 text-xs text-muted-foreground">
-            {error ?? "Loading gateway policies."}
-          </div>
-        ) : policies.length === 0 ? (
-          <div className="px-4 py-3 text-xs text-muted-foreground">
-            No gateway policies. Tools fall back to each integration&apos;s default approval behaviour.
-          </div>
-        ) : (
-          policies.map((policy) => (
-            <div key={policy.id} className="flex items-center gap-3 px-4 py-2 text-sm">
-              <code className="min-w-0 flex-1 truncate text-xs">{policy.pattern}</code>
-              <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-foreground/80">
-                {GATEWAY_ACTIONS.find((a) => a.value === policy.action)?.label ?? policy.action}
-              </span>
-              <button
-                type="button"
-                aria-label={`Remove gateway policy ${policy.pattern}`}
-                disabled={busy}
-                onClick={() => void remove(policy.id)}
-                className="text-muted-foreground hover:text-destructive"
-              >
-                <Trash2 className="size-3.5" />
-              </button>
-            </div>
-          ))
-        )}
-        <form
-          className="flex items-center gap-2 px-4 py-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void add();
-          }}
-        >
-          <Input
-            value={pattern}
-            onChange={(e) => setPattern(e.target.value)}
-            placeholder="pattern, e.g. github.*"
-            aria-label="New gateway policy pattern"
-            className="h-8 font-mono text-xs"
-          />
-          <select
-            aria-label="New gateway policy action"
-            value={action}
-            onChange={(e) => setAction(e.target.value as ExecutorPolicy["action"])}
-            className="rounded-md border border-border bg-background px-2 py-1 text-xs"
-          >
-            {GATEWAY_ACTIONS.map((a) => (
-              <option key={a.value} value={a.value}>
-                {a.label}
-              </option>
-            ))}
-          </select>
-          <Button type="submit" size="sm" variant="secondary" disabled={busy || policies === null || !pattern.trim()}>
-            Add policy
-          </Button>
-        </form>
-      </div>
-      {error && policies !== null ? <p className="px-1 text-xs text-destructive">{error}</p> : null}
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Integrations: a native panel over the connector gateway's REST API,
-// forwarded through omg (/api/executor/api/...) so it works from any device,
-// not just a browser on the box. No iframe.
-// ---------------------------------------------------------------------------
-
-export type Integration = {
-  slug: string;
-  name: string;
-  description: string;
-  kind: string;
-  canRemove: boolean;
-  canRefresh: boolean;
-  authMethods: string[];
-};
-
-export type Connection = {
-  owner: string;
-  integration: string;
-  name: string;
-  status?: string;
-};
-
-export type ToolMeta = {
-  address: string;
-  integration: string;
-  connection: string;
-  name: string;
-  description: string;
-};
-
-async function gateway<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api/executor/api${path}`, {
-    credentials: "same-origin",
-    ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-  });
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { error?: string; message?: string } | null;
-    throw new Error(body?.error ?? body?.message ?? `request failed (${res.status})`);
-  }
-  return (await res.json()) as T;
-}
-
-export function IntegrationsPanel() {
-  const [integrations, setIntegrations] = useState<Integration[] | null>(null);
-  const [connections, setConnections] = useState<Connection[]>([]);
-  const [tools, setTools] = useState<ToolMeta[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [dashboardUrl, setDashboardUrl] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const [ints, conns, tls] = await Promise.all([
-        gateway<Integration[]>("/integrations"),
-        gateway<Connection[]>("/connections"),
-        gateway<ToolMeta[]>("/tools"),
-      ]);
-      setIntegrations(ints);
-      setConnections(conns);
-      setTools(tls);
-      setError(null);
-    } catch (e) {
-      setIntegrations(null);
-      setError(e instanceof Error ? e.message : "the connector gateway is not running");
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-    // The dashboard link is the escape hatch for OAuth connect flows, which
-    // still need a browser on the box. Loopback only, so it may be null here.
-    void fetch("/api/executor/dashboard", { credentials: "same-origin" })
-      .then((r) => (r.ok ? (r.json() as Promise<{ url: string }>) : null))
-      .then((p) => setDashboardUrl(p?.url ?? null))
-      .catch(() => {});
-  }, [load]);
-
-  const removeIntegration = async (slug: string) => {
-    setBusy(true);
-    try {
-      await gateway(`/integrations/${encodeURIComponent(slug)}`, { method: "DELETE" });
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "could not remove the integration");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const removeConnection = async (c: Connection) => {
-    setBusy(true);
-    try {
-      await gateway(`/connections/${encodeURIComponent(c.owner)}/${encodeURIComponent(c.integration)}/${encodeURIComponent(c.name)}`, {
-        method: "DELETE",
-      });
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "could not remove the connection");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const addSource = useCallback(
-    async (address: string, input: unknown) => {
-      const res = await fetch("/api/executor/tool", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address, input }),
-      });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(body?.error ?? `request failed (${res.status})`);
-      }
-      const result = (await res.json()) as { isError: boolean; text: string };
-      if (result.isError) throw new Error(result.text || "the gateway rejected the source");
-      await load();
-    },
-    [load],
-  );
-
-  const toolsFor = useMemo(() => {
-    const by = new Map<string, number>();
-    for (const t of tools) by.set(t.integration, (by.get(t.integration) ?? 0) + 1);
-    return by;
-  }, [tools]);
-
-  const connsFor = useMemo(() => {
-    const by = new Map<string, Connection[]>();
-    for (const c of connections) {
-      const list = by.get(c.integration) ?? [];
-      list.push(c);
-      by.set(c.integration, list);
-    }
-    return by;
-  }, [connections]);
-
-  if (integrations === null) {
-    return (
-      <section className="rounded-2xl border border-border bg-card/40 px-4 py-3 text-sm text-muted-foreground" aria-label="Integrations">
-        {error ?? "Loading integrations."}
-      </section>
-    );
-  }
-
-  return (
-    <section className="space-y-3" aria-label="Integrations">
-      <p className="px-1 text-xs leading-relaxed text-muted-foreground">
-        Services connected to the gateway, and the tools each one exposes to agents. This reads the
-        gateway directly, so it works from any device.
-      </p>
-
-      <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
-        {integrations.map((integration) => {
-          const conns = connsFor.get(integration.slug) ?? [];
-          const toolCount = toolsFor.get(integration.slug) ?? 0;
-          return (
-            <div key={integration.slug} className="px-4 py-3" data-integration={integration.slug}>
-              <div className="flex items-center gap-3">
-                <span className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-foreground text-background">
-                  <Plug className="size-4" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2 text-sm font-medium">
-                    {integration.name}
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-foreground/70">
-                      {integration.kind}
-                    </span>
-                  </span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {toolCount} tool{toolCount === 1 ? "" : "s"}
-                    {conns.length ? ` · ${conns.length} connection${conns.length === 1 ? "" : "s"}` : ""}
-                  </span>
-                </span>
-                {integration.canRemove ? (
-                  <button
-                    type="button"
-                    aria-label={`Remove integration ${integration.name}`}
-                    disabled={busy}
-                    onClick={() => void removeIntegration(integration.slug)}
-                    className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-destructive"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
-                ) : null}
-              </div>
-              {conns.length ? (
-                <ul className="mt-2 space-y-1 pl-10">
-                  {conns.map((c) => (
-                    <li key={`${c.owner}/${c.name}`} className="flex items-center gap-2 text-xs">
-                      <code className="min-w-0 flex-1 truncate">
-                        {c.name}
-                        <span className="text-muted-foreground"> · {c.owner}</span>
-                        {c.status ? <span className="text-muted-foreground"> · {c.status}</span> : null}
-                      </code>
-                      <button
-                        type="button"
-                        aria-label={`Remove connection ${c.name}`}
-                        disabled={busy}
-                        onClick={() => void removeConnection(c)}
-                        className="text-muted-foreground hover:text-destructive"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
-
-      {error ? <p className="px-1 text-xs text-destructive">{error}</p> : null}
-
-      <AddSourceForm onAdd={addSource} />
-
-      <div className="rounded-2xl border border-dashed border-border px-4 py-3">
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          A service that signs in with OAuth still needs a browser on the computer running the gateway
-          (the sign-in redirect returns to it).{" "}
-          {dashboardUrl ? (
-            <a href={dashboardUrl} target="_blank" rel="noreferrer" className="underline">
-              Open the gateway on the box
-            </a>
-          ) : (
-            <span>Open the gateway on the box to connect one.</span>
-          )}
-        </p>
-      </div>
-    </section>
-  );
-}
-
-// Add an OpenAPI or MCP source natively. Both are catalog operations that
-// create an integration and its tools, run through /api/executor/tool.
-function AddSourceForm({ onAdd }: { onAdd: (address: string, input: unknown) => Promise<void> }) {
-  const [kind, setKind] = useState<"openapi" | "mcp">("openapi");
-  const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<string | null>(null);
-
-  // The gateway addresses an integration by a slug. Derive it from the name so
-  // the operator does not have to think about it; a name is therefore required.
-  const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
-
-  const submit = async () => {
-    const trimmedUrl = url.trim();
-    if (!trimmedUrl) return;
-    if (!slug) {
-      setError("A name is required (it becomes the integration id).");
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setDone(null);
-    try {
-      if (kind === "openapi") {
-        await onAdd("executor.openapi.addSpec", {
-          spec: { kind: "url", url: trimmedUrl },
-          slug,
-          name: name.trim(),
-        });
-      } else {
-        await onAdd("executor.mcp.addServer", {
-          slug,
-          name: name.trim(),
-          endpoint: trimmedUrl,
-          transport: "remote",
-        });
-      }
-      setDone("Added. Its tools are listed above.");
-      setName("");
-      setUrl("");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "could not add the source");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <form
-      className="space-y-2 rounded-2xl border border-border bg-card/40 px-4 py-3"
-      onSubmit={(e) => {
-        e.preventDefault();
-        void submit();
-      }}
-    >
-      <div className="flex items-center gap-2">
-        <Plus className="size-4 shrink-0 text-muted-foreground" />
-        <span className="text-sm font-medium">Add a source</span>
-        <select
-          aria-label="Source kind"
-          value={kind}
-          onChange={(e) => setKind(e.target.value as "openapi" | "mcp")}
-          className="ml-auto rounded-md border border-border bg-background px-2 py-1 text-xs"
-        >
-          <option value="openapi">OpenAPI spec</option>
-          <option value="mcp">MCP server</option>
-        </select>
-      </div>
-      <Input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Name (becomes the integration id)"
-        aria-label="Source name"
-        className="h-8 text-xs"
-      />
-      {slug ? <p className="px-1 text-[11px] text-muted-foreground">id: <code>{slug}</code></p> : null}
-      <div className="flex items-center gap-2">
-        <Input
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder={kind === "openapi" ? "OpenAPI spec URL" : "MCP endpoint URL"}
-          aria-label="Source URL"
-          className="h-8 font-mono text-xs"
-        />
-        <Button type="submit" size="sm" disabled={busy || !url.trim()}>
-          {busy ? "Adding…" : "Add"}
-        </Button>
-      </div>
-      {error ? <p className="px-1 text-xs text-destructive">{error}</p> : null}
-      {done ? <p className="px-1 text-xs text-success">{done}</p> : null}
-      <p className="px-1 text-xs leading-relaxed text-muted-foreground">
-        An OpenAPI spec or a remote MCP server becomes an integration with its own tools, reachable by
-        agents through the gateway. A source that needs a key can be authenticated after it is added.
-      </p>
-    </form>
   );
 }

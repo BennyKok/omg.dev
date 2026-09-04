@@ -100,8 +100,20 @@ install command when it is missing.
   `/api/executor/api/<allowlisted>` forwards policies, tools, integrations
   and connections to Executor with the bearer injected.
 - UI: Settings > Roles & tool access. Tabs: Roles (omg), Gateway policies
-  (Executor, box-wide), Integrations (Executor UI in an iframe). New-session
-  composer gets a role pill once a role other than owner exists.
+  (Executor, box-wide), Integrations (Executor UI in an iframe). The
+  composer has no role picker: a new session takes its user's role.
+- Views and members (landed): `role.views = { hide, hiddenPages }` turns off
+  Settings > View switches and hides top-level pages for viewers in that role.
+  Layout only; the box has no auth, so the MCP filter above stays the boundary.
+  `live` and `settings` cannot be hidden. `role.members` is a roster email
+  list; one email belongs to one role, unlisted emails are the owner. This is
+  the field vibes sync will write into. `GET /api/me?user=&role=` resolves
+  the browser's pick (`lfg_user`) to `{ role, views, hide, hiddenPages }`;
+  an owner may pass `role=` to preview. A new session with no explicit `role`
+  takes the tagged user's role. The owner previews a role from a "Preview
+  as" picker at the top of Roles & tool access. Settings > View greys out a
+  switch the current role overrides and names the role. A member sees
+  "Your role" there and cannot change it. There is no picker in the header.
 - Executor policy API facts: payload needs `owner: "org"`; actions are
   `approve`, `require_approval`, `block`; DELETE takes a body with `owner`.
 
@@ -213,6 +225,38 @@ written, to keep every landed piece testable here. Measured on this machine:
 So strict mode belongs where the box grants CAP_NET_ADMIN (or ships
 slirp4netns/pasta) and must be verified there, not on this host. True
 untrusted-code isolation stays with Firecracker in `vibes`.
+
+## Native connectors and OAuth (landed)
+
+The connector layer is omg's own, not Executor's (that wrapping was removed):
+
+- `src/connectors/store.ts`: per-member connections. Owner is an omg member or
+  the org sentinel; a session sees its member's own plus org-shared.
+- `src/connectors/hub.ts`: omg is an MCP client to each connection, injecting
+  the credential host-side.
+- `src/connectors/mcp-endpoint.ts`: `/mcp/connectors`, the agent surface,
+  scoped to the session's member, role-filtered, with an approval gate.
+- `src/connectors/catalog.ts`: browse the integrations.sh catalog.
+
+OAuth is owned by omg (`src/connectors/oauth-provider.ts`, `oauth-store.ts`):
+the MCP spec's discovery → dynamic client registration → PKCE runs through the
+SDK's `auth()`, tokens are stored encrypted (key derived from the box secret).
+Verified live: Linear and Notion both dynamically registered and returned an
+authorize URL with omg's callback as the redirect.
+
+### Managed UI: the redirect base
+
+The redirect_uri must be an origin the user's browser reaches and omg serves.
+
+- Local / Tailscale: `oauthRedirectBase()` uses the browser's own origin, so
+  the provider redirects back to the Tailscale URL and the browser hits
+  `GET /api/connectors/oauth/callback`.
+- Managed (hosted) UI: the hosted app passes `redirectBase` to
+  `POST /api/connectors/:id/oauth/start` pointing at a hosted relay it owns.
+  The provider redirects to that relay, which then calls
+  `POST /api/connectors/oauth/callback` on the box with `{ code, state }` to
+  finish. That relay lives in `vibes` (this repo only provides the box
+  endpoints it calls); it is the one piece not testable from here.
 
 ## Out of scope for this repository
 

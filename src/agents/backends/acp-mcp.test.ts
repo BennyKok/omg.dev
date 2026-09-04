@@ -14,13 +14,22 @@ describe("omgAcpMcpServers", () => {
   });
 
   test("includes the managed session identity in the ACP HTTP registration", () => {
-    expect(omgAcpMcpServers("session with spaces")).toEqual([{
+    const servers = omgAcpMcpServers("session with spaces");
+    // The session token that lets this session claim its own id at the
+    // endpoint (src/policy/session-token.ts). Value is box-specific.
+    const headers = [{ name: "x-omg-session-token", value: expect.any(String) }];
+    expect(servers).toContainEqual({
       type: "http",
       name: "omg",
       url: "http://127.0.0.1:4567/mcp?session=session%20with%20spaces",
-      // The session token that lets this session claim its own id at the
-      // endpoint (src/policy/session-token.ts). Value is box-specific.
-      headers: [{ name: "x-omg-session-token", value: expect.any(String) }],
-    }]);
+      headers,
+    });
+    // The native connector surface is always offered alongside omg.
+    expect(servers).toContainEqual({
+      type: "http",
+      name: "connectors",
+      url: "http://127.0.0.1:4567/mcp/connectors?session=session%20with%20spaces",
+      headers,
+    });
   });
 });

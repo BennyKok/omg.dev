@@ -17,7 +17,7 @@ afterEach(() => {
 
 type Call = { url: string; method: string; body: unknown };
 
-function fakeServer(initialRoles: { id: string; name: string; defaultAction: string; rules: { pattern: string; action: string }[]; sandbox?: string; network?: string; allowHosts?: string[] }[]) {
+function fakeServer(initialRoles: { id: string; name: string; defaultAction: string; rules: { pattern: string; action: string }[]; sandbox?: string; network?: string; allowHosts?: string[]; views?: { hide: string[]; hiddenPages: string[] }; members?: string[] }[]) {
   const calls: Call[] = [];
   let roles = initialRoles;
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -25,6 +25,7 @@ function fakeServer(initialRoles: { id: string; name: string; defaultAction: str
     const method = init?.method ?? "GET";
     const body = init?.body ? JSON.parse(String(init.body)) : null;
     calls.push({ url, method, body });
+    if (url.endsWith("/api/users")) return Response.json({ users: [{ email: "ann@example.com", name: "Ann" }, { email: "bob@example.com" }] });
     if (url.endsWith("/api/roles") && method === "GET") return Response.json({ roles });
     if (url.endsWith("/api/roles") && method === "POST") {
       const role = { id: body.name.toLowerCase(), name: body.name, defaultAction: "block", rules: [], sandbox: "none", network: "shared", allowHosts: [], createdAt: 1, updatedAt: 1 };
@@ -40,14 +41,8 @@ function fakeServer(initialRoles: { id: string; name: string; defaultAction: str
       roles = roles.filter((r) => r.id !== m[1]);
       return Response.json({ ok: true });
     }
-    if (url.includes("/api/executor/api/policies")) return Response.json([]);
-    if (url.includes("/api/executor/api/integrations"))
-      return Response.json([
-        { slug: "executor", name: "Executor", description: "Executor", kind: "built-in", canRemove: false, canRefresh: false, authMethods: [] },
-      ]);
-    if (url.includes("/api/executor/api/connections")) return Response.json([]);
-    if (url.includes("/api/executor/api/tools")) return Response.json([]);
-    if (url.includes("/api/executor/dashboard")) return Response.json({ url: "http://127.0.0.1:4788/?_token=t" });
+    if (url.includes("/api/connectors/catalog")) return Response.json({ total: 0, results: [] });
+    if (url.includes("/api/connectors")) return Response.json({ connectors: [] });
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
   return { calls };
@@ -106,20 +101,50 @@ describe("RolesPanel", () => {
   });
 });
 
+describe("RoleCard views and members", () => {
+  test("a hidden view unchecks, a page toggle patches views, a roster user becomes a member", async () => {
+    const { calls } = fakeServer([
+      OWNER,
+      { id: "viewer", name: "Viewer", defaultAction: "block", rules: [], views: { hide: ["showBots"], hiddenPages: ["usage"] }, members: ["ann@example.com"] },
+    ]);
+    ui.render(<RolesPanel />);
+    await ui.flushAsync();
+    const bots = ui.query('input[aria-label="Bots for Viewer"]') as HTMLInputElement;
+    expect(bots.checked).toBe(false);
+    const usage = ui.query('input[aria-label="Provider limits page for Viewer"]') as HTMLInputElement;
+    expect(usage.checked).toBe(false);
+    expect(ui.text()).toContain("Ann");
+
+    await ui.flushAsync(async () => usage.click());
+    const viewsPatch = calls.find((c) => c.method === "PATCH");
+    expect(viewsPatch?.body).toEqual({ views: { hide: ["showBots"], hiddenPages: [] } });
+
+    // Ann is a member already, so only Bob is offered.
+    const pick = ui.query('select[aria-label="Add member to Viewer"]') as HTMLSelectElement;
+    expect(Array.from(pick.options).map((o) => o.value)).toEqual(["", "bob@example.com"]);
+    const setValue = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value")!.set!;
+    await ui.flushAsync(async () => {
+      setValue.call(pick, "bob@example.com");
+      pick.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await ui.flushAsync(async () => {
+      (pick.closest("form") as HTMLFormElement).dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    const membersPatch = calls.filter((c) => c.method === "PATCH").at(-1);
+    expect(membersPatch?.body).toEqual({ members: ["ann@example.com", "bob@example.com"] });
+  });
+});
+
 describe("ConnectorsPage", () => {
-  test("switches between roles, gateway policies and integrations", async () => {
+  test("has Roles and Connectors tabs; no iframe, no Executor", async () => {
     fakeServer([OWNER]);
     ui.render(<ConnectorsPage />);
     await ui.flushAsync();
-    expect(ui.text()).toContain("Built in.");
+    expect(ui.text()).toContain("Built in."); // Roles tab, owner
 
     await ui.flushAsync(async () => (ui.queryAll('[role="tab"]')[1] as HTMLElement).click());
-    expect(ui.text()).toContain("No gateway policies");
-
-    await ui.flushAsync(async () => (ui.queryAll('[role="tab"]')[2] as HTMLElement).click());
-    // Native panel (no iframe): the integration is listed from the forwarded API.
-    expect(ui.query('iframe')).toBeNull();
-    expect(ui.query('[data-integration="executor"]')).not.toBeNull();
-    expect(ui.text()).toContain("Executor");
+    // Native connectors panel: no iframe, reads /api/connectors, not Executor.
+    expect(ui.query("iframe")).toBeNull();
+    expect(ui.text()).toContain("MCP servers you add");
   });
 });

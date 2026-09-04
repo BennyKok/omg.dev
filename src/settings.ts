@@ -32,10 +32,6 @@ export type GlobalSettings = {
   // screen would offer an agent capabilities it cannot use. Local only -- this
   // never travels to a hosted Computer.
   computerMcpEnabled: boolean;
-  // Run the Executor connector daemon and expose it to agents at
-  // /mcp/executor. On by default: it is the one connector gateway per box
-  // (docs/team-tooling-design.md). Off stops the daemon and answers 404.
-  executorEnabled: boolean;
   // Share of the model's context window at which that rotation fires. Bounded
   // well away from both ends: see sanitizeBotCompactionThreshold for why 40 and
   // 95 are the limits. There is no matching setting for the re-arm mark, which
@@ -74,6 +70,9 @@ export type GlobalSettings = {
   showSchedules: boolean;
   // Off hides the floating worktree diff bar in a session's chat.
   showSessionDiffBar: boolean;
+  // Off hides the Fast pill in the composer; new sessions launch without
+  // fast mode.
+  showComposerFastMode: boolean;
 };
 
 export const DEFAULT_AGENT_KEY_MAX_LENGTH = 40;
@@ -159,7 +158,6 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
   const botAutoCompactionEnabled = input?.botAutoCompactionEnabled !== false;
   // Note the polarity: unlike bot auto-compaction, this defaults OFF.
   const computerMcpEnabled = input?.computerMcpEnabled === true;
-  const executorEnabled = input?.executorEnabled !== false;
   const botCompactionThresholdPercent = sanitizeBotCompactionThreshold(
     input?.botCompactionThresholdPercent,
   );
@@ -178,6 +176,7 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
   const showBots = input?.showBots !== false;
   const showSchedules = input?.showSchedules !== false;
   const showSessionDiffBar = input?.showSessionDiffBar !== false;
+  const showComposerFastMode = input?.showComposerFastMode !== false;
   return {
     timeZone,
     maxLiveAgents,
@@ -185,7 +184,6 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
     transcriptView,
     botAutoCompactionEnabled,
     computerMcpEnabled,
-    executorEnabled,
     botCompactionThresholdPercent,
     skippedUpdateVersion,
     customInstructions,
@@ -198,6 +196,7 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
     showBots,
     showSchedules,
     showSessionDiffBar,
+    showComposerFastMode,
   };
 }
 
@@ -299,7 +298,6 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
     write.run("transcriptView", JSON.stringify(next.transcriptView), now);
     write.run("botAutoCompactionEnabled", JSON.stringify(next.botAutoCompactionEnabled), now);
     write.run("computerMcpEnabled", JSON.stringify(next.computerMcpEnabled), now);
-    write.run("executorEnabled", JSON.stringify(next.executorEnabled), now);
     write.run("botCompactionThresholdPercent", JSON.stringify(next.botCompactionThresholdPercent), now);
     write.run("skippedUpdateVersion", JSON.stringify(next.skippedUpdateVersion), now);
     write.run("customInstructions", JSON.stringify(next.customInstructions), now);
@@ -312,6 +310,7 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
     write.run("showBots", JSON.stringify(next.showBots), now);
     write.run("showSchedules", JSON.stringify(next.showSchedules), now);
     write.run("showSessionDiffBar", JSON.stringify(next.showSessionDiffBar), now);
+    write.run("showComposerFastMode", JSON.stringify(next.showComposerFastMode), now);
   })();
   return next;
 }

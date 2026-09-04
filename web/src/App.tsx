@@ -160,6 +160,8 @@ import {
 } from "./components/conversation-presence";
 import { SessionAssigneeAvatar } from "./components/session-assignee-avatar";
 import { UserFilterMenu } from "./components/user-filter-menu";
+import { OWNER_VIEWER, applyRoleViews, fetchViewer, readRolePreview, writeRolePreview, type Viewer } from "./lib/viewer-role";
+import { RoleViewerContext, type RoleViewerState } from "./lib/viewer-role-context";
 import {
   AuthenticatedArtifactImage,
   AuthenticatedArtifactVideo,
@@ -564,7 +566,6 @@ import {
   CustomInstructionsRow,
 } from "./views/custom-instructions-page";
 import { RemoteAccessSettingsSection } from "./components/remote-access-settings";
-import { ExecutorSettingsSection } from "./components/executor-settings";
 import { ConnectorsPage, ConnectorsRow } from "./views/connectors-page";
 import {
   UpdateNavButton,
@@ -1117,9 +1118,6 @@ type GlobalSettings = {
   // Whether this box offers the Computer Use MCP to agents. Off by default;
   // see the MCP servers section in SettingsView.
   computerMcpEnabled: boolean;
-  // Whether this box runs the connector gateway (Executor) and offers it to
-  // agents at /mcp/executor. On by default; see ExecutorSettingsSection.
-  executorEnabled: boolean;
   transcriptView: TranscriptView;
   // The update the "What's new" drawer's Skip button last dismissed. See
   // UpdateProvider in components/update-drawer.tsx.
@@ -1141,6 +1139,9 @@ type GlobalSettings = {
   showSchedules: boolean;
   // Off hides the floating worktree diff bar in a session's chat.
   showSessionDiffBar: boolean;
+  // Off hides the Fast pill in the composer; new sessions launch without
+  // fast mode.
+  showComposerFastMode: boolean;
 };
 
 /**
@@ -1161,6 +1162,7 @@ type ViewPrefs = Pick<
   | "showBots"
   | "showSchedules"
   | "showSessionDiffBar"
+  | "showComposerFastMode"
 >;
 const DEFAULT_VIEW_PREFS: ViewPrefs = {
   defaultAgent: "",
@@ -1172,8 +1174,10 @@ const DEFAULT_VIEW_PREFS: ViewPrefs = {
   showBots: true,
   showSchedules: true,
   showSessionDiffBar: true,
+  showComposerFastMode: true,
 };
 const ViewPrefsContext = createContext<ViewPrefs>(DEFAULT_VIEW_PREFS);
+
 
 type TranscriptViewPreference = {
   value: TranscriptView;
@@ -5882,7 +5886,40 @@ export function App() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const routeSearch = useRouterState({ select: (s) => s.location.search as AppSearch });
-  const tab: string = pathnameToTab(pathname);
+  // The active profile for this browser ("who are you"). Null until chosen —
+  // when null (and a roster exists) we gate the app behind the picker on start.
+  const [identity, setIdentity] = useState<string | null>(() =>
+    localStorage.getItem("lfg_user"),
+  );
+  // The role this browser views as (GET /api/me): the identity's role from
+  // Settings > Roles, or an owner's chosen preview. Layout only; there is no
+  // auth here. The MCP role filter is the real boundary.
+  const [rolePreview, setRolePreview] = useState(readRolePreview);
+  const [roleViewer, setRoleViewer] = useState<Viewer>(OWNER_VIEWER);
+  const [roleOptions, setRoleOptions] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchViewer(identity, rolePreview, controller.signal)
+      .then((next) => {
+        if (next) setRoleViewer(next);
+      })
+      .catch(() => {});
+    void fetch("/api/roles", { credentials: "same-origin", signal: controller.signal })
+      .then(async (res) => (res.ok ? ((await res.json()) as { roles: { id: string; name: string }[] }) : null))
+      .then((payload) => {
+        if (payload) setRoleOptions(payload.roles.map((r) => ({ id: r.id, name: r.name })));
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [identity, rolePreview]);
+  const previewRole = useCallback((roleId: string) => {
+    writeRolePreview(roleId);
+    setRolePreview(roleId === "owner" ? "" : roleId);
+  }, []);
+  const requestedTab: string = pathnameToTab(pathname);
+  // A page the viewer's role hides falls back to Live. The path is left as
+  // is: switching role back restores it without a second navigation.
+  const tab: string = roleViewer.hiddenPages.includes(requestedTab) ? DEFAULT_TAB : requestedTab;
   // `/bots/<id>` is a chat. `/bots/new` and `/bots/<id>/edit` are the editor,
   // which is a PAGE and not a sheet over the list: a form with a name, a
   // persona, a face, a colour, a repo and a model is a place you go to, so it
@@ -6070,7 +6107,6 @@ export function App() {
     maxBotSchedules: 5,
     botAutoCompactionEnabled: true,
     computerMcpEnabled: false,
-    executorEnabled: true,
     botCompactionThresholdPercent: 78,
     transcriptView: "full",
     skippedUpdateVersion: "",
@@ -6105,10 +6141,11 @@ export function App() {
   });
   const [projectFilter, setProjectFilter] = useState(readCachedProjectFilter);
   const didDefaultFilter = useRef(false);
-  // The active profile for this browser ("who are you"). Null until chosen —
-  // when null (and a roster exists) we gate the app behind the picker on start.
-  const [identity, setIdentity] = useState<string | null>(() =>
-    localStorage.getItem("lfg_user"),
+  const viewPrefs = useMemo(() => applyRoleViews(settings, roleViewer), [settings, roleViewer]);
+  const hiddenPages = roleViewer.hiddenPages;
+  const roleViewerState = useMemo<RoleViewerState>(
+    () => ({ viewer: roleViewer, roles: roleOptions, preview: previewRole }),
+    [roleViewer, roleOptions, previewRole],
   );
   // Hosted surfaces do not show the profile picker. Their one-user roster is
   // still the assigned identity for server-owned bot read state.
@@ -6380,8 +6417,7 @@ export function App() {
       maxBotSchedules: 5,
       botAutoCompactionEnabled: true,
       computerMcpEnabled: false,
-      executorEnabled: true,
-      botCompactionThresholdPercent: 78,
+        botCompactionThresholdPercent: 78,
       transcriptView: "full",
       skippedUpdateVersion: "",
       customInstructions: "",
@@ -8566,7 +8602,8 @@ export function App() {
     <AskProvider>
     <UpdateProvider settings={settings} onSettingsChange={updateSettings}>
     <TranscriptViewContext.Provider value={transcriptViewPreference}>
-    <ViewPrefsContext.Provider value={settings}>
+    <ViewPrefsContext.Provider value={viewPrefs}>
+    <RoleViewerContext.Provider value={roleViewerState}>
     <ArtifactViewerContext.Provider value={openArtifactViewer}>
     <SessionTerminalContext.Provider value={setTerminalSid}>
     <OpenSettingsPageContext.Provider value={setTab}>
@@ -8688,6 +8725,7 @@ export function App() {
                 />
                 <PagesMenu
                   tab={tab}
+                  hiddenPages={hiddenPages}
                   onOpenTab={setTab}
                   extraTabs={extNavTabs}
                   showSettings={false}
@@ -8712,6 +8750,7 @@ export function App() {
                 )}
                 <PagesMenu
                   tab={tab}
+                  hiddenPages={hiddenPages}
                   onOpenTab={setTab}
                   extraTabs={extNavTabs}
                   showSettings
@@ -8854,6 +8893,7 @@ export function App() {
                 the chrome happens to live in a given layout. */}
             <PagesMenu
               tab={tab}
+              hiddenPages={hiddenPages}
               onOpenTab={setTab}
               extraTabs={extNavTabs}
               showSettings={!embedded}
@@ -8973,6 +9013,7 @@ export function App() {
               pagesMenu={
                 <PagesMenu
                   tab={tab}
+                  hiddenPages={hiddenPages}
                   onOpenTab={setTab}
                   extraTabs={extNavTabs}
                   showSettings={!embedded}
@@ -9450,6 +9491,7 @@ export function App() {
     </OpenSettingsPageContext.Provider>
     </SessionTerminalContext.Provider>
     </ArtifactViewerContext.Provider>
+    </RoleViewerContext.Provider>
     </ViewPrefsContext.Provider>
     </TranscriptViewContext.Provider>
     </UpdateProvider>
@@ -9949,6 +9991,7 @@ function PagesMenu({
   tab,
   onOpenTab,
   extraTabs,
+  hiddenPages = [],
   showSettings = true,
   onOpenHostSettings,
   className,
@@ -9956,6 +9999,8 @@ function PagesMenu({
   tab: string;
   onOpenTab: (tab: string) => void;
   extraTabs: ExtensionNavTab[];
+  /** Pages the viewer's role hides (src/policy/roles.ts views). */
+  hiddenPages?: string[];
   showSettings?: boolean;
   /**
    * Open the HOST's settings, for a surface where the host mounts those pages
@@ -10018,26 +10063,34 @@ function PagesMenu({
               control for that choice — repeating the destinations here made one
               decision reachable two ways, with the menu's version giving no
               hint that the faster one was inches below it. */}
-          <DropdownMenuRadioItem value="notifications">
-            <Bell className="size-5 shrink-0 text-muted-foreground" />
-            Notifications
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="artifacts">
-            <LayoutDashboard className="size-5 shrink-0 text-muted-foreground" />
-            Artifacts
-          </DropdownMenuRadioItem>
+          {hiddenPages.includes("notifications") ? null : (
+            <DropdownMenuRadioItem value="notifications">
+              <Bell className="size-5 shrink-0 text-muted-foreground" />
+              Notifications
+            </DropdownMenuRadioItem>
+          )}
+          {hiddenPages.includes("artifacts") ? null : (
+            <DropdownMenuRadioItem value="artifacts">
+              <LayoutDashboard className="size-5 shrink-0 text-muted-foreground" />
+              Artifacts
+            </DropdownMenuRadioItem>
+          )}
           {/* The Computer is a page like the others, not a tool buried under
               More: it is a place you go to and hand someone a link to. */}
-          <DropdownMenuRadioItem value="computer">
-            <Monitor className="size-5 shrink-0 text-muted-foreground" />
-            Computer
-          </DropdownMenuRadioItem>
+          {hiddenPages.includes("computer") ? null : (
+            <DropdownMenuRadioItem value="computer">
+              <Monitor className="size-5 shrink-0 text-muted-foreground" />
+              Computer
+            </DropdownMenuRadioItem>
+          )}
           {/* The Board reads the same sessions as Live, laid out by state. It
               is read-only, so it sits with the other "look at" pages. */}
-          <DropdownMenuRadioItem value="board">
-            <SquareKanban className="size-5 shrink-0 text-muted-foreground" />
-            Board
-          </DropdownMenuRadioItem>
+          {hiddenPages.includes("board") ? null : (
+            <DropdownMenuRadioItem value="board">
+              <SquareKanban className="size-5 shrink-0 text-muted-foreground" />
+              Board
+            </DropdownMenuRadioItem>
+          )}
           {showSettings ? (
             <>
               <DropdownMenuSeparator />
@@ -13798,9 +13851,13 @@ const RailRow = memo(function RailRow({
                 "border-transparent hover:bg-muted/70",
         )}
       >
-        <span className={cn("relative flex shrink-0 items-center justify-center", markBoxClassName)}>
-          {mark}
-        </span>
+        {/* A row may opt out of the mark entirely (agent icons off): then
+            there is no box and no gap, the text column starts at the edge. */}
+        {mark === null ? null : (
+          <span className={cn("relative flex shrink-0 items-center justify-center", markBoxClassName)}>
+            {mark}
+          </span>
+        )}
         {!collapsed ? (
           <>
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -13888,7 +13945,15 @@ const RailItem = memo(function RailItem({
   const drivingBot = drivingBotId ? botDirectory.get(drivingBotId) : undefined;
   const faviconSrc = projectFaviconSrc(session.project);
   const [failedFaviconSrc, setFailedFaviconSrc] = useState<string | null>(null);
-  const showFavicon = !!faviconSrc && failedFaviconSrc !== faviconSrc;
+  // The favicon follows the agent icon setting: hiding agent icons means a
+  // plain row, and a project logo is as much an identity mark as the harness.
+  const showFavicon = showAgentIcons && !!faviconSrc && failedFaviconSrc !== faviconSrc;
+  // Agent icons off means no identity mark at all in the expanded row: no
+  // harness, no favicon, and no placeholder box holding the space. Busy and
+  // blocked move to the indicator slot. A collapsed rail is only marks, so
+  // it keeps a neutral one. A bot row keeps its face; that is the bot, not
+  // an agent icon.
+  const plainRow = !drivingBot && !showAgentIcons && !collapsed;
   // Read state, from the roster's own set. A working session is never in that
   // set — the server holds the mark back while a turn is running, because the
   // dot means "ready for you" and a session mid-turn is not. It comes back on
@@ -13923,7 +13988,7 @@ const RailItem = memo(function RailItem({
         // ragged.
         drivingBot ? "size-11" : "size-10"
       }
-      mark={
+      mark={plainRow ? null : (
         <>
           {/* A normal thread is anchored by its project when that project has
               a favicon. The small corner badge then says which agent drives
@@ -14014,7 +14079,7 @@ const RailItem = memo(function RailItem({
             />
           ) : null}
         </>
-      }
+      )}
       title={title}
       titleBadge={
         topPinned ? (
@@ -14022,7 +14087,19 @@ const RailItem = memo(function RailItem({
         ) : null
       }
       preview={latest}
-      indicator={unread ? unreadDot : null}
+      indicator={
+        unread ? (
+          unreadDot
+        ) : plainRow && busy ? (
+          <Loader2
+            aria-label="working"
+            className="size-4 shrink-0 animate-spin text-warning motion-reduce:animate-none"
+            strokeWidth={1.75}
+          />
+        ) : plainRow && session.status === "blocked" ? (
+          <SessionStatusDot paused variant="inline" />
+        ) : null
+      }
       trailingStatic={
         session.lastActivityAt || session.startedAt
           ? relTime(session.lastActivityAt ?? session.startedAt ?? 0)
@@ -21504,23 +21581,9 @@ function NewSessionDialog({
       : defaultAgent,
   );
   const [claudeAccountId, setClaudeAccountId] = useState("");
-  // Role the new session runs as (Settings > Roles). "" is owner. The picker
-  // only appears once a role other than owner exists on this box.
-  const [role, setRole] = useState(() => localStorage.getItem("lfg_v2_role") || "");
-  const [roleOptions, setRoleOptions] = useState<{ id: string; name: string }[]>([]);
-  useEffect(() => {
-    const controller = new AbortController();
-    void fetch("/api/roles", { credentials: "same-origin", signal: controller.signal })
-      .then(async (res) => (res.ok ? ((await res.json()) as { roles: { id: string; name: string }[] }) : null))
-      .then((payload) => {
-        if (!payload) return;
-        setRoleOptions(payload.roles.map((r) => ({ id: r.id, name: r.name })));
-        // A remembered role that no longer exists must not be sent.
-        setRole((current) => (payload.roles.some((r) => r.id === current) ? current : ""));
-      })
-      .catch(() => {});
-    return () => controller.abort();
-  }, []);
+  // No role picker here. The server gives a new session the role of the
+  // user it is tagged with (src/policy/roles.ts members); a member cannot
+  // pick another role, and the owner's sessions are owner sessions.
   const [repo, setRepo] = useState(() => localStorage.getItem("lfg_v2_repo") || "");
   const [model, setModel] = useState(
     () =>
@@ -21998,7 +22061,9 @@ function NewSessionDialog({
 
   const models = catalog.models[agent] ?? AGENT_MODELS[agent];
   const thinkingLevels = useAgentThinkingLevels(agent, model);
-  const fastModeAvailable = composerSupportsFastMode({ agent, model });
+  // Hidden by the box (or the viewer's role) means off. A saved "on" in
+  // localStorage must not launch fast mode through a pill nobody can see.
+  const fastModeAvailable = view.showComposerFastMode && composerSupportsFastMode({ agent, model });
   const fastModeEnabled = fastMode && fastModeAvailable;
   const tiboModeAvailable = canUseTiboMode({ agent, model, thinkingLevels });
   const tiboModeActive =
@@ -22258,7 +22323,6 @@ function NewSessionDialog({
             thinkingLevel: thinkingLevels.length ? launchThinkingLevel : undefined,
             fastMode: launchFastMode,
             claudeAccountId: launchClaudeAccountId,
-            role: role || undefined,
             overLimit: overLimit || undefined,
           }),
         });
@@ -22472,25 +22536,6 @@ function NewSessionDialog({
           onToggle={() => setFastMode(!fastModeEnabled)}
           flat={variant === "inline"}
         />
-      ) : null}
-
-      {roleOptions.length > 1 ? (
-        <select
-          aria-label="Session role"
-          title="Role: which tools this session may use"
-          value={role}
-          onChange={(e) => {
-            setRole(e.target.value);
-            localStorage.setItem("lfg_v2_role", e.target.value);
-          }}
-          className="h-7 max-w-32 rounded-full border border-border bg-background px-2 text-xs"
-        >
-          {roleOptions.map((option) => (
-            <option key={option.id} value={option.id === "owner" ? "" : option.id}>
-              {option.name}
-            </option>
-          ))}
-        </select>
       ) : null}
 
       {agent === "codex" || agent === "codex-aisdk" ? (
@@ -27727,11 +27772,6 @@ function SettingsView({
         </div>
       </section>
 
-      <ExecutorSettingsSection
-        enabled={settings.executorEnabled}
-        onEnabledChange={(executorEnabled) => onSettingsChange({ executorEnabled })}
-      />
-
       <section className="space-y-2">
         <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
           <ConnectorsRow onOpen={onOpenConnectors} roleCount={null} />
@@ -28062,12 +28102,14 @@ function ViewSettingsSection({
     catalog.defaults[agent] ||
     AGENT_DEFAULT_MODEL[agent];
   const agentOption = options.find((option) => option.key === agent);
+  const { viewer: roleViewer, roles } = useContext(RoleViewerContext);
   const rows: { key: keyof ViewPrefs & `show${string}`; label: string; hint: string }[] = [
     { key: "showSidebarAgentIcons", label: "Agent icons in the sidebar", hint: "The harness mark and assignee face on each session row." },
-    { key: "showSessionAgentIcons", label: "Agent icons in chat", hint: "The harness mark in a session's header." },
+    { key: "showSessionAgentIcons", label: "Agent icons in chat", hint: "The harness mark in a session's header. Off shows nothing there." },
     { key: "showSessionDiffBar", label: "Worktree diff badge in chat", hint: "The floating changes bar above the composer." },
     { key: "showComposerAgents", label: "Agent picker in the composer", hint: "Off: every new session uses the default agent." },
     { key: "showComposerModels", label: "Model picker in the composer", hint: "Off: every new session uses the default model." },
+    { key: "showComposerFastMode", label: "Fast mode toggle in the composer", hint: "Off: no Fast pill; new sessions launch without fast mode." },
     { key: "showBots", label: "Bots", hint: "The Bots surface and its switch." },
     { key: "showSchedules", label: "Schedules", hint: "The Schedules surface and its switch." },
   ];
@@ -28085,6 +28127,21 @@ function ViewSettingsSection({
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div className="mt-2 overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+            {roles.length > 1 && roleViewer.role.id !== "owner" ? (
+              <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    {roleViewer.canSwitchRole ? "Previewing as role" : "Your role"}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {roleViewer.canSwitchRole
+                      ? "Change the preview under Roles & tool access."
+                      : "Set by the owner under Roles & tool access."}
+                  </div>
+                </div>
+                <span className="shrink-0 text-sm">{roleViewer.role.name}</span>
+              </div>
+            ) : null}
             <div className="flex items-center justify-between gap-4 px-4 py-2.5">
               <div className="min-w-0">
                 <div className="text-sm font-medium">Default agent and model</div>
@@ -28119,19 +28176,33 @@ function ViewSettingsSection({
                 ) : null}
               </div>
             </div>
-            {rows.map((row) => (
-              <div key={row.key} className="flex items-center justify-between gap-4 px-4 py-2.5">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium">{row.label}</div>
-                  <div className="text-xs text-muted-foreground">{row.hint}</div>
+            {rows.map((row) => {
+              // A switch the current role turns off is overridden: the box
+              // value still exists, but this viewer sees "off" whatever it
+              // says. Grey it out and say why, rather than showing a live
+              // control that appears to do nothing.
+              const overridden = roleViewer.hide.includes(row.key);
+              return (
+                <div
+                  key={row.key}
+                  className={cn("flex items-center justify-between gap-4 px-4 py-2.5", overridden && "opacity-50")}
+                  aria-disabled={overridden || undefined}
+                >
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium">{row.label}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {overridden ? `Hidden by the ${roleViewer.role.name} role.` : row.hint}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={overridden ? false : settings[row.key]}
+                    disabled={overridden}
+                    onCheckedChange={(next) => void onChange({ [row.key]: next })}
+                    aria-label={row.label}
+                  />
                 </div>
-                <Switch
-                  checked={settings[row.key]}
-                  onCheckedChange={(next) => void onChange({ [row.key]: next })}
-                  aria-label={row.label}
-                />
-              </div>
-            ))}
+              );
+            })}
           </div>
         </CollapsibleContent>
       </Collapsible>
@@ -28418,6 +28489,20 @@ function SessionHeaderIdentity({
     botDirectory,
   );
 
+  // Agent icons off: no mark in the header at all, not a placeholder. Busy
+  // keeps a bare spinner so a running turn is still visible. A bot keeps its
+  // face; that is the bot, not an agent icon.
+  if (!showSessionAgentIcons && identity.kind !== "bot" && identity.kind !== "bot-loading") {
+    if (!busy) return null;
+    return (
+      <Loader2
+        aria-label="working"
+        className="size-5 shrink-0 animate-spin text-warning motion-reduce:animate-none"
+        strokeWidth={1.75}
+      />
+    );
+  }
+
   if (identity.kind === "bot") {
     return (
       <div
@@ -28446,11 +28531,7 @@ function SessionHeaderIdentity({
       {/* "aisdk" is Claude Code under the hood (driven via the AI SDK), so it
           wears the same Claude mark as a tmux claude session; only the
           new-session picker keeps a distinct label to tell them apart. */}
-      {showSessionAgentIcons ? (
-        <AgentMark session={session} busy={busy} />
-      ) : (
-        <NeutralSessionMark busy={busy} size={size} />
-      )}
+      <AgentMark session={session} busy={busy} />
     </div>
   );
 }
