@@ -22,7 +22,7 @@ import { useTheme } from "../src/omg/theme";
 export default function OnboardingReplayScreen() {
   const router = useRouter();
   const { isDark } = useTheme();
-  const { readiness } = useOmg();
+  const { readiness, probe } = useOmg();
   const [phase, setPhase] = useState<"intro" | "setup">("intro");
   const { agents, waking } = rosterFromReadiness(readiness);
 
@@ -37,7 +37,7 @@ export default function OnboardingReplayScreen() {
       {phase === "intro" ? (
         <IntroScreen finalLabel="Continue" onSignIn={() => setPhase("setup")} />
       ) : (
-        <SetupScreen onDone={done} agents={agents} waking={waking} />
+        <SetupScreen onDone={done} agents={agents} waking={waking} onConnected={probe} />
       )}
     </>
   );
