@@ -2,6 +2,23 @@
 
 Recent product updates and deployment notes.
 
+## September 4, 2026 - Native integrations and per-role tool access (v0.6.39)
+
+- **Connect integrations natively.** The Integrations panel lists your
+  connectors with their logos. It uses the integrations.sh catalog. The old
+  embedded iframe is gone.
+- **OAuth connect for a connector.** You authorize a connector in a popup. omg
+  owns the callback and stores the tokens encrypted on the box. The flow
+  completes over remote access.
+- **Add a custom MCP or OpenAPI source.** The custom source form is collapsed
+  behind a button so the panel stays clean.
+- **Per-member and per-role tool access.** Each member gets connectors scoped to
+  the member. A role controls which tools a session can use.
+- **Approve connector calls from chat.** A restricted role must get approval in
+  the chat before a connector tool runs.
+- **Sandbox for restricted roles.** A restricted-role session runs with a
+  bubblewrap filesystem sandbox and a per-role network egress allowlist.
+
 ## September 3, 2026 - Board in the desktop workspace (v0.6.38)
 
 - **The Board sits in the desktop workspace.** On a wide screen the session
