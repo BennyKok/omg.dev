@@ -233,8 +233,10 @@ import {
   getAllUsage,
   getProviderUsage,
   getUsageSummary,
+  invalidateProviderUsage,
   listUsageProviders,
 } from "../usage.ts";
+import { consumeCodexRateLimitResetCredit } from "../codex-rate-limits.ts";
 import { sessionTokenUsage } from "../session-token-usage.ts";
 import {
   vapidPublicKey,
@@ -7814,6 +7816,29 @@ a{color:#60a5fa}
         return json({
           providers: await getUsageSummary({ force: url.searchParams.get("force") === "1" }),
         });
+      }
+
+      if (path === "/api/usage/codex/reset-credit") {
+        if (req.method !== "POST") return err(405, "method not allowed");
+        const body = (await req.json().catch(() => null)) as {
+          creditId?: unknown;
+          idempotencyKey?: unknown;
+        } | null;
+        const creditId = typeof body?.creditId === "string" ? body.creditId.trim() : "";
+        const idempotencyKey = typeof body?.idempotencyKey === "string"
+          ? body.idempotencyKey.trim()
+          : "";
+        if (!creditId || !idempotencyKey) {
+          return err(400, "creditId and idempotencyKey are required");
+        }
+        try {
+          const outcome = await consumeCodexRateLimitResetCredit({ creditId, idempotencyKey });
+          invalidateProviderUsage("codex");
+          const provider = await getProviderUsage("codex", { force: true });
+          return json({ outcome, provider });
+        } catch (error) {
+          return err(502, error instanceof Error ? error.message : String(error));
+        }
       }
 
       // One source, fetched on its own. This is what makes a single ring (the

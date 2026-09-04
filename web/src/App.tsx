@@ -582,7 +582,9 @@ import {
   UpdateSettingsRow,
 } from "./components/update-drawer";
 import { UsageCampfireHost, useUsageRingLongPress } from "./components/UsageCampfire";
+import { BankedResetCredits } from "./components/BankedResetCredits";
 import {
+  consumeBankedReset,
   invalidateUsageProviders,
   useProviderUsage,
   useUsageFeed,
@@ -27079,10 +27081,40 @@ function UsageLimitsSection() {
   // account that answers fast isn't held behind a slow provider — and each
   // connected account gets its own row with its own windows.
   const { refs, providers, error, refreshing, refresh } = useUsageFeed();
+  const appDialog = useAppDialog();
+  const [usingCreditId, setUsingCreditId] = useState<string | null>(null);
   const byId = useMemo(
     () => new Map(providers.map((provider) => [provider.id, provider])),
     [providers],
   );
+
+  const useBankedReset = useCallback(async (
+    credit: import("./lib/usage").RateLimitResetCredit,
+    availableCount: number,
+  ) => {
+    if (!credit.id || usingCreditId) return;
+    const confirmed = await appDialog.confirm({
+      title: `Use 1 of ${availableCount} banked ${availableCount === 1 ? "reset" : "resets"}?`,
+      description: "This immediately resets your current Codex rate-limit window and cannot be undone.",
+      confirmLabel: "Use reset",
+      destructive: true,
+    });
+    if (!confirmed) return;
+
+    setUsingCreditId(credit.id);
+    try {
+      const { outcome } = await consumeBankedReset(credit.id, crypto.randomUUID());
+      if (outcome === "reset") toast.success("Codex limit reset. One banked reset was used.");
+      else if (outcome === "nothingToReset") toast("Your Codex limit does not need a reset yet.");
+      else if (outcome === "alreadyRedeemed") toast("That reset was already used.");
+      else toast.error("No banked reset is available.");
+      refresh();
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : "Could not use the banked reset");
+    } finally {
+      setUsingCreditId(null);
+    }
+  }, [appDialog, refresh, usingCreditId]);
 
   return (
     <section className="space-y-2">
@@ -27132,11 +27164,25 @@ function UsageLimitsSection() {
                 </div>
                 {!p ? (
                   <p className="pl-10 text-xs text-muted-foreground">Reading limits…</p>
-                ) : p.available && p.windows?.length ? (
-                  <div className="space-y-2 pl-10">
-                    {p.windows.map((w) => (
-                      <UsageBar key={w.label} w={w} />
-                    ))}
+                ) : p.available && ((p.windows?.length ?? 0) > 0 || p.resetCredits) ? (
+                  <div className="space-y-3 pl-10">
+                    {p.windows?.length ? (
+                      <div className="space-y-2">
+                        {p.windows.map((w) => (
+                          <UsageBar key={w.label} w={w} />
+                        ))}
+                      </div>
+                    ) : null}
+                    {p.resetCredits ? (
+                      <BankedResetCredits
+                        value={p.resetCredits}
+                        usingCreditId={usingCreditId}
+                        onUse={(credit) => void useBankedReset(credit, p.resetCredits!.availableCount)}
+                      />
+                    ) : null}
+                    {p.note ? (
+                      <p className="text-[11px] text-muted-foreground/70">{p.note}</p>
+                    ) : null}
                   </div>
                 ) : (
                   <p className="pl-10 text-xs text-muted-foreground">{p.note ?? "No data"}</p>
@@ -27147,8 +27193,8 @@ function UsageLimitsSection() {
         )}
       </div>
       <p className="px-4 text-xs text-muted-foreground">
-        Claude reads the live subscription usage endpoint once per connected account; Codex
-        reflects the latest rate-limit snapshot from its most recent session; Grok pulls monthly
+        Claude reads the live subscription usage endpoint once per connected account; Codex reads
+        current limits and banked-reset expiries through its local app server; Grok pulls monthly
         and weekly credits from the cli-chat-proxy billing API. Press{" "}
         <kbd className="rounded bg-muted px-1 font-mono text-[10px]">Shift</kbd> anywhere (or
         long-press the composer activity rings) for the campfire view of every agent.
