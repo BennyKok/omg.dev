@@ -91,6 +91,7 @@ const DIRECT_INDEX_MANAGED_AGENTS = new Set<ManagedSession["agent"]>([
   "grok",
   "cursor",
   "fx",
+  "muse",
   "deepseek",
   "copilot",
   "jcode",
@@ -617,6 +618,8 @@ export function managedLaunchRow(
           ? `agent --model ${m.model ?? ""}`.trim()
           : agent === "fx"
             ? `fx acp --model ${m.model ?? ""}`.trim()
+          : agent === "muse"
+            ? "muse serve"
           : agent === "deepseek"
             ? "dsh --profile omg --patch config/deepseek-acp.patch.yml"
           : agent === "jcode"
@@ -670,7 +673,7 @@ export function managedLaunchRow(
     managed: true,
     assignedUser: assigns[m.tmuxName] ?? null,
     model:
-      agent === "codex" || agent === "codex-aisdk" || agent === "opencode" || agent === "jcode" || agent === "grok" || agent === "cursor" || agent === "deepseek" || agent === "hermes"
+      agent === "codex" || agent === "codex-aisdk" || agent === "opencode" || agent === "jcode" || agent === "grok" || agent === "cursor" || agent === "deepseek" || agent === "hermes" || agent === "muse"
         ? model
         : modelAlias(model),
     thinkingLevel: m.thinkingLevel ?? null,
@@ -3451,8 +3454,8 @@ export type ResumableSession = {
   // Which engine the session was recorded with. "claude" resumes via the claude
   // CLI (`claude --resume`); "codex" resumes via a codex-aisdk harness keyed to
   // the rollout's threadId. The serve /resume endpoint branches on this.
-  agent: "claude" | "codex" | "opencode" | "pi" | "grok" | "cursor" | "fx" | "copilot" | "jcode";
-  backend?: "aisdk" | "codex-aisdk" | "opencode" | "pi" | "grok" | "cursor" | "fx" | "copilot" | "jcode";
+  agent: "claude" | "codex" | "opencode" | "pi" | "grok" | "cursor" | "fx" | "muse" | "copilot" | "jcode";
+  backend?: "aisdk" | "codex-aisdk" | "opencode" | "pi" | "grok" | "cursor" | "fx" | "muse" | "copilot" | "jcode";
   resumeHandle?: string | null;
   model?: string | null;
   thinkingLevel?: string | null;

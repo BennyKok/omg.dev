@@ -6,6 +6,7 @@ import {
   spawnManagedFxAcpSession,
   spawnManagedGrokAcpSession,
   spawnManagedJcodeSdkSession,
+  spawnManagedMuseMspSession,
   spawnManagedOpencodeAisdkSession,
   spawnManagedPiSession,
 } from "../tmux.ts";
@@ -74,6 +75,12 @@ const result = await (agent === "claude" || agent === "aisdk"
                   key: `key-${resume}`,
                   resume,
                 })
+              : agent === "muse"
+                ? spawnManagedMuseMspSession({
+                    ...common,
+                    key: `key-${resume}`,
+                    resume,
+                  })
             : agent === "copilot"
               ? spawnManagedCopilotSdkSession({
                   ...common,

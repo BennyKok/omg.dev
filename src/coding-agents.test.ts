@@ -152,6 +152,24 @@ describe("coding agent browser auth output", () => {
     });
   });
 
+  // Captured verbatim from `muse login` against muse 1.0.2: the Meta device
+  // flow prints the verification URL (which carries the code) and the code.
+  test("extracts the Meta verification URL and device code for muse", () => {
+    const output = [
+      "Open this page to sign in:",
+      "  https://auth.meta.com/oauth/device/?code=JZDZ-HSCZ",
+      "confirm this code matches:",
+      "  JZDZ-HSCZ",
+      "",
+      "Waiting for approval…",
+    ].join("\n");
+    expect(parseAuthOutput("muse", output)).toEqual({
+      authorizationUrl: "https://auth.meta.com/oauth/device/?code=JZDZ-HSCZ",
+      userCode: "JZDZ-HSCZ",
+      needsCode: false,
+    });
+  });
+
   test("falls back to the printed Code line when fx omits the code from the URL", () => {
     const output = ["Open https://vercel.com/oauth/device", "Code: XFCJ-ZGNJ"].join("\n");
 

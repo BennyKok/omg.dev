@@ -45,6 +45,7 @@ import {
   AISDK_STREAM_WATCHDOG_TICK_MS,
   isAisdkStreamStalled,
 } from "./aisdk-session.ts";
+import { extractAttachments } from "../../attachment-images.ts";
 
 function arg(argv: string[], name: string): string | undefined {
   const i = argv.indexOf(name);
@@ -223,6 +224,19 @@ function codexCompletedItemMessage(item: Record<string, unknown>, turnNonce: str
   return text.trim() ? { id, role: "tool", kind: "tool_result", text, ts } : null;
 }
 
+function codexInputForPrompt(prompt: string): string | Array<{ type: "text"; text: string } | { type: "local_image"; path: string }> {
+  const extracted = extractAttachments(prompt);
+  if (!extracted.attachments.length) return prompt;
+  const text = extracted.cleanText || "(image attachment)";
+  const parts: Array<{ type: "text"; text: string } | { type: "local_image"; path: string }> = [{ type: "text", text }];
+  for (const att of extracted.attachments) {
+    if (att.mime.startsWith("image/")) parts.push({ type: "local_image", path: att.path });
+  }
+  // If only PDFs or filtered out, fall back to original text path — Codex handles PDFs via text.
+  if (parts.length === 1) return prompt;
+  return parts;
+}
+
 // One-shot headless run for the auto/report runner: single thread, single turn.
 export async function pipeToCodexAiSdk(
   prompt: string,
@@ -239,8 +253,9 @@ export async function pipeToCodexAiSdk(
   });
 
   log(`[runner] piping ${prompt.length} chars to codex via codex-sdk (${model})`);
+  const input = codexInputForPrompt(prompt);
   const thread = codex.startThread(threadOptions(model, cwd, opts.thinkingLevel));
-  const { events } = await thread.runStreamed(prompt);
+  const { events } = await thread.runStreamed(input);
   let text = "";
   let chars = 0;
   let lastEmit = 0;
@@ -388,7 +403,8 @@ export async function cmdCodexAisdkSession(argv: string[]): Promise<void> {
       // Starting the turn is itself a stream wait: the SDK resolves and spawns
       // its codex binary here, so a broken install hangs on this line.
       lastSdkEventAt = Date.now();
-      const { events } = await stallGate.race(thread.runStreamed(prompt, { signal }));
+      const input = codexInputForPrompt(prompt);
+      const { events } = await stallGate.race(thread.runStreamed(input, { signal }));
       publishDraft("", true);
       // Manual iteration so each wait for the NEXT event can be interrupted.
       // `for await` offers no way to break out of a hung next().
