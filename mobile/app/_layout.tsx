@@ -326,6 +326,7 @@ function RootNavigator() {
             <Stack.Screen name="computers" />
             <Stack.Screen name="settings" />
             <Stack.Screen name="notifications" />
+            <Stack.Screen name="schedules" />
             <Stack.Screen name="plan" />
             <Stack.Screen name="bots/index" />
             <Stack.Screen name="bots/new" />
@@ -571,6 +572,12 @@ function RootNavigator() {
           <Stack.Screen
             name="notifications"
             options={{ title: "Notifications", headerLargeTitle: true }}
+          />
+          {/* The auto agent roster, the web's "Schedules" surface. Reached
+              from the home header's pages menu. */}
+          <Stack.Screen
+            name="schedules"
+            options={{ title: "Schedules", headerLargeTitle: true }}
           />
           {/* Bots roster. `bots/[id]` (bot chat) is a later phase — see
               app/bots/index.tsx's own doc comment for the navigation
