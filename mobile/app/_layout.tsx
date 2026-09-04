@@ -144,7 +144,7 @@ function LaunchGate() {
 }
 
 function RootNavigator() {
-  const { authStatus, signOut, user, readiness, bindings, cloud, machinesLoaded, machinesError } =
+  const { authStatus, signOut, user, readiness, bindings, cloud, machinesLoaded, machinesError, probe } =
     useOmg();
   const consent = useAiDataConsent(user?.id ?? null);
   const onboarding = useOnboarding(user?.id ?? null);
@@ -426,7 +426,7 @@ function RootNavigator() {
     return (
       <>
         <StatusBar style={isDark ? "light" : "dark"} />
-        <SetupScreen onDone={onboarding.complete} agents={agents} waking={waking} />
+        <SetupScreen onDone={onboarding.complete} agents={agents} waking={waking} onConnected={probe} />
       </>
     );
   }
