@@ -9,6 +9,7 @@ const settings = {
   showBots: true,
   showSchedules: false,
   showSessionDiffBar: true,
+  showComposerFastMode: true,
 };
 
 describe("applyRoleViews", () => {
@@ -17,10 +18,15 @@ describe("applyRoleViews", () => {
   });
 
   test("a role can only turn a switch off, never on", () => {
-    const viewer: Viewer = { ...OWNER_VIEWER, role: { id: "viewer", name: "Viewer" }, hide: ["showBots"] };
+    const viewer: Viewer = {
+      ...OWNER_VIEWER,
+      role: { id: "viewer", name: "Viewer" },
+      hide: ["showBots", "showComposerFastMode"],
+    };
     const merged = applyRoleViews(settings, viewer);
     expect(merged.showBots).toBe(false);
     expect(merged.showSchedules).toBe(false);
     expect(merged.showComposerModels).toBe(true);
+    expect(merged.showComposerFastMode).toBe(false);
   });
 });

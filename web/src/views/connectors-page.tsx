@@ -38,6 +38,7 @@ export const VIEW_TOGGLE_ROWS: { key: ViewToggleKey; label: string }[] = [
   { key: "showSessionDiffBar", label: "Worktree diff badge in chat" },
   { key: "showComposerAgents", label: "Agent picker in the composer" },
   { key: "showComposerModels", label: "Model picker in the composer" },
+  { key: "showComposerFastMode", label: "Fast mode toggle in the composer" },
   { key: "showBots", label: "Bots" },
   { key: "showSchedules", label: "Schedules" },
 ];

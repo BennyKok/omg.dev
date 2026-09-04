@@ -70,6 +70,9 @@ export type GlobalSettings = {
   showSchedules: boolean;
   // Off hides the floating worktree diff bar in a session's chat.
   showSessionDiffBar: boolean;
+  // Off hides the Fast pill in the composer; new sessions launch without
+  // fast mode.
+  showComposerFastMode: boolean;
 };
 
 export const DEFAULT_AGENT_KEY_MAX_LENGTH = 40;
@@ -173,6 +176,7 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
   const showBots = input?.showBots !== false;
   const showSchedules = input?.showSchedules !== false;
   const showSessionDiffBar = input?.showSessionDiffBar !== false;
+  const showComposerFastMode = input?.showComposerFastMode !== false;
   return {
     timeZone,
     maxLiveAgents,
@@ -192,6 +196,7 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
     showBots,
     showSchedules,
     showSessionDiffBar,
+    showComposerFastMode,
   };
 }
 
@@ -305,6 +310,7 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
     write.run("showBots", JSON.stringify(next.showBots), now);
     write.run("showSchedules", JSON.stringify(next.showSchedules), now);
     write.run("showSessionDiffBar", JSON.stringify(next.showSessionDiffBar), now);
+    write.run("showComposerFastMode", JSON.stringify(next.showComposerFastMode), now);
   })();
   return next;
 }
