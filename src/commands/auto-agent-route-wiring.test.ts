@@ -219,10 +219,14 @@ describe("POST /api/auto/agents/:id/refine (feedback → rewritten instruction)"
     expect(handler).toContain('if (!current) throw new Error("the agent was deleted while it was being updated")');
   });
 
-  test("a rewrite grounded in a finding dismisses that finding once it has landed", () => {
+  test("a rewrite grounded in a finding marks it read once it has landed — never dismissed", () => {
     expect(handler).toContain('if (finding && finding.status === "open") {');
-    expect(handler).toContain('await updateFinding(finding.id, { status: "dismissed" })');
-    expect(handler.indexOf("await saveAutoAgent(")).toBeLessThan(handler.indexOf('status: "dismissed"'));
+    expect(handler).toContain('await updateFinding(finding.id, { status: "read" })');
+    expect(handler.indexOf("await saveAutoAgent(")).toBeLessThan(handler.indexOf('status: "read"'));
+    // A dismissed title is fed to the next run as "do NOT resurface"; feedback
+    // usually means "handle this properly", so dismissing here muted exactly
+    // the case the owner just retuned the agent for.
+    expect(handler).not.toContain('status: "dismissed"');
   });
 
   test("the agent payload carries the refine state for the browser poll", () => {
