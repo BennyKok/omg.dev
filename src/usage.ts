@@ -31,6 +31,9 @@ import {
   readCodexRateLimits,
   type CodexRateLimitResetCredits,
 } from "./codex-rate-limits.ts";
+import { defaultModelForAgent } from "./agent-catalog.ts";
+import { PATHS } from "./config.ts";
+import { museFetchInit } from "./muse-proxy.ts";
 
 export type UsageWindow = {
   label: string;
@@ -750,6 +753,178 @@ async function opencodeUsage(ref: UsageProviderRef): Promise<ProviderUsage> {
   }
 }
 
+
+// ------------------------------------------------------------------ Muse ----
+
+// Meta ships no usage endpoint for Muse Code. The subscription snapshot rides
+// the Responses stream as a `response.subscription_usage` event on every model
+// call (captured 2026-09-02 against api.meta.ai: `window` = the 5-hour prompt
+// window, `weekly` = the weekly one, both `used_percent` + epoch-second
+// `resets_at`). Reading it therefore COSTS a prompt against the very window it
+// reports — the Everyday plan is 10–50 prompts per 5 hours — so this provider
+// is deliberately frugal: one minimal request, the stream closed
+// the moment the event lands, the reading persisted on disk, and a new probe
+// only once the previous one is an hour old (five minutes on an explicit
+// refresh) or its window has reset.
+const MUSE_API_BASE = "https://api.meta.ai";
+// The API floor (400 "`max_output_tokens` The number must be `>= 16`" on
+// 2026-09-02); the stream is cut the moment the usage event lands anyway.
+const MUSE_PROBE_MAX_OUTPUT_TOKENS = 16;
+export const MUSE_PROBE_TTL_MS = 60 * 60_000;
+export const MUSE_PROBE_FORCE_MIN_MS = 5 * 60_000;
+
+export type MuseSubscriptionSnapshot = {
+  tier?: string | null;
+  window?: { used_percent?: number; resets_at?: number; window_duration_mins?: number };
+  weekly?: { used_percent?: number; resets_at?: number };
+};
+
+type MuseUsageCache = { at: number; snapshot: MuseSubscriptionSnapshot };
+
+function museUsageCachePath(): string {
+  return join(PATHS.data, "muse-usage.json");
+}
+
+/** The stored Muse Code credential: META_API_KEY first, then `muse login`'s auth.json. */
+async function museApiKey(): Promise<string | null> {
+  const env = process.env.META_API_KEY?.trim();
+  if (env) return env;
+  try {
+    const home = process.env.HOME ?? homedir();
+    const auth = (await Bun.file(join(home, ".config", "muse", "auth.json")).json()) as {
+      providers?: { meta?: { api_key?: unknown } };
+    };
+    const key = auth?.providers?.meta?.api_key;
+    return typeof key === "string" && key ? key : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Pull the subscription object out of an SSE body (whole or partial). */
+export function parseMuseSubscriptionEvent(sse: string): MuseSubscriptionSnapshot | null {
+  for (const line of sse.split("\n")) {
+    if (!line.startsWith("data:")) continue;
+    const raw = line.slice(5).trim();
+    if (!raw.includes("subscription_usage")) continue;
+    try {
+      const parsed = JSON.parse(raw) as { type?: string; subscription?: MuseSubscriptionSnapshot };
+      if (parsed.type === "response.subscription_usage" && parsed.subscription) return parsed.subscription;
+    } catch {
+      /* partial line; keep reading */
+    }
+  }
+  return null;
+}
+
+export function museUsageWindows(snapshot: MuseSubscriptionSnapshot): UsageWindow[] {
+  const pct = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : null;
+  const windows: UsageWindow[] = [];
+  if (snapshot.window) {
+    const mins = snapshot.window.window_duration_mins;
+    windows.push({
+      label: windowLabel(mins, "5 hr"),
+      pct: pct(snapshot.window.used_percent),
+      resetsAt: secToMs(snapshot.window.resets_at),
+    });
+  }
+  if (snapshot.weekly) {
+    windows.push({
+      label: "Weekly",
+      pct: pct(snapshot.weekly.used_percent),
+      resetsAt: secToMs(snapshot.weekly.resets_at),
+    });
+  }
+  return windows;
+}
+
+async function readMuseUsageCache(): Promise<MuseUsageCache | null> {
+  try {
+    const cached = (await Bun.file(museUsageCachePath()).json()) as MuseUsageCache;
+    return cached && typeof cached.at === "number" && cached.snapshot ? cached : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Is a stored reading still worth showing without spending a prompt? */
+export function museProbeDue(cache: MuseUsageCache | null, force: boolean, now = Date.now()): boolean {
+  if (!cache) return true;
+  const age = now - cache.at;
+  if (force) return age >= MUSE_PROBE_FORCE_MIN_MS;
+  if (age >= MUSE_PROBE_TTL_MS) return true;
+  // The window rolled over since the reading: it is stale by construction,
+  // but still never re-probe inside the five-minute floor.
+  const resetsAt = secToMs(cache.snapshot.window?.resets_at);
+  return resetsAt != null && resetsAt <= now && age >= MUSE_PROBE_FORCE_MIN_MS;
+}
+
+async function probeMuseSubscription(apiKey: string): Promise<MuseSubscriptionSnapshot> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const r = await fetch(`${MUSE_API_BASE}/v1/responses`, museFetchInit({
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify({
+        model: defaultModelForAgent("muse"),
+        input: ".",
+        max_output_tokens: MUSE_PROBE_MAX_OUTPUT_TOKENS,
+        stream: true,
+      }),
+      signal: controller.signal,
+    }));
+    if (r.status === 401 || r.status === 403) throw new Error("Sign-in expired — run `muse login`");
+    if (!r.ok) throw new Error(`Usage probe returned ${r.status}`);
+    if (!r.body) throw new Error("Usage probe returned no stream");
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (value) buffer += decoder.decode(value, { stream: true });
+      const snapshot = parseMuseSubscriptionEvent(buffer);
+      if (snapshot) {
+        // Enough: stop the generation instead of paying for the rest.
+        controller.abort();
+        return snapshot;
+      }
+      if (done) break;
+    }
+    throw new Error("Stream carried no subscription_usage event");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function museUsage(ref: UsageProviderRef, force = false): Promise<ProviderUsage> {
+  const base = { ...ref, plan: "Muse Code" as string | null };
+  const apiKey = await museApiKey();
+  if (!apiKey) return { ...base, plan: null, available: false, note: "Not signed in on this box" };
+  const cache = await readMuseUsageCache();
+  if (!museProbeDue(cache, force)) {
+    return { ...base, available: true, windows: museUsageWindows(cache!.snapshot) };
+  }
+  try {
+    const snapshot = await probeMuseSubscription(apiKey);
+    try {
+      await Bun.write(museUsageCachePath(), JSON.stringify({ at: Date.now(), snapshot } satisfies MuseUsageCache));
+    } catch {
+      /* a lost cache only means one extra probe later */
+    }
+    return { ...base, available: true, windows: museUsageWindows(snapshot) };
+  } catch (e) {
+    // A failed probe must not hide a reading we already hold.
+    if (cache) return { ...base, available: true, windows: museUsageWindows(cache.snapshot) };
+    return { ...base, available: false, note: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 // ----------------------------------------------------------- aggregation ----
 
 const CACHE_TTL_MS = 60_000;
@@ -760,6 +935,7 @@ const STATIC_PROVIDERS: UsageProviderRef[] = [
   { id: "cursor", kind: "cursor", label: "Cursor" },
   { id: "grok", kind: "grok", label: "Grok" },
   { id: "opencode", kind: "opencode", label: "OpenCode" },
+  { id: "muse", kind: "muse", label: "Muse" },
 ];
 
 /**
@@ -784,12 +960,13 @@ export function listUsageProviders(): UsageProviderRef[] {
   return [...claude, ...STATIC_PROVIDERS];
 }
 
-function collect(ref: UsageProviderRef): Promise<ProviderUsage> {
+function collect(ref: UsageProviderRef, force = false): Promise<ProviderUsage> {
   if (ref.kind === "claude") return claudeUsage(ref);
   if (ref.kind === "codex") return codexUsage(ref);
   if (ref.kind === "cursor") return cursorUsage(ref);
   if (ref.kind === "grok") return grokUsage(ref);
   if (ref.kind === "opencode") return opencodeUsage(ref);
+  if (ref.kind === "muse") return museUsage(ref, force);
   return Promise.resolve(staticProvider(ref, "Usage is unavailable for this provider"));
 }
 
@@ -808,7 +985,7 @@ function loadProvider(ref: UsageProviderRef, force: boolean): Promise<ProviderUs
     const pending = inflight.get(ref.id);
     if (pending) return pending;
   }
-  const run = collect(ref)
+  const run = collect(ref, force)
     .then((data) => {
       cache.set(ref.id, { at: Date.now(), data });
       return data;

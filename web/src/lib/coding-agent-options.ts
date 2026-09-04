@@ -8,6 +8,7 @@ export type AgentKind =
   | "grok"
   | "cursor"
   | "fx"
+  | "muse"
   | "deepseek"
   | "pi"
   | "copilot";
@@ -41,6 +42,7 @@ export const AGENT_CATALOG: readonly AgentCatalogEntry[] = [
   { key: "cursor", label: "cursor", scheduled: true },
   { key: "opencode", label: "opencode", scheduled: true },
   { key: "fx", label: "fx", scheduled: true },
+  { key: "muse", label: "muse", scheduled: true },
   { key: "deepseek", label: "deepseek" },
   { key: "jcode", label: "jcode" },
   { key: "pi", label: "pi" },

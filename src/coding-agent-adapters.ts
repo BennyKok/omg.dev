@@ -10,6 +10,7 @@ export type CodingAgentProduct =
   | "grok"
   | "cursor"
   | "fx"
+  | "muse"
   | "deepseek"
   | "pi"
   | "copilot";
@@ -71,6 +72,13 @@ export const CODING_AGENT_ADAPTERS = {
     // so LFG cannot pick a thinking level per launch.
     capabilities: { interrupt: "immediate", questions: true, modelChange: "none", thinkingChange: "none", scheduled: true, toolAccess: "mcp" },
   },
+  muse: {
+    product: "muse", driver: "rpc", transport: "command-file", managedLaunch: true,
+    recovery: "durable",
+    // MSP sessions are durable on disk and accept reasoningEffort per turn and
+    // session/setModel mid-session; MSP has no client-supplied MCP servers.
+    capabilities: { interrupt: "immediate", questions: true, modelChange: "live", thinkingChange: "live", scheduled: true, toolAccess: "contract-only" },
+  },
   deepseek: {
     product: "deepseek", driver: "rpc", transport: "command-file", managedLaunch: true,
     // The public ACP surface creates fresh sessions only. The live harness is
@@ -124,6 +132,7 @@ export const ACTIVE_SESSION_AGENT_KINDS = [
   "grok",
   "cursor",
   "fx",
+  "muse",
   "deepseek",
   "pi",
   "copilot",
@@ -156,6 +165,7 @@ export const SESSION_AGENT_KINDS = [
   "grok",
   "cursor",
   "fx",
+  "muse",
   "deepseek",
   "pi",
   "copilot",
@@ -174,6 +184,7 @@ export const COMMAND_FILE_AGENT_KINDS = [
   "grok",
   "cursor",
   "fx",
+  "muse",
   "deepseek",
   "copilot",
   "jcode",

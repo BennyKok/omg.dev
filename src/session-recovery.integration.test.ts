@@ -54,6 +54,7 @@ describe("session recovery integration", () => {
       "fx",
       "grok",
       "jcode",
+      "muse",
       "opencode",
       "pi",
     ]);

@@ -202,6 +202,7 @@ describe("usage providers", () => {
       "cursor",
       "grok",
       "opencode",
+      "muse",
     ]);
   });
 
