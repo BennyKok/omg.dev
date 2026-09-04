@@ -10109,8 +10109,34 @@ function PagesMenu({
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
+        {/* Film mode lives here as well as under More: it is the switch you
+            flip right before you start recording the screen, so it has to be
+            one tap from anywhere. A toggle, not a page — the menu stays open
+            so the blur is visible behind it. */}
+        <DropdownMenuSeparator />
+        <PagesMenuFilmModeItem />
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function PagesMenuFilmModeItem() {
+  const filmMode = useFilmMode();
+  return (
+    <DropdownMenuItem
+      closeOnClick={false}
+      onClick={() => setFilmMode(!filmMode)}
+      aria-label="Toggle film mode"
+    >
+      <EyeOff className="size-5 shrink-0 text-muted-foreground" />
+      <span className="flex-1">Film mode</span>
+      <Switch
+        checked={filmMode}
+        tabIndex={-1}
+        aria-hidden="true"
+        className="pointer-events-none"
+      />
+    </DropdownMenuItem>
   );
 }
 
