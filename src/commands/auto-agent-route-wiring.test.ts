@@ -219,6 +219,12 @@ describe("POST /api/auto/agents/:id/refine (feedback → rewritten instruction)"
     expect(handler).toContain('if (!current) throw new Error("the agent was deleted while it was being updated")');
   });
 
+  test("a rewrite grounded in a finding dismisses that finding once it has landed", () => {
+    expect(handler).toContain('if (finding && finding.status === "open") {');
+    expect(handler).toContain('await updateFinding(finding.id, { status: "dismissed" })');
+    expect(handler.indexOf("await saveAutoAgent(")).toBeLessThan(handler.indexOf('status: "dismissed"'));
+  });
+
   test("the agent payload carries the refine state for the browser poll", () => {
     expect(SERVE).toContain("refine: refineStatus(a.id)");
   });

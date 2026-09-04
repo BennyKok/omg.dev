@@ -7050,6 +7050,14 @@ a{color:#60a5fa}
               tools: current.tools,
             });
             console.log(`[auto] refined ${agent.id} from feedback (${prompt.length} chars)`);
+            // The finding the owner was looking at is answered by the rewrite:
+            // leaving it open under "Auto" reads as "still needs doing" (the
+            // very first report of this fix was a screenshot of it still
+            // sitting there). Dismissed, not resolved — that is also what
+            // feeds the runner's "do NOT resurface" list next run.
+            if (finding && finding.status === "open") {
+              await updateFinding(finding.id, { status: "dismissed" });
+            }
           })().then(
             () => settleRefine(agent.id),
             (e) => {
