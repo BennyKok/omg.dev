@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## September 4, 2026 - Fix: the release bundle could not start (v0.6.41)
+
+- **`omg serve` starts again from a release install.** Every bundle since
+  v0.6.39 was missing the `@omg-dev/connectors` package that the server
+  imports, so a fresh install or update failed on start with
+  `Cannot find package '@omg-dev/connectors'`. The release now ships the
+  package, and a test keeps it that way.
+
 ## September 4, 2026 - Auto agent reports and a clearer schedule editor (v0.6.40)
 
 - **One row per auto agent in the Auto section.** Findings from the same
