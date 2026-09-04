@@ -53,6 +53,17 @@ pkg_dir() {
   printf '%s/node_modules/%s' "$ROOT" "$1"
 }
 
+# stage_runtime_workspace_package <stage-root> <name>
+# Copies packages/<name>/{package.json,src} into the bundle, without tests.
+stage_runtime_workspace_package() {
+  local dest="$1/packages/$2"
+  [ -d "packages/$2/src" ] || die "packages/$2/src missing - cannot stage @omg-dev/$2."
+  mkdir -p "$dest"
+  cp "packages/$2/package.json" "$dest/package.json"
+  cp -r "packages/$2/src" "$dest/src"
+  find "$dest/src" -name '*.test.ts' -delete
+}
+
 rewrite_dep_to_vendor_tarball() {
   local manifest="$1"
   local pkg="$2"
@@ -105,6 +116,12 @@ cp -r \
   .env.example README.md CHANGELOG.md LICENSE SECURITY.md CONTRIBUTING.md \
   "$STAGE/lfg/"
 cp -r web/dist "$STAGE/lfg/web/dist"
+# Workspace packages the server imports from source. tsconfig.json maps each
+# one to packages/<name>/src, and Bun applies that map at runtime, so the
+# package directory has to travel with src/. v0.6.39 moved the connector layer
+# into @omg-dev/connectors without staging it, and `serve` died on the import
+# in every install. Keep this list in sync with tsconfig.json "paths".
+stage_runtime_workspace_package "$STAGE/lfg" connectors
 # Source maps are built with sourcemap: "hidden", so no bundle references them
 # and no browser ever fetches one. They were still 27MB of a 61MB download -
 # 700 files, 117MB unpacked, shipped to every install for a debugging aid that
