@@ -25413,7 +25413,7 @@ function NewAutoAgentComposer({
   }
 
   return (
-    <BottomSheet onClose={onClose} title="New auto agent" page>
+    <BottomSheet onClose={onClose} title="New auto agent">
       <div className="px-2 pb-4 pt-1">
         <div className="flex items-center gap-2">
           <Sparkles className="size-5 text-primary" />
@@ -25586,6 +25586,9 @@ function AgentEditorSheet({
   const [busy, setBusy] = useState(false);
   const [enhancing, setEnhancing] = useState(false);
   const [enhanceErr, setEnhanceErr] = useState<string | null>(null);
+  // The schedule row folds to its one-line description once set. A new
+  // schedule opens unfolded, because picking the time is the whole job.
+  const [schedOpen, setSchedOpen] = useState(isNew);
   // Scan only when the schedule changes, not on every keystroke elsewhere.
   const nextPreview = useMemo(() => nextRunAt(schedule, tz), [schedule, tz]);
   const backendModels = useAgentModels(backend);
@@ -25648,6 +25651,59 @@ function AgentEditorSheet({
     }
   }
 
+  const locale = typeof navigator !== "undefined" ? navigator.language : undefined;
+  const weekdays = [0, 1, 2, 3, 4, 5, 6].map((d) => ({
+    v: d,
+    label: new Date(Date.UTC(2024, 0, 7 + d)).toLocaleDateString(locale, {
+      weekday: "long",
+      timeZone: "UTC",
+    }),
+  }));
+  const freqOptions: { v: SimpleFreq; label: string }[] = [
+    { v: "minutes", label: "Every N minutes" },
+    { v: "hourly", label: "Every hour" },
+    { v: "daily", label: "Every day" },
+    { v: "weekday", label: "Every weekday" },
+    { v: "weekly", label: "Every week" },
+    { v: "monthly", label: "Every month" },
+  ];
+  const fieldCls =
+    "appearance-none rounded-lg bg-muted px-2 py-1 text-right text-[13px] font-medium outline-none";
+  const numCls = "w-16 rounded-lg bg-muted px-2 py-1 text-right text-[13px] outline-none";
+  // A labelled control on its own line. The old picker put every control on
+  // one wrapped row with no labels, so "Every hour" sat next to a bare "0"
+  // that nobody could name.
+  const pickerRow = (label: string, control: ReactNode) => (
+    <label className="flex items-center justify-between gap-3 text-[13px]">
+      <span className="text-muted-foreground">{label}</span>
+      {control}
+    </label>
+  );
+
+  const canSave = !!name.trim() && !!prompt.trim() && !busy && promptHydrated;
+  // Save and Run now sit on the keyboard, not under the prompt: the two
+  // actions the form exists for used to be a screen away from its first field.
+  const footer = (
+    <div className="flex items-center gap-2 px-2 pb-1 pt-2">
+      {existing ? (
+        <Button variant="tint" disabled={running} onClick={() => onRunNow(existing.id)}>
+          {running ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}
+          {running ? "Running…" : "Run now"}
+        </Button>
+      ) : null}
+      <Button
+        variant="brand"
+        className="flex-1"
+        disabled={!canSave}
+        title={promptHydrated ? undefined : "Loading this agent's full prompt…"}
+        onClick={() => void save()}
+      >
+        {busy || !promptHydrated ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+        {isNew ? "Create" : "Save"}
+      </Button>
+    </div>
+  );
+
   return (
     // A page, not a card, on a phone: the form is six rows and a prompt, and a
     // content-sized sheet put the prompt under the keyboard on every visit.
@@ -25655,243 +25711,34 @@ function AgentEditorSheet({
       onClose={onClose}
       title={isNew ? "New auto agent" : "Edit auto agent"}
       page
+      footer={footer}
     >
-      <div className="px-2 pb-4 pt-1">
+      <div className="px-2 pb-3 pt-1">
         <div className="flex items-center gap-2">
-          <Bot className="size-5 text-primary" />
+          <Bot className="size-5 shrink-0 text-primary" />
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             aria-label="Auto agent name"
-            placeholder="agent-name"
-            className="flex-1 bg-transparent text-[17px] font-semibold outline-none placeholder:text-muted-foreground"
+            placeholder="Name this schedule"
+            className="min-w-0 flex-1 bg-transparent text-[17px] font-semibold outline-none placeholder:text-muted-foreground"
           />
-          <Button
-            size="sm"
-            variant="brand"
-            disabled={busy || !promptHydrated}
-            title={promptHydrated ? undefined : "Loading this agent's full prompt…"}
-            onClick={() => void save()}
-          >
-            {busy || !promptHydrated ? <Loader2 className="size-4 animate-spin" /> : null}
-            Save
-          </Button>
         </div>
+        {existing ? (
+          <div className="mt-0.5 pl-7 text-xs text-muted-foreground">
+            {existing.lastRunAt ? `Ran ${relTime(existing.lastRunAt)} ago` : "Never run"}
+            {nextPreview ? ` · next ${formatRelative(nextPreview, locale)}` : ""}
+          </div>
+        ) : null}
 
         {/* Editing here stays fully allowed — a human is always admin over
             every automation, bot-owned included — but the row is also
             self-managed from inside the bot's own chat, so say so. */}
         {existing?.owner?.kind === "bot" ? <ManagedByBotNote botId={existing.owner.botId} /> : null}
 
-        {(() => {
-          const locale = typeof navigator !== "undefined" ? navigator.language : undefined;
-          const weekdays = [0, 1, 2, 3, 4, 5, 6].map((d) => ({
-            v: d,
-            label: new Date(Date.UTC(2024, 0, 7 + d)).toLocaleDateString(locale, {
-              weekday: "long",
-              timeZone: "UTC",
-            }),
-          }));
-          const next = nextPreview;
-          const selectCls =
-            "appearance-none rounded-lg bg-muted px-2 py-1 text-right text-[13px] font-medium outline-none";
-          const numCls = "w-14 rounded-lg bg-muted px-2 py-1 text-right text-[13px] outline-none";
-          const freqOptions: { v: SimpleFreq; label: string }[] = [
-            { v: "minutes", label: "Every N minutes" },
-            { v: "hourly", label: "Every hour" },
-            { v: "daily", label: "Every day" },
-            { v: "weekday", label: "Every weekday" },
-            { v: "weekly", label: "Every week" },
-            { v: "monthly", label: "Every month" },
-          ];
-          return (
-            <div className="mt-3 rounded-xl border border-border px-3 py-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm">
-                  <CalendarClock className="size-4 text-muted-foreground" /> Schedule
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (schedMode === "advanced") {
-                      const parsed = parseToSimple(schedule);
-                      if (parsed) {
-                        setSimple(parsed);
-                        setSchedMode("simple");
-                      }
-                    } else {
-                      setSchedMode("advanced");
-                    }
-                  }}
-                  className="text-[11px] font-semibold uppercase tracking-wide text-primary disabled:text-muted-foreground"
-                  disabled={schedMode === "advanced" && !parseToSimple(schedule)}
-                >
-                  {schedMode === "simple" ? "Cron" : "Picker"}
-                </button>
-              </div>
-
-              {schedMode === "simple" ? (
-                <div className="mt-2 flex flex-wrap items-center justify-end gap-1.5 text-[13px]">
-                  <select
-                    value={simple.freq}
-                    onChange={(e) => updateSimple({ freq: e.target.value as SimpleFreq })}
-                    aria-label="Frequency"
-                    className={selectCls}
-                  >
-                    {freqOptions.map((o) => (
-                      <option key={o.v} value={o.v}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-
-                  {simple.freq === "minutes" ? (
-                    <input
-                      type="number"
-                      min={1}
-                      max={59}
-                      value={simple.every}
-                      onChange={(e) => updateSimple({ every: parseInt(e.target.value, 10) || 1 })}
-                      aria-label="Every N minutes"
-                      className={numCls}
-                    />
-                  ) : null}
-
-                  {simple.freq === "hourly" ? (
-                    <input
-                      type="number"
-                      min={0}
-                      max={59}
-                      value={simple.minute}
-                      onChange={(e) =>
-                        updateSimple({
-                          minute: Math.max(0, Math.min(59, parseInt(e.target.value, 10) || 0)),
-                        })
-                      }
-                      aria-label="Minute of the hour"
-                      className={numCls}
-                    />
-                  ) : null}
-
-                  {simple.freq === "weekly" ? (
-                    <select
-                      value={simple.dow}
-                      onChange={(e) => updateSimple({ dow: parseInt(e.target.value, 10) })}
-                      aria-label="Day of week"
-                      className={selectCls}
-                    >
-                      {weekdays.map((d) => (
-                        <option key={d.v} value={d.v}>
-                          {d.label}
-                        </option>
-                      ))}
-                    </select>
-                  ) : null}
-
-                  {simple.freq === "monthly" ? (
-                    <input
-                      type="number"
-                      min={1}
-                      max={31}
-                      value={simple.dom}
-                      onChange={(e) =>
-                        updateSimple({
-                          dom: Math.max(1, Math.min(31, parseInt(e.target.value, 10) || 1)),
-                        })
-                      }
-                      aria-label="Day of month"
-                      className={numCls}
-                    />
-                  ) : null}
-
-                  {simple.freq === "daily" ||
-                  simple.freq === "weekday" ||
-                  simple.freq === "weekly" ||
-                  simple.freq === "monthly" ? (
-                    <input
-                      type="time"
-                      value={simple.time}
-                      onChange={(e) => updateSimple({ time: e.target.value })}
-                      aria-label="Time of day"
-                      className="rounded-lg bg-muted px-2 py-1 text-[13px] outline-none"
-                    />
-                  ) : null}
-                </div>
-              ) : (
-                <input
-                  value={schedule}
-                  onChange={(e) => setSchedule(e.target.value)}
-                  aria-label="Cron schedule"
-                  placeholder="0 9 * * *"
-                  className="mt-2 w-full rounded-lg bg-muted px-2 py-1 font-mono text-[13px] outline-none"
-                />
-              )}
-
-              <div className="mt-2 border-t border-border pt-1.5 text-xs text-muted-foreground">
-                {describeCron(schedule, locale)}
-                {next ? <span> · next {formatRelative(next, locale)}</span> : null}
-                <span className="ml-1 text-muted-foreground/60">({tz})</span>
-              </div>
-            </div>
-          );
-        })()}
-
-        <div className="mt-2 flex items-center justify-between rounded-xl border border-border px-3 py-2">
-          <div className="flex items-center gap-2 text-sm">
-            <Folder className="size-4 text-muted-foreground" /> Repo
-          </div>
-          <select
-            value={cwd}
-            onChange={(e) => setCwd(e.target.value)}
-            aria-label="Repo"
-            className="max-w-44 appearance-none truncate bg-transparent text-right text-[13px] font-medium outline-none"
-          >
-            {repos.length === 0 ? <option value="">(no repos)</option> : null}
-            {repos.map((item) => (
-              <option key={item.cwd} value={item.cwd}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <AgentModelRow
-          backend={backend}
-          setBackend={setBackend}
-          model={model}
-          setModel={setModel}
-          thinkingLevel={thinkingLevel}
-          setThinkingLevel={setThinkingLevel}
-          codingAgents={codingAgents}
-          claudeAccountId={claudeAccountId}
-          setClaudeAccountId={setClaudeAccountId}
-          scheduledOnly
-        />
-
-        <button
-          type="button"
-          onClick={() => setEnabled((v) => !v)}
-          className="mt-2 flex w-full items-center justify-between rounded-xl border border-border px-3 py-2"
-        >
-          <div className="flex items-center gap-2 text-sm">
-            <Power className="size-4 text-muted-foreground" /> Enabled
-          </div>
-          <span
-            className={cn(
-              "relative h-6 w-11 rounded-full transition-colors",
-              enabled ? "bg-success" : "bg-border",
-            )}
-          >
-            <span
-              className={cn(
-                "absolute left-0.5 top-0.5 size-5 rounded-full bg-white transition-transform",
-                enabled ? "translate-x-5" : "",
-              )}
-            />
-          </span>
-        </button>
-
-        <div className="mt-3 flex items-center justify-between">
+        {/* The prompt is the schedule. It comes first and gets the room; the
+            settings below describe when and where it runs. */}
+        <div className="mt-4 flex items-center justify-between px-1">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             Prompt
           </div>
@@ -25913,36 +25760,242 @@ function AgentEditorSheet({
         <SkillTextarea
           value={prompt}
           onValueChange={setPrompt}
-          rows={5}
+          rows={7}
           disabled={enhancing}
           placeholder="What to watch for…"
-          className="mt-1.5 resize-none text-sm leading-relaxed"
+          // text-base (16px) keeps iOS from zooming the page on focus. The
+          // cap keeps a 9 KB prompt from pushing the schedule row off-screen;
+          // the field scrolls inside itself past that.
+          className="mt-1.5 max-h-[45dvh] min-h-[9rem] resize-none overflow-y-auto text-base leading-relaxed"
         />
         {enhanceErr ? (
           <div className="mt-1.5 px-1 text-[11px] text-destructive">{enhanceErr}</div>
         ) : null}
 
-        {existing ? (
-          <div className="mt-4 flex gap-2">
-            <Button
-              variant="outline"
-              className="flex-1"
-              disabled={running}
-              onClick={() => onRunNow(existing.id)}
+        {/* One grouped card, iOS-settings style: four rows with dividers
+            instead of four bordered boxes stacked with gaps. */}
+        <div className="mt-4 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card/40">
+          <div className="px-3 py-2.5">
+            <button
+              type="button"
+              onClick={() => setSchedOpen((v) => !v)}
+              aria-expanded={schedOpen}
+              className="flex w-full items-center gap-2 text-left"
             >
-              {running ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Play className="size-4" />
-              )}{" "}
-              {running ? "Running…" : "Run now"}
-            </Button>
+              <CalendarClock className="size-4 shrink-0 text-muted-foreground" />
+              <span className="text-sm">Schedule</span>
+              <span className="ml-auto min-w-0 truncate text-[13px] font-medium">
+                {describeCron(schedule, locale)}
+              </span>
+              <ChevronDown
+                className={cn(
+                  "size-4 shrink-0 text-muted-foreground transition-transform",
+                  schedOpen && "rotate-180",
+                )}
+              />
+            </button>
+            {schedOpen ? (
+              <div className="mt-3 flex flex-col gap-2">
+                {schedMode === "simple" ? (
+                  <>
+                    {pickerRow(
+                      "Repeat",
+                      <select
+                        value={simple.freq}
+                        onChange={(e) => updateSimple({ freq: e.target.value as SimpleFreq })}
+                        aria-label="Frequency"
+                        className={fieldCls}
+                      >
+                        {freqOptions.map((o) => (
+                          <option key={o.v} value={o.v}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>,
+                    )}
+                    {simple.freq === "minutes"
+                      ? pickerRow(
+                          "Every (minutes)",
+                          <input
+                            type="number"
+                            min={1}
+                            max={59}
+                            value={simple.every}
+                            onChange={(e) =>
+                              updateSimple({ every: parseInt(e.target.value, 10) || 1 })
+                            }
+                            aria-label="Every N minutes"
+                            className={numCls}
+                          />,
+                        )
+                      : null}
+                    {simple.freq === "hourly"
+                      ? pickerRow(
+                          "At minute",
+                          <input
+                            type="number"
+                            min={0}
+                            max={59}
+                            value={simple.minute}
+                            onChange={(e) =>
+                              updateSimple({
+                                minute: Math.max(0, Math.min(59, parseInt(e.target.value, 10) || 0)),
+                              })
+                            }
+                            aria-label="Minute of the hour"
+                            className={numCls}
+                          />,
+                        )
+                      : null}
+                    {simple.freq === "weekly"
+                      ? pickerRow(
+                          "On",
+                          <select
+                            value={simple.dow}
+                            onChange={(e) => updateSimple({ dow: parseInt(e.target.value, 10) })}
+                            aria-label="Day of week"
+                            className={fieldCls}
+                          >
+                            {weekdays.map((d) => (
+                              <option key={d.v} value={d.v}>
+                                {d.label}
+                              </option>
+                            ))}
+                          </select>,
+                        )
+                      : null}
+                    {simple.freq === "monthly"
+                      ? pickerRow(
+                          "On day",
+                          <input
+                            type="number"
+                            min={1}
+                            max={31}
+                            value={simple.dom}
+                            onChange={(e) =>
+                              updateSimple({
+                                dom: Math.max(1, Math.min(31, parseInt(e.target.value, 10) || 1)),
+                              })
+                            }
+                            aria-label="Day of month"
+                            className={numCls}
+                          />,
+                        )
+                      : null}
+                    {simple.freq === "daily" ||
+                    simple.freq === "weekday" ||
+                    simple.freq === "weekly" ||
+                    simple.freq === "monthly"
+                      ? pickerRow(
+                          "At",
+                          <input
+                            type="time"
+                            value={simple.time}
+                            onChange={(e) => updateSimple({ time: e.target.value })}
+                            aria-label="Time of day"
+                            className="rounded-lg bg-muted px-2 py-1 text-[13px] outline-none"
+                          />,
+                        )
+                      : null}
+                  </>
+                ) : (
+                  pickerRow(
+                    "Cron",
+                    <input
+                      value={schedule}
+                      onChange={(e) => setSchedule(e.target.value)}
+                      aria-label="Cron schedule"
+                      placeholder="0 9 * * *"
+                      className="w-40 rounded-lg bg-muted px-2 py-1 font-mono text-[13px] outline-none"
+                    />,
+                  )
+                )}
+                <div className="flex items-center justify-between gap-2 border-t border-border pt-2 text-xs text-muted-foreground">
+                  <span className="min-w-0 truncate">
+                    {nextPreview ? `Next ${formatRelative(nextPreview, locale)}` : "No next run"}
+                    <span className="text-muted-foreground/60"> ({tz})</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (schedMode === "advanced") {
+                        const parsed = parseToSimple(schedule);
+                        if (parsed) {
+                          setSimple(parsed);
+                          setSchedMode("simple");
+                        }
+                      } else {
+                        setSchedMode("advanced");
+                      }
+                    }}
+                    className="shrink-0 font-semibold text-primary disabled:text-muted-foreground"
+                    disabled={schedMode === "advanced" && !parseToSimple(schedule)}
+                  >
+                    {schedMode === "simple" ? "Use cron" : "Use picker"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <label className="flex items-center gap-2 px-3 py-2.5">
+            <Folder className="size-4 shrink-0 text-muted-foreground" />
+            <span className="text-sm">Repo</span>
+            <select
+              value={cwd}
+              onChange={(e) => setCwd(e.target.value)}
+              aria-label="Repo"
+              className="ml-auto max-w-[55%] appearance-none truncate bg-transparent text-right text-[13px] font-medium outline-none"
+            >
+              {repos.length === 0 ? <option value="">(no repos)</option> : null}
+              {repos.map((item) => (
+                <option key={item.cwd} value={item.cwd}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="px-3 py-2.5">
+            <div className="flex items-center gap-2 text-sm">
+              <Sparkles className="size-4 shrink-0 text-muted-foreground" /> Runs with
+            </div>
+            <AgentModelRow
+              backend={backend}
+              setBackend={setBackend}
+              model={model}
+              setModel={setModel}
+              thinkingLevel={thinkingLevel}
+              setThinkingLevel={setThinkingLevel}
+              codingAgents={codingAgents}
+              claudeAccountId={claudeAccountId}
+              setClaudeAccountId={setClaudeAccountId}
+              scheduledOnly
+            />
+          </div>
+
+          <div className="flex items-center gap-2 px-3 py-2.5">
+            <Power className="size-4 shrink-0 text-muted-foreground" />
+            <span className="text-sm">Enabled</span>
+            <span className="ml-auto flex items-center">
+              <Switch
+                checked={enabled}
+                onCheckedChange={setEnabled}
+                aria-label={enabled ? "Disable schedule" : "Enable schedule"}
+              />
+            </span>
+          </div>
+        </div>
+
+        {existing ? (
+          <div className="mt-4 flex justify-center">
             <Button
-              variant="outline"
-              className="flex-1 text-destructive"
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive"
               onClick={() => onDelete(existing.id)}
             >
-              <Trash2 className="size-4" /> Delete
+              <Trash2 className="size-4" /> Delete schedule
             </Button>
           </div>
         ) : null}
