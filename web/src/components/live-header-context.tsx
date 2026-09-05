@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useRuntimeAvailability } from "../lib/runtime-availability";
 import { useAsk } from "./ask-center";
 import { ShimmerText } from "./ui/shimmer-text";
 import { cn } from "../lib/utils";
@@ -10,7 +11,7 @@ import { haptic } from "../lib/haptics";
 // state; activity only interrupts it while work is genuinely in motion.
 // Questions take precedence, but keep the same quiet plain-text treatment.
 export function LiveHeaderContext({
-  intro,
+  intro: requestedIntro,
   brand,
   viewerName,
   user,
@@ -27,6 +28,15 @@ export function LiveHeaderContext({
   onOpenNotifications: () => void;
 }) {
   const { questions } = useAsk();
+  const { loading, ready, status, error, retry } = useRuntimeAvailability();
+  const connectionText = ready && status === "live" && !error
+    ? null
+    : loading || status === "connecting"
+      ? "Connecting…"
+      : status === "reconnecting"
+        ? "Reconnecting…"
+        : "Connection unavailable";
+  const intro = requestedIntro && !connectionText;
   // Hosted identity is presentation-only and intentionally wins over the LFG
   // roster. omg Computers have no roster by design, so deriving this welcome
   // from session ownership would either say "Unassigned" or reintroduce the
@@ -50,7 +60,7 @@ export function LiveHeaderContext({
   const ambientSwapTimerRef = useRef<number | null>(null);
   const ambientContext = `${busyCount} agent${busyCount === 1 ? "" : "s"} building`;
   const welcomeMessage = firstName ? `Welcome, ${firstName}` : "Welcome";
-  const headline = questionCount
+  const headline = connectionText ?? (questionCount
     ? questionCount === 1
       ? firstName
         ? `${firstName}, an agent needs you`
@@ -60,10 +70,10 @@ export function LiveHeaderContext({
         : `${questionCount} agents need you`
     : actionInMotion && showAmbientStatus
       ? ambientContext
-      : welcomeMessage;
+      : welcomeMessage);
 
   useEffect(() => {
-    if (intro || questionCount || !actionInMotion) {
+    if (connectionText || intro || questionCount || !actionInMotion) {
       setShowAmbientStatus(false);
       setAmbientSwapState("idle");
       return;
@@ -90,7 +100,7 @@ export function LiveHeaderContext({
         ambientSwapTimerRef.current = null;
       }
     };
-  }, [actionInMotion, intro, questionCount, showAmbientStatus]);
+  }, [actionInMotion, connectionText, intro, questionCount, showAmbientStatus]);
 
   useLayoutEffect(() => {
     if (ambientSwapState !== "enter") return;
@@ -107,10 +117,16 @@ export function LiveHeaderContext({
         type="button"
         onClick={() => {
           haptic("selection");
-          onOpenNotifications();
+          if (connectionText) {
+            if (!loading) retry();
+          } else {
+            onOpenNotifications();
+          }
         }}
         aria-label={
-          intro
+          connectionText
+            ? `${connectionText}${loading ? "" : " Tap to retry"}`
+            : intro
             ? "omg.dev"
             : questionCount
               ? `${headline}. Tap to open notifications`
@@ -118,7 +134,7 @@ export function LiveHeaderContext({
                 ? `${welcomeMessage}. ${ambientContext}`
                 : welcomeMessage
         }
-        title={intro ? "omg.dev" : "Open notifications"}
+        title={connectionText ? loading ? connectionText : "Retry connection" : intro ? "omg.dev" : "Open notifications"}
         className={cn(
           "relative flex h-11 items-center overflow-hidden rounded-full text-left transition-colors active:scale-[0.98]",
           intro ? "w-11" : "w-full",
@@ -136,7 +152,7 @@ export function LiveHeaderContext({
           {brand}
         </span>
         <span
-          aria-live={questionCount ? "polite" : "off"}
+          aria-live={connectionText || questionCount ? "polite" : "off"}
           className={cn(
             "flex min-w-0 items-center px-1 transition-all duration-300 ease-ios",
             intro ? "translate-y-1 opacity-0" : "translate-y-0 opacity-100 delay-150",
@@ -147,16 +163,18 @@ export function LiveHeaderContext({
               ref={ambientTextRef}
               className={cn(
                 "t-text-swap block truncate tracking-[-0.01em]",
-                ambientSwapState === "exit" && "is-exit",
-                ambientSwapState === "enter" && "is-enter-start",
-                questionCount
+                !connectionText && ambientSwapState === "exit" && "is-exit",
+                !connectionText && ambientSwapState === "enter" && "is-enter-start",
+                connectionText
+                  ? "text-[14px] font-medium text-muted-foreground"
+                  : questionCount
                   ? "text-[14px] font-semibold"
                   : actionInMotion && showAmbientStatus
                     ? "text-[12px] font-medium"
                     : "text-[16px] font-semibold",
               )}
             >
-              {!questionCount && actionInMotion && showAmbientStatus ? (
+              {!connectionText && !questionCount && actionInMotion && showAmbientStatus ? (
                 <ShimmerText>{headline}</ShimmerText>
               ) : (
                 headline
