@@ -1271,6 +1271,7 @@ type SlashSkillState = {
 
 const CLAUDE_MODELS = ["sonnet", "opus", "haiku", "fable", "claude-fable-5-1"];
 const CODEX_MODELS = [
+  "gpt-6-astra",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
@@ -1283,6 +1284,7 @@ const CODEX_MODELS = [
 // aliases). Kept in sync with the AISDK_MODELS allowlist in serve.ts.
 const AISDK_MODELS = ["fable", "claude-fable-5-1", "opus", "sonnet", "haiku"];
 const CODEX_AISDK_MODELS = [
+  "gpt-6-astra",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",

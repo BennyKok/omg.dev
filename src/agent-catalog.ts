@@ -28,6 +28,7 @@ export type SkillCatalogItem = {
 // without this entry the picker cannot reach it.
 export const CLAUDE_MODELS: string[] = ["fable", "claude-fable-5-1", "opus", "sonnet", "haiku"];
 export const CODEX_MODELS: string[] = [
+  "gpt-6-astra",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
@@ -41,6 +42,7 @@ export const CODEX_MODELS: string[] = [
 // `claude-fable-5-1` is carried here for the same reason as CLAUDE_MODELS.
 export const AISDK_MODELS: string[] = ["fable", "claude-fable-5-1", "opus", "sonnet", "haiku"];
 export const CODEX_AISDK_MODELS: string[] = [
+  "gpt-6-astra",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",

@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## September 5, 2026 - GPT-6 Astra in Codex (v0.6.42)
+
+- **GPT-6 Astra is available for Codex sessions.** Eligible accounts can select
+  `gpt-6-astra` in the model picker and use Codex Fast mode with it.
+- **The bundled Codex runtime is current.** The Codex SDK and CLI runtime move
+  to 0.153.4.
+
 ## September 4, 2026 - Fix: the release bundle could not start (v0.6.41)
 
 - **`omg serve` starts again from a release install.** Every bundle since
