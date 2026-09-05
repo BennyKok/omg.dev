@@ -1,14 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mount, type Mounted } from "../test-support/render";
 
-const { MachineRail } = await import("./machine-rail");
+const { MachineSwitcher } = await import("./machine-switcher");
 const { MACHINE_STORAGE_KEY } = await import("../lib/machines");
 
 let ui: Mounted;
 const originalFetch = globalThis.fetch;
 
 // The storage the component reads: whatever window is global when it runs.
-// Another test file may have swapped the global window, so resolve it late.
 const store = () => (globalThis as unknown as { window: { localStorage: Storage } }).window.localStorage;
 
 beforeEach(() => {
@@ -42,58 +41,57 @@ const computers = {
       isDefault: true,
       bindingId: "62494ca7-db41",
     },
-    { slug: "computer-old", name: "old-box", kind: "connected", online: false, status: "offline", isDefault: false },
   ],
   defaultComputer: "62494ca7-db41",
 };
 
-describe("MachineRail", () => {
-  test("renders nothing when signed out", async () => {
+describe("MachineSwitcher", () => {
+  test("renders nothing when signed out or when no machine is reachable", async () => {
     respond({ "/api/cloud/session": () => Response.json({ ...signedIn, signedIn: false }) });
-    ui.render(<MachineRail />);
+    ui.render(<MachineSwitcher variant="rail" />);
     await ui.flushAsync();
-    expect(ui.query("[data-machine-rail]")).toBeNull();
+    expect(ui.query("[data-machine-switcher]")).toBeNull();
+
+    ui.cleanup();
+    ui = mount();
+    respond({
+      "/api/cloud/session": () => Response.json(signedIn),
+      "/api/cloud/computers": () => Response.json({ computers: [], defaultComputer: "cloud" }),
+    });
+    ui.render(<MachineSwitcher variant="icon" />);
+    await ui.flushAsync();
+    expect(ui.query("[data-machine-switcher]")).toBeNull();
   });
 
-  test("lists this computer first, then every machine the box can reach", async () => {
+  test("the rail row names the current machine and the icon variant carries it as a label", async () => {
     respond({
       "/api/cloud/session": () => Response.json(signedIn),
       "/api/cloud/computers": () => Response.json(computers),
     });
-    ui.render(<MachineRail />);
+    ui.render(<MachineSwitcher variant="rail" />);
     await ui.flushAsync();
-    const buttons = ui.queryAll("[data-machine-rail] button") as HTMLButtonElement[];
-    // old-box has no bindingId on this server, so it cannot be reached.
-    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
-      "This computer",
-      "Cloud computer · Paused",
-      "dev-us · Online",
-    ]);
-    expect(buttons[0]?.getAttribute("aria-current")).toBe("true");
-  });
-
-  test("clicking a machine selects it and the stored choice is marked current", async () => {
-    respond({
-      "/api/cloud/session": () => Response.json(signedIn),
-      "/api/cloud/computers": () => Response.json(computers),
-    });
-    const chosen: Array<{ id: string; name: string }> = [];
-    ui.render(<MachineRail onSelect={(choice) => chosen.push(choice)} />);
-    await ui.flushAsync();
-    const buttons = ui.queryAll("[data-machine-rail] button") as HTMLButtonElement[];
-    ui.flush(() => buttons[2]!.click());
-    expect(chosen).toEqual([{ id: "62494ca7-db41", name: "dev-us" }]);
-
-    ui.flush(() => buttons[0]!.click());
-    expect(chosen).toHaveLength(1);
+    const rail = ui.query('[data-machine-switcher="rail"]');
+    expect(rail?.textContent).toContain("This computer");
 
     store().setItem(MACHINE_STORAGE_KEY, JSON.stringify({ id: "cloud", name: "Cloud computer" }));
     ui.cleanup();
     ui = mount();
-    ui.render(<MachineRail />);
+    ui.render(<MachineSwitcher variant="icon" />);
     await ui.flushAsync();
-    const again = ui.queryAll("[data-machine-rail] button") as HTMLButtonElement[];
-    expect(again[1]?.getAttribute("aria-current")).toBe("true");
-    expect(again[0]?.getAttribute("aria-current")).toBeNull();
+    const icon = ui.query('[data-machine-switcher="icon"]');
+    expect(icon?.getAttribute("aria-label")).toBe("Machine: Cloud computer. Change machine");
+    expect(icon?.textContent).toBe("");
+  });
+
+  test("a collapsed rail row shows the icon alone", async () => {
+    respond({
+      "/api/cloud/session": () => Response.json(signedIn),
+      "/api/cloud/computers": () => Response.json(computers),
+    });
+    ui.render(<MachineSwitcher variant="rail" collapsed />);
+    await ui.flushAsync();
+    const rail = ui.query('[data-machine-switcher="rail"]');
+    expect(rail?.textContent).toBe("");
+    expect(rail?.getAttribute("title")).toBe("This computer");
   });
 });
