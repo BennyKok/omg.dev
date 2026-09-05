@@ -44,6 +44,12 @@ export type CloudAccountStatus = {
   expiresAt: number | null;
   kind: CloudCredentials["kind"] | null;
   authUrl: string;
+  /**
+   * This box's own binding id on the account, when it is paired through
+   * `omg connect`. The account's machine list includes this box like any
+   * other; the UI uses this to show it once, as "This computer".
+   */
+  thisBoxId: string | null;
 };
 
 /** One row of GET /api/cli/computer/status on the control plane. */
@@ -75,6 +81,8 @@ export interface CloudAccountOptions {
   now?: () => number;
   /** How long a started sign-in waits for its callback. Default 10 minutes. */
   pendingTtlMs?: number;
+  /** This box's relay binding id, read fresh each time. Null when not paired. */
+  thisBoxId?: () => string | null;
 }
 
 export interface CloudAccount {
@@ -314,6 +322,7 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
       expiresAt: creds?.expiresAt ?? null,
       kind: creds?.kind ?? null,
       authUrl,
+      thisBoxId: options.thisBoxId?.() ?? null,
     };
   }
 

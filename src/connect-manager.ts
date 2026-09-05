@@ -26,6 +26,20 @@ export type ConnectManagerStatus = {
 
 const CREDENTIALS_PATH = join(PATHS.data, "relay-credentials.json");
 
+/**
+ * This box's binding id on the relay, or null when it is not paired. The
+ * account's machine list names this box by the same id, which is how the UI
+ * shows it once, as "This computer", rather than twice.
+ */
+export function readRelayBoxId(): string | null {
+  try {
+    const parsed = JSON.parse(readFileSync(CREDENTIALS_PATH, "utf8")) as { boxId?: unknown };
+    return typeof parsed.boxId === "string" && parsed.boxId.trim() ? parsed.boxId.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 function credentialRevision(): string | null {
   try {
     // The full file is the revision. A fresh pairing can produce a token with

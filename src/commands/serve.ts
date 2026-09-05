@@ -20,7 +20,7 @@ import {
   visibleSessionPins,
   setSessionPinned,
 } from "../session-pins.ts";
-import { createConnectManager } from "../connect-manager.ts";
+import { createConnectManager, readRelayBoxId } from "../connect-manager.ts";
 import { findProjectFavicon, projectFaviconMime } from "../project-favicon.ts";
 import { claudeOauthToken as sharedClaudeOauthToken } from "../claude-creds.ts";
 import {
@@ -3817,7 +3817,7 @@ export async function cmdServe() {
     subscribeAgentRun,
   });
   const connectManager = createConnectManager();
-  const cloudAccount = createCloudAccount();
+  const cloudAccount = createCloudAccount({ thisBoxId: readRelayBoxId });
   const cloudMachineProxy = createCloudMachineProxy({ account: cloudAccount });
   const server = Bun.serve<AppSocketData>({
     port: PORT,
