@@ -224,6 +224,22 @@ test("a credential without the computer scope reads as a re-sign-in", async () =
   });
 });
 
+test("session reports this box's own binding id when paired", async () => {
+  saveCloudCredentials({ token: "omg_sk_live_x", kind: "api-key" }, credentialPath);
+  const account = createCloudAccount({
+    credentialPath,
+    fetch: fakeFetch(() => jsonResponse({})).fetch,
+    thisBoxId: () => "62494ca7-db41-4e88-8820-fa938e863795",
+  });
+  const response = await account.handleRequest(...request("/api/cloud/session"));
+  expect(await response?.json()).toMatchObject({
+    signedIn: true,
+    thisBoxId: "62494ca7-db41-4e88-8820-fa938e863795",
+  });
+  const unpaired = createCloudAccount({ credentialPath, fetch: fakeFetch(() => jsonResponse({})).fetch });
+  expect(unpaired.status().thisBoxId).toBeNull();
+});
+
 test("computers answers 401 when signed out and logout removes the credential", async () => {
   const account = createCloudAccount({ credentialPath, fetch: fakeFetch(() => jsonResponse({})).fetch });
   const signedOut = await account.handleRequest(...request("/api/cloud/computers"));

@@ -83,6 +83,32 @@ describe("MachineSwitcher", () => {
     expect(icon?.textContent).toBe("");
   });
 
+  test("the box's own account row is not listed a second time", async () => {
+    respond({
+      "/api/cloud/session": () => Response.json({ ...signedIn, thisBoxId: "62494ca7-db41" }),
+      "/api/cloud/computers": () => Response.json(computers),
+    });
+    // Point the UI at the cloud machine so the rail row reads its name, and
+    // the only other reachable machine (dev-us) is this box itself.
+    store().setItem(MACHINE_STORAGE_KEY, JSON.stringify({ id: "cloud", name: "Cloud computer" }));
+    ui.render(<MachineSwitcher variant="rail" />);
+    await ui.flushAsync();
+    expect(ui.query('[data-machine-switcher="rail"]')?.textContent).toContain("Cloud computer");
+
+    ui.cleanup();
+    ui = mount();
+    store().removeItem(MACHINE_STORAGE_KEY);
+    respond({
+      "/api/cloud/session": () => Response.json({ ...signedIn, thisBoxId: "62494ca7-db41" }),
+      "/api/cloud/computers": () =>
+        Response.json({ computers: [computers.computers[1]], defaultComputer: "62494ca7-db41" }),
+    });
+    ui.render(<MachineSwitcher variant="rail" />);
+    await ui.flushAsync();
+    // dev-us was the only account machine and it is this box: nothing to switch to.
+    expect(ui.query("[data-machine-switcher]")).toBeNull();
+  });
+
   test("a collapsed rail row shows the icon alone", async () => {
     respond({
       "/api/cloud/session": () => Response.json(signedIn),

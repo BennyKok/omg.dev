@@ -18,6 +18,8 @@ export type CloudAccountStatus = {
   expiresAt: number | null;
   kind: "api-key" | "jwt" | "oauth" | null;
   authUrl: string;
+  /** This box's own binding id on the account, when paired. */
+  thisBoxId?: string | null;
 };
 
 /** Mirrors CloudComputerRow in src/cloud-account.ts. */
@@ -39,6 +41,18 @@ export function rowMachineId(row: Pick<CloudComputerRow, "slug" | "kind" | "bind
   if (row.bindingId?.trim()) return row.bindingId.trim();
   if (row.kind === "cloud" || row.slug === "cloud") return "cloud";
   return null;
+}
+
+/** The account row that is the box serving this page. */
+export function isThisBox(
+  row: Pick<CloudComputerRow, "slug" | "kind" | "bindingId">,
+  thisBoxId: string | null | undefined,
+): boolean {
+  if (!thisBoxId || row.kind !== "connected") return false;
+  const id = rowMachineId(row);
+  if (id === thisBoxId) return true;
+  // A server that reports no binding id still names the row by its head.
+  return !row.bindingId && row.slug === `computer-${thisBoxId.slice(0, 8)}`;
 }
 
 export function rowMachineChoice(row: CloudComputerRow): MachineChoice | null {
@@ -103,7 +117,9 @@ export function useCloudMachines(): CloudMachinesState {
     const list = await fetch("/api/cloud/computers", { credentials: "same-origin", signal });
     const body = await readJson<{ computers?: CloudComputerRow[]; error?: string }>(list);
     if (!list.ok) throw new Error(body?.error ?? `Computer list failed (${list.status})`);
-    setComputers(body?.computers ?? []);
+    // The account lists this box like any other paired machine. It is already
+    // the "This computer" row, so it must not appear a second time.
+    setComputers((body?.computers ?? []).filter((row) => !isThisBox(row, next.thisBoxId)));
   }, []);
 
   useEffect(() => {

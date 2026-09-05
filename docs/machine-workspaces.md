@@ -1,6 +1,6 @@
 # Machine workspaces: login and machine switching in the open source UI
 
-Status: Blocks 1, 2 and 3 implemented in this repository. Switching onto a cloud machine waits on `vibes` PR #1639 (grant mint accepts scoped CLI tokens). Date: 2026-09-05. Owner: this repository (`web/`, `packages/`).
+Status: implemented and deployed. `vibes` PRs #1639, #1642 and #1643 supply the grant mint and wake route. Date: 2026-09-05. Owner: this repository (`web/`, `packages/`).
 
 ## Goal
 
