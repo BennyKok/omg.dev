@@ -25,13 +25,16 @@ export function UserFilterMenu({
   value,
   users,
   onChange,
+  displayUser,
 }: {
   value: string;
   users: UserFilterRosterUser[];
   onChange: (value: string) => void;
+  /** Cached trigger appearance only; never adds a roster option. */
+  displayUser?: UserFilterRosterUser;
 }) {
   const active = value !== "__all";
-  const selected = users.find((user) => user.email === value);
+  const selected = users.find((user) => user.email === value) ?? (displayUser?.email === value ? displayUser : undefined);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger

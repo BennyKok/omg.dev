@@ -50,3 +50,10 @@ export function initialUserFilter({
 export function userFilterUpdatesStandaloneIdentity(value: string, hosted: boolean): boolean {
   return !hosted && value !== "__all" && value !== "__unassigned";
 }
+
+/** An unanswered roster is not an empty roster. Keep the filter until the
+ * selected computer has returned authoritative data. */
+export function reconcileUserFilter(value: string, users: readonly { email: string }[], ready: boolean): string {
+  if (!ready || value === "__all" || value === "__unassigned") return value;
+  return users.some((user) => user.email === value) ? value : "__all";
+}
