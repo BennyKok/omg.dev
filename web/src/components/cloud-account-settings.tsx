@@ -1,132 +1,42 @@
-import { useCallback, useEffect, useState } from "react";
-import { Cloud, Laptop, LogIn, LogOut } from "lucide-react";
+import { Check, Cloud, Laptop, LogIn, LogOut } from "lucide-react";
 
-/** Mirrors CloudAccountStatus in src/cloud-account.ts. */
-export type CloudAccountStatus = {
-  signedIn: boolean;
-  email: string | null;
-  expiresAt: number | null;
-  kind: "api-key" | "jwt" | "oauth" | null;
-  authUrl: string;
-};
+import {
+  LOCAL_MACHINE_CHOICE,
+  machineStatusLabel,
+  rowMachineChoice,
+  useCloudMachines,
+  type CloudComputerRow,
+} from "../lib/cloud-machines";
+import { activeMachine, selectMachine, type MachineChoice } from "../lib/machines";
 
-/** Mirrors CloudComputerRow in src/cloud-account.ts. */
-export type CloudComputerRow = {
-  slug: string;
-  name: string;
-  kind: "cloud" | "connected";
-  online: boolean;
-  status: string;
-  isDefault: boolean;
-  lastSeenAt?: number | null;
-  defaultFolder?: string | null;
-};
-
-function statusLabel(row: CloudComputerRow): string {
-  if (row.online) return "Online";
-  switch (row.status) {
-    case "provisioning":
-      return "Setting up";
-    case "paused":
-      return "Paused";
-    case "waking":
-      return "Waking";
-    case "recycled":
-      return "Removed";
-    case "upgrade_required":
-      return "Needs upgrade";
-    case "none":
-      return "Not created yet";
-    case "offline":
-      return "Offline";
-    default:
-      return row.status.replace(/_/g, " ");
-  }
-}
+export type { CloudAccountStatus, CloudComputerRow } from "../lib/cloud-machines";
 
 /**
- * The account this box is signed in to, and the machines that account has.
+ * The account this box is signed in to, the machines that account has, and
+ * which one this UI is pointed at.
  *
  * Sign-in is a redirect through this server: POST /api/cloud/login answers
  * with the authorization URL, the browser goes there, and auth.omg.dev sends
  * it back to /api/cloud/callback on this server, which stores the credential
  * on the box. The token never reaches this page.
+ *
+ * Picking a machine here is the mobile and tablet path; desktop also has the
+ * machine rail. Both call selectMachine, which reloads against the choice.
  */
-export function CloudAccountSettingsSection() {
-  const [status, setStatus] = useState<CloudAccountStatus | null>(null);
-  const [computers, setComputers] = useState<CloudComputerRow[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const loadStatus = useCallback(async (signal?: AbortSignal) => {
-    const response = await fetch("/api/cloud/session", { credentials: "same-origin", signal });
-    if (!response.ok) throw new Error(`Cloud session request failed (${response.status})`);
-    const next = (await response.json()) as CloudAccountStatus;
-    setStatus(next);
-    return next;
-  }, []);
-
-  const loadComputers = useCallback(async (signal?: AbortSignal) => {
-    const response = await fetch("/api/cloud/computers", { credentials: "same-origin", signal });
-    const body = (await response.json().catch(() => null)) as
-      | { computers?: CloudComputerRow[]; error?: string }
-      | null;
-    if (!response.ok) throw new Error(body?.error ?? `Computer list failed (${response.status})`);
-    setComputers(body?.computers ?? []);
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    loadStatus(controller.signal)
-      .then((next) => (next.signedIn ? loadComputers(controller.signal) : undefined))
-      .catch((e: unknown) => {
-        if (controller.signal.aborted) return;
-        // An older server has no /api/cloud routes. `status` stays null and
-        // the section hides instead of showing a permanent error row.
-        if (e instanceof Error && !/session request failed/.test(e.message)) setError(e.message);
-      });
-    return () => controller.abort();
-  }, [loadStatus, loadComputers]);
-
-  const signIn = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/cloud/login", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ returnTo: `${window.location.pathname}${window.location.search}` }),
-      });
-      const body = (await response.json().catch(() => null)) as
-        | { authorizeUrl?: string; error?: string }
-        | null;
-      if (!response.ok || !body?.authorizeUrl) {
-        throw new Error(body?.error ?? `Sign-in could not start (${response.status})`);
-      }
-      window.location.assign(body.authorizeUrl);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Sign-in could not start.");
-      setBusy(false);
-    }
-  };
-
-  const signOut = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/cloud/logout", { method: "POST", credentials: "same-origin" });
-      if (!response.ok) throw new Error(`Sign-out failed (${response.status})`);
-      setComputers(null);
-      await loadStatus();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Sign-out failed.");
-    } finally {
-      setBusy(false);
-    }
-  };
+export function CloudAccountSettingsSection({
+  onSelectMachine = selectMachine,
+}: {
+  onSelectMachine?: (choice: MachineChoice) => void;
+}) {
+  const { status, computers, error, busy, signIn, signOut } = useCloudMachines();
+  const active = activeMachine();
 
   if (!status) return null;
+
+  const rows: Array<{ key: string; choice: MachineChoice | null; row: CloudComputerRow | null }> = [
+    { key: "local", choice: LOCAL_MACHINE_CHOICE, row: null },
+    ...(computers ?? []).map((row) => ({ key: row.slug, choice: rowMachineChoice(row), row })),
+  ];
 
   return (
     <section className="space-y-2" aria-labelledby="cloud-account-heading">
@@ -175,33 +85,52 @@ export function CloudAccountSettingsSection() {
           <div className="px-4 py-3 text-xs text-muted-foreground">Loading computers…</div>
         ) : null}
 
-        {computers?.map((row) => (
-          <div key={row.slug} className="flex items-center gap-3 px-4 py-3" data-cloud-computer={row.slug}>
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-foreground/[0.06]">
-              {row.kind === "cloud" ? (
-                <Cloud className="size-4 text-foreground/70" />
-              ) : (
-                <Laptop className="size-4 text-foreground/70" />
-              )}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="flex items-center gap-2 text-sm font-medium">
-                <span className="truncate">{row.name}</span>
-                {row.isDefault ? (
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                    Default
+        {status.signedIn
+          ? rows.map(({ key, choice, row }) => {
+              const selected = choice?.id === active.id;
+              const selectable = Boolean(choice) && !selected;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  disabled={!selectable}
+                  aria-current={selected ? "true" : undefined}
+                  onClick={() => choice && onSelectMachine(choice)}
+                  data-cloud-computer={key}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left disabled:cursor-default"
+                >
+                  <span className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-foreground/[0.06]">
+                    {row?.kind === "cloud" ? (
+                      <Cloud className="size-4 text-foreground/70" />
+                    ) : (
+                      <Laptop className="size-4 text-foreground/70" />
+                    )}
                   </span>
-                ) : null}
-              </span>
-              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <span
-                  className={`size-1.5 shrink-0 rounded-full ${row.online ? "bg-success" : "bg-foreground/20"}`}
-                />
-                {statusLabel(row)}
-              </span>
-            </span>
-          </div>
-        ))}
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2 text-sm font-medium">
+                      <span className="truncate">{row ? row.name : "This computer"}</span>
+                      {row?.isDefault ? (
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                          Default
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <span
+                        className={`size-1.5 shrink-0 rounded-full ${!row || row.online ? "bg-success" : "bg-foreground/20"}`}
+                      />
+                      {row ? machineStatusLabel(row) : "The box that served this page"}
+                    </span>
+                  </span>
+                  {selected ? (
+                    <Check className="size-4 shrink-0 text-primary" aria-label="Selected" />
+                  ) : choice ? (
+                    <span className="text-xs font-medium text-primary">Use</span>
+                  ) : null}
+                </button>
+              );
+            })
+          : null}
 
         {computers && computers.length === 0 ? (
           <div className="px-4 py-3 text-xs text-muted-foreground">No computers on this account yet.</div>

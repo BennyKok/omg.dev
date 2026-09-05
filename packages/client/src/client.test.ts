@@ -316,3 +316,27 @@ test("an untagged failure carries no code, so nothing mistakes it for a plan wal
   expect(error.status).toBe(409);
   expect(error.code).toBeUndefined();
 });
+
+test("createSameOriginTransport prefixes every path with basePath", async () => {
+  const calls: string[] = [];
+  const fetchImpl = (async (input: string | URL | Request) => {
+    calls.push(typeof input === "string" ? input : input.toString());
+    return new Response(JSON.stringify({ ok: true }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+  const transport = createSameOriginTransport({
+    fetch: fetchImpl,
+    basePath: "/api/cloud/machines/cloud/",
+    WebSocket: RecordingWebSocket as unknown as typeof globalThis.WebSocket,
+  });
+  expect(await transport.request("/api/sessions")).toEqual({ ok: true });
+  await transport.fetch("api/bootstrap");
+  expect(calls).toEqual([
+    "/api/cloud/machines/cloud/api/sessions",
+    "/api/cloud/machines/cloud/api/bootstrap",
+  ]);
+  expect(transport.assetUrl?.("/api/sessions/s1/files/a.png")).toBe(
+    "/api/cloud/machines/cloud/api/sessions/s1/files/a.png",
+  );
+});
