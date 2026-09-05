@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## September 5, 2026 - Mobile chat layout and auto-agent pages (v0.6.44)
+
+- **Chat messages keep their measured heights during keyboard changes.**
+  Opening or closing the mobile keyboard while messages arrive no longer
+  leaves rows at estimated heights that can make messages overlap.
+- **Auto-agent reports and editing use full pages.** The report and editor
+  have more room to scroll on mobile and desktop.
+
 ## September 5, 2026 - omg Cloud sign-in and machine switching (v0.6.43)
 
 - **Sign in to omg Cloud from Settings.** The box runs the sign-in through
