@@ -27,7 +27,7 @@ export function ConnectionStatusToasts({
     const wasDisconnected = prevStatusRef.current === "reconnecting" || prevStatusRef.current === "offline";
     prevStatusRef.current = status;
 
-    if (recoveryVisible && status !== "live") {
+    if (recoveryVisible) {
       toast.dismiss(WS_TOAST_ID);
       return;
     }

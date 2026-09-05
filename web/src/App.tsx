@@ -2,7 +2,7 @@ import { LiveHeaderContext } from "./components/live-header-context";
 import { activeMachine } from "./lib/machines";
 import { useHeaderProfile } from "./lib/header-profile";
 import { RuntimeAvailabilityContext, useRuntimeAvailability, shouldReloadRuntime } from "./lib/runtime-availability";
-import { RuntimeRecovery, RuntimeEmptyState, ComposerConnectionHint } from "./components/runtime-recovery";
+import { RuntimeRecovery, RuntimeEmptyState } from "./components/runtime-recovery";
 import { AutoAgentPage } from "./components/auto-agent-page";
 import { Component, createContext, type ComponentProps, forwardRef, memo, Suspense, useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
@@ -22693,7 +22693,6 @@ function NewSessionDialog({
         </div>
       </div>
 
-      <ComposerConnectionHint />
       {resumeOpen ? (
         <Suspense fallback={null}>
           <ResumeSessionSheet
