@@ -25,3 +25,33 @@ test("keeps the welcome readable without an identity and opens notifications", (
   ui.flush(() => (ui.query("button") as HTMLElement).click());
   expect(opened).toBe(1);
 });
+
+const { RuntimeAvailabilityContext } = await import("../lib/runtime-availability");
+
+test("connection status replaces the greeting and tapping retries until recovery", () => {
+  let retries = 0;
+  let notifications = 0;
+  const props = { brand: <span>omg</span>, viewerName: "Benny", busyCount: 2, onOpenNotifications: () => notifications++ };
+  const render = (status: "connecting" | "reconnecting" | "live", ready: boolean, error: string | null = null) => {
+    ui.render(<RuntimeAvailabilityContext.Provider value={{ status, ready, error, loading: status === "connecting", retry: () => retries++ }}><AskProvider><LiveHeaderContext {...props} intro={status === "connecting"} /></AskProvider></RuntimeAvailabilityContext.Provider>);
+  };
+  render("connecting", false);
+  const button = ui.query("button") as HTMLElement;
+  expect(button.getAttribute("aria-label")).toBe("Connecting…");
+  ui.flush(() => button.click());
+  expect(retries).toBe(0);
+  render("reconnecting", true);
+  expect(ui.query("button")).toBe(button);
+  expect(button.getAttribute("aria-label")).toBe("Reconnecting… Tap to retry");
+  expect(ui.text()).not.toContain("Welcome");
+  ui.flush(() => button.click());
+  expect(retries).toBe(1);
+  expect(notifications).toBe(0);
+  render("live", false, "cloud_runtime_unavailable");
+  expect(button.getAttribute("aria-label")).toBe("Connection unavailable Tap to retry");
+  expect(ui.text()).not.toContain("cloud_runtime_unavailable");
+  render("live", true);
+  expect(button.getAttribute("aria-label")).toContain("Welcome, Benny");
+  ui.flush(() => button.click());
+  expect(notifications).toBe(1);
+});

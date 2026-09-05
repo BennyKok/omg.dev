@@ -8897,7 +8897,8 @@ export function App() {
 
       {embedded ? null : <PwaInstallCallout />}
 
-      <RuntimeRecovery />
+      {isMobile && isPrimarySurfaceTab(tab) ? null : <RuntimeRecovery />}
+
       </div>
       )}
 
