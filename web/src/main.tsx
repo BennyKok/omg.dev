@@ -8,6 +8,8 @@ import { toast } from "sonner";
 import { RouterProvider } from "@tanstack/react-router";
 import { RootErrorBoundary } from "./App";
 import { router } from "./router";
+import { configureOmgTransport } from "./lib/omg-client";
+import { activeMachine, isLocalMachine, machineTransport } from "./lib/machines";
 import { registerExtension } from "./lib/extensions";
 import { installErrorReporting } from "./lib/report-error";
 import { AppDialogProvider } from "@/components/ui/app-dialog";
@@ -46,6 +48,13 @@ declare global {
   }
 }
 window.lfg = { React, ReactDOM, jsxRuntime: JsxRuntime, registerExtension };
+
+// Point the app at the chosen machine before anything reads the transport.
+// The local box needs nothing: the default same-origin transport is it.
+{
+  const machine = activeMachine();
+  if (!isLocalMachine(machine)) configureOmgTransport(machineTransport(machine));
+}
 
 applyTheme();
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {

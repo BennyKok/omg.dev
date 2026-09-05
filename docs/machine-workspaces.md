@@ -1,6 +1,6 @@
 # Machine workspaces: login and machine switching in the open source UI
 
-Status: Block 1 implemented (`packages/cloud`). Blocks 2 and 3 proposed. Date: 2026-09-04. Owner: this repository (`web/`, `packages/`).
+Status: Blocks 1, 2 and 3 implemented in this repository. Switching onto a cloud machine waits on `vibes` PR #1639 (grant mint accepts scoped CLI tokens). Date: 2026-09-05. Owner: this repository (`web/`, `packages/`).
 
 ## Goal
 
@@ -106,6 +106,33 @@ Endpoints stay in vibes. Only the client moves. Mobile and vibes switch
 their imports to the package.
 
 ### Block 2: machine workspace UI in `web/src`
+
+Implemented as follows. The browser never talks to `sessions.omgs.app`: its
+CORS allows only the hosted dashboard. The box proxies instead.
+
+```
+browser ── /api/cloud/machines/<bindingId>/<path> ──▶ omg serve
+                                                       │ grant (CLI token, cached per binding)
+                                                       ▼
+                                             sessions.omgs.app/<path> ──▶ machine
+```
+
+- `src/cloud-machine-proxy.ts`: HTTP and WebSocket proxy, one grant per
+  binding, 401 retry, hop-by-hop and cookie headers stripped.
+- `@omg-dev/client` `createSameOriginTransport({ basePath })`: the UI
+  switches machines by prefixing every path.
+- `web/src/lib/machines.ts`: the stored choice, applied in `main.tsx` before
+  the app mounts. A switch reloads the page on purpose (see the file header).
+- `web/src/lib/cloud-machines.ts`: one owner for the account and machine
+  reads and the sign in and sign out writes.
+- `web/src/components/machine-rail.tsx`: the desktop outer rail, mounted in
+  `RailStage` left of the session rail. Empty until signed in with a
+  reachable machine.
+- `web/src/components/cloud-account-settings.tsx`: the mobile and tablet
+  picker, same rows, same selector.
+
+Original plan, kept for the parts not yet done (host injection of the
+machine list into `OmgAppSurface`):
 
 - `MachineProvider` (`web/src/lib/machines.tsx`): the single owner of
   `{ machines, activeId, select }`. `machines[0]` is the local box on a

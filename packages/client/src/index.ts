@@ -263,24 +263,35 @@ export function createSameOriginTransport(
     fetch?: typeof globalThis.fetch;
     WebSocket?: typeof globalThis.WebSocket;
     XMLHttpRequest?: typeof globalThis.XMLHttpRequest;
+    /**
+     * A path prefix put in front of every request, socket and asset path.
+     *
+     * A self-hosted `omg serve` reaches the account's other machines through
+     * its own proxy at `/api/cloud/machines/<id>`, on the same origin the UI
+     * was served from. Prefixing here is what lets the whole app switch
+     * machines by swapping one transport, with no other code aware of it.
+     */
+    basePath?: string;
   } = {},
 ): OmgTransport {
   const fetchImpl = input.fetch ?? globalThis.fetch;
   const WebSocketImpl = input.WebSocket ?? globalThis.WebSocket;
   const XMLHttpRequestImpl = input.XMLHttpRequest ?? globalThis.XMLHttpRequest;
+  const basePath = (input.basePath ?? "").replace(/\/+$/, "");
+  const prefixed = (path: string) => `${basePath}${normalizedPath(path)}`;
   const openSocket = async (path: string): Promise<OmgSocket> => {
     const protocol = globalThis.location?.protocol === "https:" ? "wss:" : "ws:";
     return new WebSocketImpl(
-      `${protocol}//${globalThis.location.host}${normalizedPath(path)}`,
+      `${protocol}//${globalThis.location.host}${prefixed(path)}`,
     ) as OmgSocket;
   };
   return {
     fetch(path: string, init?: RequestInit): Promise<Response> {
-      return fetchImpl(path, init);
+      return fetchImpl(prefixed(path), init);
     },
     // Same origin, same cookies: the element can fetch this itself.
     assetUrl(path: string): string {
-      return normalizedPath(path);
+      return prefixed(path);
     },
     ...(XMLHttpRequestImpl
       ? {
@@ -289,12 +300,12 @@ export function createSameOriginTransport(
             init: RequestInit,
             onProgress: (progress: OmgUploadProgress) => void,
           ): Promise<Response> {
-            return uploadWithXhr(XMLHttpRequestImpl, path, init, onProgress);
+            return uploadWithXhr(XMLHttpRequestImpl, prefixed(path), init, onProgress);
           },
         }
       : {}),
     async request<T>(path: string, init?: RequestInit): Promise<T> {
-      const response = await fetchImpl(path, init);
+      const response = await fetchImpl(prefixed(path), init);
       const { data, text } = await readBody(response);
       if (!response.ok) throw apiError(response, requestMethod(init), path, data, text);
       return data as T;

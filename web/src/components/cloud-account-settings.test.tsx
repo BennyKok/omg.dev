@@ -86,7 +86,28 @@ describe("CloudAccountSettingsSection", () => {
     expect(ui.text()).toContain("Default");
     expect(ui.text()).toContain("studio");
     expect(ui.text()).toContain("Online");
-    expect(ui.queryAll("[data-cloud-computer]")).toHaveLength(2);
+    expect(ui.text()).toContain("This computer");
+    // This computer first, then the two account machines.
+    expect(ui.queryAll("[data-cloud-computer]")).toHaveLength(3);
+    expect(ui.query('[data-cloud-computer="local"]')?.getAttribute("aria-current")).toBe("true");
+  });
+
+  test("choosing a machine hands the choice to the selector", async () => {
+    respond({
+      "/api/cloud/session": () => Response.json(signedIn),
+      "/api/cloud/computers": () =>
+        Response.json({
+          computers: [
+            { slug: "cloud", name: "Cloud computer", kind: "cloud", online: true, status: "live", isDefault: true },
+          ],
+          defaultComputer: "cloud",
+        }),
+    });
+    const chosen: Array<{ id: string; name: string }> = [];
+    ui.render(<CloudAccountSettingsSection onSelectMachine={(choice) => chosen.push(choice)} />);
+    await ui.flushAsync();
+    ui.flush(() => (ui.query('[data-cloud-computer="cloud"]') as HTMLButtonElement).click());
+    expect(chosen).toEqual([{ id: "cloud", name: "Cloud computer" }]);
   });
 
   test("shows the list error and signs out through the server", async () => {

@@ -14,6 +14,7 @@ import { PATHS, appVersion, installInfo, localServeBaseUrl } from "../config.ts"
 import { desktopRuntimeReadyPayload } from "../desktop-parent.ts";
 import { handleServerAccessRequest } from "../server-access.ts";
 import { createCloudAccount } from "../cloud-account.ts";
+import { createCloudMachineProxy, type CloudProxySocketData } from "../cloud-machine-proxy.ts";
 import {
   importSessionPins,
   visibleSessionPins,
@@ -3755,7 +3756,8 @@ type AppSocketData =
   | TermSocketData
   | SttStreamSocketData
   | LiveWsSocketData
-  | ComputerSocketData;
+  | ComputerSocketData
+  | CloudProxySocketData;
 
 // Parse a terminal dimension from a query param, clamped to a sane range so a
 // bogus value can't allocate an absurd pty winsize.
@@ -3816,6 +3818,7 @@ export async function cmdServe() {
   });
   const connectManager = createConnectManager();
   const cloudAccount = createCloudAccount();
+  const cloudMachineProxy = createCloudMachineProxy({ account: cloudAccount });
   const server = Bun.serve<AppSocketData>({
     port: PORT,
     hostname: HOST,
@@ -3841,6 +3844,10 @@ export async function cmdServe() {
       // as binary frames — the full raw VT byte stream a faithful renderer wants.
       idleTimeout: 600,
       open(ws: ServerWebSocket<AppSocketData>) {
+        if (cloudMachineProxy.isProxySocket(ws)) {
+          cloudMachineProxy.open(ws);
+          return;
+        }
         if (liveWs.isLiveSocket(ws as unknown as ServerWebSocket<unknown>)) {
           liveWs.open(ws as unknown as ServerWebSocket<unknown>);
           return;
@@ -3934,6 +3941,10 @@ export async function cmdServe() {
         }
       },
       message(ws: ServerWebSocket<AppSocketData>, message) {
+        if (cloudMachineProxy.isProxySocket(ws)) {
+          cloudMachineProxy.message(ws, message);
+          return;
+        }
         if (liveWs.isLiveSocket(ws as unknown as ServerWebSocket<unknown>)) {
           liveWs.message(ws as unknown as ServerWebSocket<unknown>, message);
           return;
@@ -3979,6 +3990,10 @@ export async function cmdServe() {
         bridge.write(message as Uint8Array);
       },
       close(ws: ServerWebSocket<AppSocketData>) {
+        if (cloudMachineProxy.isProxySocket(ws)) {
+          cloudMachineProxy.close(ws);
+          return;
+        }
         if (liveWs.isLiveSocket(ws as unknown as ServerWebSocket<unknown>)) {
           liveWs.close(ws as unknown as ServerWebSocket<unknown>);
           return;
@@ -4975,6 +4990,19 @@ a{color:#60a5fa}
       if (path === "/api/server/access" && req.method === "GET") {
         return handleServerAccessRequest();
       }
+      // The account's other machines, reached through this box
+      // (src/cloud-machine-proxy.ts). Everything under the prefix is the
+      // machine's own API, so this must run before any other /api route.
+      if (path.startsWith("/api/cloud/machines/")) {
+        if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+          const data = cloudMachineProxy.upgradeData(url);
+          if (!data) return err(404, "not found");
+          const ok = server.upgrade(req, { data });
+          if (ok) return undefined;
+          return err(400, "expected a websocket upgrade");
+        }
+        return cloudMachineProxy.handleHttp(req, url);
+      }
       // omg Cloud account on this box (src/cloud-account.ts). Listed one by
       // one so the client route coverage test can see each of them.
       if (
@@ -4986,6 +5014,7 @@ a{color:#60a5fa}
         path === "/api/cloud/computers"
       ) {
         const handled = await cloudAccount.handleRequest(req, url);
+        if (path === "/api/cloud/logout") cloudMachineProxy.reset();
         if (handled) return handled;
       }
       if (path === "/api/server/wake-tick" && req.method === "POST") {
