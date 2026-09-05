@@ -127,6 +127,24 @@ describe("OpenCode catalog default", () => {
     expect(defaultModelForAgent("opencode")).toBe("opencode/nemotron-3.5-lightning-free");
   });
 
+  test("an anonymous box launches the best free model discovery offers, never a retired one", () => {
+    // The set a fresh omg.dev Computer discovered on 2026-09-05. No
+    // nemotron-3.5-lightning-free; the first entry is the retired model.
+    const computer = [
+      "opencode/deepseek-v4-flash-free",
+      "opencode/hy3-free",
+      "opencode/mimo-v2.5-free",
+      "opencode/nemotron-3-ultra-free",
+      "opencode/north-mini-code-free",
+    ];
+    expect(defaultModelForCatalogItem("opencode", computer, false)).toBe("opencode/mimo-v2.5-free");
+    // A retired model is not offered at all.
+    expect(curateOpenCodeModels(computer)).not.toContain("opencode/deepseek-v4-flash-free");
+    expect(curateOpenCodeModels(computer)).toContain("opencode/hy3-free");
+    // A catalog with only unknown free models still launches one of them.
+    expect(defaultModelForCatalogItem("opencode", ["opencode/deepseek-v4-flash-free", "opencode/hy3-free"], false)).toBe("opencode/hy3-free");
+  });
+
   test("an anonymous box launches the configured free default, not the first discovered free model", () => {
     // models.dev still lists deepseek-v4-flash-free ahead of the working
     // models, and OpenCode answers every call to it with a server error.

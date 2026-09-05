@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## September 5, 2026 - Free OpenCode default follows what the box can use (v0.6.47)
+
+- **The free OpenCode default is the best free model the box actually
+  discovers.** OpenCode advertises a different free set to each box, and the
+  retired `deepseek-v4-flash-free` was still first in that set on a fresh
+  omg.dev Computer. LFG now launches the first known-working free model the
+  box offers, and never offers a retired model.
+
 ## September 5, 2026 - Free OpenCode default really launches (v0.6.46)
 
 - **An anonymous box now launches the configured free OpenCode model.** The
