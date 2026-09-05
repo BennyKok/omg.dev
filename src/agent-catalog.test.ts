@@ -32,7 +32,7 @@ const DISCOVERED = [
   "openai/gpt-5.6-sol-pro",
   "openai/gpt-5.6-terra",
   "openai/gpt-5.6-terra-fast",
-  "opencode/deepseek-v4-flash-free",
+  "opencode/nemotron-3.5-lightning-free",
   "opencode/future-coder-free",
   "opencode-go/kimi-k3",
   "opencode-go/kimi-k2.7-code",
@@ -67,7 +67,7 @@ describe("curateOpenCodeModels", () => {
 
   test("retains every dynamic credential-free OpenCode model", () => {
     const out = curateOpenCodeModels(DISCOVERED);
-    expect(out).toContain("opencode/deepseek-v4-flash-free");
+    expect(out).toContain("opencode/nemotron-3.5-lightning-free");
     expect(out).toContain("opencode/future-coder-free");
   });
 
@@ -121,9 +121,9 @@ describe("OpenCode catalog default", () => {
     // one-entry fallback made new accounts believe a single free model existed.
     expect(OPENCODE_MODELS.length).toBeGreaterThan(1);
     for (const model of OPENCODE_MODELS) expect(model).toMatch(/^opencode\/.+-free$/);
-    expect(OPENCODE_MODELS).toContain("opencode/deepseek-v4-flash-free");
-    expect(MODEL_OPTIONS.opencode.defaultModel).toBe("opencode/deepseek-v4-flash-free");
-    expect(defaultModelForAgent("opencode")).toBe("opencode/deepseek-v4-flash-free");
+    expect(OPENCODE_MODELS).toContain("opencode/nemotron-3.5-lightning-free");
+    expect(MODEL_OPTIONS.opencode.defaultModel).toBe("opencode/nemotron-3.5-lightning-free");
+    expect(defaultModelForAgent("opencode")).toBe("opencode/nemotron-3.5-lightning-free");
   });
 
   test("keeps every cold-fallback model selectable for an anonymous account", () => {
@@ -135,8 +135,8 @@ describe("OpenCode catalog default", () => {
   test("replaces stale fallback providers with successful live discovery", () => {
     expect(discoveredModelsOrFallback(
       ["opencode-go/deepseek-v4-flash"],
-      { ok: true, models: ["opencode/deepseek-v4-flash-free"] },
-    )).toEqual(["opencode/deepseek-v4-flash-free"]);
+      { ok: true, models: ["opencode/nemotron-3.5-lightning-free"] },
+    )).toEqual(["opencode/nemotron-3.5-lightning-free"]);
   });
 
   test("uses the safe fallback only when live discovery is unavailable", () => {
@@ -156,7 +156,7 @@ describe("OpenCode catalog default", () => {
 
   test("shows only credential-free OpenCode models before account setup", () => {
     expect(accessibleModelsForAgent("opencode", DISCOVERED, false, [], true)).toEqual([
-      "opencode/deepseek-v4-flash-free",
+      "opencode/nemotron-3.5-lightning-free",
       "opencode/future-coder-free",
     ]);
   });
@@ -192,7 +192,7 @@ describe("OpenCode catalog default", () => {
 
   test("does not let another agent's account unlock OpenCode's paid providers", () => {
     expect(accessibleModelsForAgent("opencode", DISCOVERED, true, [], false)).toEqual([
-      "opencode/deepseek-v4-flash-free",
+      "opencode/nemotron-3.5-lightning-free",
       "opencode/future-coder-free",
     ]);
   });
@@ -212,7 +212,7 @@ describe("OpenCode catalog default", () => {
       const opencode = listModelCatalog([codingAgent(key, true), codingAgent("opencode", true)]).find(
         (item) => item.key === "opencode",
       );
-      expect(opencode?.defaultModel).toBe("opencode/deepseek-v4-flash-free");
+      expect(opencode?.defaultModel).toBe("opencode/nemotron-3.5-lightning-free");
     },
   );
 
