@@ -446,6 +446,7 @@ import {
   useChatMarkdownMetrics,
 } from "./lib/markdown-metrics";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
+import { remeasureChatRows } from "./lib/remeasure-chat-rows";
 import {
   parseMessageAttachments,
   type MessageAttachment,
@@ -18499,16 +18500,13 @@ const ChatStream = memo(function ChatStream({
   // fallback offset intact unless the instance is explicitly invalidated.
   // Re-measure mounted rows in the same layout pass so real DOM sizes stay
   // authoritative while unmounted rows switch to the harvested CSS model.
+  // Keyboard CSS-variable updates also invalidate metrics. Restore DOM sizes
+  // even during scrolling, when TanStack's measureElement skips its sync read.
   const measuredMetricsVersionRef = useRef(0);
   useLayoutEffect(() => {
     if (!rowContext || metrics.version === measuredMetricsVersionRef.current) return;
     measuredMetricsVersionRef.current = metrics.version;
-    virtualizer.measure();
-    const container = virtualContainerRef.current;
-    if (!container) return;
-    for (const row of container.querySelectorAll<HTMLElement>("[data-index]")) {
-      virtualizer.measureElement(row);
-    }
+    remeasureChatRows(virtualizer, virtualContainerRef.current);
   }, [metrics.version, rowContext, virtualizer]);
 
   const virtualRows = virtualizer.getVirtualItems();
