@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## September 5, 2026 - Update coding agents and refresh models from Settings (v0.6.45)
+
+- **Settings can update a coding agent CLI and refresh its models.** Expand
+  an installed agent and tap Update to reinstall the latest CLI, then re-probe
+  its model list. Refresh models at the top of the page re-probes without
+  waiting for the daily catalog cron. This is how an existing Computer picks
+  up a new Codex model such as GPT-6 Astra.
+
 ## September 5, 2026 - Mobile chat layout and auto-agent pages (v0.6.44)
 
 - **OpenCode default model is `opencode/nemotron-3.5-lightning-free`.** The

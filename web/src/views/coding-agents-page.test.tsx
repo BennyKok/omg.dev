@@ -105,6 +105,7 @@ function renderPage(ui: Mounted, agents: CodingAgentInfo[]) {
       agents={agents}
       onVisibleChange={noop}
       onSetup={noop}
+      onUpdate={noop}
       onLogin={noop}
       onAddClaudeAccount={noop}
       onRemoveClaudeAccount={noop}
@@ -197,6 +198,35 @@ describe("CodingAgentsPage", () => {
     expect(text).toContain("Max");
     // The header summarises rather than picking a winner among the three.
     expect(text).toContain("2 accounts");
+  });
+
+  test("Refresh models is on the page and Update is on an installed agent", () => {
+    renderPage(ui, [agent()]);
+    expect(ui.text()).toContain("Refresh models");
+    ui.flush(() => {
+      const row = ui.queryAll("button").find((b) => b.textContent?.includes("codex"));
+      row?.dispatchEvent(new Event("click", { bubbles: true }));
+    });
+    expect(ui.text()).toContain("Update");
+    expect(ui.text()).not.toContain("Install");
+  });
+
+  test("an uninstalled agent still offers Install instead of Update", () => {
+    renderPage(ui, [
+      agent({
+        status: {
+          configured: false,
+          canAutoSetup: true,
+          checks: [{ label: "Codex CLI", ok: false }],
+        } as never,
+      }),
+    ]);
+    ui.flush(() => {
+      const row = ui.queryAll("button").find((b) => b.textContent?.includes("codex"));
+      row?.dispatchEvent(new Event("click", { bubbles: true }));
+    });
+    expect(ui.text()).toContain("Install");
+    expect(ui.text()).not.toContain("Update");
   });
 
   test("an account with no detected login still renders its row", () => {

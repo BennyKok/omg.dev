@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { defaultModelForCatalogItem } from "./agent-catalog.ts";
 import {
+  modelDiscoveryKeysForAgent,
   providersDueForRetry,
   parseFxModels,
   parseJcodeModels,
@@ -221,5 +222,17 @@ describe("muse model discovery", () => {
 
   test("an empty catalog yields no models", () => {
     expect(parseMuseModels(JSON.stringify({ data: [] })).models).toEqual([]);
+  });
+});
+
+describe("modelDiscoveryKeysForAgent", () => {
+  test("codex and codex-aisdk share the PATH Codex probe", () => {
+    expect(modelDiscoveryKeysForAgent("codex")).toEqual(["codex"]);
+    expect(modelDiscoveryKeysForAgent("codex-aisdk")).toEqual(["codex"]);
+  });
+
+  test("Claude has no model-list command", () => {
+    expect(modelDiscoveryKeysForAgent("claude")).toEqual([]);
+    expect(modelDiscoveryKeysForAgent("aisdk")).toEqual([]);
   });
 });

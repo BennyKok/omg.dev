@@ -8,8 +8,10 @@ import {
   codingAgentVisible,
   getCodingAgentAuth,
   isLoginPending,
+  codingAgentHasInstaller,
   listCodingAgents,
   loginCommandFor,
+  runCodingAgentUpdate,
   parseAuthOutput,
   pendingCodingAgentLogins,
   setCodingAgentVisibility,
@@ -939,5 +941,27 @@ describe("coding agent visibility", () => {
     const grok = (await listCodingAgents()).find((agent) => agent.key === "grok");
     expect(grok?.status.configured).toBe(false);
     expect(grok?.visible).toBe(false);
+  });
+});
+
+describe("runCodingAgentUpdate", () => {
+  test("codex can update and pi cannot", () => {
+    expect(codingAgentHasInstaller("codex")).toBe(true);
+    expect(codingAgentHasInstaller("codex-aisdk")).toBe(true);
+    expect(codingAgentHasInstaller("pi")).toBe(false);
+  });
+
+  test("reinstalls the CLI then re-probes its model catalog", async () => {
+    const calls: string[] = [];
+    await runCodingAgentUpdate("codex-aisdk", {
+      runInstaller: async (command) => {
+        calls.push(command);
+      },
+      refreshCatalog: async (keys) => {
+        calls.push(`refresh:${keys.join(",")}`);
+      },
+    });
+    expect(calls[0]).toContain("@openai/codex");
+    expect(calls[1]).toBe("refresh:codex");
   });
 });

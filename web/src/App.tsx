@@ -8000,6 +8000,20 @@ export function App() {
     setSetupChecks(checksPayload.checks ?? []);
   }, []);
 
+  const agentSetupRunning = codingAgents.some((agent) => agent.status.setupRunning);
+  const agentSetupWasRunning = useRef(false);
+  useEffect(() => {
+    if (agentSetupRunning) {
+      agentSetupWasRunning.current = true;
+      const id = window.setInterval(() => void refreshCodingAgents(), 1000);
+      return () => window.clearInterval(id);
+    }
+    if (agentSetupWasRunning.current) {
+      agentSetupWasRunning.current = false;
+      void refreshCodingAgents({ refreshModels: true });
+    }
+  }, [agentSetupRunning, refreshCodingAgents]);
+
   const refreshToolConnections = useCallback(async () => {
     try {
       const payload = await api<{ connections?: ToolConnectOption[] }>("/api/connections");
@@ -8068,6 +8082,29 @@ export function App() {
         loading: "Starting setup…",
         success: "Setup started",
         error: (e) => (e instanceof Error ? e.message : "Couldn't start setup"),
+      },
+    );
+  }
+
+  function updateCodingAgent(kind: AgentKind) {
+    setCodingAgents((current) =>
+      current.map((item) =>
+        item.key === kind
+          ? { ...item, status: { ...item.status, setupRunning: true } }
+          : item,
+      ),
+    );
+    toast.promise(
+      api<{ agents: CodingAgentInfo[]; models?: ModelCatalogItem[] | null }>(`/api/coding-agents/${kind}/update`, {
+        method: "POST",
+      }).then((payload) => {
+        setCodingAgents(payload.agents ?? []);
+        setModelCatalog(buildAgentModelCatalog(payload.models));
+      }),
+      {
+        loading: "Updating CLI…",
+        success: "Update started",
+        error: (e) => (e instanceof Error ? e.message : "Couldn't start update"),
       },
     );
   }
@@ -9131,6 +9168,7 @@ export function App() {
             agents={codingAgents}
             onVisibleChange={(kind, visible) => void setCodingAgentVisible(kind, visible)}
             onSetup={setupCodingAgent}
+            onUpdate={updateCodingAgent}
             onLogin={(kind, accountId) => loginCodingAgent(kind, undefined, accountId)}
             onAddClaudeAccount={addClaudeAccount}
             onRemoveClaudeAccount={removeClaudeAccountFromSettings}
