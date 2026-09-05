@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { PATHS, localServeBaseUrl } from "./config.ts";
+import { modelDiscoveryKeysForAgent, refreshModelCatalog } from "./model-discovery.ts";
 import { omgCapabilityAccess } from "./omg-capabilities.ts";
 import { githubCliPath } from "./tool-connections.ts";
 import { agentAccountProfile, type AgentAccountProfile } from "./agent-profiles.ts";
@@ -1803,6 +1804,10 @@ export async function runSetupAction(key: string): Promise<void> {
   }
 }
 
+export function codingAgentHasInstaller(kind: CodingAgentKind): boolean {
+  return setupEnvFor(kind) !== null;
+}
+
 function setupEnvFor(kind: CodingAgentKind): Record<string, string> | null {
   if (kind === "claude" || kind === "aisdk") return { LFG_INSTALL_CLAUDE: "1" };
   if (kind === "codex" || kind === "codex-aisdk") return { LFG_INSTALL_CODEX: "1" };
@@ -1904,6 +1909,14 @@ export async function runCodingAgentSetups(kinds: CodingAgentKind[]): Promise<vo
   for (const kind of uniqueKinds) setupRuns.set(kind, run);
   try {
     await run;
+    const probe = [...new Set(uniqueKinds.flatMap((kind) => modelDiscoveryKeysForAgent(kind)))];
+    if (probe.length) {
+      await refreshModelCatalog({
+        reason: "agent-setup",
+        only: probe,
+        onLog: (line) => appendSetupLog(line),
+      });
+    }
     appendSetupLog("Done.");
   } catch (e) {
     setupLog.error = e instanceof Error ? e.message : String(e);
@@ -1921,6 +1934,119 @@ export async function runCodingAgentSetups(kinds: CodingAgentKind[]): Promise<vo
 
 export async function runCodingAgentSetup(kind: CodingAgentKind): Promise<void> {
   return runCodingAgentSetups([kind]);
+}
+
+export type CodingAgentUpdateHooks = {
+  runInstaller?: (command: string) => Promise<void>;
+  refreshCatalog?: (keys: CodingAgentKind[]) => Promise<void>;
+};
+
+async function runInstallerCommand(
+  command: string,
+  onLine: (line: string) => void,
+): Promise<void> {
+  const proc = Bun.spawn(["bash", "-lc", command], {
+    cwd: userHome(),
+    stdout: "pipe",
+    stderr: "pipe",
+    env: process.env,
+  });
+  const readLines = async (stream: ReadableStream<Uint8Array>, collect?: string[]) => {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let buffered = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffered += decoder.decode(value, { stream: true });
+      const lines = buffered.split("\n");
+      buffered = lines.pop() ?? "";
+      for (const line of lines) {
+        onLine(line);
+        collect?.push(line);
+      }
+    }
+    if (buffered.length) {
+      onLine(buffered);
+      collect?.push(buffered);
+    }
+  };
+  const stderrLines: string[] = [];
+  const [, , code] = await Promise.all([
+    readLines(proc.stdout),
+    readLines(proc.stderr, stderrLines),
+    proc.exited,
+  ]);
+  if (code !== 0) {
+    const detail = stderrLines
+      .join("\n")
+      .replace(/\x1b\[[0-9;]*m/g, "")
+      .trim()
+      .slice(0, 1000);
+    throw new Error(detail || `update exited ${code}`);
+  }
+}
+
+/**
+ * Reinstall the agent's CLI even when it is already on PATH, then re-probe
+ * its model catalog. `runCodingAgentSetup` cannot do this: setup.sh skips any
+ * binary `command -v` already finds, which is why a live Computer stays on an
+ * old Codex after the omg pin moves.
+ */
+export async function runCodingAgentUpdate(
+  kind: CodingAgentKind,
+  hooks: CodingAgentUpdateHooks = {},
+): Promise<void> {
+  if (setupRuns.has(kind)) throw new Error(`${kind} setup is already running`);
+  if (!codingAgentHasInstaller(kind)) throw new Error(`${kind} does not have an automatic setup path`);
+  const command = installCommandFor(kind);
+  if (!command) throw new Error(`${kind} does not have an automatic setup path`);
+
+  setupProgress.set(kind, { percent: 10, label: "Updating…" });
+  setupLog = {
+    running: true,
+    kinds: [kind],
+    lines: [],
+    error: null,
+    finishedAt: null,
+  };
+  appendSetupLog(`Updating ${CODING_AGENT_LABELS[kind]}…`);
+  appendSetupLog(command);
+
+  const run = (async () => {
+    setupProgress.set(kind, { percent: 40, label: "Installing latest CLI…" });
+    const runInstaller = hooks.runInstaller ?? ((cmd) => runInstallerCommand(cmd, appendSetupLog));
+    await runInstaller(command);
+    const keys = modelDiscoveryKeysForAgent(kind);
+    if (keys.length) {
+      setupProgress.set(kind, { percent: 80, label: "Refreshing models…" });
+      const refresh =
+        hooks.refreshCatalog ??
+        (async (probe) => {
+          await refreshModelCatalog({
+            reason: "agent-update",
+            only: probe,
+            onLog: (line) => appendSetupLog(line),
+          });
+        });
+      await refresh(keys);
+    }
+    setupProgress.set(kind, { percent: 100, label: "Done" });
+    appendSetupLog("Done.");
+  })();
+  setupRuns.set(kind, run);
+  try {
+    await run;
+  } catch (e) {
+    setupLog.error = e instanceof Error ? e.message : String(e);
+    appendSetupLog(`Error: ${setupLog.error}`);
+    throw e;
+  } finally {
+    setupLog.running = false;
+    setupLog.finishedAt = Date.now();
+    if (setupRuns.get(kind) === run) setupRuns.delete(kind);
+    setupProgress.delete(kind);
+  }
 }
 
 export function isCodingAgentKind(value: string): value is CodingAgentKind {

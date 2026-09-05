@@ -453,6 +453,7 @@ import {
   type SttStreamBridge,
 } from "../voice-providers.ts";
 import {
+  codingAgentHasInstaller,
   isCodingAgentKind,
   listCodingAgents,
   listSetupChecks,
@@ -464,6 +465,7 @@ import {
   registerClaudeMcpForAccount,
   runCodingAgentSetup,
   runCodingAgentSetups,
+  runCodingAgentUpdate,
   runSetupAction,
   setCodingAgentVisibility,
   startCodingAgentAuth,
@@ -5399,6 +5401,21 @@ a{color:#60a5fa}
           if (!isCodingAgentKind(kind)) return err(404, "unknown coding agent");
           void runCodingAgentSetup(kind).catch((e) =>
             console.error(`[coding-agents] ${kind} setup failed:`, e),
+          );
+          const agents = await listCodingAgents();
+          return json({ ok: true, agents, models: listModelCatalog(agents) });
+        }
+      }
+      {
+        const m = path.match(/^\/api\/coding-agents\/([a-z0-9_-]+)\/update$/);
+        if (m && req.method === "POST") {
+          const kind = m[1];
+          if (!isCodingAgentKind(kind)) return err(404, "unknown coding agent");
+          if (!codingAgentHasInstaller(kind)) {
+            return err(400, `${kind} does not have an automatic update path`);
+          }
+          void runCodingAgentUpdate(kind).catch((e) =>
+            console.error(`[coding-agents] ${kind} update failed:`, e),
           );
           const agents = await listCodingAgents();
           return json({ ok: true, agents, models: listModelCatalog(agents) });

@@ -29,9 +29,10 @@ import { useState } from "react";
 
 /**
  * Collapsed agent rows are icon, name, toggle, and at most one word. The
- * expanded row is only the action that is still missing: provider Connect
- * rows, one Install when the binary is gone, or a single Login when this
- * agent has no provider/account rows of its own.
+ * expanded row is the action that is still missing, plus Update when the
+ * CLI is already installed: provider Connect rows, Install when the binary
+ * is gone, Update to replace a stale CLI, or Login when this agent has no
+ * provider/account rows of its own.
  */
 
 /** Setup groups still name the failing check. Agent rows do not. */
@@ -188,6 +189,7 @@ export default function CodingAgentsPage({
   agents,
   onVisibleChange,
   onSetup,
+  onUpdate,
   onLogin,
   onAddClaudeAccount,
   onRemoveClaudeAccount,
@@ -202,6 +204,7 @@ export default function CodingAgentsPage({
   agents: CodingAgentInfo[];
   onVisibleChange: (kind: AgentKind, visible: boolean) => void;
   onSetup: (kind: AgentKind) => void;
+  onUpdate: (kind: AgentKind) => void;
   onLogin: (kind: AgentKind, claudeAccountId?: string) => void;
   onAddClaudeAccount: () => void;
   onRemoveClaudeAccount: (account: ClaudeAccountInfo) => void;
@@ -221,9 +224,9 @@ export default function CodingAgentsPage({
     setRefreshing(true);
     try {
       await onRefresh();
-      toast.success("Coding agents refreshed");
+      toast.success("Models refreshed");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not refresh coding agents");
+      toast.error(e instanceof Error ? e.message : "Could not refresh models");
     } finally {
       setRefreshing(false);
     }
@@ -242,7 +245,7 @@ export default function CodingAgentsPage({
           className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
         >
           <RotateCcw className={cn("size-3.5", refreshing && "animate-spin")} />
-          Refresh
+          Refresh models
         </button>
       </div>
 
@@ -475,6 +478,22 @@ export default function CodingAgentsPage({
                       <Play className="size-4" />
                     )}
                     {status.setupRunning ? "Running…" : "Install"}
+                  </Button>
+                ) : null}
+                {status.canAutoSetup && !needsBinary ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={status.setupRunning}
+                    onClick={() => onUpdate(agent.key)}
+                    title="Install the latest CLI and refresh its model list"
+                  >
+                    {status.setupRunning ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <RotateCcw className="size-4" />
+                    )}
+                    {status.setupRunning ? "Updating…" : "Update"}
                   </Button>
                 ) : null}
                 {accounts.length && hasConnectedAccount ? (

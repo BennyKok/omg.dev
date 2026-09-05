@@ -42,6 +42,18 @@ const REFRESH_KEYS: ProviderKey[] = ["claude", "aisdk", "codex", "grok", "cursor
  * them would spin a probe every tick forever and never change the answer.
  */
 const NO_DISCOVERY_COMMAND: ReadonlySet<ProviderKey> = new Set<ProviderKey>(["claude", "aisdk"]);
+
+/**
+ * Which discovery probes to re-run after that agent's CLI is installed or
+ * updated. `codex-aisdk` is mirrored from `codex`. Claude has no model-list
+ * command, so an update there only replaces the binary.
+ */
+export function modelDiscoveryKeysForAgent(kind: CodingAgentKind): ProviderKey[] {
+  if (kind === "codex-aisdk") return ["codex"];
+  if (NO_DISCOVERY_COMMAND.has(kind)) return [];
+  if (REFRESH_KEYS.includes(kind)) return [kind];
+  return [];
+}
 /**
  * A failed provider is written to the cache like any other, which used to make
  * the scheduler consider the catalog done until the next daily cron — so a box
