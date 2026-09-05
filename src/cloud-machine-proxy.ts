@@ -25,9 +25,13 @@ export type FetchLike = (input: string | URL | Request, init?: RequestInit) => P
 export interface CloudMachineProxyOptions {
   account: Pick<CloudAccount, "getAccessToken">;
   sessionOrigin?: string;
+  controlPlaneUrl?: string;
   fetch?: FetchLike;
   WebSocket?: typeof globalThis.WebSocket;
   now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+  /** How long one request waits for a waking cloud Computer. Default 50 s. */
+  wakeWaitMs?: number;
 }
 
 /** What a proxied client socket carries through Bun's upgrade. */
@@ -59,7 +63,11 @@ export interface CloudMachineProxy {
 }
 
 const DEFAULT_SESSION_ORIGIN = "https://sessions.omgs.app";
+const DEFAULT_CONTROL_PLANE_URL = "https://backend.omg.dev";
 const SESSION_AUTH_PATH = "/__omg/session-auth";
+const CLOUD_BINDING_ID = "cloud";
+const WAKE_POLL_MS = 3_000;
+const WAKE_THROTTLE_MS = 30_000;
 const GRANT_SKEW_MS = 30_000;
 const SOCKET_OPEN = 1;
 
@@ -105,9 +113,15 @@ export function createCloudMachineProxy(options: CloudMachineProxyOptions): Clou
   const sessionOrigin = (
     options.sessionOrigin ?? (process.env.OMG_SESSION_ORIGIN?.trim() || DEFAULT_SESSION_ORIGIN)
   ).replace(/\/+$/, "");
+  const controlPlaneUrl = (
+    options.controlPlaneUrl ?? (process.env.OMG_API_URL?.trim() || DEFAULT_CONTROL_PLANE_URL)
+  ).replace(/\/+$/, "");
   const fetchImpl = options.fetch ?? globalThis.fetch;
   const WebSocketImpl = options.WebSocket ?? globalThis.WebSocket;
   const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const wakeWaitMs = options.wakeWaitMs ?? 50_000;
+  let lastWakeAt: number | null = null;
   const grants = new Map<string, { cached: Grant | null; pending: Promise<Grant> | null }>();
   const upstreams = new WeakMap<object, { socket: WebSocket | null; queue: Array<string | ArrayBufferLike | ArrayBufferView>; closed: boolean }>();
 
@@ -176,6 +190,28 @@ export function createCloudMachineProxy(options: CloudMachineProxyOptions): Clou
     return current.pending;
   }
 
+  /**
+   * Ask the control plane to wake the cloud Computer. Nothing else on this
+   * path does: reads, the grant mint and bootstrap polls all leave a paused
+   * machine paused, and the proxy would answer 425 forever. Throttled, and a
+   * failure is not an error here: the poll below decides what the caller sees.
+   */
+  async function wakeCloudComputer(): Promise<void> {
+    if (lastWakeAt !== null && now() - lastWakeAt < WAKE_THROTTLE_MS) return;
+    lastWakeAt = now();
+    const token = await options.account.getAccessToken();
+    if (!token) return;
+    try {
+      await fetchImpl(`${controlPlaneUrl}/api/cli/computer/wake`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: "{}",
+      });
+    } catch {
+      // The poll reports the outcome.
+    }
+  }
+
   function errorResponse(error: unknown): Response {
     const status = error instanceof CloudAccountError ? error.status : 502;
     const message = error instanceof Error ? error.message : "Cloud machine request failed.";
@@ -212,6 +248,18 @@ export function createCloudMachineProxy(options: CloudMachineProxyOptions): Clou
     try {
       let upstream = await send(false);
       if (upstream.status === 401) upstream = await send(true);
+      // 425 is the session origin saying the cloud Computer is asleep. Wake
+      // it and wait here, so the UI gets one slow answer instead of an error
+      // it does not know how to retry.
+      if (upstream.status === 425 && target.bindingId === CLOUD_BINDING_ID) {
+        const deadline = now() + wakeWaitMs;
+        await wakeCloudComputer();
+        while (upstream.status === 425 && now() + WAKE_POLL_MS <= deadline) {
+          await sleep(WAKE_POLL_MS);
+          upstream = await send(false);
+          if (upstream.status === 401) upstream = await send(true);
+        }
+      }
       const out = new Headers();
       upstream.headers.forEach((value, name) => {
         if (!STRIP_RESPONSE_HEADERS.has(name.toLowerCase())) out.set(name, value);
