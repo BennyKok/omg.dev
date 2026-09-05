@@ -15876,6 +15876,16 @@ function SessionChatBody({
               scrollToEndNonce={dictationScrollNonce}
               onPaste={files.onPasteFiles}
               onKeyDown={(e) => {
+                // Esc is the inverse of the rail's Enter ("focus into the
+                // composer"): it drops focus so the global single-key
+                // shortcuts (Arrow/j/k) work again. SkillTextarea already
+                // ate Escape if a picker was open, so this only runs when
+                // the plain field has focus.
+                if (e.key === "Escape" && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  e.currentTarget.blur();
+                  return;
+                }
                 if (e.key !== "Enter" || e.shiftKey) return;
                 e.preventDefault();
                 // Cmd/Ctrl+Enter is the keyboard twin of holding the send
