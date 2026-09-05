@@ -80,6 +80,35 @@ export interface EmbeddedHostOptions {
    * error; when unset, the message is shown as usual.
    */
   onPlanLimit?: (detail: PlanLimitDetail) => void;
+  /**
+   * The machines the viewer can point this surface at, owned by the host.
+   *
+   * A standalone box lists its own account's machines and switches by
+   * reloading against its proxy. A host has its own list, its own selection
+   * and its own way to switch (it hands the surface a new transport), so it
+   * supplies all three here and the surface draws the same switcher — the
+   * rail row on desktop, the header icon on mobile — over the host's data.
+   * Omit it and the hosted surface draws no switcher at all.
+   */
+  machines?: HostMachines;
+}
+
+/** One machine in a host-supplied list. `local` is the box serving the page. */
+export interface HostMachine {
+  id: string;
+  name: string;
+  kind: "cloud" | "connected" | "local";
+  online: boolean;
+  /** Short state for the second line, e.g. "Paused". Defaults from `online`. */
+  status?: string;
+}
+
+export interface HostMachines {
+  machines: HostMachine[];
+  /** The id the surface is currently pointed at. */
+  activeId: string;
+  /** The person chose another machine. The host switches and re-renders. */
+  onSelect: (id: string) => void;
 }
 
 /**

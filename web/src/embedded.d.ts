@@ -177,6 +177,32 @@ export interface OmgAppSurfaceProps {
    */
   onPlanLimit?: (detail: PlanLimitDetail) => void;
   errorSink?: OmgErrorSink;
+  /**
+   * Machines the viewer can switch this surface between, and which one it
+   * shows now. The surface draws its machine switcher (rail row on desktop,
+   * header icon on mobile) over this list and calls `onSelect` when a
+   * different one is chosen; the host then hands over a new `transport`.
+   * Omit it and no switcher is drawn.
+   */
+  machines?: HostMachines;
+}
+
+/** One machine in a host-supplied list. `local` is the box serving the page. */
+export interface HostMachine {
+  id: string;
+  name: string;
+  kind: "cloud" | "connected" | "local";
+  online: boolean;
+  /** Short state for the second line, e.g. "Paused". Defaults from `online`. */
+  status?: string;
+}
+
+export interface HostMachines {
+  machines: HostMachine[];
+  /** The id the surface is currently pointed at. */
+  activeId: string;
+  /** The person chose another machine. The host switches and re-renders. */
+  onSelect: (id: string) => void;
 }
 
 export interface PlanLimitDetail {

@@ -6015,6 +6015,8 @@ export function App() {
   // selector — a back tap away from what the gear used to do. Unset leaves the
   // item out entirely rather than guessing a destination.
   const { onOpenHostSettings } = useEmbeddedHostOptions();
+  // A host that supplies its own machine list gets the switcher too.
+  const { machines: hostMachines } = useEmbeddedHostOptions();
   const hostSettingsInMenu = embedded && !!onOpenHostSettings;
   // Keep the session list + Shipped/Artifacts mounted after first visit so
   // tab switches don't remount, re-fetch, or reboot gallery iframes. Hidden
@@ -8643,7 +8645,7 @@ export function App() {
         >
           {/* Top left on mobile: an icon only, the header has no room for a
               name. Same menu as the desktop rail row. */}
-          {!embedded ? <MachineSwitcher variant="icon" /> : null}
+          {!embedded || hostMachines ? <MachineSwitcher variant="icon" /> : null}
           <LiveHeaderContext
             intro={showHeaderBrandIntro}
             hosted={embedded}
@@ -11925,6 +11927,8 @@ function RailStage({
    */
   hostSettingsInMenu?: boolean;
 }) {
+  // A host that supplies its own machine list gets the switcher too.
+  const hostMachines = useEmbeddedHostOptions().machines;
   const appDialog = useAppDialog();
   const { conversations: botConversationsForRail, selectedConversationId: selectedBotConversationForRail, markRead: markBotRowRead } = useContext(BotUnreadContext);
   const MAX_COLUMNS = 4;
@@ -13149,7 +13153,7 @@ function RailStage({
             its navigation into. Empty until the box is signed in to omg Cloud
             with a machine it can reach, so a plain install sees no change.
             A hosted surface never shows it: the host owns machine selection. */}
-        {!hosted ? <MachineSwitcher variant="rail" collapsed={railCollapsed} /> : null}
+        {!hosted || hostMachines ? <MachineSwitcher variant="rail" collapsed={railCollapsed} /> : null}
         {hosted ? (
           <div
             data-lfg-host-slot="rail-footer"

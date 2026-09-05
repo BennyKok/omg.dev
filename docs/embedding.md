@@ -71,6 +71,31 @@ Wiring the general entry to the machine callback is how it ends up on a
 per-computer page behind a machine selector, one back tap from where the person
 meant to go.
 
+## Machine switcher
+
+A standalone box draws a machine switcher once it is signed in to omg Cloud:
+the last row of the desktop rail, an icon at the top left of the mobile
+header, and one menu listing every machine on the account. A host can draw
+the same switcher over its own data by passing `machines`:
+
+```tsx
+<OmgAppSurface
+  transport={transportFor(activeId)}
+  machines={{
+    machines: [
+      { id: "cloud", name: "omg cloud", kind: "cloud", online: true },
+      { id: bindingId, name: "MacBook", kind: "connected", online: false, status: "offline" },
+    ],
+    activeId,
+    onSelect: (id) => setActiveId(id),
+  }}
+/>
+```
+
+The surface never reads the box's account under a host, and it never switches
+by itself: `onSelect` reports the pick, the host re-renders with a new
+`transport`, and the surface follows. Omit `machines` and no switcher is drawn.
+
 ```tsx
 const slot = document.querySelector('[data-lfg-host-slot="header-actions"]');
 if (slot) ReactDOM.createPortal(<YourChrome />, slot);

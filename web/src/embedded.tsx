@@ -21,6 +21,7 @@ import {
   type EmbeddedAnalyticsEventHandler,
   type EmbeddedViewer,
   type HostedTranscription,
+  type HostMachines,
   type HostSettingsPage,
   type PlanLimitDetail,
 } from "./lib/embedded-host-options";
@@ -31,6 +32,8 @@ import type { AgentKind } from "./lib/coding-agent-options";
 export type {
   EmbeddedAnalyticsEventHandler,
   EmbeddedViewer,
+  HostMachine,
+  HostMachines,
   HostedTranscription,
   PlanLimitDetail,
 } from "./lib/embedded-host-options";
@@ -153,6 +156,14 @@ export interface OmgAppSurfaceProps {
    * survives. Omit it and reporting stays purely transport-local.
    */
   errorSink?: OmgErrorSink;
+  /**
+   * Machines the viewer can switch this surface between, and which one it
+   * shows now. The surface draws its machine switcher (rail row on desktop,
+   * header icon on mobile) over this list and calls `onSelect` when a
+   * different one is chosen; the host then hands over a new `transport`.
+   * Omit it and no switcher is drawn.
+   */
+  machines?: HostMachines;
 }
 
 function initialPath(sessionId?: string | null): string {
@@ -337,6 +348,7 @@ export function OmgAppSurface({
   onOpenHostSettings,
   onPlanLimit,
   errorSink,
+  machines,
 }: OmgAppSurfaceProps) {
   // A full LFG app is the sole owner of its runtime transport. Install it
   // synchronously so child effects cannot race the host boundary; there is no
@@ -373,6 +385,7 @@ export function OmgAppSurface({
           // surface while being dead from the outside.
           onOpenHostSettings,
           onPlanLimit,
+          machines,
         }}
       >
         <BareSurfaceProvider bare={false}>

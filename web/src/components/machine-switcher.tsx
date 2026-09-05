@@ -7,6 +7,7 @@ import {
   useCloudMachines,
   type CloudComputerRow,
 } from "../lib/cloud-machines";
+import { useEmbeddedHostOptions, type HostMachine } from "../lib/embedded-host-options";
 import { activeMachine, selectMachine, type MachineChoice } from "../lib/machines";
 import { cn } from "../lib/utils";
 import {
@@ -19,6 +20,51 @@ import {
 } from "./ui/dropdown-menu";
 
 type Entry = { choice: MachineChoice; row: CloudComputerRow | null };
+
+/** The list the switcher draws and how a pick is applied, from either owner. */
+type MachineSource = {
+  entries: Entry[];
+  activeId: string;
+  select: (choice: MachineChoice) => void;
+};
+
+/** Present a host-supplied machine as the row shape the menu already renders. */
+function hostEntry(machine: HostMachine): Entry {
+  if (machine.kind === "local") {
+    return { choice: { id: machine.id, name: machine.name }, row: null };
+  }
+  return {
+    choice: { id: machine.id, name: machine.name },
+    row: {
+      slug: machine.id,
+      name: machine.name,
+      kind: machine.kind,
+      online: machine.online,
+      status: machine.status ?? (machine.online ? "live" : "offline"),
+      isDefault: false,
+    },
+  };
+}
+
+/**
+ * The box's own account list, used when no host supplies one. Hidden until
+ * the box is signed in with a reachable machine.
+ */
+function useBoxMachines(enabled: boolean, onSelect: (choice: MachineChoice) => void): MachineSource | null {
+  const { status, computers } = useCloudMachines(enabled);
+  const active = activeMachine();
+  if (!enabled) return null;
+  const reachable: Entry[] = (computers ?? []).flatMap((row) => {
+    const choice = rowMachineChoice(row);
+    return choice ? [{ choice, row }] : [];
+  });
+  if (!status?.signedIn || reachable.length === 0) return null;
+  return {
+    entries: [{ choice: LOCAL_MACHINE_CHOICE, row: null }, ...reachable],
+    activeId: active.id,
+    select: onSelect,
+  };
+}
 
 /**
  * Which machine this UI is pointed at, and a menu to change it.
@@ -42,18 +88,23 @@ export function MachineSwitcher({
   collapsed?: boolean;
   onSelect?: (choice: MachineChoice) => void;
 }) {
-  const { status, computers } = useCloudMachines();
-  const active = activeMachine();
-  const reachable: Entry[] = (computers ?? []).flatMap((row) => {
-    const choice = rowMachineChoice(row);
-    return choice ? [{ choice, row }] : [];
-  });
-  if (!status?.signedIn || reachable.length === 0) return null;
+  const host = useEmbeddedHostOptions().machines;
+  // One owner per surface: the host's list when it supplies one, else the
+  // box's account. The box read is skipped entirely under a host.
+  const box = useBoxMachines(!host, onSelect);
+  const source: MachineSource | null = host
+    ? {
+        entries: host.machines.map(hostEntry),
+        activeId: host.activeId,
+        select: (choice) => host.onSelect(choice.id),
+      }
+    : box;
+  if (!source || source.entries.length === 0) return null;
 
-  const entries: Entry[] = [{ choice: LOCAL_MACHINE_CHOICE, row: null }, ...reachable];
-  const current = entries.find((entry) => entry.choice.id === active.id) ?? entries[0]!;
+  const { entries, activeId, select } = source;
+  const current = entries.find((entry) => entry.choice.id === activeId) ?? entries[0]!;
   const CurrentIcon = current.row?.kind === "cloud" ? Cloud : Laptop;
-  const currentName = current.row ? current.row.name : "This computer";
+  const currentName = current.choice.name;
   const currentOnline = !current.row || current.row.online;
 
   const trigger =
@@ -111,7 +162,7 @@ export function MachineSwitcher({
               Machines
             </DropdownMenuLabel>
             {entries.map(({ choice, row }) => {
-              const selected = choice.id === active.id;
+              const selected = choice.id === activeId;
               const Icon = row?.kind === "cloud" ? Cloud : Laptop;
               return (
                 <DropdownMenuItem
@@ -119,7 +170,7 @@ export function MachineSwitcher({
                   data-machine-option={choice.id}
                   aria-current={selected ? "true" : undefined}
                   onClick={() => {
-                    if (!selected) onSelect(choice);
+                    if (!selected) select(choice);
                   }}
                   className="flex items-center gap-2.5 rounded-lg px-2 py-2"
                 >
@@ -128,9 +179,7 @@ export function MachineSwitcher({
                     <StatusDot online={!row || row.online} className="absolute -bottom-0.5 -right-0.5" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-medium">
-                      {row ? row.name : "This computer"}
-                    </span>
+                    <span className="block truncate text-[13px] font-medium">{choice.name}</span>
                     <span className="block truncate text-[11px] text-muted-foreground">
                       {row ? machineStatusLabel(row) : "The box that served this page"}
                     </span>
