@@ -36,6 +36,12 @@ Object.assign(globalThis, {
   Event: window.Event,
   CustomEvent: window.CustomEvent,
   getComputedStyle: window.getComputedStyle.bind(window),
+  // Base UI schedules its open/close transitions on animation frames. Without
+  // these, mounting any popup part (menu, dialog, tooltip) throws before it
+  // reaches the DOM, so no test could open a menu and the group-label crashes
+  // below only ever showed up in production.
+  requestAnimationFrame: window.requestAnimationFrame.bind(window),
+  cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
   // React reads this to decide whether `act` is legal. Without it every
   // render logs a warning and async updates are not flushed.
   IS_REACT_ACT_ENVIRONMENT: true,

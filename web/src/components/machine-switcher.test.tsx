@@ -109,6 +109,30 @@ describe("MachineSwitcher", () => {
     expect(ui.query("[data-machine-switcher]")).toBeNull();
   });
 
+  // Every assertion above stops at the trigger. The menu CONTENT was never
+  // mounted by a test, which is how a Menu.GroupLabel without a Menu.Group
+  // around it shipped and threw Base UI #31 on open, taking down the route.
+  // Open the menu so the parts inside it are actually rendered.
+  test("opening the menu lists the machines under a group label", async () => {
+    respond({
+      "/api/cloud/session": () => Response.json(signedIn),
+      "/api/cloud/computers": () => Response.json(computers),
+    });
+    ui.render(<MachineSwitcher variant="icon" />);
+    await ui.flushAsync();
+    const trigger = ui.query('[data-machine-switcher="icon"]') as HTMLElement | null;
+    expect(trigger).not.toBeNull();
+    await ui.flushAsync(() => {
+      trigger!.click();
+    });
+    // The menu renders through a portal, so it is on the document, not in host.
+    const menu = document.querySelector("[data-machine-menu]");
+    expect(menu).not.toBeNull();
+    expect(menu?.textContent).toContain("Machines");
+    expect(menu?.textContent).toContain("This computer");
+    expect(menu?.textContent).toContain("Cloud computer");
+  });
+
   test("a collapsed rail row shows the icon alone", async () => {
     respond({
       "/api/cloud/session": () => Response.json(signedIn),

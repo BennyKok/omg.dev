@@ -12,6 +12,7 @@ import { cn } from "../lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
@@ -102,38 +103,43 @@ export function MachineSwitcher({
           className="w-64 p-1.5"
           data-machine-menu=""
         >
-          <DropdownMenuLabel className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Machines
-          </DropdownMenuLabel>
-          {entries.map(({ choice, row }) => {
-            const selected = choice.id === active.id;
-            const Icon = row?.kind === "cloud" ? Cloud : Laptop;
-            return (
-              <DropdownMenuItem
-                key={choice.id}
-                data-machine-option={choice.id}
-                aria-current={selected ? "true" : undefined}
-                onClick={() => {
-                  if (!selected) onSelect(choice);
-                }}
-                className="flex items-center gap-2.5 rounded-lg px-2 py-2"
-              >
-                <span className="relative flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-foreground/[0.06]">
-                  <Icon className="size-4 text-foreground/70" />
-                  <StatusDot online={!row || row.online} className="absolute -bottom-0.5 -right-0.5" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-medium">
-                    {row ? row.name : "This computer"}
+          {/* Menu.GroupLabel throws without a Menu.Group around it (Base UI
+              #31), and the throw takes down the whole route. Group the label
+              with the rows it labels. */}
+          <DropdownMenuGroup>
+            <DropdownMenuLabel className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Machines
+            </DropdownMenuLabel>
+            {entries.map(({ choice, row }) => {
+              const selected = choice.id === active.id;
+              const Icon = row?.kind === "cloud" ? Cloud : Laptop;
+              return (
+                <DropdownMenuItem
+                  key={choice.id}
+                  data-machine-option={choice.id}
+                  aria-current={selected ? "true" : undefined}
+                  onClick={() => {
+                    if (!selected) onSelect(choice);
+                  }}
+                  className="flex items-center gap-2.5 rounded-lg px-2 py-2"
+                >
+                  <span className="relative flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-foreground/[0.06]">
+                    <Icon className="size-4 text-foreground/70" />
+                    <StatusDot online={!row || row.online} className="absolute -bottom-0.5 -right-0.5" />
                   </span>
-                  <span className="block truncate text-[11px] text-muted-foreground">
-                    {row ? machineStatusLabel(row) : "The box that served this page"}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-medium">
+                      {row ? row.name : "This computer"}
+                    </span>
+                    <span className="block truncate text-[11px] text-muted-foreground">
+                      {row ? machineStatusLabel(row) : "The box that served this page"}
+                    </span>
                   </span>
-                </span>
-                {selected ? <Check className="size-4 shrink-0 text-primary" /> : null}
-              </DropdownMenuItem>
-            );
-          })}
+                  {selected ? <Check className="size-4 shrink-0 text-primary" /> : null}
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
