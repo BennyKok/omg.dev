@@ -88,3 +88,10 @@ describe("userFilterUpdatesStandaloneIdentity", () => {
     expect(userFilterUpdatesStandaloneIdentity("__unassigned", false)).toBe(false);
   });
 });
+
+test("keeps a saved profile while the roster is unavailable, but drops a deleted profile after loading", async () => {
+  const { reconcileUserFilter } = await import("./user-filter");
+  expect(reconcileUserFilter("ada@example.com", [], false)).toBe("ada@example.com");
+  expect(reconcileUserFilter("ada@example.com", [], true)).toBe("__all");
+  expect(reconcileUserFilter("ada@example.com", [{ email: "ada@example.com" }], true)).toBe("ada@example.com");
+});

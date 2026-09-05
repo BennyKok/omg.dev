@@ -1,3 +1,4 @@
+import { useRuntimeAvailability } from "../lib/runtime-availability";
 import { Check, ChevronsUpDown, Cloud, Laptop } from "lucide-react";
 
 import {
@@ -88,6 +89,7 @@ export function MachineSwitcher({
   collapsed?: boolean;
   onSelect?: (choice: MachineChoice) => void;
 }) {
+  const { transportLive } = useRuntimeAvailability();
   const host = useEmbeddedHostOptions().machines;
   // One owner per surface: the host's list when it supplies one, else the
   // box's account. The box read is skipped entirely under a host.
@@ -105,7 +107,7 @@ export function MachineSwitcher({
   const current = entries.find((entry) => entry.choice.id === activeId) ?? entries[0]!;
   const CurrentIcon = current.row?.kind === "cloud" ? Cloud : Laptop;
   const currentName = current.choice.name;
-  const currentOnline = !current.row || current.row.online;
+  const currentOnline = !!transportLive || !current.row || current.row.online;
 
   const trigger =
     variant === "icon" ? (
@@ -176,7 +178,7 @@ export function MachineSwitcher({
                 >
                   <span className="relative flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-foreground/[0.06]">
                     <Icon className="size-4 text-foreground/70" />
-                    <StatusDot online={!row || row.online} className="absolute -bottom-0.5 -right-0.5" />
+                    <StatusDot online={selected ? currentOnline : !row || row.online} className="absolute -bottom-0.5 -right-0.5" />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[13px] font-medium">{choice.name}</span>
@@ -198,7 +200,8 @@ export function MachineSwitcher({
 function StatusDot({ online, className }: { online: boolean; className?: string }) {
   return (
     <span
-      aria-hidden
+      role="status"
+      aria-label={online ? "Computer online" : "Computer offline"}
       className={cn(
         "size-2 rounded-full ring-2 ring-background",
         online ? "bg-success" : "bg-foreground/25",

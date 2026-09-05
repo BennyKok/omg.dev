@@ -109,18 +109,12 @@ describe("the Computer version comes only from the Computer", () => {
     expect(computerSection()).toMatch(/stale:\s*\n?\s*computerVersionReport != null &&/);
   });
 
-  test("a restart under an open tab does not leave a stale version on screen", () => {
-    // Observed live during verification: the box was restarted onto a new
-    // version and Settings went on showing the pre-restart number until a
-    // manual reload. bootId is the only marker that distinguishes processes
-    // (two builds can share a version), so the reconnect edge checks it and
-    // re-bootstraps only when it actually moved.
-    expect(APP).toMatch(/bootId: typeof payload\.bootId === "string" \? payload\.bootId : null/);
-    expect(APP).toContain('"/api/install?ready=1"');
-    // Fires on the connection EDGE (not-live -> live), not on every render,
-    // and re-fetches nothing when the process is the same one as before.
-    expect(APP).toMatch(/if \(liveStatus !== "live" \|\| wasLive\) return;/);
-    expect(APP).toMatch(/if \(!seen \|\| !now \|\| seen === now\) return;/);
+  test("a restart or failed initial bootstrap reloads runtime data, but a network blip does not", async () => {
+    const { shouldReloadRuntime } = await import("../web/src/lib/runtime-availability");
+    expect(shouldReloadRuntime("boot-a", "boot-b")).toBe(true);
+    expect(shouldReloadRuntime("boot-a", "boot-a")).toBe(false);
+    expect(shouldReloadRuntime("boot-a", null)).toBe(false);
+    expect(shouldReloadRuntime(null, "boot-a")).toBe(true);
   });
 
   test("neither value is ever derived from the other", () => {

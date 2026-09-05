@@ -125,13 +125,30 @@ export function useCloudMachines(enabled = true): CloudMachinesState {
   useEffect(() => {
     if (!enabled) return;
     const controller = new AbortController();
-    load(controller.signal).catch((e: unknown) => {
-      if (controller.signal.aborted) return;
-      // An older server has no /api/cloud routes. `status` stays null and the
-      // callers hide themselves instead of showing a permanent error row.
-      if (e instanceof Error && !/session request failed/.test(e.message)) setError(e.message);
-    });
-    return () => controller.abort();
+    let pending = false;
+    const refresh = async () => {
+      if (pending || controller.signal.aborted) return;
+      pending = true;
+      try {
+        await load(controller.signal);
+        setError(null);
+      } catch (e) {
+        if (!controller.signal.aborted && e instanceof Error && !/session request failed/.test(e.message)) setError(e.message);
+      } finally {
+        pending = false;
+      }
+    };
+    const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    void refresh();
+    const timer = window.setInterval(onVisible, 15000);
+    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [load, enabled]);
 
   const reload = useCallback(async () => {

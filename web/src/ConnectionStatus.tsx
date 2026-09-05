@@ -14,9 +14,11 @@ const WS_TOAST_ID = "ws-conn";
 export function ConnectionStatusToasts({
   connection,
   onRetry,
+  recoveryVisible = false,
 }: {
   connection: ConnectionState;
   onRetry: () => void;
+  recoveryVisible?: boolean;
 }) {
   const { status, attempt, lastCloseCode } = connection;
   const prevStatusRef = useRef(status);
@@ -24,6 +26,11 @@ export function ConnectionStatusToasts({
   useEffect(() => {
     const wasDisconnected = prevStatusRef.current === "reconnecting" || prevStatusRef.current === "offline";
     prevStatusRef.current = status;
+
+    if (recoveryVisible && status !== "live") {
+      toast.dismiss(WS_TOAST_ID);
+      return;
+    }
 
     if (status === "reconnecting") {
       toast.loading("Reconnecting…", { id: WS_TOAST_ID });
@@ -48,7 +55,7 @@ export function ConnectionStatusToasts({
     }
     // "connecting" (initial load) and steady-state "live" stay silent — no nagging.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, attempt, lastCloseCode, onRetry]);
+  }, [status, attempt, lastCloseCode, onRetry, recoveryVisible]);
 
   return null;
 }

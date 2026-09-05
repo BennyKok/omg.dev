@@ -1,3 +1,8 @@
+import { LiveHeaderContext } from "./components/live-header-context";
+import { activeMachine } from "./lib/machines";
+import { useHeaderProfile } from "./lib/header-profile";
+import { RuntimeAvailabilityContext, useRuntimeAvailability, shouldReloadRuntime } from "./lib/runtime-availability";
+import { RuntimeRecovery, RuntimeEmptyState, ComposerConnectionHint } from "./components/runtime-recovery";
 import { AutoAgentPage } from "./components/auto-agent-page";
 import { Component, createContext, type ComponentProps, forwardRef, memo, Suspense, useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
@@ -129,6 +134,7 @@ import {
 } from "./lib/bot-transcript";
 import {
   initialUserFilter,
+  reconcileUserFilter,
   sessionMatchesUserFilter,
   userFilterUpdatesStandaloneIdentity,
 } from "./lib/user-filter";
@@ -6019,6 +6025,12 @@ export function App() {
   const { onOpenHostSettings } = useEmbeddedHostOptions();
   // A host that supplies its own machine list gets the switcher too.
   const { machines: hostMachines } = useEmbeddedHostOptions();
+  const headerProfile = useHeaderProfile(
+    hostMachines?.activeId ?? activeMachine().id,
+    identity,
+    users.find((user) => user.email === identity),
+  );
+
   const hostSettingsInMenu = embedded && !!onOpenHostSettings;
   // Keep the session list + Shipped/Artifacts mounted after first visit so
   // tab switches don't remount, re-fetch, or reboot gallery iframes. Hidden
@@ -6135,15 +6147,13 @@ export function App() {
   const botUnreadIdentityRef = useRef(botUnreadIdentity);
   botUnreadIdentityRef.current = botUnreadIdentity;
   // The mobile Live header introduces the product mark, then gives that prime
-  // strip of screen back to the person using it. Start the two-second hold only
-  // once bootstrap is ready so a slow connection does not consume the intro
-  // behind the startup state.
+  // strip of screen back to the person using it. Network retries must not
+  // keep the product mark visible indefinitely.
   const [showHeaderBrandIntro, setShowHeaderBrandIntro] = useState(true);
   useEffect(() => {
-    if (loading) return;
     const timer = window.setTimeout(() => setShowHeaderBrandIntro(false), 2000);
     return () => window.clearTimeout(timer);
-  }, [loading]);
+  }, []);
 
   // Mobile viewport sizing. iOS can return from the app switcher with stale
   // `dvh`/fixed-viewport metrics; a pinch zoom fixes it because WebKit is forced
@@ -6820,18 +6830,10 @@ export function App() {
   // email on a roster-less box, which hides every unassigned session forever
   // because the "valid roster email" branch never runs when users is empty.
   useEffect(() => {
-    if (!users.length) {
-      if (userFilter !== "__all" && userFilter !== "__unassigned") {
-        setUserFilter("__all");
-      }
-      return;
-    }
-    const valid =
-      userFilter === "__all" ||
-      userFilter === "__unassigned" ||
-      users.some((u) => u.email === userFilter);
-    if (!valid) setUserFilter(hostedSurface ? "__all" : users[0]?.email ?? "__all");
-  }, [hostedSurface, userFilter, users]);
+    const ready = computerVersionReport !== null && computerVersionReport.generation === omgTransportGeneration();
+    const next = reconcileUserFilter(userFilter, users, ready);
+    if (next !== userFilter) setUserFilter(next);
+  }, [userFilter, users, computerVersionReport]);
 
   useEffect(() => {
     // This key is filter-only. Hosted surfaces use it too so a deliberate
@@ -7274,7 +7276,7 @@ export function App() {
         if (cancelled) return;
         const seen = computerVersionReportRef.current?.bootId ?? null;
         const now = typeof payload.bootId === "string" ? payload.bootId : null;
-        if (!seen || !now || seen === now) return;
+        if (!shouldReloadRuntime(seen, now)) return;
         void loadCore().catch(() => {});
       })
       .catch(() => {});
@@ -7282,6 +7284,15 @@ export function App() {
       cancelled = true;
     };
   }, [useWsLive, liveStatus, loadCore]);
+
+  const retryRuntime = useCallback(() => {
+    if (loading) return;
+    wsLiveStream.reconnectNow();
+    setLoading(true);
+    void loadCore()
+      .catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)))
+      .finally(() => setLoading(false));
+  }, [loading, loadCore, wsLiveStream.reconnectNow]);
 
   const selectedConversationSid = selectedBotConversationId
     ? botConversations.find((row) =>
@@ -8579,6 +8590,14 @@ export function App() {
     <OpenSettingsPageContext.Provider value={setTab}>
     <BotDirectoryContext.Provider value={botDirectory}>
     <ViewerIdentityContext.Provider value={viewerParticipantId}>
+    <RuntimeAvailabilityContext.Provider value={{
+      status: useWsLive ? wsLiveStream.connection.status : "live",
+      transportLive: useWsLive && wsLiveStream.connection.status === "live",
+      loading,
+      ready: computerVersionReport !== null && computerVersionReport.generation === omgTransportGeneration(),
+      error,
+      retry: retryRuntime,
+    }}>
     <SendIdentityContext.Provider value={botUnreadIdentity || null}>
     <SessionUnreadContext.Provider value={sessionUnreadValue}>
     <BotUnreadContext.Provider value={{ conversations: botConversations, any: hasUnreadBotConversation(botConversations), selectedConversationId: selectedBotConversationId, markRead: (sessionId) => void markBotConversationVisible(sessionId).catch(() => {}) }}>
@@ -8586,15 +8605,11 @@ export function App() {
     <EditBotContext.Provider value={openBotEditor}>
     <div
       ref={rootRef}
-      inert={loading}
       aria-busy={loading}
-      aria-disabled={loading || undefined}
-      aria-describedby={loading ? "lfg-startup-status" : undefined}
+      aria-describedby={loading && bare ? "lfg-startup-status" : undefined}
       data-startup-state={loading ? "connecting" : "ready"}
       className={cn(
         bare ? BARE_SHELL_CLASS : APP_SHELL_CLASS,
-        loading &&
-          "[&_button]:cursor-wait [&_button]:opacity-60 [&_input]:cursor-wait [&_input]:opacity-60 [&_select]:cursor-wait [&_select]:opacity-60 [&_textarea]:cursor-wait [&_textarea]:opacity-60",
         // Embed: leave a blank band of our own background under the host
         // compact pill so list/inline composer sit above it. Full-bleed
         // portals (session sheet) use --lfg-safe-bottom on their own chrome.
@@ -8639,7 +8654,7 @@ export function App() {
            identical everywhere LFG's Live view is mounted. */
         <header
           className={cn(
-            "z-40 flex min-w-0 shrink-0 items-center justify-between gap-2 pb-1 pt-[calc(0.5rem+env(safe-area-inset-top))]",
+            "z-40 flex min-w-0 shrink-0 items-center gap-2 pb-1 pt-[calc(0.5rem+env(safe-area-inset-top))]",
             embedded
               ? "pl-3 pr-[calc(0.75rem+var(--lfg-host-top-inset))]"
               : "px-2 md:px-3",
@@ -8649,10 +8664,10 @@ export function App() {
               name. Same menu as the desktop rail row. */}
           {!embedded || hostMachines ? <MachineSwitcher variant="icon" /> : null}
           <LiveHeaderContext
-            intro={showHeaderBrandIntro}
-            hosted={embedded}
+            intro={showHeaderBrandIntro && !error}
+            brand={<ProductBrand compact hosted={embedded} />}
             viewerName={viewer?.name}
-            user={users.find((user) => user.email === identity)}
+            user={headerProfile}
             identity={identity}
             busyCount={liveSessions.filter(
               (session) => !!liveStream.busyBySid[session.sessionId ?? ""],
@@ -8670,6 +8685,7 @@ export function App() {
                   <UserFilterMenu
                     value={userFilter}
                     users={users}
+                    displayUser={headerProfile}
                     onChange={changeUserFilter}
                   />
                 )}
@@ -8718,6 +8734,7 @@ export function App() {
                   <UserFilterMenu
                     value={userFilter}
                     users={users}
+                    displayUser={headerProfile}
                     onChange={changeUserFilter}
                   />
                 )}
@@ -8849,6 +8866,7 @@ export function App() {
                 <UserFilterMenu
                   value={userFilter}
                   users={users}
+                    displayUser={headerProfile}
                   onChange={changeUserFilter}
                 />
               </>
@@ -8879,23 +8897,7 @@ export function App() {
 
       {embedded ? null : <PwaInstallCallout />}
 
-      {error ? (
-        <div className="mx-3 mt-3 flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          <span className="min-w-0 flex-1">{error}</span>
-          {/* A startup failure can persist with nothing left to retry it, so it
-              needs a way out that is not "reload the tab". It also measures
-              into the mobile chrome height, so an undismissable one keeps
-              pushing the scroll surface down for as long as it is wrong. */}
-          <button
-            type="button"
-            onClick={() => setError(null)}
-            aria-label="Dismiss"
-            className="-mr-1 shrink-0 rounded-md p-0.5 opacity-70 transition-opacity hover:opacity-100"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-      ) : null}
+      <RuntimeRecovery />
       </div>
       )}
 
@@ -9414,8 +9416,8 @@ export function App() {
         onComplete={completeConnectionAuth}
       />
 
-      {useWsLive ? (
-        <ConnectionStatusToasts connection={wsLiveStream.connection} onRetry={wsLiveStream.reconnectNow} />
+      {useWsLive && !error ? (
+        <ConnectionStatusToasts recoveryVisible={!bare} connection={wsLiveStream.connection} onRetry={wsLiveStream.reconnectNow} />
       ) : null}
       <VoiceSetupDialog />
       {/* Shift toggles the all-agent usage campfire; long-press rings on mobile. */}
@@ -9467,7 +9469,7 @@ export function App() {
       />
       <Toaster position={isMobile ? "top-center" : "bottom-center"} />
     </div>
-    {loading ? <AppStartupStatus /> : null}
+    {loading && bare ? <AppStartupStatus /> : null}
     {terminalSid ? (
       <SessionTerminalOverlay
         sessionId={terminalSid}
@@ -9480,6 +9482,7 @@ export function App() {
     </BotUnreadContext.Provider>
     </SessionUnreadContext.Provider>
     </SendIdentityContext.Provider>
+    </RuntimeAvailabilityContext.Provider>
     </ViewerIdentityContext.Provider>
     </BotDirectoryContext.Provider>
     </OpenSettingsPageContext.Provider>
@@ -9555,180 +9558,6 @@ function ProductBrand({
         omg.dev
       </span>
     </span>
-  );
-}
-
-// Mobile Live uses the otherwise-empty span between the account controls and
-// the screen edge as a small contextual surface. It begins as the familiar LFG
-// mark, then expands into a personal status line. The welcome is the resting
-// state; activity only interrupts it while work is genuinely in motion.
-// Questions take precedence, but keep the same quiet plain-text treatment.
-function LiveHeaderContext({
-  intro,
-  hosted = false,
-  viewerName,
-  user,
-  identity,
-  busyCount,
-  onOpenNotifications,
-}: {
-  intro: boolean;
-  hosted?: boolean;
-  viewerName?: string;
-  user?: User;
-  identity?: string | null;
-  busyCount: number;
-  onOpenNotifications: () => void;
-}) {
-  const { questions } = useAsk();
-  // Hosted identity is presentation-only and intentionally wins over the LFG
-  // roster. omg Computers have no roster by design, so deriving this welcome
-  // from session ownership would either say "Unassigned" or reintroduce the
-  // rejected-user bug that roster-less hosted instances were built to avoid.
-  // When nothing identifies the viewer at all — a roster-less host that passes
-  // no viewer, or omg's signed-out preview — there is no name to greet, so the
-  // greeting drops the name entirely. It must NOT fall through to shortUser()'s
-  // "unassigned": that is a roster FILTER label ("show unowned sessions"),
-  // never a person, and it rendered as "Welcome, Unassigned" in the preview.
-  const rawName = viewerName?.trim() || user?.name?.trim() || (identity ? shortUser(identity) : "");
-  const firstNamePart = rawName.split(/\s+/)[0] ?? "";
-  const firstName = firstNamePart
-    ? `${firstNamePart.charAt(0).toUpperCase()}${firstNamePart.slice(1)}`
-    : "";
-  const questionCount = questions.length;
-  const showCard = intro;
-  const actionInMotion = busyCount > 0;
-  const [showAmbientStatus, setShowAmbientStatus] = useState(false);
-  const [ambientSwapState, setAmbientSwapState] = useState<"idle" | "exit" | "enter">("idle");
-  const ambientTextRef = useRef<HTMLSpanElement>(null);
-  const ambientSwapTimerRef = useRef<number | null>(null);
-  const ambientContext = `${busyCount} agent${busyCount === 1 ? "" : "s"} building`;
-  const welcomeMessage = firstName ? `Welcome, ${firstName}` : "Welcome";
-  const headline = questionCount
-    ? questionCount === 1
-      ? firstName
-        ? `${firstName}, an agent needs you`
-        : "An agent needs you"
-      : firstName
-        ? `${firstName}, ${questionCount} agents need you`
-        : `${questionCount} agents need you`
-    : actionInMotion && showAmbientStatus
-      ? ambientContext
-      : welcomeMessage;
-
-  useEffect(() => {
-    if (intro || questionCount || !actionInMotion) {
-      setShowAmbientStatus(false);
-      setAmbientSwapState("idle");
-      return;
-    }
-
-    // Let the personal welcome breathe. Activity gets a shorter cameo, then
-    // yields back to the welcome instead of competing with it equally.
-    const dwellMs = showAmbientStatus ? 2800 : 8000;
-    const dwellTimer = window.setTimeout(() => {
-      setAmbientSwapState("exit");
-      const swapDuration = Number.parseFloat(
-        window.getComputedStyle(document.documentElement).getPropertyValue("--text-swap-dur"),
-      ) || 150;
-      ambientSwapTimerRef.current = window.setTimeout(() => {
-        setShowAmbientStatus((current) => !current);
-        setAmbientSwapState("enter");
-      }, swapDuration);
-    }, dwellMs);
-
-    return () => {
-      window.clearTimeout(dwellTimer);
-      if (ambientSwapTimerRef.current !== null) {
-        window.clearTimeout(ambientSwapTimerRef.current);
-        ambientSwapTimerRef.current = null;
-      }
-    };
-  }, [actionInMotion, intro, questionCount, showAmbientStatus]);
-
-  useLayoutEffect(() => {
-    if (ambientSwapState !== "enter") return;
-    const label = ambientTextRef.current;
-    if (!label) return;
-    void label.offsetHeight;
-    const frame = window.requestAnimationFrame(() => setAmbientSwapState("idle"));
-    return () => window.cancelAnimationFrame(frame);
-  }, [ambientSwapState, showAmbientStatus]);
-
-  return (
-    <NavIsland
-      surface={showCard}
-      className={cn(
-        "shrink-0 overflow-hidden transition-[width] duration-500 ease-ios",
-        intro
-          ? "w-11"
-          : hosted
-            ? "w-[min(17rem,calc(100vw-var(--lfg-host-top-inset)-1.5rem))]"
-            : "w-[min(17rem,calc(100vw-6.75rem))]",
-      )}
-    >
-      <button
-        type="button"
-        onClick={() => {
-          haptic("selection");
-          onOpenNotifications();
-        }}
-        aria-label={
-          intro
-            ? "omg.dev"
-            : questionCount
-              ? `${headline}. Tap to open notifications`
-              : actionInMotion
-                ? `${welcomeMessage}. ${ambientContext}`
-                : welcomeMessage
-        }
-        title={intro ? "omg.dev" : "Open notifications"}
-        className={cn(
-          "relative flex h-11 w-full items-center overflow-hidden rounded-full text-left transition-colors active:scale-[0.98]",
-          showCard && "glass-island",
-          "text-foreground",
-        )}
-      >
-        <span
-          aria-hidden
-          className={cn(
-            "absolute inset-0 flex items-center justify-center transition-all duration-300 ease-ios",
-            intro ? "scale-100 opacity-100" : "scale-75 opacity-0",
-          )}
-        >
-          <ProductBrand compact hosted={hosted} />
-        </span>
-        <span
-          aria-live={questionCount ? "polite" : "off"}
-          className={cn(
-            "flex min-w-0 items-center px-1 transition-all duration-300 ease-ios",
-            intro ? "translate-y-1 opacity-0" : "translate-y-0 opacity-100 delay-150",
-          )}
-        >
-          <span className="min-w-0 leading-none">
-            <span
-              ref={ambientTextRef}
-              className={cn(
-                "t-text-swap block truncate tracking-[-0.01em]",
-                ambientSwapState === "exit" && "is-exit",
-                ambientSwapState === "enter" && "is-enter-start",
-                questionCount
-                  ? "text-[14px] font-semibold"
-                  : actionInMotion && showAmbientStatus
-                    ? "text-[12px] font-medium"
-                    : "text-[16px] font-semibold",
-              )}
-            >
-              {!questionCount && actionInMotion && showAmbientStatus ? (
-                <ShimmerText>{headline}</ShimmerText>
-              ) : (
-                headline
-              )}
-            </span>
-          </span>
-        </span>
-      </button>
-    </NavIsland>
   );
 }
 
@@ -11520,12 +11349,7 @@ function LiveView({
     return (
       <div className="flex flex-col gap-5">
         {coach}
-        <div className="flex min-h-[50dvh] flex-col items-center justify-center gap-3 text-center">
-          <MessageSquare className="size-8 text-muted-foreground/45" aria-hidden />
-          <span className="text-sm font-medium text-muted-foreground">
-            No running sessions
-          </span>
-        </div>
+        <RuntimeEmptyState />
       </div>
     );
   }
@@ -21569,6 +21393,7 @@ function NewSessionDialog({
   // campfire). The nonce lets the same agent be requested more than once.
   agentRequest?: { kind: AgentKind; accountId?: string; nonce: number } | null;
 }) {
+  const runtime = useRuntimeAvailability();
   const catalog = useAgentModelCatalog();
   const accessMode = useContext(AgentAccessModeContext);
   const view = useContext(ViewPrefsContext);
@@ -22253,6 +22078,7 @@ function NewSessionDialog({
   function submit(e?: FormEvent, overrideText?: string, overrideThinking?: ThinkingLevel) {
     e?.preventDefault();
     if (launching) return;
+    if (runtime.loading || !runtime.ready || runtime.status !== "live" || runtime.error) return;
     const taskPrompt = (overrideText ?? prompt).trim();
     const files = attachments;
     if (!taskPrompt && !files.length) return;
@@ -22422,6 +22248,7 @@ function NewSessionDialog({
   // variant is always expanded.
   const compact = variant === "inline" && !expanded;
   const canSubmit =
+    !runtime.loading && runtime.ready && runtime.status === "live" && !runtime.error &&
     !!selectedRepo &&
     visibleAgentOptions.some((option) => option.key === agent) &&
     (!!prompt.trim() || attachments.length > 0);
@@ -22866,6 +22693,7 @@ function NewSessionDialog({
         </div>
       </div>
 
+      <ComposerConnectionHint />
       {resumeOpen ? (
         <Suspense fallback={null}>
           <ResumeSessionSheet
