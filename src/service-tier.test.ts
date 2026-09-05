@@ -8,6 +8,7 @@ import {
 
 describe("Codex service tier", () => {
   test("recognizes the supported Fast model families", () => {
+    expect(codexModelSupportsFast("gpt-6-astra")).toBe(true);
     expect(codexModelSupportsFast("gpt-5.6-sol")).toBe(true);
     expect(codexModelSupportsFast("gpt-5.6-luna")).toBe(true);
     expect(codexModelSupportsFast("gpt-5.5")).toBe(true);

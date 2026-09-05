@@ -52,7 +52,7 @@
     "@anthropic-ai/claude-agent-sdk": "^0.3.205",
     "@github/copilot-sdk": "^1.0.9",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@openai/codex-sdk": "0.144.1",
+    "@openai/codex-sdk": "0.153.4",
     "@opencode-ai/sdk": "^1.17.7",
     "marked": "^18.0.3",
     "opencode-ai": "^1.17.7",

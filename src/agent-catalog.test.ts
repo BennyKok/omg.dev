@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   accessibleModelsForAgent,
+  CODEX_AISDK_MODELS,
+  CODEX_MODELS,
   curateCursorModels,
   curateOpenCodeModels,
   defaultModelForAgent,
@@ -11,6 +13,11 @@ import {
   modelsForAgent,
   OPENCODE_MODELS,
 } from "./agent-catalog.ts";
+
+test("offers Astra to Codex sessions", () => {
+  expect(CODEX_MODELS).toContain("gpt-6-astra");
+  expect(CODEX_AISDK_MODELS).toContain("gpt-6-astra");
+});
 
 const DISCOVERED = [
   "openai/gpt-5.3-codex-spark",
