@@ -212,6 +212,23 @@ report the exact reason and the unverified risk.
 - Report four items: changed behavior, verification, delivery state, and any
   remaining risk.
 
+### Landing and the local deploy restart
+
+`scripts/land-session.sh` is the landing path. It rebases the session branch,
+pushes to `origin/main`, syncs and builds the local main checkout, restarts the
+service, and writes the deployed-head marker. The push is the part to confirm
+first, because it changes shared state.
+
+A deploy restart does NOT interrupt live agent sessions. Do not warn that it
+does. The service unit sets `KillMode=process` for exactly this reason, so
+systemd stops only the main `bun ... serve` process. Managed agent children and
+the tmux panes for native TUI agents keep running, and the restarted service
+adopts them. Read the unit before you make a claim about restart blast radius.
+It states this in a comment.
+
+Use `LFG_LAND_SKIP_RESTART=1` only when the task asks for a build with no
+deploy. It is not a safety measure for other sessions.
+
 ## Versioning and releases
 
 After a user-visible change lands on `main`, evaluate a release. Skip releases
