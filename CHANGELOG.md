@@ -4,6 +4,12 @@ Recent product updates and deployment notes.
 
 ## September 5, 2026 - Mobile chat layout and auto-agent pages (v0.6.44)
 
+- **OpenCode default model is `opencode/nemotron-3.5-lightning-free`.** The
+  previous default, `opencode/deepseek-v4-flash-free`, now fails on
+  OpenCode's side with `Unexpected server error` and is gone from the
+  OpenCode catalog. A new box, and every omg.dev free Computer, picks the
+  working model.
+
 - **Chat messages keep their measured heights during keyboard changes.**
   Opening or closing the mobile keyboard while messages arrive no longer
   leaves rows at estimated heights that can make messages overlap.

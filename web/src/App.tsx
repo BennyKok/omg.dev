@@ -1313,7 +1313,7 @@ const CURSOR_MODELS = [
   "cursor-grok-4.6",
 ];
 const OPENCODE_MODELS = [
-  "opencode/deepseek-v4-flash-free",
+  "opencode/nemotron-3.5-lightning-free",
 ];
 // pi resolves the same Claude aliases as claude/aisdk plus one custom proxy
 // model id. Kept in sync with PI_MODELS in src/agent-catalog.ts (the server
@@ -1399,7 +1399,7 @@ const AGENT_DEFAULT_MODEL: Record<AgentKind, string> = {
   fx: "auto",
   muse: "muse-spark-1.2",
   deepseek: "deepseek-v4-flash",
-  opencode: "opencode/deepseek-v4-flash-free",
+  opencode: "opencode/nemotron-3.5-lightning-free",
   jcode: "auto",
   pi: "sonnet",
   copilot: "claude-sonnet-4.5",
