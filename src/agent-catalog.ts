@@ -113,7 +113,7 @@ export const PI_OPENCODE_MODELS: string[] = [
   "opencode/gpt-5.6-sol",
   "opencode/kimi-k2.7-code",
   "opencode/minimax-m3",
-  "opencode/deepseek-v4-flash-free",
+  "opencode/nemotron-3.5-lightning-free",
 ];
 export const PI_MODELS: string[] = [
   "fable",
@@ -131,8 +131,12 @@ export const PI_MODELS: string[] = [
 // therefore looked like "OpenCode only offers one free model" to every brand
 // new user who opened the picker inside the first refresh window, so seed it
 // with the full credential-free Zen set instead of one representative id.
+// deepseek-v4-flash-free led this list and was the default until 2026-09-05,
+// when OpenCode Zen started answering every call to it with
+// `UnknownError: Unexpected server error` and dropped it from `opencode
+// models`. nemotron-3.5-lightning-free is on the live free list and answers.
 export const OPENCODE_MODELS: string[] = [
-  "opencode/deepseek-v4-flash-free",
+  "opencode/nemotron-3.5-lightning-free",
   "opencode/laguna-s-2.1-free",
   "opencode/ling-3.0-tiny-free",
   "opencode/longcat-2.0-free",
@@ -239,7 +243,7 @@ export const MODEL_OPTIONS: Record<CodingAgentKind, { defaultModel: string; mode
   muse: { defaultModel: "muse-spark-1.2", models: MUSE_MODELS },
   deepseek: { defaultModel: "deepseek-v4-flash", models: DEEPSEEK_MODELS },
   hermes: { defaultModel: "nousresearch/hermes-4-405b", models: HERMES_MODELS },
-  opencode: { defaultModel: "opencode/deepseek-v4-flash-free", models: OPENCODE_MODELS },
+  opencode: { defaultModel: "opencode/nemotron-3.5-lightning-free", models: OPENCODE_MODELS },
   jcode: { defaultModel: "auto", models: JCODE_MODELS },
   pi: { defaultModel: "sonnet", models: PI_MODELS },
   copilot: { defaultModel: "claude-sonnet-4.5", models: COPILOT_MODELS },
