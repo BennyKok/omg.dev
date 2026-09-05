@@ -6,6 +6,7 @@ import {
   curateCursorModels,
   curateOpenCodeModels,
   defaultModelForAgent,
+  defaultModelForCatalogItem,
   discoveredModelsOrFallback,
   hasConnectedModelAccount,
   listModelCatalog,
@@ -124,6 +125,24 @@ describe("OpenCode catalog default", () => {
     expect(OPENCODE_MODELS).toContain("opencode/nemotron-3.5-lightning-free");
     expect(MODEL_OPTIONS.opencode.defaultModel).toBe("opencode/nemotron-3.5-lightning-free");
     expect(defaultModelForAgent("opencode")).toBe("opencode/nemotron-3.5-lightning-free");
+  });
+
+  test("an anonymous box launches the configured free default, not the first discovered free model", () => {
+    // models.dev still lists deepseek-v4-flash-free ahead of the working
+    // models, and OpenCode answers every call to it with a server error.
+    const discovered = [
+      "opencode/deepseek-v4-flash-free",
+      "opencode/laguna-s-2.1-free",
+      "opencode/nemotron-3.5-lightning-free",
+      "opencode/claude-opus-4-8",
+    ];
+    expect(defaultModelForCatalogItem("opencode", discovered, false)).toBe(
+      "opencode/nemotron-3.5-lightning-free",
+    );
+    // Without the configured default on offer, the first free entry still wins.
+    expect(defaultModelForCatalogItem("opencode", ["opencode/laguna-s-2.1-free", "opencode/x"], false)).toBe(
+      "opencode/laguna-s-2.1-free",
+    );
   });
 
   test("keeps every cold-fallback model selectable for an anonymous account", () => {

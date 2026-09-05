@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## September 5, 2026 - Free OpenCode default really launches (v0.6.45)
+
+- **An anonymous box now launches the configured free OpenCode model.** The
+  picker used to take the first free model that OpenCode's catalog listed,
+  which was still the retired `deepseek-v4-flash-free`. The configured
+  default (`opencode/nemotron-3.5-lightning-free`) now wins whenever the
+  catalog offers it.
+
 ## September 5, 2026 - Update coding agents and refresh models from Settings (v0.6.45)
 
 - **Settings can update a coding agent CLI and refresh its models.** Expand
