@@ -709,6 +709,13 @@ export function defaultModelForCatalogItem(
   fullOpenCodeCatalog: boolean,
 ): string {
   if (key === "opencode" && !fullOpenCodeCatalog) {
+    // Discovery lists the free tier in catalog order, and that order put a
+    // model OpenCode had already stopped serving (deepseek-v4-flash-free,
+    // 2026-09-05) in front of every anonymous box. The configured default is
+    // the one model known to answer, so it wins whenever discovery offers it;
+    // the first free entry is only the fallback for a catalog without it.
+    const configured = MODEL_OPTIONS.opencode.defaultModel;
+    if (models.includes(configured)) return configured;
     const free = models.find((model) => /^opencode\/.+-free$/.test(model));
     if (free) return free;
   }
