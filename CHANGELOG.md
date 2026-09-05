@@ -2,6 +2,25 @@
 
 Recent product updates and deployment notes.
 
+## September 5, 2026 - omg Cloud sign-in and machine switching (v0.6.43)
+
+- **Sign in to omg Cloud from Settings.** The box runs the sign-in through
+  `auth.omg.dev` and keeps the credential in `~/.omg/credentials.json`, the
+  same file `omg login` writes. The browser never holds the token.
+- **Switch the UI onto any machine on your account.** A machine switcher at
+  the bottom of the session rail (an icon at the top left on mobile) lists
+  your cloud Computer and every paired box. Pick one and the UI reloads
+  pointed at it. The box mints the grant and proxies HTTP and WebSocket
+  traffic, and wakes a paused cloud Computer on demand. Nothing changes for
+  an install that is not signed in.
+- **Hosts can draw the same switcher.** `OmgAppSurface` takes a `machines`
+  prop with the host's list, the active id and an `onSelect` callback.
+- **New package `@omg-dev/cloud`.** The account client shared by the local
+  UI, the hosted app and the native app: sign-in, machine list, session
+  grants, one transport per machine, readiness.
+- **`@omg-dev/client`:** `createSameOriginTransport({ basePath })` prefixes
+  every path, which is how the UI switches machines with one transport swap.
+
 ## September 5, 2026 - GPT-6 Astra in Codex (v0.6.42)
 
 - **GPT-6 Astra is available for Codex sessions.** Eligible accounts can select
