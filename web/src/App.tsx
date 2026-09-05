@@ -582,7 +582,7 @@ import {
 } from "./views/custom-instructions-page";
 import { RemoteAccessSettingsSection } from "./components/remote-access-settings";
 import { CloudAccountSettingsSection } from "./components/cloud-account-settings";
-import { MachineRail } from "./components/machine-rail";
+import { MachineSwitcher } from "./components/machine-switcher";
 import { ConnectorsPage, ConnectorsRow } from "./views/connectors-page";
 import {
   UpdateNavButton,
@@ -8641,6 +8641,9 @@ export function App() {
               : "px-2 md:px-3",
           )}
         >
+          {/* Top left on mobile: an icon only, the header has no room for a
+              name. Same menu as the desktop rail row. */}
+          {!embedded ? <MachineSwitcher variant="icon" /> : null}
           <LiveHeaderContext
             intro={showHeaderBrandIntro}
             hosted={embedded}
@@ -13012,10 +13015,6 @@ function RailStage({
 
   return (
     <div ref={workspaceRef} className="flex h-full min-h-0">
-      {/* Outer machine rail. Empty until the box is signed in to omg Cloud
-          with a machine it can reach, so nothing changes for a plain install.
-          Hidden on a hosted surface: the host owns machine selection there. */}
-      {!hosted ? <MachineRail /> : null}
       <aside
         className="flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r border-border transition-[width] duration-200 ease-ios"
         // 320, not 280. The rows carry the roster's 16px title now, and at 280
@@ -13146,6 +13145,11 @@ function RailStage({
             that fills it never pays for it and one that doesn't never sees it.
             The collapsed flag rides along so the host can stack its controls
             vertically in the 56px rail instead of overflowing it. */}
+        {/* Machine switcher, in the same last-row spot the hosted app docks
+            its navigation into. Empty until the box is signed in to omg Cloud
+            with a machine it can reach, so a plain install sees no change.
+            A hosted surface never shows it: the host owns machine selection. */}
+        {!hosted ? <MachineSwitcher variant="rail" collapsed={railCollapsed} /> : null}
         {hosted ? (
           <div
             data-lfg-host-slot="rail-footer"
