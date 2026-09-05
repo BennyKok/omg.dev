@@ -1,3 +1,4 @@
+import { AutoAgentPage } from "./components/auto-agent-page";
 import { Component, createContext, type ComponentProps, forwardRef, memo, Suspense, useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type {
@@ -24520,92 +24521,10 @@ function AgentModelRow<K extends AgentKind>({
   );
 }
 
-// ---------- auto agents: sheets + manage view ----------
+// ---------- auto agents: pages + manage view ----------
 
-// Bottom sheet built on the shadcn Drawer (vaul) primitive — gives us the drag
-// handle, focus trap, escape-to-close, and overlay for free, matching the rest
-// of the app's UI kit. `title` feeds the a11y-required (visually hidden) label.
-function BottomSheet({
-  onClose,
-  title,
-  page = false,
-  expandOnFocus = true,
-  footer,
-  children,
-}: {
-  onClose: () => void;
-  title: string;
-  /** Morph from a content-sized card into a full-height page. See the
-   *  `.lfg-sheet-page` rule in index.css for what that means geometrically —
-   *  the short version is that the sheet claims the band above the keyboard so
-   *  the footer lands on it instead of being shoved off-screen. */
-  page?: boolean;
-  /** Enter page mode by itself whenever a field inside the sheet takes focus,
-   *  instead of the caller deciding up front. A content-sized card cannot win
-   *  against the soft keyboard — it gets shoved off the top — and the caller
-   *  usually cannot know in advance whether this particular visit will involve
-   *  typing. FindingSheet has driven `page` from focus by hand since page mode
-   *  landed; this is that behaviour made available to every sheet, so the
-   *  auto-agent forms stop being the ones that still fight the keyboard. */
-  expandOnFocus?: boolean;
-  /** Pinned to the bottom of the sheet: in page mode this is what ends up
-   *  sitting directly on the keyboard, so it should hold the field the user is
-   *  typing into and its actions — nothing that scrolls. */
-  footer?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <Drawer
-      open
-      // The viewport already shrinks around the mobile keyboard. Vaul's input
-      // repositioning applies a second offset, which can push the focused auto-
-      // agent field (and the rest of the sheet) out of the visible viewport.
-      repositionInputs={false}
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-    >
-      <DrawerContent
-        // Bottom sheets can be launched from the full-screen chat layer (z-90).
-        // Keep both the scrim and sheet above it without raising every Drawer in
-        // the app, since page-level drawers intentionally sit below some screens.
-        overlayClassName="z-[100]"
-        className="z-[100]"
-        // The morph lives in DrawerContent now, so every drawer in the app has
-        // it. `page` still lets a caller force it; `expandOnFocus` is kept as
-        // an explicit opt-out for sheets with no fields.
-        page={page}
-        expandOnFocus={expandOnFocus}
-      >
-        <DrawerTitle className="sr-only">{title}</DrawerTitle>
-        {/* min-h-0 twice on purpose: without it a flex child refuses to shrink
-            below its content, and the body would push the footer out of the
-            sheet instead of scrolling under it. */}
-        {/* flex-auto, not flex-1: with a `0%` basis these children contribute
-            nothing to an auto-height sheet, and how much a flex container then
-            resolves from their content is exactly where engines disagree. A
-            content basis sizes the compact card off its content everywhere, and
-            still fills (and shrinks, hence min-h-0) once page mode fixes the
-            height. */}
-        <div className="flex min-h-0 flex-auto flex-col">
-          {/* flex-col on the scroller so a caller can `mt-auto` its content to
-              sit against the footer. Deliberately margin-auto and not
-              justify-end: a flex-end scroll container clips its own overflow at
-              the top, and this one overflows the moment the keyboard is up. */}
-          <div className="flex min-h-0 flex-auto flex-col overflow-y-auto overscroll-contain">
-            {children}
-          </div>
-          {footer ? <div className="shrink-0">{footer}</div> : null}
-        </div>
-      </DrawerContent>
-    </Drawer>
-  );
-}
-
-// What FindingDetail hands back to whoever hosts it. `paged` is true while a
-// field inside the detail has focus, so the host can bottom-anchor the body
-// against the keyboard the same way the standalone sheet does.
-type FindingDetailParts = { paged: boolean; footer: ReactNode; body: ReactNode };
+// Shared report content and reply controls for the full-page hosts.
+type FindingDetailParts = { footer: ReactNode; body: ReactNode };
 
 // One finding, read and acted on. Owns nothing about the surface it sits in:
 // FindingSheet wraps it in its own bottom sheet, and AgentReportSheet swaps it
@@ -24705,12 +24624,6 @@ function FindingDetail({
     claudeAccountId: backend === "aisdk" ? livePin || undefined : undefined,
   });
 
-  // Page mode. The sheet stops being a card sized by its content and becomes a
-  // full-height surface whose body scrolls under a pinned footer, so the
-  // keyboard has something sane to push against instead of shoving the finding
-  // off the top of the screen. Any field taking focus enters it — the reveal
-  // buttons below just do that by focusing what they open.
-  const [paged, setPaged] = useState(false);
   const exitTimer = useRef<number | null>(null);
   const cancelExit = () => {
     if (exitTimer.current !== null) {
@@ -24720,30 +24633,25 @@ function FindingDetail({
   };
   useEffect(() => cancelExit, []);
 
-  // Leaving the last field folds the sheet back down — but only if nothing was
-  // typed, so work in progress can't vanish under someone dismissing the
-  // keyboard to read the finding again. The delay (and the pointer-down
-  // cancel below) is what keeps a tap on the footer's own buttons from
+  // Hide an empty reply after focus leaves the page. Preserve any draft.
+  // The delay (and the pointer-down cancel below) is what keeps a tap on the footer's own buttons from
   // unmounting them between blur and click.
   function scheduleExit() {
     cancelExit();
     exitTimer.current = window.setTimeout(() => {
       exitTimer.current = null;
-      const root = footerRef.current?.closest("[data-slot=drawer-content]");
+      const root = footerRef.current?.closest("[data-auto-agent-page]");
       if (root && root.contains(deepActiveElement())) return;
       if (text.trim() || feedbackText.trim()) return;
-      setPaged(false);
       setInstructing(false);
       setTuning(false);
     }, 260);
   }
 
-  // Reveal a field and put the cursor in it. The rAF lets the footer swap and
-  // the sheet start its height morph first; focusing a node that is still being
-  // laid out is what makes iOS scroll the wrong thing under the keyboard.
+  // Reveal the footer field before focusing it, so the browser can scroll
+  // the mounted input into view.
   function reveal(which: "instruct" | "tune") {
     cancelExit();
-    setPaged(true);
     if (which === "instruct") setInstructing(true);
     else setTuning(true);
     requestAnimationFrame(() => {
@@ -24860,7 +24768,6 @@ function FindingDetail({
       onFocusCapture={(e) => {
         if (isTypingTarget(e.target as Element)) {
           cancelExit();
-          setPaged(true);
         }
       }}
       onBlurCapture={scheduleExit}
@@ -24900,7 +24807,6 @@ function FindingDetail({
               onClick={() => {
                 setFeedbackText("");
                 setTuning(false);
-                setPaged(false);
               }}
             >
               Cancel
@@ -25040,13 +24946,9 @@ function FindingDetail({
   );
 
   return render({
-    paged,
     footer,
     body: (
-      // Bottom-anchored while a field has focus: the finding stays next to
-      // the field you're typing into, and the slack sits above it where the
-      // keyboard is — not as a hole between the two.
-      <div className={cn("px-2 pb-2 pt-1", paged && "mt-auto")}>
+      <div className="px-2 pb-2 pt-1">
         {/* One quiet identity line. The old header set the agent name at the
             same weight as the title, so two lines competed to be read first —
             the finding is the headline, the agent is metadata. */}
@@ -25125,22 +25027,15 @@ function FindingDetail({
 
 type FindingDetailProps = Omit<Parameters<typeof FindingDetail>[0], "render">;
 
-// A single finding in its own sheet. Reached from the new-finding toast; the
-// Auto section opens the agent's report instead (AgentReportSheet).
-//
-// Always a page on a phone. The content-sized card this used to be capped at
-// 80vh and only grew to the full screen once a field took focus, so a long
-// finding was read through a letterbox and the composer, when it appeared,
-// arrived with a jump. Desktop ignores `page` (see index.css) and keeps the
-// centered dialog.
+// A single finding opened from the new-finding toast.
 function FindingSheet({ onClose, ...props }: FindingDetailProps & { onClose: () => void }) {
   return (
     <FindingDetail
       {...props}
       render={({ footer, body }) => (
-        <BottomSheet onClose={onClose} title={`${props.agentName} finding`} page footer={footer}>
+        <AutoAgentPage onClose={onClose} title={`${props.agentName} finding`} footer={footer}>
           {body}
-        </BottomSheet>
+        </AutoAgentPage>
       )}
     />
   );
@@ -25264,7 +25159,7 @@ function AgentReportSheet({
         onDismiss={onDismiss}
         onRefineAgent={onRefineAgent}
         render={({ footer, body }) => (
-          <BottomSheet onClose={onClose} title={`${agentName} finding`} page footer={footer}>
+          <AutoAgentPage onClose={onClose} title={`${agentName} finding`} footer={footer}>
             {findings.length > 1 ? (
               <div className="shrink-0 px-1 pb-1 pt-0.5">
                 <button
@@ -25278,7 +25173,7 @@ function AgentReportSheet({
               </div>
             ) : null}
             {body}
-          </BottomSheet>
+          </AutoAgentPage>
         )}
       />
     );
@@ -25306,11 +25201,9 @@ function AgentReportSheet({
   );
 
   return (
-    <BottomSheet
+    <AutoAgentPage
       onClose={onClose}
       title={`${agentName} report`}
-      page
-      expandOnFocus={false}
       footer={footer}
     >
       <div className="px-2 pb-2 pt-1">
@@ -25377,7 +25270,7 @@ function AgentReportSheet({
           ))}
         </div>
       </div>
-    </BottomSheet>
+    </AutoAgentPage>
   );
 }
 
@@ -25441,7 +25334,7 @@ function NewAutoAgentComposer({
   }
 
   return (
-    <BottomSheet onClose={onClose} title="New auto agent">
+    <AutoAgentPage onClose={onClose} title="New auto agent">
       <div className="px-2 pb-4 pt-1">
         <div className="flex items-center gap-2">
           <Sparkles className="size-5 text-primary" />
@@ -25497,7 +25390,7 @@ function NewAutoAgentComposer({
           scheduledOnly
         />
       </div>
-    </BottomSheet>
+    </AutoAgentPage>
   );
 }
 
@@ -25733,12 +25626,9 @@ function AgentEditorSheet({
   );
 
   return (
-    // A page, not a card, on a phone: the form is six rows and a prompt, and a
-    // content-sized sheet put the prompt under the keyboard on every visit.
-    <BottomSheet
+    <AutoAgentPage
       onClose={onClose}
       title={isNew ? "New auto agent" : "Edit auto agent"}
-      page
       footer={footer}
     >
       <div className="px-2 pb-3 pt-1">
@@ -26028,7 +25918,7 @@ function AgentEditorSheet({
           </div>
         ) : null}
       </div>
-    </BottomSheet>
+    </AutoAgentPage>
   );
 }
 
