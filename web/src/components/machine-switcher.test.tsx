@@ -3,6 +3,7 @@ import { mount, type Mounted } from "../test-support/render";
 
 const { MachineSwitcher } = await import("./machine-switcher");
 const { MACHINE_STORAGE_KEY } = await import("../lib/machines");
+const { EmbeddedHostOptionsProvider } = await import("../lib/embedded-host-options");
 
 let ui: Mounted;
 const originalFetch = globalThis.fetch;
@@ -143,5 +144,37 @@ describe("MachineSwitcher", () => {
     const rail = ui.query('[data-machine-switcher="rail"]');
     expect(rail?.textContent).toBe("");
     expect(rail?.getAttribute("title")).toBe("This computer");
+  });
+
+  test("draws the host's list without asking the box, and reports a pick by id", async () => {
+    let fetches = 0;
+    globalThis.fetch = (async () => {
+      fetches += 1;
+      return Response.json({}, { status: 404 });
+    }) as typeof fetch;
+    const picked: string[] = [];
+    ui.render(
+      <EmbeddedHostOptionsProvider
+        value={{
+          defaultAgent: "aisdk",
+          connectionOnboarding: true,
+          machines: {
+            machines: [
+              { id: "cloud", name: "omg cloud", kind: "cloud", online: true },
+              { id: "b-1", name: "studio", kind: "connected", online: false, status: "offline" },
+            ],
+            activeId: "b-1",
+            onSelect: (id) => picked.push(id),
+          },
+        }}
+      >
+        <MachineSwitcher variant="rail" />
+      </EmbeddedHostOptionsProvider>,
+    );
+    await ui.flushAsync();
+    expect(fetches).toBe(0);
+    const rail = ui.query('[data-machine-switcher="rail"]');
+    expect(rail?.textContent).toContain("studio");
+    expect(rail?.getAttribute("aria-label")).toBe("Machine: studio. Change machine");
   });
 });

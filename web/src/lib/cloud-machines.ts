@@ -99,7 +99,7 @@ export type CloudMachinesState = {
   signOut: () => Promise<void>;
 };
 
-export function useCloudMachines(): CloudMachinesState {
+export function useCloudMachines(enabled = true): CloudMachinesState {
   const [status, setStatus] = useState<CloudAccountStatus | null>(null);
   const [computers, setComputers] = useState<CloudComputerRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -123,6 +123,7 @@ export function useCloudMachines(): CloudMachinesState {
   }, []);
 
   useEffect(() => {
+    if (!enabled) return;
     const controller = new AbortController();
     load(controller.signal).catch((e: unknown) => {
       if (controller.signal.aborted) return;
@@ -131,7 +132,7 @@ export function useCloudMachines(): CloudMachinesState {
       if (e instanceof Error && !/session request failed/.test(e.message)) setError(e.message);
     });
     return () => controller.abort();
-  }, [load]);
+  }, [load, enabled]);
 
   const reload = useCallback(async () => {
     setError(null);
