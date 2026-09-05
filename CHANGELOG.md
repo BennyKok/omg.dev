@@ -2,7 +2,7 @@
 
 Recent product updates and deployment notes.
 
-## September 5, 2026 - Free OpenCode default really launches (v0.6.45)
+## September 5, 2026 - Free OpenCode default really launches (v0.6.46)
 
 - **An anonymous box now launches the configured free OpenCode model.** The
   picker used to take the first free model that OpenCode's catalog listed,
