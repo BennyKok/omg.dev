@@ -2,6 +2,16 @@
 
 Recent product updates and deployment notes.
 
+## September 6, 2026 - Tibo mode shows one control, and archive undoes itself (v0.6.49)
+
+- **The Tibo pill hides when it cannot be used.** An agent or model that
+  cannot run Tibo mode now shows no pill, instead of a permanently disabled
+  one that did not say which model to pick.
+- **Archiving a session is optimistic everywhere, and it can undo itself.**
+  The keyboard path (shift+E) now removes the row immediately, like swipe and
+  the session menu. A failed close request restores the row and reports the
+  error, instead of hiding a session that is still live until you reload.
+
 ## September 6, 2026 - Tibo mode is one control, not three (v0.6.48)
 
 - **Tibo mode hides the thinking and Fast pills while it is on.** Tibo mode
