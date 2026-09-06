@@ -50,6 +50,26 @@ export function isAgentLimitError(error: unknown): boolean {
   );
 }
 
+/**
+ * Did the box answer "no such session"?
+ *
+ * Used by the optimistic archive: a session that already ended answers 404,
+ * and the person who just archived it got the outcome they asked for, so that
+ * one must not roll the row back or raise a toast. Every OTHER failure means
+ * the session is still there and the optimistic removal has to be undone.
+ *
+ * Structural, on `status`, for the same reason the two checks above read
+ * `code`: an embedding host throws an OmgApiError from its own copy of
+ * @omg-dev/client, so `instanceof` across those realms is always false.
+ */
+export function isMissingSessionError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { status?: unknown }).status === 404
+  );
+}
+
 // Standalone lfg and every embeddable host use the same transport contract.
 // The standalone adapter is deliberately tiny because Vite/lfg serve keeps the
 // UI and runtime on one origin; omg supplies the authenticated grant adapter.
