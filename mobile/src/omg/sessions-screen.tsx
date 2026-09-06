@@ -1381,7 +1381,7 @@ export function SessionsScreen({
                 left: 0,
                 width: wide ? railWidth : "100%",
                 display: wide || home ? "flex" : "none",
-                paddingTop: insets.top + 48,
+                paddingTop: Math.max(insets.top, 56),
                 borderRightWidth: wide ? 0.5 : 0,
                 borderRightColor: colors.border,
               }
