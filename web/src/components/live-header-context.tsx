@@ -1,6 +1,5 @@
-import { runtimeLifecycleMessage } from "../lib/runtime-lifecycle";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { useRuntimeAvailability } from "../lib/runtime-availability";
+import { useRuntimeAvailability, runtimeStatusText } from "../lib/runtime-availability";
 import { useAsk } from "./ask-center";
 import { ShimmerText } from "./ui/shimmer-text";
 import { cn } from "../lib/utils";
@@ -29,14 +28,9 @@ export function LiveHeaderContext({
   onOpenNotifications: () => void;
 }) {
   const { questions } = useAsk();
-  const { loading, ready, status, error, retry, lifecycle } = useRuntimeAvailability();
-  const connectionText = ready && status === "live" && !error
-    ? null
-    : runtimeLifecycleMessage(lifecycle) ?? (loading || status === "connecting"
-      ? "Connecting…"
-      : status === "reconnecting"
-        ? "Reconnecting…"
-        : "Connection unavailable");
+  const availability = useRuntimeAvailability();
+  const { loading, retry } = availability;
+  const connectionText = runtimeStatusText(availability);
   const intro = requestedIntro && !connectionText;
   // Hosted identity is presentation-only and intentionally wins over the LFG
   // roster. omg Computers have no roster by design, so deriving this welcome
