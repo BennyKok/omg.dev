@@ -47,11 +47,11 @@ const computers = {
 };
 
 describe("MachineSwitcher", () => {
-  test("renders nothing when signed out or when no machine is reachable", async () => {
+  test("offers a machine menu when signed out or when no machine is reachable", async () => {
     respond({ "/api/cloud/session": () => Response.json({ ...signedIn, signedIn: false }) });
     ui.render(<MachineSwitcher variant="rail" />);
     await ui.flushAsync();
-    expect(ui.query("[data-machine-switcher]")).toBeNull();
+    expect(ui.query("[data-machine-switcher]")).not.toBeNull();
 
     ui.cleanup();
     ui = mount();
@@ -61,7 +61,7 @@ describe("MachineSwitcher", () => {
     });
     ui.render(<MachineSwitcher variant="icon" />);
     await ui.flushAsync();
-    expect(ui.query("[data-machine-switcher]")).toBeNull();
+    expect(ui.query("[data-machine-switcher]")).not.toBeNull();
   });
 
   test("the rail row names the current machine and the icon variant carries it as a label", async () => {
@@ -107,7 +107,7 @@ describe("MachineSwitcher", () => {
     ui.render(<MachineSwitcher variant="rail" />);
     await ui.flushAsync();
     // dev-us was the only account machine and it is this box: nothing to switch to.
-    expect(ui.query("[data-machine-switcher]")).toBeNull();
+    expect(ui.query("[data-machine-switcher]")).not.toBeNull();
   });
 
   // Every assertion above stops at the trigger. The menu CONTENT was never
@@ -204,4 +204,27 @@ test("a live transport confirms the selected computer despite an old account sna
   ui.render(<RuntimeAvailabilityContext.Provider value={{ status: "live", transportLive: true, loading: false, ready: true, error: null, retry: () => {} }}><MachineSwitcher variant="icon" /></RuntimeAvailabilityContext.Provider>);
   await ui.flushAsync();
   expect(ui.query('[aria-label="Computer online"]')).not.toBeNull();
+});
+
+test("host machine actions use the host owner and never call the local account", async () => {
+  let added = 0, renamed = 0, fetched = 0;
+  globalThis.fetch = (async () => { fetched++; throw new Error("unexpected local request"); }) as typeof fetch;
+  ui.render(<EmbeddedHostOptionsProvider value={{
+    machines: {
+      machines: [{ id: "cloud", name: "Builder", kind: "cloud", online: true }],
+      activeId: "cloud", onSelect: () => {}, onAdd: () => { added++; }, onRename: () => { renamed++; },
+    },
+  }}><MachineSwitcher variant="rail" /></EmbeddedHostOptionsProvider>);
+  const open = async () => ui.flushAsync(() => (ui.query("[data-machine-switcher]") as HTMLElement).click());
+  await open();
+  await ui.flushAsync(() => {
+    const item = Array.from(document.querySelectorAll('[role="menuitem"]')).find((el) => el.textContent?.includes("Add machine")) as HTMLElement;
+    item.click();
+  });
+  await open();
+  await ui.flushAsync(() => {
+    const item = Array.from(document.querySelectorAll('[role="menuitem"]')).find((el) => el.textContent?.includes("Rename cloud machine")) as HTMLElement;
+    item.click();
+  });
+  expect(added).toBe(1); expect(renamed).toBe(1); expect(fetched).toBe(0);
 });

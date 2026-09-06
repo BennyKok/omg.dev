@@ -75,6 +75,7 @@ export type CloudComputerStatus =
 
 /** Shape returned by control-plane getCloudComputer. Render what the server sent. */
 export type CloudComputer = {
+  name?: string;
   status?: CloudComputerStatus | string;
   blockedReason?: "compute_exhausted" | "plan_downgraded" | string | null;
   instanceId?: string | null;

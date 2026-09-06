@@ -175,7 +175,7 @@ import {
 const HELP = `lfg connect — pair this box to a remote-access relay (EXPERIMENTAL)
 
 Usage:
-  lfg connect <code> [--url <public-url>]
+  omg connect <code> [--relay <relay-url>] [--url <public-url>]
                            Redeem a one-time pairing code and advertise the URL where this UI is reachable
   lfg connect [--url <public-url>]
                            Resume the saved binding (and optionally update its advertised URL), e.g. from a
@@ -186,7 +186,7 @@ Usage:
   lfg connect help         Show this help
 
 Env:
-  LFG_RELAY_URL              Relay WebSocket URL (required — no default, this file is provider-agnostic)
+  LFG_RELAY_URL              Relay WebSocket URL when --relay is omitted (no default)
   LFG_PUBLIC_URL             Same value as --url; an absolute HTTP(S) root for this computer's web UI
   LFG_PORT / LFG_HOST        Local 'lfg serve' address to proxy requests to (default 127.0.0.1:8766)
   LFG_CONNECT_EVENTS         Opt-in (1/true/yes, default off): forward session completed/needs-attention
@@ -249,10 +249,10 @@ async function writeCredentials(creds: RelayCredentials): Promise<void> {
   await writeFile(CREDENTIALS_PATH, JSON.stringify(creds, null, 2), { mode: 0o600 });
 }
 
-function requireRelayUrl(): string {
-  const url = process.env.LFG_RELAY_URL?.trim();
+function requireRelayUrl(explicitRelayUrl?: string): string {
+  const url = explicitRelayUrl ?? process.env.LFG_RELAY_URL?.trim();
   if (!url) {
-    console.error("lfg connect: LFG_RELAY_URL is not set — point it at your relay's WebSocket URL.\n");
+    console.error("omg connect: supply --relay with your relay's WebSocket URL.\n");
     console.log(HELP);
     process.exit(1);
   }
@@ -1164,8 +1164,8 @@ function boxName(): string | undefined {
   }
 }
 
-async function pair(code: string, explicitComputerUrl?: string): Promise<void> {
-  const relayUrl = requireRelayUrl();
+async function pair(code: string, explicitComputerUrl?: string, explicitRelayUrl?: string): Promise<void> {
+  const relayUrl = requireRelayUrl(explicitRelayUrl);
   const computerUrl = normalizeComputerUrl(explicitComputerUrl ?? process.env.LFG_PUBLIC_URL);
   console.log(`lfg connect: redeeming pairing code against ${relayUrl} …`);
   const ws = await connectSocket(relayUrl, { type: "pair", code, name: boxName(), ...(computerUrl ? { computerUrl } : {}) });
@@ -1474,6 +1474,22 @@ async function disconnect(): Promise<void> {
   console.log(`lfg connect: cleared local binding to ${creds.relayUrl}. (The relay may still hold a stale token until it expires — this command only clears this box's side.)`);
 }
 
+/** Explicit relay argument keeps copied setup commands free of environment prefixes. */
+export function parseRelayOption(args: string[]): { args: string[]; relayUrl?: string } {
+  const index = args.indexOf("--relay");
+  if (index < 0) return { args };
+  const value = args[index + 1]?.trim();
+  if (!value || value.startsWith("-") || args.indexOf("--relay", index + 1) >= 0) {
+    throw new Error("omg connect: --relay requires exactly one WebSocket URL");
+  }
+  let url: URL;
+  try { url = new URL(value); } catch { throw new Error("omg connect: --relay must be a ws:// or wss:// URL"); }
+  if (!["ws:", "wss:"].includes(url.protocol) || url.username || url.password) {
+    throw new Error("omg connect: --relay must be a ws:// or wss:// URL without credentials");
+  }
+  return { args: args.filter((_, i) => i !== index && i !== index + 1), relayUrl: value };
+}
+
 export async function cmdConnect(args: string[]): Promise<void> {
   // The daemon gives its worker a private stdin pipe. If the daemon crashes,
   // the kernel closes that pipe and this process exits instead of becoming an
@@ -1483,7 +1499,8 @@ export async function cmdConnect(args: string[]): Promise<void> {
     process.stdin.once("end", () => process.exit(0));
   }
   const forceForeground = args.includes("--foreground") || process.env.OMG_CONNECT_MANAGED === "1";
-  const filteredArgs = args.filter((arg) => arg !== "--foreground");
+  const { args: relayArgs, relayUrl: explicitRelayUrl } = parseRelayOption(args);
+  const filteredArgs = relayArgs.filter((arg) => arg !== "--foreground");
   const urlIndex = filteredArgs.indexOf("--url");
   if (urlIndex >= 0 && (urlIndex === filteredArgs.length - 1 || filteredArgs.filter((arg) => arg === "--url").length > 1)) {
     throw new Error("lfg connect: --url requires exactly one value");
@@ -1518,7 +1535,7 @@ export async function cmdConnect(args: string[]): Promise<void> {
         process.exit(1);
       }
       // Anything else is treated as a pairing code.
-      await pair(sub, explicitComputerUrl);
+      await pair(sub, explicitComputerUrl, explicitRelayUrl);
       return runInDaemonOrForeground(explicitComputerUrl, forceForeground);
   }
 }

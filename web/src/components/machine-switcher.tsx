@@ -1,5 +1,7 @@
+import { useState } from "react";
+import { MachineActionsDialog } from "./machine-actions-dialog";
 import { useRuntimeAvailability } from "../lib/runtime-availability";
-import { Check, ChevronsUpDown, Cloud, Laptop } from "lucide-react";
+import { Check, ChevronsUpDown, Cloud, Laptop, Plus, Pencil } from "lucide-react";
 
 import {
   LOCAL_MACHINE_CHOICE,
@@ -17,6 +19,7 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 
@@ -27,6 +30,11 @@ type MachineSource = {
   entries: Entry[];
   activeId: string;
   select: (choice: MachineChoice) => void;
+  reload?: () => Promise<void>;
+  signIn?: () => Promise<void>;
+  signedIn?: boolean;
+  /** Every connected machine the account lists, whether or not it is reachable from here. */
+  connectedIds?: string[];
 };
 
 /** Present a host-supplied machine as the row shape the menu already renders. */
@@ -48,22 +56,22 @@ function hostEntry(machine: HostMachine): Entry {
 }
 
 /**
- * The box's own account list, used when no host supplies one. Hidden until
- * the box is signed in with a reachable machine.
+ * The box's own account list, used when no host supplies one. Available once the box account routes respond.
  */
 function useBoxMachines(enabled: boolean, onSelect: (choice: MachineChoice) => void): MachineSource | null {
-  const { status, computers } = useCloudMachines(enabled);
+  const { status, computers, reload, signIn } = useCloudMachines(enabled);
   const active = activeMachine();
   if (!enabled) return null;
   const reachable: Entry[] = (computers ?? []).flatMap((row) => {
     const choice = rowMachineChoice(row);
     return choice ? [{ choice, row }] : [];
   });
-  if (!status?.signedIn || reachable.length === 0) return null;
+  if (!status) return null;
   return {
     entries: [{ choice: LOCAL_MACHINE_CHOICE, row: null }, ...reachable],
     activeId: active.id,
-    select: onSelect,
+    select: onSelect, reload, signIn, signedIn: status.signedIn,
+    connectedIds: (computers ?? []).filter((row) => row.kind === "connected").map((row) => row.bindingId ?? row.slug),
   };
 }
 
@@ -76,8 +84,7 @@ function useBoxMachines(enabled: boolean, onSelect: (choice: MachineChoice) => v
  * icon at the top left of the Live header, because that header has no room
  * for a name.
  *
- * Renders nothing until the box is signed in to omg Cloud with a machine it
- * can reach, so a plain install keeps exactly the layout it had.
+ * A local-only install still offers Add machine and the account sign-in flow.
  */
 export function MachineSwitcher({
   variant,
@@ -89,6 +96,7 @@ export function MachineSwitcher({
   collapsed?: boolean;
   onSelect?: (choice: MachineChoice) => void;
 }) {
+  const [action, setAction] = useState<"add" | "rename" | null>(null);
   const { transportLive } = useRuntimeAvailability();
   const host = useEmbeddedHostOptions().machines;
   // One owner per surface: the host's list when it supplies one, else the
@@ -102,9 +110,17 @@ export function MachineSwitcher({
       }
     : box;
   if (!source || source.entries.length === 0) return null;
+  const addMachine = () => {
+    if (host) host.onAdd?.();
+    else if (!box?.signedIn) void box?.signIn?.();
+    else setAction("add");
+  };
 
   const { entries, activeId, select } = source;
   const current = entries.find((entry) => entry.choice.id === activeId) ?? entries[0]!;
+  // The account's cloud machine, when it has been created. Rename needs one.
+  const cloudEntry = entries.find((entry) => entry.row?.kind === "cloud");
+  const cloudExists = !!cloudEntry && cloudEntry.row?.status !== "none";
   const CurrentIcon = current.row?.kind === "cloud" ? Cloud : Laptop;
   const currentName = current.choice.name;
   const currentOnline = !!transportLive || !current.row || current.row.online;
@@ -191,8 +207,33 @@ export function MachineSwitcher({
               );
             })}
           </DropdownMenuGroup>
+          {!host || host.onAdd ? <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={addMachine}><Plus className="size-4" />Add machine</DropdownMenuItem>
+          </> : null}
+          {host?.onRename ? (
+            <DropdownMenuItem onClick={() => host.onRename?.()}><Pencil className="size-4" />Rename cloud machine</DropdownMenuItem>
+          ) : !host && box?.signedIn ? (
+            <DropdownMenuItem
+              disabled={!cloudExists}
+              title={cloudExists ? undefined : "Add a cloud machine first"}
+              onClick={() => setAction("rename")}
+            >
+              <Pencil className="size-4" />Rename cloud machine
+            </DropdownMenuItem>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
+      {action && !host ? (
+        <MachineActionsDialog
+          action={action}
+          name={cloudExists ? cloudEntry?.choice.name ?? "" : ""}
+          cloudExists={cloudExists}
+          connectedIds={source.connectedIds ?? []}
+          onClose={() => setAction(null)}
+          onSaved={box?.reload ?? (async () => {})}
+        />
+      ) : null}
     </div>
   );
 }
