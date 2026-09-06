@@ -3,7 +3,7 @@ import { LiveHeaderContext } from "./components/live-header-context";
 import { activeMachine } from "./lib/machines";
 import { useHeaderProfile } from "./lib/header-profile";
 import { RuntimeAvailabilityContext, useRuntimeAvailability, shouldReloadRuntime } from "./lib/runtime-availability";
-import { RuntimeRecovery, RuntimeEmptyState } from "./components/runtime-recovery";
+import { RuntimeRecovery, RuntimeEmptyState, RuntimeStatusBrand, RuntimeStatusDot } from "./components/runtime-recovery";
 import { AutoAgentPage } from "./components/auto-agent-page";
 import { Component, createContext, type ComponentProps, forwardRef, memo, Suspense, useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
@@ -8965,7 +8965,9 @@ export function App() {
 
       {embedded ? null : <PwaInstallCallout />}
 
-      {isMobile && isPrimarySurfaceTab(tab) ? null : <RuntimeRecovery />}
+      {/* The desktop workspace shows this in the rail's brand row instead, so
+          the line does not sit unaligned above the layout and push it down. */}
+      {(isMobile && isPrimarySurfaceTab(tab)) || liveDesktopWorkspace ? null : <RuntimeRecovery />}
 
       </div>
       )}
@@ -12953,6 +12955,7 @@ function RailStage({
             >
               <PanelLeftOpen className="size-4" />
             </button>
+            <RuntimeStatusDot />
             <button
               type="button"
               onClick={startNew}
@@ -12973,7 +12976,9 @@ function RailStage({
             {/* Hosted replaces the LFG mark with omg.dev and moves project
                 scope to the action row so the lockup always has room. */}
             <div className="flex items-center gap-1.5">
-              <ProductBrand hosted={hosted} />
+              <RuntimeStatusBrand>
+                <ProductBrand hosted={hosted} />
+              </RuntimeStatusBrand>
               {/* Folders, not a filter. This used to be the scope control and
                   wore the current folder's name, which made it read as "you
                   are here" while also being the only way to add a folder.
