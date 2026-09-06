@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## September 6, 2026 - Tibo mode is one control, not three (v0.6.48)
+
+- **Tibo mode hides the thinking and Fast pills while it is on.** Tibo mode
+  already pins Fast service and High thinking, so the composer showed three
+  controls for one decision. The Tibo pill is now the only one visible while
+  it is active, and turning it off restores the other two.
+
 ## September 5, 2026 - Free OpenCode default follows what the box can use (v0.6.47)
 
 - **The free OpenCode default is the best free model the box actually
