@@ -161,3 +161,30 @@ export function clearBotConversationUnread(
       )
     : conversations;
 }
+
+/**
+ * One string that changes exactly when a watched bot conversation may have
+ * gained an unread message, computed from the fleet status rows the socket
+ * already pushes for every session.
+ *
+ * A bot's turn ends when its session stops being busy; a peer or human line
+ * arrives while it is not busy and moves `lastActivityAt`. While the bot is
+ * still working the key holds still, so a streaming reply does not refetch
+ * the roster once per token. This replaces subscribing to every bot
+ * transcript for the sake of a dot: that pulled each conversation's full
+ * backlog and send queue on every socket (re)connect.
+ */
+export function botConversationActivityKey(
+  sids: readonly string[],
+  sessions: ReadonlyArray<{ sessionId?: string | null; busy?: boolean | null; lastActivityAt?: string | number | null }>,
+): string {
+  const bySid = new Map<string, { busy?: boolean | null; lastActivityAt?: string | number | null }>();
+  for (const session of sessions) if (session.sessionId) bySid.set(session.sessionId, session);
+  return sids
+    .map((sid) => {
+      const row = bySid.get(sid);
+      if (!row) return `${sid}:-`;
+      return row.busy ? `${sid}:busy` : `${sid}:${row.lastActivityAt ?? ""}`;
+    })
+    .join("|");
+}

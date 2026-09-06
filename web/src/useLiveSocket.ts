@@ -131,6 +131,18 @@ export type TranscriptEvent =
 export type TranscriptSubscribe = (
   sid: string,
   listener: (event: TranscriptEvent) => void,
+  options?: {
+    /**
+     * Listen without holding a subscription. The listener hears whatever the
+     * socket already streams for this sid because something else (an open
+     * transcript, an expanded card) subscribed it, and nothing when nothing
+     * did. A plain subscribe pulls the full backlog snapshot and the send
+     * queue the moment it attaches — fine for a transcript that is about to
+     * be shown, hundreds of KB of waste for a watcher that only wants to know
+     * that something new arrived.
+     */
+    passive?: boolean;
+  },
 ) => () => void;
 
 const DRAFT_CATCHUP_MIN_CHARS = 160;
@@ -427,6 +439,13 @@ export function useLiveSocket(
   const lastSeqRef = useRef<Record<string, number>>({});
   const agentRunHandlersRef = useRef<Record<string, AgentRunHandler>>({});
   const transcriptListenersRef = useRef<Record<string, Set<(event: TranscriptEvent) => void>>>({});
+  /** Per sid, how many of the listeners above are passive (see TranscriptSubscribe). */
+  const passiveListenerCountRef = useRef<Record<string, number>>({});
+  /** Sids with at least one listener that wants a subscription of its own. */
+  const activelyListenedSids = () =>
+    Object.entries(transcriptListenersRef.current)
+      .filter(([sid, listeners]) => listeners.size > (passiveListenerCountRef.current[sid] ?? 0))
+      .map(([sid]) => sid);
   const queueBySidRef = useRef<Record<string, QueueMsg[]>>({});
   const seenRef = useRef<Record<string, Set<string>>>({});
   const messagesRef = useRef(messagesBySid);
@@ -994,7 +1013,7 @@ export function useLiveSocket(
   useEffect(() => {
     const expanded = new Set(ids);
     activeTranscriptIdsRef.current = expanded;
-    const active = new Set([...expanded, ...Object.keys(transcriptListenersRef.current)]);
+    const active = new Set([...expanded, ...activelyListenedSids()]);
     const live = new Set(Object.keys(listBusy));
     queueBySidRef.current = Object.fromEntries(
       Object.entries(queueBySidRef.current).filter(([sid]) => live.has(sid)),
@@ -1222,25 +1241,37 @@ export function useLiveSocket(
     };
   }, [enabled, subscribeChannels, unsubscribeChannels]);
 
-  const subscribeTranscript = useCallback<TranscriptSubscribe>((sid, listener) => {
+  const subscribeTranscript = useCallback<TranscriptSubscribe>((sid, listener, options) => {
+    const passive = !!options?.passive;
     const listeners = transcriptListenersRef.current[sid] || (transcriptListenersRef.current[sid] = new Set());
     listeners.add(listener);
+    if (passive) passiveListenerCountRef.current[sid] = (passiveListenerCountRef.current[sid] ?? 0) + 1;
     const queue = queueBySidRef.current[sid];
     if (queue) listener({ type: "queue", queue });
     const channel = transcriptChannel(sid);
     const id = channelId(channel);
-    desiredRef.current.add(sid);
-    desiredChannelsRef.current.set(id, channel);
-    if (enabled && !subscribedChannelsRef.current.has(id) && subscribeChannels([channel])) {
-      subscribedChannelsRef.current.add(id);
-      subscribedRef.current.add(sid);
+    if (!passive) {
+      desiredRef.current.add(sid);
+      desiredChannelsRef.current.set(id, channel);
+      if (enabled && !subscribedChannelsRef.current.has(id) && subscribeChannels([channel])) {
+        subscribedChannelsRef.current.add(id);
+        subscribedRef.current.add(sid);
+      }
     }
     return () => {
       const current = transcriptListenersRef.current[sid];
       if (!current) return;
       current.delete(listener);
-      if (current.size) return;
-      delete transcriptListenersRef.current[sid];
+      if (passive) {
+        const remaining = (passiveListenerCountRef.current[sid] ?? 1) - 1;
+        if (remaining > 0) passiveListenerCountRef.current[sid] = remaining;
+        else delete passiveListenerCountRef.current[sid];
+        if (!current.size) delete transcriptListenersRef.current[sid];
+        return;
+      }
+      // Another listener of our own kind still holds the subscription.
+      if (current.size > (passiveListenerCountRef.current[sid] ?? 0)) return;
+      if (!current.size) delete transcriptListenersRef.current[sid];
       if (activeTranscriptIdsRef.current.has(sid)) return;
       desiredRef.current.delete(sid);
       desiredChannelsRef.current.delete(id);
