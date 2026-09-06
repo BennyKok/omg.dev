@@ -22400,16 +22400,21 @@ function NewSessionDialog({
         />
       )}
 
-      <ThinkingLevelPill
-        agent={agent}
-        value={thinkingLevel}
-        levels={thinkingLevels}
-        onChange={changeComposerThinkingLevel}
-        flat={variant === "inline"}
-        immersive
-      />
+      {/* Tibo mode pins Fast plus High, so its own pill is the single control
+          for both. Showing the thinking and Fast pills next to it would offer
+          two more controls that only restate what Tibo already decided. */}
+      {tiboModeActive ? null : (
+        <ThinkingLevelPill
+          agent={agent}
+          value={thinkingLevel}
+          levels={thinkingLevels}
+          onChange={changeComposerThinkingLevel}
+          flat={variant === "inline"}
+          immersive
+        />
+      )}
 
-      {fastModeAvailable ? (
+      {fastModeAvailable && !tiboModeActive ? (
         <FastModePill
           enabled={fastModeEnabled}
           onToggle={() => setFastMode(!fastModeEnabled)}
