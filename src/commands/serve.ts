@@ -200,7 +200,6 @@ import {
   attachRuntimeSession,
   botParticipantId,
   canManageConversation,
-  canReadConversation,
   conversationBotParticipant,
   conversationHumanParticipantId,
   detachRuntimeSession,
@@ -208,7 +207,6 @@ import {
   ensureConversationHuman,
   getConversation,
   leaveConversationParticipant,
-  listConversations,
   replaceConversationPrimaryRuntime,
   upsertConversationParticipant,
   viewerConversationParticipantId,
@@ -1726,6 +1724,10 @@ async function staticAssetResponse(
   if (matchesEtag || notModifiedByDate) {
     return new Response(null, { status: 304, headers });
   }
+  // SVG icons and the manifest are text; the build leaves no precompressed
+  // sibling for them, so this is always the on-the-fly path.
+  const compressed = await compressedAssetResponse(req, filePath, headers);
+  if (compressed) return compressed;
   return new Response(f, { headers });
 }
 
@@ -5257,16 +5259,12 @@ a{color:#60a5fa}
         // local users, not a new trust boundary. A managed caller's trusted
         // header always wins over this regardless (see botViewer).
         const viewer = botViewerFromRequest(req, url.searchParams.get("user"));
-        const conversationsTask = sessionsTask.then(() => {
-          let conversations = listConversations();
-          if (viewer.managed && viewer.identity) {
-            const participantId = conversationHumanParticipantId(viewer.identity);
-            conversations = conversations.filter((conversation) =>
-              canReadConversation(conversation, participantId),
-            );
-          }
-          return conversations;
-        });
+        // No `conversations` here. The full conversation index (every
+        // conversation this box ever held, ~600 KB of JSON on a busy box)
+        // used to ride along on every cold open, and nothing on the client
+        // read it: the roster's unread state comes from /api/bots, and a
+        // transcript loads its own conversation. Dropping it takes the
+        // bootstrap payload from ~630 KB to ~90 KB before compression.
         // Which participant, if any, the *messages* the UI is about to render
         // belong to "me" — see viewerConversationParticipantId.
         const viewerParticipantId = viewerConversationParticipantId(viewer.identity);
@@ -5283,7 +5281,6 @@ a{color:#60a5fa}
           settings: settingsTask,
           sessions: sessionsTask,
           sessionPins: sessionPinsTask,
-          conversations: conversationsTask,
           users: Promise.resolve(userRoster()),
           repos: reposTask,
           autoAgents: listAutoAgents(),
@@ -5304,7 +5301,6 @@ a{color:#60a5fa}
           settings?: GlobalSettings | null;
           sessions?: Awaited<ReturnType<typeof listSessionsCached>> | null;
           sessionPins?: string[] | null;
-          conversations?: Awaited<typeof conversationsTask> | null;
           users?: ReturnType<typeof userRoster> | null;
           repos?: Awaited<ReturnType<typeof listRepos>> | null;
           autoAgents?: Awaited<ReturnType<typeof listAutoAgents>> | null;
@@ -5321,7 +5317,6 @@ a{color:#60a5fa}
               ? withSessionUnread(viewer.identity, boot.sessions.map(sessionListRow))
               : null,
             sessionPins: boot.sessionPins ?? null,
-            conversations: boot.conversations ?? null,
             // Not an authorization signal — never gates what the UI is allowed
             // to show. It only tells the transcript renderer which already-
             // delivered MessageAuthorRef.participantId is "mine", so a shared
