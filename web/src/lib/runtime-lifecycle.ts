@@ -43,6 +43,8 @@ export function runtimeLifecycleMessage(state: RuntimeLifecycle | null | undefin
   switch (state) {
     case "starting": return "Starting your computer…";
     case "waking": return "Waking your computer…";
+    // Infrastructure can be ready before the client finishes its connection.
+    case "ready": return "Connecting…";
     case "failed": return "Could not start your computer";
     case "paused": return "Computer paused";
     case "unavailable": return "Computer unavailable";
