@@ -2,6 +2,10 @@
 
 Recent product updates and deployment notes.
 
+## September 6, 2026 - Keep cloud recovery status clear (v0.6.52)
+
+- The greeting keeps “Connecting…” while a ready cloud computer finishes its client connection. It no longer briefly shows “Connection unavailable” during this handoff.
+
 ## September 6, 2026 - Add machines and name your cloud machine (v0.6.51)
 
 - Add a machine from the machine menu. Choose your own computer or omg.dev cloud.
