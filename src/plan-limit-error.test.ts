@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { isAgentLimitError, isPlanLimitError } from "../web/src/lib/omg-client.ts";
+import {
+  isAgentLimitError,
+  isMissingSessionError,
+  isPlanLimitError,
+} from "../web/src/lib/omg-client.ts";
 
 /**
  * The refusal a host turns into an upgrade surface instead of a red error.
@@ -93,5 +97,33 @@ describe("isAgentLimitError", () => {
     for (const value of [null, undefined, "agent_limit", 429, {}]) {
       expect(isAgentLimitError(value)).toBe(false);
     }
+  });
+});
+
+/**
+ * The optimistic archive reads this to decide whether to undo itself. A false
+ * negative rolls a card back that the user successfully archived; a false
+ * positive hides a still-live session until the page reloads.
+ */
+describe("isMissingSessionError", () => {
+  test("recognises a 404", () => {
+    expect(isMissingSessionError(new ApiErrorLike("session not found", 404))).toBe(true);
+  });
+
+  test("recognises one raised by a DIFFERENT copy of the client", () => {
+    class ForeignApiError extends Error {
+      status = 404;
+    }
+    expect(isMissingSessionError(new ForeignApiError("session not found"))).toBe(true);
+  });
+
+  test("rejects every other refusal", () => {
+    expect(isMissingSessionError(new ApiErrorLike("nope", 500))).toBe(false);
+    expect(isMissingSessionError(new ApiErrorLike("nope", 409))).toBe(false);
+    expect(isMissingSessionError(new Error("network down"))).toBe(false);
+    expect(isMissingSessionError(null)).toBe(false);
+    expect(isMissingSessionError(undefined)).toBe(false);
+    // A string status is not a status. Structural checks have to be exact.
+    expect(isMissingSessionError({ status: "404" })).toBe(false);
   });
 });

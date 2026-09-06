@@ -46,6 +46,7 @@ import { OmgBrandMark, omgBrandToneClass } from "./components/omg-brand-mark";
 import {
   api,
   isAgentLimitError,
+  isMissingSessionError,
   isPlanLimitError,
   omgAssetUrl,
   omgFetch,
@@ -945,6 +946,14 @@ const ViewerIdentityContext = createContext<string | null>(null);
  * than guessing.
  */
 const SendIdentityContext = createContext<string | null>(null);
+/**
+ * Undo for the optimistic archive. `removeSession` tombstones a sid so the 5s
+ * poll cannot resurrect a card the user just archived. That tombstone has no
+ * expiry, so an archive request that FAILS would otherwise hide a live session
+ * until the page is reloaded. Every archive path calls this on failure to drop
+ * the tombstone; the next refresh then puts the session back.
+ */
+const SessionRestoreContext = createContext<(sid: string) => void>(() => {});
 const BotUnreadContext = createContext<{
   conversations: BotConversationUnread[];
   any: boolean;
@@ -6455,6 +6464,19 @@ export function App() {
     setSessions((prev) => prev.filter((s) => s.sessionId !== sid));
   }, []);
 
+  // Undo for the above. The optimistic archive drops the card before the
+  // server has answered; when the server refuses, the tombstone has to go or
+  // the session stays invisible for the rest of the page's life. Dropping the
+  // sid is enough — the caller's refresh re-adds the session row.
+  const restoreSession = useCallback((sid: string) => {
+    setRemovedSids((prev) => {
+      if (!prev.has(sid)) return prev;
+      const next = new Set(prev);
+      next.delete(sid);
+      return next;
+    });
+  }, []);
+
   const hideToastedFinding = useCallback((id: string) => {
     setToastedFindingIds((prev) => {
       if (prev.has(id)) return prev;
@@ -8614,6 +8636,7 @@ export function App() {
     <AgentAccessModeContext.Provider
       value={embedded ? "connected-or-opencode" : "configured"}
     >
+    <SessionRestoreContext.Provider value={restoreSession}>
     <CodingAgentsContext.Provider value={codingAgents}>
     <CodingAgentAuthContext.Provider value={codingAgentAuthFlow}>
     <AgentModelCatalogContext.Provider value={modelCatalog}>
@@ -9535,6 +9558,7 @@ export function App() {
     </AgentModelCatalogContext.Provider>
     </CodingAgentAuthContext.Provider>
     </CodingAgentsContext.Provider>
+    </SessionRestoreContext.Provider>
     </AgentAccessModeContext.Provider>
   );
 }
@@ -11293,7 +11317,9 @@ function LiveView({
   // swapping the list for rail rows dropped it. Same call the session menu
   // makes: drop it from the list now so the gesture feels immediate, then let
   // the refresh reconcile. A session that already ended 404s, which is not an
-  // error the person swiping needs to hear about.
+  // error the person swiping needs to hear about. Any other failure rolls the
+  // row back, because the tombstone has no expiry of its own.
+  const restoreSession = useContext(SessionRestoreContext);
   const archiveSession = useCallback(
     async (sid: string) => {
       if (!sid) return;
@@ -11301,13 +11327,20 @@ function LiveView({
       onRemove(sid);
       try {
         await closeSessionRequest(sid, "mobile_swipe_archive");
-      } catch {
-        /* already gone — the refresh below is the source of truth */
+      } catch (e) {
+        // A session that already ended answers 404, and the swipe still did
+        // what the person wanted, so that one stays silent. Anything else
+        // means the session is still live: put the row back rather than
+        // leaving it tombstoned until reload.
+        if (!isMissingSessionError(e)) {
+          restoreSession(sid);
+          toast.error(e instanceof Error ? e.message : "Couldn't archive session");
+        }
       } finally {
         await onRefresh().catch(() => {});
       }
     },
-    [onRemove, onRefresh],
+    [onRemove, onRefresh, restoreSession],
   );
 
   // Opening a session from the list navigates; the view below follows the URL.
@@ -12367,6 +12400,7 @@ function RailStage({
     },
     [bySid, onRefresh],
   );
+  const restoreSession = useContext(SessionRestoreContext);
   const closeSession = useCallback(
     async (sid: string | null) => {
       const session = sid ? bySid.get(sid) : null;
@@ -12379,18 +12413,26 @@ function RailStage({
       });
       if (!confirmed) return;
       closeColumn(sid);
+      // Optimistic: the row goes now, like the swipe and the session menu do.
+      // Waiting for the round trip left the card sitting under a dialog the
+      // user had already dismissed. A 404 means the session had already
+      // ended, so the outcome is the one they asked for; anything else puts
+      // the row back.
+      onRemove(sid);
       try {
         await closeSessionRequest(sid, "live_keyboard_shift_e");
-        onRemove(sid);
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Couldn't archive session");
+        if (!isMissingSessionError(e)) {
+          restoreSession(sid);
+          toast.error(e instanceof Error ? e.message : "Couldn't archive session");
+        }
       } finally {
         // Outside the try — an onRefresh rejection here would escape the
         // handler entirely rather than being reported by the catch above.
         await onRefresh().catch(() => {});
       }
     },
-    [appDialog, bySid, closeColumn, onRemove, onRefresh],
+    [appDialog, bySid, closeColumn, onRemove, onRefresh, restoreSession],
   );
 
   const openTerminal = useContext(SessionTerminalContext);
@@ -16000,6 +16042,7 @@ function useSessionActions({
   onError: (error: string | null) => void;
 }) {
   const [forkMode, setForkMode] = useState<"fork" | "continue" | null>(null);
+  const restoreSession = useContext(SessionRestoreContext);
   const sid = session.sessionId;
   const assignee = users.find((user) => user.email === session.assignedUser);
 
@@ -16046,7 +16089,13 @@ function useSessionActions({
     try {
       await closeSessionRequest(sid, "session_menu");
     } catch (err) {
-      onError(err instanceof Error ? err.message : String(err));
+      // 404 means the session had already ended, which is the outcome the
+      // user asked for. Any other refusal leaves it live, so undo the
+      // optimistic removal instead of hiding it until the page reloads.
+      if (!isMissingSessionError(err)) {
+        restoreSession(sid);
+        onError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
       await onRefresh().catch((err) =>
         onError(err instanceof Error ? err.message : String(err)),
@@ -17650,6 +17699,8 @@ const SessionCard = memo(function SessionCard({
     return () => ro.disconnect();
   }, []);
 
+  const restoreSession = useContext(SessionRestoreContext);
+
   const setTransform = (pxX: number, pxY: number) => {
     const el = sectionRef.current;
     if (!el) return;
@@ -17668,8 +17719,14 @@ const SessionCard = memo(function SessionCard({
     // wanted — the card is gone and the refresh below reconciles the truth.
     try {
       await closeSessionRequest(sid, "mobile_swipe_archive");
-    } catch {
-      /* already gone — the refresh below is the source of truth */
+    } catch (err) {
+      // 404 is "already gone", which is what the swipe asked for. Any other
+      // refusal means the session is still live, so put the card back — the
+      // tombstone set by onRemove has no expiry of its own.
+      if (!isMissingSessionError(err)) {
+        restoreSession(sid);
+        toast.error(err instanceof Error ? err.message : "Couldn't archive session");
+      }
     } finally {
       await onRefresh().catch(() => {});
     }
