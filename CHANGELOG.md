@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## September 6, 2026 - Add machines and name your cloud machine (v0.6.51)
+
+- Add a machine from the machine menu. Choose your own computer or omg.dev cloud.
+- Copy install and connection commands, then see when pairing succeeds or expires.
+- Rename your cloud machine and see its saved name across your devices.
+- Opening the machine menu does not create cloud compute. Cloud creation starts after you choose it.
+
 ## September 6, 2026 - Cloud startup progress in the greeting (v0.6.50)
 
 - **The greeting shows confirmed cloud startup progress.** It shows “Waking your
