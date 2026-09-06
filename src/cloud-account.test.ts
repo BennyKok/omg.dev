@@ -45,7 +45,9 @@ function jwt(claims: Record<string, unknown>): string {
 }
 
 const request = (path: string, init?: RequestInit) => {
-  const req = new Request(`http://box.tailnet:8766${path}`, init);
+  const headers = new Headers(init?.headers);
+  if (init?.method === "POST" && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  const req = new Request(`http://box.tailnet:8766${path}`, { ...init, headers });
   return [req, new URL(req.url)] as const;
 };
 
@@ -189,7 +191,7 @@ test("an api key never refreshes and an expired token with no refresh reads as s
 test("computers come from the control plane CLI status route with the bearer token", async () => {
   saveCloudCredentials({ token: "omg_sk_live_x", kind: "api-key" }, credentialPath);
   const { fetch, calls } = fakeFetch((url) =>
-    url.endsWith("/api/cli/computer/status")
+    url.endsWith("/api/cli/computer/status?passive=true")
       ? jsonResponse({
           computers: [
             { slug: "cloud", name: "Cloud computer", kind: "cloud", online: true, status: "live", isDefault: true },
@@ -209,7 +211,7 @@ test("computers come from the control plane CLI status route with the bearer tok
   const body = (await response?.json()) as { computers: { slug: string }[]; defaultComputer: string };
   expect(body.computers.map((c) => c.slug)).toEqual(["cloud", "macbook"]);
   expect(body.defaultComputer).toBe("cloud");
-  expect(calls[0]?.url).toBe("https://backend.example/api/cli/computer/status");
+  expect(calls[0]?.url).toBe("https://backend.example/api/cli/computer/status?passive=true");
   expect(new Headers(calls[0]?.init?.headers).get("Authorization")).toBe("Bearer omg_sk_live_x");
 });
 
@@ -262,4 +264,67 @@ test("helpers: return targets stay on this origin and token email is best effort
   const creds: CloudCredentials = { token: "x", kind: "oauth" };
   saveCloudCredentials(creds, credentialPath);
   expect(loadCloudCredentials(credentialPath)).toEqual(creds);
+});
+
+test("machine actions require sign-in and only forward account-owned inputs", async () => {
+  const { fetch, calls } = fakeFetch(() => jsonResponse({ name: "Build Mac" }));
+  const account = createCloudAccount({ credentialPath, fetch });
+  for (const action of ["pairing", "rename", "provision"]) {
+    const response = await account.handleRequest(...request("/api/cloud/" + action, { method: "POST", body: JSON.stringify({ name: "Build Mac" }) }));
+    expect(response?.status).toBe(401);
+  }
+  expect(calls).toHaveLength(0);
+  saveCloudCredentials({ token: "test-token", kind: "api-key" }, credentialPath);
+  const renamed = await account.handleRequest(...request("/api/cloud/rename", {
+    method: "POST", body: JSON.stringify({ name: " Build Mac ", userId: "someone-else" }),
+  }));
+  expect(renamed?.status).toBe(200);
+  expect(calls[0]?.url).toEndWith("/api/cli/computer/rename");
+  expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ name: "Build Mac" });
+  expect(new Headers(calls[0]?.init?.headers).get("Authorization")).toBe("Bearer test-token");
+  for (const name of ["", " ", "a".repeat(81), "bad\nname"]) {
+    expect((await account.handleRequest(...request("/api/cloud/rename", {
+      method: "POST", body: JSON.stringify({ name }),
+    })))?.status).toBe(400);
+  }
+  expect(calls).toHaveLength(1);
+  await account.handleRequest(...request("/api/cloud/pairing", { method: "POST" }));
+  await account.handleRequest(...request("/api/cloud/provision", { method: "POST" }));
+  expect(calls[1]?.url).toEndWith("/api/cli/computer/connect");
+  expect(calls[2]?.url).toEndWith("/api/cli/computer/provision");
+});
+
+test("machine actions preserve upstream errors", async () => {
+  saveCloudCredentials({ token: "test-token", kind: "api-key" }, credentialPath);
+  const account = createCloudAccount({ credentialPath, fetch: fakeFetch(() => jsonResponse({ error: "Plan required" }, 403)).fetch });
+  const response = await account.handleRequest(...request("/api/cloud/provision", { method: "POST" }));
+  expect(response?.status).toBe(403);
+  expect(await response?.json()).toEqual({ error: "Plan required" });
+});
+
+test("machine mutations reject cross-site browser requests before using cloud credentials", async () => {
+  saveCloudCredentials({ token: "test-token", kind: "api-key" }, credentialPath);
+  const { fetch, calls } = fakeFetch(() => jsonResponse({ ok: true }));
+  const account = createCloudAccount({ credentialPath, fetch });
+  const attackHeaders: Record<string, string>[] = [
+      { Origin: "https://attacker.example", "Content-Type": "text/plain" },
+      { Origin: "https://attacker.example", "Content-Type": "application/json" },
+      { "Sec-Fetch-Site": "cross-site", "Content-Type": "application/json" },
+      { "Sec-Fetch-Site": "same-site", "Content-Type": "application/json" },
+  ];
+  for (const action of ["pairing", "rename", "provision"]) {
+    for (const headers of attackHeaders) {
+      const response = await account.handleRequest(...request("/api/cloud/" + action, {
+        method: "POST", headers, body: JSON.stringify({ name: "Attacker" }),
+      }));
+      expect(response?.status).toBe(403);
+    }
+  }
+  expect(calls).toHaveLength(0);
+  expect((await account.handleRequest(...request("/api/cloud/pairing", {
+    method: "POST", headers: { "Content-Type": "text/plain" },
+  })))?.status).toBe(415);
+  expect((await account.handleRequest(...request("/api/cloud/pairing", {
+    method: "POST", headers: { Origin: "http://box.tailnet:8766", "Sec-Fetch-Site": "same-origin" },
+  })))?.status).toBe(200);
 });

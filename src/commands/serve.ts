@@ -5013,7 +5013,10 @@ a{color:#60a5fa}
         path === "/api/cloud/callback" ||
         path === "/api/cloud/token" ||
         path === "/api/cloud/logout" ||
-        path === "/api/cloud/computers"
+        path === "/api/cloud/computers" ||
+        path === "/api/cloud/pairing" ||
+        path === "/api/cloud/rename" ||
+        path === "/api/cloud/provision"
       ) {
         const handled = await cloudAccount.handleRequest(req, url);
         if (path === "/api/cloud/logout") cloudMachineProxy.reset();

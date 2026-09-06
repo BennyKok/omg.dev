@@ -104,6 +104,9 @@ export interface HostMachine {
 }
 
 export interface HostMachines {
+  /** Account-owned machine actions. */
+  onAdd?: () => void;
+  onRename?: () => void;
   machines: HostMachine[];
   /** The id the surface is currently pointed at. */
   activeId: string;
