@@ -45,6 +45,10 @@ bun run scripts/prepare-release-manifest.ts "$RUNTIME_DIR/package.json"
 (
   cd "$RUNTIME_DIR"
   unset CI
+  # The staged manifest has no workspace graph. Match release.sh by resolving
+  # a runtime-owned lockfile before enforcing it for the target install.
+  rm bun.lock
+  bun install --production --lockfile-only --os="$TARGET_OS" --cpu="$TARGET_CPU"
   bun install --production --frozen-lockfile --os="$TARGET_OS" --cpu="$TARGET_CPU"
 )
 
