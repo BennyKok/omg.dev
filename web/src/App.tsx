@@ -22479,10 +22479,12 @@ function NewSessionDialog({
         />
       ) : null}
 
-      {agent === "codex" || agent === "codex-aisdk" ? (
+      {/* The pill only appears when the agent and the model can actually run
+          Tibo mode. A permanently disabled pill taught nobody which model to
+          pick, so an unsupported model now shows no control at all. */}
+      {tiboModeAvailable ? (
         <TiboModePill
           enabled={tiboModeActive}
-          available={tiboModeAvailable}
           onToggle={() => setTiboMode(!tiboMode)}
           flat={variant === "inline"}
         />
@@ -23930,22 +23932,19 @@ function FastModePill({
   );
 }
 
+// Only rendered when Tibo mode is available, so there is no disabled state.
 function TiboModePill({
   enabled,
-  available,
   onToggle,
   flat = false,
 }: {
   enabled: boolean;
-  available: boolean;
   onToggle: () => void;
   flat?: boolean;
 }) {
-  const description = available
-    ? enabled
-      ? "Tibo mode is on: Fast service tier and High thinking"
-      : "Turn on Tibo mode: Fast service tier and High thinking"
-    : "Tibo mode requires a GPT-5.4, GPT-5.5, or GPT-5.6 Codex model";
+  const description = enabled
+    ? "Tibo mode is on: Fast service tier and High thinking"
+    : "Turn on Tibo mode: Fast service tier and High thinking";
 
   return (
     <button
@@ -23953,10 +23952,9 @@ function TiboModePill({
       aria-label={description}
       aria-pressed={enabled}
       title={description}
-      disabled={!available}
       onClick={onToggle}
       className={cn(
-        "relative inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-semibold outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-35",
+        "relative inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs font-semibold outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-ring",
         flat && !enabled ? "px-1.5 text-muted-foreground" : "bg-muted text-muted-foreground",
         enabled &&
           "bg-gradient-to-r from-orange-500/22 via-fuchsia-500/20 to-violet-500/22 text-foreground ring-1 ring-inset ring-orange-400/45 shadow-[0_0_18px_rgba(249,115,22,0.22)]",
