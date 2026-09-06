@@ -23,7 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 
-type Entry = { choice: MachineChoice; row: CloudComputerRow | null };
+type Entry = { choice: MachineChoice; row: CloudComputerRow | null; canRename?: boolean };
 
 /** The list the switcher draws and how a pick is applied, from either owner. */
 type MachineSource = {
@@ -40,10 +40,11 @@ type MachineSource = {
 /** Present a host-supplied machine as the row shape the menu already renders. */
 function hostEntry(machine: HostMachine): Entry {
   if (machine.kind === "local") {
-    return { choice: { id: machine.id, name: machine.name }, row: null };
+    return { choice: { id: machine.id, name: machine.name }, row: null, canRename: machine.canRename };
   }
   return {
     choice: { id: machine.id, name: machine.name },
+    canRename: machine.canRename,
     row: {
       slug: machine.id,
       name: machine.name,
@@ -59,7 +60,7 @@ function hostEntry(machine: HostMachine): Entry {
  * The box's own account list, used when no host supplies one. Available once the box account routes respond.
  */
 function useBoxMachines(enabled: boolean, onSelect: (choice: MachineChoice) => void): MachineSource | null {
-  const { status, computers, reload, signIn } = useCloudMachines(enabled);
+  const { status, computers, thisComputer, reload, signIn } = useCloudMachines(enabled);
   const active = activeMachine();
   if (!enabled) return null;
   const reachable: Entry[] = (computers ?? []).flatMap((row) => {
@@ -68,7 +69,7 @@ function useBoxMachines(enabled: boolean, onSelect: (choice: MachineChoice) => v
   });
   if (!status) return null;
   return {
-    entries: [{ choice: LOCAL_MACHINE_CHOICE, row: null }, ...reachable],
+    entries: [{ choice: { ...LOCAL_MACHINE_CHOICE, name: thisComputer?.name || status.localName || LOCAL_MACHINE_CHOICE.name }, row: null }, ...reachable],
     activeId: active.id,
     select: onSelect, reload, signIn, signedIn: status.signedIn,
     connectedIds: (computers ?? []).filter((row) => row.kind === "connected").map((row) => row.bindingId ?? row.slug),
@@ -97,6 +98,7 @@ export function MachineSwitcher({
   onSelect?: (choice: MachineChoice) => void;
 }) {
   const [action, setAction] = useState<"add" | "rename" | null>(null);
+  const [editing, setEditing] = useState<MachineChoice | null>(null);
   const { transportLive } = useRuntimeAvailability();
   const host = useEmbeddedHostOptions().machines;
   // One owner per surface: the host's list when it supplies one, else the
@@ -118,9 +120,6 @@ export function MachineSwitcher({
 
   const { entries, activeId, select } = source;
   const current = entries.find((entry) => entry.choice.id === activeId) ?? entries[0]!;
-  // The account's cloud machine, when it has been created. Rename needs one.
-  const cloudEntry = entries.find((entry) => entry.row?.kind === "cloud");
-  const cloudExists = !!cloudEntry && cloudEntry.row?.status !== "none";
   const CurrentIcon = current.row?.kind === "cloud" ? Cloud : Laptop;
   const currentName = current.choice.name;
   const currentOnline = !!transportLive || !current.row || current.row.online;
@@ -179,31 +178,46 @@ export function MachineSwitcher({
             <DropdownMenuLabel className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               Machines
             </DropdownMenuLabel>
-            {entries.map(({ choice, row }) => {
+            {entries.map(({ choice, row, canRename }) => {
               const selected = choice.id === activeId;
               const Icon = row?.kind === "cloud" ? Cloud : Laptop;
               return (
-                <DropdownMenuItem
-                  key={choice.id}
-                  data-machine-option={choice.id}
-                  aria-current={selected ? "true" : undefined}
-                  onClick={() => {
-                    if (!selected) select(choice);
-                  }}
-                  className="flex items-center gap-2.5 rounded-lg px-2 py-2"
-                >
-                  <span className="relative flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-foreground/[0.06]">
-                    <Icon className="size-4 text-foreground/70" />
-                    <StatusDot online={selected ? currentOnline : !row || row.online} className="absolute -bottom-0.5 -right-0.5" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-medium">{choice.name}</span>
-                    <span className="block truncate text-[11px] text-muted-foreground">
-                      {row ? machineStatusLabel(row) : "The box that served this page"}
+                <div key={choice.id} className="flex items-center gap-0.5">
+                  <DropdownMenuItem
+                    data-machine-option={choice.id}
+                    aria-current={selected ? "true" : undefined}
+                    onClick={() => {
+                      if (!selected) select(choice);
+                    }}
+                    className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-2"
+                  >
+                    <span className="relative flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-foreground/[0.06]">
+                      <Icon className="size-4 text-foreground/70" />
+                      <StatusDot online={selected ? currentOnline : !row || row.online} className="absolute -bottom-0.5 -right-0.5" />
                     </span>
-                  </span>
-                  {selected ? <Check className="size-4 shrink-0 text-primary" /> : null}
-                </DropdownMenuItem>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-medium">{choice.name}</span>
+                      <span className="block truncate text-[11px] text-muted-foreground">
+                        {row ? machineStatusLabel(row) : "The box that served this page"}
+                      </span>
+                    </span>
+                    {selected ? <Check className="size-4 shrink-0 text-primary" /> : null}
+                  </DropdownMenuItem>
+                  {(!host || host.onRename) && canRename !== false && row?.status !== "none" ? (
+                    <DropdownMenuItem
+                      aria-label={`Edit ${choice.name}`}
+                      title={`Edit ${choice.name}`}
+                      data-machine-edit={choice.id}
+                      className="size-9 shrink-0 justify-center rounded-lg p-0 text-muted-foreground"
+                      onClick={() => {
+                        if (host) host.onRename?.(choice.id);
+                        else { setEditing(choice); setAction("rename"); }
+                      }}
+                    >
+                      <Pencil className="size-3.5" />
+                    </DropdownMenuItem>
+                  ) : null}
+                </div>
               );
             })}
           </DropdownMenuGroup>
@@ -211,24 +225,13 @@ export function MachineSwitcher({
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={addMachine}><Plus className="size-4" />Add machine</DropdownMenuItem>
           </> : null}
-          {host?.onRename ? (
-            <DropdownMenuItem onClick={() => host.onRename?.()}><Pencil className="size-4" />Rename cloud machine</DropdownMenuItem>
-          ) : !host && box?.signedIn ? (
-            <DropdownMenuItem
-              disabled={!cloudExists}
-              title={cloudExists ? undefined : "Add a cloud machine first"}
-              onClick={() => setAction("rename")}
-            >
-              <Pencil className="size-4" />Rename cloud machine
-            </DropdownMenuItem>
-          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
       {action && !host ? (
         <MachineActionsDialog
           action={action}
-          name={cloudExists ? cloudEntry?.choice.name ?? "" : ""}
-          cloudExists={cloudExists}
+          name={editing?.name ?? ""}
+          bindingId={editing?.id}
           connectedIds={source.connectedIds ?? []}
           onClose={() => setAction(null)}
           onSaved={box?.reload ?? (async () => {})}

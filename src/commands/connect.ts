@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { hostname } from "node:os";
+import { getGlobalSettingsSync } from "../settings.ts";
 import { join } from "node:path";
 import { PATHS, localServeBaseUrl, localServeHost } from "../config.ts";
 import { CONNECT_AUTH_REJECTED_EXIT_CODE } from "../connect-manager.ts";
@@ -1148,7 +1149,7 @@ function connectSocket(
 
 /** Redeems a one-time pairing code, persists the returned token, then falls through to the persistent connect loop. */
 /**
- * This machine's hostname, sent so a relay can offer a human-readable handle
+ * This machine's local display name (or hostname), sent as a readable handle
  * instead of a UUID.
  *
  * Generic on purpose: a hostname is not an omg concept, and a relay that does
@@ -1157,7 +1158,7 @@ function connectSocket(
  */
 function boxName(): string | undefined {
   try {
-    const name = hostname().trim().replace(/\.local$/i, "");
+    const name = getGlobalSettingsSync().machineName || hostname().trim().replace(/\.local$/i, "");
     return name || undefined;
   } catch {
     return undefined;

@@ -144,12 +144,12 @@ test("rename: Save waits for a real change, Cancel closes, Save posts the trimme
   });
   expect(button("Save").disabled).toBe(false);
   await ui.flushAsync(() => document.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-  expect(JSON.parse(posted)).toEqual({ name: "Builder" });
+  expect(JSON.parse(posted)).toEqual({ name: "Builder", bindingId: "cloud" });
   expect(saved).toBe(true);
   expect(closed).toBe(true);
 });
 
-test("rename without a cloud machine keeps Save disabled and says why", async () => {
+test("rename without a machine keeps Save disabled and says why", async () => {
   let fetched = 0;
   globalThis.fetch = (async () => {
     fetched++;
@@ -160,7 +160,7 @@ test("rename without a cloud machine keeps Save disabled and says why", async ()
     <MachineActionsDialog
       action="rename"
       name=""
-      cloudExists={false}
+      machineExists={false}
       onClose={() => {
         closed = true;
       }}
@@ -168,7 +168,7 @@ test("rename without a cloud machine keeps Save disabled and says why", async ()
     />,
   );
   expect(button("Save").disabled).toBe(true);
-  expect(body()).toContain("do not have a cloud machine yet");
+  expect(body()).toContain("This machine is no longer available");
   await ui.flushAsync(() => document.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
   expect(fetched).toBe(0);
   await ui.flushAsync(() => button("Cancel").click());

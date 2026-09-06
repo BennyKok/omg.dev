@@ -20,6 +20,7 @@ export type CloudAccountStatus = {
   authUrl: string;
   /** This box's own binding id on the account, when paired. */
   thisBoxId?: string | null;
+  localName?: string;
 };
 
 /** Mirrors CloudComputerRow in src/cloud-account.ts. */
@@ -92,6 +93,7 @@ export type CloudMachinesState = {
   /** Null until the first answer, and null forever on a server without the routes. */
   status: CloudAccountStatus | null;
   computers: CloudComputerRow[] | null;
+  thisComputer: CloudComputerRow | null;
   error: string | null;
   busy: boolean;
   reload: () => Promise<void>;
@@ -101,6 +103,7 @@ export type CloudMachinesState = {
 
 export function useCloudMachines(enabled = true): CloudMachinesState {
   const [status, setStatus] = useState<CloudAccountStatus | null>(null);
+  const [thisComputer, setThisComputer] = useState<CloudComputerRow | null>(null);
   const [computers, setComputers] = useState<CloudComputerRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -112,6 +115,7 @@ export function useCloudMachines(enabled = true): CloudMachinesState {
     setStatus(next);
     if (!next.signedIn) {
       setComputers(null);
+      setThisComputer(null);
       return;
     }
     const list = await fetch("/api/cloud/computers", { credentials: "same-origin", signal });
@@ -119,6 +123,7 @@ export function useCloudMachines(enabled = true): CloudMachinesState {
     if (!list.ok) throw new Error(body?.error ?? `Computer list failed (${list.status})`);
     // The account lists this box like any other paired machine. It is already
     // the "This computer" row, so it must not appear a second time.
+    setThisComputer((body?.computers ?? []).find((row) => isThisBox(row, next.thisBoxId)) ?? null);
     setComputers((body?.computers ?? []).filter((row) => !isThisBox(row, next.thisBoxId)));
   }, []);
 
@@ -196,5 +201,5 @@ export function useCloudMachines(enabled = true): CloudMachinesState {
     }
   }, [load]);
 
-  return { status, computers, error, busy, reload, signIn, signOut };
+  return { status, computers, thisComputer, error, busy, reload, signIn, signOut };
 }
