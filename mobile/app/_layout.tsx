@@ -1,4 +1,5 @@
 import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider } from "expo-router";
+import { IpadWorkspaceLayout } from "../src/omg/sessions-screen";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
@@ -438,6 +439,7 @@ function RootNavigator() {
       <StatusBar style={isDark ? "light" : "dark"} />
       <Stack
         key="signed-in"
+        layout={IpadWorkspaceLayout}
         screenOptions={{
           /**
            * The nav bar is left to the system material.
