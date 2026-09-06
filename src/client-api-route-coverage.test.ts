@@ -31,9 +31,12 @@ const SRC = dirname(new URL(import.meta.url).pathname);
 const WEB_SRC = join(SRC, "..", "web", "src");
 const SERVE = readFileSync(join(SRC, "commands", "serve.ts"), "utf8");
 
-// Paths the local server answers from somewhere other than serve.ts's router.
-// Keep this empty unless there is a real second owner, and name that owner here.
-const ROUTED_ELSEWHERE = new Set<string>();
+// Optional routes owned outside the local runtime. Name their owner here.
+const ROUTED_ELSEWHERE = new Set<string>([
+  // vibes/control-plane/lib/session-proxy.ts reads the cloud lifecycle before
+  // the runtime exists. The client stops this optional probe on local 404s.
+  "/api/runtime-status",
+]);
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {

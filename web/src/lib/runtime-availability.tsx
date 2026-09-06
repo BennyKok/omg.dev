@@ -1,7 +1,10 @@
 import { createContext, useContext } from "react";
 import type { ConnectionStatus } from "../useLiveSocket";
 
+import type { RuntimeLifecycle } from "./runtime-lifecycle";
+
 export type RuntimeAvailability = {
+  lifecycle?: RuntimeLifecycle | null;
   status: ConnectionStatus;
   transportLive?: boolean;
   loading: boolean;
