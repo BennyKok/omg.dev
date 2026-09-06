@@ -2,6 +2,13 @@
 
 Recent product updates and deployment notes.
 
+## September 6, 2026 - Cloud startup progress in the greeting (v0.6.50)
+
+- **The greeting shows confirmed cloud startup progress.** It shows “Waking your
+  computer…” or “Starting your computer…” while the cloud backend reports an
+  active startup. A confirmed failure has separate text. Older servers retain
+  the existing connection display.
+
 ## September 6, 2026 - Tibo mode shows one control, and archive undoes itself (v0.6.49)
 
 - **The Tibo pill hides when it cannot be used.** An agent or model that
