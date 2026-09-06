@@ -1,3 +1,4 @@
+import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { LiveHeaderContext } from "./components/live-header-context";
 import { activeMachine } from "./lib/machines";
 import { useHeaderProfile } from "./lib/header-profile";
@@ -7307,6 +7308,12 @@ export function App() {
     };
   }, [useWsLive, liveStatus, loadCore]);
 
+  const runtimeReady = computerVersionReport !== null && computerVersionReport.generation === omgTransportGeneration();
+  const runtimeLifecycle = useRuntimeLifecycle(
+    loading || !runtimeReady || !!error || (useWsLive && wsLiveStream.connection.status !== "live"),
+    omgTransportGeneration(),
+  );
+
   const retryRuntime = useCallback(() => {
     if (loading) return;
     wsLiveStream.reconnectNow();
@@ -8651,10 +8658,11 @@ export function App() {
     <BotDirectoryContext.Provider value={botDirectory}>
     <ViewerIdentityContext.Provider value={viewerParticipantId}>
     <RuntimeAvailabilityContext.Provider value={{
+      lifecycle: runtimeLifecycle,
       status: useWsLive ? wsLiveStream.connection.status : "live",
       transportLive: useWsLive && wsLiveStream.connection.status === "live",
       loading,
-      ready: computerVersionReport !== null && computerVersionReport.generation === omgTransportGeneration(),
+      ready: runtimeReady,
       error,
       retry: retryRuntime,
     }}>
