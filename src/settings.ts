@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { sanitizeBotCompactionThreshold } from "./bots/rotation.ts";
 
 export type GlobalSettings = {
+  /** Display name for this box before it is paired to an account. */
+  machineName: string;
   timeZone: string;
   // Ceiling on total LIVE agents (main + subagent + fork + voice), 0 =
   // unlimited. SOFT on a self-hosted box, and deliberately so: it is the
@@ -181,6 +183,7 @@ function sanitize(input: Partial<GlobalSettings> | null | undefined): GlobalSett
   const showSessionDiffBar = input?.showSessionDiffBar !== false;
   const showComposerFastMode = input?.showComposerFastMode !== false;
   return {
+    machineName: typeof input?.machineName === "string" ? input.machineName.trim().replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 80) : "",
     timeZone,
     maxLiveAgents,
     maxBotSchedules,
@@ -296,6 +299,7 @@ export async function setGlobalSettings(patch: Partial<GlobalSettings>): Promise
   `);
   database.transaction(() => {
     const now = Date.now();
+    write.run("machineName", JSON.stringify(next.machineName), now);
     write.run("timeZone", JSON.stringify(next.timeZone), now);
     write.run("maxLiveAgents", JSON.stringify(next.maxLiveAgents), now);
     write.run("maxBotSchedules", JSON.stringify(next.maxBotSchedules), now);

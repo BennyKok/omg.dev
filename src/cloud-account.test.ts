@@ -328,3 +328,33 @@ test("machine mutations reject cross-site browser requests before using cloud cr
     method: "POST", headers: { Origin: "http://box.tailnet:8766", "Sec-Fetch-Site": "same-origin" },
   })))?.status).toBe(200);
 });
+
+test("rename targets a connected machine and resolves this box to its binding", async () => {
+  saveCloudCredentials({ token: "test-token", kind: "api-key" }, credentialPath);
+  const { fetch, calls } = fakeFetch(() => jsonResponse({ name: "Studio" }));
+  const account = createCloudAccount({ credentialPath, fetch, thisBoxId: () => "this-box-id" });
+  for (const [bindingId, expected] of [["remote-id", "remote-id"], ["local", "this-box-id"]]) {
+    const result = await account.handleRequest(...request("/api/cloud/rename", {
+      method: "POST", body: JSON.stringify({ bindingId, name: " Studio " }),
+    }));
+    expect(result?.status).toBe(200);
+    expect(JSON.parse(String(calls.at(-1)?.init?.body))).toEqual({ bindingId: expected, name: "Studio" });
+  }
+});
+
+test("unpaired local rename works without cloud login and retains same-origin protection", async () => {
+  let name = "";
+  const { fetch, calls } = fakeFetch(() => { throw new Error("unexpected cloud request"); });
+  const account = createCloudAccount({ credentialPath, fetch, localName: () => name, renameLocal: async (next) => { name = next; } });
+  const result = await account.handleRequest(...request("/api/cloud/rename", {
+    method: "POST", body: JSON.stringify({ bindingId: "local", name: " My Mac " }),
+  }));
+  expect(result?.status).toBe(200);
+  expect(account.status().localName).toBe("My Mac");
+  const blocked = await account.handleRequest(...request("/api/cloud/rename", {
+    method: "POST", headers: { Origin: "https://attacker.example" }, body: JSON.stringify({ bindingId: "local", name: "Changed" }),
+  }));
+  expect(blocked?.status).toBe(403);
+  expect(account.status().localName).toBe("My Mac");
+  expect(calls).toHaveLength(0);
+});

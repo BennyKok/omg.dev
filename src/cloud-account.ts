@@ -50,6 +50,7 @@ export type CloudAccountStatus = {
    * other; the UI uses this to show it once, as "This computer".
    */
   thisBoxId: string | null;
+  localName?: string;
 };
 
 /** One row of GET /api/cli/computer/status on the control plane. */
@@ -83,6 +84,8 @@ export interface CloudAccountOptions {
   pendingTtlMs?: number;
   /** This box's relay binding id, read fresh each time. Null when not paired. */
   thisBoxId?: () => string | null;
+  localName?: () => string;
+  renameLocal?: (name: string) => Promise<void>;
 }
 
 export interface CloudAccount {
@@ -323,6 +326,7 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
       kind: creds?.kind ?? null,
       authUrl,
       thisBoxId: options.thisBoxId?.() ?? null,
+      localName: options.localName?.() ?? "",
     };
   }
 
@@ -470,16 +474,30 @@ export function createCloudAccount(options: CloudAccountOptions = {}): CloudAcco
           if (req.headers.get("Content-Type")?.split(";")[0]?.trim().toLowerCase() !== "application/json") {
             throw new CloudAccountError("Cloud machine actions require application/json.", 415);
           }
-          const token = await getAccessToken();
-          if (!token) throw new CloudAccountError("Not signed in to omg Cloud.", 401);
           let body: Record<string, unknown> = {};
           if (action === "rename") {
-            const input = await req.json().catch(() => null) as { name?: unknown } | null;
+            const input = await req.json().catch(() => null) as { name?: unknown; bindingId?: unknown } | null;
             if (typeof input?.name !== "string" || !input.name.trim() || input.name.trim().length > 80 || /[\u0000-\u001f\u007f]/.test(input.name)) {
               throw new CloudAccountError("Use a machine name with 1 to 80 characters and no control characters.", 400);
             }
-            body = { name: input.name.trim() };
+            if (input.bindingId !== undefined && (typeof input.bindingId !== "string" || !input.bindingId.trim())) {
+              throw new CloudAccountError("A machine id is required.", 400);
+            }
+            let bindingId = input.bindingId ?? "cloud";
+            if (bindingId === "local") {
+              // A paired box uses the account name. An unpaired box uses its
+              // existing local settings store, so no cloud login is required.
+              bindingId = options.thisBoxId?.() ?? "local";
+              if (bindingId === "local") {
+                if (!options.renameLocal) throw new CloudAccountError("Local rename is unavailable.", 503);
+                await options.renameLocal(input.name.trim());
+                return json({ name: input.name.trim() });
+              }
+            }
+            body = { name: input.name.trim(), ...(input.bindingId === undefined ? {} : { bindingId }) };
           }
+          const token = await getAccessToken();
+          if (!token) throw new CloudAccountError("Not signed in to omg Cloud.", 401);
           const response = await fetchImpl(`${controlPlaneUrl}/api/cli/computer/${action}`, {
             method: "POST",
             headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },

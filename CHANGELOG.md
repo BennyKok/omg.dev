@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 6, 2026 - Edit names beside each machine (v0.6.53)
+
+- Use the pencil beside a machine to edit its name without switching machines.
+- Save names for cloud, connected, and local machines. Connected names stay in place after reconnecting.
+- The separate Rename cloud machine menu item is removed.
+
 ## September 6, 2026 - Keep cloud recovery status clear (v0.6.52)
 
 - The greeting keeps “Connecting…” while a ready cloud computer finishes its client connection. It no longer briefly shows “Connection unavailable” during this handoff.

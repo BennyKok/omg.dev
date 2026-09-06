@@ -207,12 +207,14 @@ test("a live transport confirms the selected computer despite an old account sna
 });
 
 test("host machine actions use the host owner and never call the local account", async () => {
-  let added = 0, renamed = 0, fetched = 0;
+  let added = 0, fetched = 0;
+  const renamed: string[] = [];
+  const selected: string[] = [];
   globalThis.fetch = (async () => { fetched++; throw new Error("unexpected local request"); }) as typeof fetch;
   ui.render(<EmbeddedHostOptionsProvider value={{
     machines: {
-      machines: [{ id: "cloud", name: "Builder", kind: "cloud", online: true }],
-      activeId: "cloud", onSelect: () => {}, onAdd: () => { added++; }, onRename: () => { renamed++; },
+      machines: [{ id: "cloud", name: "Builder", kind: "cloud", online: true }, { id: "studio-id", name: "Studio", kind: "connected", online: false }, { id: "shared:owner:box", name: "Shared", kind: "connected", online: true, canRename: false }],
+      activeId: "cloud", onSelect: (id) => { selected.push(id); }, onAdd: () => { added++; }, onRename: (id) => { renamed.push(id); },
     },
   }}><MachineSwitcher variant="rail" /></EmbeddedHostOptionsProvider>);
   const open = async () => ui.flushAsync(() => (ui.query("[data-machine-switcher]") as HTMLElement).click());
@@ -223,8 +225,41 @@ test("host machine actions use the host owner and never call the local account",
   });
   await open();
   await ui.flushAsync(() => {
-    const item = Array.from(document.querySelectorAll('[role="menuitem"]')).find((el) => el.textContent?.includes("Rename cloud machine")) as HTMLElement;
+    expect(document.querySelector("[data-machine-menu]")?.textContent).not.toContain("Rename cloud machine");
+    expect(document.querySelector('[data-machine-edit="shared:owner:box"]')).toBeNull();
+    const item = document.querySelector('[data-machine-edit="studio-id"]') as HTMLElement;
+    expect(item.getAttribute("aria-label")).toBe("Edit Studio");
     item.click();
   });
-  expect(added).toBe(1); expect(renamed).toBe(1); expect(fetched).toBe(0);
+  expect(added).toBe(1); expect(renamed).toEqual(["studio-id"]); expect(selected).toEqual([]); expect(fetched).toBe(0);
+});
+
+test("edits an unpaired local machine and refreshes its displayed name", async () => {
+  let name = "My Mac";
+  const picked: string[] = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/cloud/session") return Response.json({ ...signedIn, signedIn: false, localName: name });
+    if (url === "/api/cloud/rename") {
+      const body = JSON.parse(String(init?.body));
+      expect(body.bindingId).toBe("local");
+      name = body.name;
+      return Response.json({ name });
+    }
+    throw new Error(`Unexpected request ${url}`);
+  }) as typeof fetch;
+  ui.render(<MachineSwitcher variant="rail" onSelect={(choice) => picked.push(choice.id)} />);
+  await ui.flushAsync();
+  await ui.flushAsync(() => (ui.query("[data-machine-switcher]") as HTMLElement).click());
+  await ui.flushAsync(() => (document.querySelector('[data-machine-edit="local"]') as HTMLElement).click());
+  expect(document.querySelector('[data-machine-dialog="rename"]')).not.toBeNull();
+  const input = document.querySelector<HTMLInputElement>("#machine-name")!;
+  expect(input.value).toBe("My Mac");
+  await ui.flushAsync(() => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(input, "Studio Mac");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await ui.flushAsync(() => document.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+  expect(ui.query("[data-machine-switcher]")?.textContent).toContain("Studio Mac");
+  expect(picked).toEqual([]);
 });

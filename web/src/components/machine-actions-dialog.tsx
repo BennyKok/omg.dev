@@ -181,27 +181,29 @@ function ErrorNote({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * Add a machine to the account this box is signed in to, or rename its cloud
- * machine. The machine list itself belongs to useCloudMachines; this dialog
+ * Add a machine to the account this box is signed in to, or edit a machine
+ * name. The machine list itself belongs to useCloudMachines; this dialog
  * only asks it to reload through `onSaved`.
  *
  * @param connectedIds The ids of the connected machines on the account right
  * now. While a pairing code is out, the dialog reloads the list and treats a
  * new id as "that machine connected".
- * @param cloudExists False when the account has no cloud machine yet. Rename
+ * @param machineExists False when the selected machine no longer exists. Rename
  * is disabled in that case, because there is nothing to name.
  */
 export function MachineActionsDialog({
   action,
   name,
-  cloudExists = true,
+  machineExists = true,
+  bindingId = "cloud",
   connectedIds = [],
   onClose,
   onSaved,
 }: {
   action: "add" | "rename";
   name: string;
-  cloudExists?: boolean;
+  machineExists?: boolean;
+  bindingId?: string;
   connectedIds?: string[];
   onClose: () => void;
   onSaved: () => Promise<void>;
@@ -273,13 +275,13 @@ export function MachineActionsDialog({
   };
 
   const trimmed = draft.trim();
-  const canSave = cloudExists && !busy && trimmed.length > 0 && trimmed !== name;
+  const canSave = machineExists && !busy && trimmed.length > 0 && trimmed !== name;
 
   const title =
-    action === "rename" ? "Rename cloud machine" : step === "own" ? "Connect your machine" : step === "cloud" ? "omg.dev cloud" : "Add machine";
+    action === "rename" ? "Edit machine" : step === "own" ? "Connect your machine" : step === "cloud" ? "omg.dev cloud" : "Add machine";
   const description =
     action === "rename"
-      ? "The name shows in your machine list on every device."
+      ? "Choose a name you can recognize in your machine list."
       : step === "own"
         ? "Two commands in Terminal on the machine you want to connect."
         : step === "cloud"
@@ -319,7 +321,7 @@ export function MachineActionsDialog({
               e.preventDefault();
               if (!canSave) return;
               void run(async () => {
-                await request("rename", { name: trimmed });
+                await request("rename", { name: trimmed, bindingId });
                 await onSaved();
                 onClose();
               });
@@ -335,14 +337,14 @@ export function MachineActionsDialog({
                 onChange={(e) => setDraft(e.target.value)}
                 maxLength={80}
                 autoComplete="off"
-                disabled={!cloudExists || busy}
-                placeholder="omg cloud"
+                disabled={!machineExists || busy}
+                placeholder="Machine name"
               />
               <p className="text-xs text-muted-foreground">Up to 80 characters.</p>
             </div>
-            {!cloudExists ? (
+            {!machineExists ? (
               <p className="rounded-xl bg-foreground/[0.05] px-3 py-2 text-xs leading-5 text-muted-foreground">
-                You do not have a cloud machine yet. Add one first, then name it here.
+                This machine is no longer available.
               </p>
             ) : null}
             {error ? <ErrorNote>{error}</ErrorNote> : null}
