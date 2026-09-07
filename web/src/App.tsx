@@ -1271,7 +1271,6 @@ type BootstrapPayload = {
   settings?: Partial<GlobalSettings> | null;
   sessions?: Session[] | null;
   sessionPins?: string[] | null;
-  conversations?: ProductConversation[] | null;
   /** Which conversation participant, if any, "I" am — see fetchBootstrap. */
   viewer?: { managed: boolean; participantId: string | null } | null;
   users?: User[] | null;
