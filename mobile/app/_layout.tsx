@@ -2,7 +2,7 @@ import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider } from "expo-rout
 import { IpadWorkspaceLayout } from "../src/omg/sessions-screen";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import Reanimated, {
   Easing,
   useAnimatedStyle,
@@ -524,6 +524,13 @@ function RootNavigator() {
            * Do not reach for `headerBlurEffect` here again without a device
            * screenshot proving the title is legible.
            */
+          /**
+           * No push/pop slide on iPad. The rail stays put and tapping a
+           * session swaps the pane beside it, so a screen sliding in from the
+           * right reads as the wrong thing moving. The phone keeps the
+           * system transition.
+           */
+          animation: Platform.OS === "ios" && Platform.isPad ? "none" : "default",
           headerTransparent: false,
           headerStyle: { backgroundColor: colors.bg },
           headerTintColor: colors.text,

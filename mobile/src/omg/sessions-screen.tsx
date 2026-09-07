@@ -33,6 +33,7 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  StyleSheet,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -49,6 +50,7 @@ import type { OmgConnectionStatus } from "@omg-dev/client";
 import {
   EmptyState,
   Icon,
+  SESSION_ROW,
   SESSION_ROW_MARK_X,
   SESSION_ROW_MARK_Y,
   HomeComposer,
@@ -81,12 +83,14 @@ import {
   sessionMatchesUserFilter,
   useUserFilter,
   useUserRoster,
+  type RosterUser,
 } from "./users";
 import { useDictation } from "./dictation";
 import { PressableScale } from "./motion";
 import { useUsage } from "./usage";
 import { LucideIcon } from "./lucide";
-import { DropdownMenu } from "./menu";
+import { GlassSurface } from "./glass";
+import { DropdownMenu, type MenuOption } from "./menu";
 import {
   ALL_PROJECTS,
   useAgentPicker,
@@ -138,18 +142,38 @@ function SessionFamily({
   /** See the identical prop on SessionCard/AutoFindingCard for why. */
   animateEntry?: boolean;
 }) {
-  const { colors, space } = useTheme();
+  const { colors, space, radius } = useTheme();
   const session = node.session;
   const selected = usePathname() === `/session/${session.sessionId}`;
 
   return (
     <View style={{ alignSelf: "stretch" }}>
-      <View
-        style={{
-          borderRadius: 18,
-          backgroundColor: selected ? colors.accent : "transparent",
-        }}
-      >
+      <View>
+        {/* THE SELECTED ROW IS A CARD, as on the web: a fill, a hairline and
+            a soft lift, on the row's own bounds and radius. It used to be a
+            flat grey plate wider than the row at a radius the row does not
+            have. Drawn behind rather than around, so the row's geometry (and
+            the tree lines that aim at its mark) stay untouched. */}
+        {selected ? (
+          <View
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              top: 0,
+              bottom: 0,
+              left: SESSION_ROW.inset,
+              right: SESSION_ROW.inset,
+              borderRadius: radius.md,
+              backgroundColor: colors.card,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: colors.borderStrong,
+              shadowColor: "#000",
+              shadowOpacity: 0.18,
+              shadowRadius: 12,
+              shadowOffset: { width: 0, height: 6 },
+            }}
+          />
+        ) : null}
         <SessionCard
           title={session.title || session.lastUserText || "Untitled session"}
           subtitle={sessionPreview(session)}
@@ -438,6 +462,124 @@ function LiveWelcome({
 }
 
 /**
+ * The controls on the home header: the roster filter, the machine, and the
+ * pages menu. One component, so the phone's nav bar and the iPad rail carry
+ * the same row. `navigate` differs: the phone pushes, the rail swaps the pane.
+ */
+function HomeHeaderControls({
+  userFilter,
+  rosterUsers,
+  setUserFilter,
+  computerOptions,
+  machineName,
+  online,
+  navigate,
+}: {
+  userFilter: string;
+  rosterUsers: RosterUser[];
+  setUserFilter: (next: string) => void;
+  computerOptions: MenuOption[];
+  machineName: string;
+  online: boolean;
+  navigate: (href: Href) => void;
+}) {
+  const { colors, space } = useTheme();
+  return (
+    <View
+      style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}
+    >
+      {/* The web's island, in the web's order: the roster filter first,
+          then the machine, then one overflow menu for the pages. The
+          bell, the bot and the gear used to be three more discs here;
+          they live in the menu now, as the web's PagesMenu keeps them. */}
+      <UserFilterMenu
+        value={userFilter}
+        users={rosterUsers}
+        onChange={setUserFilter}
+      />
+      {/* TWO BUTTONS, NOT ONE CHIP.
+          The machine name and the gear used to share a single pill, which
+          read as one control and made the name look pressable-adjacent
+          rather than pressable. Split, each is a glyph on its own disc —
+          the shape iOS 26 gives bar items — and the machine's name moves
+          into the menu, where the checkmark already says which one is
+          current. The dot keeps the one thing the name was really
+          carrying: whether that machine is up. */}
+      <DropdownMenu title="Computer" options={computerOptions}>
+        <View
+          accessibilityRole="button"
+          accessibilityLabel={`Computer: ${machineName}. Change`}
+          style={{
+            width: 36,
+            height: 36,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <LucideIcon
+            name="monitor"
+            size={20}
+            color={colors.textSecondary}
+          />
+          <View
+            style={{
+              position: "absolute",
+              // Bottom-trailing of the glyph box, the corner UIKit badges
+              // from, clear of the monitor's stand.
+              right: 6,
+              bottom: 6,
+            }}
+          >
+            <StatusDot busy={online} size={7} />
+          </View>
+        </View>
+      </DropdownMenu>
+      {/* Pages. The web's PagesMenu: everything that is a screen rather
+          than a filter, behind one control, so the island stays three
+          wide. Live is this screen and is not listed. */}
+      <DropdownMenu
+        title="Pages"
+        options={[
+          {
+            label: "Notifications",
+            icon: "bell",
+            onPress: () => navigate("/notifications"),
+          },
+          {
+            label: "Schedules",
+            icon: "calendar.badge.clock",
+            onPress: () => navigate("/schedules"),
+          },
+          {
+            label: "Settings",
+            icon: "gearshape",
+            onPress: () => navigate("/settings"),
+          },
+        ]}
+      >
+        <View
+          accessibilityRole="button"
+          accessibilityLabel="Pages"
+          style={{
+            width: 36,
+            height: 36,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Icon
+            ios="ellipsis"
+            android="more_vert"
+            size={20}
+            color={colors.textSecondary}
+          />
+        </View>
+      </DropdownMenu>
+    </View>
+  );
+}
+
+/**
  * The list screen owns the draft and the two choices that go with it; the
  * pickers own which options exist and which one is current. See
  * session-options.ts for why neither selection is persisted.
@@ -463,7 +605,7 @@ export function SessionsScreen({
 
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const { colors, type, space } = useTheme();
+  const { colors, type, space, radius } = useTheme();
   const {
     client,
     readiness,
@@ -1199,102 +1341,15 @@ export function SessionsScreen({
         },
       ],
       headerRight: () => (
-        <View
-          style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}
-        >
-          {/* The web's island, in the web's order: the roster filter first,
-              then the machine, then one overflow menu for the pages. The
-              bell, the bot and the gear used to be three more discs here;
-              they live in the menu now, as the web's PagesMenu keeps them. */}
-          <UserFilterMenu
-            value={userFilter}
-            users={rosterUsers}
-            onChange={setUserFilter}
-          />
-          {/* TWO BUTTONS, NOT ONE CHIP.
-              The machine name and the gear used to share a single pill, which
-              read as one control and made the name look pressable-adjacent
-              rather than pressable. Split, each is a glyph on its own disc —
-              the shape iOS 26 gives bar items — and the machine's name moves
-              into the menu, where the checkmark already says which one is
-              current. The dot keeps the one thing the name was really
-              carrying: whether that machine is up. */}
-          <DropdownMenu title="Computer" options={computerPicker.options}>
-            <View
-              accessibilityRole="button"
-              accessibilityLabel={`Computer: ${machineName}. Change`}
-              style={{
-                width: 36,
-                height: 36,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <LucideIcon
-                name="monitor"
-                size={20}
-                color={colors.textSecondary}
-              />
-              <View
-                style={{
-                  position: "absolute",
-                  // Bottom-trailing of the glyph box, the corner UIKit badges
-                  // from, clear of the monitor's stand.
-                  right: 6,
-                  bottom: 6,
-                }}
-              >
-                <StatusDot busy={currentBinding?.online ?? false} size={7} />
-              </View>
-            </View>
-          </DropdownMenu>
-          {/* Pages. The web's PagesMenu: everything that is a screen rather
-              than a filter, behind one control, so the island stays three
-              wide. Live is this screen and is not listed. */}
-          <DropdownMenu
-            title="Pages"
-            options={[
-              {
-                label: "Notifications",
-                icon: "bell",
-                onPress: () => router.push("/notifications"),
-              },
-              {
-                label: "Bots",
-                icon: "bubble.left.and.bubble.right",
-                onPress: () => router.push("/bots"),
-              },
-              {
-                label: "Schedules",
-                icon: "calendar.badge.clock",
-                onPress: () => router.push("/schedules"),
-              },
-              {
-                label: "Settings",
-                icon: "gearshape",
-                onPress: () => router.push("/settings"),
-              },
-            ]}
-          >
-            <View
-              accessibilityRole="button"
-              accessibilityLabel="Pages"
-              style={{
-                width: 36,
-                height: 36,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Icon
-                ios="ellipsis"
-                android="more_vert"
-                size={20}
-                color={colors.textSecondary}
-              />
-            </View>
-          </DropdownMenu>
-        </View>
+        <HomeHeaderControls
+          userFilter={userFilter}
+          rosterUsers={rosterUsers}
+          setUserFilter={setUserFilter}
+          computerOptions={computerPicker.options}
+          machineName={machineName}
+          online={currentBinding?.online ?? false}
+          navigate={(href) => router.push(href)}
+        />
       ),
     });
   }, [
@@ -1354,6 +1409,44 @@ export function SessionsScreen({
     ],
   }));
 
+  // On iPad the centred column moves up with the keyboard by padding, not by
+  // the translate above: a translate by the full keyboard height would throw
+  // a mid-screen field off the top.
+  const centredKeyboardPad = useAnimatedStyle(() => ({
+    paddingBottom: Math.max(0, keyboard.height.value - insets.bottom),
+  }));
+
+  // One composer, two homes: docked over the list on the phone and the narrow
+  // iPad, centred in the pane on the wide iPad.
+  const composer = (
+    <HomeComposer
+      value={draft}
+      onChangeText={setDraft}
+      onStart={() => void startSession()}
+      starting={starting}
+      // null, not the "All projects" label — the pill collapses to a bare
+      // folder when nothing is scoped. See ComposerCaptionButton.
+      projectLabel={
+        projectPicker.filter === ALL_PROJECTS
+          ? null
+          : projectPicker.label
+      }
+      projectOptions={projectPicker.options}
+      agent={agentPicker.agent}
+      agentLabel={agentPicker.label}
+      agentOptions={agentPicker.options}
+      modelLabel={agentPicker.modelLabel}
+      modelOptions={agentPicker.modelOptions}
+      thinkingLabel={agentPicker.thinkingLabel}
+      thinkingOptions={agentPicker.thinkingOptions}
+      attachments={attachments}
+      dictation={dictation}
+      usage={usage}
+      usageLoading={usageLoading}
+      bottomInset={wide ? 0 : insets.bottom}
+    />
+  );
+
   return (
     <Reanimated.View style={{ flex: 1, backgroundColor: colors.bg }}>
       {workspace ? (
@@ -1382,7 +1475,7 @@ export function SessionsScreen({
                 width: wide ? railWidth : "100%",
                 display: wide || home ? "flex" : "none",
                 paddingTop: Math.max(insets.top, 56),
-                borderRightWidth: wide ? 0.5 : 0,
+                borderRightWidth: wide ? 1 : 0,
                 borderRightColor: colors.border,
               }
             : { flex: 1 }
@@ -1390,62 +1483,63 @@ export function SessionsScreen({
       >
         {workspace ? (
           <>
+            {/* ONE GUTTER FOR THE RAIL: `space.md` here, on the tab strip,
+                and on the section headers, with rows inset 8 inside it. The
+                web's rail is `px-1.5` + `px-2`; this column had five
+                different insets stacked in 320pt. */}
             <View
               style={{
                 flexDirection: "row",
                 alignItems: "center",
-                paddingHorizontal: 20,
-                gap: 12,
+                paddingHorizontal: space.md,
+                gap: space.sm,
               }}
             >
-              <Text
-                style={{
-                  color: colors.text,
-                  fontSize: 22,
-                  fontWeight: "700",
-                  flex: 1,
-                }}
-              >
-                omg.dev
-              </Text>
-              <UserFilterMenu
-                value={userFilter}
-                users={rosterUsers}
-                onChange={setUserFilter}
-              />
-              <DropdownMenu
-                title="Pages"
-                options={[
-                  {
-                    label: "Notifications",
-                    icon: "bell",
-                    onPress: () => navigateWorkspace("/notifications"),
-                  },
-                  {
-                    label: "Settings",
-                    icon: "gearshape",
-                    onPress: () => navigateWorkspace("/settings"),
-                  },
-                ]}
-              >
-                <View accessibilityLabel="Pages" style={{ padding: 10 }}>
-                  <Icon
-                    ios="ellipsis"
-                    android="more_vert"
-                    size={20}
-                    color={colors.text}
+              <View style={{ flex: 1, flexDirection: "row" }}>
+                {/* The greeting wears the web's glass island so it earns the
+                    header row it sits in. The phone's bar item stays bare:
+                    there UIKit already gives the bar its material. */}
+                <GlassSurface
+                  fallbackColor={colors.card}
+                  variant="regular"
+                  style={{
+                    height: 40,
+                    paddingHorizontal: 14,
+                    borderRadius: 999,
+                    justifyContent: "center",
+                  }}
+                >
+                  <LiveWelcome
+                    firstName={firstName}
+                    busyCount={flattenNodes(working).length}
+                    onPress={() => navigateWorkspace("/notifications")}
                   />
-                </View>
-              </DropdownMenu>
+                </GlassSurface>
+              </View>
+              <HomeHeaderControls
+                userFilter={userFilter}
+                rosterUsers={rosterUsers}
+                setUserFilter={setUserFilter}
+                computerOptions={computerPicker.options}
+                machineName={machineName}
+                online={currentBinding?.online ?? false}
+                navigate={navigateWorkspace}
+              />
             </View>
             <View
               accessibilityRole="tablist"
-              style={{ flexDirection: "row", padding: 12, gap: 4 }}
+              style={{
+                flexDirection: "row",
+                paddingHorizontal: space.md,
+                paddingVertical: space.sm,
+                gap: 4,
+              }}
             >
               {(
                 [
+                  // Bots is off the surface for now, on the phone's pages
+                  // menu too. The routes still exist; nothing links to them.
                   { label: "Chat", href: "/" },
-                  { label: "Bots", href: "/bots" },
                   { label: "Schedules", href: "/schedules" },
                 ] as const
               ).map(({ label, href }) => {
@@ -1459,18 +1553,22 @@ export function SessionsScreen({
                     accessibilityRole="tab"
                     accessibilityState={{ selected }}
                     onPress={() => navigateWorkspace(href)}
+                    // Small, like the web's SurfaceToggle. At 12pt of padding
+                    // and a 16 radius it was a filled slab that outweighed
+                    // every session row under it.
                     style={{
                       flex: 1,
-                      paddingVertical: 12,
-                      borderRadius: 16,
+                      paddingVertical: 6,
+                      borderRadius: radius.sm,
                       backgroundColor: selected ? colors.card : "transparent",
                       alignItems: "center",
                     }}
                   >
                     <Text
                       style={{
-                        color: selected ? colors.text : colors.textMuted,
+                        ...type.subhead,
                         fontWeight: "600",
+                        color: selected ? colors.text : colors.textMuted,
                       }}
                     >
                       {label}
@@ -1479,20 +1577,6 @@ export function SessionsScreen({
                 );
               })}
             </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="New session"
-              onPress={() => router.dismissTo("/")}
-              style={{ flexDirection: "row", gap: 10, padding: 18 }}
-            >
-              <Icon
-                ios="plus"
-                android="add"
-                size={18}
-                color={colors.textMuted}
-              />
-              <Text style={{ color: colors.textMuted }}>New session</Text>
-            </Pressable>
           </>
         ) : null}
         <ScrollView
@@ -1505,7 +1589,8 @@ export function SessionsScreen({
            * line tall.
            */
           contentContainerStyle={{
-            paddingBottom: workspace ? space.md : composerHeight + space.md,
+            paddingBottom:
+              home && !wide ? composerHeight + space.md : insets.bottom + space.md,
           }}
           keyboardShouldPersistTaps="handled"
           // Scrolling the list puts the keyboard away. Reaching for the field is
@@ -1528,6 +1613,49 @@ export function SessionsScreen({
             />
           }
         >
+          {/* NEW SESSION IS THE FIRST ROW of the list it adds to, as on the
+              web (a 40px row with a dashed disc). It used to be an 18pt
+              padded block above the list, outside the thing it acts on. */}
+          {workspace ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="New session"
+              onPress={() => router.dismissTo("/")}
+              style={({ pressed }) => ({
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10,
+                height: 40,
+                marginHorizontal: SESSION_ROW.inset,
+                paddingHorizontal: SESSION_ROW.padding,
+                borderRadius: radius.md,
+                backgroundColor: pressed ? colors.cardPressed : "transparent",
+              })}
+            >
+              <View
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderStyle: "dashed",
+                  borderColor: colors.borderStrong,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Icon
+                  ios="plus"
+                  android="add"
+                  size={14}
+                  color={colors.textSecondary}
+                />
+              </View>
+              <Text style={{ ...type.subhead, color: colors.textSecondary }}>
+                New session
+              </Text>
+            </Pressable>
+          ) : null}
           {(connection === "reconnecting" || connection === "offline") &&
           ready ? (
             <Text
@@ -1817,63 +1945,43 @@ export function SessionsScreen({
             </>
           )}
         </ScrollView>
-        {workspace ? (
-          <DropdownMenu title="Computer" options={computerPicker.options}>
-            <View
-              accessibilityLabel={`Computer: ${machineName}. Change`}
+      </View>
+      {/* THE EMPTY PANE IS THE COMPOSER, as on the web (App.tsx's empty
+          stage renders the create composer full-height, centred). It was a
+          28pt poster at 35% with the composer docked at the bottom of the
+          same pane: two centres of attention and a dead band between them.
+          The wordmark stays, small, above the field. The keyboard pads the
+          column from below so the field rises with it instead of sitting
+          under it. */}
+      {ready && wide && home ? (
+        <Reanimated.View
+          style={[
+            {
+              position: "absolute",
+              left: railWidth,
+              right: 0,
+              top: 0,
+              bottom: 0,
+              justifyContent: "center",
+              alignItems: "center",
+              paddingHorizontal: space.xl,
+            },
+            centredKeyboardPad,
+          ]}
+        >
+          <View style={{ width: "100%", maxWidth: 560, gap: space.lg }}>
+            <Text
               style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 10,
-                padding: 20,
-                paddingBottom:
-                  (home && !wide ? composerHeight : insets.bottom) + 16,
+                ...type.headline,
+                color: colors.textMuted,
+                textAlign: "center",
               }}
             >
-              <StatusDot busy={currentBinding?.online ?? false} size={8} />
-              <Text numberOfLines={1} style={{ color: colors.text, flex: 1 }}>
-                {machineName}
-              </Text>
-              <Icon
-                ios="chevron.up.chevron.down"
-                android="unfold_more"
-                size={16}
-                color={colors.textMuted}
-              />
-            </View>
-          </DropdownMenu>
-        ) : null}
-      </View>
-      {wide && home ? (
-        <View
-          pointerEvents="none"
-          style={{
-            position: "absolute",
-            left: railWidth + 32,
-            right: 32,
-            top: "35%",
-          }}
-        >
-          <Text
-            style={{
-              color: colors.text,
-              fontSize: 28,
-              fontWeight: "600",
-              textAlign: "center",
-            }}
-          >
-            Hello {firstName || "there"}!
-          </Text>
-          <Text
-            style={{
-              color: colors.textMuted,
-              textAlign: "center",
-              marginTop: 12,
-            }}
-          >
-            Start a session or select one from the list.
-          </Text>
-        </View>
+              omg.dev
+            </Text>
+            {composer}
+          </View>
+        </Reanimated.View>
       ) : null}
 
       {/* The composer only makes sense against a serving machine; readiness
@@ -1882,7 +1990,7 @@ export function SessionsScreen({
           Absolute, so the list scrolls beneath the glass instead of stopping
           at a hard edge above it. `bottom: 0` is the parent's PADDING box, so
           the keyboard lift above still carries the composer up. */}
-      {ready && (!workspace || home) ? (
+      {ready && !wide && (!workspace || home) ? (
         <>
           {/* THE FADE, behind the glass rather than part of it.
               A gradient scrim in the page's own background colour, not a grey
@@ -1943,32 +2051,7 @@ export function SessionsScreen({
               setComposerHeight((current) => Math.max(current, measured));
             }}
           >
-            <HomeComposer
-              value={draft}
-              onChangeText={setDraft}
-              onStart={() => void startSession()}
-              starting={starting}
-              // null, not the "All projects" label — the pill collapses to a bare
-              // folder when nothing is scoped. See ComposerCaptionButton.
-              projectLabel={
-                projectPicker.filter === ALL_PROJECTS
-                  ? null
-                  : projectPicker.label
-              }
-              projectOptions={projectPicker.options}
-              agent={agentPicker.agent}
-              agentLabel={agentPicker.label}
-              agentOptions={agentPicker.options}
-              modelLabel={agentPicker.modelLabel}
-              modelOptions={agentPicker.modelOptions}
-              thinkingLabel={agentPicker.thinkingLabel}
-              thinkingOptions={agentPicker.thinkingOptions}
-              attachments={attachments}
-              dictation={dictation}
-              usage={usage}
-              usageLoading={usageLoading}
-              bottomInset={insets.bottom}
-            />
+            {composer}
           </Reanimated.View>
         </>
       ) : null}

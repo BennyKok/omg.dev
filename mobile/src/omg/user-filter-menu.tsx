@@ -57,7 +57,7 @@ export function UserFilterMenu({
     ...users.map<MenuOption>((user) => ({
       label: rosterUserLabel(user),
       ...(user.avatar && /^https?:\/\//i.test(user.avatar)
-        ? { image: { uri: user.avatar } }
+        ? { image: { uri: user.avatar }, round: true }
         : { icon: "person.crop.circle" as const }),
       selected: value === user.email,
       onPress: () => onChange(user.email),

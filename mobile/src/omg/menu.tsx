@@ -53,6 +53,7 @@ import {
   type ViewStyle,
 } from "react-native";
 
+import { roundAvatarFileUri } from "./round-avatar";
 import { useTheme } from "./theme";
 
 export type MenuOption = {
@@ -68,6 +69,12 @@ export type MenuOption = {
    * Wins over `icon` if both are given.
    */
   image?: ImageSourcePropType;
+  /**
+   * Draw `image` as a disc. For avatars; bundled marks stay as drawn. This is
+   * done in the pixels (round-avatar.ts), not by a SwiftUI clip: UIMenu
+   * flattens the icon to a bitmap and ignores clip modifiers on it.
+   */
+  round?: boolean;
   /**
    * Present means this row is one of a set of ALTERNATIVES — `true` draws the
    * checkmark, `false` reserves its gutter so the labels stay aligned. Leave it
@@ -131,6 +138,7 @@ const imageUriCache = new Map<string, string>();
  */
 const MARK_SIZE = [resizable(), frame({ width: 20, height: 20 })];
 
+
 /**
  * Keyed by the IMAGE, never by the row's position.
  *
@@ -155,6 +163,13 @@ function useMenuImageUris(options: MenuOption[]): number {
           // A bundled module resolves through the asset registry; a remote
           // picture (a roster avatar) is pulled into the cache once, because
           // SwiftUI's `Image` still wants bytes it can read from disk.
+          // A round avatar is rendered to its own PNG first: UIMenu ignores
+          // every SwiftUI clip on the picture, see round-avatar.ts.
+          if (image.startsWith(ROUND_PREFIX)) {
+            const uri = await roundAvatarFileUri(image.slice(ROUND_PREFIX.length));
+            if (uri) imageUriCache.set(image, uri);
+            return;
+          }
           const asset = /^https?:\/\//.test(image)
             ? Asset.fromURI(image)
             : Asset.fromModule(Number(image));
@@ -181,7 +196,7 @@ function collectImages(options: MenuOption[]): string[] {
   const out: string[] = [];
   const walk = (list: MenuOption[]) => {
     for (const option of list) {
-      if (option.image) out.push(imageKey(option.image));
+      if (option.image) out.push(imageKey(option.image, option.round));
       if (option.submenu) walk(option.submenu);
     }
   };
@@ -194,15 +209,21 @@ function collectImages(options: MenuOption[]): string[] {
  * the URL for a `{ uri }` source. `String()` on the object form would give
  * every remote picture the same "[object Object]" key.
  */
-function imageKey(image: ImageSourcePropType): string {
-  if (typeof image === "object" && image !== null && !Array.isArray(image) && "uri" in image) {
-    return String(image.uri ?? "");
-  }
-  return String(image);
+function imageKey(image: ImageSourcePropType, round?: boolean): string {
+  const base =
+    typeof image === "object" && image !== null && !Array.isArray(image) && "uri" in image
+      ? String(image.uri ?? "")
+      : String(image);
+  // The same URL drawn square and round are two different bitmaps.
+  return round ? ROUND_PREFIX + base : base;
 }
 
+const ROUND_PREFIX = "round:";
+
 function uriFor(option: MenuOption): string | undefined {
-  return option.image ? imageUriCache.get(imageKey(option.image)) : undefined;
+  return option.image
+    ? imageUriCache.get(imageKey(option.image, option.round))
+    : undefined;
 }
 
 export function DropdownMenu({
@@ -328,7 +349,12 @@ export function DropdownMenu({
     const content = uri ? (
       <Label
         title={option.label}
-        icon={<SwiftImage uiImage={uri} modifiers={MARK_SIZE} />}
+        icon={
+          <SwiftImage
+            uiImage={uri}
+            modifiers={MARK_SIZE}
+          />
+        }
       />
     ) : null;
     // A row that says which of several things is current is a Toggle; SwiftUI

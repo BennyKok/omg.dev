@@ -879,13 +879,12 @@ export function SessionCard({
               of that and stops competing with the session's name. */}
           <AgentAvatar agent={agent} size={SESSION_ROW.avatar} busy={busy} plain />
           <View style={{ flex: 1, gap: 1, minWidth: 0 }}>
-            {/* 15/12, down from 17/13. A session's name is a fragment of a
-                prompt, not a headline — at 17 a list of eight of them read as
-                eight headings, and the extra point bought no legibility on a
-                line that truncates anyway. */}
+            {/* 16/13, the web's `text-base` / `text-sm` pair. This was 15/12,
+                down from 17/13: 17 read as a heading, but 15 over 12 left too
+                little contrast between the name and its preview. */}
             <Text
               numberOfLines={1}
-              style={{ ...type.callout, fontWeight: "600", color: colors.text }}
+              style={{ ...type.body, fontWeight: "600", color: colors.text }}
             >
               {title}
             </Text>
@@ -893,7 +892,7 @@ export function SessionCard({
                 preview keeps its line rather than collapsing the row. */}
             <Text
               numberOfLines={1}
-              style={{ ...type.caption, fontWeight: "400", color: colors.textMuted }}
+              style={{ ...type.footnote, color: colors.textMuted }}
             >
               {subtitle ?? ""}
             </Text>
