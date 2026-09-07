@@ -38,6 +38,7 @@ import {
 import { cn } from "@/lib/utils";
 import { omgFetch } from "@/lib/omg-client";
 import { lazyWithReload } from "@/lib/lazy-with-reload";
+import { useThemeType } from "@/lib/use-theme-type";
 import { buildFilePatch } from "@/lib/session-file-patch";
 import type { SessionFile, SessionTree, ThemeType } from "./types";
 
@@ -50,18 +51,6 @@ async function getJson<T>(path: string): Promise<T> {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((data as { error?: string })?.error || `${res.status}`);
   return data as T;
-}
-
-function useThemeType(): ThemeType {
-  const read = () =>
-    typeof document !== "undefined" && document.documentElement.classList.contains("dark") ? "dark" : "light";
-  const [type, setType] = useState<ThemeType>(read);
-  useEffect(() => {
-    const obs = new MutationObserver(() => setType(read()));
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-    return () => obs.disconnect();
-  }, []);
-  return type;
 }
 
 const Spinner = ({ label }: { label: string }) => (

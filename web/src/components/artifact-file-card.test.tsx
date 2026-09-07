@@ -1,14 +1,16 @@
 // Render-level guard for the general "file" artifact card.
 //
-// Two regressions this exists to catch:
+// Regressions this exists to catch:
 //
 //   - A displayed file falling through to the prose renderer, so an agent that
 //     meant to hand you a PDF hands you a grey sentence about a PDF. That is
 //     the bug the mobile transcript actually had.
 //   - The card fetching the file's bytes just to draw itself. A file artifact
 //     can be 100 MB, and a transcript can hold several.
+//   - The tap target and the download control merging: a tap on the name
+//     opens the file's page, and the icon downloads without opening it.
 //
-// Both are only visible at the DOM, which is why this mounts the component
+// All of it is only visible at the DOM, which is why this mounts the component
 // rather than reading its source.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { OmgTransport } from "@omg-dev/client";
@@ -22,12 +24,9 @@ const { ArtifactFileCard, downloadProgressLabel, formatFileSize } = await import
 let ui: Mounted;
 let fetched: string[];
 
-function installTransport(options: { direct: boolean }) {
-  const transport: OmgTransport = {
-    async fetch(path: string) {
-      fetched.push(path);
-      return new Response(new Blob(["bytes"], { type: "application/octet-stream" }));
-    },
+function transportWith(fetch: OmgTransport["fetch"], options: { direct: boolean }): OmgTransport {
+  return {
+    fetch,
     async request() {
       throw new Error("request is not used by the file card");
     },
@@ -39,8 +38,37 @@ function installTransport(options: { direct: boolean }) {
     },
     ...(options.direct ? { assetUrl: (path: string) => path } : {}),
   };
-  configureOmgTransport(transport);
 }
+
+function installTransport(options: { direct: boolean }) {
+  configureOmgTransport(
+    transportWith(async (path: string) => {
+      fetched.push(path);
+      return new Response(new Blob(["bytes"], { type: "application/octet-stream" }));
+    }, options),
+  );
+}
+
+/**
+ * The component saves a blob by clicking a synthetic <a download>. A real
+ * browser honours `download` and stays put; happy-dom instead NAVIGATES the
+ * shared window to the blob URL, which silently breaks every test file that
+ * runs after this one. Intercept the click: it keeps the environment clean
+ * and lets us assert what the anchor was actually given.
+ */
+function interceptAnchorClicks() {
+  const anchorProto = (globalThis as unknown as {
+    window: { HTMLAnchorElement: { prototype: HTMLAnchorElement } };
+  }).window.HTMLAnchorElement.prototype;
+  const realClick = anchorProto.click;
+  const clicked: Array<{ href: string; download: string }> = [];
+  anchorProto.click = function patched(this: HTMLAnchorElement) {
+    clicked.push({ href: this.getAttribute("href") ?? "", download: this.download });
+  };
+  return { clicked, restore: () => (anchorProto.click = realClick) };
+}
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
   fetched = [];
@@ -73,8 +101,46 @@ describe("ArtifactFileCard", () => {
     const link = ui.query("a[download]") as HTMLAnchorElement | null;
     expect(link?.getAttribute("href")).toBe("/api/artifacts/a1");
     expect(link?.getAttribute("download")).toBe("q3-report.pdf");
-    // The name is the click target, not only a 16px icon beside it.
-    expect(link?.textContent).toContain("q3-report.pdf");
+  });
+
+  test("a tap on the name opens the page; the icon downloads without opening it", async () => {
+    let opened = 0;
+    await ui.flushAsync(() => {
+      ui.render(
+        <ArtifactFileCard
+          url="/api/artifacts/a1"
+          name="q3-report.pdf"
+          mimeType="application/pdf"
+          size={2048}
+          onOpen={() => {
+            opened += 1;
+          }}
+        />,
+      );
+    });
+
+    const open = ui.query('[data-slot="file-open"]') as HTMLButtonElement;
+    expect(open.textContent).toContain("q3-report.pdf");
+    await ui.flushAsync(() => open.click());
+    expect(opened).toBe(1);
+
+    const { restore } = interceptAnchorClicks();
+    try {
+      await ui.flushAsync(() => (ui.query("a[download]") as HTMLAnchorElement).click());
+    } finally {
+      restore();
+    }
+    expect(opened).toBe(1);
+    // A control inside a control is not valid HTML: the two are siblings.
+    expect(open.querySelector("a, button")).toBeNull();
+  });
+
+  test("is download-only without onOpen", async () => {
+    await ui.flushAsync(() => {
+      ui.render(<ArtifactFileCard url="/api/artifacts/a1" name="q3-report.pdf" />);
+    });
+    expect(ui.query('[data-slot="file-open"]')).toBeNull();
+    expect(ui.query("a[download]")).not.toBeNull();
   });
 
   // The card is deliberately not a viewer. An embed would mean handing
@@ -119,20 +185,7 @@ describe("ArtifactFileCard", () => {
   });
 
   test("fetches the bytes when a signed-transport download is clicked", async () => {
-    // The component saves the blob by clicking a synthetic <a download>. A real
-    // browser honours `download` and stays put; happy-dom instead NAVIGATES the
-    // shared window to the blob URL, which silently breaks every test file that
-    // runs after this one. Intercept the click: it keeps the environment clean
-    // and lets us assert what the anchor was actually given.
-    const anchorProto = (globalThis as unknown as {
-      window: { HTMLAnchorElement: { prototype: HTMLAnchorElement } };
-    }).window.HTMLAnchorElement.prototype;
-    const realClick = anchorProto.click;
-    const clicked: Array<{ href: string; download: string }> = [];
-    anchorProto.click = function patched(this: HTMLAnchorElement) {
-      clicked.push({ href: this.getAttribute("href") ?? "", download: this.download });
-    };
-
+    const { clicked, restore } = interceptAnchorClicks();
     try {
       installTransport({ direct: false });
       await ui.flushAsync(() => {
@@ -142,11 +195,11 @@ describe("ArtifactFileCard", () => {
       });
 
       await ui.flushAsync(async () => {
-        (ui.query("button") as HTMLButtonElement).click();
+        (ui.query("button[aria-label^='Download']") as HTMLButtonElement).click();
         // onClick is fire-and-forget, so `click()` returns before the fetch
         // chain finishes. Settle it INSIDE act, or its final setState lands in
         // a later test's act block and breaks that test instead of this one.
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        await settle();
       });
 
       expect(fetched).toEqual(["/api/artifacts/a5"]);
@@ -154,92 +207,69 @@ describe("ArtifactFileCard", () => {
       expect(clicked[0].href).toStartWith("blob:");
       expect(clicked[0].download).toBe("clip.wav");
       // Settled, not still in flight.
-      expect((ui.query("button") as HTMLButtonElement).disabled).toBe(false);
+      expect((ui.query("button[aria-label^='Download']") as HTMLButtonElement).disabled).toBe(false);
     } finally {
-      anchorProto.click = realClick;
+      restore();
     }
   });
 
   test("reports progress while a signed-transport download is in flight", async () => {
-    const anchorProto = (globalThis as unknown as {
-      window: { HTMLAnchorElement: { prototype: HTMLAnchorElement } };
-    }).window.HTMLAnchorElement.prototype;
-    const realClick = anchorProto.click;
-    anchorProto.click = function patched() {};
-
+    const { restore } = interceptAnchorClicks();
     let push!: (chunk: Uint8Array | null) => void;
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
         push = (chunk) => (chunk ? controller.enqueue(chunk) : controller.close());
       },
     });
-    configureOmgTransport({
-      async fetch() {
-        return new Response(body, {
-          headers: { "content-length": "10", "content-type": "application/octet-stream" },
-        });
-      },
-      async request() {
-        throw new Error("unused");
-      },
-      async openSocket() {
-        throw new Error("unused");
-      },
-      async openLiveSocket() {
-        throw new Error("unused");
-      },
-    });
+    configureOmgTransport(
+      transportWith(
+        async () =>
+          new Response(body, {
+            headers: { "content-length": "10", "content-type": "application/octet-stream" },
+          }),
+        { direct: false },
+      ),
+    );
 
     try {
       await ui.flushAsync(() => {
         ui.render(<ArtifactFileCard url="/api/artifacts/a8" name="big.bin" size={10} />);
       });
       await ui.flushAsync(async () => {
-        (ui.query("button") as HTMLButtonElement).click();
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        (ui.query("button[aria-label^='Download']") as HTMLButtonElement).click();
+        await settle();
         push(new Uint8Array(5));
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        await settle();
       });
       expect(ui.query('[data-slot="file-status"]')?.textContent).toBe("50%");
-      expect((ui.query("button") as HTMLButtonElement).disabled).toBe(true);
+      expect((ui.query("button[aria-label^='Downloading']") as HTMLButtonElement).disabled).toBe(true);
 
       await ui.flushAsync(async () => {
         push(new Uint8Array(5));
         push(null);
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        await settle();
       });
       // Back to the resting size once the save has been handed to the browser.
       expect(ui.query('[data-slot="file-status"]')?.textContent).toBe("10 B");
-      expect((ui.query("button") as HTMLButtonElement).disabled).toBe(false);
+      expect((ui.query("button[aria-label^='Download']") as HTMLButtonElement).disabled).toBe(false);
     } finally {
-      anchorProto.click = realClick;
+      restore();
     }
   });
 
   test("says so when a signed-transport download fails, and lets the click retry", async () => {
-    configureOmgTransport({
-      async fetch() {
-        return new Response("nope", { status: 502 });
-      },
-      async request() {
-        throw new Error("unused");
-      },
-      async openSocket() {
-        throw new Error("unused");
-      },
-      async openLiveSocket() {
-        throw new Error("unused");
-      },
-    });
+    configureOmgTransport(
+      transportWith(async () => new Response("nope", { status: 502 }), { direct: false }),
+    );
     await ui.flushAsync(() => {
       ui.render(<ArtifactFileCard url="/api/artifacts/a9" name="big.bin" size={10} />);
     });
     await ui.flushAsync(async () => {
-      (ui.query("button") as HTMLButtonElement).click();
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      (ui.query("button[aria-label^='Download']") as HTMLButtonElement).click();
+      await settle();
     });
     expect(ui.query('[data-slot="file-status"]')?.textContent).toBe("Download failed. Click to retry.");
-    expect((ui.query("button") as HTMLButtonElement).disabled).toBe(false);
+    expect((ui.query("button[aria-label^='Download']") as HTMLButtonElement).disabled).toBe(false);
   });
 
   test("does not repeat the caption when it is the same as the file name", async () => {
