@@ -22,6 +22,12 @@
 //     long-lived view and activate its target so the tab is the visible one.
 
 import { cdpWebSocketUrl, desktopStatus } from "./desktop.ts";
+import {
+  BrowserInspector,
+  type BrowserInspectionOptions,
+  type BrowserInspectionResult,
+  type BrowserInspectionStatus,
+} from "./inspection.ts";
 
 // Bun.WebView is newer than the bundled bun-types in some checkouts, and the
 // API is still marked experimental upstream. Keep the surface we use behind one
@@ -44,6 +50,7 @@ interface WebViewLike {
 
 let view: WebViewLike | null = null;
 let viewTargetId: string | null = null;
+const inspector = new BrowserInspector(async () => await agentView());
 
 function webViewCtor(): (new (opts: unknown) => WebViewLike) | null {
   const ctor = (Bun as unknown as { WebView?: new (opts: unknown) => WebViewLike }).WebView;
@@ -115,6 +122,7 @@ export async function focusAgentTab(): Promise<void> {
 export async function browserNavigate(url: string): Promise<{ url: string; title: string }> {
   const v = await agentView();
   await focusAgentTab();
+  await inspector.cancel("navigation");
   await v.navigate(url);
   await captureViewTarget(v);
   return { url: v.url, title: v.title };
@@ -294,8 +302,24 @@ export async function browserReadText(max = 4000): Promise<string> {
   return String(out ?? "").slice(0, max);
 }
 
+export function browserInspectionStatus(): BrowserInspectionStatus {
+  return inspector.status();
+}
+
+export async function browserInspectElement(
+  options: BrowserInspectionOptions = {},
+): Promise<BrowserInspectionResult> {
+  await focusAgentTab();
+  return await inspector.inspect(options);
+}
+
+export async function cancelBrowserInspection(reason?: string): Promise<boolean> {
+  return await inspector.cancel(reason);
+}
+
 /** Drop the agent's view. Does not touch the desktop or the person's tabs. */
 export function closeAgentView(): void {
+  void inspector.cancel("browser closed");
   try {
     view?.close();
   } catch {}
