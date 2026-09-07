@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 7, 2026 - Tool access works inside omg.dev (v0.6.54)
+
+- Roles and connectors load from your machine when Settings is opened inside omg.dev. The "Unexpected token '<'" error is gone.
+- Hosts can route the Tool access page like Coding agents and Storage, so it opens as its own page with a back link.
+
 ## September 6, 2026 - Edit names beside each machine (v0.6.53)
 
 - Use the pencil beside a machine to edit its name without switching machines.
