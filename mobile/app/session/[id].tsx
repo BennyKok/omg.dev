@@ -2000,6 +2000,19 @@ export function SessionScreenBody({
             }
             placeholderTextColor={colors.textMuted}
             multiline
+            /**
+             * RETURN SENDS, on every keyboard. A multiline field's default is
+             * to insert a newline, so an iPad with a hardware keyboard typed
+             * a blank line where the web (and the home composer above)
+             * send. `submitBehavior="submit"` makes Return fire
+             * `onSubmitEditing` instead, for the on-screen key and a
+             * hardware one alike; the send button still handles queueing.
+             */
+            returnKeyType="send"
+            submitBehavior="submit"
+            onSubmitEditing={() => {
+              if (canSend) send("steer");
+            }}
             style={{
               flex: 1,
               maxHeight: 120,
