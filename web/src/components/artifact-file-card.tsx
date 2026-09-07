@@ -185,13 +185,20 @@ export function ArtifactFileCard({
     void download.start();
   };
 
-  // Name and status on the left open the page; the icon on the right
-  // downloads. Two sibling controls, because a control inside a control is
-  // not valid HTML and screen readers announce it as one thing.
+  // Name, caption and status open the page; the icon downloads. Two sibling
+  // controls, because a control inside a control is not valid HTML and screen
+  // readers announce it as one thing.
   const summary = (
     <>
       <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-      <span className="min-w-0 flex-1 truncate text-sm">{label}</span>
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate text-sm">{label}</span>
+        {caption && caption !== label ? (
+          <span data-slot="file-caption" className="truncate text-xs text-muted-foreground">
+            {caption}
+          </span>
+        ) : null}
+      </span>
       <span
         data-slot="file-status"
         className={cn(
@@ -204,60 +211,58 @@ export function ArtifactFileCard({
     </>
   );
 
+  // The download icon is a pointer affordance: it appears on hover (or when
+  // the download itself is busy or failed, so its state stays readable), and
+  // on a touch screen it is not there at all. The page has the Download button.
+  const iconClass = cn(
+    "hidden shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground",
+    "[@media(hover:hover)]:inline-flex",
+    download.state.phase === "idle"
+      ? "opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+      : "opacity-100",
+  );
+
   return (
     <div
       className={cn(
-        "not-prose flex w-full max-w-[min(34rem,92vw)] flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm",
+        "not-prose group flex w-full max-w-[min(34rem,92vw)] items-center overflow-hidden rounded-lg border border-border bg-card pr-2 shadow-sm",
         className,
       )}
     >
-      <div className="flex w-0 min-w-full items-center pr-2">
-        {onOpen ? (
-          <button
-            type="button"
-            onClick={onOpen}
-            data-slot="file-open"
-            aria-label={`Open ${label}`}
-            className={OPEN_CLASS}
-          >
-            {summary}
-          </button>
-        ) : (
-          <div className={OPEN_CLASS}>{summary}</div>
-        )}
-        {download.direct !== null ? (
-          <a
-            href={download.direct}
-            download={name || ""}
-            onClick={onDownloadClick}
-            aria-label={`Download ${label}`}
-            className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            <Download className="size-4" aria-hidden="true" />
-          </a>
-        ) : (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={onDownloadClick}
-            aria-label={busy ? `Downloading ${label}` : `Download ${label}`}
-            className={cn(
-              "shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground",
-              busy && "cursor-progress opacity-50",
-            )}
-          >
-            <Download className="size-4" aria-hidden="true" />
-          </button>
-        )}
-      </div>
-      {caption && caption !== label ? (
-        <div
-          data-slot="file-caption"
-          className="box-border w-0 min-w-full border-t border-border px-3 py-2 text-xs text-muted-foreground"
+      {onOpen ? (
+        <button
+          type="button"
+          onClick={onOpen}
+          data-slot="file-open"
+          aria-label={`Open ${label}`}
+          className={OPEN_CLASS}
         >
-          <span className="block truncate">{caption}</span>
-        </div>
-      ) : null}
+          {summary}
+        </button>
+      ) : (
+        <div className={OPEN_CLASS}>{summary}</div>
+      )}
+      {download.direct !== null ? (
+        <a
+          href={download.direct}
+          download={name || ""}
+          onClick={onDownloadClick}
+          aria-label={`Download ${label}`}
+          className={iconClass}
+        >
+          <Download className="size-4" aria-hidden="true" />
+        </a>
+      ) : (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onDownloadClick}
+          aria-label={busy ? `Downloading ${label}` : `Download ${label}`}
+          className={cn(iconClass, busy && "cursor-progress")}
+        >
+          <Download className="size-4" aria-hidden="true" />
+        </button>
+      )}
     </div>
   );
 }
