@@ -17,7 +17,7 @@ import { mount, type Mounted } from "../test-support/render";
 
 const { createSameOriginTransport } = await import("@omg-dev/client");
 const { configureOmgTransport } = await import("../lib/omg-client");
-const { ArtifactFileCard, formatFileSize } = await import("./artifact-file-card");
+const { ArtifactFileCard, downloadProgressLabel, formatFileSize } = await import("./artifact-file-card");
 
 let ui: Mounted;
 let fetched: string[];
@@ -73,6 +73,8 @@ describe("ArtifactFileCard", () => {
     const link = ui.query("a[download]") as HTMLAnchorElement | null;
     expect(link?.getAttribute("href")).toBe("/api/artifacts/a1");
     expect(link?.getAttribute("download")).toBe("q3-report.pdf");
+    // The name is the click target, not only a 16px icon beside it.
+    expect(link?.textContent).toContain("q3-report.pdf");
   });
 
   // The card is deliberately not a viewer. An embed would mean handing
@@ -158,6 +160,88 @@ describe("ArtifactFileCard", () => {
     }
   });
 
+  test("reports progress while a signed-transport download is in flight", async () => {
+    const anchorProto = (globalThis as unknown as {
+      window: { HTMLAnchorElement: { prototype: HTMLAnchorElement } };
+    }).window.HTMLAnchorElement.prototype;
+    const realClick = anchorProto.click;
+    anchorProto.click = function patched() {};
+
+    let push!: (chunk: Uint8Array | null) => void;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        push = (chunk) => (chunk ? controller.enqueue(chunk) : controller.close());
+      },
+    });
+    configureOmgTransport({
+      async fetch() {
+        return new Response(body, {
+          headers: { "content-length": "10", "content-type": "application/octet-stream" },
+        });
+      },
+      async request() {
+        throw new Error("unused");
+      },
+      async openSocket() {
+        throw new Error("unused");
+      },
+      async openLiveSocket() {
+        throw new Error("unused");
+      },
+    });
+
+    try {
+      await ui.flushAsync(() => {
+        ui.render(<ArtifactFileCard url="/api/artifacts/a8" name="big.bin" size={10} />);
+      });
+      await ui.flushAsync(async () => {
+        (ui.query("button") as HTMLButtonElement).click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        push(new Uint8Array(5));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(ui.query('[data-slot="file-status"]')?.textContent).toBe("50%");
+      expect((ui.query("button") as HTMLButtonElement).disabled).toBe(true);
+
+      await ui.flushAsync(async () => {
+        push(new Uint8Array(5));
+        push(null);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      // Back to the resting size once the save has been handed to the browser.
+      expect(ui.query('[data-slot="file-status"]')?.textContent).toBe("10 B");
+      expect((ui.query("button") as HTMLButtonElement).disabled).toBe(false);
+    } finally {
+      anchorProto.click = realClick;
+    }
+  });
+
+  test("says so when a signed-transport download fails, and lets the click retry", async () => {
+    configureOmgTransport({
+      async fetch() {
+        return new Response("nope", { status: 502 });
+      },
+      async request() {
+        throw new Error("unused");
+      },
+      async openSocket() {
+        throw new Error("unused");
+      },
+      async openLiveSocket() {
+        throw new Error("unused");
+      },
+    });
+    await ui.flushAsync(() => {
+      ui.render(<ArtifactFileCard url="/api/artifacts/a9" name="big.bin" size={10} />);
+    });
+    await ui.flushAsync(async () => {
+      (ui.query("button") as HTMLButtonElement).click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(ui.query('[data-slot="file-status"]')?.textContent).toBe("Download failed. Click to retry.");
+    expect((ui.query("button") as HTMLButtonElement).disabled).toBe(false);
+  });
+
   test("does not repeat the caption when it is the same as the file name", async () => {
     await ui.flushAsync(() => {
       ui.render(
@@ -186,6 +270,15 @@ describe("ArtifactFileCard", () => {
     });
 
     expect(ui.query('[data-slot="file-caption"]')?.textContent).toBe("Every signup in August");
+  });
+});
+
+describe("downloadProgressLabel", () => {
+  test("is a percentage with a known total and a byte count without one", () => {
+    expect(downloadProgressLabel(5, 10)).toBe("50%");
+    // Never claims 100% before the save has actually happened.
+    expect(downloadProgressLabel(10, 10)).toBe("99%");
+    expect(downloadProgressLabel(2048, 0)).toBe("2 KB");
   });
 });
 

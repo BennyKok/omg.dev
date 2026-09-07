@@ -89,7 +89,6 @@ const STRIP_RESPONSE_HEADERS = new Set([
   "keep-alive",
   "transfer-encoding",
   "content-encoding",
-  "content-length",
   "set-cookie",
   "access-control-allow-origin",
   "access-control-allow-credentials",
@@ -97,6 +96,36 @@ const STRIP_RESPONSE_HEADERS = new Set([
   "access-control-allow-headers",
   "access-control-expose-headers",
 ]);
+
+/**
+ * Where a proxied redirect should send the browser: the same machine path,
+ * still under the binding prefix. Returns null when the target is on a
+ * different origin and must be left as the upstream wrote it.
+ */
+export function rewriteRedirectLocation(
+  location: string,
+  sessionOrigin: string,
+  bindingId: string,
+): string | null {
+  const prefix = `${CLOUD_MACHINES_PREFIX}${encodeURIComponent(bindingId)}`;
+  if (location.startsWith("/")) {
+    // Already ours (an upstream that echoed the browser path) needs no prefix.
+    if (location.startsWith(`${prefix}/`) || location === prefix) return null;
+    // A scheme-relative `//host/path` is a different origin.
+    if (location.startsWith("//")) return null;
+    return `${prefix}${location}`;
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(location);
+  } catch {
+    // A relative target with no leading slash resolves against the machine
+    // path in the browser; the browser is already under the prefix there.
+    return null;
+  }
+  if (parsed.origin !== new URL(sessionOrigin).origin) return null;
+  return `${prefix}${parsed.pathname}${parsed.search}${parsed.hash}`;
+}
 
 /** Everything after the binding id, query included, or null when not ours. */
 export function parseMachinePath(url: URL): { bindingId: string; path: string } | null {
@@ -264,6 +293,22 @@ export function createCloudMachineProxy(options: CloudMachineProxyOptions): Clou
       upstream.headers.forEach((value, name) => {
         if (!STRIP_RESPONSE_HEADERS.has(name.toLowerCase())) out.set(name, value);
       });
+      // fetch hands back a DECODED body but leaves `content-encoding` and the
+      // encoded `content-length` on the headers, so for a compressed upstream
+      // the length is a lie and must go. An artifact download is not
+      // compressed, and there the length is what lets the browser show the
+      // file's size and a real progress bar instead of an open-ended spinner.
+      if (upstream.headers.has("content-encoding")) out.delete("content-length");
+      // A redirect names its target from the machine's point of view. Left
+      // alone, the browser resolves it against THIS box's origin, and a
+      // download that should land on `/api/cloud/machines/<id>/api/...` walks
+      // out of the prefix and onto the local server instead. Keep the machine
+      // in the URL; a target on some other origin is passed through untouched.
+      const location = upstream.headers.get("location");
+      if (location) {
+        const rewritten = rewriteRedirectLocation(location, sessionOrigin, target.bindingId);
+        if (rewritten) out.set("location", rewritten);
+      }
       return new Response(upstream.body, { status: upstream.status, headers: out });
     } catch (error) {
       return errorResponse(error);

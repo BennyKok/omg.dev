@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import {
   createCloudMachineProxy,
   parseMachinePath,
+  rewriteRedirectLocation,
   type ProxyClientSocket,
 } from "./cloud-machine-proxy.ts";
 
@@ -87,6 +88,87 @@ test("http requests are forwarded with a minted grant and retried once on 401", 
   firstRequest = false;
   await proxy.handleHttp(req, new URL(req.url));
   expect(mints).toBe(2);
+});
+
+test("a download keeps its content-length and disposition; a compressed body drops the length", async () => {
+  const { fetch } = fakeFetch((url) => {
+    if (url.endsWith("/__omg/session-auth")) {
+      return jsonResponse({ cookie: "grant", expiresInMs: 600_000 });
+    }
+    if (url === "https://sessions.example/api/artifacts/a1") {
+      return new Response(new Uint8Array(5000), {
+        headers: {
+          "content-type": "application/pdf",
+          "content-length": "5000",
+          "content-disposition": 'attachment; filename="report.pdf"',
+          "accept-ranges": "bytes",
+        },
+      });
+    }
+    if (url === "https://sessions.example/api/sessions") {
+      // What fetch reports for a gzip upstream: the body is already decoded,
+      // the headers still describe the wire.
+      return new Response("{}", {
+        headers: { "content-type": "application/json", "content-encoding": "gzip", "content-length": "47" },
+      });
+    }
+    return jsonResponse({}, 404);
+  });
+  const proxy = createCloudMachineProxy({ account, sessionOrigin: "https://sessions.example", fetch });
+
+  const download = new Request("http://box/api/cloud/machines/cloud/api/artifacts/a1");
+  const file = await proxy.handleHttp(download, new URL(download.url));
+  expect(file.status).toBe(200);
+  expect(file.headers.get("content-length")).toBe("5000");
+  expect(file.headers.get("content-disposition")).toBe('attachment; filename="report.pdf"');
+  expect(file.headers.get("accept-ranges")).toBe("bytes");
+  expect((await file.arrayBuffer()).byteLength).toBe(5000);
+
+  const json = new Request("http://box/api/cloud/machines/cloud/api/sessions");
+  const compressed = await proxy.handleHttp(json, new URL(json.url));
+  expect(compressed.headers.get("content-length")).toBeNull();
+  expect(compressed.headers.get("content-encoding")).toBeNull();
+});
+
+test("rewriteRedirectLocation keeps a machine redirect under the binding prefix", () => {
+  const origin = "https://sessions.example";
+  expect(rewriteRedirectLocation("/api/artifacts/a1?dl=1", origin, "cloud")).toBe(
+    "/api/cloud/machines/cloud/api/artifacts/a1?dl=1",
+  );
+  expect(rewriteRedirectLocation("https://sessions.example/api/artifacts/a1#x", origin, "box 1")).toBe(
+    "/api/cloud/machines/box%201/api/artifacts/a1#x",
+  );
+  // Already prefixed, scheme-relative, foreign origin, and path-relative are left alone.
+  expect(rewriteRedirectLocation("/api/cloud/machines/cloud/api/x", origin, "cloud")).toBeNull();
+  expect(rewriteRedirectLocation("//cdn.example/file", origin, "cloud")).toBeNull();
+  expect(rewriteRedirectLocation("https://cdn.example/file.pdf", origin, "cloud")).toBeNull();
+  expect(rewriteRedirectLocation("other", origin, "cloud")).toBeNull();
+});
+
+test("a redirect from the machine is rewritten so the browser stays on the proxied path", async () => {
+  const { fetch } = fakeFetch((url) => {
+    if (url.endsWith("/__omg/session-auth")) {
+      return jsonResponse({ cookie: "grant", expiresInMs: 600_000 });
+    }
+    if (url === "https://sessions.example/api/artifacts/a1") {
+      return new Response(null, { status: 302, headers: { location: "/api/artifacts/a1?signed=1" } });
+    }
+    if (url === "https://sessions.example/api/artifacts/a2") {
+      return new Response(null, { status: 302, headers: { location: "https://cdn.example/a2.pdf" } });
+    }
+    return jsonResponse({}, 404);
+  });
+  const proxy = createCloudMachineProxy({ account, sessionOrigin: "https://sessions.example", fetch });
+
+  const first = new Request("http://box/api/cloud/machines/cloud/api/artifacts/a1");
+  const same = await proxy.handleHttp(first, new URL(first.url));
+  expect(same.status).toBe(302);
+  expect(same.headers.get("location")).toBe("/api/cloud/machines/cloud/api/artifacts/a1?signed=1");
+
+  const second = new Request("http://box/api/cloud/machines/cloud/api/artifacts/a2");
+  const foreign = await proxy.handleHttp(second, new URL(second.url));
+  expect(foreign.status).toBe(302);
+  expect(foreign.headers.get("location")).toBe("https://cdn.example/a2.pdf");
 });
 
 test("a POST body is replayed on the retry and one mint serves concurrent requests", async () => {
