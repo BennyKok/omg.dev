@@ -329,6 +329,10 @@ export function useProjectPicker() {
     [bindings, bindingId],
   );
 
+  // Declared before `cwd` because the folder the next session runs in follows
+  // the filter when nothing was picked explicitly (see below).
+  const [filter, setFilter] = useState<string>(ALL_PROJECTS);
+
   /**
    * Resolution order: an explicit pick, else the machine's own default folder,
    * else the box's first project. The machine default comes second rather than
@@ -339,10 +343,17 @@ export function useProjectPicker() {
    */
   const cwd = useMemo(() => {
     if (chosen && repos.some((r) => r.cwd === chosen)) return chosen;
+    // The list's own filter (set from a folder heading, which never touches
+    // `chosen`) also says where the next session runs. Without this, scoping
+    // the list to one repo still launched into the machine's default folder.
+    if (filter !== ALL_PROJECTS) {
+      const scoped = repos.find((r) => projectKey(r) === filter);
+      if (scoped) return scoped.cwd;
+    }
     const fallback = binding?.defaultFolder ?? null;
     if (fallback && repos.some((r) => r.cwd === fallback)) return fallback;
     return repos[0]?.cwd ?? fallback;
-  }, [chosen, repos, binding]);
+  }, [chosen, filter, repos, binding]);
 
   const label = useMemo(() => {
     if (!cwd) return null;
@@ -365,8 +376,6 @@ export function useProjectPicker() {
    * repo it belongs to, which is the whole reason to match on the key rather
    * than on `cwd`.
    */
-  const [filter, setFilter] = useState<string>(ALL_PROJECTS);
-
   // A filter naming a repo this machine no longer lists would hide everything
   // with no way back, so it falls open.
   const activeFilter = useMemo(
