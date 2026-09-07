@@ -6,6 +6,7 @@ import {
   botRosterRowAriaLabel,
   botUnreadActionForTranscript,
   hasUnreadBotConversation,
+  botConversationActivityKey,
 } from "./bot-unread";
 
 describe("bot conversation unread presentation", () => {
@@ -148,5 +149,43 @@ describe("bot conversation unread presentation", () => {
     expect(
       botRosterRowAriaLabel({ name: "Scout", enabled: true, working: true, unread: false }),
     ).toBe("Scout, working, read conversation");
+  });
+});
+
+describe("botConversationActivityKey", () => {
+  const sids = ["bot-a", "bot-b"];
+  test("holds still while a bot is working, moves when its turn ends", () => {
+    const working = botConversationActivityKey(sids, [
+      { sessionId: "bot-a", busy: true, lastActivityAt: 100 },
+      { sessionId: "bot-b", busy: false, lastActivityAt: 50 },
+    ]);
+    const stillWorking = botConversationActivityKey(sids, [
+      { sessionId: "bot-a", busy: true, lastActivityAt: 130 },
+      { sessionId: "bot-b", busy: false, lastActivityAt: 50 },
+    ]);
+    const done = botConversationActivityKey(sids, [
+      { sessionId: "bot-a", busy: false, lastActivityAt: 140 },
+      { sessionId: "bot-b", busy: false, lastActivityAt: 50 },
+    ]);
+    expect(stillWorking).toBe(working);
+    expect(done).not.toBe(working);
+  });
+  test("moves when a line lands in an idle conversation, ignores unrelated sessions", () => {
+    const before = botConversationActivityKey(sids, [
+      { sessionId: "bot-a", busy: false, lastActivityAt: 100 },
+      { sessionId: "other", busy: true, lastActivityAt: 1 },
+    ]);
+    const unrelated = botConversationActivityKey(sids, [
+      { sessionId: "bot-a", busy: false, lastActivityAt: 100 },
+      { sessionId: "other", busy: false, lastActivityAt: 2 },
+    ]);
+    const arrival = botConversationActivityKey(sids, [
+      { sessionId: "bot-a", busy: false, lastActivityAt: 101 },
+      { sessionId: "other", busy: false, lastActivityAt: 2 },
+    ]);
+    expect(unrelated).toBe(before);
+    expect(arrival).not.toBe(before);
+    // A bot without a session yet is represented, not dropped.
+    expect(before).toContain("bot-b:-");
   });
 });

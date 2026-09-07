@@ -120,6 +120,7 @@ import {
   clearBotConversationUnread,
   hasUnreadBotConversation,
   type BotConversationUnread,
+  botConversationActivityKey,
 } from "./lib/bot-unread";
 import { resolveRosterUser } from "./lib/roster-user";
 import {
@@ -4766,6 +4767,21 @@ function removeForcedStreamSid(sid: string): void {
 const SEEDED_SESSION_MAX_AGE_MS = 30_000;
 
 const recentlyCreatedSids = new Set<string>();
+/**
+ * `prev` when `next` serializes to the same JSON, else `next`.
+ *
+ * For the setState calls fed by the periodic REST polls. A poll that finds
+ * nothing changed used to hand React a fresh array anyway, and a fresh array
+ * is a state change: every consumer of `sessions`, `bots`, `autoAgents` and
+ * `findings` re-rendered every five seconds, on every open tab, for nothing.
+ * Returning the previous reference lets React bail out of the update. The
+ * payloads are small (tens of KB) so the stringify is far cheaper than the
+ * render it prevents.
+ */
+function sameJson<T>(prev: T, next: T): T {
+  return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+}
+
 function markCreatedSid(sid: string): void {
   recentlyCreatedSids.add(sid);
   window.setTimeout(() => recentlyCreatedSids.delete(sid), 2000);
@@ -6366,9 +6382,9 @@ export function App() {
       `/api/bots?user=${encodeURIComponent(botUnreadIdentity)}`,
       { cache: "no-store" },
     );
-    setBots(payload.bots ?? []);
-    setBotConversations(payload.conversations ?? []);
-    setBotQuota(payload.quota ?? null);
+    setBots((prev) => sameJson(prev, payload.bots ?? []));
+    setBotConversations((prev) => sameJson(prev, payload.conversations ?? []));
+    setBotQuota((prev) => sameJson(prev, payload.quota ?? null));
   }, [botUnreadIdentity]);
 
   const loadCore = useCallback(async () => {
@@ -6511,9 +6527,9 @@ export function App() {
     // render unconditionally (e.g. findings.length in LiveView), so a missing
     // field must degrade to [] rather than crash the live view.
     const findingList = fd.findings ?? [];
-    setAutoAgents(ag.agents ?? []);
+    setAutoAgents((prev) => sameJson(prev, ag.agents ?? []));
     if (ag.tz) setSchedTz(ag.tz);
-    setFindings(findingList);
+    setFindings((prev) => sameJson(prev, findingList));
     if (!seededAuto.current) {
       findingList.forEach((f) => seenFindings.current.add(f.id));
       seededAuto.current = true;
@@ -6622,7 +6638,7 @@ export function App() {
       }
       sessionList.push(entry.session);
     }
-    setSessions(sessionList);
+    setSessions((prev) => sameJson(prev, sessionList));
     // From the server's payload, not from `sessionList`: the seeded and renamed
     // rows spliced in above were built by this client and carry no watermark.
     applyUnreadSessions(payload.sessions ?? []);
@@ -6644,7 +6660,7 @@ export function App() {
     });
     const next = payload.sessionIds ?? [];
     topPinnedRef.current = next;
-    setTopPinned(next);
+    setTopPinned((prev) => sameJson(prev, next));
   }, []);
 
   const toggleTopPin = useCallback((sessionId: string) => {
@@ -6783,16 +6799,34 @@ export function App() {
   // visibilitychange fires on tab switch, window minimise, and phone lock, and
   // returning runs one immediate refresh so the view is never stale-on-arrival
   // while it waits out the rest of an interval.
+  //
+  // While the live socket is up it already pushes every status change the
+  // roster shows (busy, title, last text, model) the second it happens, so
+  // this REST poll is only reconciliation: sessions that appeared or went
+  // away, unread watermarks, pins, schedules, bots. Reconciliation does not
+  // need to run every five seconds — and on a phone each cycle was ~30 KB
+  // plus four state updates. With the socket live the poll runs every 30 s;
+  // a session that appears on the socket first is picked up at once (see
+  // applyLiveStatusRows). The moment the socket is not live the poll is back
+  // to 5 s, which is what the non-socket transports always had.
+  const wsLiveRef = useRef(false);
   useEffect(() => {
     let id: number | null = null;
+    let cyclesSinceTick = 0;
     const tick = () => {
       refreshSessions().catch(() => {});
       refreshSessionPins().catch(() => {});
       refreshAuto().catch(() => {});
       refreshBots().catch(() => {});
     };
+    const cycle = () => {
+      cyclesSinceTick += 1;
+      if (wsLiveRef.current && cyclesSinceTick < 6) return;
+      cyclesSinceTick = 0;
+      tick();
+    };
     const start = () => {
-      if (id === null) id = window.setInterval(tick, 5000);
+      if (id === null) id = window.setInterval(cycle, 5000);
     };
     const stop = () => {
       if (id !== null) {
@@ -6805,6 +6839,7 @@ export function App() {
         stop();
         return;
       }
+      cyclesSinceTick = 0;
       tick();
       start();
     };
@@ -7126,6 +7161,9 @@ export function App() {
   const liveStatusKey = liveStatusIds.join(",");
   const liveTransport = useMemo(() => liveTransportMode(), []);
   const useWsLive = liveTransport === "ws";
+  const unknownSidRefreshAtRef = useRef(0);
+  const refreshSessionsRef = useRef(refreshSessions);
+  refreshSessionsRef.current = refreshSessions;
   const applyLiveStatusRows = useCallback((rows: Array<
     Pick<
       Session,
@@ -7143,6 +7181,20 @@ export function App() {
     if (!rows.length) return;
     const bySid = new Map(rows.map((row) => [row.sessionId, row]));
     setSessions((prev) => {
+      // A row for a session the list has never seen means a session was
+      // created since the last list read (another device, an agent spawning
+      // a child, a schedule firing). The socket cannot supply the full row,
+      // so ask the list for it now instead of waiting out the poll interval.
+      // Throttled: one list read per 5 s at most, so a socket that keeps
+      // reporting a session the list refuses to return (filtered out, mid-
+      // shutdown) costs no more than the old poll did.
+      if (rows.some((row) => row.sessionId && !prev.some((s) => s.sessionId === row.sessionId))) {
+        const now = Date.now();
+        if (now - unknownSidRefreshAtRef.current >= 5000) {
+          unknownSidRefreshAtRef.current = now;
+          window.setTimeout(() => void refreshSessionsRef.current().catch(() => {}), 0);
+        }
+      }
       let changed = false;
       const next = prev.map((session) => {
         const sid = session.sessionId;
@@ -7252,6 +7304,7 @@ export function App() {
     // managed box ignores it in favour of its verified header.
     viewerIdentity: botUnreadIdentity,
   });
+  wsLiveRef.current = useWsLive && wsLiveStream.connection.status === "live";
   const liveStream = useWsLive ? wsLiveStream : sseLiveStream;
 
   // "Somebody ELSE is typing."
@@ -7397,6 +7450,12 @@ export function App() {
   // existing subscriptions instead of replacing all of them.
   const botUnreadViewRef = useRef({ selectedConversationSid, tab });
   botUnreadViewRef.current = { selectedConversationSid, tab };
+  // Passive: hear the messages of a bot conversation that is open (and so
+  // already streaming) to clear its dot the moment a reply lands in view. It
+  // deliberately holds no subscription of its own — subscribing every bot
+  // transcript from the roster pulled each one's full backlog and send queue
+  // (hundreds of KB) on every socket connect, to compute a dot. Arrivals in
+  // conversations that are NOT open are caught below from the fleet status.
   useEffect(() => {
     if (!useWsLive) return;
     const unsubs = botConversationSids.map((sessionId) =>
@@ -7412,11 +7471,29 @@ export function App() {
         });
         if (action === "mark-read") void markBotConversationVisible(sessionId).catch(() => {});
         if (action === "refresh") void refreshBots().catch(() => {});
-      })
+      }, { passive: true })
     );
     return () => unsubs.forEach((unsubscribe) => unsubscribe());
   }, [botConversationSids, markBotConversationVisible, refreshBots, useWsLive, wsLiveStream.subscribeTranscript]);
 
+  // A bot finished a turn, or a line arrived while it was idle: the server
+  // decides whether that is unread, so ask it. Keyed on the status rows the
+  // socket pushes for every session (see botConversationActivityKey), which
+  // is why no per-bot transcript subscription is needed for this.
+  const botActivityKey = useMemo(
+    () => botConversationActivityKey(botConversationSids, sessions),
+    [botConversationSids, sessions],
+  );
+  const botActivitySeenRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!useWsLive) return;
+    if (botActivitySeenRef.current === null || botActivitySeenRef.current === botActivityKey) {
+      botActivitySeenRef.current = botActivityKey;
+      return;
+    }
+    botActivitySeenRef.current = botActivityKey;
+    void refreshBots().catch(() => {});
+  }, [botActivityKey, refreshBots, useWsLive]);
   function toggleTheme() {
     setThemePreference(!document.documentElement.classList.contains("dark"));
   }
