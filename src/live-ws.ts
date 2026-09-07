@@ -393,7 +393,7 @@ export function createLiveWsSupport(opts: {
   const agentRunUnsubs = new Map<string, () => void>();
   const openSockets = new Set<LiveWs>();
   let statusInterval: ReturnType<typeof setInterval> | null = null;
-  let lastStatusSig = "";
+  let lastStatusSigs = new Map<string, string>();
   let statusPublishing = false;
 
   const channelId = (channel: Pick<Channel, "kind" | "key">): string => `${channel.kind}:${channel.key}`;
@@ -617,7 +617,7 @@ export function createLiveWsSupport(opts: {
     if (openSockets.size || !statusInterval) return;
     clearInterval(statusInterval);
     statusInterval = null;
-    lastStatusSig = "";
+    lastStatusSigs = new Map();
   };
 
   const publishStatus = async () => {
@@ -634,17 +634,31 @@ export function createLiveWsSupport(opts: {
       const rows = (await listSessionsCached())
         .filter((s) => s.sessionId)
         .map(slimStatus);
-      const sig = JSON.stringify(rows);
-      const changed = sig !== lastStatusSig;
-      if (changed) {
-        lastStatusSig = sig;
-        const frame = stamp(statusChannel(), { t: "status", rows });
+      // Only the rows that changed since the last broadcast. A busy fleet
+      // changes one or two rows a second (a lastActivityAt, a busy flag), and
+      // sending the whole fleet for each of those cost every open tab ~6 KB
+      // and a full merge pass per tick. Clients patch by sessionId (see
+      // applyLiveStatusRows), so a partial frame is the same protocol; a
+      // socket that just connected still gets the full fleet from
+      // sendStatusBaseline.
+      const nextSigs = new Map<string, string>();
+      const changedRows: typeof rows = [];
+      for (const row of rows) {
+        const sig = JSON.stringify(row);
+        nextSigs.set(row.sessionId!, sig);
+        if (lastStatusSigs.get(row.sessionId!) !== sig) changedRows.push(row);
+      }
+      const changed = changedRows.length > 0 || nextSigs.size !== lastStatusSigs.size;
+      lastStatusSigs = nextSigs;
+      if (changedRows.length) {
+        const frame = stamp(statusChannel(), { t: "status", rows: changedRows });
         for (const ws of openSockets) safeSend(ws, frame);
       }
       evlog("live_status_tick", {
         transport: "ws",
         sessions: rows.length,
         changed,
+        changedRows: changedRows.length,
         durationMs: roundMs(performance.now() - t0),
       });
     } finally {
