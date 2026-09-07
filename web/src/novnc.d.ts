@@ -19,6 +19,8 @@ declare module "@novnc/novnc" {
     showDotCursor: boolean;
     /** Send one key to the remote. keysym per X11; code is a DOM code. */
     sendKey(keysym: number, code: string | null, down?: boolean): void;
+    /** Put text on the remote clipboard (ClientCutText). No-op while viewOnly. */
+    clipboardPasteFrom(text: string): void;
     background: string;
     focusOnClick: boolean;
     disconnect(): void;

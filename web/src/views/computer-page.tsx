@@ -12,7 +12,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
 import RFB from "@novnc/novnc";
-import { Keyboard, Loader2, MousePointer2, Power, RotateCcw, X } from "lucide-react";
+import {
+  ClipboardCopy,
+  ClipboardPaste,
+  Keyboard,
+  Loader2,
+  MousePointer2,
+  Power,
+  RotateCcw,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { omgFetch, openOmgSocket } from "@/lib/omg-client";
 import { RfbChannel } from "@/lib/rfb-channel";
@@ -43,6 +52,13 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
   // Read-only is the safe default for a shared screen: opening the tab should
   // not let a stray click land on whatever the agent is doing mid-task.
   const [viewOnly, setViewOnly] = useState(true);
+  // The last text the desktop put on its clipboard, as reported by the VNC
+  // server. Held here rather than written to the device clipboard directly:
+  // mobile browsers only allow a clipboard write inside a tap, so the Copy
+  // button is that tap.
+  const [remoteClip, setRemoteClip] = useState<string | null>(null);
+  // One-line feedback for clipboard actions, cleared on its own.
+  const [notice, setNotice] = useState<string | null>(null);
   // Relative (trackpad) pointing for FINGERS ONLY -- never a decision the
   // person has to make.
   //
@@ -110,6 +126,12 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
       rfb.showDotCursor = true;
       rfb.viewOnly = viewOnly;
       rfb.addEventListener("connect", () => setPhase("live"));
+      // x11vnc sends ServerCutText whenever the desktop clipboard changes.
+      // noVNC drops it while viewOnly, so this only arrives once controlling.
+      rfb.addEventListener("clipboard", (e) => {
+        const text = (e as CustomEvent<{ text?: string }>).detail?.text ?? "";
+        setRemoteClip(text || null);
+      });
       rfb.addEventListener("disconnect", () => {
         rfbRef.current = null;
         setPhase("idle");
@@ -272,6 +294,59 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
     keyboardRef.current?.focus();
   }, []);
 
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 1800);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  /** A real paste: the text goes onto the desktop clipboard and a Ctrl+V lands
+   *  it in whatever has focus there. Unlike the keyboard field, which types
+   *  one key per character, paste handlers fire and split code fields work. */
+  const pasteText = useCallback((text: string) => {
+    const rfb = rfbRef.current;
+    if (!rfb || !text) return false;
+    // clipboardPasteFrom is a no-op while read-only, so take control first on
+    // the live object; the state update alone lands a render too late.
+    rfb.viewOnly = false;
+    setViewOnly(false);
+    rfb.clipboardPasteFrom(text);
+    rfb.sendKey(0xffe3, "ControlLeft", true);
+    rfb.sendKey(0x76, "KeyV", true);
+    rfb.sendKey(0x76, "KeyV", false);
+    rfb.sendKey(0xffe3, "ControlLeft", false);
+    return true;
+  }, []);
+
+  const pasteFromDevice = useCallback(async () => {
+    let text = "";
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      // Reading is blocked (denied, plain http, or a browser without
+      // readText). The hidden field's paste event still carries the text, so
+      // hand over to the system paste menu instead.
+      openKeyboard();
+      setNotice("Use the keyboard's Paste menu");
+      return;
+    }
+    if (!text) {
+      setNotice("Your clipboard is empty");
+      return;
+    }
+    setNotice(pasteText(text) ? "Pasted" : "Not connected");
+  }, [openKeyboard, pasteText]);
+
+  const copyToDevice = useCallback(async () => {
+    if (!remoteClip) return;
+    try {
+      await navigator.clipboard.writeText(remoteClip);
+      setNotice("Copied");
+    } catch {
+      setNotice("Copy was blocked by the browser");
+    }
+  }, [remoteClip]);
+
   const start = async () => {
     setPhase("starting");
     setError(null);
@@ -300,7 +375,15 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
       // back. Capture phase, because in trackpad mode the overlay above stops
       // these from bubbling.
       onPointerDownCapture={(e) => {
-        const wants = e.pointerType === "touch";
+        // Only a REAL mouse switches to absolute pointing. Anything else --
+        // a finger, a pen, a browser that reports an empty pointerType, or an
+        // event we synthesized ourselves for the virtual cursor -- must not
+        // drop trackpad mode. It used to key on `=== "touch"`, and a tap that
+        // came through as anything else unmounted the trackpad overlay, so
+        // the next tap went to noVNC's absolute handler and only then did the
+        // mode come back. That is the "need to tap again" after a click.
+        if (!e.isTrusted) return;
+        const wants = e.pointerType !== "mouse";
         setTrackpad((current) => (current === wants ? current : wants));
       }}
     >
@@ -342,6 +425,16 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
         autoCapitalize="off"
         autoCorrect="off"
         spellCheck={false}
+        // A paste into this field goes through the desktop clipboard as a
+        // real paste, not one key per character. This is also the fallback
+        // when the browser refuses navigator.clipboard.readText.
+        onPaste={(e) => {
+          const text = e.clipboardData.getData("text");
+          if (!text) return;
+          e.preventDefault();
+          e.currentTarget.value = "";
+          setNotice(pasteText(text) ? "Pasted" : "Not connected");
+        }}
         onChange={(e) => {
           const rfb = rfbRef.current;
           const text = e.target.value;
@@ -413,6 +506,31 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
               variant="secondary"
               size="icon-sm"
               className="shadow-lg"
+              onClick={() => void pasteFromDevice()}
+              aria-label="Paste from this device"
+              title="Paste"
+            >
+              <ClipboardPaste className="size-3.5" />
+            </Button>
+            {/* Copy appears only once the desktop has put something on its
+                clipboard; an always-present button that usually does nothing
+                would teach people to ignore it. */}
+            {remoteClip ? (
+              <Button
+                variant="secondary"
+                size="icon-sm"
+                className="shadow-lg"
+                onClick={() => void copyToDevice()}
+                aria-label="Copy the computer's clipboard to this device"
+                title="Copy"
+              >
+                <ClipboardCopy className="size-3.5" />
+              </Button>
+            ) : null}
+            <Button
+              variant="secondary"
+              size="icon-sm"
+              className="shadow-lg"
               onClick={() => {
                 disconnect();
                 void connect();
@@ -437,6 +555,14 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
           </Button>
         ) : null}
       </div>
+
+      {notice ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-6 z-10 flex justify-center">
+          <div className="rounded-full bg-card/90 px-3 py-1.5 text-xs shadow-lg backdrop-blur">
+            {notice}
+          </div>
+        </div>
+      ) : null}
 
       {/* Connecting covers a real gap: the desktop can be up while the RFB
           handshake is still running, so without this the page is just black
