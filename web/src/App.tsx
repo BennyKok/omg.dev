@@ -177,6 +177,7 @@ import {
   AuthenticatedArtifactVideo,
 } from "./components/authenticated-artifact";
 import { ArtifactFileCard } from "./components/artifact-file-card";
+import { ArtifactFilePage } from "./components/artifact-file-page";
 import {
   NativeArtifact,
   NativeArtifactEmbed,
@@ -1827,7 +1828,12 @@ function ArtifactViewerPage({
   useEffect(() => {
     setFramed(false);
   }, [artifact.url, artifact.cacheKey]);
-  const label = artifact.title || artifact.caption || artifact.name || "Artifact";
+  // A file is titled by its name; the page body shows the caption. The other
+  // kinds keep the caption-first label they always had.
+  const label =
+    artifact.kind === "file"
+      ? artifact.name || artifact.caption || "File"
+      : artifact.title || artifact.caption || artifact.name || "Artifact";
   // z-[100] sits above the mobile bottom composer (z-55), ask-center (z-60),
   // and floating audio chrome (z-75) so the full-page viewer is not clipped
   // by home-shell overlays. Dialogs/drawers remain higher (z-150+).
@@ -1874,15 +1880,14 @@ function ArtifactViewerPage({
             />
           </div>
         ) : artifact.kind === "file" ? (
-          <div className="flex h-full items-start justify-center overflow-auto bg-background p-4">
-            <ArtifactFileCard
-              url={artifact.url}
-              name={artifact.name}
-              mimeType={artifact.mimeType}
-              size={artifact.size}
-              caption={artifact.caption}
-            />
-          </div>
+          <ArtifactFilePage
+            url={artifact.url}
+            name={artifact.name}
+            mimeType={artifact.mimeType}
+            size={artifact.size}
+            caption={artifact.caption}
+            className="bg-background"
+          />
         ) : artifact.kind === "video" ? (
           <div className="flex h-full items-center justify-center bg-black">
             <AuthenticatedArtifactVideo
@@ -20410,6 +20415,16 @@ const MessageBubble = memo(function MessageBubble({
             mimeType={message.mimeType}
             size={message.size}
             caption={message.caption || message.text || message.alt}
+            onOpen={() =>
+              openArtifact({
+                url: message.url!,
+                kind: "file",
+                name: message.name,
+                mimeType: message.mimeType,
+                size: message.size,
+                caption: message.caption || message.text || message.alt,
+              })
+            }
           />
         </MessageContent>
       </AiMessage>
@@ -20418,35 +20433,41 @@ const MessageBubble = memo(function MessageBubble({
 
   if ((message.kind === "image" || message.kind === "video") && message.url) {
     const isVideo = message.kind === "video";
-    const label =
-      message.caption || message.text || message.name || (isVideo ? "Video" : "Image");
+    const alt = message.alt || message.caption || message.text || message.name || (isVideo ? "Video" : "Image");
+    // Shown under the media only when the agent wrote one. The file name and
+    // byte size are card details, and this is not a card: it reads like a
+    // photo in a chat, with a small line of caption beneath it.
+    const caption = message.caption || message.text || undefined;
     return (
       <AiMessage className={cn("msg", entering && "lfg-msg-in")} from="assistant">
-        <MessageContent className="not-prose inline-flex w-fit max-w-[min(34rem,92vw)] flex-col items-start overflow-hidden rounded-lg border border-border bg-card p-0 shadow-sm">
+        <MessageContent className="not-prose inline-flex w-fit max-w-[min(34rem,92vw)] flex-col items-start gap-1.5 bg-transparent p-0">
           {/* Media renders inline in-app — no navigation away to the raw URL. */}
           {isVideo ? (
             <AuthenticatedArtifactVideo
               path={message.url}
-              label={message.alt || label}
-              className="block max-h-[24rem] w-auto max-w-full self-center bg-black object-contain"
+              label={alt}
+              className="block max-h-[24rem] w-auto max-w-full self-start overflow-hidden rounded-xl bg-black object-contain"
             />
           ) : (
             <AuthenticatedArtifactImage
               path={message.url}
-              alt={message.alt || label}
+              alt={alt}
               width={message.width}
               height={message.height}
               zoomable
-              className="block max-h-[24rem] w-auto max-w-full self-center bg-muted object-contain"
+              className="block max-h-[24rem] w-auto max-w-full self-start overflow-hidden rounded-xl bg-muted object-contain"
             />
           )}
-          {/* w-0 + min-w-full keeps long captions from participating in the
-              shrink-to-fit width calculation. The rendered media owns the
-              card width; this row then conforms to it and truncates. */}
-          <div className="box-border flex w-0 min-w-full items-center justify-between gap-3 px-3 py-2 text-xs text-muted-foreground">
-            <span className="min-w-0 truncate">{label}</span>
-            {message.size ? <span className="shrink-0">{formatBytes(message.size)}</span> : null}
-          </div>
+          {caption ? (
+            // w-0 + min-w-full keeps a long caption from widening the row past
+            // the media; it wraps under the picture instead of stretching it.
+            <p
+              data-slot="media-caption"
+              className="box-border w-0 min-w-full whitespace-pre-wrap break-words px-0.5 text-xs text-muted-foreground"
+            >
+              {caption}
+            </p>
+          ) : null}
         </MessageContent>
       </AiMessage>
     );
