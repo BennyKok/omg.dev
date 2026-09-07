@@ -82,6 +82,8 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
   // real mouse events, so we keep a position here and synthesize events at it.
   const cursorRef = useRef<{ x: number; y: number } | null>(null);
   const touchRef = useRef<{ x: number; y: number; moved: boolean; at: number } | null>(null);
+  /** When a finger last touched the screen. Gates the switch back to a mouse. */
+  const lastTouchAtRef = useRef(0);
 
   const refresh = useCallback(async () => {
     try {
@@ -383,8 +385,20 @@ export function ComputerPage({ active, onClose }: { active: boolean; onClose?: (
         // the next tap went to noVNC's absolute handler and only then did the
         // mode come back. That is the "need to tap again" after a click.
         if (!e.isTrusted) return;
-        const wants = e.pointerType !== "mouse";
-        setTrackpad((current) => (current === wants ? current : wants));
+        const now = Date.now();
+        if (e.pointerType !== "mouse") {
+          lastTouchAtRef.current = now;
+          setTrackpad((current) => (current ? current : true));
+          return;
+        }
+        // Still not enough on its own: a mobile browser can follow a tap
+        // with a mouse-typed pointer event of its own (the compatibility
+        // burst it emits for pages that never asked for touch), and that
+        // one event dropped the mode for exactly one touch. A real mouse
+        // never appears within a second of a finger, so a mouse pointerdown
+        // only counts once the screen has been finger-free for that long.
+        if (now - lastTouchAtRef.current < 1000) return;
+        setTrackpad((current) => (current ? false : current));
       }}
     >
       {/* touch-none is load-bearing on mobile: noVNC's GestureHandler needs the
