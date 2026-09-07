@@ -133,7 +133,8 @@ export type HostSettingsPage =
   | "settings"
   | "coding-agents"
   | "auto"
-  | "storage";
+  | "storage"
+  | "connectors";
 
 export interface PlanLimitDetail {
   /** The server's own sentence, already written for a human to read. */

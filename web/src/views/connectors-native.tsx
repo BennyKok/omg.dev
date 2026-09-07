@@ -3,6 +3,7 @@ import { ChevronRight, Plug, Plus, Search, ShieldQuestion, Trash2 } from "lucide
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { omgFetch } from "@/lib/omg-client";
 
 // The native connector manager: browse the integrations.sh catalog and manage
 // this member's connections, all through omg's own API (/api/connectors...),
@@ -59,7 +60,8 @@ function Logo({ src, alt }: { src?: string | null; alt: string }) {
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
+  // Through the transport for the same reason as connectors-page.tsx.
+  const res = await omgFetch(path, {
     credentials: "same-origin",
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },

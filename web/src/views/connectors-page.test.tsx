@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mount, type Mounted } from "../test-support/render";
+import { createSameOriginTransport } from "@omg-dev/client";
+import { configureOmgTransport } from "../lib/omg-client";
 
 const { ConnectorsPage, RolesPanel } = await import("./connectors-page");
 
@@ -13,6 +15,7 @@ beforeEach(() => {
 afterEach(() => {
   ui.cleanup();
   globalThis.fetch = originalFetch;
+  configureOmgTransport(createSameOriginTransport());
 });
 
 type Call = { url: string; method: string; body: unknown };
@@ -48,6 +51,8 @@ function fakeServer(
     if (url.includes("/api/connectors")) return Response.json({ connectors });
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
+  // The page goes through the transport, which captures fetch at creation.
+  configureOmgTransport(createSameOriginTransport());
   return { calls };
 }
 

@@ -224,6 +224,11 @@ const SETTINGS_PAGES: readonly OmgSettingsPage[] = [
   "coding-agents",
   "auto",
   "storage",
+  // Roles and connectors are machine state too (the box's own registry), so
+  // the "Roles & tool access" row on the settings root lands here. Without
+  // this entry the surface still navigated there internally, but a routing
+  // host never heard about it and showed the page inline under its own root.
+  "connectors",
 ];
 
 function pathToSettingsPage(pathname: string): OmgSettingsPage | null {

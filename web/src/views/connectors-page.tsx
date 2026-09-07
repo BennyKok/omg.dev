@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import type { ViewToggleKey } from "@/lib/viewer-role";
 import { RoleViewerContext } from "@/lib/viewer-role-context";
 import { Input } from "@/components/ui/input";
+import { omgFetch } from "@/lib/omg-client";
 import { ConnectorsNativePanel } from "./connectors-native";
 
 // ---------------------------------------------------------------------------
@@ -64,7 +65,10 @@ type RosterUser = { email: string; name?: string };
 type Tab = "roles" | "connectors";
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
+  // Through the transport, never bare fetch: embedded in a host, a relative
+  // /api path resolves against the HOST's origin, which answers with its SPA
+  // shell — "Unexpected token '<'" instead of a roles list.
+  const res = await omgFetch(path, {
     credentials: "same-origin",
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },

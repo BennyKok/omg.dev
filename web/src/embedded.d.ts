@@ -240,7 +240,8 @@ export type OmgSettingsPage =
   | "settings"
   | "coding-agents"
   | "auto"
-  | "storage";
+  | "storage"
+  | "connectors";
 
 export interface OmgSettingsSurfaceProps {
   transport: OmgTransport;
