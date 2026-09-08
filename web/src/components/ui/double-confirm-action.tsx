@@ -10,6 +10,7 @@ import {
 import { Loader2 } from "lucide-react"
 
 import { feedback } from "@/lib/feedback"
+import { MorphText } from "@/components/ui/morph-text"
 
 type ConfirmableElementProps = {
   "aria-label"?: string
@@ -86,12 +87,11 @@ function DoubleConfirmAction({
   return cloneElement(render, {
     "aria-label": displayedLabel,
     children: (
-      <span
-        key={pending ? "pending" : armed ? "armed" : "idle"}
-        className="flex min-w-0 flex-1 items-center gap-2.5 animate-in fade-in-0 slide-in-from-bottom-1 duration-150"
-      >
+      // No key on this span: it has to stay mounted across idle -> armed ->
+      // pending so the label can morph in place instead of remounting.
+      <span className="flex min-w-0 flex-1 items-center gap-2.5">
         {displayedIcon}
-        <span className="truncate">{displayedLabel}</span>
+        <MorphText className="truncate">{displayedLabel}</MorphText>
       </span>
     ),
     // Base UI menu items use this prop to decide whether selection dismisses

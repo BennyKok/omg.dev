@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { MessageResponse } from "./message";
-import { Shimmer } from "./shimmer";
+import { MorphText } from "@/components/ui/morph-text";
 
 export type ReasoningProps = ComponentProps<typeof Collapsible> & {
   isStreaming?: boolean;
@@ -84,11 +84,14 @@ export function ReasoningTrigger({ className, isStreaming, children, ...props }:
           {/* No brain glyph. It was the only illustrated icon in the
               transcript, and it sat on the quietest row there. The words say
               what this is, and the duration is the part worth reading. */}
-          {isStreaming ? (
-            <Shimmer>{duration ? `Thinking… ${duration}` : "Thinking…"}</Shimmer>
-          ) : (
-            <span>{duration ? `Thought for ${duration}` : "Thought"}</span>
-          )}
+          {/* One MorphText for both states, so the ticking seconds and the
+              switch from "Thinking…" to "Thought for" morph in place instead
+              of re-rendering. */}
+          <MorphText shimmer={isStreaming}>
+            {isStreaming
+              ? duration ? `Thinking… ${duration}` : "Thinking…"
+              : duration ? `Thought for ${duration}` : "Thought"}
+          </MorphText>
           <ChevronDown className="size-3.5 transition-transform group-data-[panel-open]/reasoning:rotate-180" />
         </>
       )}
