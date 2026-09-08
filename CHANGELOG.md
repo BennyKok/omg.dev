@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## September 8, 2026 - Adding a connector opens sign-in (v0.6.57)
+
+- Adding an OAuth connector opens sign-in immediately.
+- Custom MCP URLs default to OAuth. You can also choose an auth header or no authentication.
+- If sign-in fails or a popup is blocked, the saved connector stays available. Use Connect to retry.
+
 ## September 8, 2026 - Media reads like chat, files open a page (v0.6.56)
 
 - Images and videos in the transcript have no card. The media stands alone with a small caption under it.
