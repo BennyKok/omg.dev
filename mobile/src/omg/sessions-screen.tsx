@@ -33,7 +33,6 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
-  StyleSheet,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -149,11 +148,12 @@ function SessionFamily({
   return (
     <View style={{ alignSelf: "stretch" }}>
       <View>
-        {/* THE SELECTED ROW IS A CARD, as on the web: a fill, a hairline and
-            a soft lift, on the row's own bounds and radius. It used to be a
-            flat grey plate wider than the row at a radius the row does not
-            have. Drawn behind rather than around, so the row's geometry (and
-            the tree lines that aim at its mark) stay untouched. */}
+        {/* THE SELECTED ROW IS A FLAT TINT. It spent one commit as a white
+            card with a hairline and a drop shadow, and one card in a list of
+            flat rows read as a different kind of object rather than the same
+            row, chosen. The tint sits on the row's own bounds and radius,
+            drawn behind rather than around, so the row's geometry (and the
+            tree lines that aim at its mark) stay untouched. */}
         {selected ? (
           <View
             pointerEvents="none"
@@ -164,13 +164,7 @@ function SessionFamily({
               left: SESSION_ROW.inset,
               right: SESSION_ROW.inset,
               borderRadius: radius.md,
-              backgroundColor: colors.card,
-              borderWidth: StyleSheet.hairlineWidth,
-              borderColor: colors.borderStrong,
-              shadowColor: "#000",
-              shadowOpacity: 0.18,
-              shadowRadius: 12,
-              shadowOffset: { width: 0, height: 6 },
+              backgroundColor: colors.accent,
             }}
           />
         ) : null}
