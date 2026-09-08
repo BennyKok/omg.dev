@@ -1,7 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRuntimeAvailability, runtimeStatusText } from "../lib/runtime-availability";
 import { useAsk } from "./ask-center";
-import { ShimmerText } from "./ui/shimmer-text";
+import { MorphText } from "./ui/morph-text";
 import { cn } from "../lib/utils";
 import { haptic } from "../lib/haptics";
 
@@ -50,9 +50,6 @@ export function LiveHeaderContext({
   const showCard = intro;
   const actionInMotion = busyCount > 0;
   const [showAmbientStatus, setShowAmbientStatus] = useState(false);
-  const [ambientSwapState, setAmbientSwapState] = useState<"idle" | "exit" | "enter">("idle");
-  const ambientTextRef = useRef<HTMLSpanElement>(null);
-  const ambientSwapTimerRef = useRef<number | null>(null);
   const ambientContext = `${busyCount} agent${busyCount === 1 ? "" : "s"} building`;
   const welcomeMessage = firstName ? `Welcome, ${firstName}` : "Welcome";
   const headline = connectionText ?? (questionCount
@@ -70,41 +67,20 @@ export function LiveHeaderContext({
   useEffect(() => {
     if (connectionText || intro || questionCount || !actionInMotion) {
       setShowAmbientStatus(false);
-      setAmbientSwapState("idle");
       return;
     }
 
     // Let the personal welcome breathe. Activity gets a shorter cameo, then
-    // yields back to the welcome instead of competing with it equally.
+    // yields back to the welcome instead of competing with it equally. The
+    // swap itself is a letter morph (MorphText), so there is no exit/enter
+    // choreography to run here: flipping the text is the whole transition.
     const dwellMs = showAmbientStatus ? 2800 : 8000;
     const dwellTimer = window.setTimeout(() => {
-      setAmbientSwapState("exit");
-      const swapDuration = Number.parseFloat(
-        window.getComputedStyle(document.documentElement).getPropertyValue("--text-swap-dur"),
-      ) || 150;
-      ambientSwapTimerRef.current = window.setTimeout(() => {
-        setShowAmbientStatus((current) => !current);
-        setAmbientSwapState("enter");
-      }, swapDuration);
+      setShowAmbientStatus((current) => !current);
     }, dwellMs);
 
-    return () => {
-      window.clearTimeout(dwellTimer);
-      if (ambientSwapTimerRef.current !== null) {
-        window.clearTimeout(ambientSwapTimerRef.current);
-        ambientSwapTimerRef.current = null;
-      }
-    };
+    return () => window.clearTimeout(dwellTimer);
   }, [actionInMotion, connectionText, intro, questionCount, showAmbientStatus]);
-
-  useLayoutEffect(() => {
-    if (ambientSwapState !== "enter") return;
-    const label = ambientTextRef.current;
-    if (!label) return;
-    void label.offsetHeight;
-    const frame = window.requestAnimationFrame(() => setAmbientSwapState("idle"));
-    return () => window.cancelAnimationFrame(frame);
-  }, [ambientSwapState, showAmbientStatus]);
 
   return (
     <div className="min-w-0 flex-1 overflow-hidden">
@@ -154,12 +130,10 @@ export function LiveHeaderContext({
           )}
         >
           <span className="min-w-0 leading-none">
-            <span
-              ref={ambientTextRef}
+            <MorphText
+              shimmer={!connectionText && !questionCount && actionInMotion && showAmbientStatus}
               className={cn(
-                "t-text-swap block truncate tracking-[-0.01em]",
-                !connectionText && ambientSwapState === "exit" && "is-exit",
-                !connectionText && ambientSwapState === "enter" && "is-enter-start",
+                "block max-w-full truncate tracking-[-0.01em] transition-[font-size] duration-300 ease-ios",
                 connectionText
                   ? "text-[14px] font-medium text-muted-foreground"
                   : questionCount
@@ -169,12 +143,8 @@ export function LiveHeaderContext({
                     : "text-[16px] font-semibold",
               )}
             >
-              {!connectionText && !questionCount && actionInMotion && showAmbientStatus ? (
-                <ShimmerText>{headline}</ShimmerText>
-              ) : (
-                headline
-              )}
-            </span>
+              {headline}
+            </MorphText>
           </span>
         </span>
       </button>

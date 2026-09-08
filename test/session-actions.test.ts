@@ -57,7 +57,8 @@ describe("session lifecycle actions", () => {
     expect(app.match(/confirmLabel="Confirm archive"/g)?.length).toBe(2);
     expect(doubleConfirm).toContain("closeOnClick: armed && !pending");
     expect(doubleConfirm).toContain("setTimeout(() => setArmed(false), timeoutMs)");
-    expect(doubleConfirm).toContain("slide-in-from-bottom-1");
+    // The idle -> armed -> pending label walk is rendered in
+    // web/src/components/ui/double-confirm-action.test.tsx, not matched here.
   });
 
   test("labels the mobile swipe action and confirmation as archive", () => {

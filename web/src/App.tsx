@@ -480,6 +480,7 @@ import { fetchBootstrap } from "./bootstrap";
 import { Toaster } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import { ShimmerText } from "@/components/ui/shimmer-text";
+import { MorphText } from "@/components/ui/morph-text";
 import { DoubleConfirmAction } from "@/components/ui/double-confirm-action";
 import { ClearFindingsButton } from "@/components/clear-findings-button";
 import {
@@ -10656,11 +10657,13 @@ function OnboardingFlow({
                   ) : (
                     <Check className="size-3.5 text-emerald-500" />
                   )}
-                  {installLog.running
-                    ? "Installing agents…"
-                    : installLog.error
-                    ? "Install failed"
-                    : "Install complete"}
+                  <MorphText>
+                    {installLog.running
+                      ? "Installing agents…"
+                      : installLog.error
+                      ? "Install failed"
+                      : "Install complete"}
+                  </MorphText>
                 </div>
                 <pre
                   ref={installLogRef}
@@ -10678,11 +10681,13 @@ function OnboardingFlow({
                 className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-foreground px-3 py-2.5 text-sm font-medium text-background transition-opacity disabled:opacity-50"
               >
                 {busy || agentSetupRunning ? <Loader2 className="size-4 animate-spin" /> : null}
-                {agentSetupRunning
-                  ? "Installing selected agents…"
-                  : selectedInstallableCount > 0
-                    ? `Install ${selectedInstallableCount} selected ${selectedInstallableCount === 1 ? "agent" : "agents"}`
-                    : "Select agents to install"}
+                <MorphText>
+                  {agentSetupRunning
+                    ? "Installing selected agents…"
+                    : selectedInstallableCount > 0
+                      ? `Install ${selectedInstallableCount} selected ${selectedInstallableCount === 1 ? "agent" : "agents"}`
+                      : "Select agents to install"}
+                </MorphText>
               </button>
             )}
             <div className="mt-2 flex items-center gap-2">
@@ -14549,7 +14554,7 @@ function AutoTriageButton({
       title="Group related findings and launch linked agents to execute them"
     >
       {busy ? <Loader2 className="animate-spin" /> : <Sparkles />}
-      {prominent ? (busy ? "Starting…" : "Triage & execute") : null}
+      {prominent ? <MorphText>{busy ? "Starting…" : "Triage & execute"}</MorphText> : null}
     </Button>
   );
 }
@@ -14695,7 +14700,7 @@ function PausedBanner({
             disabled={working}
             className="shrink-0 rounded-lg bg-warning px-3 py-1.5 font-medium text-white disabled:opacity-50"
           >
-            {working ? "Continuing…" : "Continue"}
+            <MorphText>{working ? "Continuing…" : "Continue"}</MorphText>
           </button>
         ) : null}
         {canSwitchClaude ? (
@@ -14705,7 +14710,7 @@ function PausedBanner({
             disabled={working}
             className="shrink-0 rounded-lg bg-warning px-3 py-1.5 font-medium text-white disabled:opacity-50"
           >
-            {working ? "Resuming…" : "Resume on Opus"}
+            <MorphText>{working ? "Resuming…" : "Resume on Opus"}</MorphText>
           </button>
         ) : null}
         {canSwitchOpencode ? (
@@ -14715,7 +14720,7 @@ function PausedBanner({
             disabled={working}
             className="shrink-0 rounded-lg bg-warning px-3 py-1.5 font-medium text-white disabled:opacity-50"
           >
-            {working ? "Switching…" : "Use Big Pickle"}
+            <MorphText>{working ? "Switching…" : "Use Big Pickle"}</MorphText>
           </button>
         ) : null}
         {reconnectKind && !inlineAuth && !reconnected ? (
@@ -14725,7 +14730,7 @@ function PausedBanner({
             disabled={working || !authFlow}
             className="shrink-0 rounded-lg bg-warning px-3 py-1.5 font-medium text-white disabled:opacity-50"
           >
-            {working ? "Opening…" : `Sign in to ${reconnectLabel}`}
+            <MorphText>{working ? "Opening…" : `Sign in to ${reconnectLabel}`}</MorphText>
           </button>
         ) : null}
         {reconnected ? (
