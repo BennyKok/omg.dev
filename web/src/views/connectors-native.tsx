@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, Plug, Plus, Search, ShieldQuestion, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -73,6 +73,66 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+// Reserve the popup during the click, before saving the connector or making
+// any auth request. Both Add and Connect use the same flow.
+function useConnectorSignIn(onChanged: () => Promise<void>) {
+  const cleanup = useRef<(() => void) | null>(null);
+  useEffect(() => () => cleanup.current?.(), []);
+
+  return async (id: string | Promise<string>) => {
+    cleanup.current?.();
+    const popup = window.open("", "omg-oauth", "width=520,height=680");
+    try {
+      const connectorId = await id;
+      if (!popup) throw new Error("Sign-in popup was blocked. Allow popups, then click Connect.");
+      const res = await api<{ authorizeUrl?: string; alreadyAuthorized?: boolean }>(
+        `/api/connectors/${connectorId}/oauth/start`,
+        { method: "POST", body: JSON.stringify({}) },
+      );
+      if (res.alreadyAuthorized) {
+        popup.close();
+        await onChanged();
+        return;
+      }
+      if (!res.authorizeUrl) throw new Error("The server did not return a sign-in URL.");
+      const stop = () => {
+        window.removeEventListener("message", onMsg);
+        window.clearTimeout(timer);
+        cleanup.current = null;
+      };
+      const onMsg = (ev: MessageEvent) => {
+        if (ev.source === popup && typeof ev.data?.omgOauth === "boolean") {
+          stop();
+          void onChanged();
+        }
+      };
+      const timer = window.setTimeout(() => {
+        stop();
+        void onChanged();
+      }, 60_000);
+      cleanup.current = stop;
+      window.addEventListener("message", onMsg);
+      popup.location.href = res.authorizeUrl;
+    } catch (e) {
+      popup?.close();
+      throw e;
+    }
+  };
+}
+
+type ConnectorDraft = {
+  user: string;
+  role?: string;
+  org?: boolean;
+  name: string;
+  endpoint: string;
+  headers?: Record<string, string>;
+  catalogSlug?: string;
+  icon?: string;
+  oauth?: boolean;
+};
+type AddConnector = (draft: ConnectorDraft) => Promise<void>;
+
 function currentUser(): string {
   return (typeof localStorage !== "undefined" && localStorage.getItem("lfg_user")) || "owner";
 }
@@ -141,6 +201,30 @@ export function ConnectorsNativePanel() {
     void load();
   }, [load]);
 
+  const signIn = useConnectorSignIn(load);
+  const addConnector: AddConnector = async (draft) => {
+    let saved = false;
+    let authError: string | null = null;
+    const created = api<{ connector: PublicConnector }>("/api/connectors", {
+      method: "POST",
+      body: JSON.stringify(draft),
+    }).then((result) => {
+      saved = true;
+      return result;
+    });
+    try {
+      if (draft.oauth) await signIn(created.then(({ connector }) => connector.id));
+      else await created;
+    } catch (e) {
+      if (!saved) throw e;
+      authError = e instanceof Error ? e.message : "could not start sign-in";
+    } finally {
+      // Keep a saved connector visible and retryable if sign-in fails.
+      await load();
+    }
+    if (authError) setError(authError);
+  };
+
   return (
     <section className="space-y-4" aria-label="Connectors">
       <p className="px-1 text-xs leading-relaxed text-muted-foreground">
@@ -174,13 +258,13 @@ export function ConnectorsNativePanel() {
             No connectors yet. Add one from the catalog or by URL below.
           </div>
         ) : (
-          connectors.map((c) => <ConnectorRow key={c.id} connector={c} roles={roles} onChanged={load} onError={setError} />)
+          connectors.map((c) => <ConnectorRow key={c.id} connector={c} roles={roles} onChanged={load} onError={setError} signIn={signIn} />)
         )}
       </div>
       {error ? <p className="px-1 text-xs text-destructive">{error}</p> : null}
 
-      <CatalogBrowser user={user} scope={scope} onAdded={load} />
-      <AddByUrl user={user} scope={scope} onAdded={load} />
+      <CatalogBrowser user={user} scope={scope} addConnector={addConnector} />
+      <AddByUrl user={user} scope={scope} addConnector={addConnector} />
     </section>
   );
 }
@@ -190,11 +274,13 @@ function ConnectorRow({
   roles,
   onChanged,
   onError,
+  signIn,
 }: {
   connector: PublicConnector;
   roles: RoleOption[];
   onChanged: () => Promise<void>;
   onError: (m: string | null) => void;
+  signIn: (id: string) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [tools, setTools] = useState<{ name: string; description: string }[] | null>(null);
@@ -246,34 +332,9 @@ function ConnectorRow({
   const connect = async () => {
     setBusy(true);
     onError(null);
-    // Open the popup synchronously so the browser does not block it.
-    const popup = window.open("", "omg-oauth", "width=520,height=680");
     try {
-      const res = await api<{ authorizeUrl?: string; alreadyAuthorized?: boolean }>(
-        `/api/connectors/${connector.id}/oauth/start`,
-        { method: "POST", body: JSON.stringify({}) },
-      );
-      if (res.alreadyAuthorized) {
-        popup?.close();
-        await onChanged();
-        return;
-      }
-      if (res.authorizeUrl && popup) popup.location.href = res.authorizeUrl;
-      else if (res.authorizeUrl) window.open(res.authorizeUrl, "_blank", "noopener");
-      // Refresh when the callback page signals completion (or after a poll).
-      const onMsg = (ev: MessageEvent) => {
-        if (ev.data && typeof ev.data === "object" && "omgOauth" in ev.data) {
-          window.removeEventListener("message", onMsg);
-          void onChanged();
-        }
-      };
-      window.addEventListener("message", onMsg);
-      window.setTimeout(() => {
-        window.removeEventListener("message", onMsg);
-        void onChanged();
-      }, 60_000);
+      await signIn(connector.id);
     } catch (e) {
-      popup?.close();
       onError(e instanceof Error ? e.message : "could not start sign-in");
     } finally {
       setBusy(false);
@@ -363,7 +424,7 @@ function ConnectorRow({
   );
 }
 
-function AddByUrl({ user, scope, onAdded }: { user: string; scope: Scope; onAdded: () => Promise<void> }) {
+function AddByUrl({ user, scope, addConnector }: { user: string; scope: Scope; addConnector: AddConnector }) {
   const [expanded, setExpanded] = useState(false);
   if (!expanded) {
     return (
@@ -377,13 +438,14 @@ function AddByUrl({ user, scope, onAdded }: { user: string; scope: Scope; onAdde
       </button>
     );
   }
-  return <AddByUrlForm user={user} scope={scope} onAdded={onAdded} onClose={() => setExpanded(false)} />;
+  return <AddByUrlForm user={user} scope={scope} addConnector={addConnector} onClose={() => setExpanded(false)} />;
 }
 
-function AddByUrlForm({ user, scope, onAdded, onClose }: { user: string; scope: Scope; onAdded: () => Promise<void>; onClose: () => void }) {
+function AddByUrlForm({ user, scope, addConnector, onClose }: { user: string; scope: Scope; addConnector: AddConnector; onClose: () => void }) {
   const [name, setName] = useState("");
   const [endpoint, setEndpoint] = useState("");
   const [header, setHeader] = useState("");
+  const [auth, setAuth] = useState("oauth");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -398,14 +460,10 @@ function AddByUrlForm({ user, scope, onAdded, onClose }: { user: string; scope: 
         const idx = h.indexOf(":");
         if (idx > 0) headers[h.slice(0, idx).trim()] = h.slice(idx + 1).trim();
       }
-      await api("/api/connectors", {
-        method: "POST",
-        body: JSON.stringify({ ...scopeBody(scope, user), name: name.trim(), endpoint: endpoint.trim(), headers }),
+      await addConnector({
+        ...scopeBody(scope, user), name: name.trim(), endpoint: endpoint.trim(),
+        headers: auth === "header" ? headers : {}, oauth: auth === "oauth",
       });
-      setName("");
-      setEndpoint("");
-      setHeader("");
-      await onAdded();
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "could not add the connector");
@@ -436,14 +494,24 @@ function AddByUrlForm({ user, scope, onAdded, onClose }: { user: string; scope: 
         aria-label="Connector endpoint"
         className="h-8 font-mono text-xs"
       />
+      <select
+        aria-label="Connector authentication"
+        value={auth}
+        onChange={(e) => setAuth(e.target.value)}
+        className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
+      >
+        <option value="oauth">Sign in with OAuth</option>
+        <option value="header">Auth header</option>
+        <option value="none">No authentication</option>
+      </select>
       <div className="flex items-center gap-2">
-        <Input
+        {auth === "header" ? <Input
           value={header}
           onChange={(e) => setHeader(e.target.value)}
-          placeholder="Auth header (optional), e.g. Authorization: Bearer sk-…"
+          placeholder="Auth header, e.g. Authorization: Bearer sk-…"
           aria-label="Connector auth header"
           className="h-8 font-mono text-xs"
-        />
+        /> : null}
         <Button type="submit" size="sm" disabled={busy || !name.trim() || !endpoint.trim()}>
           Add
         </Button>
@@ -453,7 +521,7 @@ function AddByUrlForm({ user, scope, onAdded, onClose }: { user: string; scope: 
   );
 }
 
-function CatalogBrowser({ user, scope, onAdded }: { user: string; scope: Scope; onAdded: () => Promise<void> }) {
+function CatalogBrowser({ user, scope, addConnector }: { user: string; scope: Scope; addConnector: AddConnector }) {
   const [q, setQ] = useState("");
   const [results, setResults] = useState<CatalogEntry[] | null>(null);
   const [total, setTotal] = useState<number | null>(null);
@@ -487,18 +555,14 @@ function CatalogBrowser({ user, scope, onAdded }: { user: string; scope: Scope; 
     setAdding(entry.slug);
     setError(null);
     try {
-      await api("/api/connectors", {
-        method: "POST",
-        body: JSON.stringify({
-          ...scopeBody(scope, user),
-          name: entry.name,
-          endpoint: entry.connectUrl,
-          catalogSlug: entry.slug,
-          icon: entry.icon ?? undefined,
-          oauth: entry.needsOAuth,
-        }),
+      await addConnector({
+        ...scopeBody(scope, user),
+        name: entry.name,
+        endpoint: entry.connectUrl,
+        catalogSlug: entry.slug,
+        icon: entry.icon ?? undefined,
+        oauth: entry.needsOAuth,
       });
-      await onAdded();
     } catch (e) {
       setError(e instanceof Error ? e.message : "could not add");
     } finally {
@@ -528,7 +592,7 @@ function CatalogBrowser({ user, scope, onAdded }: { user: string; scope: Scope; 
                 <span className="block truncate text-[11px] text-muted-foreground">{e.description || e.slug}</span>
               </span>
               {e.needsOAuth ? (
-                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground" title="Sign in after adding">
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground" title="Adding opens sign-in">
                   OAuth
                 </span>
               ) : null}
