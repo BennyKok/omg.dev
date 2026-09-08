@@ -407,12 +407,18 @@ function consumeMouseEvent(e: Event) {
   if ("stopImmediatePropagation" in e) e.stopImmediatePropagation();
 }
 
-function installMouseReporting(
+// Shift+drag is the terminal-wide convention for "select in the terminal, not
+// in the app": when a TUI (tmux here, always) has mouse tracking on, every
+// press would otherwise be forwarded to it and ghostty never gets to start a
+// selection. Once a shifted press starts a selection, the whole drag stays
+// native even if Shift is released midway.
+export function installMouseReporting(
   host: HTMLElement,
   term: TerminalInstance,
   sendRaw: (data: string) => void,
 ) {
   let lastButton = 0;
+  let nativeSelecting = false;
 
   const sendAt = (
     clientX: number,
@@ -429,6 +435,8 @@ function installMouseReporting(
   };
 
   const onMouseDown = (e: MouseEvent) => {
+    nativeSelecting = e.shiftKey && e.button === 0;
+    if (nativeSelecting) return;
     const mode = mouseTrackingMode(term);
     if (!mode.enabled || !mode.button) return;
     const base = buttonCode(e.button);
@@ -438,6 +446,7 @@ function installMouseReporting(
   };
 
   const onMouseMove = (e: MouseEvent) => {
+    if (nativeSelecting) return;
     const mode = mouseTrackingMode(term);
     if (!mode.enabled || (!mode.drag && !mode.any)) return;
     const base = pressedButtonCode(e.buttons);
@@ -447,6 +456,10 @@ function installMouseReporting(
   };
 
   const onMouseUp = (e: MouseEvent) => {
+    if (nativeSelecting) {
+      nativeSelecting = false;
+      return;
+    }
     const mode = mouseTrackingMode(term);
     if (!mode.enabled || !mode.button) return;
     const base = buttonCode(e.button) ?? lastButton;
@@ -510,6 +523,36 @@ function installMouseReporting(
     host.removeEventListener("touchend", onTouchEnd, true);
     host.removeEventListener("touchcancel", onTouchEnd, true);
   };
+}
+
+// Copy the terminal selection on the shortcuts terminals use for it: ⌃⇧C
+// everywhere, ⌘C on macOS, and plain ⌃C while text is selected (VS Code and
+// Windows Terminal do the same; without a selection ⌃C still reaches the pty
+// as SIGINT). ghostty-web already writes the selection to the clipboard on
+// mouseup, but that write is best-effort and silent; the explicit shortcut is
+// the one users reach for when it did not take.
+export function installCopyShortcut(
+  host: HTMLElement,
+  term: Pick<TerminalInstance, "hasSelection" | "getSelection" | "clearSelection">,
+  writeText: (text: string) => Promise<void> = (text) => navigator.clipboard.writeText(text),
+) {
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.altKey || (e.key !== "c" && e.key !== "C")) return;
+    const ctrlShift = e.ctrlKey && e.shiftKey && !e.metaKey;
+    const meta = e.metaKey && !e.ctrlKey;
+    const plainCtrl = e.ctrlKey && !e.shiftKey && !e.metaKey;
+    if (!ctrlShift && !meta && !plainCtrl) return;
+    if (!term.hasSelection()) return;
+    const text = term.getSelection();
+    if (!text) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if ("stopImmediatePropagation" in e) e.stopImmediatePropagation();
+    void writeText(text).catch(() => {});
+    term.clearSelection();
+  };
+  host.addEventListener("keydown", onKeyDown, { capture: true });
+  return () => host.removeEventListener("keydown", onKeyDown, true);
 }
 
 function DeckAction({
@@ -1081,6 +1124,7 @@ export function TermView({
     let ro: ResizeObserver | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let cleanupMouseReporting: (() => void) | null = null;
+    let cleanupCopyShortcut: (() => void) | null = null;
     let cleanupFocusTracking: (() => void) | null = null;
     let attempt = 0;
     let opening = false;
@@ -1152,6 +1196,7 @@ export function TermView({
       term.loadAddon(fit);
       term.open(hostRef.current);
       cleanupMouseReporting = installMouseReporting(hostRef.current, term, sendRaw);
+      cleanupCopyShortcut = installCopyShortcut(hostRef.current, term);
       tameTerminalInput(term);
       const textarea = terminalInput(term);
       const onInputFocus = () => setTerminalKeyboardActive(true);
@@ -1208,6 +1253,7 @@ export function TermView({
       disposed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       try { cleanupMouseReporting?.(); } catch {}
+      try { cleanupCopyShortcut?.(); } catch {}
       try { cleanupFocusTracking?.(); } catch {}
       try { ro?.disconnect(); } catch {}
       try { wsRef.current?.close(); } catch {}
