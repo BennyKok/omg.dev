@@ -356,6 +356,40 @@ export function isRunning(id: string): boolean {
   return inFlight.has(id);
 }
 
+// ---------- in-flight refines (in-memory; serve process only) ----------
+// A feedback-driven rewrite of an agent's instruction (POST .../refine) is a
+// real model call against the agent's repo and routinely runs past a minute —
+// longer than a phone keeps a fetch open (Safari gives up at 60s). So the route
+// answers at once and the browser follows the rewrite through this state on
+// the agent it already polls. Like `inFlight` this is deliberately not
+// persisted: a rewrite can't outlive the process, and a poll that finds no
+// state after a restart is told exactly that.
+export type RefineStatus =
+  | { state: "running"; startedAt: number }
+  | { state: "done"; at: number }
+  | { state: "failed"; at: number; error: string };
+
+const refines = new Map<string, RefineStatus>();
+
+/** Claim the agent for a rewrite. False when one is already in flight — two
+ *  concurrent rewrites of the same instruction would race each other's save. */
+export function markRefining(id: string): boolean {
+  if (refines.get(id)?.state === "running") return false;
+  refines.set(id, { state: "running", startedAt: Date.now() });
+  return true;
+}
+
+export function settleRefine(id: string, error?: string): void {
+  refines.set(
+    id,
+    error === undefined ? { state: "done", at: Date.now() } : { state: "failed", at: Date.now(), error },
+  );
+}
+
+export function refineStatus(id: string): RefineStatus | undefined {
+  return refines.get(id);
+}
+
 // ---------- findings ----------
 
 export async function listFindings(status?: string): Promise<Finding[]> {

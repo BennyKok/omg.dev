@@ -190,3 +190,47 @@ describe("caller identity threading", () => {
     expect(SERVE).toContain('req.headers.get("x-omg-caller-session-id")');
   });
 });
+
+// The refine route used to hold the request open for the whole model call —
+// a minute-plus against a real repo — which a phone's fetch timeout threw away
+// while the server finished and saved anyway. These pin that it answers
+// first and does the work after, publishing its progress for the poll.
+describe("POST /api/auto/agents/:id/refine (feedback → rewritten instruction)", () => {
+  const handler = block("/refine$/", 4500);
+
+  test("claims the agent before answering, and refuses a second concurrent rewrite", () => {
+    expect(handler).toContain('if (!markRefining(agent.id)) return err(409');
+  });
+
+  test("answers 202 and carries the rewrite on in the background", () => {
+    expect(handler).toContain("void (async () => {");
+    expect(handler).toContain("return json({ ok: true, agent: withAutoAgentMeta(agent) }, { status: 202 })");
+    // The model call happens inside the detached block, not before the response.
+    expect(handler.indexOf("void (async () => {")).toBeLessThan(handler.indexOf("await refineAutoPrompt("));
+  });
+
+  test("settles the state both ways so the poll can end on success or the real error", () => {
+    expect(handler).toContain("() => settleRefine(agent.id)");
+    expect(handler).toContain("settleRefine(agent.id, msg)");
+  });
+
+  test("saves against the row as it is when the model returns, not the snapshot it started from", () => {
+    expect(handler).toContain("const current = await getAutoAgent(agent.id)");
+    expect(handler).toContain('if (!current) throw new Error("the agent was deleted while it was being updated")');
+  });
+
+  test("a rewrite grounded in a finding marks it read once it has landed — never dismissed", () => {
+    expect(handler).toContain('if (finding && finding.status === "open") {');
+    expect(handler).toContain('await updateFinding(finding.id, { status: "read" })');
+    expect(handler.indexOf("await saveAutoAgent(")).toBeLessThan(handler.indexOf('status: "read"'));
+    // A dismissed title is fed to the next run as "do NOT resurface"; feedback
+    // usually means "handle this properly", so dismissing here muted exactly
+    // the case the owner just retuned the agent for.
+    expect(handler).not.toContain('status: "dismissed"');
+  });
+
+  test("the agent payload carries the refine state for the browser poll", () => {
+    expect(SERVE).toContain("refine: refineStatus(a.id)");
+  });
+});
+
