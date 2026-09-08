@@ -1,6 +1,5 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState, type ComponentProps } from "react";
 
 import {
@@ -29,7 +28,7 @@ export type ReasoningTriggerProps = ComponentProps<typeof CollapsibleTrigger> & 
   isStreaming?: boolean;
 };
 
-function formatThinkingDuration(ms: number): string {
+export function formatThinkingDuration(ms: number): string {
   const seconds = Math.max(1, Math.round(ms / 1000));
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
@@ -92,7 +91,6 @@ export function ReasoningTrigger({ className, isStreaming, children, ...props }:
               ? duration ? `Thinking… ${duration}` : "Thinking…"
               : duration ? `Thought for ${duration}` : "Thought"}
           </MorphText>
-          <ChevronDown className="size-3.5 transition-transform group-data-[panel-open]/reasoning:rotate-180" />
         </>
       )}
     </CollapsibleTrigger>
