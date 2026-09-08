@@ -2,6 +2,21 @@
 
 Recent product updates and deployment notes.
 
+## September 8, 2026 - Media reads like chat, files open a page (v0.6.56)
+
+- Images and videos in the transcript have no card. The media stands alone with a small caption under it.
+- Tap a file card to open its page. The page shows the name, type, and size, and a Download button.
+- Text files and code preview on the page. CSV and TSV show as a table. Files over 1 MB ask before they load, and show the first 1 MB.
+- Archives, PDFs, audio, and unknown types show no preview. Download them to open them.
+- The file card is one row. On a mouse, the download icon appears on hover. On a touch screen, the page has the Download button.
+- The thinking row has no chevron.
+- Text labels on the Live header, the thinking timer, and busy buttons morph in place.
+- Web terminal: select and copy text while tmux mouse mode is on.
+- Computer: copy and paste between the device and the desktop. Trackpad mode stays on after a tap. A mouse event within one second of a touch is ignored.
+- Auto findings: a refine marks the finding read, not dismissed. A rewrite grounded in a finding dismisses it when it lands. Feedback refine answers at once.
+- Faster live updates: the socket sends only the status rows that changed, unchanged polls do not re-render, and every asset is compressed.
+- iPad: the selected rail row is a flat tint, not a card.
+
 ## September 7, 2026 - File downloads work on managed machines (v0.6.55)
 
 - Downloading a file from a managed machine stays on the machine. A redirect from the machine no longer sends the browser to the wrong path.
