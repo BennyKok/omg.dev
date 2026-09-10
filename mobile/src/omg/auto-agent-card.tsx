@@ -47,13 +47,13 @@ import Reanimated from "react-native-reanimated";
 import { type AndroidSymbol, type SFSymbol } from "expo-symbols";
 import { ActivityIndicator, View } from "react-native";
 
-import { Icon, SESSION_ROW } from "../components";
+import { Icon, SESSION_ROW, withAlpha } from "../components";
 import { Text } from "./text";
 import { useListItemMotion, PressableScale } from "./motion";
 import { useSwipeToCommit } from "./swipe-row";
 import { useTheme } from "./theme";
 import { relativeTime } from "./format";
-import type { AutoFindingGroup, AutoFindingRow, AutoFindingSeverity } from "./auto-agents";
+import type { AutoFinding, AutoFindingGroup, AutoFindingRow, AutoFindingSeverity } from "./auto-agents";
 
 function severityColor(
   severity: AutoFindingSeverity | undefined,
@@ -70,7 +70,7 @@ function severityColor(
 }
 
 /** The severity dot. 8pt, the web's `size-2`. */
-function SeverityDot({ severity }: { severity?: AutoFindingSeverity }) {
+export function SeverityDot({ severity }: { severity?: AutoFindingSeverity }) {
   const { colors } = useTheme();
   return (
     <View
@@ -406,6 +406,114 @@ export function AutoFindingGroupHeader({
           <Text
             numberOfLines={1}
             style={{ ...type.caption, fontVariant: ["tabular-nums"], color: colors.textMuted }}
+          >
+            {relativeTime(latest || undefined)}
+          </Text>
+        </View>
+      </PressableScale>
+    </Reanimated.View>
+  );
+}
+
+const SEVERITY_ORDER: Record<AutoFindingSeverity, number> = { high: 0, med: 1, low: 2 };
+
+/** The worst severity across a set of findings; what a report's dot shows. */
+export function worstSeverity(findings: ReadonlyArray<AutoFinding>): AutoFindingSeverity | undefined {
+  let worst: AutoFindingSeverity | undefined;
+  for (const f of findings) {
+    const sev = f.severity ?? "low";
+    if (worst === undefined || SEVERITY_ORDER[sev] < SEVERITY_ORDER[worst]) worst = sev;
+  }
+  return worst;
+}
+
+/**
+ * The home row for an agent's report, shaped like the web's AutoReportRow:
+ * the agent's name with a blue count when it has more than one open
+ * finding, the lead finding's title beneath, and on the right the worst
+ * severity and when the newest was seen. Tapping opens the report page.
+ */
+export function AutoReportRow({
+  group,
+  onOpen,
+  animateEntry = true,
+}: {
+  group: AutoFindingGroup;
+  onOpen: () => void;
+  animateEntry?: boolean;
+}) {
+  const { colors, radius, type, space } = useTheme();
+  const listMotion = useListItemMotion();
+  const findings = group.rows.map((row) => row.finding);
+  const lead = findings[0]!;
+  const latest = findings.reduce((max, f) => Math.max(max, f.lastSeenAt ?? f.createdAt ?? 0), 0);
+  const name = group.agent?.name ?? "Auto agent";
+  const count = findings.length;
+  return (
+    <Reanimated.View
+      entering={animateEntry ? listMotion.entering : undefined}
+      layout={animateEntry ? listMotion.layout : undefined}
+    >
+      <PressableScale
+        onPress={onOpen}
+        scale={0.98}
+        accessibilityRole="button"
+        accessibilityLabel={`${name}: ${count} open finding${count === 1 ? "" : "s"}. Open report`}
+        style={({ pressed }) => ({
+          marginHorizontal: SESSION_ROW.inset,
+          paddingHorizontal: SESSION_ROW.padding,
+          height: SESSION_ROW.height,
+          justifyContent: "center",
+          borderRadius: radius.md,
+          backgroundColor: pressed ? colors.cardPressed : "transparent",
+        })}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
+          <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+              <Text numberOfLines={1} style={{ ...type.body, color: colors.text, flexShrink: 1 }}>
+                {name}
+              </Text>
+              {count > 1 ? (
+                <View
+                  style={{
+                    minWidth: 20,
+                    height: 20,
+                    paddingHorizontal: 6,
+                    borderRadius: 10,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: withAlpha(colors.primary, 0.12),
+                  }}
+                >
+                  <Text
+                    style={{
+                      ...type.caption,
+                      fontWeight: "600",
+                      fontVariant: ["tabular-nums"],
+                      color: colors.primary,
+                    }}
+                  >
+                    {count}
+                  </Text>
+                </View>
+              ) : null}
+              {group.agent?.running ? <ActivityIndicator size="small" color={colors.primary} /> : null}
+            </View>
+            <Text numberOfLines={1} style={{ ...type.footnote, color: colors.textMuted }}>
+              {lead.title}
+            </Text>
+          </View>
+          <SeverityDot severity={worstSeverity(findings)} />
+          <Text
+            numberOfLines={1}
+            style={{
+              ...type.caption,
+              fontVariant: ["tabular-nums"],
+              color: colors.textMuted,
+              minWidth: 28,
+              textAlign: "right",
+            }}
           >
             {relativeTime(latest || undefined)}
           </Text>

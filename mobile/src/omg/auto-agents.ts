@@ -299,3 +299,10 @@ export function groupHomeAutoFindings(rows: AutoFindingRow[]): AutoFindingGroup[
   }
   return [...groups.values()];
 }
+
+/** One agent's findings, worst first, newest first. What its report lists. */
+export function sortFindingRows(findings: AutoFinding[]): AutoFinding[] {
+  const sev = (f: AutoFinding) => SEVERITY_RANK[f.severity ?? "low"] ?? 2;
+  const seen = (f: AutoFinding) => f.lastSeenAt ?? f.createdAt ?? 0;
+  return [...findings].sort((a, b) => sev(a) - sev(b) || seen(b) - seen(a));
+}

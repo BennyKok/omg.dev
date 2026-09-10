@@ -67,7 +67,7 @@ import {
   sessionStableId,
   type SessionNode,
 } from "./session-tree";
-import { AutoFindingCard, AutoFindingGroupHeader } from "./auto-agent-card";
+import { AutoReportRow } from "./auto-agent-card";
 import { useOverlapWatch } from "./list-overlap-watch";
 import { groupNodesByProject } from "./session-groups";
 import { sessionPreview } from "./session-preview";
@@ -1910,52 +1910,25 @@ export function SessionsScreen({
                     count={autoRows.length}
                     dotColor={colors.text}
                   />
-                  <View style={{ gap: space.sm }}>
-                    {/* One row per agent when it has several open findings
-                        (see groupHomeAutoFindings); a lone finding is its own
-                        card, as before. */}
-                    {groupHomeAutoFindings(autoRows).map((group) => {
-                      const card = (row: AutoFindingRow) => (
-                        <OverlapRow key={row.finding.id} id={`auto:${row.finding.id}`}>
-                          <AutoFindingCard
-                            row={row}
-                            expanded={expandedAuto === row.finding.id}
-                            onToggle={() =>
-                              setExpandedAuto((current) =>
-                                current === row.finding.id ? null : row.finding.id,
-                              )
-                            }
-                            onDismiss={() => dismissFinding(row.finding.id)}
-                            onStartSession={() => void startSessionFromFinding(row)}
-                            busy={startingFindingId === row.finding.id}
-                            animateEntry={animateEntry}
-                          />
-                        </OverlapRow>
-                      );
-                      if (group.rows.length === 1) return card(group.rows[0]!);
-                      const open = expandedAgent === group.agentId;
-                      return (
-                        <View key={`agent:${group.agentId}`} style={{ gap: space.xs }}>
-                          <OverlapRow id={`auto-agent:${group.agentId}`}>
-                            <AutoFindingGroupHeader
-                              group={group}
-                              expanded={open}
-                              onToggle={() =>
-                                setExpandedAgent((current) =>
-                                  current === group.agentId ? null : group.agentId,
-                                )
-                              }
-                              animateEntry={animateEntry}
-                            />
-                          </OverlapRow>
-                          {open ? (
-                            <View style={{ gap: space.sm, paddingLeft: space.md }}>
-                              {group.rows.map(card)}
-                            </View>
-                          ) : null}
-                        </View>
-                      );
-                    })}
+                  <View style={{ gap: space.xs }}>
+                    {/* One row per agent, as the web's Auto section: the
+                        name, a count when there is more than one, the lead
+                        finding, the worst severity and the newest time.
+                        Tapping opens the agent's report page. */}
+                    {groupHomeAutoFindings(autoRows).map((group) => (
+                      <OverlapRow key={`agent:${group.agentId}`} id={`auto-agent:${group.agentId}`}>
+                        <AutoReportRow
+                          group={group}
+                          animateEntry={animateEntry}
+                          onOpen={() => {
+                            void Haptics.selectionAsync();
+                            const href = `/auto/${encodeURIComponent(group.agentId)}` as Href;
+                            if (workspace) navigateWorkspace(href);
+                            else router.push(href);
+                          }}
+                        />
+                      </OverlapRow>
+                    ))}
                   </View>
                 </>
               ) : null}
