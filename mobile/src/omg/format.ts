@@ -4,7 +4,7 @@
 
 /**
  * A timestamp the way a person scanning a list reads it: "now", "4m", "3h",
- * "yesterday", then a date. Compact on purpose — this sits in a row that also
+ * "1d", then a date. Compact on purpose — this sits in a row that also
  * carries a title, and a full date string pushes the title into an ellipsis.
  */
 export function relativeTime(ts?: number | null): string {
@@ -18,7 +18,8 @@ export function relativeTime(ts?: number | null): string {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h`;
   const days = Math.floor(hours / 24);
-  if (days === 1) return "yesterday";
+  // "1d", not "yesterday": the web's row says it in two characters, and the
+  // word was wide enough to push a title into an ellipsis.
   if (days < 7) return `${days}d`;
   return new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }

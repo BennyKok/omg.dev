@@ -68,6 +68,7 @@ import {
   type SessionNode,
 } from "./session-tree";
 import { AutoReportRow } from "./auto-agent-card";
+import { canDriveSession, type DriveableSession } from "./session-runtime";
 import { useOverlapWatch } from "./list-overlap-watch";
 import { groupNodesByProject } from "./session-groups";
 import { sessionPreview } from "./session-preview";
@@ -1019,6 +1020,10 @@ export function SessionsScreen({
       sessions.filter(
         (session) =>
           !(session as BotDrivenSession).botId &&
+          // The web's rule (session-runtime.ts): a session no client can
+          // drive is not listed. The phone used to show them and every
+          // archive on one answered "not in a tmux pane".
+          canDriveSession(session as DriveableSession) &&
           sessionMatchesUserFilter(session, userFilter),
       ),
     [sessions, userFilter],

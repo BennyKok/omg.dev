@@ -112,6 +112,11 @@ export function SessionStatusDot({
 
   const pulseStyle = useAnimatedStyle(() => ({ opacity: busy ? pulse.value : 1 }));
 
+  // Idle shows nothing, as on the web (App.tsx's SessionStatusDot renders
+  // only working and paused). A green dot on every idle row said "ok" ten
+  // times down the list and made the one working row harder to find.
+  if (!busy) return null;
+
   return (
     <Reanimated.View
       style={[
