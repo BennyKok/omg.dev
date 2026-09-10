@@ -461,21 +461,65 @@ function LiveWelcome({
  * pages menu. One component, so the phone's nav bar and the iPad rail carry
  * the same row. `navigate` differs: the phone pushes, the rail swaps the pane.
  */
+/**
+ * The machine, as the web's phone header places it: the FIRST thing on the
+ * bar, at the leading edge before the greeting, a bare glyph with the
+ * machine's online dot. It used to sit in the trailing island between the
+ * roster filter and the pages menu; the web keeps that island for the
+ * filter and the pages only, and the machine is where the row starts.
+ */
+function ComputerDisc({
+  computerOptions,
+  machineName,
+  online,
+}: {
+  computerOptions: MenuOption[];
+  machineName: string;
+  online: boolean;
+}) {
+  const { colors } = useTheme();
+  return (
+    <DropdownMenu title="Computer" options={computerOptions}>
+      <View
+        accessibilityRole="button"
+        accessibilityLabel={`Computer: ${machineName}. Change`}
+        style={{
+          width: 36,
+          height: 36,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <LucideIcon
+          name="monitor"
+          size={20}
+          color={colors.textSecondary}
+        />
+        <View
+          style={{
+            position: "absolute",
+            // Bottom-trailing of the glyph box, the corner UIKit badges
+            // from, clear of the monitor's stand.
+            right: 6,
+            bottom: 6,
+          }}
+        >
+          <StatusDot busy={online} size={7} />
+        </View>
+      </View>
+    </DropdownMenu>
+  );
+}
+
 function HomeHeaderControls({
   userFilter,
   rosterUsers,
   setUserFilter,
-  computerOptions,
-  machineName,
-  online,
   navigate,
 }: {
   userFilter: string;
   rosterUsers: RosterUser[];
   setUserFilter: (next: string) => void;
-  computerOptions: MenuOption[];
-  machineName: string;
-  online: boolean;
   navigate: (href: Href) => void;
 }) {
   const { colors, space } = useTheme();
@@ -483,52 +527,14 @@ function HomeHeaderControls({
     <View
       style={{ flexDirection: "row", alignItems: "center", gap: space.xs }}
     >
-      {/* The web's island, in the web's order: the roster filter first,
-          then the machine, then one overflow menu for the pages. The
-          bell, the bot and the gear used to be three more discs here;
-          they live in the menu now, as the web's PagesMenu keeps them. */}
+      {/* The web's island, in the web's order: the roster filter, then one
+          overflow menu for the pages. The machine is not here: it leads the
+          bar, before the greeting, as on the web. */}
       <UserFilterMenu
         value={userFilter}
         users={rosterUsers}
         onChange={setUserFilter}
       />
-      {/* TWO BUTTONS, NOT ONE CHIP.
-          The machine name and the gear used to share a single pill, which
-          read as one control and made the name look pressable-adjacent
-          rather than pressable. Split, each is a glyph on its own disc —
-          the shape iOS 26 gives bar items — and the machine's name moves
-          into the menu, where the checkmark already says which one is
-          current. The dot keeps the one thing the name was really
-          carrying: whether that machine is up. */}
-      <DropdownMenu title="Computer" options={computerOptions}>
-        <View
-          accessibilityRole="button"
-          accessibilityLabel={`Computer: ${machineName}. Change`}
-          style={{
-            width: 36,
-            height: 36,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <LucideIcon
-            name="monitor"
-            size={20}
-            color={colors.textSecondary}
-          />
-          <View
-            style={{
-              position: "absolute",
-              // Bottom-trailing of the glyph box, the corner UIKit badges
-              // from, clear of the monitor's stand.
-              right: 6,
-              bottom: 6,
-            }}
-          >
-            <StatusDot busy={online} size={7} />
-          </View>
-        </View>
-      </DropdownMenu>
       {/* Pages. The web's PagesMenu: everything that is a screen rather
           than a filter, behind one control, so the island stays three
           wide. Live is this screen and is not listed. */}
@@ -1329,11 +1335,19 @@ export function SessionsScreen({
           type: "custom",
           hidesSharedBackground: true,
           element: (
-            <LiveWelcome
-              firstName={firstName}
-              busyCount={flattenNodes(working).length}
-              onPress={() => router.push("/notifications")}
-            />
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+              {/* Machine first, greeting second: the web's phone header. */}
+              <ComputerDisc
+                computerOptions={computerPicker.options}
+                machineName={machineName}
+                online={currentBinding?.online ?? false}
+              />
+              <LiveWelcome
+                firstName={firstName}
+                busyCount={flattenNodes(working).length}
+                onPress={() => router.push("/notifications")}
+              />
+            </View>
           ),
         },
       ],
@@ -1342,9 +1356,6 @@ export function SessionsScreen({
           userFilter={userFilter}
           rosterUsers={rosterUsers}
           setUserFilter={setUserFilter}
-          computerOptions={computerPicker.options}
-          machineName={machineName}
-          online={currentBinding?.online ?? false}
           navigate={(href) => router.push(href)}
         />
       ),
@@ -1492,7 +1503,12 @@ export function SessionsScreen({
                 gap: space.sm,
               }}
             >
-              <View style={{ flex: 1, flexDirection: "row" }}>
+              <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: space.xs }}>
+                <ComputerDisc
+                  computerOptions={computerPicker.options}
+                  machineName={machineName}
+                  online={currentBinding?.online ?? false}
+                />
                 {/* The greeting wears the web's glass island so it earns the
                     header row it sits in. The phone's bar item stays bare:
                     there UIKit already gives the bar its material. */}
@@ -1517,9 +1533,6 @@ export function SessionsScreen({
                 userFilter={userFilter}
                 rosterUsers={rosterUsers}
                 setUserFilter={setUserFilter}
-                computerOptions={computerPicker.options}
-                machineName={machineName}
-                online={currentBinding?.online ?? false}
                 navigate={navigateWorkspace}
               />
             </View>
