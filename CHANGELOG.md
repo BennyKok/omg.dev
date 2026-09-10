@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 10, 2026 - Hosted omg agent balance and models (v0.6.63)
+
+- Hosted Computers can show the omg agent's monthly AI credit ring without asking the sandbox for an `omg login`.
+- The omg agent model list adds Claude Fable 5.1, Claude Opus 4.8, Claude Sonnet 4.6, GPT-5.6 Sol, GPT-5.6 Terra, and GPT-5.6 Luna.
+
 ## September 10, 2026 - Rounder sent messages (v0.6.62)
 
 - Sent messages have a rounder bubble.
