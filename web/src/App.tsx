@@ -1342,6 +1342,9 @@ const OPENCODE_MODELS = [
 // catalog overrides this fallback at bootstrap).
 const PI_MODELS_FALLBACK = ["fable", "opus", "sonnet", "haiku", "deepseek/deepseek-v4-flash"];
 const DEEPSEEK_MODELS = ["deepseek-v4-flash", "deepseek-v4-pro"];
+// Kept in sync with DEVIN_MODELS in src/agent-catalog.ts (the server catalog
+// overrides this fallback at bootstrap).
+const DEVIN_MODELS = ["adaptive", "swe", "opus", "gpt", "sonnet", "gemini", "codex"];
 // Kept in sync with COPILOT_MODELS in src/agent-catalog.ts (the server catalog
 // overrides this fallback at bootstrap).
 const COPILOT_MODELS = ["claude-sonnet-4.5", "claude-sonnet-4", "gpt-5"];
@@ -1406,6 +1409,7 @@ const AGENT_MODELS: Record<AgentKind, string[]> = {
   fx: FX_MODELS,
   muse: MUSE_MODELS,
   deepseek: DEEPSEEK_MODELS,
+  devin: DEVIN_MODELS,
   opencode: OPENCODE_MODELS,
   omg: OMG_MODELS,
   jcode: JCODE_MODELS,
@@ -1422,6 +1426,7 @@ const AGENT_DEFAULT_MODEL: Record<AgentKind, string> = {
   fx: "auto",
   muse: "muse-spark-1.2",
   deepseek: "deepseek-v4-flash",
+  devin: "adaptive",
   opencode: "opencode/nemotron-3.5-lightning-free",
   omg: OMG_MODELS[0]!,
   jcode: "auto",
@@ -1442,6 +1447,9 @@ const AGENT_THINKING_LEVELS: Record<AgentKind, string[]> = {
   // Muse accepts its reasoningEffort vocabulary live per turn over MSP.
   muse: ["none", "minimal", "low", "medium", "high", "xhigh", "ultra"],
   deepseek: [],
+  // Devin exposes reasoning levels only inside a running session (Alt+T), not
+  // as a launch flag, so the selector stays hidden.
+  devin: [],
   opencode: [],
   omg: [],
   jcode: ["low", "medium", "high", "xhigh", "max"],

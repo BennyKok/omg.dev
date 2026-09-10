@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## New coding agent: Devin (v0.6.64)
+
+- New coding agent: Devin. It runs the Devin CLI locally through `devin acp`, so one session keeps its context across follow-up prompts. Pick it in the agent list; "adaptive" (Cognition's model router) is the default model, and Opus, GPT, Sonnet, Gemini, Codex, and Cognition's own SWE models are one pick away.
+- On your own machine, install the Devin CLI (`curl -fsSL https://cli.devin.ai/install.sh | bash`), then run `devin auth login` once. A Devin, Windsurf, or API key (`WINDSURF_API_KEY`) login all work.
+
 ## September 10, 2026 - Hosted omg agent balance and models (v0.6.63)
 
 - Hosted Computers can show the omg agent's monthly AI credit ring without asking the sandbox for an `omg login`.

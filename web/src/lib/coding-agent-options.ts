@@ -11,6 +11,7 @@ export type AgentKind =
   | "fx"
   | "muse"
   | "deepseek"
+  | "devin"
   | "pi"
   | "copilot";
 
@@ -46,6 +47,7 @@ export const AGENT_CATALOG: readonly AgentCatalogEntry[] = [
   { key: "fx", label: "fx", scheduled: true },
   { key: "muse", label: "muse", scheduled: true },
   { key: "deepseek", label: "deepseek" },
+  { key: "devin", label: "devin" },
   { key: "jcode", label: "jcode" },
   { key: "pi", label: "pi" },
   { key: "copilot", label: "copilot" },
