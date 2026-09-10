@@ -55,9 +55,11 @@ import Reanimated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
+import { useRouter } from "expo-router";
 import type { OmgMessage } from "@omg-dev/protocol";
 
 import { Icon } from "../components";
+import { formatFileSize } from "./file-preview";
 import { relativeTime } from "./format";
 import { CodeBlock, Markdown, useBodyText } from "./markdown";
 import {
@@ -562,7 +564,7 @@ export function TranscriptEntry({
   // a PDF handed you a grey sentence about a PDF instead. That is the same bug
   // `DisplayedImage` above exists to fix, and it is one branch earlier here.
   if (message.kind === "file" && (message.url || message.artifactId)) {
-    return <AttachmentEntry message={message} />;
+    return <FileEntry message={message} />;
   }
 
   const isAttachment =
@@ -1046,7 +1048,6 @@ function toolSymbol(name: string): Symbols {
 function ThinkingEntry({ message, nextTs }: { message: Entry; nextTs?: number | null }) {
   const { colors, type, space, motion } = useTheme();
   const [open, setOpen] = useState(false);
-  const turn = useSharedValue(0);
 
   const text = (message.text ?? "").trim();
   // The normalizer substitutes the literal "(thinking)" when the provider
@@ -1066,14 +1067,9 @@ function ThinkingEntry({ message, nextTs }: { message: Entry; nextTs?: number | 
     return ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60_000)}m`;
   }, [message.ts, nextTs]);
 
-  const chevron = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${turn.value * 90}deg` }],
-  }));
-
   const toggle = () => {
     if (!body) return;
     void Haptics.selectionAsync();
-    turn.value = withTiming(open ? 0 : 1, { duration: motion.quick });
     setOpen((value) => !value);
   };
 
@@ -1107,14 +1103,9 @@ function ThinkingEntry({ message, nextTs }: { message: Entry; nextTs?: number | 
         <Text style={{ ...type.caption, color: colors.textMuted }}>
           {thoughtFor ? `Thought for ${thoughtFor}` : "Thinking"}
         </Text>
-        <Reanimated.View style={chevron}>
-          <Icon
-            ios="chevron.right"
-            android="chevron_right"
-            size={10}
-            color={body ? colors.textMuted : "transparent"}
-          />
-        </Reanimated.View>
+        {/* No chevron. The row is the whole trigger and the words already
+            read as a disclosure; the collapsed preview beside them says there
+            is something to open. Same call as the web transcript. */}
         {body && !open ? (
           <Text
             numberOfLines={1}
@@ -1209,19 +1200,70 @@ function DisplayedImage({ message }: { message: Entry }) {
  * Naming the file and saying what it is beats a broken-image box, and beats the
  * empty View this used to render.
  */
-export function AttachmentEntry({ message }: { message: Entry }) {
+/**
+ * A displayed file, as a row that opens the file's own page (app/artifact/
+ * file.tsx): name, size, download, and a text preview when one is worth
+ * having. The caption sits under the name in the same row, no divider. The
+ * row itself never fetches the bytes.
+ */
+function FileEntry({ message }: { message: Entry }) {
+  const router = useRouter();
+  const path = message.url ?? (message.artifactId ? `/api/artifacts/${message.artifactId}` : null);
+  if (!path) return <AttachmentEntry message={message} />;
+  const name = message.name ?? "File";
+  const caption = (message.caption ?? message.text ?? message.alt ?? "").trim();
+  return (
+    <AttachmentEntry
+      message={message}
+      detail={caption && caption !== name ? caption : null}
+      onPress={() =>
+        router.push({
+          pathname: "/artifact/file",
+          params: {
+            url: path,
+            name,
+            mime: message.mimeType ?? "",
+            size: typeof message.size === "number" ? String(message.size) : "",
+            caption,
+          },
+        })
+      }
+    />
+  );
+}
+
+export function AttachmentEntry({
+  message,
+  detail,
+  onPress,
+}: {
+  message: Entry;
+  /** Second line under the name. Defaults to the size and a hint. */
+  detail?: string | null;
+  onPress?: () => void;
+}) {
   const { colors, type, space, radius } = useTheme();
   const isImage = message.kind === "image" || !!message.mimeType?.startsWith("image/");
   const label =
     message.name ?? message.caption ?? message.alt ?? message.text ?? (isImage ? "Image" : "File");
   const size =
     typeof message.size === "number" && message.size > 0
-      ? `${Math.max(1, Math.round(message.size / 1024))} KB`
+      ? formatFileSize(message.size)
       : null;
+  const second =
+    detail !== undefined
+      ? detail
+      : size
+        ? `${size} · view on the web`
+        : "View on the web";
 
   return (
-    <View
-      style={{
+    <Pressable
+      onPress={onPress}
+      disabled={!onPress}
+      accessibilityRole={onPress ? "button" : undefined}
+      accessibilityLabel={onPress ? `Open ${label}` : undefined}
+      style={({ pressed }) => ({
         alignSelf: message.role === "user" ? "flex-end" : "flex-start",
         flexDirection: "row",
         alignItems: "center",
@@ -1238,7 +1280,8 @@ export function AttachmentEntry({ message }: { message: Entry }) {
         // black" there (see that component's own note), and the rumour is
         // just as true here.
         borderColor: colors.borderStrong,
-      }}
+        opacity: pressed ? 0.6 : 1,
+      })}
     >
       <Icon
         ios={isImage ? "photo" : "doc"}
@@ -1246,15 +1289,20 @@ export function AttachmentEntry({ message }: { message: Entry }) {
         size={18}
         color={colors.textSecondary}
       />
-      <View style={{ minWidth: 0, flexShrink: 1 }}>
+      <View style={{ minWidth: 0, flex: 1 }}>
         <Text numberOfLines={1} style={{ ...type.footnote, color: colors.text }}>
           {label}
         </Text>
-        <Text style={{ ...type.caption, color: colors.textMuted }}>
-          {size ? `${size} · view on the web` : "View on the web"}
-        </Text>
+        {second ? (
+          <Text numberOfLines={1} style={{ ...type.caption, color: colors.textMuted }}>
+            {second}
+          </Text>
+        ) : null}
       </View>
-    </View>
+      {onPress && size ? (
+        <Text style={{ ...type.caption, color: colors.textMuted }}>{size}</Text>
+      ) : null}
+    </Pressable>
   );
 }
 
