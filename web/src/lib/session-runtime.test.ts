@@ -15,7 +15,7 @@ describe("command-file session visibility", () => {
   });
 
   test("keeps legacy harness rows that predate the runtime field", () => {
-    for (const agent of ["aisdk", "codex-aisdk", "opencode"] as const) {
+    for (const agent of ["aisdk", "codex-aisdk", "opencode", "omg"] as const) {
       expect(canDriveSession({ agent, tmuxTarget: null })).toBe(true);
     }
   });

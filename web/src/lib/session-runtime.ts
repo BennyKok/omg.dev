@@ -6,7 +6,7 @@ export type DriveableSession = {
 };
 
 function isLegacyHarnessAgent(agent?: string | null): boolean {
-  return agent === "aisdk" || agent === "codex-aisdk" || agent === "opencode";
+  return agent === "aisdk" || agent === "codex-aisdk" || agent === "opencode" || agent === "omg";
 }
 
 /** True when the Live view can control this session without a terminal pane. */

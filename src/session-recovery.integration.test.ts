@@ -55,6 +55,7 @@ describe("session recovery integration", () => {
       "grok",
       "jcode",
       "muse",
+      "omg",
       "opencode",
       "pi",
     ]);
@@ -71,7 +72,8 @@ describe("session recovery integration", () => {
     const fakeTmux = join(fakeBin, "tmux");
     const fakeHome = join(root, "home");
     mkdirSync(fakeBin, { recursive: true });
-    mkdirSync(fakeHome, { recursive: true });
+    mkdirSync(join(fakeHome, ".omg"), { recursive: true });
+    writeFileSync(join(fakeHome, ".omg/credentials.json"), JSON.stringify({ token: "omg_sk_test", kind: "api-key" }));
     writeFileSync(fakeTmux, [
       "#!/usr/bin/env bun",
       "const capture = process.env.LFG_TEST_TMUX_CAPTURE;",

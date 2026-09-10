@@ -299,3 +299,21 @@ describe("curateCursorModels", () => {
     for (const model of out) expect(model).not.toMatch(/-(fast|xhigh|high|medium|low)$/);
   });
 });
+
+test("omg agent lists the 7 routed models in hosted picker order", async () => {
+  const { OMG_MODELS } = await import("./agent-catalog.ts");
+  expect(OMG_MODELS).toEqual([
+    "omg/deepseek/deepseek-v4-flash-0731",
+    "omg/deepseek/deepseek-v4-pro",
+    "omg/z-ai/glm-5.3-flash",
+    "omg/z-ai/glm-5.2",
+    "omg/qwen/qwen3.7-plus",
+    "omg/qwen/qwen3-coder-next",
+    "omg/minimax/minimax-m3",
+  ]);
+  expect(defaultModelForAgent("omg")).toBe(OMG_MODELS[0]!);
+  expect(modelsForAgent("omg")).toEqual(OMG_MODELS);
+  expect(listModelCatalog().find((item) => item.key === "omg")).toMatchObject({
+    label: "omg agent", models: OMG_MODELS, defaultModel: OMG_MODELS[0], session: true, auto: true,
+  });
+});

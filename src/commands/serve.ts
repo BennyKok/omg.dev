@@ -1304,8 +1304,8 @@ function persistManagedResume(session: Session): void {
     ? "aisdk"
     : session.agent === "codex-aisdk"
       ? "codex-aisdk"
-      : session.agent === "opencode"
-        ? "opencode"
+      : (session.agent === "opencode" || session.agent === "omg")
+        ? session.agent
         : session.agent === "pi"
           ? "pi"
           : session.runtime === "command-file" &&
@@ -1332,8 +1332,8 @@ function persistManagedResume(session: Session): void {
   const agent =
     backend === "codex-aisdk" || session.agent === "codex"
       ? "codex"
-      : backend === "opencode"
-        ? "opencode"
+      : (backend === "opencode" || backend === "omg")
+        ? backend
         : backend === "pi"
           ? "pi"
           : backend === "grok" || backend === "cursor" || backend === "fx" || backend === "muse" || backend === "copilot" || backend === "jcode"
@@ -2581,14 +2581,14 @@ function validateBotAgent(
 ): { agent: NonNullable<ReturnType<typeof resolveActiveSessionAgent>> } | { error: string } {
   const agent = resolveActiveSessionAgent(agentValue || "aisdk");
   if (!agent) return { error: `unknown coding agent "${agentValue ?? ""}"` };
-  if ((agent === "aisdk" || agent === "grok" || agent === "pi" || agent === "copilot") && model) {
+  if ((agent === "aisdk" || agent === "omg" || agent === "grok" || agent === "pi" || agent === "copilot") && model) {
     const allowed = modelsForAgent(agent);
     if (!allowed.includes(model))
       return { error: `unknown model "${model}" (expected one of ${allowed.join(", ")})` };
   }
   if (agent === "codex-aisdk" && model && !/^[A-Za-z0-9_.:-]{1,80}$/.test(model))
     return { error: "invalid codex model name" };
-  if ((agent === "cursor" || agent === "opencode" || agent === "fx" || agent === "muse") && model && !/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
+  if ((agent === "cursor" || agent === "opencode" || agent === "omg" || agent === "fx" || agent === "muse") && model && !/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
     return { error: `invalid ${agent} model name` };
   if (agent === "jcode" && model && !/^[A-Za-z0-9_.:\/\-[\],=]{1,160}$/.test(model))
     return { error: "invalid jcode model name" };
@@ -2733,7 +2733,7 @@ async function launchBotSession(
       ? resolvedModel ?? GROK_DEFAULT_MODEL()
       : agent === "cursor" || agent === "jcode" || agent === "copilot" || agent === "fx"
         ? resolvedModel ?? "auto"
-        : agent === "opencode" || agent === "muse"
+        : agent === "opencode" || agent === "omg" || agent === "muse"
           ? resolvedModel ?? defaultModelForAgent(agent)
           : agent === "codex-aisdk"
             ? resolvedModel ?? "gpt-5.5"
@@ -2814,7 +2814,7 @@ async function launchBotSession(
       agent,
       runtime: CODING_AGENT_ADAPTERS[agent].transport,
       sessionId,
-      nativeSessionId: agent === "aisdk" || agent === "opencode" ? sessionId : undefined,
+      nativeSessionId: agent === "aisdk" || agent === "opencode" || agent === "omg" ? sessionId : undefined,
       launchState: "launching",
       model: launchModel,
       thinkingLevel: bot.thinkingLevel,
@@ -3475,8 +3475,8 @@ export function resolveAutoAgentRuntime(
       return { ok: false, status: 400, error: "Claude account is missing or not connected" };
   }
   const model = b.model?.trim() || undefined;
-  if (autoBackend === "aisdk" && model) {
-    const allowed = modelsForAgent("aisdk");
+  if ((autoBackend === "aisdk" || autoBackend === "omg") && model) {
+    const allowed = modelsForAgent(autoBackend);
     if (!allowed.includes(model))
       return {
         ok: false,
@@ -3501,7 +3501,7 @@ export function resolveAutoAgentRuntime(
     return { ok: false, status: 400, error: "invalid fx model name" };
   if (autoBackend === "muse" && model && !/^[A-Za-z0-9_.:\/-]{1,120}$/.test(model))
     return { ok: false, status: 400, error: "invalid muse model name" };
-  if (autoBackend === "opencode" && model && !/^[A-Za-z0-9_.:\/-]{1,80}$/.test(model))
+  if ((autoBackend === "opencode" || autoBackend === "omg") && model && !/^[A-Za-z0-9_.:\/-]{1,80}$/.test(model))
     return { ok: false, status: 400, error: "invalid opencode model name" };
   const thinkingLevel = b.thinkingLevel?.trim() || undefined;
   if (thinkingLevel) {
@@ -8048,7 +8048,7 @@ a{color:#60a5fa}
         const offset = Number(url.searchParams.get("offset")) || 0;
         const search = url.searchParams.get("search")?.trim() || undefined;
         const agentParam = url.searchParams.get("agent")?.trim();
-        const agent = agentParam === "claude" || agentParam === "codex" || agentParam === "opencode" || agentParam === "pi"
+        const agent = agentParam === "claude" || agentParam === "codex" || agentParam === "opencode" || agentParam === "omg" || agentParam === "pi"
           ? agentParam
           : undefined;
         const project = url.searchParams.get("project")?.trim() || undefined;
@@ -8521,7 +8521,7 @@ a{color:#60a5fa}
             thinkingLevel?: string;
             archiveSource?: boolean;
             claudeAccountId?: string;
-            agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "grok" | "cursor" | "hermes" | "pi" | "jcode";
+            agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "omg" | "grok" | "cursor" | "hermes" | "pi" | "jcode";
           } | null;
           // Cached: this read is pure metadata (cwd, project, title, owner) for
           // a session that already exists, so a few seconds of staleness cannot
@@ -8634,7 +8634,7 @@ a{color:#60a5fa}
           overLimit?: boolean;
           /** Role the session runs as at the MCP endpoints. Missing = owner. */
           role?: string;
-          agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "jcode" | "grok" | "cursor" | "copilot" | "hermes" | "pi";
+          agent?: "claude" | "codex" | "aisdk" | "codex-aisdk" | "opencode" | "omg" | "jcode" | "grok" | "cursor" | "copilot" | "hermes" | "pi";
         } | null;
         const requestedRole = typeof body?.role === "string" ? body.role.trim() : "";
         if (requestedRole && !getRole(requestedRole)) return err(400, `unknown role "${requestedRole}"`);
@@ -8663,13 +8663,13 @@ a{color:#60a5fa}
         // names are provider/catalog driven, so validate shape instead.
         const requestedModel = body?.model?.trim() || undefined;
         const opencodeDefault =
-          agent === "opencode" ? defaultModelForAgent("opencode") : undefined;
+          (agent === "opencode" || agent === "omg") ? defaultModelForAgent(agent) : undefined;
         const model =
-          agent === "opencode" && requestedModel && OPENCODE_DISABLED_MODELS.has(requestedModel)
+          (agent === "opencode" || agent === "omg") && requestedModel && OPENCODE_DISABLED_MODELS.has(requestedModel)
             ? opencodeDefault
             : requestedModel;
-        if (agent === "aisdk" && model) {
-          const allowed = modelsForAgent("aisdk");
+        if ((agent === "aisdk" || agent === "omg") && model) {
+          const allowed = modelsForAgent(agent);
           if (!allowed.includes(model))
             return err(400, `unknown model "${model}" (expected one of ${allowed.join(", ")})`);
         }
@@ -8698,7 +8698,7 @@ a{color:#60a5fa}
         // opencode models are "provider/model" (e.g. anthropic/claude-sonnet-4-6),
         // so the validation shape additionally allows a slash. Catalog-driven, so
         // validate by shape rather than an allowlist.
-        if (agent === "opencode" && model && !/^[A-Za-z0-9_.:\/-]{1,80}$/.test(model))
+        if ((agent === "opencode" || agent === "omg") && model && !/^[A-Za-z0-9_.:\/-]{1,80}$/.test(model))
           return err(400, "invalid opencode model name");
         if (agent === "jcode" && model && !/^[A-Za-z0-9_.:\/\-[\],=]{1,160}$/.test(model))
           return err(400, "invalid jcode model name");
@@ -8837,7 +8837,7 @@ a{color:#60a5fa}
             ? resolvedModel ?? GROK_DEFAULT_MODEL()
             : agent === "cursor"
               ? resolvedModel ?? "auto"
-              : agent === "opencode"
+              : (agent === "opencode" || agent === "omg")
                   ? resolvedModel ?? opencodeDefault
                 : agent === "jcode"
                   ? resolvedModel ?? "auto"
@@ -8859,7 +8859,7 @@ a{color:#60a5fa}
           runtime: CODING_AGENT_ADAPTERS[agent].transport,
           sessionId: launchId,
           nativeSessionId:
-            agent === "aisdk" || agent === "opencode"
+            agent === "aisdk" || agent === "opencode" || agent === "omg"
               ? launchId
               : undefined,
           launchState: "launching",
@@ -9894,7 +9894,9 @@ a{color:#60a5fa}
             if (sess.tmuxName) patchManaged(sess.tmuxName, { model });
             return json({ ok: true, model });
           }
-          if (sess.agent === "opencode") {
+          if (sess.agent === "opencode" || sess.agent === "omg") {
+            if (sess.agent === "omg" && !modelsForAgent("omg").includes(model))
+              return err(400, `unknown omg model "${model}"`);
             if (!/^[A-Za-z0-9_.:\/-]{1,80}$/.test(model))
               return err(400, "invalid opencode model name");
             if (OPENCODE_DISABLED_MODELS.has(model))
@@ -9967,7 +9969,7 @@ a{color:#60a5fa}
           if (!allowed.includes(thinkingLevel))
             return err(400, `unknown thinking level "${thinkingLevel}" for ${sess.agent} (expected one of ${allowed.join(", ")})`);
 
-          if (sess.agent === "aisdk" || sess.agent === "codex-aisdk" || sess.agent === "opencode" || sess.agent === "pi" || (sess.agent === "jcode" && sess.runtime === "command-file")) {
+          if (sess.agent === "aisdk" || sess.agent === "codex-aisdk" || sess.agent === "opencode" || sess.agent === "omg" || sess.agent === "pi" || (sess.agent === "jcode" && sess.runtime === "command-file")) {
             const entry = findAisdkEntryByAnyId(m[1]);
             if (!entry) return err(409, "session control process is unavailable");
             appendAisdkCmd(entry.sessionId, { type: "set_thinking_level", thinkingLevel });

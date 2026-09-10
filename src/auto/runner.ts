@@ -1,3 +1,4 @@
+import { defaultModelForAgent } from "../agent-catalog.ts";
 // Runs one auto agent: build a prompt from the agent's instruction + the
 // dismiss-feedback block, pipe it to a real headless Claude session with
 // read-only tools, and parse the findings out of the result. Most runs should
@@ -253,13 +254,13 @@ async function runSelectedBackend(
       }),
     );
   }
-  if (backend === "opencode") {
+  if (backend === "opencode" || backend === "omg") {
     onLog(`[auto] opencode run (${prompt.length} chars) in ${cwd} [model: ${agent.model ?? "default"}]`);
     const { pipeToOpencodeAiSdk } = await import("../agents/backends/opencode-aisdk-session.ts");
     return await runInCwd(cwd, () =>
       pipeToOpencodeAiSdk(prompt, onLog, {
         cwd,
-        model: agent.model,
+        model: agent.model ?? defaultModelForAgent(backend),
         thinkingLevel: agent.thinkingLevel,
       }),
     );

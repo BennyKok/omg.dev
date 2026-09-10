@@ -33,7 +33,7 @@ export type ResumableCacheRow = ResumableSession & {
 export type ResumableBackend =
   | "aisdk"
   | "codex-aisdk"
-  | "opencode"
+  | "opencode" | "omg"
   | "pi"
   | "grok"
   | "cursor"
@@ -212,7 +212,7 @@ function toSession(row: Row): ResumableSession {
     lastUserText: row.last_user_text,
     agent: (
       row.agent === "codex" ||
-      row.agent === "opencode" ||
+      row.agent === "opencode" || row.agent === "omg" ||
       row.agent === "pi" ||
       row.agent === "grok" ||
       row.agent === "cursor" ||
