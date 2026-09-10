@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 10, 2026 - Rounder sent messages (v0.6.62)
+
+- Sent messages have a rounder bubble.
+- The copy button next to a sent message is gone. Long-press the message (right-click on desktop) and choose Copy message.
+
 ## September 10, 2026 - AI credit for the omg agent (v0.6.61)
 
 - The usage rings in the composer now cover the omg agent. One monthly ring shows how much of your plan's AI credit is used and when it resets.
