@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 10, 2026 - AI credit for the omg agent (v0.6.61)
+
+- The usage rings in the composer now cover the omg agent. One monthly ring shows how much of your plan's AI credit is used and when it resets.
+- Agent icons in the session list are no longer rounded.
+
 ## September 10, 2026 - The omg agent has its own icon (v0.6.60)
 
 - The omg agent shows the omg mark in the agent picker and in session lists. It showed a broken image before.
