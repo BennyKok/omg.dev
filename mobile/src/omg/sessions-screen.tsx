@@ -1182,15 +1182,11 @@ export function SessionsScreen({
       );
       void (async () => {
         try {
-          await client.transport.request("/api/sessions/close-all", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              source: "mobile_swipe_archive",
-              scope: "idle",
-              sessionIds: [sessionId],
-            }),
-          });
+          await client.transport.request(`/api/sessions/${encodeURIComponent(sessionId)}/close`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ source: "mobile_swipe_archive" }),
+              });
         } catch (e) {
           setError(e instanceof Error ? e.message : String(e));
         } finally {

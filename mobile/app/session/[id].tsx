@@ -993,7 +993,7 @@ export function SessionScreenBody({
 
   /** This session's own sent messages, newest last — the composer's history. */
   /**
-   * Archive: the same request the session list's "Smart clear" sends, scoped to
+   * Archive: the same request the web sends, POST /api/sessions/:id/close, for
    * this one session. Only offered while the agent is idle, because that is the
    * only shape of this call the server is known to accept.
    */
@@ -1007,14 +1007,10 @@ export function SessionScreenBody({
         onPress: () => {
           void (async () => {
             try {
-              await client.transport.request("/api/sessions/close-all", {
+              await client.transport.request(`/api/sessions/${encodeURIComponent(id)}/close`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  source: "session_menu",
-                  scope: "idle",
-                  sessionIds: [id],
-                }),
+                body: JSON.stringify({ source: "session_menu" }),
               });
               router.back();
             } catch (e) {
