@@ -1681,6 +1681,7 @@ const STATIC_FILES: Record<string, { path: string; type: string }> = {
   "/agent-deepseek.svg": { path: join(WEB_DIR, "agent-deepseek.svg"), type: "image/svg+xml" },
   "/agent-opencode.svg": { path: join(WEB_DIR, "agent-opencode.svg"), type: "image/svg+xml" },
   "/agent-jcode.svg": { path: join(WEB_DIR, "agent-jcode.svg"), type: "image/svg+xml" },
+  "/agent-omg.svg": { path: join(WEB_DIR, "agent-omg.svg"), type: "image/svg+xml" },
   "/agent-grok.svg": { path: join(WEB_DIR, "agent-grok.svg"), type: "image/svg+xml" },
   "/agent-hermes.svg": { path: join(WEB_DIR, "agent-hermes.svg"), type: "image/svg+xml" },
   "/agent-pi.svg": { path: join(WEB_DIR, "agent-pi.svg"), type: "image/svg+xml" },

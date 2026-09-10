@@ -1,0 +1,15 @@
+<svg height="1em" width="1em" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><title>omg agent</title>
+  <!-- The omg mark from icon-small.svg, sized like the other agent-*.svg marks. -->
+  <defs>
+    <radialGradient id="bg" cx="0" cy="0" r="1.2"><stop offset="0%" stop-color="#4a2417"/><stop offset="100%" stop-color="#120f0b"/></radialGradient>
+    <!-- The bite is a hole, not a dark dot: the tile gradient shows through it,
+         so it stays correct wherever the mark is placed. -->
+    <mask id="disc">
+      <rect width="512" height="512" fill="black"/>
+      <circle cx="254.7" cy="254.7" r="184" fill="white"/>
+      <circle cx="340" cy="169.3" r="53.3" fill="black"/>
+    </mask>
+  </defs>
+  <rect width="512" height="512" rx="115" ry="115" fill="url(#bg)"/>
+  <rect width="512" height="512" fill="#f6f2ec" mask="url(#disc)"/>
+</svg>

@@ -28,7 +28,7 @@ export function agentIconSrc(agent?: string): string {
   if (agent === "muse") return omgAssetUrl(`/agent-muse.svg${v}`);
   if (agent === "deepseek") return omgAssetUrl(`/agent-deepseek.svg${v}`);
   if (agent === "hermes") return omgAssetUrl(`/agent-hermes.svg${v}`);
-  if (agent === "omg") return omgAssetUrl(`/icon.svg${v}`);
+  if (agent === "omg") return omgAssetUrl(`/agent-omg.svg${v}`);
   if (agent === "opencode") return omgAssetUrl(`/agent-opencode.svg${v}`);
   if (agent === "jcode") return omgAssetUrl(`/agent-jcode.svg${v}`);
   if (agent === "pi") return omgAssetUrl(`/agent-pi.svg${v}`);
