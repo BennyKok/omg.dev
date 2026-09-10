@@ -469,7 +469,11 @@ import {
   messagesForTranscriptView,
   type TranscriptView,
 } from "./lib/transcript-view";
-import { isMachineryPreviewText, isRequestInterruptedMessage } from "./lib/transcript-status";
+import {
+  isMachineryPreviewText,
+  isRequestInterruptedMessage,
+  prosePreviewText,
+} from "./lib/transcript-status";
 import { voiceErrorMessage, type VoiceSttResponse } from "./lib/voice-errors";
 import {
   ensureVoiceConfigured,
@@ -2988,11 +2992,8 @@ function chatRenderItemSpeaker(item: ChatRenderItem<Message>): string {
   return author?.kind === "human" && author.verified ? `user:${author.participantId}` : "user";
 }
 
-// The most recent activity condensed to one line — used as the collapsed-card
-// subtitle. Reuses the exact transcript shortening (buildChatRenderItems +
-// toolGroupLabel): a run of tool calls/results renders as its group summary
-// ("2 Bash · 1 Read · 1 result") instead of a raw tool_result dump; prose and
-// thinking render as their text.
+// The most recent prose condensed to one line. Tool groups, tool results,
+// thinking, and fenced code are transcript detail, not a session description.
 function latestLine(messages: Message[]): string {
   const items = buildChatRenderItems(messages);
   // Walk back past the plumbing. Several synthetic turns are recorded for
@@ -3001,9 +3002,9 @@ function latestLine(messages: Message[]): string {
   // questions, attached images and peer handoffs. See isMachineryPreviewText.
   for (let index = items.length - 1; index >= 0; index--) {
     const item = items[index];
-    if (item.type === "tools") return toolGroupLabel(item.items);
+    if (item.type === "tools" || item.message.kind !== "text") continue;
     if (isMachineryPreviewText(item.message.text)) continue;
-    const preview = plainPreviewText(item.message.text);
+    const preview = plainPreviewText(prosePreviewText(item.message.text));
     if (preview) return preview;
   }
   return "";
@@ -17775,7 +17776,11 @@ const SessionCard = memo(function SessionCard({
   // ── mobile gestures: tap-header-to-collapse + iOS swipe-to-archive ────────
   // Fall back to the list payload's last message when we aren't streaming this
   // card (collapsed) so the collapsed preview line still shows something.
-  const latest = latestLine(messages) || plainPreviewText(session.last?.text ?? "");
+  const latest =
+    latestLine(messages) ||
+    (session.last?.kind === "text"
+      ? plainPreviewText(prosePreviewText(session.last.text))
+      : "");
   const sectionRef = useRef<HTMLElement>(null);
   // Rail selection glow: restart the CSS animation whenever the token bumps.
   useLayoutEffect(() => {

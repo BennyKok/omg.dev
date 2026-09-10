@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { isMachineryPreviewText, isRequestInterruptedMessage } from "./transcript-status";
+import {
+  isMachineryPreviewText,
+  isRequestInterruptedMessage,
+  prosePreviewText,
+} from "./transcript-status";
 
 describe("isMachineryPreviewText", () => {
   // Each of these was seen leaking into a session row's preview, where the row
@@ -66,5 +70,17 @@ describe("isRequestInterruptedMessage", () => {
         text: "[Request interrupted by user] and then I typed more",
       }),
     ).toBe(false);
+  });
+});
+
+describe("prosePreviewText", () => {
+  test("removes fenced code and keeps surrounding prose", () => {
+    expect(prosePreviewText("I fixed it.\n```ts\nconst secret = 1;\n```\nTests pass."))
+      .toBe("I fixed it. Tests pass.");
+  });
+
+  test("does not expose an unclosed code fence", () => {
+    expect(prosePreviewText("Result:\n```sh\nnpm test\nmore output"))
+      .toBe("Result:");
   });
 });

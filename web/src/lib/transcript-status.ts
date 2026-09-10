@@ -39,3 +39,23 @@ export function isMachineryPreviewText(text?: string): boolean {
     /^\[Image:/i.test(value)
   );
 }
+
+/**
+ * Keep prose for a one-line session description and remove fenced code.
+ * An unclosed fence removes the rest of the message because it is still code.
+ */
+export function prosePreviewText(text?: string): string {
+  const lines = (text ?? "").split(/\r?\n/);
+  const prose: string[] = [];
+  let fence: "```" | "~~~" | null = null;
+  for (const line of lines) {
+    const marker = line.trimStart().slice(0, 3);
+    if (marker === "```" || marker === "~~~") {
+      if (!fence) fence = marker;
+      else if (marker === fence) fence = null;
+      continue;
+    }
+    if (!fence) prose.push(line);
+  }
+  return prose.join(" ").replace(/\s+/g, " ").trim();
+}
