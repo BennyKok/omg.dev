@@ -35,6 +35,7 @@ import { defaultModelForAgent } from "./agent-catalog.ts";
 import { PATHS } from "./config.ts";
 import { museFetchInit } from "./muse-proxy.ts";
 import { cloudApiBaseUrl, createCloudAccount } from "./cloud-account.ts";
+import { isHostedOmgSandbox } from "./omg-provider.ts";
 
 export type UsageWindow = {
   label: string;
@@ -770,6 +771,32 @@ export type OmgBalance = {
   } | null;
 };
 
+/** The in-guest router of a hosted omg Computer. No credential: the VM is the identity. */
+const GUEST_BALANCE_URL = "http://169.254.0.1:9090/v1/billing/balance";
+
+/**
+ * The control plane answers in dollars; the in-guest router answers in the
+ * ledger's micro-dollars. Exported for tests.
+ */
+export function normalizeOmgBalance(raw: Record<string, any>): OmgBalance {
+  const build = raw?.build;
+  if (!build || typeof build !== "object") return { plan: raw?.plan ?? null, build: null };
+  const micros = typeof build.limitMicros === "number";
+  const usd = (key: string) => {
+    const value = micros ? build[`${key}Micros`] / 1_000_000 : build[`${key}Usd`];
+    return typeof value === "number" && Number.isFinite(value) ? value : 0;
+  };
+  return {
+    plan: raw?.plan ?? null,
+    build: {
+      limitUsd: usd("limit"),
+      usedUsd: usd("used"),
+      remainingUsd: usd("remaining"),
+      resetsAt: typeof build.resetsAt === "number" ? build.resetsAt : null,
+    },
+  };
+}
+
 const OMG_PLAN_LABELS: Record<string, string> = {
   computer_s40: "Starter Plus",
   computer_5: "Personal",
@@ -806,6 +833,15 @@ export function omgUsageFromBalance(
 }
 
 async function omgUsage(ref: UsageProviderRef): Promise<ProviderUsage> {
+  if (isHostedOmgSandbox()) {
+    try {
+      const r = await fetch(GUEST_BALANCE_URL, { signal: AbortSignal.timeout(10_000) });
+      if (!r.ok) return staticProvider(ref, `omg router answered ${r.status}`);
+      return omgUsageFromBalance(ref, normalizeOmgBalance((await r.json()) as Record<string, any>));
+    } catch {
+      return staticProvider(ref, "Could not reach the omg router");
+    }
+  }
   let token: string | null = null;
   try {
     token = await createCloudAccount().getAccessToken();
@@ -819,7 +855,7 @@ async function omgUsage(ref: UsageProviderRef): Promise<ProviderUsage> {
       signal: AbortSignal.timeout(10_000),
     });
     if (!r.ok) return staticProvider(ref, `omg.dev answered ${r.status}`);
-    return omgUsageFromBalance(ref, (await r.json()) as OmgBalance);
+    return omgUsageFromBalance(ref, normalizeOmgBalance((await r.json()) as Record<string, any>));
   } catch {
     return staticProvider(ref, "Could not reach omg.dev");
   }
