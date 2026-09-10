@@ -119,7 +119,7 @@ function launchRecovered(
       serviceTier: managed.serviceTier ?? entry.serviceTier ?? undefined,
     });
   }
-  if (entry.agent === "opencode") {
+  if (entry.agent === "opencode" || entry.agent === "omg") {
     if (!entry.threadId) return { ok: false, error: "opencode recovery handle missing" };
     return spawnManagedOpencodeAisdkSession({
       ...common,

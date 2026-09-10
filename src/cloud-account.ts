@@ -217,13 +217,17 @@ export function safeReturnTo(value: unknown): string {
   return trimmed;
 }
 
+export function cloudApiBaseUrl(): string {
+  return (process.env.OMG_API_URL?.trim() || DEFAULT_CONTROL_PLANE_URL).replace(/\/+$/, "");
+}
+
 export function createCloudAccount(options: CloudAccountOptions = {}): CloudAccount {
   const credentialPath = options.credentialPath ?? CLOUD_CREDENTIALS_PATH;
   const authUrl = (
     options.authUrl ?? (process.env.OMG_AUTH_URL?.trim() || DEFAULT_AUTH_URL)
   ).replace(/\/+$/, "");
   const controlPlaneUrl = (
-    options.controlPlaneUrl ?? (process.env.OMG_API_URL?.trim() || DEFAULT_CONTROL_PLANE_URL)
+    options.controlPlaneUrl ?? cloudApiBaseUrl()
   ).replace(/\/+$/, "");
   const resource = options.resource ?? (process.env.OMG_OAUTH_RESOURCE?.trim() || DEFAULT_RESOURCE);
   const fetchImpl = options.fetch ?? globalThis.fetch;

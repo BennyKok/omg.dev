@@ -265,3 +265,9 @@ describe("opencode session.error handling", () => {
     expect(sessionErrorText(null)).toBeNull();
   });
 });
+
+test("omg model preserves the nested router id in the OpenCode request", () => {
+  expect(opencodePromptBody("omg/deepseek/deepseek-v4-flash-0731", undefined, "hello").model).toEqual({
+    providerID: "omg", modelID: "deepseek/deepseek-v4-flash-0731",
+  });
+});

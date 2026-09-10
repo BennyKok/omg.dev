@@ -57,6 +57,7 @@ const launchers = {
   codex: spawnManagedCodexSession,
   "codex-aisdk": spawnManagedCodexAisdkSession,
   opencode: spawnManagedOpencodeAisdkSession,
+  omg: spawnManagedOpencodeAisdkSession,
   jcode: spawnManagedJcodeSdkSession,
   grok: spawnManagedGrokAcpSession,
   cursor: spawnManagedCursorAcpSession,
@@ -409,4 +410,27 @@ describe("coding agent adapter contract", () => {
       ],
     });
   });
+});
+
+test("omg accepts its own kind and delegates to the OpenCode launch with the default model", () => {
+  expect(isCodingAgentKind("omg")).toBe(true);
+  expect(resolveActiveSessionAgent("omg")).toBe("omg");
+  expect(CODING_AGENT_LABELS.omg).toBe("omg agent");
+  const opencode = ACTIVE_CODING_AGENT_PROVIDERS.opencode;
+  const original = opencode.launch;
+  let request: Parameters<typeof opencode.launch>[0] | undefined;
+  opencode.launch = (value) => { request = value; return { ok: true }; };
+  try {
+    expect(ACTIVE_CODING_AGENT_PROVIDERS.omg.launch({
+      agent: "omg", name: "test", cwd: "/tmp", sessionId: "test-session",
+    })).toEqual({ ok: true });
+    expect(request?.agent).toBe("omg");
+    expect(request?.model).toBe("omg/deepseek/deepseek-v4-flash-0731");
+  } finally { opencode.launch = original; }
+});
+
+test("omg rejects models outside its managed provider before launch", () => {
+  expect(ACTIVE_CODING_AGENT_PROVIDERS.omg.launch({
+    agent: "omg", name: "test", cwd: "/tmp", sessionId: "test-session", model: "opencode/free",
+  })).toEqual({ ok: false, error: 'unknown omg model "opencode/free"' });
 });

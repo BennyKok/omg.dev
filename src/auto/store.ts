@@ -21,6 +21,7 @@ export type AutoAgentBackend =
   | "fx"
   | "muse"
   | "opencode"
+  | "omg"
   | "hermes";
 
 /**

@@ -24,6 +24,7 @@ import {
   startPiOAuthLogin,
   type PiAuthProviderId,
 } from "./pi-auth.ts";
+import { hasOmgProviderAccess } from "./omg-provider.ts";
 import { hasOpenCodeAccountAuth, opencodeAuthProviders } from "./opencode-auth.ts";
 import {
   clearJcodePendingLogin,
@@ -44,6 +45,7 @@ export type CodingAgentKind =
   | "codex"
   | "codex-aisdk"
   | "opencode"
+  | "omg"
   | "jcode"
   | "grok"
   | "cursor"
@@ -222,6 +224,7 @@ export const CODING_AGENT_KINDS: Exclude<CodingAgentKind, "claude" | "hermes">[]
   "muse",
   "deepseek",
   "opencode",
+  "omg",
   "jcode",
   "copilot",
   "pi",
@@ -233,6 +236,7 @@ export const CODING_AGENT_LABELS: Record<CodingAgentKind, string> = {
   codex: "codex",
   "codex-aisdk": "codex",
   opencode: "opencode",
+  omg: "omg agent",
   jcode: "jcode",
   grok: "grok",
   cursor: "cursor",
@@ -813,7 +817,7 @@ function hasMuseAccountAuth(): boolean {
 function installCommandFor(kind: CodingAgentKind): string | null {
   if (kind === "claude" || kind === "aisdk") return "curl -fsSL https://claude.ai/install.sh | bash";
   if (kind === "codex" || kind === "codex-aisdk") return "bun add -g @openai/codex";
-  if (kind === "opencode") return "bun add -g opencode-ai";
+  if (kind === "opencode" || kind === "omg") return "bun add -g opencode-ai";
   if (kind === "jcode") return "curl -fsSL https://jcode.sh/install | bash";
   if (kind === "grok") return "curl -fsSL https://x.ai/cli/install.sh | bash";
   if (kind === "cursor") return "curl -fsSL https://cursor.com/install | bash";
@@ -836,6 +840,7 @@ function loginCommandPartsFor(kind: CodingAgentKind): string[] | null {
   if (kind === "codex" || kind === "codex-aisdk") {
     return [codexPath() ?? "codex", "login", "--device-auth"];
   }
+  if (kind === "omg") return ["omg", "login"];
   if (kind === "opencode") return [opencodePath() ?? "opencode"];
   // Sign-in is the Claude/Codex rows. A quoted `jcode login` argv is a second
   // product the settings page would print the moment the CLI is missing.
@@ -1454,6 +1459,11 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
       "use Login below or set OPENAI_API_KEY",
     );
     instructions.push("Use Login to connect ChatGPT in your browser, or set OPENAI_API_KEY.");
+  } else if (kind === "omg") {
+    accountConnected = hasOmgProviderAccess();
+    addBinary("OpenCode CLI", opencodePath());
+    addAuth("omg account", accountConnected, "Sign in with `omg login` to use the omg agent.");
+    instructions.push("Sign in with `omg login` to use the omg agent.");
   } else if (kind === "opencode") {
     // Auth is deliberately not a `checks` row: OpenCode Zen's free tier needs no
     // credential, so an unauthenticated install is still fully usable and must
@@ -1811,7 +1821,7 @@ export function codingAgentHasInstaller(kind: CodingAgentKind): boolean {
 function setupEnvFor(kind: CodingAgentKind): Record<string, string> | null {
   if (kind === "claude" || kind === "aisdk") return { LFG_INSTALL_CLAUDE: "1" };
   if (kind === "codex" || kind === "codex-aisdk") return { LFG_INSTALL_CODEX: "1" };
-  if (kind === "opencode") return { LFG_INSTALL_OPENCODE: "1" };
+  if (kind === "opencode" || kind === "omg") return { LFG_INSTALL_OPENCODE: "1" };
   if (kind === "jcode") return { LFG_INSTALL_JCODE: "1" };
   if (kind === "grok") return { LFG_INSTALL_GROK: "1" };
   if (kind === "cursor") return { LFG_INSTALL_CURSOR: "1" };

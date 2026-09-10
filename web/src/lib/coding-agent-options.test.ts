@@ -14,3 +14,10 @@ describe("resolveInitialAgent", () => {
     expect(resolveInitialAgent("managed-anthropic", "opencode")).toBe("opencode");
   });
 });
+
+test("omg is selectable and keeps its saved kind", async () => {
+  const { AGENT_CATALOG, configuredAgentOptions } = await import("./coding-agent-options");
+  expect(AGENT_CATALOG.find((item) => item.key === "omg")).toEqual({ key: "omg", label: "omg agent", scheduled: true });
+  expect(resolveInitialAgent("omg", "opencode")).toBe("omg");
+  expect(configuredAgentOptions(AGENT_CATALOG, [{ key: "omg", visible: true, status: { configured: true, accountConnected: true } }], "connected-or-opencode").map((item) => item.key)).toEqual(["omg"]);
+});

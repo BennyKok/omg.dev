@@ -45,9 +45,10 @@ const result = await (agent === "claude" || agent === "aisdk"
         key: `key-${resume}`,
         resume,
       })
-    : agent === "opencode"
+    : agent === "opencode" || agent === "omg"
       ? spawnManagedOpencodeAisdkSession({
           ...common,
+          model: agent === "omg" ? "omg/deepseek/deepseek-v4-flash-0731" : common.model,
           key: `key-${resume}`,
           resume,
         })
