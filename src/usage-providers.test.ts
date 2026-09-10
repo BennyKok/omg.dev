@@ -424,3 +424,17 @@ describe("omg agent usage", () => {
     expect(usage.note).toContain("Upgrade on omg.dev");
   });
 });
+
+test("the in-guest router's micro-dollar balance normalizes like the control plane's", async () => {
+  const { normalizeOmgBalance } = await import("./usage.ts");
+  expect(normalizeOmgBalance({
+    plan: "computer_5",
+    build: { window: "month", limitMicros: 38_000_000, usedMicros: 1_498, remainingMicros: 37_998_502, resetsAt: 1_790_812_800_000 },
+  })).toEqual({
+    plan: "computer_5",
+    build: { limitUsd: 38, usedUsd: 0.001498, remainingUsd: 37.998502, resetsAt: 1_790_812_800_000 },
+  });
+  expect(normalizeOmgBalance({ plan: "computer_5", build: { limitUsd: 38, usedUsd: 1, remainingUsd: 37, resetsAt: null } }).build)
+    .toEqual({ limitUsd: 38, usedUsd: 1, remainingUsd: 37, resetsAt: null });
+  expect(normalizeOmgBalance({ plan: "free" }).build).toBeNull();
+});
