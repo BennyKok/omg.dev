@@ -59,12 +59,20 @@
  * clean with no sideways jiggle. It is not the fix for a real diagonal swipe;
  * it is a safe, OTA-reachable improvement while that fix waits on a build.
  *
- * `onPanResponderTerminationRequest` is deliberately left at its RN default
- * (yields on request) rather than hard-locked to `false`: refusing to ever
- * give the gesture back is a different, untested change, and the failure
- * mode it would guard against (claim, then get stolen mid-drag) was never
- * observed here — every failure observed was "never claims," not "claims
- * then loses it."
+ * `onPanResponderTerminationRequest` RETURNS FALSE, CHANGED 2026-09-10. The
+ * paragraph that used to sit here left it at the RN default (yield) on the
+ * grounds that "claims, then gets stolen mid-drag" had never been observed.
+ * It has now, logged on the iPhone 17 Pro sim with CGEvent drags of dx -80:
+ * at dy 12, 25 and 40 the capture gate claimed at dx -10.7 (dy 1.7 to 5.3
+ * at that point), GRANT fired, and a termination request followed within a
+ * few moves, from the ScrollView once its native pan armed on the drift.
+ * With the default, that request terminated the swipe and the row snapped
+ * back: "swipe to archive gets dismissed by a slightly vertical scroll".
+ * Refusing it keeps the row under the finger and the backdrop revealed for
+ * the whole drag; the list still creeps by the drift's dy underneath, since
+ * the native scroll cannot be stopped from JS once it is armed. Vertical
+ * scrolls are unaffected: the gate never claims them, so there is nothing
+ * to refuse.
  */
 import { useMemo, useRef } from "react";
 import { Dimensions, PanResponder } from "react-native";
@@ -108,6 +116,10 @@ export function useSwipeToCommit({
           enabled &&
           gesture.dx < -MIN_DX &&
           Math.abs(gesture.dx) > Math.abs(gesture.dy) * HORIZONTAL_RATIO,
+        // Once claimed, keep it. The enclosing ScrollView asks for the
+        // responder back on every native scroll tick, and it starts ticking
+        // on a few points of vertical drift. See the header.
+        onPanResponderTerminationRequest: () => false,
         onPanResponderMove: (_evt, gesture) => {
           if (gesture.dx < 0) translateX.value = Math.max(gesture.dx, -REVEAL_WIDTH * 1.4);
         },
