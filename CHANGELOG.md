@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 10, 2026 - The omg agent (v0.6.59)
+
+- New coding agent: omg agent. It runs OpenCode on models that omg pays for with the AI credit in your Computer plan. Pick it in the agent list, then pick one of 7 models. DeepSeek V4 Flash is the default.
+- On your own machine, the omg agent signs in with your omg account. If you are not signed in, the launch says: Sign in with `omg login` to use the omg agent.
+
 ## September 10, 2026 - A run of work is one row (v0.6.58)
 
 - In the transcript, an agent's thoughts and tool calls between two messages are one row. It reads "Working for 4s" while the agent works and "Worked for 21s" when the next message arrives. Open the row to see every step.
