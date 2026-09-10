@@ -53,6 +53,7 @@ import { useListItemMotion, PressableScale } from "./motion";
 import { useSwipeToCommit } from "./swipe-row";
 import { useTheme } from "./theme";
 import { relativeTime } from "./format";
+import { findingAge } from "./auto-findings";
 import type { AutoFinding, AutoFindingGroup, AutoFindingRow, AutoFindingSeverity } from "./auto-agents";
 
 function severityColor(
@@ -515,7 +516,7 @@ export function AutoReportRow({
               textAlign: "right",
             }}
           >
-            {relativeTime(latest || undefined)}
+            {findingAge({ ...lead, lastSeenAt: latest || undefined })}
           </Text>
         </View>
       </PressableScale>
