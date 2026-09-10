@@ -136,7 +136,72 @@ export function buildChatRenderItems<T extends ChatRenderMessage>(messages: T[])
 
     items.push({ type: "msg", message, key: messageKey(message, index) });
   });
-  return items;
+  return foldOpeningThoughts(items);
+}
+
+// The thought that opens a run belongs to the run. While it is the only thing
+// on screen it is its own row (nothing to join yet); the moment a tool follows
+// it, the run exists and the thought is its first step — otherwise every
+// answer reads "Thought" then "Worked for 12s", two rows for one stretch of
+// work. Only thoughts DIRECTLY before a run move; a trailing thought (the one
+// still streaming at the end of the transcript) has no run after it and stays.
+function foldOpeningThoughts<T extends ChatRenderMessage>(items: ChatRenderItem<T>[]): ChatRenderItem<T>[] {
+  const out: ChatRenderItem<T>[] = [];
+  for (const item of items) {
+    if (item.type === "tools") {
+      const lead: T[] = [];
+      while (out.length) {
+        const previous = out[out.length - 1]!;
+        if (previous.type !== "msg" || previous.message.kind !== "thinking") break;
+        lead.unshift(previous.message);
+        out.pop();
+      }
+      if (lead.length) {
+        out.push({ type: "tools", items: [...lead, ...item.items], key: item.key });
+        continue;
+      }
+    }
+    out.push(item);
+  }
+  return out;
+}
+
+/** "4s", "1m 20s", "2m". Never zero for work that did happen. */
+export function formatWorkDuration(ms: number): string {
+  const seconds = Math.max(1, Math.round(ms / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest ? `${minutes}m ${rest}s` : `${minutes}m`;
+}
+
+/**
+ * The one line a run of work shows: "Working for 4s" while the agent is still
+ * in it, "Worked for 12s" once it is done. The counts ("Thought · 2 Bash") are
+ * what the row opens INTO, not what it says — see toolGroupLabel.
+ *
+ * `endTs` is when the next thing happened, which is the honest end of a
+ * finished run (a tool's own timestamp is when it was called, not when it
+ * returned). Without it, the last step's timestamp stands in.
+ */
+export function toolGroupWorkLabel(
+  items: ReadonlyArray<ChatRenderMessage>,
+  options: { live: boolean; now?: number; endTs?: number | null },
+): string {
+  let start: number | null = null;
+  let last: number | null = null;
+  for (const message of items) {
+    if (typeof message.ts !== "number") continue;
+    if (start === null || message.ts < start) start = message.ts;
+    if (last === null || message.ts > last) last = message.ts;
+  }
+  if (options.live) {
+    const now = options.now ?? Date.now();
+    return start === null ? "Working…" : `Working for ${formatWorkDuration(now - start)}`;
+  }
+  const end = options.endTs ?? last;
+  if (start === null || end === null || end <= start) return "Worked";
+  return `Worked for ${formatWorkDuration(end - start)}`;
 }
 
 // How many messages one rendered row consumed. Every message belongs to

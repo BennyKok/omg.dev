@@ -4,6 +4,7 @@ import {
   chatRenderItemMessageCount,
   countTranscriptRows,
   toolGroupLabel,
+  toolGroupWorkLabel,
   transcriptRowWindowStart,
   type ChatRenderMessage,
 } from "./transcript-rows.ts";
@@ -39,10 +40,20 @@ describe("the transcript row rule", () => {
     expect(countTranscriptRows(messages)).toBe(2);
   });
 
-  test("the thought that opens a run and the streaming tail stay their own rows", () => {
+  test("the thought that opens a run folds into it; the streaming tail stays its own row", () => {
     const opening = [message("thinking", "first"), ...toolRun(3), message("thinking", "last")];
-    // Opening thought, the tool run, and the still-streaming tail thought.
-    expect(countTranscriptRows(opening)).toBe(3);
+    const items = buildChatRenderItems(opening);
+    expect(items.map((item) => item.type)).toEqual(["tools", "msg"]);
+    expect(items[0]!.type === "tools" && items[0]!.items[0]!.text).toBe("first");
+    expect(items[0]!.type === "tools" && items[0]!.items.length).toBe(1 + toolRun(3).length);
+  });
+
+  test("a thought with no run after it is its own row", () => {
+    const items = buildChatRenderItems([
+      message("thinking", "alone"),
+      message("text", "the answer"),
+    ]);
+    expect(items.map((item) => item.type)).toEqual(["msg", "msg"]);
   });
 
   test("plain text turns are one row each", () => {
@@ -50,7 +61,7 @@ describe("the transcript row rule", () => {
     expect(countTranscriptRows(messages)).toBe(3);
   });
 
-  test("the reported case: 88 tool-heavy messages render as three rows", () => {
+  test("the reported case: 88 tool-heavy messages render as two rows", () => {
     const messages: ChatRenderMessage[] = [message("thinking", "opening")];
     for (let index = 0; index < 49; index += 1) {
       messages.push(message("tool_use", "Bash: run"));
@@ -59,11 +70,28 @@ describe("the transcript row rule", () => {
     messages.push(message("thinking", "still streaming"));
     expect(messages).toHaveLength(88);
     const items = buildChatRenderItems(messages);
-    expect(items.map((item) => item.type)).toEqual(["msg", "tools", "msg"]);
-    expect(toolGroupLabel((items[1] as { items: ChatRenderMessage[] }).items)).toBe(
-      "37 thoughts · 49 Bash",
+    expect(items.map((item) => item.type)).toEqual(["tools", "msg"]);
+    expect(toolGroupLabel((items[0] as { items: ChatRenderMessage[] }).items)).toBe(
+      "38 thoughts · 49 Bash",
     );
-    expect(countTranscriptRows(messages)).toBe(3);
+    expect(countTranscriptRows(messages)).toBe(2);
+  });
+
+  test("a run says how long it took, and counts up while it is live", () => {
+    const run = [
+      { ...message("thinking", "plan"), ts: 10_000 },
+      { ...message("tool_use", "Bash: ls"), ts: 11_000 },
+      { ...message("tool_result", "ok"), ts: 13_500 },
+    ];
+    expect(toolGroupWorkLabel(run, { live: false })).toBe("Worked for 4s");
+    // The next message marks the real end of a finished run.
+    expect(toolGroupWorkLabel(run, { live: false, endTs: 22_000 })).toBe("Worked for 12s");
+    expect(toolGroupWorkLabel(run, { live: true, now: 14_200 })).toBe("Working for 4s");
+    expect(toolGroupWorkLabel(run, { live: true, now: 95_000 })).toBe("Working for 1m 25s");
+    // No timestamps at all: say the state, not a number.
+    const untimed: ChatRenderMessage[] = [{ kind: "tool_use", text: "Bash: ls" }];
+    expect(toolGroupWorkLabel(untimed, { live: false })).toBe("Worked");
+    expect(toolGroupWorkLabel(untimed, { live: true })).toBe("Working…");
   });
 
   test("an artifact pairs with its display tool as a single row", () => {
