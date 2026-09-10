@@ -61,13 +61,22 @@ describe("per-message copy button stays out of the transcript's vertical flow", 
     expect(BUTTON_CLASSES).not.toMatch(/\bmy-\d/);
   });
 
-  test("sits in the outward gutter on the side its speaker is aligned to", () => {
-    // Assistant bubbles hug the left edge, so their button goes right; user
-    // bubbles hug the right edge, so their button goes left. Either way it is
-    // beside its own bubble and reads as belonging to it.
+  test("sits in the gutter to the right of an assistant bubble", () => {
+    // Only assistant turns wear the button. A sent message keeps its trailing
+    // edge clean: its copy action lives in the long-press / right-click menu.
     expect(BUTTON_CLASSES).toContain("left-full");
-    expect(BUTTON_CLASSES).toContain("right-full");
-    expect(BUTTON_CLASSES).toMatch(/isUser \?[\s\S]*right-full[\s\S]*left-full/);
+    expect(BUTTON_CLASSES).not.toContain("right-full");
+    expect(MESSAGE_ACTIONS).toMatch(/text && !isUser \? \(/);
+  });
+
+  test("a sent message copies from its context menu instead", () => {
+    const userBranch = MESSAGE_ACTIONS.slice(
+      MESSAGE_ACTIONS.indexOf("{isUser ? ("),
+      MESSAGE_ACTIONS.indexOf("{text && !isUser ? ("),
+    );
+    expect(userBranch).toContain("<ContextMenu>");
+    expect(userBranch).toContain("Copy message");
+    expect(userBranch).not.toContain("message-copy-button");
   });
 });
 
@@ -86,7 +95,7 @@ describe("the out-of-flow button cannot overflow the row horizontally", () => {
 
   test("the reserved gutter is wider than the button plus its offset", () => {
     const buttonRem = spacingRem("size");
-    const offsetRem = Math.max(spacingRem("ml"), spacingRem("mr"));
+    const offsetRem = spacingRem("ml");
     expect(buttonRem * REM_PX).toBe(28);
     for (const cap of caps) {
       expect(Number(cap[2])).toBeGreaterThanOrEqual(buttonRem + offsetRem);

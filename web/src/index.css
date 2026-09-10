@@ -1018,7 +1018,7 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
     z-index: 0;
     overflow: hidden;
     border: 1px solid transparent;
-    border-radius: 22px;
+    border-radius: 26px;
     padding: var(--user-bubble-padding);
     background:
       linear-gradient(var(--user-bubble-fill), var(--user-bubble-fill)) padding-box,
