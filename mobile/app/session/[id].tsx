@@ -543,8 +543,8 @@ export function SessionScreenBody({
     // folded into the first turn is stripped back to what the human
     // actually typed. See bot-transcript.ts. A normal session (bot === null)
     // never runs this filter.
-    return buildTranscriptItems(bot ? filterBotChatEntries(entries) : entries);
-  }, [messages, streamText, bot]);
+    return buildTranscriptItems(bot ? filterBotChatEntries(entries) : entries, { busy });
+  }, [messages, streamText, bot, busy]);
 
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -954,6 +954,9 @@ export function SessionScreenBody({
       }
       setDraft("");
       attachments.clear();
+      // Sending ends the typing. The keyboard goes with it, so the reply
+      // lands on a full screen instead of behind the keys.
+      Keyboard.dismiss();
       void submit(text, mode);
     },
     [attachments, draft, sending, submit],

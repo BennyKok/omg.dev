@@ -60,6 +60,7 @@ import type { OmgMessage } from "@omg-dev/protocol";
 
 import { Icon } from "../components";
 import { formatFileSize } from "./file-preview";
+import { workLabel } from "./work-label";
 import { relativeTime } from "./format";
 import { CodeBlock, Markdown, useBodyText } from "./markdown";
 import {
@@ -109,7 +110,20 @@ export type TranscriptItem =
        */
       nextTs?: number | null;
     }
-  | { type: "tools"; key: string; pairs: ToolPair[] };
+  | {
+      type: "tools";
+      key: string;
+      pairs: ToolPair[];
+      /**
+       * Every step of the run in order: the thoughts and the tool calls.
+       * `pairs` is the tool subset the sheet's per-step detail is built from.
+       */
+      entries: Entry[];
+      /** When the next thing after the run happened: the run's honest end. */
+      nextTs: number | null;
+      /** The run at the end of a busy transcript: still going. */
+      live: boolean;
+    };
 
 /**
  * WHO IS TALKING, for spacing only.
@@ -163,30 +177,74 @@ const LONG_MESSAGE_CHARS = 460;
 const ATTACHMENT_MAX = 240;
 const ATTACHMENT_TILE = 150;
 
-export function buildTranscriptItems(messages: Entry[]): TranscriptItem[] {
+const isThought = (message?: Entry) => message?.kind === "thinking";
+const isWork = (message?: Entry) => isCall(message) || isResult(message) || isThought(message);
+
+/**
+ * A RUN IS THE THOUGHTS AND THE TOOL CALLS TOGETHER. The agent thinks, calls
+ * something, thinks about the result, calls again: one stretch of work, and
+ * one row — "Worked for 12s" — that opens into every step. Split by kind it
+ * read as "Thought", "2 × shell", "Thought", "1 × shell", none of which say
+ * anything until opened. Same rule as the web's buildChatRenderItems.
+ *
+ * Two exceptions, both because the thought is the only thing on screen:
+ *   - a thought with no tool call anywhere near it stays a row of its own;
+ *   - the thought still streaming at the END of the transcript stays out of
+ *     the run above it, so the live reasoning is readable without a tap.
+ *
+ * `busy` marks the run at the end of the transcript as live: its label counts
+ * up until the agent moves on.
+ */
+export function buildTranscriptItems(
+  messages: Entry[],
+  options: { busy?: boolean } = {},
+): TranscriptItem[] {
   const items: TranscriptItem[] = [];
   let index = 0;
 
+  const pushMessage = (message: Entry, at: number) => {
+    items.push({
+      type: "message",
+      key: entryKey(message, at),
+      message,
+      nextTs: messages[at + 1]?.ts ?? null,
+    });
+  };
+
   while (index < messages.length) {
     const message = messages[index];
-    if (!isCall(message) && !isResult(message)) {
-      items.push({
-        type: "message",
-        key: entryKey(message, index),
-        message,
-        nextTs: messages[index + 1]?.ts ?? null,
-      });
+    if (!isWork(message)) {
+      pushMessage(message, index);
       index += 1;
       continue;
     }
     let end = index;
-    while (end < messages.length && (isCall(messages[end]) || isResult(messages[end]))) end += 1;
-    const run = messages.slice(index, end);
+    while (end < messages.length && isWork(messages[end])) end += 1;
+    // The streaming tail: trailing thoughts at the very end of the transcript
+    // are not part of the run they follow.
+    let runEnd = end;
+    if (end === messages.length) {
+      while (runEnd > index && isThought(messages[runEnd - 1])) runEnd -= 1;
+    }
+    const run = messages.slice(index, runEnd);
+    const hasTools = run.some((entry) => isCall(entry) || isResult(entry));
+    if (!hasTools) {
+      // Thoughts alone. Each is its own row, as before.
+      for (let at = index; at < end; at += 1) pushMessage(messages[at], at);
+      index = end;
+      continue;
+    }
+    const tools = run.filter((entry) => !isThought(entry));
     items.push({
       type: "tools",
       key: `tools-${entryKey(message, index)}`,
-      pairs: buildToolPairs(run, index),
+      pairs: buildToolPairs(tools, index),
+      entries: run,
+      nextTs: messages[runEnd]?.ts ?? null,
+      live: !!options.busy && runEnd === messages.length,
     });
+    // Trailing thoughts that were held out of the run.
+    for (let at = runEnd; at < end; at += 1) pushMessage(messages[at], at);
     index = end;
   }
 
@@ -255,7 +313,7 @@ export function TranscriptRow({
       {item.type === "message" ? (
         <TranscriptEntry message={item.message} nextTs={item.nextTs} bot={bot} />
       ) : (
-        <ToolRun pairs={item.pairs} />
+        <ToolRun pairs={item.pairs} entries={item.entries} nextTs={item.nextTs} live={item.live} />
       )}
     </Reanimated.View>
   );
@@ -359,14 +417,19 @@ function ToolDetail({ call, result }: { call: Entry | null; result: Entry | null
   );
 }
 
-function ToolRun({ pairs }: { pairs: ToolPair[] }) {
-  const { colors, type, space, radius, motion } = useTheme();
+function ToolRun({
+  pairs,
+  entries,
+  nextTs,
+  live,
+}: {
+  pairs: ToolPair[];
+  entries: Entry[];
+  nextTs: number | null;
+  live: boolean;
+}) {
+  const { colors, type, space } = useTheme();
   const [open, setOpen] = useState(false);
-  const turn = useSharedValue(0);
-
-  const chevron = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${turn.value * 180}deg` }],
-  }));
 
   const names = useMemo(
     () =>
@@ -376,8 +439,18 @@ function ToolRun({ pairs }: { pairs: ToolPair[] }) {
     [pairs],
   );
   const unique = useMemo(() => [...new Set(names)], [names]);
+  const thoughts = useMemo(() => entries.filter(isThought), [entries]);
 
-  if (pairs.length < 2) {
+  // A live run counts up once a second; a finished one is a fixed number.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!live) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [live]);
+
+  if (pairs.length < 2 && thoughts.length === 0) {
     return (
       <View style={{ alignSelf: "stretch" }}>
         {pairs.map((pair) => (
@@ -387,10 +460,17 @@ function ToolRun({ pairs }: { pairs: ToolPair[] }) {
     );
   }
 
-  // "4 × shell" when a run hammers one tool, which is the common shape and
-  // says more than a bare count; "4 tool calls" when it is a mixed batch.
-  const label =
+  // The row says how long; the sheet says what. "Thought · 4 × shell" is the
+  // sheet's title, the same summary the web's popover carries.
+  const label = workLabel(entries, { live, now, endTs: nextTs });
+  const toolSummary =
     unique.length === 1 ? `${pairs.length} × ${unique[0]}` : `${pairs.length} tool calls`;
+  const summary = [
+    thoughts.length ? (thoughts.length === 1 ? "Thought" : `${thoughts.length} thoughts`) : null,
+    pairs.length ? toolSummary : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const symbol: Symbols =
     unique.length === 1 ? toolSymbol(unique[0]) : { ios: "wrench.and.screwdriver", android: "build" };
 
@@ -409,7 +489,7 @@ function ToolRun({ pairs }: { pairs: ToolPair[] }) {
       <Pressable
         onPress={openSheet}
         accessibilityRole="button"
-        accessibilityLabel={`${label}. Open`}
+        accessibilityLabel={`${label}: ${summary}. Open`}
         /**
          * NO PILL. A tool call is a line in the transcript, not a card in it.
          * The border and the card fill gave every "2 Bash" the same visual
@@ -440,19 +520,47 @@ function ToolRun({ pairs }: { pairs: ToolPair[] }) {
 
       <ToolSheet
         visible={open}
-        title={label}
+        title={summary || label}
         symbol={symbol}
         onClose={() => setOpen(false)}
       >
-        {pairs.map((pair, index) => (
-          <View key={pair.key} style={{ gap: space.sm }}>
-            {/* Each step keeps its own name and outcome: a run of five shells
-                is five different commands, and a wall of blocks with no
-                headings is not a transcript of anything. */}
-            <ToolStepHeader call={pair.call} result={pair.result} index={index} />
-            <ToolDetail call={pair.call} result={pair.result} />
-          </View>
-        ))}
+        {/* Every step in the order it happened, thoughts included: a run of
+            five shells is five different commands, and the reasoning between
+            them is why the fourth differs from the third. */}
+        {(() => {
+          let toolIndex = -1;
+          const consumed = new Set<string>();
+          return entries.map((entry, index) => {
+            if (isThought(entry)) {
+              const body = (entry.text ?? "").trim();
+              if (!body || body === "(thinking)") return null;
+              return (
+                <View key={entryKey(entry, index)} style={{ gap: space.xs }}>
+                  <Text style={{ ...type.caption, color: colors.textMuted }}>Thought</Text>
+                  <Text selectable style={{ ...type.footnote, lineHeight: 19, color: colors.textSecondary }}>
+                    {body}
+                  </Text>
+                </View>
+              );
+            }
+            // A result the pairing rule attached to its call was already drawn
+            // with that call; a call or lone result is the next step.
+            const pair = pairs.find(
+              (candidate) =>
+                !consumed.has(candidate.key) &&
+                (candidate.call === entry || candidate.result === entry),
+            );
+            if (!pair || (pair.call && pair.call !== entry)) return null;
+            consumed.add(pair.key);
+            toolIndex += 1;
+            return (
+              <View key={pair.key} style={{ gap: space.sm }}>
+                <ToolStepHeader call={pair.call} result={pair.result} index={toolIndex} />
+                <ToolDetail call={pair.call} result={pair.result} />
+              </View>
+            );
+          });
+        })()}
       </ToolSheet>
     </View>
   );

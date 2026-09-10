@@ -53,7 +53,7 @@ import { useListItemMotion, PressableScale } from "./motion";
 import { useSwipeToCommit } from "./swipe-row";
 import { useTheme } from "./theme";
 import { relativeTime } from "./format";
-import type { AutoFindingRow, AutoFindingSeverity } from "./auto-agents";
+import type { AutoFindingGroup, AutoFindingRow, AutoFindingSeverity } from "./auto-agents";
 
 function severityColor(
   severity: AutoFindingSeverity | undefined,
@@ -319,6 +319,98 @@ export function AutoFindingCard({
           </View>
         </PressableScale>
       </Reanimated.View>
+    </Reanimated.View>
+  );
+}
+
+/**
+ * The header of an agent's report: name, how many open findings, the lead
+ * finding's title, and when the newest was seen. Tapping opens the findings
+ * under it. Same row shape as a single finding's card, so a group and a lone
+ * finding line up.
+ */
+export function AutoFindingGroupHeader({
+  group,
+  expanded,
+  onToggle,
+  animateEntry = true,
+}: {
+  group: AutoFindingGroup;
+  expanded: boolean;
+  onToggle: () => void;
+  animateEntry?: boolean;
+}) {
+  const { colors, radius, type, space } = useTheme();
+  const listMotion = useListItemMotion();
+  const lead = group.rows[0]!.finding;
+  const latest = group.rows.reduce(
+    (max, row) => Math.max(max, row.finding.lastSeenAt ?? row.finding.createdAt ?? 0),
+    0,
+  );
+  const name = group.agent?.name ?? "Auto agent";
+  return (
+    <Reanimated.View
+      entering={animateEntry ? listMotion.entering : undefined}
+      layout={animateEntry ? listMotion.layout : undefined}
+    >
+      <PressableScale
+        onPress={onToggle}
+        scale={0.98}
+        accessibilityRole="button"
+        accessibilityLabel={`${name}: ${group.rows.length} open findings`}
+        accessibilityState={{ expanded }}
+        style={({ pressed }) => ({
+          marginHorizontal: SESSION_ROW.inset,
+          paddingLeft: SESSION_ROW.padding + (SESSION_ROW.avatar - 8) / 2,
+          paddingRight: space.sm,
+          height: SESSION_ROW.height,
+          justifyContent: "center",
+          borderRadius: radius.md,
+          backgroundColor: pressed || expanded ? colors.cardPressed : "transparent",
+        })}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", gap: space.md }}>
+          <SeverityDot severity={lead.severity} />
+          <View style={{ flex: 1, gap: 1, minWidth: 0 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: space.sm }}>
+              <Text
+                numberOfLines={1}
+                style={{ ...type.callout, fontWeight: "600", color: colors.text, flexShrink: 1 }}
+              >
+                {name}
+              </Text>
+              <View
+                style={{
+                  paddingHorizontal: 6,
+                  paddingVertical: 1,
+                  borderRadius: radius.pill,
+                  backgroundColor: colors.accent,
+                }}
+              >
+                <Text
+                  style={{
+                    ...type.caption,
+                    fontWeight: "600",
+                    fontVariant: ["tabular-nums"],
+                    color: colors.textSecondary,
+                  }}
+                >
+                  {group.rows.length}
+                </Text>
+              </View>
+            </View>
+            <Text numberOfLines={1} style={{ ...type.caption, fontWeight: "400", color: colors.textMuted }}>
+              {lead.title}
+            </Text>
+          </View>
+          <Text
+            numberOfLines={1}
+            style={{ ...type.caption, fontVariant: ["tabular-nums"], color: colors.textMuted }}
+          >
+            {relativeTime(latest || undefined)}
+          </Text>
+        </View>
+      </PressableScale>
     </Reanimated.View>
   );
 }

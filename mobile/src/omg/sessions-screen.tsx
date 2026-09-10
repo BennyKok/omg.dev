@@ -67,11 +67,12 @@ import {
   sessionStableId,
   type SessionNode,
 } from "./session-tree";
-import { AutoFindingCard } from "./auto-agent-card";
+import { AutoFindingCard, AutoFindingGroupHeader } from "./auto-agent-card";
 import { useOverlapWatch } from "./list-overlap-watch";
 import { groupNodesByProject } from "./session-groups";
 import { sessionPreview } from "./session-preview";
 import {
+  groupHomeAutoFindings,
   selectHomeAutoFindings,
   useAutoAgents,
   type AutoFindingRow,
@@ -661,6 +662,8 @@ export function SessionsScreen({
    * two open at once push the Recent section off the bottom of a phone.
    */
   const [expandedAuto, setExpandedAuto] = useState<string | null>(null);
+  // Which agent's report is open. One at a time, like the finding cards.
+  const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const toast = useToast();
   useEffect(() => {
@@ -1895,30 +1898,51 @@ export function SessionsScreen({
                     dotColor={colors.text}
                   />
                   <View style={{ gap: space.sm }}>
-                    {autoRows.map((row) => (
-                      <OverlapRow
-                        key={row.finding.id}
-                        id={`auto:${row.finding.id}`}
-                      >
-                        <AutoFindingCard
-                          row={row}
-                          expanded={expandedAuto === row.finding.id}
-                          onToggle={() =>
-                            setExpandedAuto((current) =>
-                              current === row.finding.id
-                                ? null
-                                : row.finding.id,
-                            )
-                          }
-                          onDismiss={() => dismissFinding(row.finding.id)}
-                          onStartSession={() =>
-                            void startSessionFromFinding(row)
-                          }
-                          busy={startingFindingId === row.finding.id}
-                          animateEntry={animateEntry}
-                        />
-                      </OverlapRow>
-                    ))}
+                    {/* One row per agent when it has several open findings
+                        (see groupHomeAutoFindings); a lone finding is its own
+                        card, as before. */}
+                    {groupHomeAutoFindings(autoRows).map((group) => {
+                      const card = (row: AutoFindingRow) => (
+                        <OverlapRow key={row.finding.id} id={`auto:${row.finding.id}`}>
+                          <AutoFindingCard
+                            row={row}
+                            expanded={expandedAuto === row.finding.id}
+                            onToggle={() =>
+                              setExpandedAuto((current) =>
+                                current === row.finding.id ? null : row.finding.id,
+                              )
+                            }
+                            onDismiss={() => dismissFinding(row.finding.id)}
+                            onStartSession={() => void startSessionFromFinding(row)}
+                            busy={startingFindingId === row.finding.id}
+                            animateEntry={animateEntry}
+                          />
+                        </OverlapRow>
+                      );
+                      if (group.rows.length === 1) return card(group.rows[0]!);
+                      const open = expandedAgent === group.agentId;
+                      return (
+                        <View key={`agent:${group.agentId}`} style={{ gap: space.xs }}>
+                          <OverlapRow id={`auto-agent:${group.agentId}`}>
+                            <AutoFindingGroupHeader
+                              group={group}
+                              expanded={open}
+                              onToggle={() =>
+                                setExpandedAgent((current) =>
+                                  current === group.agentId ? null : group.agentId,
+                                )
+                              }
+                              animateEntry={animateEntry}
+                            />
+                          </OverlapRow>
+                          {open ? (
+                            <View style={{ gap: space.sm, paddingLeft: space.md }}>
+                              {group.rows.map(card)}
+                            </View>
+                          ) : null}
+                        </View>
+                      );
+                    })}
                   </View>
                 </>
               ) : null}

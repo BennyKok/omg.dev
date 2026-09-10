@@ -270,3 +270,32 @@ export function selectHomeAutoFindings(
   rows.sort((a, b) => sev(a) - sev(b) || seen(b) - seen(a));
   return rows;
 }
+
+/** One report per agent: its open findings, worst first, newest first. */
+export type AutoFindingGroup = {
+  agentId: string;
+  agent: AutoAgent | undefined;
+  rows: AutoFindingRow[];
+};
+
+/**
+ * ONE ROW PER AGENT WHEN IT HAS MORE THAN ONE FINDING. An hourly watch that
+ * files a fresh finding every run and never gets dismissed grows a pile: five
+ * rows all captioned "User Health Watch", differing only in a truncated
+ * title, competing with real sessions for the same list. Grouping states the
+ * agent once and carries the count; the rows open under it. Same rule as the
+ * web's groupFindingsByAgent (web/src/lib/finding-groups.ts).
+ *
+ * Input is `selectHomeAutoFindings` output, already worst-first and
+ * newest-first, so a group's position is that of its worst, newest finding.
+ */
+export function groupHomeAutoFindings(rows: AutoFindingRow[]): AutoFindingGroup[] {
+  const groups = new Map<string, AutoFindingGroup>();
+  for (const row of rows) {
+    const agentId = row.finding.agentId;
+    const group = groups.get(agentId) ?? { agentId, agent: row.agent, rows: [] };
+    group.rows.push(row);
+    groups.set(agentId, group);
+  }
+  return [...groups.values()];
+}
