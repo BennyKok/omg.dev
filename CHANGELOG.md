@@ -2,6 +2,17 @@
 
 Recent product updates and deployment notes.
 
+## September 10, 2026 - A run of work is one row (v0.6.58)
+
+- In the transcript, an agent's thoughts and tool calls between two messages are one row. It reads "Working for 4s" while the agent works and "Worked for 21s" when the next message arrives. Open the row to see every step.
+- iOS: the same run rows, with a sheet of every step.
+- iOS: Auto findings are grouped per agent with a count. Open the row to see them.
+- iOS: tap a file in the transcript to open its page. Text files and CSV preview on the page. Download is an icon in the navigation bar and opens the share sheet.
+- iOS: the agent's question card sits above the composer.
+- iOS: the keyboard closes after you send a message.
+- iOS: swipe to archive keeps working when the swipe drifts up or down.
+- iOS: the thinking row has no chevron.
+
 ## September 8, 2026 - Adding a connector opens sign-in (v0.6.57)
 
 - Adding an OAuth connector opens sign-in immediately.
