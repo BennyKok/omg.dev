@@ -7,4 +7,10 @@ export const OMG_MODELS: string[] = [
   "omg/qwen/qwen3.7-plus",
   "omg/qwen/qwen3-coder-next",
   "omg/minimax/minimax-m3",
+  "omg/anthropic/claude-fable-5.1",
+  "omg/anthropic/claude-opus-4.8",
+  "omg/anthropic/claude-sonnet-4.6",
+  "omg/openai/gpt-5.6-sol",
+  "omg/openai/gpt-5.6-terra",
+  "omg/openai/gpt-5.6-luna",
 ];
