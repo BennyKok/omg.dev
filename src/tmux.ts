@@ -1,3 +1,4 @@
+import { ensureOmgProvider } from "./omg-provider.ts";
 // Map a live process to its tmux pane and inject input. Claude Code sessions
 // run inside tmux panes; we discover the `claude` pid via pgrep/proc, walk up
 // its parent chain to the pane's top process, and `send-keys` into that pane.
@@ -1356,6 +1357,11 @@ export function spawnManagedOpencodeAisdkSession(opts: {
   egressProxyUrl?: string;
   recoveredAt?: number;
 }): ManagedHarnessSpawnResult {
+  if (opts.model.startsWith("omg/")) {
+    try { ensureOmgProvider(); } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
   // Harmless for opencode: ensureFolderTrusted only patches ~/.claude.json and
   // is a no-op when that file (or the project entry) is absent. Kept in lockstep
   // with the other AI-SDK spawn helpers.

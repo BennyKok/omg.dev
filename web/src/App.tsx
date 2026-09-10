@@ -1,3 +1,4 @@
+import { OMG_MODELS } from "../../src/omg-models";
 import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { LiveHeaderContext } from "./components/live-header-context";
 import { activeMachine } from "./lib/machines";
@@ -1361,7 +1362,7 @@ const FX_MODELS = [
 const MUSE_MODELS = ["muse-spark-1.2"];
 const THINKING_LEVELS = ["low", "medium", "high", "xhigh"] as const;
 type ThinkingLevel = string;
-type AutoAgentBackend = "aisdk" | "codex-aisdk" | "grok" | "cursor" | "fx" | "muse" | "opencode";
+type AutoAgentBackend = "omg" | "aisdk" | "codex-aisdk" | "grok" | "cursor" | "fx" | "muse" | "opencode";
 function savedThinkingLevel(): ThinkingLevel {
   const value = localStorage.getItem("lfg_thinking_level");
   return value && (THINKING_LEVELS as readonly string[]).includes(value) ? value : "medium";
@@ -1402,6 +1403,7 @@ const AGENT_MODELS: Record<AgentKind, string[]> = {
   muse: MUSE_MODELS,
   deepseek: DEEPSEEK_MODELS,
   opencode: OPENCODE_MODELS,
+  omg: OMG_MODELS,
   jcode: JCODE_MODELS,
   pi: PI_MODELS_FALLBACK,
   copilot: COPILOT_MODELS,
@@ -1417,6 +1419,7 @@ const AGENT_DEFAULT_MODEL: Record<AgentKind, string> = {
   muse: "muse-spark-1.2",
   deepseek: "deepseek-v4-flash",
   opencode: "opencode/nemotron-3.5-lightning-free",
+  omg: OMG_MODELS[0]!,
   jcode: "auto",
   pi: "sonnet",
   copilot: "claude-sonnet-4.5",
@@ -1436,6 +1439,7 @@ const AGENT_THINKING_LEVELS: Record<AgentKind, string[]> = {
   muse: ["none", "minimal", "low", "medium", "high", "xhigh", "ultra"],
   deepseek: [],
   opencode: [],
+  omg: [],
   jcode: ["low", "medium", "high", "xhigh", "max"],
   // pi's own list, straight from its --thinking help. It has a real "off".
   pi: ["off", "minimal", "low", "medium", "high", "xhigh"],
@@ -16689,6 +16693,7 @@ const LIVE_THINKING_AGENTS = new Set([
   "grok",
   "cursor",
   "opencode",
+  "omg",
   "pi",
 ]);
 
@@ -18135,8 +18140,8 @@ const onTouchStart = (e: ReactTouchEvent) => {
             model mid-conversation is a session action — both belong to the
             session view of this same session, not to the chat. */}
         {!collapsedView && !headerBot && (
-          (session.agent === "claude" || session.agent === "opencode") &&
-          (session.tmuxTarget || session.agent === "opencode") &&
+          (session.agent === "claude" || session.agent === "opencode" || session.agent === "omg") &&
+          (session.tmuxTarget || session.agent === "opencode" || session.agent === "omg") &&
           sid ? (
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -20893,7 +20898,7 @@ export type ResumableSession = {
   title: string;
   lastActivityAt: number | null;
   lastUserText: string | null;
-  agent: "claude" | "codex" | "opencode" | "grok" | "cursor" | "fx" | "muse";
+  agent: "omg" | "claude" | "codex" | "opencode" | "grok" | "cursor" | "fx" | "muse";
   model?: string | null;
 };
 
@@ -22086,10 +22091,10 @@ function NewSessionDialog({
         ? ["fable", "claude-fable-5-1", "opus", "sonnet", "haiku"].includes(model)
           ? model
           : undefined
-        : session.agent === "opencode"
-          ? (catalog.models.opencode ?? AGENT_MODELS.opencode).includes(model)
+        : session.agent === "opencode" || session.agent === "omg"
+          ? (catalog.models[session.agent] ?? AGENT_MODELS[session.agent]).includes(model)
             ? model
-            : defaultModelFor("opencode")
+            : defaultModelFor(session.agent)
         : session.agent === "codex"
           ? (catalog.models["codex-aisdk"] ?? AGENT_MODELS["codex-aisdk"]).includes(model)
             ? model

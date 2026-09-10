@@ -284,7 +284,7 @@ let warmRunning = false;
 // backfills when the in-process indexer has fallen behind or never ran (e.g. a
 // session started before index-at-source shipped, or a best-effort catch-up that
 // dropped). Any residual gap still self-heals via the transcript read path.
-const SELF_INDEXING_AGENTS = new Set<Session["agent"]>(["aisdk", "opencode", "codex-aisdk"]);
+const SELF_INDEXING_AGENTS = new Set<Session["agent"]>(["aisdk", "opencode", "omg", "codex-aisdk"]);
 
 function tailerFor(path: string, sessionId: string): ChatTranscriptTailer {
   let tailer = tailers.get(path);

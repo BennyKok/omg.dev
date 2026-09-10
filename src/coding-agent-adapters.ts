@@ -6,6 +6,7 @@ export type CodingAgentProduct =
   | "claude"
   | "codex"
   | "opencode"
+  | "omg"
   | "jcode"
   | "grok"
   | "cursor"
@@ -106,6 +107,11 @@ export const CODING_AGENT_ADAPTERS = {
     recovery: "durable",
     capabilities: { interrupt: "immediate", questions: true, modelChange: "live", thinkingChange: "none", scheduled: true, toolAccess: "mcp" },
   },
+  omg: {
+    product: "omg", driver: "sdk", transport: "command-file", managedLaunch: true,
+    recovery: "durable",
+    capabilities: { interrupt: "immediate", questions: true, modelChange: "live", thinkingChange: "none", scheduled: true, toolAccess: "mcp" },
+  },
   jcode: {
     product: "jcode", driver: "sdk", transport: "command-file", managedLaunch: true,
     recovery: "durable",
@@ -128,6 +134,7 @@ export const ACTIVE_SESSION_AGENT_KINDS = [
   "aisdk",
   "codex-aisdk",
   "opencode",
+  "omg",
   "jcode",
   "grok",
   "cursor",
@@ -145,6 +152,7 @@ const LEGACY_COMMAND_FILE_AGENT_SET = new Set<string>([
   "aisdk",
   "codex-aisdk",
   "opencode",
+  "omg",
   "pi",
 ]);
 
@@ -161,6 +169,7 @@ export const SESSION_AGENT_KINDS = [
   "codex",
   "codex-aisdk",
   "opencode",
+  "omg",
   "jcode",
   "grok",
   "cursor",
@@ -180,6 +189,7 @@ export const COMMAND_FILE_AGENT_KINDS = [
   "aisdk",
   "codex-aisdk",
   "opencode",
+  "omg",
   "pi",
   "grok",
   "cursor",

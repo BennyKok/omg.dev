@@ -87,3 +87,9 @@ describe("projectFaviconSrc", () => {
     expect(projectFaviconSrc("  ")).toBeNull();
   });
 });
+
+test("omg agent uses the existing omg icon", async () => {
+  const { agentIconSrc, agentIconAlt } = await import("./session-ui");
+  expect(agentIconSrc("omg")).toContain("/icon.svg?v=");
+  expect(agentIconAlt("omg")).toBe("omg agent");
+});

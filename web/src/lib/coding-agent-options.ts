@@ -4,6 +4,7 @@ export type AgentKind =
   | "codex"
   | "codex-aisdk"
   | "opencode"
+  | "omg"
   | "jcode"
   | "grok"
   | "cursor"
@@ -40,6 +41,7 @@ export const AGENT_CATALOG: readonly AgentCatalogEntry[] = [
   { key: "codex-aisdk", label: "codex", scheduled: true },
   { key: "grok", label: "grok", scheduled: true },
   { key: "cursor", label: "cursor", scheduled: true },
+  { key: "omg", label: "omg agent", scheduled: true },
   { key: "opencode", label: "opencode", scheduled: true },
   { key: "fx", label: "fx", scheduled: true },
   { key: "muse", label: "muse", scheduled: true },

@@ -1,4 +1,4 @@
-import { defaultModelForAgent } from "./agent-catalog.ts";
+import { defaultModelForAgent, OMG_MODELS } from "./agent-catalog.ts";
 import {
   CODING_AGENT_ADAPTERS,
   type ActiveSessionAgentKind,
@@ -119,6 +119,11 @@ export const ACTIVE_CODING_AGENT_PROVIDERS = {
       sandbox: request.sandbox,
       egressProxyUrl: request.egressProxyUrl,
     })),
+  omg: provider("omg", (request): CodingAgentLaunchResult => {
+    const model = request.model ?? defaultModelForAgent("omg");
+    if (!OMG_MODELS.includes(model)) return { ok: false, error: `unknown omg model "${model}"` };
+    return ACTIVE_CODING_AGENT_PROVIDERS.opencode.launch({ ...request, model });
+  }),
   opencode: provider("opencode", (request) => {
     if (!request.model) return { ok: false, error: "opencode model is required" };
     return spawnManagedOpencodeAisdkSession({
