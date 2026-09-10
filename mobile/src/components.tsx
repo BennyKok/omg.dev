@@ -1031,17 +1031,14 @@ export function HomeComposer({
     (provider) => provider.kind === providerKindForAgent(agent),
   );
   const setupOptions: MenuOption[] = [
-    // SwiftUI menus display sibling submenus in reverse declaration order.
-    // Declare these backwards so the visible order reads agent, model,
-    // thinking, matching the desktop picker.
-    ...(thinkingOptions?.length
-      ? [{ label: thinkingLabel ?? "Thinking", submenu: thinkingOptions }]
+    ...(agentOptions.length
+      ? [{ label: agentLabel ?? "Coding agent", submenu: agentOptions }]
       : []),
     ...(modelOptions?.length
       ? [{ label: modelLabel ?? "Model", submenu: modelOptions }]
       : []),
-    ...(agentOptions.length
-      ? [{ label: agentLabel ?? "Coding agent", submenu: agentOptions }]
+    ...(thinkingOptions?.length
+      ? [{ label: thinkingLabel ?? "Thinking", submenu: thinkingOptions }]
       : []),
   ];
   return (
