@@ -20257,10 +20257,30 @@ function MessageActions({
         selecting && "is-selecting",
       )}
     >
-      <div ref={contentRef} className="min-w-0 max-w-full">
-        {children}
-      </div>
-      {text ? (
+      {isUser ? (
+        // A sent message keeps its edge clean: no copy button in the gutter.
+        // Copy lives in the long-press (right-click on desktop) menu instead.
+        <ContextMenu>
+          <ContextMenuTrigger className="block min-w-0 max-w-full">
+            <div ref={contentRef} className="min-w-0 max-w-full">
+              {children}
+            </div>
+          </ContextMenuTrigger>
+          {text ? (
+            <ContextMenuContent className="min-w-40">
+              <ContextMenuItem onClick={() => void copy()}>
+                <Copy className="size-3.5" />
+                Copy message
+              </ContextMenuItem>
+            </ContextMenuContent>
+          ) : null}
+        </ContextMenu>
+      ) : (
+        <div ref={contentRef} className="min-w-0 max-w-full">
+          {children}
+        </div>
+      )}
+      {text && !isUser ? (
         <button
           type="button"
           onClick={() => void copy()}
@@ -20272,8 +20292,7 @@ function MessageActions({
           // message, costs no height, and — because it is never added or
           // removed on hover — shifts nothing when it appears.
           className={cn(
-            "message-copy-button absolute bottom-0 flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none",
-            isUser ? "right-full mr-1" : "left-full ml-1",
+            "message-copy-button absolute bottom-0 left-full ml-1 flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:bg-muted focus-visible:text-foreground focus-visible:outline-none",
           )}
           aria-label={copied ? "Message copied" : "Copy message"}
           title={copied ? "Copied" : "Copy message"}
