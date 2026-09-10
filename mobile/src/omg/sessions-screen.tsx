@@ -603,7 +603,7 @@ export function SessionsScreen({
 
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const { colors, type, space, radius } = useTheme();
+  const { colors, isDark, type, space, radius } = useTheme();
   const {
     client,
     readiness,
@@ -1306,6 +1306,11 @@ export function SessionsScreen({
     if (workspace) return;
     navigation.setOptions({
       headerShown: true,
+      headerTransparent: true,
+      headerStyle: { backgroundColor: "transparent" },
+      headerBlurEffect: isDark ? "systemMaterialDark" : "systemMaterialLight",
+      headerShadowVisible: false,
+      scrollEdgeEffects: { top: "hidden" },
       /**
        * NO TITLE, large or small.
        *
@@ -1360,6 +1365,7 @@ export function SessionsScreen({
   }, [
     workspace,
     navigation,
+    isDark,
     router,
     computerPicker.options,
     machineName,
@@ -1445,6 +1451,49 @@ export function SessionsScreen({
       bottomInset={wide ? 0 : insets.bottom}
     />
   );
+  const folderRail = ready && projectPicker.options.length ? (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+      style={{ height: 50, backgroundColor: withAlpha(colors.bg, 0.94) }}
+      contentContainerStyle={{
+        gap: 8,
+        paddingHorizontal: space.lg,
+        paddingTop: space.sm,
+        paddingBottom: space.sm,
+      }}
+    >
+      {projectPicker.options.map((folder, index) => (
+        <PressableScale
+          key={`${folder.label}:${index}`}
+          onPress={folder.onPress}
+          accessibilityRole="button"
+          accessibilityState={{ selected: folder.selected }}
+          accessibilityLabel={`${folder.label} folder`}
+          scale={0.96}
+          style={{
+            minHeight: 34,
+            justifyContent: "center",
+            paddingHorizontal: 14,
+            borderRadius: radius.pill,
+            backgroundColor: folder.selected ? colors.text : colors.secondary,
+          }}
+        >
+          <Text
+            numberOfLines={1}
+            style={{
+              ...type.footnote,
+              fontWeight: "600",
+              color: folder.selected ? colors.bg : colors.textSecondary,
+            }}
+          >
+            {folder.label}
+          </Text>
+        </PressableScale>
+      ))}
+    </ScrollView>
+  ) : null;
 
   return (
     <Reanimated.View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -1580,51 +1629,9 @@ export function SessionsScreen({
             </View>
           </>
         ) : null}
-        {ready && projectPicker.options.length ? (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            style={{ flexGrow: 0 }}
-            contentContainerStyle={{
-              gap: 8,
-              paddingHorizontal: space.lg,
-              paddingTop: space.sm,
-              paddingBottom: space.sm,
-            }}
-          >
-            {projectPicker.options.map((folder, index) => (
-              <PressableScale
-                key={`${folder.label}:${index}`}
-                onPress={folder.onPress}
-                accessibilityRole="button"
-                accessibilityState={{ selected: folder.selected }}
-                accessibilityLabel={`${folder.label} folder`}
-                scale={0.96}
-                style={{
-                  minHeight: 34,
-                  justifyContent: "center",
-                  paddingHorizontal: 14,
-                  borderRadius: radius.pill,
-                  backgroundColor: folder.selected ? colors.text : colors.secondary,
-                }}
-              >
-                <Text
-                  numberOfLines={1}
-                  style={{
-                    ...type.footnote,
-                    fontWeight: "600",
-                    color: folder.selected ? colors.bg : colors.textSecondary,
-                  }}
-                >
-                  {folder.label}
-                </Text>
-              </PressableScale>
-            ))}
-          </ScrollView>
-        ) : null}
+        {workspace ? folderRail : null}
         <ScrollView
-          style={{ flex: 1 }}
+          style={{ flex: 1, position: "relative", zIndex: 0 }}
           /**
            * The list runs UNDER the composer, which floats over it. The padding
            * is the composer's measured height, so the last session can still be
@@ -1633,6 +1640,7 @@ export function SessionsScreen({
            * line tall.
            */
           contentContainerStyle={{
+            paddingTop: !workspace && folderRail ? 50 + space.sm : 0,
             paddingBottom:
               home && !wide ? composerHeight + space.md : insets.bottom + space.md,
           }}
@@ -1967,6 +1975,21 @@ export function SessionsScreen({
             </>
           )}
         </ScrollView>
+        {!workspace && folderRail ? (
+          <View
+            style={{
+              position: "absolute",
+              zIndex: 100,
+              elevation: 4,
+              height: 50,
+              top: insets.top + 44 + space.sm,
+              left: 0,
+              right: 0,
+            }}
+          >
+            {folderRail}
+          </View>
+        ) : null}
       </View>
       {/* THE EMPTY PANE IS THE COMPOSER, as on the web (App.tsx's empty
           stage renders the create composer full-height, centred). It was a
