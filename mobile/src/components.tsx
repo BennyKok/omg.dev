@@ -1119,7 +1119,7 @@ export function HomeComposer({
             >
               {agentUsage ? (
                 <UsageRings
-                  size={38}
+                  size={32}
                   windows={agentUsage.available ? orderWindows(agentUsage.windows ?? []) : []}
                 />
               ) : usageLoading ? (
@@ -1133,15 +1133,15 @@ export function HomeComposer({
                 style={{
                   position: "absolute",
                   zIndex: 1,
-                  width: 30,
-                  height: 30,
-                  borderRadius: 15,
+                  width: 25,
+                  height: 25,
+                  borderRadius: 12.5,
                   alignItems: "center",
                   justifyContent: "center",
                   backgroundColor: colors.bg,
                 }}
               >
-                <AgentAvatar agent={agent} size={27} plain />
+                <AgentAvatar agent={agent} size={22} plain />
               </View>
             </View>
           </DropdownMenu>

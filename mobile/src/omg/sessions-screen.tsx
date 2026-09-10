@@ -1589,7 +1589,7 @@ export function SessionsScreen({
             contentContainerStyle={{
               gap: 8,
               paddingHorizontal: space.lg,
-              paddingTop: space.xs,
+              paddingTop: space.sm,
               paddingBottom: space.sm,
             }}
           >
