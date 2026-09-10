@@ -1719,52 +1719,6 @@ export function SessionScreenBody({
         {menuOptions.length ? <OverflowDisc /> : null}
       </View>
 
-      {/* The agent asked something — answering has to be one tap, and that tap
-          has to actually answer. */}
-      {prompt ? (
-        <View
-          style={{
-            marginHorizontal: space.lg,
-            marginBottom: space.sm,
-            padding: space.md,
-            backgroundColor: colors.card,
-            borderRadius: radius.lg,
-            borderWidth: StyleSheet.hairlineWidth,
-            // borderStrong: this is a card the transcript can hand you at any
-            // moment, asking for a tap that unblocks the agent — it needs to
-            // read as a distinct surface immediately, not the .35-alpha
-            // border that "reads as a rumour against black" everywhere else
-            // it was tried (see SessionCard's own note on the home screen).
-            borderColor: colors.borderStrong,
-            gap: space.sm,
-          }}
-        >
-          {prompt.question ? (
-            <Text style={{ ...type.callout, color: colors.text }}>{prompt.question}</Text>
-          ) : null}
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
-            {prompt.options?.map((opt) => (
-              <Pressable
-                key={opt.index}
-                onPress={() => answerPrompt(opt.label)}
-                accessibilityRole="button"
-                style={({ pressed }) => ({
-                  minHeight: 36,
-                  justifyContent: "center",
-                  paddingHorizontal: space.md,
-                  paddingVertical: space.sm,
-                  borderRadius: radius.pill,
-                  backgroundColor: pressed ? colors.cardPressed : colors.secondary,
-                  borderWidth: StyleSheet.hairlineWidth,
-                  borderColor: colors.borderStrong,
-                })}
-              >
-                <Text style={{ ...type.footnote, color: colors.text }}>{opt.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-      ) : null}
 
       {/* The bar itself draws NOTHING.
  *
@@ -1853,6 +1807,55 @@ export function SessionScreenBody({
                 <Icon ios="arrow.down" android="arrow_downward" size={11} color={colors.textMuted} />
               </GlassSurface>
             </Pressable>
+          </View>
+        ) : null}
+
+        {/* The agent asked something — answering has to be one tap, and that tap
+            has to actually answer. It lives INSIDE the floating composer: laid
+            out in the normal flow it landed under the absolutely positioned bar,
+            where the field covered the question and most of its answers. Here
+            it sits above the field, lifts with the keyboard, and is part of the
+            height the transcript reserves at its end. */}
+        {prompt ? (
+          <View
+            style={{
+              padding: space.md,
+              backgroundColor: colors.card,
+              borderRadius: radius.lg,
+              borderWidth: StyleSheet.hairlineWidth,
+              // borderStrong: this is a card the transcript can hand you at any
+              // moment, asking for a tap that unblocks the agent — it needs to
+              // read as a distinct surface immediately, not the .35-alpha
+              // border that "reads as a rumour against black" everywhere else
+              // it was tried (see SessionCard's own note on the home screen).
+              borderColor: colors.borderStrong,
+              gap: space.sm,
+            }}
+          >
+            {prompt.question ? (
+              <Text style={{ ...type.callout, color: colors.text }}>{prompt.question}</Text>
+            ) : null}
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: space.sm }}>
+              {prompt.options?.map((opt) => (
+                <Pressable
+                  key={opt.index}
+                  onPress={() => answerPrompt(opt.label)}
+                  accessibilityRole="button"
+                  style={({ pressed }) => ({
+                    minHeight: 36,
+                    justifyContent: "center",
+                    paddingHorizontal: space.md,
+                    paddingVertical: space.sm,
+                    borderRadius: radius.pill,
+                    backgroundColor: pressed ? colors.cardPressed : colors.secondary,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: colors.borderStrong,
+                  })}
+                >
+                  <Text style={{ ...type.footnote, color: colors.text }}>{opt.label}</Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
         ) : null}
 
