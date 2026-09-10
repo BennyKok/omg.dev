@@ -2,6 +2,11 @@
 
 Recent product updates and deployment notes.
 
+## September 10, 2026 - The omg agent has its own icon (v0.6.60)
+
+- The omg agent shows the omg mark in the agent picker and in session lists. It showed a broken image before.
+- Mobile: the machine leads the home bar, as on the web.
+
 ## September 10, 2026 - The omg agent (v0.6.59)
 
 - New coding agent: omg agent. It runs OpenCode on models that omg pays for with the AI credit in your Computer plan. Pick it in the agent list, then pick one of 7 models. DeepSeek V4 Flash is the default.
