@@ -424,6 +424,7 @@ import {
   buildChatRenderItems,
   splitQueuedRenderItems,
   toolGroupLabel,
+  toolGroupWorkLabel,
   type ChatRenderItem,
 } from "./lib/chat-render-items";
 import { isDeferredToolUse, useDeferredToolArgs } from "./lib/deferred-tool-args";
@@ -19415,7 +19416,12 @@ const ChatStream = memo(function ChatStream({
                   }}
                 >
                   {item.type === "tools" ? (
-                    <ToolGroup items={item.items} live={busy && index === items.length - 1} sid={sid} />
+                    <ToolGroup
+                      items={item.items}
+                      live={busy && index === items.length - 1}
+                      endTs={renderItemStartTs(items[index + 1])}
+                      sid={sid}
+                    />
                   ) : (
                     <MessageBubble
                       message={item.message}
@@ -19707,8 +19713,37 @@ function OrganicActivityEffect({
 // reference check on `items` would never bail. The Message objects inside it
 // are stable for any group that isn't the live one (same reasoning as
 // MessageBubble above), so compare contents instead of array identity.
-const ToolGroup = memo(function ToolGroup({ items, live, sid }: { items: Message[]; live: boolean; sid?: string | null }) {
-  const label = toolGroupLabel(items);
+/** When a rendered row's first message happened: the honest end of the row before it. */
+function renderItemStartTs(item: ChatRenderItem<Message> | undefined): number | null {
+  if (!item) return null;
+  if (item.type === "msg") return item.message.ts ?? null;
+  if (item.type === "tools") return item.items[0]?.ts ?? null;
+  return item.tool.ts ?? item.message.ts ?? null;
+}
+
+const ToolGroup = memo(function ToolGroup({
+  items,
+  live,
+  endTs,
+  sid,
+}: {
+  items: Message[];
+  live: boolean;
+  /** The next row's timestamp: when this run was over. */
+  endTs?: number | null;
+  sid?: string | null;
+}) {
+  // What the run did ("Thought · 2 Bash") is the detail; what the row SAYS is
+  // how long it took. A live run counts up once a second.
+  const summary = toolGroupLabel(items);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!live) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [live]);
+  const label = toolGroupWorkLabel(items, { live, now, endTs });
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   // Arguments are not on the wire until a reader opens the pill. The label
@@ -19844,7 +19879,8 @@ const ToolGroup = memo(function ToolGroup({ items, live, sid }: { items: Message
         "tool-call-row not-prose flex w-fit max-w-full cursor-pointer items-center gap-2 rounded-full px-2.5 py-1 text-left text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
         live && "tool-call-row--live text-foreground",
       )}
-      aria-label={`${live ? "Running" : "Completed"} tool call${items.length === 1 ? "" : "s"}: ${label}. Show details`}
+      aria-label={`${label}: ${summary}. Show details`}
+      title={summary}
       aria-haspopup="dialog"
       aria-expanded={open}
       onClick={toggleOpen}
@@ -19872,7 +19908,7 @@ const ToolGroup = memo(function ToolGroup({ items, live, sid }: { items: Message
             <VaulDrawer.Overlay className="fixed inset-0 z-[149] bg-black/80" />
             <VaulDrawer.Content className="fixed inset-x-0 bottom-0 z-[150] mx-auto flex max-h-[82dvh] max-w-lg flex-col rounded-t-[2rem] border border-border bg-background p-4 pb-[max(var(--lfg-safe-bottom),1rem)] text-foreground shadow-2xl outline-none">
               <div className="mx-auto mb-3 h-1.5 w-24 shrink-0 rounded-full bg-muted" />
-              <VaulDrawer.Title className="mb-3 text-base font-semibold">Command details</VaulDrawer.Title>
+              <VaulDrawer.Title className="mb-3 text-base font-semibold">{summary}</VaulDrawer.Title>
               <div className="min-h-0 overflow-y-auto">{details}</div>
             </VaulDrawer.Content>
           </VaulDrawer.Portal>
@@ -19891,7 +19927,7 @@ const ToolGroup = memo(function ToolGroup({ items, live, sid }: { items: Message
             onMouseLeave={scheduleHoverClose}
             className="w-[min(28rem,calc(100vw-1rem))] rounded-2xl border border-border bg-popover p-3 text-popover-foreground shadow-2xl ring-1 ring-foreground/5 outline-none"
           >
-            <div className="mb-2 text-xs font-semibold text-muted-foreground">Command details</div>
+            <div className="mb-2 text-xs font-semibold text-muted-foreground">{summary}</div>
             {details}
           </Popover.Popup>
         </Popover.Positioner>
@@ -19900,6 +19936,7 @@ const ToolGroup = memo(function ToolGroup({ items, live, sid }: { items: Message
   );
 }, (prev, next) =>
   prev.live === next.live &&
+  prev.endTs === next.endTs &&
   prev.items.length === next.items.length &&
   prev.items.every((message, index) => message === next.items[index]),
 );

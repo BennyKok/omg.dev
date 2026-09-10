@@ -7,6 +7,7 @@ export {
   countTranscriptRows,
   splitQueuedRenderItems,
   toolGroupLabel,
+  toolGroupWorkLabel,
   toolName,
   transcriptRowWindowStart,
 } from "../../../src/transcript-rows.ts";
