@@ -92,11 +92,7 @@ import { useUsage } from "./usage";
 import { LucideIcon } from "./lucide";
 import { GlassSurface } from "./glass";
 import { DropdownMenu, type MenuOption } from "./menu";
-import {
-  ALL_PROJECTS,
-  useAgentPicker,
-  useProjectPicker,
-} from "./session-options";
+import { useAgentPicker, useProjectPicker } from "./session-options";
 import { useOmg } from "./provider";
 import { useToast } from "./toast";
 import { SessionListSkeleton } from "./skeleton";
@@ -351,11 +347,11 @@ const ELBOW_RADIUS = 9;
 /**
  * A conservative floor for the composer's height, before it has been
  * measured — see `composerHeight` below. The real composer is at least the
- * 44pt field row plus the agent/model/thinking pill row plus their spacing;
+ * 52pt field row plus its outer spacing;
  * this rounds up rather than down so a stale estimate over-clears the list
  * instead of letting a row sit under the glass.
  */
-const MIN_COMPOSER_HEIGHT = 96;
+const MIN_COMPOSER_HEIGHT = 76;
 
 /**
  * How far above the composer the scroll content starts dissolving.
@@ -1433,13 +1429,7 @@ export function SessionsScreen({
       onChangeText={setDraft}
       onStart={() => void startSession()}
       starting={starting}
-      // null, not the "All projects" label — the pill collapses to a bare
-      // folder when nothing is scoped. See ComposerCaptionButton.
-      projectLabel={
-        projectPicker.filter === ALL_PROJECTS
-          ? null
-          : projectPicker.label
-      }
+      projectLabel={projectPicker.label}
       projectOptions={projectPicker.options}
       agent={agentPicker.agent}
       agentLabel={agentPicker.label}
@@ -1589,6 +1579,49 @@ export function SessionsScreen({
               })}
             </View>
           </>
+        ) : null}
+        {ready && projectPicker.options.length ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            style={{ flexGrow: 0 }}
+            contentContainerStyle={{
+              gap: 8,
+              paddingHorizontal: space.lg,
+              paddingTop: space.xs,
+              paddingBottom: space.sm,
+            }}
+          >
+            {projectPicker.options.map((folder, index) => (
+              <PressableScale
+                key={`${folder.label}:${index}`}
+                onPress={folder.onPress}
+                accessibilityRole="button"
+                accessibilityState={{ selected: folder.selected }}
+                accessibilityLabel={`${folder.label} folder`}
+                scale={0.96}
+                style={{
+                  minHeight: 34,
+                  justifyContent: "center",
+                  paddingHorizontal: 14,
+                  borderRadius: radius.pill,
+                  backgroundColor: folder.selected ? colors.text : colors.secondary,
+                }}
+              >
+                <Text
+                  numberOfLines={1}
+                  style={{
+                    ...type.footnote,
+                    fontWeight: "600",
+                    color: folder.selected ? colors.bg : colors.textSecondary,
+                  }}
+                >
+                  {folder.label}
+                </Text>
+              </PressableScale>
+            ))}
+          </ScrollView>
         ) : null}
         <ScrollView
           style={{ flex: 1 }}
@@ -1828,23 +1861,7 @@ export function SessionsScreen({
                */}
               {projectGroups.map((group) => (
                 <View key={group.key}>
-                  {/* The heading IS the filter: tap to narrow to this folder,
-                    tap the cross to come back out. A group with no folder key
-                    ("No project") cannot be scoped to, so it stays inert. */}
-                  <SectionHeader
-                    label={group.label}
-                    count={group.count}
-                    onPress={
-                      group.project && projectPicker.filter === ALL_PROJECTS
-                        ? () => projectPicker.setFilter(group.project)
-                        : undefined
-                    }
-                    onClear={
-                      projectPicker.filter !== ALL_PROJECTS
-                        ? () => projectPicker.setFilter(ALL_PROJECTS)
-                        : undefined
-                    }
-                  />
+                  {/* The selected folder pill already names this list. */}
                   {/* 2pt, not 8. Rows are a list, not a stack of cards; the
                     fixed row height does the separating. */}
                   <View style={{ gap: 2 }}>

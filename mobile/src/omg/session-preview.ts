@@ -43,6 +43,22 @@ function flatten(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
+/** Remove fenced code while preserving prose before and after it. */
+function proseOnly(text: string): string {
+  const prose: string[] = [];
+  let fence: "```" | "~~~" | null = null;
+  for (const line of text.split(/\r?\n/)) {
+    const marker = line.trimStart().slice(0, 3);
+    if (marker === "```" || marker === "~~~") {
+      if (!fence) fence = marker;
+      else if (marker === fence) fence = null;
+      continue;
+    }
+    if (!fence) prose.push(line);
+  }
+  return flatten(prose.join(" "));
+}
+
 /**
  * The preview line for a session row.
  *
@@ -58,8 +74,11 @@ function flatten(text: string): string {
  */
 export function sessionPreview(session: PreviewSession): string {
   const latest = session.last?.text?.trim();
-  if (latest && !isMachineryPreviewText(latest)) return flatten(latest);
+  if (session.last?.kind === "text" && latest && !isMachineryPreviewText(latest)) {
+    const prose = proseOnly(latest);
+    if (prose) return prose;
+  }
   const user = session.lastUserText?.trim();
-  if (user && !isMachineryPreviewText(user)) return flatten(user);
+  if (user && !isMachineryPreviewText(user)) return proseOnly(user);
   return "";
 }

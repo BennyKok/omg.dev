@@ -313,9 +313,6 @@ function labelFor(key: string, agents: CodingAgent[]): string {
   return agentDisplayName(key);
 }
 
-/** The web's sentinel for "do not filter" (see `projectFilter` in App.tsx). */
-export const ALL_PROJECTS = "__all";
-
 export function useProjectPicker() {
   const { repos, bindings, bindingId } = useOmg();
   const [chosen, setChosen] = useState<string | null>(null);
@@ -329,66 +326,32 @@ export function useProjectPicker() {
     [bindings, bindingId],
   );
 
-  // Declared before `cwd` because the folder the next session runs in follows
-  // the filter when nothing was picked explicitly (see below).
-  const [filter, setFilter] = useState<string>(ALL_PROJECTS);
-
   /**
-   * Resolution order: an explicit pick, else the machine's own default folder,
-   * else the box's first project. The machine default comes second rather than
-   * first so that choosing a folder actually sticks — and it is only used when
-   * the box confirms that folder exists in its list, since a stale
-   * `defaultFolder` on the binding row would otherwise send every session to a
-   * path that is no longer there.
+   * One folder owns both the list and the next session. There is no unscoped
+   * state: an explicit pick wins, then the machine default, then the first
+   * folder the machine reports.
    */
   const cwd = useMemo(() => {
     if (chosen && repos.some((r) => r.cwd === chosen)) return chosen;
-    // The list's own filter (set from a folder heading, which never touches
-    // `chosen`) also says where the next session runs. Without this, scoping
-    // the list to one repo still launched into the machine's default folder.
-    if (filter !== ALL_PROJECTS) {
-      const scoped = repos.find((r) => projectKey(r) === filter);
-      if (scoped) return scoped.cwd;
-    }
     const fallback = binding?.defaultFolder ?? null;
     if (fallback && repos.some((r) => r.cwd === fallback)) return fallback;
     return repos[0]?.cwd ?? fallback;
-  }, [chosen, filter, repos, binding]);
+  }, [chosen, repos, binding]);
 
   const label = useMemo(() => {
     if (!cwd) return null;
     return repos.find((r) => r.cwd === cwd)?.name ?? basename(cwd);
   }, [cwd, repos]);
 
-  /**
-   * THE FOLDER IS ALSO THE FILTER, as it is on the web.
-   *
-   * A phone showing every session on the machine shows work from repos you are
-   * not looking at — and worse, things that are not sessions at all: a stray
-   * `claude auth login` sitting in the home directory is reported as a session
-   * called "dev", and the web never showed it because its project was not the
-   * one being filtered on. The list follows the folder now, and "All projects"
-   * is there for when it should not.
-   *
-   * The project KEY is the repo's name: the server derives a session's
-   * `project` from the top folder of its worktree owner, which is that same
-   * name — so a session running in a per-session worktree still matches the
-   * repo it belongs to, which is the whole reason to match on the key rather
-   * than on `cwd`.
-   */
-  // A filter naming a repo this machine no longer lists would hide everything
-  // with no way back, so it falls open.
-  const activeFilter = useMemo(
-    () =>
-      filter !== ALL_PROJECTS && repos.some((r) => projectKey(r) === filter)
-        ? filter
-        : ALL_PROJECTS,
-    [filter, repos],
+  const activeProject = useMemo(
+    () => repos.find((r) => r.cwd === cwd) ?? null,
+    [cwd, repos],
   );
+  const activeFilter = activeProject ? projectKey(activeProject) : null;
 
   const matches = useCallback(
     (session: { project?: string; cwd?: string }) => {
-      if (activeFilter === ALL_PROJECTS) return true;
+      if (!activeFilter) return false;
       if (session.project) return session.project === activeFilter;
       return !!session.cwd && basename(session.cwd) === activeFilter;
     },
@@ -398,47 +361,18 @@ export function useProjectPicker() {
   const options = useMemo<MenuOption[]>(
     () =>
       repos.length
-        ? [
-            {
-              // NO ICON. The repo rows below it have none — they are folders
-              // this box happens to have, not things with symbols — and a menu
-              // where ONE row carries an icon indents every other label to
-              // make room for a gutter nothing else uses.
-              label: "All projects",
-              selected: activeFilter === ALL_PROJECTS,
-              onPress: () => {
-                setFilter(ALL_PROJECTS);
-                setChosen(null);
-              },
-            },
-            ...repos.map((r) => ({
+        ? repos.map((r) => ({
               label: r.name || basename(r.cwd),
-              selected: activeFilter === projectKey(r),
+              selected: cwd === r.cwd,
               onPress: () => {
-                // One pick does both jobs: it scopes the list AND says where
-                // the next session runs. Two controls for one folder would be
-                // two things to keep in agreement.
-                setFilter(projectKey(r));
                 setChosen(r.cwd);
               },
-            })),
-          ]
+            }))
         : [],
-    [repos, activeFilter],
+    [repos, cwd],
   );
 
-  const filterLabel = activeFilter === ALL_PROJECTS ? "All projects" : activeFilter;
-
-  /**
-   * Exposed so the LIST can scope itself, not just the composer's pill.
-   *
-   * The folder heading on the home screen is the natural place to say "only
-   * this one" — it is already naming the group it would narrow to. Until now
-   * scoping lived solely on the composer pill, which is a control about where
-   * the NEXT session runs, so narrowing the list meant reaching for a widget
-   * that describes something else.
-   */
-  return { cwd, label: filterLabel, options, matches, filter: activeFilter, setFilter };
+  return { cwd, label, options, matches, filter: activeFilter };
 }
 
 /** A repo's project key — see the note in useProjectPicker. */
