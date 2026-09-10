@@ -202,6 +202,7 @@ describe("usage providers", () => {
       "cursor",
       "grok",
       "opencode",
+      "omg",
       "muse",
     ]);
   });
@@ -387,5 +388,39 @@ describe("usage providers", () => {
     expect(claude.map((provider) => provider.windows?.[0]?.pct)).toEqual([10, 20]);
     // Every source answers, including the ones with nothing signed in.
     expect(all.every((provider) => typeof provider.available === "boolean")).toBe(true);
+  });
+});
+
+describe("omg agent usage", () => {
+  test("the omg agent is a usage source on every box", async () => {
+    const { listUsageProviders } = await import("./usage.ts");
+    expect(listUsageProviders().find((ref) => ref.kind === "omg")).toEqual({
+      id: "omg", kind: "omg", label: "omg agent",
+    });
+  });
+
+  test("maps the plan's monthly AI credit to one ring", async () => {
+    const { omgUsageFromBalance } = await import("./usage.ts");
+    const ref = { id: "omg", kind: "omg", label: "omg agent" };
+    const usage = omgUsageFromBalance(ref, {
+      plan: "computer_5",
+      build: { limitUsd: 38, usedUsd: 9.5, remainingUsd: 28.5, resetsAt: 1_800_000_000_000 },
+    });
+    expect(usage).toEqual({
+      ...ref,
+      available: true,
+      plan: "Personal",
+      windows: [{ label: "Monthly · $38", pct: 25, resetsAt: 1_800_000_000_000 }],
+      note: "AI credit: $28.50 of $38 left",
+    });
+  });
+
+  test("a plan without AI credit reads as unavailable, with the way out", async () => {
+    const { omgUsageFromBalance } = await import("./usage.ts");
+    const ref = { id: "omg", kind: "omg", label: "omg agent" };
+    const usage = omgUsageFromBalance(ref, { plan: "free", build: { limitUsd: 0, usedUsd: 0, remainingUsd: 0, resetsAt: null } });
+    expect(usage.available).toBe(false);
+    expect(usage.plan).toBe("free");
+    expect(usage.note).toContain("Upgrade on omg.dev");
   });
 });

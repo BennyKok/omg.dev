@@ -9607,6 +9607,7 @@ export function App() {
             codex: ["codex-aisdk", "codex"],
             grok: ["grok"],
             opencode: ["opencode"],
+            omg: ["omg"],
             cursor: ["cursor"],
             copilot: ["copilot"],
             pi: ["pi"],
@@ -14033,7 +14034,7 @@ const RailItem = memo(function RailItem({
             <AgentMark
               session={session}
               busy={busy}
-              rounding="rounded-md"
+              rounding="rounded-none"
               showAccountNumber={false}
             />
           ) : (
@@ -14047,7 +14048,7 @@ const RailItem = memo(function RailItem({
               <AgentMark
                 session={session}
                 busy={false}
-                rounding="rounded-sm"
+                rounding="rounded-none"
                 compact
                 showAccountNumber={false}
               />
