@@ -710,9 +710,9 @@ export const SESSION_ROW = {
   /** Fixed, not minimum — see the note on the row's own height. */
   height: 60,
   /** Horizontal margin between the row and the edge of its column. */
-  inset: 8,
+  inset: 12,
   /** Inset from the row's own edge to the mark. */
-  padding: 8,
+  padding: 10,
   /** The agent mark's box. */
   avatar: 22,
 } as const;
