@@ -70,6 +70,8 @@ import Reanimated, {
   withTiming,
 } from "react-native-reanimated";
 import { Text, TextInput } from "../../src/omg/text";
+import { AgentSetupSheet } from "../../src/omg/agent-setup-sheet";
+import { useAgentPicker } from "../../src/omg/session-options";
 import { COMPOSER_FADE_HEIGHT, EdgeFade, TOP_FADE_HEIGHT } from "../../src/omg/edge-fade";
 import { SkillSuggest } from "../../src/omg/skill-suggest";
 import * as Clipboard from "expo-clipboard";
@@ -90,7 +92,7 @@ import type { Bot } from "../../src/omg/bots";
 import { useDictation } from "../../src/omg/dictation";
 import { GlassSurface, LIQUID_GLASS } from "../../src/omg/glass";
 import { DropdownMenu, type MenuOption } from "../../src/omg/menu";
-import { agentIcon, agentLabel as agentDisplayName } from "../../src/omg/agent-icons";
+import { agentLabel as agentDisplayName } from "../../src/omg/agent-icons";
 import { useOmg } from "../../src/omg/provider";
 import { useTheme } from "../../src/omg/theme";
 import { useToast } from "../../src/omg/toast";
@@ -309,6 +311,9 @@ export function SessionScreenBody({
   const [unseen, setUnseen] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
   const [sessionInfo, setSessionInfo] = useState<{ title: string; agent: string } | null>(null);
+  /** "Continue with" picker: agent, model and level for the replacement session. */
+  const [continueOpen, setContinueOpen] = useState(false);
+  const continuePicker = useAgentPicker({ initialAgent: sessionInfo?.agent });
   /**
    * Whether an agent is attached to this session right now. `null` until the
    * machine has answered — the composer says nothing about resuming while it
@@ -1098,7 +1103,7 @@ export function SessionScreenBody({
    * the source. Unlike resume, this can deliberately switch agent backends.
    */
   const continueWithAgent = useCallback(
-    (agent?: string) => {
+    (agent?: string, model?: string | null, thinkingLevel?: string | null) => {
       if (!client || !id) return;
       void (async () => {
         try {
@@ -1112,6 +1117,8 @@ export function SessionScreenBody({
             body: JSON.stringify({
               archiveSource: true,
               agent: agent || undefined,
+              model: model || undefined,
+              thinkingLevel: thinkingLevel || undefined,
             }),
           });
           if (res?.sourceArchived === false) {
@@ -1178,39 +1185,18 @@ export function SessionScreenBody({
         : sessionInfo?.agent
           ? [{ key: sessionInfo.agent, label: agentDisplayName(sessionInfo.agent) }]
           : [];
-      if (launchableAgents.length > 1) {
-        /**
-         * A submenu, not a flat section — build 26 feedback: with the
-         * account's full roster this flattened into 6+ rows sharing one
-         * overflow menu with Rename/Fork/Copy/Archive, which read as too
-         * long. `menu.tsx`'s own doc on `MenuOption.submenu` says a
-         * submenu's TRIGGER row cannot carry a bundled image (confirmed
-         * still true 2026-08-17 on iPhone 17 Pro Simulator / iOS 26.0 —
-         * see the retest note in renderRows, IMG_1316) — but says nothing
-         * against the rows behind it. So the trigger here is text + an SF
-         * Symbol only, never `image`, and each agent keeps its own mark on
-         * its own leaf row inside the submenu, same as the flat version
-         * carried. Verified clean with the full 6-agent roster, light and
-         * dark mode, before shipping this.
-         */
-        options.push({
-          label: "Continue with",
-          icon: "arrow.forward.circle",
-          submenu: launchableAgents.map((agent) => ({
-            label: agent.label || agentDisplayName(agent.key),
-            image: agentIcon(agent.key),
-            onPress: () => continueWithAgent(agent.key),
-          })),
-        });
-      } else {
-        options.push({
-          label: launchableAgents[0]?.label
-            ? `Continue with ${launchableAgents[0].label}`
-            : "Continue",
-          icon: "arrow.forward.circle",
-          onPress: () => continueWithAgent(launchableAgents[0]?.key),
-        });
-      }
+      /**
+       * ONE ROW, ONE SHEET. This was a submenu of agents, which could name
+       * the agent but not the model or the thinking level, so continuing as
+       * Codex always meant Codex's default model. The row now opens the same
+       * picker the composer uses, started on this session's agent, with a
+       * Continue button at the bottom.
+       */
+      options.push({
+        label: launchableAgents.length > 1 ? "Continue with…" : `Continue with ${launchableAgents[0]?.label ?? "agent"}…`,
+        icon: "arrow.forward.circle",
+        onPress: () => setContinueOpen(true),
+      });
     }
     options.push({ label: "Fork", icon: "arrow.triangle.branch", onPress: fork });
     options.push({ label: "Copy reference", icon: "link", onPress: copyReference });
@@ -1439,7 +1425,11 @@ export function SessionScreenBody({
     );
   }
 
-  const thinking = busy && !streamText;
+  // ONE INDICATOR. While a run row at the end of the transcript is live it
+  // already says "Working for 12s" and counts up; a second "Working" under it
+  // said the same thing twice. The footer shows only when nothing else does.
+  const liveRun = data.some((item) => item.type === "tools" && item.live);
+  const thinking = busy && !streamText && !liveRun;
   // An attachment with no words is still a message — "look at this" is the
   // most common thing a screenshot is sent for.
   const canSend =
@@ -1765,6 +1755,22 @@ export function SessionScreenBody({
       >
         <EdgeFade edge="bottom" color={colors.bg} style={{ flex: 1 }} />
       </Reanimated.View>
+
+      <AgentSetupSheet
+        visible={continueOpen}
+        onClose={() => setContinueOpen(false)}
+        title="Continue with"
+        agentOptions={continuePicker.options}
+        modelOptions={continuePicker.modelOptions}
+        thinkingOptions={continuePicker.thinkingOptions}
+        action={{
+          label: `Continue with ${continuePicker.label}`,
+          onPress: () => {
+            setContinueOpen(false);
+            continueWithAgent(continuePicker.agent, continuePicker.model, continuePicker.thinking);
+          },
+        }}
+      />
 
       {/* The bar itself draws NOTHING.
  *

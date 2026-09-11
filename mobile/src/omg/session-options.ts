@@ -61,8 +61,9 @@ type ModelCatalogEntry = {
  * which the machine has always accepted on `/api/sessions/new` and this app
  * has never offered — finally has somewhere to live.
  */
-export function useAgentPicker() {
+export function useAgentPicker(init: { initialAgent?: string | null } = {}) {
   const { agents, bindingId, client } = useOmg();
+  const { initialAgent } = init;
   const [chosen, setChosen] = useState<string | null>(null);
   const [model, setModel] = useState<string | null>(null);
   const [thinking, setThinking] = useState<string | null>(null);
@@ -157,8 +158,13 @@ export function useAgentPicker() {
    */
   const agent = useMemo(() => {
     if (chosen && agents.some((a) => a.key === chosen)) return chosen;
+    // A picker opened FROM a session starts on that session's agent, so
+    // "Continue with" defaults to continuing as-is and only a real change
+    // changes anything.
+    const initial = (initialAgent ?? "").trim().toLowerCase();
+    if (initial && agents.some((a) => a.key === initial)) return initial;
     return agents[0]?.key ?? DEFAULT_AGENT;
-  }, [chosen, agents]);
+  }, [chosen, agents, initialAgent]);
 
   const label = useMemo(() => labelFor(agent, agents), [agent, agents]);
 

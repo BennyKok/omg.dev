@@ -54,6 +54,8 @@ export function AgentSetupSheet({
   thinkingOptions,
   usageRing,
   usageLoading,
+  title,
+  action,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -63,6 +65,14 @@ export function AgentSetupSheet({
   /** The current agent's usage ring, drawn by the composer so this file does not import it. */
   usageRing?: ReactNode;
   usageLoading?: boolean;
+  /** A heading above the sections, for a sheet that is asking a question ("Continue with"). */
+  title?: string;
+  /**
+   * A confirm button at the bottom. The composer's picker has none, because
+   * every tap there already took effect; a sheet that ends in an ACT (start
+   * a new session) needs the act to be one deliberate press.
+   */
+  action?: { label: string; onPress: () => void };
 }) {
   const { colors, type, space, radius, isDark } = useTheme();
   const insets = useSafeAreaInsets();
@@ -138,6 +148,12 @@ export function AgentSetupSheet({
                     backgroundColor: colors.borderStrong,
                   }}
                 />
+
+                {title ? (
+                  <Text style={{ ...type.headline, color: colors.text, paddingHorizontal: space.lg + 4 }}>
+                    {title}
+                  </Text>
+                ) : null}
 
                 {agentOptions.length && currentAgent ? (
                   <Reanimated.View layout={LAYOUT} style={{ gap: space.sm }}>
@@ -231,6 +247,24 @@ export function AgentSetupSheet({
                     <View style={{ marginHorizontal: space.lg }}>
                       <Slider options={thinkingOptions} onPick={pick} />
                     </View>
+                  </Reanimated.View>
+                ) : null}
+
+                {action ? (
+                  <Reanimated.View layout={LAYOUT} style={{ marginHorizontal: space.lg }}>
+                    <PressableScale
+                      onPress={action.onPress}
+                      scale={0.98}
+                      accessibilityRole="button"
+                      style={{
+                        alignItems: "center",
+                        paddingVertical: 12,
+                        borderRadius: radius.lg,
+                        backgroundColor: colors.text,
+                      }}
+                    >
+                      <Text style={{ ...type.headline, color: colors.bg }}>{action.label}</Text>
+                    </PressableScale>
                   </Reanimated.View>
                 ) : null}
               </View>

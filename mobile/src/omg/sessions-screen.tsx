@@ -90,7 +90,6 @@ import { useDictation } from "./dictation";
 import { PressableScale } from "./motion";
 import { useUsage } from "./usage";
 import { LucideIcon } from "./lucide";
-import { GlassSurface } from "./glass";
 import { DropdownMenu, type MenuOption } from "./menu";
 import { useAgentPicker, useProjectPicker } from "./session-options";
 import { useOmg } from "./provider";
@@ -1416,7 +1415,11 @@ export function SessionsScreen({
       horizontal
       showsHorizontalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
-      style={{ height: 50, backgroundColor: "transparent" }}
+      // flexGrow 0: a ScrollView grows by default, and in the iPad rail's
+      // column this one shared the height with the session list beneath it,
+      // opening a blank band under the pills. The phone never saw it because
+      // there the rail sits in an absolute 50pt box.
+      style={{ height: 50, flexGrow: 0, flexShrink: 0, backgroundColor: "transparent" }}
       contentContainerStyle={{
         gap: 8,
         paddingHorizontal: space.lg,
@@ -1514,25 +1517,15 @@ export function SessionsScreen({
                   machineName={machineName}
                   online={currentBinding?.online ?? false}
                 />
-                {/* The greeting wears the web's glass island so it earns the
-                    header row it sits in. The phone's bar item stays bare:
-                    there UIKit already gives the bar its material. */}
-                <GlassSurface
-                  fallbackColor={colors.card}
-                  variant="regular"
-                  style={{
-                    height: 40,
-                    paddingHorizontal: 14,
-                    borderRadius: 999,
-                    justifyContent: "center",
-                  }}
-                >
+                {/* Flat, like the phone's bar item. The glass island it wore
+                    read as a control in a row that already has two. */}
+                <View style={{ height: 40, paddingHorizontal: 6, justifyContent: "center" }}>
                   <LiveWelcome
                     firstName={firstName}
                     busyCount={flattenNodes(working).length}
                     onPress={() => navigateWorkspace("/notifications")}
                   />
-                </GlassSurface>
+                </View>
               </View>
               <HomeHeaderControls
                 userFilter={userFilter}
@@ -1541,57 +1534,9 @@ export function SessionsScreen({
                 navigate={navigateWorkspace}
               />
             </View>
-            <View
-              accessibilityRole="tablist"
-              style={{
-                flexDirection: "row",
-                paddingHorizontal: space.md,
-                paddingVertical: space.sm,
-                gap: 4,
-              }}
-            >
-              {(
-                [
-                  // Bots is off the surface for now, on the phone's pages
-                  // menu too. The routes still exist; nothing links to them.
-                  { label: "Chat", href: "/" },
-                  { label: "Schedules", href: "/schedules" },
-                ] as const
-              ).map(({ label, href }) => {
-                const selected =
-                  href === "/"
-                    ? home || pathname.startsWith("/session/")
-                    : pathname.startsWith(href);
-                return (
-                  <Pressable
-                    key={href}
-                    accessibilityRole="tab"
-                    accessibilityState={{ selected }}
-                    onPress={() => navigateWorkspace(href)}
-                    // Small, like the web's SurfaceToggle. At 12pt of padding
-                    // and a 16 radius it was a filled slab that outweighed
-                    // every session row under it.
-                    style={{
-                      flex: 1,
-                      paddingVertical: 6,
-                      borderRadius: radius.sm,
-                      backgroundColor: selected ? colors.card : "transparent",
-                      alignItems: "center",
-                    }}
-                  >
-                    <Text
-                      style={{
-                        ...type.subhead,
-                        fontWeight: "600",
-                        color: selected ? colors.text : colors.textMuted,
-                      }}
-                    >
-                      {label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+            {/* No Chat/Schedules strip: Schedules lives in the Pages menu on
+                the right, same as the phone, and a two-tab bar that was
+                mostly "Chat" was a row spent on a choice nobody makes. */}
           </>
         ) : null}
         {workspace ? folderRail : null}
@@ -1620,7 +1565,11 @@ export function SessionsScreen({
           // that space and under the translucent navigation bar. Automatic
           // adjustment kept the scroll viewport clipped below the bar, so
           // rows could never reach the material they were meant to drive.
-          contentInsetAdjustmentBehavior={workspace ? "automatic" : "never"}
+          // Never, on both layouts. The rail already pads for the safe area
+          // itself, and once the navigator's bar went transparent UIKit's
+          // automatic inset added the bar's height on top of that: a blank
+          // band between the folder pills and the first row on iPad.
+          contentInsetAdjustmentBehavior="never"
           refreshControl={
             <RefreshControl
               refreshing={pulling}
