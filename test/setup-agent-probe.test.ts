@@ -92,7 +92,7 @@ describe("agent detection", () => {
   });
 
   test("a machine with every agent reports them all ready", () => {
-    const result = probeAgents(["claude", "codex", "opencode", "jcode", "grok", "cursor-agent", "fx", "muse", "copilot"]);
+    const result = probeAgents(["claude", "codex", "opencode", "jcode", "grok", "cursor-agent", "fx", "muse", "devin", "copilot"]);
     expect(result).not.toBeNull();
     expect(result!.ready).toContain("claude");
     expect(result!.ready).toContain("codex");

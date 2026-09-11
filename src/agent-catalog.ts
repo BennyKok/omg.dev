@@ -79,6 +79,11 @@ export const FX_MODELS: string[] = [
   "zai/glm-5.2",
 ];
 export const DEEPSEEK_MODELS: string[] = ["deepseek-v4-flash", "deepseek-v4-pro"];
+// Devin resolves the same fuzzy model names as its interactive CLI, and
+// "adaptive" is Cognition's router that picks per task. The list is the stable
+// vocabulary; `devin models list --format json` can widen it later via model
+// discovery.
+export const DEVIN_MODELS: string[] = ["adaptive", "swe", "opus", "gpt", "sonnet", "gemini", "codex"];
 // Static fallback until model discovery (GET api.meta.ai/muse-code/models, the
 // document the CLI itself reads) has answered; discovery is authoritative and
 // is how a newly released muse-spark shows up. The server-side default is the
@@ -192,6 +197,7 @@ const MODEL_CATALOG_KEYS: CodingAgentKind[] = [
   "fx",
   "muse",
   "deepseek",
+  "devin",
   "opencode",
   "omg",
   "jcode",
@@ -250,6 +256,7 @@ const LABELS: Record<CodingAgentKind, string> = {
   fx: "fx",
   muse: "muse",
   deepseek: "deepseek",
+  devin: "devin",
   hermes: "hermes",
   pi: "pi",
   copilot: "copilot",
@@ -265,6 +272,7 @@ export const MODEL_OPTIONS: Record<CodingAgentKind, { defaultModel: string; mode
   fx: { defaultModel: "auto", models: FX_MODELS },
   muse: { defaultModel: "muse-spark-1.2", models: MUSE_MODELS },
   deepseek: { defaultModel: "deepseek-v4-flash", models: DEEPSEEK_MODELS },
+  devin: { defaultModel: "adaptive", models: DEVIN_MODELS },
   hermes: { defaultModel: "nousresearch/hermes-4-405b", models: HERMES_MODELS },
   opencode: { defaultModel: "opencode/nemotron-3.5-lightning-free", models: OPENCODE_MODELS },
   omg: { defaultModel: OMG_MODELS[0]!, models: OMG_MODELS },
