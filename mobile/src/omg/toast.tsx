@@ -83,6 +83,23 @@ const SWIPE_DISMISS_VELOCITY = 0.5;
  * before an eye lands on it, capped so a long error can't pin the banner up
  * indefinitely.
  */
+/**
+ * A TRANSPORT ERROR IS NOT A MESSAGE. "fetch failed: UnexpectedException:
+ * The network connection was lost. (at ExpoModulesCore/Promise.swift:56)"
+ * is a stack frame, not news, and it looks like the app broke. Every call
+ * site hands the toast whatever the client threw, so this is the one place
+ * to turn the common network failures into a sentence, and to cut the
+ * "(at File.swift:NN)" tail off anything else.
+ */
+const NETWORK_ERROR =
+  /network connection was lost|fetch failed|network request failed|failed to fetch|econnre|etimedout|timed out|could not connect|no internet|offline|socket hang up|load failed/i;
+
+export function plainMessage(raw: string): string {
+  const text = raw.trim();
+  if (NETWORK_ERROR.test(text)) return "Connection lost. Retrying when the network is back.";
+  return text.replace(/\s*\(at [^)]+\.(swift|kt|java|ts|tsx|js):\d+\)\s*$/i, "").trim() || text;
+}
+
 function autoDuration(message: string): number {
   const words = message.trim().split(/\s+/).filter(Boolean).length;
   return Math.min(7000, Math.max(2200, 900 + words * 350));
@@ -114,9 +131,10 @@ export function ToastProvider({ children }: PropsWithChildren) {
   }, [clearTimer]);
 
   const show = useCallback(
-    (message: string, options?: ToastOptions) => {
+    (raw: string, options?: ToastOptions) => {
       clearTimer();
       const id = ++idRef.current;
+      const message = plainMessage(raw);
       const duration = options?.duration ?? autoDuration(message);
       const intent = options?.intent ?? "error";
       void Haptics.notificationAsync(

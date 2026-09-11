@@ -49,6 +49,7 @@ import {
   View,
 } from "react-native";
 import Reanimated, {
+  Easing,
   FadeIn,
   FadeInDown,
   LinearTransition,
@@ -340,8 +341,11 @@ export function TranscriptRow({
 }) {
   return (
     <Reanimated.View
-      entering={fresh ? FadeInDown.springify().damping(18).mass(0.6) : undefined}
-      layout={LinearTransition.springify().damping(20).mass(0.7)}
+      // Eased, not sprung. The spring overshot on arrival and on every
+      // layout change, so a new row and everything under it visibly
+      // wobbled — it read as a shake, not an arrival.
+      entering={fresh ? FadeInDown.duration(180).easing(Easing.out(Easing.cubic)) : undefined}
+      layout={LinearTransition.duration(160).easing(Easing.out(Easing.quad))}
     >
       {item.type === "stamp" ? (
         <Stamp ts={item.ts} />
@@ -1641,7 +1645,10 @@ export function UserMessage({ message }: { message: Entry }) {
             // edge you can actually see.
             borderColor: colors.borderStrong,
             paddingHorizontal: space.md,
-            paddingVertical: space.sm,
+            // 5, not 8: the body style's line height already carries ~3pt of
+            // leading above and below the glyphs, so 8 read as 11 and the
+            // bubble looked padded out of proportion to its one line.
+            paddingVertical: 5,
             // Both states are "not acted on yet", so both sit back a little.
             opacity: message.pending || message.queued ? 0.6 : 1,
           }}
