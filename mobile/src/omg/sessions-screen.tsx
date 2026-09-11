@@ -45,6 +45,7 @@ import { COMPOSER_FADE_HEIGHT, EdgeFade, fadeStops, TOP_FADE_HEIGHT } from "./ed
 import { keyCommandsAvailable, useKeyCommand } from "./key-commands";
 import { ShortcutsSheet } from "./shortcuts-sheet";
 import { FolderRailSheet } from "./folder-rail-sheet";
+import { CreateSheet } from "./create-sheet";
 import { Text } from "./text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OmgSession } from "@omg-dev/protocol";
@@ -1065,6 +1066,7 @@ export function SessionsScreen({
    */
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [railSheetOpen, setRailSheetOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const orderedSessionIds = useMemo(
     () => flattenNodes(roots).map((session) => session.sessionId),
     [roots],
@@ -1110,6 +1112,32 @@ export function SessionsScreen({
    * update carrying it has not committed at the moment the take ends —
    * reading `draft` there starts a session with an empty prompt.
    */
+  /**
+   * The create card's way in: the same request as Start, with the prompt
+   * and folder handed over instead of read from the composer and the rail.
+   */
+  const launch = useCallback(
+    async ({ prompt, cwd }: { prompt: string; cwd: string }) => {
+      if (!client) throw new Error("No machine selected");
+      const res = await client.transport.request<{ sessionId?: string }>("/api/sessions/new", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          agent: agentPicker.agent,
+          model: agentPicker.model ?? undefined,
+          thinkingLevel: agentPicker.thinking ?? undefined,
+          cwd,
+        }),
+      });
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await load();
+      if (res?.sessionId) openSession(res.sessionId);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [client, agentPicker.agent, agentPicker.model, agentPicker.thinking, load],
+  );
+
   const startSession = useCallback(
     async (spoken?: string) => {
       const prompt = attachments.compose((spoken ?? draft).trim());
@@ -1487,6 +1515,26 @@ export function SessionsScreen({
         paddingBottom: space.sm,
       }}
     >
+      {/* "+" FIRST: start something new with a preset (create-sheet.tsx). */}
+      <PressableScale
+        onPress={() => {
+          void Haptics.selectionAsync();
+          setCreateOpen(true);
+        }}
+        accessibilityRole="button"
+        accessibilityLabel="Create something new"
+        scale={0.96}
+        style={{
+          width: 34,
+          minHeight: 34,
+          alignItems: "center",
+          justifyContent: "center",
+          borderRadius: radius.pill,
+          backgroundColor: colors.secondary,
+        }}
+      >
+        <Icon ios="plus" android="add" size={15} weight="semibold" color={colors.text} />
+      </PressableScale>
       {projectPicker.options.map((folder, index) => (
         <PressableScale
           key={`${folder.label}:${index}`}
@@ -1951,6 +1999,14 @@ export function SessionsScreen({
         </ScrollView>
       </View>
       <ShortcutsSheet visible={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      <CreateSheet
+        visible={createOpen}
+        onClose={() => setCreateOpen(false)}
+        folders={projectPicker.folders}
+        projectsRoot={projectPicker.projectsRoot}
+        createFolder={projectPicker.createFolder}
+        launch={launch}
+      />
       <FolderRailSheet
         visible={railSheetOpen}
         onClose={() => setRailSheetOpen(false)}
