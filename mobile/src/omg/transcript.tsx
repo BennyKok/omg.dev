@@ -39,6 +39,8 @@ import * as Haptics from "expo-haptics";
 import type { AndroidSymbol, SFSymbol } from "expo-symbols";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  Alert,
+  ActionSheetIOS,
   Modal,
   Platform,
   Pressable,
@@ -823,13 +825,14 @@ function ToolEntry({ call, result }: { call: Entry | null; result: Entry | null 
        * Opening it is what asks to see it: the box stretches, the arguments
        * and the result appear, and the badge becomes the header of that panel.
        */
+      /**
+       * NO PILL, collapsed or open. Same call as ToolRun above: a tool call
+       * is a line in the transcript, not a card in it. Opened, the
+       * arguments and result get their own inset panel below the row.
+       */
       style={{
         alignSelf: "flex-start",
         maxWidth: "100%",
-        backgroundColor: colors.card,
-        borderRadius: radius.pill,
-        borderWidth: 1,
-        borderColor: colors.border,
         overflow: "hidden",
       }}
     >
@@ -1529,17 +1532,36 @@ export function UserMessage({ message }: { message: Entry }) {
   // goes to the agent; this is presentation only (see omg-prompt-envelope.ts).
   const rawText = envelope?.task ?? message.text ?? "";
 
-  const copy = () => {
+  /**
+   * COPY IS A LONG PRESS, not a button. The little doc-on-doc glyph under
+   * every sent message was chrome on a thing you rarely act on; holding
+   * the bubble is what a phone user already does to copy a message, and
+   * it asks first through the system sheet so a slip cannot copy anything.
+   */
+  const copyMenu = () => {
     if (!rawText) return;
     void Haptics.selectionAsync();
-    // expo-clipboard, not RN's core Clipboard — the core one is deprecated and
-    // slated for removal. expo-clipboard is a direct dependency with several
-    // callers here, in markdown.tsx and in session/[id].tsx, so this is not
-    // pulling in a package for one copy button.
-    void Clipboard.setStringAsync(rawText);
-    setCopied(true);
-    if (copyTimer.current) clearTimeout(copyTimer.current);
-    copyTimer.current = setTimeout(() => setCopied(false), 1500);
+    const copy = () => {
+      // expo-clipboard, not RN's core Clipboard — the core one is deprecated
+      // and slated for removal.
+      void Clipboard.setStringAsync(rawText);
+      setCopied(true);
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopied(false), 1500);
+    };
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options: ["Copy", "Cancel"], cancelButtonIndex: 1 },
+        (index) => {
+          if (index === 0) copy();
+        },
+      );
+    } else {
+      Alert.alert("Message", undefined, [
+        { text: "Copy", onPress: copy },
+        { text: "Cancel", style: "cancel" },
+      ]);
+    }
   };
 
   const stamp = relativeTime(message.ts);
@@ -1567,7 +1589,11 @@ export function UserMessage({ message }: { message: Entry }) {
       {/* A caption is optional: attach an image with nothing typed and the
           picture is the whole message, with no empty bubble under it. */}
       {text ? (
-        <View
+        <Pressable
+          onLongPress={copyMenu}
+          delayLongPress={350}
+          accessibilityRole="text"
+          accessibilityHint="Press and hold to copy"
           /**
            * SIZED TO ITS TEXT, and on the RIGHT. A sent message stretched to
            * the full column looked like another section of the page rather
@@ -1580,7 +1606,7 @@ export function UserMessage({ message }: { message: Entry }) {
             alignSelf: "flex-end",
             maxWidth: "85%",
             backgroundColor: colors.card,
-            borderRadius: radius.xl,
+            borderRadius: 22,
             borderWidth: StyleSheet.hairlineWidth,
             // borderStrong. The comment above says it plainly: this border is
             // the ONLY thing telling a sent message apart from the reply
@@ -1589,14 +1615,15 @@ export function UserMessage({ message }: { message: Entry }) {
             // decorative — the one card in the whole app that most needs the
             // edge you can actually see.
             borderColor: colors.borderStrong,
-            paddingHorizontal: space.lg,
-            paddingVertical: space.md,
+            paddingHorizontal: space.md,
+            paddingVertical: space.sm,
             // Both states are "not acted on yet", so both sit back a little.
             opacity: message.pending || message.queued ? 0.6 : 1,
           }}
         >
           <Text
-            selectable
+            // Not `selectable`: the native selection gesture is a long press
+            // too, and it would take this one before the copy menu could.
             // The SAME body style the assistant's markdown uses. On the web
             // both roles resolve to `.msg-text.markdown`, so a sent message and
             // a reply read at one size and one rhythm; the bubble is the only
@@ -1633,7 +1660,7 @@ export function UserMessage({ message }: { message: Entry }) {
               </Text>
             </Pressable>
           ) : null}
-        </View>
+        </Pressable>
       ) : null}
       <View
         style={{
@@ -1645,29 +1672,9 @@ export function UserMessage({ message }: { message: Entry }) {
           marginRight: space.sm,
         }}
       >
-        <Pressable
-          onPress={copy}
-          hitSlop={10}
-          accessibilityRole="button"
-          accessibilityLabel="Copy message"
-          style={({ pressed }) => ({
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 4,
-            paddingVertical: 4,
-            opacity: pressed ? 0.5 : 1,
-          })}
-        >
-          <Icon
-            ios={copied ? "checkmark" : "doc.on.doc"}
-            android={copied ? "check" : "content_copy"}
-            size={12}
-            color={colors.textMuted}
-          />
-          {copied ? (
-            <Text style={{ ...type.caption, color: colors.textMuted }}>Copied</Text>
-          ) : null}
-        </Pressable>
+        {copied ? (
+          <Text style={{ ...type.caption, color: colors.textMuted }}>Copied</Text>
+        ) : null}
         {message.queued ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
             <Icon ios="clock" android="schedule" size={11} color={colors.textMuted} />

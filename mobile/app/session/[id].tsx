@@ -2247,7 +2247,7 @@ function BotWorkingIndicator({ bot }: { bot: Bot }) {
  * everybody already reads as "something is coming".
  */
 function ThinkingPill() {
-  const { colors, type, radius } = useTheme();
+  const { colors, type } = useTheme();
   const dots = useRef([new Animated.Value(0.3), new Animated.Value(0.3), new Animated.Value(0.3)])
     .current;
 
@@ -2276,12 +2276,10 @@ function ThinkingPill() {
         marginTop: 16,
         marginLeft: 4,
         minHeight: 26,
-        paddingHorizontal: 10,
+        // No chip: the tool rows around it lost their capsules, so a bordered
+        // "Working" was the last card in a column of lines.
+        paddingHorizontal: 4,
         paddingVertical: 5,
-        borderRadius: radius.pill,
-        backgroundColor: colors.card,
-        borderWidth: 1,
-        borderColor: colors.border,
       }}
     >
       {dots.map((value, i) => (
