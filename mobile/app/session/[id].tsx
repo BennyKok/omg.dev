@@ -68,6 +68,8 @@ import Reanimated, {
   useAnimatedStyle,
   useSharedValue,
   withTiming,
+  Easing,
+  LinearTransition,
 } from "react-native-reanimated";
 import { Text, TextInput } from "../../src/omg/text";
 import type { OmgConnectionStatus } from "@omg-dev/client";
@@ -803,6 +805,16 @@ export function SessionScreenBody({
    * somewhere the reader did not ask to go.
    */
   const lastContentHeight = useRef(0);
+  /**
+   * THE REAL BOTTOM, for animated scrolls. The absurd-offset jump is right
+   * for an instant snap, but animated it asks UIKit to travel ten million
+   * points and the ease reads as a linear whip. Content height comes from
+   * onContentSizeChange (always current), viewport height from the list's
+   * own layout, so the animated target is the true last offset and UIKit
+   * gives it its standard scroll curve.
+   */
+  const viewportHeight = useRef(0);
+  const bottomOffset = () => Math.max(0, lastContentHeight.current - viewportHeight.current);
   const handleContentSizeChange = useCallback((_width: number, height: number) => {
     const delta = height - lastContentHeight.current;
     lastContentHeight.current = height;
@@ -816,7 +828,7 @@ export function SessionScreenBody({
     // never while their finger is on the glass — see touchingRef.
     if (!atBottomRef.current || touchingRef.current) return;
     const glide = delta > 24 && delta < 600;
-    listRef.current?.scrollToOffset({ offset: 10 ** 7, animated: glide });
+    listRef.current?.scrollToOffset({ offset: glide ? bottomOffset() : 10 ** 7, animated: glide });
   }, []);
 
   /**
@@ -1578,7 +1590,7 @@ export function SessionScreenBody({
    */
   useEffect(() => {
     const show = Keyboard.addListener("keyboardDidShow", () => {
-      if (atBottomRef.current) listRef.current?.scrollToOffset({ offset: 10 ** 7, animated: true });
+      if (atBottomRef.current) listRef.current?.scrollToOffset({ offset: bottomOffset(), animated: true });
     });
     return () => show.remove();
   }, []);
@@ -1616,6 +1628,9 @@ export function SessionScreenBody({
         ref={listRef}
         data={data}
         keyExtractor={(item) => item.key}
+        onLayout={(e) => {
+          viewportHeight.current = e.nativeEvent.layout.height;
+        }}
         /**
          * THE WHOLE FIRST PAGE, IN ONE BATCH — not RN's default of 10.
          *
@@ -1868,6 +1883,9 @@ export function SessionScreenBody({
  * surface — the same rule the home composer follows. */}
       <Reanimated.View
         onLayout={(e) => setComposerHeight(e.nativeEvent.layout.height)}
+        // The bar's height follows the field: two lines typed, one line after
+        // the send. Animated, so the send does not snap the bar down.
+        layout={LinearTransition.duration(180).easing(Easing.out(Easing.quad))}
         style={[
           {
             position: "absolute",
@@ -1875,8 +1893,8 @@ export function SessionScreenBody({
             right: 0,
             bottom: 0,
             paddingHorizontal: space.md,
-            paddingTop: space.sm,
-            paddingBottom: insets.bottom + space.sm,
+            paddingTop: space.md,
+            paddingBottom: insets.bottom + space.md,
             gap: space.sm,
           },
           composerLift,
@@ -1908,7 +1926,7 @@ export function SessionScreenBody({
                 // scrollToEnd aims at a content height that is stale while
                 // markdown is still laying out, so "Latest" stopped short of
                 // the bottom by exactly the part that had not measured yet.
-                listRef.current?.scrollToOffset({ offset: 10 ** 7, animated: true });
+                listRef.current?.scrollToOffset({ offset: bottomOffset(), animated: true });
               }}
               accessibilityRole="button"
               accessibilityLabel={unseen ? "New activity. Jump to the latest" : "Jump to the latest"}
@@ -2081,9 +2099,9 @@ export function SessionScreenBody({
             minHeight: 44,
             // The attach button lives inside the field now, so the text no
             // longer starts at the field's own inset — the button provides it.
-            paddingLeft: space.xs,
+            paddingLeft: space.sm,
             paddingRight: space.sm,
-            paddingVertical: 6,
+            paddingVertical: 8,
             overflow: "hidden",
             // Only when the OS cannot draw glass: the fallback is a flat fill,
             // and a flat fill with no edge disappears into the page.

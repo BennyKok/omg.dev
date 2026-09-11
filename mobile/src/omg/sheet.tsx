@@ -50,13 +50,27 @@ export function Sheet({
    * away, then let the Modal go.
    */
   const [mounted, setMounted] = useState(visible);
+  /**
+   * A DRAG-DISMISS ENDS WHERE THE FINGER LEFT IT. The exit animation
+   * snapshots the card's LAYOUT position, not its dragged transform, so a
+   * card that had been pulled off the bottom reappeared in place to fade
+   * out. When the drag closes the card, the exit animation is skipped and
+   * the Modal goes at once; the pull already did the leaving.
+   */
+  const [dragClosed, setDragClosed] = useState(false);
   useEffect(() => {
-    if (visible) setMounted(true);
-    else {
-      const t = setTimeout(() => setMounted(false), 160);
-      return () => clearTimeout(t);
+    if (visible) {
+      setMounted(true);
+      setDragClosed(false);
+      return;
     }
-  }, [visible]);
+    if (dragClosed) {
+      setMounted(false);
+      return;
+    }
+    const t = setTimeout(() => setMounted(false), 160);
+    return () => clearTimeout(t);
+  }, [visible, dragClosed]);
 
   const pull = useSharedValue(0);
   const [height, setHeight] = useState(0);
@@ -84,8 +98,12 @@ export function Sheet({
           // Capture the function, not the ref: a ref object handed to a
           // worklet is frozen, and every later `.current =` warns.
           const close = closeRef.current;
+          const finish = () => {
+            setDragClosed(true);
+            close();
+          };
           pull.value = withTiming(h + 40, { duration: 160 }, (done) => {
-            if (done) runOnJS(close)();
+            if (done) runOnJS(finish)();
           });
         } else {
           pull.value = withTiming(0, { duration: 180, easing: Easing.out(Easing.quad) });
@@ -111,7 +129,11 @@ export function Sheet({
         }}
       >
         {visible ? (
-          <Reanimated.View entering={FadeIn.duration(120)} exiting={FadeOut.duration(120)} style={StyleSheet.absoluteFill}>
+          <Reanimated.View
+            entering={FadeIn.duration(120)}
+            exiting={dragClosed ? undefined : FadeOut.duration(120)}
+            style={StyleSheet.absoluteFill}
+          >
             <Pressable
               onPress={onClose}
               accessibilityRole="button"
@@ -123,7 +145,7 @@ export function Sheet({
         {visible ? (
           <Reanimated.View
             entering={FadeInDown.duration(170).easing(Easing.out(Easing.cubic))}
-            exiting={FadeOutDown.duration(130)}
+            exiting={dragClosed ? undefined : FadeOutDown.duration(130)}
             onLayout={(e) => setHeight(e.nativeEvent.layout.height)}
             style={[
               {
