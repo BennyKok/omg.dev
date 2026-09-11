@@ -603,7 +603,7 @@ export function SessionsScreen({
 
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const { colors, isDark, type, space, radius } = useTheme();
+  const { colors, type, space, radius } = useTheme();
   const {
     client,
     readiness,
@@ -1307,10 +1307,15 @@ export function SessionsScreen({
     navigation.setOptions({
       headerShown: true,
       headerTransparent: true,
-      headerStyle: { backgroundColor: "transparent" },
-      headerBlurEffect: isDark ? "systemMaterialDark" : "systemMaterialLight",
+      headerStyle: { backgroundColor: withAlpha(colors.bg, 0.72) },
+      headerBlurEffect: "none",
       headerShadowVisible: false,
-      scrollEdgeEffects: { top: "hidden" },
+      scrollEdgeEffects: {
+        top: "hidden",
+        bottom: "hidden",
+        left: "hidden",
+        right: "hidden",
+      },
       /**
        * NO TITLE, large or small.
        *
@@ -1365,7 +1370,7 @@ export function SessionsScreen({
   }, [
     workspace,
     navigation,
-    isDark,
+    colors.bg,
     router,
     computerPicker.options,
     machineName,
@@ -1638,9 +1643,12 @@ export function SessionsScreen({
            * scrolled clear of it — a fixed number would either strand the last
            * row under the glass or leave a dead band when the composer is one
            * line tall.
-           */
+          */
           contentContainerStyle={{
-            paddingTop: !workspace && folderRail ? 50 + space.sm : 0,
+            paddingTop:
+              !workspace && folderRail
+                ? insets.top + 44 + space.sm + 50
+                : 0,
             paddingBottom:
               home && !wide ? composerHeight + space.md : insets.bottom + space.md,
           }}
@@ -1648,9 +1656,11 @@ export function SessionsScreen({
           // Scrolling the list puts the keyboard away. Reaching for the field is
           // an explicit act; scrolling past it is how you say you are done.
           keyboardDismissMode="on-drag"
-          // Lets the system large title collapse into the bar on scroll, and
-          // insets content below it instead of starting underneath.
-          contentInsetAdjustmentBehavior="automatic"
+          // The phone reserves its initial chrome above, then scrolls through
+          // that space and under the translucent navigation bar. Automatic
+          // adjustment kept the scroll viewport clipped below the bar, so
+          // rows could never reach the material they were meant to drive.
+          contentInsetAdjustmentBehavior={workspace ? "automatic" : "never"}
           refreshControl={
             <RefreshControl
               refreshing={pulling}
@@ -1975,22 +1985,22 @@ export function SessionsScreen({
             </>
           )}
         </ScrollView>
-        {!workspace && folderRail ? (
-          <View
-            style={{
-              position: "absolute",
-              zIndex: 100,
-              elevation: 4,
-              height: 50,
-              top: insets.top + 44 + space.sm,
-              left: 0,
-              right: 0,
-            }}
-          >
-            {folderRail}
-          </View>
-        ) : null}
       </View>
+      {!workspace && folderRail ? (
+        <View
+          style={{
+            position: "absolute",
+            zIndex: 100,
+            elevation: 4,
+            height: 50,
+            top: insets.top + 44 + space.sm,
+            left: 0,
+            right: 0,
+          }}
+        >
+          {folderRail}
+        </View>
+      ) : null}
       {/* THE EMPTY PANE IS THE COMPOSER, as on the web (App.tsx's empty
           stage renders the create composer full-height, centred). It was a
           28pt poster at 35% with the composer docked at the bottom of the
