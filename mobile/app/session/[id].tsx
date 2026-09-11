@@ -1828,7 +1828,12 @@ export function SessionScreenBody({
                 // linger over the message you just asked to see.
                 atBottomRef.current = true;
                 setAtBottom(true);
-                listRef.current?.scrollToEnd({ animated: true });
+                // The same absurd offset the auto-scroll uses (see the
+                // "scrollToOffset WITH AN ABSURD OFFSET" note above):
+                // scrollToEnd aims at a content height that is stale while
+                // markdown is still laying out, so "Latest" stopped short of
+                // the bottom by exactly the part that had not measured yet.
+                listRef.current?.scrollToOffset({ offset: 10 ** 7, animated: true });
               }}
               accessibilityRole="button"
               accessibilityLabel={unseen ? "New activity. Jump to the latest" : "Jump to the latest"}
