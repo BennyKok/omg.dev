@@ -70,6 +70,7 @@ import Reanimated, {
   withTiming,
 } from "react-native-reanimated";
 import { Text, TextInput } from "../../src/omg/text";
+import { EdgeFade, TOP_FADE_HEIGHT } from "../../src/omg/edge-fade";
 import { SkillSuggest } from "../../src/omg/skill-suggest";
 import * as Clipboard from "expo-clipboard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -1708,6 +1709,20 @@ export function SessionScreenBody({
        * The list reserves room for it in its own top padding, so nothing
        * starts underneath the chevron.
        */}
+      {/* The transcript passes UNDER the bar and dissolves as it goes: the
+          page colour fades over it from the top edge, the same paint the
+          Live view puts above its composer. The bar itself is transparent. */}
+      <EdgeFade
+        edge="top"
+        color={colors.bg}
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: insets.top + BAR_ITEM + space.xs + TOP_FADE_HEIGHT,
+        }}
+      />
       <View
         style={{
           position: "absolute",
@@ -1720,7 +1735,7 @@ export function SessionScreenBody({
           flexDirection: "row",
           alignItems: "center",
           gap: 6,
-          backgroundColor: colors.bg,
+          backgroundColor: "transparent",
         }}
       >
         <BackDisc />

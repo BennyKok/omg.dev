@@ -41,6 +41,7 @@ import Reanimated, {
   useAnimatedStyle,
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
+import { EdgeFade, fadeStops, TOP_FADE_HEIGHT } from "./edge-fade";
 import { Text } from "./text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OmgSession } from "@omg-dev/protocol";
@@ -57,7 +58,6 @@ import {
   SectionHeader,
   SessionCard,
   StatusDot,
-  withAlpha,
 } from "../components";
 import { useAttachments } from "./attachments";
 import {
@@ -363,42 +363,6 @@ const MIN_COMPOSER_HEIGHT = 76;
  * last visible row looks half-erased.
  */
 const COMPOSER_FADE_HEIGHT = 120;
-
-/**
- * Gradient stops for the composer fade, eased rather than linear.
- *
- * A straight transparent-to-opaque ramp reads as a flat grey smudge sliding
- * over the content — the eye is very sensitive to linear alpha ramps. These
- * stops follow an ease-in curve (roughly t^2, sampled at six points) so the
- * fade starts almost imperceptibly at the top and only does most of its work
- * in the last third, near the composer itself. `hex` is always `colors.bg` —
- * a plain hex token, never an rgba string — so `withAlpha` can parse it.
- */
-function composerFadeStops(hex: string): {
-  colors: [string, string, ...string[]];
-  locations: [number, number, ...number[]];
-} {
-  const steps: Array<[number, number]> = [
-    [0, 0],
-    [0.15, 0.02],
-    [0.35, 0.12],
-    [0.55, 0.3],
-    [0.75, 0.56],
-    [1, 1],
-  ];
-  return {
-    locations: steps.map(([location]) => location) as [
-      number,
-      number,
-      ...number[],
-    ],
-    colors: steps.map(([, alpha]) => withAlpha(hex, alpha)) as [
-      string,
-      string,
-      ...string[],
-    ],
-  };
-}
 
 /**
  * The greeting the web Live view carries, in the bar slot the removed
@@ -1307,7 +1271,9 @@ export function SessionsScreen({
     navigation.setOptions({
       headerShown: true,
       headerTransparent: true,
-      headerStyle: { backgroundColor: withAlpha(colors.bg, 0.72) },
+      // No tint of its own: the top EdgeFade below the bar is what keeps its
+      // controls readable, the same paint the composer gets at the bottom.
+      headerStyle: { backgroundColor: "transparent" },
       headerBlurEffect: "none",
       headerShadowVisible: false,
       scrollEdgeEffects: {
@@ -1991,6 +1957,23 @@ export function SessionsScreen({
           )}
         </ScrollView>
       </View>
+      {/* THE TOP FADE, under the bar and the folder rail: rows dissolve into
+          the page as they pass beneath the chrome, mirroring the composer
+          fade at the other end. Below the rail in z-order, above the list. */}
+      {!workspace ? (
+        <EdgeFade
+          edge="top"
+          color={colors.bg}
+          style={{
+            position: "absolute",
+            zIndex: 90,
+            top: 0,
+            left: railWidth,
+            right: 0,
+            height: insets.top + 44 + space.sm + (folderRail ? 50 : 0) + TOP_FADE_HEIGHT,
+          }}
+        />
+      ) : null}
       {!workspace && folderRail ? (
         <View
           style={{
@@ -2076,7 +2059,7 @@ export function SessionsScreen({
             ]}
           >
             <LinearGradient
-              {...composerFadeStops(colors.bg)}
+              {...fadeStops(colors.bg)}
               start={{ x: 0, y: 0 }}
               end={{ x: 0, y: 1 }}
               style={{ flex: 1 }}
