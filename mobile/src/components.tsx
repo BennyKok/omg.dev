@@ -927,11 +927,12 @@ export function SessionCard({
                 {timestamp}
               </Text>
             ) : null}
+            {/* No amber dot while busy: the agent mark beside the row already
+                wears the working ring, and two live indicators on one row read
+                as two different things happening. Blocked keeps its pause. */}
             {blocked ? (
               <Icon ios="pause.fill" android="pause" size={12} color={colors.warning} />
-            ) : (
-              <SessionStatusDot busy={busy} ended={ended} />
-            )}
+            ) : null}
           </View>
         </PressableScale>
       </Reanimated.View>

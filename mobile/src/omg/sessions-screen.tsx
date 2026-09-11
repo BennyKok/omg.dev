@@ -42,6 +42,8 @@ import Reanimated, {
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { COMPOSER_FADE_HEIGHT, EdgeFade, fadeStops, TOP_FADE_HEIGHT } from "./edge-fade";
+import { keyCommandsAvailable, useKeyCommand } from "./key-commands";
+import { ShortcutsSheet } from "./shortcuts-sheet";
 import { Text } from "./text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OmgSession } from "@omg-dev/protocol";
@@ -465,11 +467,14 @@ function HomeHeaderControls({
   rosterUsers,
   setUserFilter,
   navigate,
+  onShortcuts,
 }: {
   userFilter: string;
   rosterUsers: RosterUser[];
   setUserFilter: (next: string) => void;
   navigate: (href: Href) => void;
+  /** Opens the keyboard shortcuts card; listed only when the binary can deliver key commands. */
+  onShortcuts?: () => void;
 }) {
   const { colors, space } = useTheme();
   return (
@@ -505,6 +510,9 @@ function HomeHeaderControls({
             icon: "gearshape",
             onPress: () => navigate("/settings"),
           },
+          ...(onShortcuts && keyCommandsAvailable()
+            ? [{ label: "Keyboard shortcuts", icon: "keyboard" as const, onPress: onShortcuts }]
+            : []),
         ]}
       >
         <View
@@ -1044,6 +1052,49 @@ export function SessionsScreen({
   };
 
   /**
+   * HARDWARE KEYBOARD, mostly the iPad. The bindings mirror the web's where
+   * a phone-sized screen has the same object: ⌘N new, ⌘↑/⌘↓ step through
+   * the list, ⌘1…9 open the nth, ⌘, settings, ⌘/ the card that lists them.
+   * Every hook is a no-op on a binary without the native module, so an OTA
+   * carrying this is safe on older installs. The list order is the rail's.
+   */
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const orderedSessionIds = useMemo(
+    () => flattenNodes(roots).map((session) => session.sessionId),
+    [roots],
+  );
+  const currentSessionId = pathname.startsWith("/session/") ? pathname.slice("/session/".length) : null;
+  const goTo = (href: Href) => {
+    if (workspace) navigateWorkspace(href);
+    else router.push(href);
+  };
+  const stepSession = (delta: 1 | -1) => {
+    const ids = orderedSessionIds;
+    if (!ids.length) return;
+    const at = currentSessionId ? ids.indexOf(currentSessionId) : -1;
+    const next = at < 0 ? (delta > 0 ? 0 : ids.length - 1) : Math.min(ids.length - 1, Math.max(0, at + delta));
+    if (ids[next] && ids[next] !== currentSessionId) openSession(ids[next]);
+  };
+  useKeyCommand({ key: "n" }, () => goTo("/"));
+  useKeyCommand({ key: { special: "up" } }, () => stepSession(-1));
+  useKeyCommand({ key: { special: "down" } }, () => stepSession(1));
+  useKeyCommand({ key: "1" }, () => openSession(orderedSessionIds[0] ?? null));
+  useKeyCommand({ key: "2" }, () => openSession(orderedSessionIds[1] ?? null));
+  useKeyCommand({ key: "3" }, () => openSession(orderedSessionIds[2] ?? null));
+  useKeyCommand({ key: "4" }, () => openSession(orderedSessionIds[3] ?? null));
+  useKeyCommand({ key: "5" }, () => openSession(orderedSessionIds[4] ?? null));
+  useKeyCommand({ key: "6" }, () => openSession(orderedSessionIds[5] ?? null));
+  useKeyCommand({ key: "7" }, () => openSession(orderedSessionIds[6] ?? null));
+  useKeyCommand({ key: "8" }, () => openSession(orderedSessionIds[7] ?? null));
+  useKeyCommand({ key: "9" }, () => openSession(orderedSessionIds[8] ?? null));
+  useKeyCommand({ key: "," }, () => goTo("/settings"));
+  useKeyCommand({ key: "/" }, () => setShortcutsOpen(true));
+  useKeyCommand(
+    { key: { special: "escape" }, modifier: "none" },
+    shortcutsOpen ? () => setShortcutsOpen(false) : null,
+  );
+
+  /**
    * The composer Start button. Same request the web's composer sends
    * (POST /api/sessions/new), now carrying both choices explicitly instead of
    * letting the server pick the agent and the binding pick the folder.
@@ -1318,6 +1369,7 @@ export function SessionsScreen({
           rosterUsers={rosterUsers}
           setUserFilter={setUserFilter}
           navigate={(href) => router.push(href)}
+          onShortcuts={() => setShortcutsOpen(true)}
         />
       ),
     });
@@ -1532,6 +1584,7 @@ export function SessionsScreen({
                 rosterUsers={rosterUsers}
                 setUserFilter={setUserFilter}
                 navigate={navigateWorkspace}
+                onShortcuts={() => setShortcutsOpen(true)}
               />
             </View>
             {/* No Chat/Schedules strip: Schedules lives in the Pages menu on
@@ -1895,6 +1948,7 @@ export function SessionsScreen({
           )}
         </ScrollView>
       </View>
+      <ShortcutsSheet visible={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       {/* THE TOP FADE, under the bar and the folder rail: rows dissolve into
           the page as they pass beneath the chrome, mirroring the composer
           fade at the other end. Below the rail in z-order, above the list. */}

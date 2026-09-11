@@ -71,6 +71,7 @@ import Reanimated, {
 } from "react-native-reanimated";
 import { Text, TextInput } from "../../src/omg/text";
 import { AgentSetupSheet } from "../../src/omg/agent-setup-sheet";
+import { useKeyCommand } from "../../src/omg/key-commands";
 import { useAgentPicker } from "../../src/omg/session-options";
 import { COMPOSER_FADE_HEIGHT, EdgeFade, TOP_FADE_HEIGHT } from "../../src/omg/edge-fade";
 import { SkillSuggest } from "../../src/omg/skill-suggest";
@@ -1008,6 +1009,8 @@ export function SessionScreenBody({
       setError(e instanceof Error ? e.message : String(e));
     }
   }, [client, id]);
+  // ⌘. interrupts, as on the web and in every terminal.
+  useKeyCommand({ key: "." }, busy ? () => void stop() : null);
 
   /** This session's own sent messages, newest last — the composer's history. */
   /**
