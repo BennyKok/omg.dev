@@ -28,7 +28,7 @@ import { STORAGE_KEYS } from "./config";
 
 import { agentIcon, agentLabel as agentDisplayName } from "./agent-icons";
 import { type MenuOption } from "./menu";
-import { useOmg, type CodingAgent } from "./provider";
+import { useOmg, type CodingAgent, type Repo } from "./provider";
 
 /**
  * The agent used when the roster has not arrived yet, matching what the server
@@ -322,9 +322,48 @@ function labelFor(key: string, agents: CodingAgent[]): string {
   return agentDisplayName(key);
 }
 
+export type FolderRow = {
+  cwd: string;
+  label: string;
+  selected: boolean;
+  hidden: boolean;
+  onPress: () => void;
+};
+
+type RailArrangement = { order: string[]; hidden: string[] };
+
 export function useProjectPicker() {
-  const { repos, bindings, bindingId } = useOmg();
+  const { repos, bindings, bindingId, client, probe } = useOmg();
   const [chosen, setChosen] = useState<string | null>(null);
+  /**
+   * THE RAIL'S ARRANGEMENT, per machine. Order and hidden set of folder
+   * cwds, loaded once and written on every change. The machine's own list
+   * is the source of which folders EXIST; this only says how to show them.
+   */
+  const [arrangements, setArrangements] = useState<Record<string, RailArrangement>>({});
+  useEffect(() => {
+    void AsyncStorage.getItem(STORAGE_KEYS.folderRail)
+      .then((raw) => {
+        if (raw) setArrangements(JSON.parse(raw) as Record<string, RailArrangement>);
+      })
+      .catch(() => {
+        // Unreadable: the machine's order stands.
+      });
+  }, []);
+  const railKey = bindingId ?? "none";
+  const arrangement = arrangements[railKey] ?? { order: [], hidden: [] };
+  const saveArrangement = useCallback(
+    (next: RailArrangement) => {
+      setArrangements((current) => {
+        const all = { ...current, [railKey]: next };
+        void AsyncStorage.setItem(STORAGE_KEYS.folderRail, JSON.stringify(all)).catch(() => {
+          // The rail still works for this launch.
+        });
+        return all;
+      });
+    },
+    [railKey],
+  );
 
   useEffect(() => {
     setChosen(null);
@@ -336,16 +375,30 @@ export function useProjectPicker() {
   );
 
   /**
+   * The machine's repos in the rail's order: remembered cwds first, in their
+   * remembered order, then anything the machine added since, in its order.
+   * A remembered cwd the machine no longer lists is simply skipped.
+   */
+  const ordered = useMemo(() => {
+    const byCwd = new Map(repos.map((r) => [r.cwd, r] as const));
+    const head = arrangement.order.map((cwd) => byCwd.get(cwd)).filter((r): r is Repo => !!r);
+    const seen = new Set(head.map((r) => r.cwd));
+    return [...head, ...repos.filter((r) => !seen.has(r.cwd))];
+  }, [repos, arrangement.order]);
+  const hiddenSet = useMemo(() => new Set(arrangement.hidden), [arrangement.hidden]);
+  const visible = useMemo(() => ordered.filter((r) => !hiddenSet.has(r.cwd)), [ordered, hiddenSet]);
+
+  /**
    * One folder owns both the list and the next session. There is no unscoped
    * state: an explicit pick wins, then the machine default, then the first
-   * folder the machine reports.
+   * folder the rail shows.
    */
   const cwd = useMemo(() => {
     if (chosen && repos.some((r) => r.cwd === chosen)) return chosen;
     const fallback = binding?.defaultFolder ?? null;
-    if (fallback && repos.some((r) => r.cwd === fallback)) return fallback;
-    return repos[0]?.cwd ?? fallback;
-  }, [chosen, repos, binding]);
+    if (fallback && visible.some((r) => r.cwd === fallback)) return fallback;
+    return visible[0]?.cwd ?? repos[0]?.cwd ?? fallback;
+  }, [chosen, repos, visible, binding]);
 
   const label = useMemo(() => {
     if (!cwd) return null;
@@ -369,19 +422,114 @@ export function useProjectPicker() {
 
   const options = useMemo<MenuOption[]>(
     () =>
-      repos.length
-        ? repos.map((r) => ({
-              label: r.name || basename(r.cwd),
-              selected: cwd === r.cwd,
-              onPress: () => {
-                setChosen(r.cwd);
-              },
-            }))
-        : [],
-    [repos, cwd],
+      visible.map((r) => ({
+        label: r.name || basename(r.cwd),
+        selected: cwd === r.cwd,
+        onPress: () => {
+          setChosen(r.cwd);
+        },
+      })),
+    [visible, cwd],
   );
 
-  return { cwd, label, options, matches, filter: activeFilter };
+  /** Every folder the machine has, in rail order, hidden ones included — for the arrangement sheet. */
+  const folders = useMemo<FolderRow[]>(
+    () =>
+      ordered.map((r) => ({
+        cwd: r.cwd,
+        label: r.name || basename(r.cwd),
+        selected: cwd === r.cwd,
+        hidden: hiddenSet.has(r.cwd),
+        onPress: () => setChosen(r.cwd),
+      })),
+    [ordered, cwd, hiddenSet],
+  );
+
+  const move = useCallback(
+    (target: string, delta: -1 | 1) => {
+      const order = ordered.map((r) => r.cwd);
+      const at = order.indexOf(target);
+      const to = at + delta;
+      if (at < 0 || to < 0 || to >= order.length) return;
+      order.splice(at, 1);
+      order.splice(to, 0, target);
+      saveArrangement({ order, hidden: arrangement.hidden });
+    },
+    [ordered, arrangement.hidden, saveArrangement],
+  );
+
+  const setHidden = useCallback(
+    (target: string, hidden: boolean) => {
+      const next = new Set(arrangement.hidden);
+      if (hidden) next.add(target);
+      else next.delete(target);
+      saveArrangement({ order: ordered.map((r) => r.cwd), hidden: [...next] });
+    },
+    [ordered, arrangement.hidden, saveArrangement],
+  );
+
+  /**
+   * Register an existing folder on the machine (git init if it is not a
+   * repo yet), then re-probe so the roster carries it. Same endpoint the
+   * web's project sheet uses.
+   */
+  const addFolder = useCallback(
+    async (path: string) => {
+      if (!client) throw new Error("No machine selected");
+      await client.transport.request("/api/projects/use-folder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      await probe();
+      setChosen(path);
+    },
+    [client, probe],
+  );
+
+  /** Where a brand-new project goes: beside the first folder the machine lists. */
+  const projectsRoot = useMemo(() => {
+    const first = repos[0]?.cwd;
+    if (!first) return null;
+    const parts = first.split("/").filter(Boolean);
+    parts.pop();
+    return "/" + parts.join("/");
+  }, [repos]);
+
+  /** mkdir + git init + first commit + register, then re-probe. Returns the new cwd. */
+  const createFolder = useCallback(
+    async (name: string): Promise<string> => {
+      if (!client) throw new Error("No machine selected");
+      if (!projectsRoot) throw new Error("This machine has no projects folder yet");
+      const res = await client.transport.request<{ path?: string; cwd?: string; repo?: { cwd?: string } }>(
+        "/api/projects/create-folder",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ parent: projectsRoot, name }),
+        },
+      );
+      const created = res?.path ?? res?.cwd ?? res?.repo?.cwd ?? `${projectsRoot}/${name}`;
+      await probe();
+      setChosen(created);
+      return created;
+    },
+    [client, probe, projectsRoot],
+  );
+
+  return {
+    cwd,
+    label,
+    options,
+    matches,
+    filter: activeFilter,
+    folders,
+    move,
+    setHidden,
+    addFolder,
+    createFolder,
+    projectsRoot,
+  };
 }
 
 /** A repo's project key — see the note in useProjectPicker. */

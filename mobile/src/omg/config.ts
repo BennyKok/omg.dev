@@ -108,6 +108,14 @@ export const STORAGE_KEYS = {
   composerSetup: "omg:mobile:composer-setup",
   /** The session-list user filter: "__all", "__unassigned", or an email. */
   userFilter: "omg:mobile:user-filter",
+  /**
+   * How the Live folder rail is arranged, per machine: the order of folder
+   * cwds and the ones hidden from the rail. The machine lists repos in
+   * alphabetical order and has no API for either, so this lives on the
+   * device. Intersected with the machine's live list on read, so a folder
+   * that was unlinked simply disappears.
+   */
+  folderRail: "omg:mobile:folder-rail",
 } as const;
 
 export type ComputerMode = "direct" | "hosted";

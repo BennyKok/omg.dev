@@ -44,6 +44,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { COMPOSER_FADE_HEIGHT, EdgeFade, fadeStops, TOP_FADE_HEIGHT } from "./edge-fade";
 import { keyCommandsAvailable, useKeyCommand } from "./key-commands";
 import { ShortcutsSheet } from "./shortcuts-sheet";
+import { FolderRailSheet } from "./folder-rail-sheet";
 import { Text } from "./text";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OmgSession } from "@omg-dev/protocol";
@@ -1063,6 +1064,7 @@ export function SessionsScreen({
    * carrying this is safe on older installs. The list order is the rail's.
    */
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [railSheetOpen, setRailSheetOpen] = useState(false);
   const orderedSessionIds = useMemo(
     () => flattenNodes(roots).map((session) => session.sessionId),
     [roots],
@@ -1489,6 +1491,12 @@ export function SessionsScreen({
         <PressableScale
           key={`${folder.label}:${index}`}
           onPress={folder.onPress}
+          // Hold a pill to arrange the rail: order, hide, add, create.
+          onLongPress={() => {
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setRailSheetOpen(true);
+          }}
+          delayLongPress={350}
           accessibilityRole="button"
           accessibilityState={{ selected: folder.selected }}
           accessibilityLabel={`${folder.label} folder`}
@@ -1943,6 +1951,16 @@ export function SessionsScreen({
         </ScrollView>
       </View>
       <ShortcutsSheet visible={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      <FolderRailSheet
+        visible={railSheetOpen}
+        onClose={() => setRailSheetOpen(false)}
+        folders={projectPicker.folders}
+        move={projectPicker.move}
+        setHidden={projectPicker.setHidden}
+        addFolder={projectPicker.addFolder}
+        createFolder={projectPicker.createFolder}
+        projectsRoot={projectPicker.projectsRoot}
+      />
       {/* THE TOP FADE, under the bar and the folder rail: rows dissolve into
           the page as they pass beneath the chrome, mirroring the composer
           fade at the other end. Below the rail in z-order, above the list. */}
