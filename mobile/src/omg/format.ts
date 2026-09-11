@@ -99,3 +99,25 @@ export function cloudStatusLabel(status?: string, blockedReason?: string | null)
       return status ? status.replace(/_/g, " ") : "Unknown";
   }
 }
+
+/**
+ * A transcript stamp, the way Messages writes one between groups of
+ * bubbles: "6:39 PM" today, "Sep 3 6:39 PM" this year, the year added once
+ * it is not this one. Read at a glance; never per message.
+ */
+export function stampTime(ts: number, now = Date.now()): string {
+  const date = new Date(ts);
+  const today = new Date(now);
+  const time = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const sameDay =
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate();
+  if (sameDay) return time;
+  const day = date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    ...(date.getFullYear() === today.getFullYear() ? {} : { year: "numeric" }),
+  });
+  return `${day} ${time}`;
+}

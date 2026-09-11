@@ -62,7 +62,7 @@ import type { OmgMessage } from "@omg-dev/protocol";
 import { Icon } from "../components";
 import { formatFileSize } from "./file-preview";
 import { workLabel } from "./work-label";
-import { relativeTime } from "./format";
+import { stampTime } from "./format";
 import { CodeBlock, Markdown, useBodyText } from "./markdown";
 import {
   parseMessageAttachments,
@@ -99,6 +99,16 @@ type ToolPair = { key: string; call: Entry | null; result: Entry | null };
  * column of cards separated by the list's paragraph-sized gap.
  */
 export type TranscriptItem =
+  | {
+      /**
+       * A TIME BETWEEN GROUPS, not under every bubble. Messages writes one
+       * stamp when a conversation resumes after a pause; a per-message "1h"
+       * under each sent bubble said the same thing many times over.
+       */
+      type: "stamp";
+      key: string;
+      ts: number;
+    }
   | {
       type: "message";
       key: string;
@@ -140,6 +150,7 @@ export type TranscriptItem =
  * voice — a system notice interrupting a turn should read as an interruption.
  */
 export function transcriptSpeaker(item: TranscriptItem): string {
+  if (item.type === "stamp") return "stamp";
   if (item.type === "tools") return "assistant";
   const role = item.message.role;
   if (role === "user") return "user";
@@ -179,6 +190,9 @@ const ATTACHMENT_MAX = 240;
 const ATTACHMENT_TILE = 150;
 
 const isThought = (message?: Entry) => message?.kind === "thinking";
+
+/** A pause long enough to earn a stamp between groups. Messages uses about an hour; this is a working chat. */
+const STAMP_GAP_MS = 15 * 60_000;
 const isWork = (message?: Entry) => isCall(message) || isResult(message) || isThought(message);
 
 /**
@@ -202,11 +216,22 @@ export function buildTranscriptItems(
 ): TranscriptItem[] {
   const items: TranscriptItem[] = [];
   let index = 0;
+  let lastStampTs: number | null = null;
+
+  /** One stamp per pause: the first row, then any row more than STAMP_GAP_MS after the last stamp. */
+  const stamp = (ts: number | null | undefined, key: string) => {
+    if (!ts) return;
+    if (lastStampTs !== null && ts - lastStampTs < STAMP_GAP_MS) return;
+    lastStampTs = ts;
+    items.push({ type: "stamp", key: `stamp-${key}`, ts });
+  };
 
   const pushMessage = (message: Entry, at: number) => {
+    const key = entryKey(message, at);
+    stamp(message.ts, key);
     items.push({
       type: "message",
-      key: entryKey(message, at),
+      key,
       message,
       nextTs: messages[at + 1]?.ts ?? null,
     });
@@ -214,6 +239,12 @@ export function buildTranscriptItems(
 
   while (index < messages.length) {
     const message = messages[index];
+    // Claude's steering marker carries no words a person wrote. It used to be
+    // an "Interrupted" line; now it is not a row at all.
+    if (isInterruptedTurn(message)) {
+      index += 1;
+      continue;
+    }
     if (!isWork(message)) {
       pushMessage(message, index);
       index += 1;
@@ -236,6 +267,7 @@ export function buildTranscriptItems(
       continue;
     }
     const tools = run.filter((entry) => !isThought(entry));
+    stamp(message.ts, `tools-${entryKey(message, index)}`);
     items.push({
       type: "tools",
       key: `tools-${entryKey(message, index)}`,
@@ -311,12 +343,24 @@ export function TranscriptRow({
       entering={fresh ? FadeInDown.springify().damping(18).mass(0.6) : undefined}
       layout={LinearTransition.springify().damping(20).mass(0.7)}
     >
-      {item.type === "message" ? (
+      {item.type === "stamp" ? (
+        <Stamp ts={item.ts} />
+      ) : item.type === "message" ? (
         <TranscriptEntry message={item.message} nextTs={item.nextTs} bot={bot} />
       ) : (
         <ToolRun pairs={item.pairs} entries={item.entries} nextTs={item.nextTs} live={item.live} />
       )}
     </Reanimated.View>
+  );
+}
+
+/** The centred time between groups of rows. */
+function Stamp({ ts }: { ts: number }) {
+  const { colors, type, space } = useTheme();
+  return (
+    <View style={{ alignSelf: "stretch", alignItems: "center", paddingVertical: space.sm }}>
+      <Text style={{ ...type.caption, color: colors.textMuted }}>{stampTime(ts)}</Text>
+    </View>
   );
 }
 
@@ -613,11 +657,9 @@ function ToolStepHeader({
  * is the same rule, matched to `isRequestInterruptedMessage` in
  * web/src/lib/transcript-status.ts so the two cannot drift.
  */
-const INTERRUPTED = /^\[Request interrupted by user(?: for tool use)?\]$/i;
-
 function isInterruptedTurn(message: Entry): boolean {
   if (message.role !== "user") return false;
-  return INTERRUPTED.test((message.text ?? "").trim());
+  return /^\[Request interrupted by user(?: for tool use)?\]$/i.test((message.text ?? "").trim());
 }
 
 export function TranscriptEntry({
@@ -632,15 +674,8 @@ export function TranscriptEntry({
   const { colors, type, space, radius } = useTheme();
   const isUser = message.role === "user";
 
-  if (isInterruptedTurn(message)) {
-    return (
-      <View style={{ alignSelf: "stretch", alignItems: "center", paddingVertical: 2 }}>
-        <Text style={{ ...type.caption, fontSize: 11, color: colors.textMuted }}>
-          Interrupted
-        </Text>
-      </View>
-    );
-  }
+  // buildTranscriptItems drops these; this guards a caller that did not go through it.
+  if (isInterruptedTurn(message)) return null;
   const isSystem = message.role !== "user" && message.role !== "assistant";
 
   // A message carrying only a file or an image has no text to fall back on, and
@@ -1550,7 +1585,6 @@ export function UserMessage({ message }: { message: Entry }) {
   };
   const bubbleActions: MenuAction[] = [{ id: "copy", title: "Copy", image: "doc.on.doc" }];
 
-  const stamp = relativeTime(message.ts);
   const [expanded, setExpanded] = useState(false);
 
   // Attachments ride along in the user's text as absolute upload paths, because
@@ -1670,14 +1704,10 @@ export function UserMessage({ message }: { message: Entry }) {
         {message.queued ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
             <Icon ios="clock" android="schedule" size={11} color={colors.textMuted} />
-            <Text style={{ ...type.caption, color: colors.textMuted }}>
-              Queued{stamp ? ` · ${stamp}` : ""}
-            </Text>
+            <Text style={{ ...type.caption, color: colors.textMuted }}>Queued</Text>
           </View>
         ) : message.pending ? (
           <Text style={{ ...type.caption, color: colors.textMuted }}>Sending…</Text>
-        ) : stamp ? (
-          <Text style={{ ...type.caption, color: colors.textMuted }}>{stamp}</Text>
         ) : null}
       </View>
     </View>
