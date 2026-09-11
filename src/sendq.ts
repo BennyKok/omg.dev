@@ -45,8 +45,10 @@ export type QueuedMsg = {
   // pending: waiting behind earlier sends. sending: actively being typed +
   // confirmed. delivered: accepted by Claude (left the input box). queued:
   // accepted while Claude was mid-turn — it's in Claude's own queue, not yet in
-  // the transcript. failed: never left the box after retries.
-  status: "pending" | "sending" | "delivered" | "queued" | "failed";
+  // the transcript. held: kept back by us until the agent is idle, then
+  // released through the normal send path (see holdMessage). failed: never
+  // left the box after retries.
+  status: "pending" | "sending" | "delivered" | "queued" | "held" | "failed";
   error?: string;
   attempts: number;
   createdAt: number;
@@ -151,6 +153,155 @@ export function recordCommandFileMessage(
   return msg;
 }
 
+// ---------------------------------------------------------------------------
+// Held messages: "send this when the agent finishes".
+//
+// A steer interrupts the running turn. A queue used to type the text straight
+// into the harness, which either merged it into the running turn (SDK) or put
+// it in the TUI's own hidden queue — either way the user could no longer edit
+// or drop it, and it often reached the agent immediately. A held row stays
+// here, visible and editable, until the session reports idle. Then every held
+// row is released in order through the handler serve.ts installs (the normal
+// send path), which creates a fresh pending/queued row per message.
+// ---------------------------------------------------------------------------
+
+export type HeldReleaseHandler = (
+  sessionId: string,
+  text: string,
+) => Promise<{ ok: boolean; error?: string }>;
+
+let releaseHeld: HeldReleaseHandler | null = null;
+let sessionIsBusy: (sessionId: string) => Promise<boolean | null> = async (sessionId) => {
+  const sess = (await listSessionsCached()).find(
+    (s) => s.sessionId === sessionId || s.nativeSessionId === sessionId,
+  );
+  return sess ? !!sess.busy : null;
+};
+const heldWatchers = new Map<string, ReturnType<typeof setInterval>>();
+const HELD_POLL_MS = 1000;
+
+export function setHeldReleaseHandler(handler: HeldReleaseHandler | null): void {
+  releaseHeld = handler;
+}
+
+/** Test seam: replaces the session-list busy probe. */
+export function setHeldBusyProbeForTests(
+  probe: ((sessionId: string) => Promise<boolean | null>) | null,
+): void {
+  if (probe) sessionIsBusy = probe;
+}
+
+export function listHeld(sessionId: string): QueuedMsg[] {
+  return q(sessionId).msgs.filter((m) => m.status === "held");
+}
+
+export function holdMessage(sessionId: string, text: string): QueuedMsg {
+  const s = q(sessionId);
+  const now = nextCreatedAt(s);
+  const msg: QueuedMsg = {
+    id: randomBytes(8).toString("hex"),
+    text,
+    status: "held",
+    attempts: 0,
+    createdAt: now,
+    updatedAt: now,
+    queuedBehindTurn: true,
+  };
+  s.msgs.push(msg);
+  persist(sessionId, msg);
+  traceLog("sendq_held", { sessionId, messageId: msg.id, chars: text.length });
+  pruneTerminal(sessionId, s);
+  watchHeld(sessionId);
+  return msg;
+}
+
+export function updateHeldMessage(
+  sessionId: string,
+  id: string,
+  text: string,
+): QueuedMsg | null | "not-held" {
+  const msg = getMessage(sessionId, id);
+  if (!msg) return null;
+  if (msg.status !== "held") return "not-held";
+  msg.text = text;
+  msg.updatedAt = Date.now();
+  persist(sessionId, msg);
+  return msg;
+}
+
+export function removeHeldMessage(sessionId: string, id: string): boolean | "not-held" {
+  const s = q(sessionId);
+  const msg = s.msgs.find((m) => m.id === id);
+  if (!msg) return false;
+  if (msg.status !== "held") return "not-held";
+  s.msgs = s.msgs.filter((m) => m !== msg);
+  deleteStoredQueueMessages(sessionId, [id]);
+  traceLog("sendq_held_removed", { sessionId, messageId: id });
+  return true;
+}
+
+function watchHeld(sessionId: string): void {
+  if (heldWatchers.has(sessionId)) return;
+  let releasing = false;
+  const tick = async () => {
+    if (releasing) return;
+    if (!listHeld(sessionId).length) {
+      clearInterval(heldWatchers.get(sessionId));
+      heldWatchers.delete(sessionId);
+      return;
+    }
+    let busy: boolean | null;
+    try {
+      busy = await sessionIsBusy(sessionId);
+    } catch {
+      return;
+    }
+    // null: the session is not listed right now (restarting, or gone). Keep
+    // the text; the user can still see and edit it, and a later tick decides.
+    if (busy !== false) return;
+    releasing = true;
+    try {
+      await releaseHeldMessages(sessionId);
+    } finally {
+      releasing = false;
+    }
+  };
+  heldWatchers.set(sessionId, setInterval(() => void tick(), HELD_POLL_MS));
+}
+
+/**
+ * Release every held row, oldest first, through the installed handler. A row
+ * the handler accepts is removed here because the handler recorded its own
+ * pending/queued row; a row it refuses stays visible as failed with the reason.
+ */
+export async function releaseHeldMessages(sessionId: string): Promise<number> {
+  const handler = releaseHeld;
+  if (!handler) return 0;
+  let released = 0;
+  for (const msg of listHeld(sessionId)) {
+    let result: { ok: boolean; error?: string };
+    try {
+      result = await handler(sessionId, msg.text);
+    } catch (e) {
+      result = { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+    const s = q(sessionId);
+    if (result.ok) {
+      s.msgs = s.msgs.filter((m) => m !== msg);
+      deleteStoredQueueMessages(sessionId, [msg.id]);
+      released++;
+      traceLog("sendq_held_released", { sessionId, messageId: msg.id });
+    } else {
+      msg.status = "failed";
+      msg.error = result.error || "could not send the held message";
+      msg.updatedAt = Date.now();
+      persist(sessionId, msg);
+      traceLog("sendq_held_failed", { sessionId, messageId: msg.id, error: msg.error });
+    }
+  }
+  return released;
+}
+
 export function retryMessage(sessionId: string, id: string): QueuedMsg | null {
   const s = q(sessionId);
   const msg = s.msgs.find((m) => m.id === id);
@@ -167,14 +318,16 @@ export function retryMessage(sessionId: string, id: string): QueuedMsg | null {
 
 // Drop messages the user no longer needs to see — everything that's reached a
 // terminal state (delivered/queued/failed). In-flight messages (pending/
-// sending) stay so a clear never silently abandons a send mid-delivery.
+// sending) stay so a clear never silently abandons a send mid-delivery, and a
+// held row stays because it is text the user is still editing.
+const KEPT_ON_CLEAR = new Set<QueuedMsg["status"]>(["pending", "sending", "held"]);
 export function clearResolved(sessionId: string): number {
   const s = q(sessionId);
   const before = s.msgs.length;
   const removed = s.msgs
-    .filter((m) => m.status !== "pending" && m.status !== "sending")
+    .filter((m) => !KEPT_ON_CLEAR.has(m.status))
     .map((m) => m.id);
-  s.msgs = s.msgs.filter((m) => m.status === "pending" || m.status === "sending");
+  s.msgs = s.msgs.filter((m) => KEPT_ON_CLEAR.has(m.status));
   deleteStoredQueueMessages(sessionId, removed);
   return before - s.msgs.length;
 }
@@ -183,11 +336,11 @@ export function clearResolved(sessionId: string): number {
  * Remove and return the sends that never reached the agent, so a caller can
  * re-address them at a replacement session.
  *
- * A bot restart retires the runtime a queue was addressed to. `pending` and
- * `queued` rows are undelivered by definition — one never entered the
- * composer, the other sits in the harness's own queue behind a turn that is
- * about to be destroyed with it — so leaving them here strands them in a
- * session no UI watches again. They are removed rather than copied: the caller
+ * A bot restart retires the runtime a queue was addressed to. `pending`,
+ * `queued` and `held` rows are undelivered by definition — one never entered
+ * the composer, one sits in the harness's own queue behind a turn that is
+ * about to be destroyed with it, one is still waiting for idle — so leaving
+ * them here strands them in a session no UI watches again. They are removed rather than copied: the caller
  * re-enqueues them on the new session, and one message must not be live in two
  * queues at once.
  *
@@ -198,7 +351,9 @@ export function clearResolved(sessionId: string): number {
  */
 export function takeUndeliveredQueue(sessionId: string): QueuedMsg[] {
   const s = q(sessionId);
-  const taken = s.msgs.filter((m) => m.status === "pending" || m.status === "queued");
+  const taken = s.msgs.filter(
+    (m) => m.status === "pending" || m.status === "queued" || m.status === "held",
+  );
   if (!taken.length) return [];
   const ids = new Set(taken.map((m) => m.id));
   s.msgs = s.msgs.filter((m) => !ids.has(m.id));
@@ -273,12 +428,15 @@ export function resumePersistedQueues(): number {
       }
     }
     if (s.msgs.some((message) => message.status === "pending")) kick(sessionId);
+    if (s.msgs.some((message) => message.status === "held")) watchHeld(sessionId);
   }
   return resumed;
 }
 
 export function resetSendQueueForTests(): void {
   queues.clear();
+  for (const timer of heldWatchers.values()) clearInterval(timer);
+  heldWatchers.clear();
   resetSendQueueStoreConnectionForTests();
 }
 

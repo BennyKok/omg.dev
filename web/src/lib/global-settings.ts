@@ -43,7 +43,13 @@ export type GlobalSettings = {
   // Off hides the Fast pill in the composer; new sessions launch without
   // fast mode.
   showComposerFastMode: boolean;
+  // What a plain send (Enter, tap) does while the agent is on a turn: "steer"
+  // interrupts the turn, "queue" holds the text as an editable card under the
+  // composer until the turn ends. The other mode stays one gesture away.
+  composerSendMode: ComposerSendMode;
 };
+
+export type ComposerSendMode = "steer" | "queue";
 
 /**
  * The box-wide view preferences, read by the pieces of UI they switch: the
@@ -65,6 +71,7 @@ export type ViewPrefs = Pick<
   | "showSchedules"
   | "showSessionDiffBar"
   | "showComposerFastMode"
+  | "composerSendMode"
 >;
 export const DEFAULT_VIEW_PREFS: ViewPrefs = {
   defaultAgent: "",
@@ -78,6 +85,7 @@ export const DEFAULT_VIEW_PREFS: ViewPrefs = {
   showSchedules: true,
   showSessionDiffBar: true,
   showComposerFastMode: true,
+  composerSendMode: "steer",
 };
 
 /**

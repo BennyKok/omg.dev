@@ -8,8 +8,15 @@ import { PATHS } from "./config.ts";
 import {
   clearResolved,
   getMessage,
+  holdMessage,
   jcodeAcceptedStatus,
+  listHeld,
   listQueue,
+  releaseHeldMessages,
+  removeHeldMessage,
+  setHeldBusyProbeForTests,
+  setHeldReleaseHandler,
+  updateHeldMessage,
   reconcileQueued,
   recordCommandFileMessage,
   resetSendQueueForTests,
@@ -398,5 +405,105 @@ describe("retryMessage", () => {
     // behind this session the retry lands back in failed with a fresh error.
     await waitFor(() => getMessage(sessionId, "failed-1")?.status === "failed");
     expect(getMessage(sessionId, "failed-1")?.error).toBeTruthy();
+  });
+});
+
+describe("held messages", () => {
+  afterEach(() => {
+    setHeldReleaseHandler(null);
+    setHeldBusyProbeForTests(async () => null);
+  });
+
+  test("a held row stays in the queue and survives a restart", () => {
+    const sessionId = crypto.randomUUID();
+    setHeldBusyProbeForTests(async () => true);
+    const held = holdMessage(sessionId, "later please");
+    expect(held.status).toBe("held");
+    expect(listHeld(sessionId).map((m) => m.id)).toEqual([held.id]);
+    resetSendQueueForTests();
+    expect(getMessage(sessionId, held.id)?.status).toBe("held");
+  });
+
+  test("a held row can be edited and removed, a queued row cannot", () => {
+    const sessionId = crypto.randomUUID();
+    setHeldBusyProbeForTests(async () => true);
+    const held = holdMessage(sessionId, "draft one");
+    const queued = recordCommandFileMessage(sessionId, "already sent", true);
+    expect((updateHeldMessage(sessionId, held.id, "draft two") as QueuedMsg).text).toBe("draft two");
+    expect(updateHeldMessage(sessionId, queued.id, "nope")).toBe("not-held");
+    expect(updateHeldMessage(sessionId, "missing", "nope")).toBeNull();
+    expect(removeHeldMessage(sessionId, queued.id)).toBe("not-held");
+    expect(removeHeldMessage(sessionId, held.id)).toBe(true);
+    expect(removeHeldMessage(sessionId, held.id)).toBe(false);
+    resetSendQueueForTests();
+    expect(getMessage(sessionId, held.id)).toBeNull();
+  });
+
+  test("clearing resolved rows keeps a held row", () => {
+    const sessionId = crypto.randomUUID();
+    setHeldBusyProbeForTests(async () => true);
+    const held = holdMessage(sessionId, "keep me");
+    recordCommandFileMessage(sessionId, "resolved", true);
+    expect(clearResolved(sessionId)).toBe(1);
+    expect(listQueue(sessionId).map((m) => m.id)).toEqual([held.id]);
+  });
+
+  test("releases every held row in order once the session is idle", async () => {
+    const sessionId = crypto.randomUUID();
+    let busy = true;
+    setHeldBusyProbeForTests(async () => busy);
+    const released: string[] = [];
+    setHeldReleaseHandler(async (_sid, text) => {
+      released.push(text);
+      return { ok: true };
+    });
+    holdMessage(sessionId, "first");
+    holdMessage(sessionId, "second");
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    expect(released).toEqual([]);
+    busy = false;
+    await waitFor(() => released.length === 2, 5_000);
+    expect(released).toEqual(["first", "second"]);
+    expect(listQueue(sessionId)).toEqual([]);
+  });
+
+  test("a refused release stays visible as failed with the reason", async () => {
+    const sessionId = crypto.randomUUID();
+    setHeldBusyProbeForTests(async () => true);
+    setHeldReleaseHandler(async () => ({ ok: false, error: "no pane" }));
+    const held = holdMessage(sessionId, "unlucky");
+    expect(await releaseHeldMessages(sessionId)).toBe(0);
+    expect(getMessage(sessionId, held.id)?.status).toBe("failed");
+    expect(getMessage(sessionId, held.id)?.error).toBe("no pane");
+  });
+
+  test("an older table without the held status is rebuilt with its rows intact", () => {
+    resetSendQueueForTests();
+    const legacy = new Database(join(testDataPath, "lfg.sqlite"), { create: true });
+    legacy.exec(`
+      CREATE TABLE send_queue_messages (
+        session_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        text TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('pending', 'sending', 'delivered', 'queued', 'failed')),
+        error TEXT,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        queued_behind_turn INTEGER NOT NULL DEFAULT 0 CHECK(queued_behind_turn IN (0, 1)),
+        PRIMARY KEY (session_id, id)
+      );
+    `);
+    const sessionId = crypto.randomUUID();
+    legacy
+      .query("INSERT INTO send_queue_messages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(sessionId, "old-1", "old row", "queued", null, 0, 1, 1, 1);
+    legacy.close();
+    setHeldBusyProbeForTests(async () => true);
+    const held = holdMessage(sessionId, "new row");
+    expect(listQueue(sessionId).map((m) => [m.id, m.status])).toEqual([
+      ["old-1", "queued"],
+      [held.id, "held"],
+    ]);
   });
 });

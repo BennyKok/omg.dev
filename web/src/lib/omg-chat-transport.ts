@@ -54,7 +54,7 @@ export type OmgAiStreamPart = {
 export type OmgQueueMessage = {
   id: string;
   text: string;
-  status: "pending" | "sending" | "queued" | "failed" | "delivered";
+  status: "pending" | "sending" | "queued" | "held" | "failed" | "delivered";
   error?: string;
   createdAt?: number;
   updatedAt?: number;
@@ -419,6 +419,19 @@ export function reconcileOmgQueueMessages(
   let next = current.filter(
     (message) => !message.id.startsWith(QUEUE_MESSAGE_ID_PREFIX) || visibleIds.has(message.id),
   );
+  // A send the server held (queue mode, agent busy) is not in the chain: the
+  // composer shows it as a card. The client may have painted an optimistic
+  // bubble before it learned the server's busy state; that bubble goes.
+  const heldTexts = new Set(
+    queue.filter((item) => item.status === "held").map((item) => normText(item.text)),
+  );
+  if (heldTexts.size) {
+    next = next.filter((message) => {
+      if (message.id.startsWith(QUEUE_MESSAGE_ID_PREFIX) || message.role !== "user") return true;
+      const meta = message.metadata?.omgMessage;
+      return !(meta?.pending && !meta.failed && heldTexts.has(normText(meta.text)));
+    });
+  }
   const matched = matchedQueueRowIds(queue, next.map(omgQueueReconcileRow));
   const claimedOptimistic = new Set<number>();
 
