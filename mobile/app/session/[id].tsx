@@ -2183,12 +2183,15 @@ export function SessionScreenBody({
                 opacity: !canSend ? 0.3 : pressed ? 0.75 : 1,
               })}
             >
+              {/* Always the arrow. A "+" while the agent worked read as
+                  "attach", and the hold-to-queue affordance was never in
+                  the glyph anyway — it is in the hold. */}
               {sending ? (
                 <ActivityIndicator size="small" color={colors.bg} />
               ) : (
                 <Icon
-                  ios={busy ? "plus" : "arrow.up"}
-                  android={busy ? "add" : "arrow_upward"}
+                  ios="arrow.up"
+                  android="arrow_upward"
                   size={15}
                   weight="semibold"
                   color={colors.bg}

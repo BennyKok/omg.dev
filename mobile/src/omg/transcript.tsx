@@ -265,20 +265,15 @@ export function buildTranscriptItems(
     }
     let end = index;
     while (end < messages.length && isWork(messages[end])) end += 1;
-    // The streaming tail: trailing thoughts at the very end of the transcript
-    // are not part of the run they follow.
-    let runEnd = end;
-    if (end === messages.length) {
-      while (runEnd > index && isThought(messages[runEnd - 1])) runEnd -= 1;
-    }
-    const run = messages.slice(index, runEnd);
-    const hasTools = run.some((entry) => isCall(entry) || isResult(entry));
-    if (!hasTools) {
-      // Thoughts alone. Each is its own row, as before.
-      for (let at = index; at < end; at += 1) pushMessage(messages[at], at);
-      index = end;
-      continue;
-    }
+    /**
+     * EVERY STRETCH OF WORK IS ONE ROW, whatever it holds. A lone thought,
+     * a single tool call, a thought still streaming at the end: they used
+     * to stay out as rows of their own, so a turn read "Thinking", "Bash",
+     * "Thinking", "Working" down the screen. One "Working for 12s" row
+     * now, opening into every step; the footer shows only when there is no
+     * live run to say it.
+     */
+    const run = messages.slice(index, end);
     const tools = run.filter((entry) => !isThought(entry));
     stamp(message.ts, `tools-${entryKey(message, index)}`);
     items.push({
@@ -286,11 +281,9 @@ export function buildTranscriptItems(
       key: `tools-${entryKey(message, index)}`,
       pairs: buildToolPairs(tools, index),
       entries: run,
-      nextTs: messages[runEnd]?.ts ?? null,
-      live: !!options.busy && runEnd === messages.length,
+      nextTs: messages[end]?.ts ?? null,
+      live: !!options.busy && end === messages.length,
     });
-    // Trailing thoughts that were held out of the run.
-    for (let at = runEnd; at < end; at += 1) pushMessage(messages[at], at);
     index = end;
   }
 
@@ -356,7 +349,19 @@ export function TranscriptRow({
       // Eased, not sprung. The spring overshot on arrival and on every
       // layout change, so a new row and everything under it visibly
       // wobbled — it read as a shake, not an arrival.
-      entering={fresh ? FadeInDown.duration(180).easing(Easing.out(Easing.cubic)) : undefined}
+      entering={
+        fresh
+          ? item.type === "message" && item.message.role === "user"
+            ? // A SENT MESSAGE RISES OUT OF THE COMPOSER: it starts low and a
+              // touch small, where the field is, and settles into its slot,
+              // so the words you just typed travel to where they now live
+              // instead of appearing there.
+              FadeInDown.duration(300)
+                .easing(Easing.out(Easing.cubic))
+                .withInitialValues({ opacity: 0.4, transform: [{ translateY: 72 }] })
+            : FadeInDown.duration(180).easing(Easing.out(Easing.cubic))
+          : undefined
+      }
       layout={LinearTransition.duration(160).easing(Easing.out(Easing.quad))}
     >
       {item.type === "stamp" ? (
@@ -540,15 +545,6 @@ function ToolRun({
     return () => clearInterval(timer);
   }, [live]);
 
-  if (pairs.length < 2 && thoughts.length === 0) {
-    return (
-      <View style={{ alignSelf: "stretch" }}>
-        {pairs.map((pair) => (
-          <ToolEntry key={pair.key} call={pair.call} result={pair.result} />
-        ))}
-      </View>
-    );
-  }
 
   // The row says how long; the sheet says what. "Thought · 4 × shell" is the
   // sheet's title, the same summary the web's popover carries.
