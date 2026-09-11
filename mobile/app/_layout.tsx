@@ -25,6 +25,7 @@ import { useLucideFont } from "../src/omg/lucide";
 
 import { OmgProvider, useOmg } from "../src/omg/provider";
 import { useNotificationTapRouting } from "../src/omg/push";
+import { useOtaUpdates } from "../src/omg/ota";
 import { useTheme } from "../src/omg/theme";
 import { ToastProvider } from "../src/omg/toast";
 
@@ -627,6 +628,8 @@ function RootNavigator() {
 }
 
 export default function Layout() {
+  // Fetch and apply a published update on launch and on return from a pause.
+  useOtaUpdates();
   const { isDark } = useTheme();
   return (
     <OmgProvider>
