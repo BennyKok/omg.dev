@@ -35,12 +35,11 @@
  */
 
 import * as Clipboard from "expo-clipboard";
+import MenuView, { type MenuAction } from "@expo/ui/community/menu";
 import * as Haptics from "expo-haptics";
 import type { AndroidSymbol, SFSymbol } from "expo-symbols";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  Alert,
-  ActionSheetIOS,
   Modal,
   Platform,
   Pressable,
@@ -1513,7 +1512,7 @@ function OmgInstructionsChip({ instructions, version }: { instructions: string; 
 }
 
 export function UserMessage({ message }: { message: Entry }) {
-  const { colors, type, space, radius } = useTheme();
+  const { colors, type, space, isDark } = useTheme();
   const body = useBodyText();
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1535,34 +1534,21 @@ export function UserMessage({ message }: { message: Entry }) {
   /**
    * COPY IS A LONG PRESS, not a button. The little doc-on-doc glyph under
    * every sent message was chrome on a thing you rarely act on; holding
-   * the bubble is what a phone user already does to copy a message, and
-   * it asks first through the system sheet so a slip cannot copy anything.
+   * the bubble is what a phone user already does to copy a message. The
+   * hold opens a native popup menu on the bubble (UIMenu, the same
+   * component the app's other menus use), not an action sheet.
    */
-  const copyMenu = () => {
+  const copy = () => {
     if (!rawText) return;
     void Haptics.selectionAsync();
-    const copy = () => {
-      // expo-clipboard, not RN's core Clipboard — the core one is deprecated
-      // and slated for removal.
-      void Clipboard.setStringAsync(rawText);
-      setCopied(true);
-      if (copyTimer.current) clearTimeout(copyTimer.current);
-      copyTimer.current = setTimeout(() => setCopied(false), 1500);
-    };
-    if (Platform.OS === "ios") {
-      ActionSheetIOS.showActionSheetWithOptions(
-        { options: ["Copy", "Cancel"], cancelButtonIndex: 1 },
-        (index) => {
-          if (index === 0) copy();
-        },
-      );
-    } else {
-      Alert.alert("Message", undefined, [
-        { text: "Copy", onPress: copy },
-        { text: "Cancel", style: "cancel" },
-      ]);
-    }
+    // expo-clipboard, not RN's core Clipboard — the core one is deprecated
+    // and slated for removal.
+    void Clipboard.setStringAsync(rawText);
+    setCopied(true);
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => setCopied(false), 1500);
   };
+  const bubbleActions: MenuAction[] = [{ id: "copy", title: "Copy", image: "doc.on.doc" }];
 
   const stamp = relativeTime(message.ts);
   const [expanded, setExpanded] = useState(false);
@@ -1589,9 +1575,16 @@ export function UserMessage({ message }: { message: Entry }) {
       {/* A caption is optional: attach an image with nothing typed and the
           picture is the whole message, with no empty bubble under it. */}
       {text ? (
-        <Pressable
-          onLongPress={copyMenu}
-          delayLongPress={350}
+        <MenuView
+          actions={bubbleActions}
+          shouldOpenOnLongPress
+          colorScheme={isDark ? "dark" : "light"}
+          onPressAction={({ nativeEvent }) => {
+            if (nativeEvent.event === "copy") copy();
+          }}
+          style={{ alignSelf: "flex-end", maxWidth: "85%" }}
+        >
+        <View
           accessibilityRole="text"
           accessibilityHint="Press and hold to copy"
           /**
@@ -1603,8 +1596,6 @@ export function UserMessage({ message }: { message: Entry }) {
            * the edge instead of becoming a full-width block again.
            */
           style={{
-            alignSelf: "flex-end",
-            maxWidth: "85%",
             backgroundColor: colors.card,
             borderRadius: 22,
             borderWidth: StyleSheet.hairlineWidth,
@@ -1660,7 +1651,8 @@ export function UserMessage({ message }: { message: Entry }) {
               </Text>
             </Pressable>
           ) : null}
-        </Pressable>
+        </View>
+        </MenuView>
       ) : null}
       <View
         style={{
